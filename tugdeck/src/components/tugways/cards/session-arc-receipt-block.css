@@ -31,10 +31,9 @@
  * sentence, not a token, and at the detail size in mono a stop reason
  * dominates the row it is a footnote to.
  *
- * Scoped to this block and matched against the line's own `read` rule, which
- * declares the size it is being overridden on.
+ * Scoped to this block.
  */
-.arc-receipt-identity .tug-arc-lifecycle-line[data-size="read"] {
+.arc-receipt-identity .tug-arc-lifecycle-line {
   font-family: var(--tug-font-family-sans);
   font-size: var(--tug-font-size-xs);
   line-height: calc(var(--tug-font-size-xs) * 1.6);

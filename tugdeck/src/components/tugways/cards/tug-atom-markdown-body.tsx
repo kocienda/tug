@@ -306,7 +306,7 @@ export const TugAtomMarkdownBody = React.forwardRef<
   // rides these: the baked chips' box, the live citation pill's box, and the
   // line-box floor that keeps a line the same height whether or not it carries
   // one. The Swift host's `WKWebView.pageZoom` scales all of them together.
-  const hostStyle = atomRegisterVars("prose") as React.CSSProperties;
+  const hostStyle = atomRegisterVars() as React.CSSProperties;
 
   return (
     <div

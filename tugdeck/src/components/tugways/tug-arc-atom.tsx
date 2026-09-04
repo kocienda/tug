@@ -21,14 +21,11 @@ import "./tug-arc-atom.css";
 import React from "react";
 
 import { ArcSigil } from "./arc-sigil";
-import { DEFAULT_ATOM_REGISTER, type AtomRegister } from "@/lib/atom-register";
 
 export interface TugArcAtomProps {
   name: string;
   /** The name run's content, when the surface paints those characters itself. */
   nameContent?: React.ReactNode;
-  /** Which surface the atom stands on. @default "prose" */
-  register?: AtomRegister;
   /** The `data-slot` the surface names its copy by. */
   slot?: string;
   title?: string;
@@ -37,18 +34,16 @@ export interface TugArcAtomProps {
 export function TugArcAtom({
   name,
   nameContent,
-  register = DEFAULT_ATOM_REGISTER,
   slot = "tug-arc-atom",
   title,
 }: TugArcAtomProps): React.ReactElement {
   return (
-    <span className="tug-arc-atom" data-slot="tug-arc-atom" data-register={register}>
+    <span className="tug-arc-atom" data-slot="tug-arc-atom">
       <ArcSigil
         name={name}
         nameContent={nameContent}
         slot={slot}
         atom
-        atomRegister={register}
         title={title}
       />
     </span>

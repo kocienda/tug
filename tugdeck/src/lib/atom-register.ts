@@ -10,27 +10,26 @@
  * in the transcript it was sent to, 21px cited in an Overview post, and 25px in
  * the Changes shade. Four boxes, one mark, and nothing that could notice.
  *
- * **A register is what a surface IS, not how big it wants its atoms.** That is
- * the whole of why this replaced a `sm` / `2xs` size prop: a size is a value a
- * call site invents and no reviewer can check, while a register is a fact about
- * the surface that either matches the surface or does not. `prose` is an atom
- * standing in a line of running text — a transcript row, a composer line, a
- * list row's hint, a rail's ink — where the line box must hold the atom rather
- * than the atom shrink to fit the line. `reading` is an atom in a block at
- * reading scale, where there is no line to disturb and the mark can breathe.
+ * **There is one register, and it is not a parameter.** A size is a value a
+ * call site invents and no reviewer can check, which is why this table replaced
+ * a `sm` / `2xs` size prop — and a second row in the table turned out to be the
+ * same defect wearing a name. For a while there were two: `prose` at 22px for
+ * an atom in a line of running text, and `reading` at 24px for the arc block,
+ * chosen by a per-call-site `register` prop. The ARC placard then drew the
+ * session pill 24px beside a transcript citation of the same session at 22px,
+ * at the same type size; and the arc receipt, hand-rolling the block, drew a
+ * 22px pill under a reading-scale line. Nothing measured two surfaces against
+ * each other. The second row, the props that chose it, and the block's own
+ * size dial were retired on 2026-09-04; `at0513-atom-surfaces-one-height`
+ * measures five surfaces against this one number.
  *
- * **The two registers differ in one number.** Type size, dot, inline padding,
- * corner radius and border are identical, because a citation in the transcript
- * and a citation in the Changes shade are the same mark seen at two densities —
- * not two marks. Only {@link AtomRegisterMetrics.height} moves, and it moves by
- * two pixels.
- *
- * **Both renderers read this table, in the units each of them speaks.** The DOM
- * paths take {@link atomRegisterVars} — custom properties a host publishes,
- * which is what lets a CSS pill be sized by the same numbers a Canvas bake
- * measures with; the pixel paths take {@link atomRegisterMetrics} directly.
- * There is no third place a number can be authored, which is the property that
- * was missing.
+ * **Every renderer reads this table, in the units each of them speaks.** The
+ * chip reads `var(--tugx-atom-*, fallback)` with this table's numbers as the
+ * stylesheet's fallbacks, and never publishes its own; a host publishes
+ * {@link atomRegisterVars} only to floor a line box or to match a bake, which
+ * is what lets a CSS pill be sized by the same numbers a Canvas bake measures
+ * with. The pixel paths take {@link atomRegisterMetrics} directly. There is no
+ * third place a number can be authored, which is the property that was missing.
  *
  * The surface constants a chip's *shape* is made of — corner radius, inline
  * padding, icon gap, the session pill's own variants of those — stay in
@@ -38,26 +37,17 @@
  * the vertical: how tall the box is and how big the type inside it is.
  *
  * Laws: [L06] appearance travels as CSS custom properties and pixel geometry,
- *       never React state; [L20] the vars are published by the host at the
- *       point of use with fallbacks, so a surface that publishes nothing still
- *       renders a whole atom.
+ *       never React state; [L20] the chip carries the fallbacks and a host
+ *       publishes the vars only at a point of use that needs them, so a
+ *       surface that publishes nothing still renders a whole atom at the one
+ *       register.
  *
  * @module lib/atom-register
  */
 
-/**
- * Which kind of surface an atom is standing on.
- *
- * - `prose` — inline in a line of running text. The host's line box is floored
- *   to hold the atom ({@link atomLineBoxFloorPx}), so the atom never changes
- *   the leading of the lines around it by being present.
- * - `reading` — in a block at reading scale, with no line box to disturb.
- */
-export type AtomRegister = "prose" | "reading";
-
-/** The vertical metrics a register decides. */
+/** The vertical metrics the register decides. */
 export interface AtomRegisterMetrics {
-  /** Label type size, in px. The same at every register. */
+  /** Label type size, in px. */
   fontSize: number;
   /** The atom's whole box height, borders included, in px. */
   height: number;
@@ -111,9 +101,8 @@ export interface AtomRegisterMetrics {
  * the border — the proportion the Overview's citation already had and that the
  * transcript's did not.
  *
- * The dot is one number for both registers, and it is the number the SMALLER
- * pill can hold: a mark that fit `reading` and crossed `prose`'s border would
- * be the same defect at one remove.
+ * The dot is bounded by the pill it stands in: a mark that read well on its
+ * own and crossed the pill's border would be the same defect at one remove.
  *
  * 6px is a 12px glyph box, and it is the LARGEST the rule allows. The steps
  * are 2px wide, not 1px — the raster rule below wants the dot and its box the
@@ -125,9 +114,11 @@ export interface AtomRegisterMetrics {
  * opening — and under that cap the mark paints to exactly the clearance the
  * rule asks for and no further.
  */
-export const ATOM_REGISTERS: Readonly<Record<AtomRegister, AtomRegisterMetrics>> = {
-  prose: { fontSize: 13, height: 22, dotSize: 6, borderWidth: 1 },
-  reading: { fontSize: 13, height: 24, dotSize: 6, borderWidth: 1 },
+export const ATOM_REGISTER: AtomRegisterMetrics = {
+  fontSize: 13,
+  height: 22,
+  dotSize: 6,
+  borderWidth: 1,
 };
 
 /**
@@ -154,7 +145,7 @@ export const ATOM_DOT_CLEARANCE = 2;
  * the reading — it carries the phase colour and it is what a glance lands on —
  * so the dot takes the pixels and the ring takes the cap.
  *
- * 4/3 is not a taste: it is `(prose opening − 2 × clearance) ÷ box`, the
+ * 4/3 is not a taste: it is `(the pill's opening − 2 × clearance) ÷ box`, the
  * largest throw a 12px box can make and still leave
  * {@link ATOM_DOT_CLEARANCE} inside a 22px pill. The ring still leaves the
  * box — it ends 2px outside it, which is what keeps the pulse a pulse rather
@@ -163,14 +154,9 @@ export const ATOM_DOT_CLEARANCE = 2;
  */
 export const ATOM_DOT_REACH = 4 / 3;
 
-/** The default register — an atom with nothing said about it is in prose. */
-export const DEFAULT_ATOM_REGISTER: AtomRegister = "prose";
-
-/** The metrics for a register. */
-export function atomRegisterMetrics(
-  register: AtomRegister = DEFAULT_ATOM_REGISTER,
-): AtomRegisterMetrics {
-  return ATOM_REGISTERS[register];
+/** The metrics. */
+export function atomRegisterMetrics(): AtomRegisterMetrics {
+  return ATOM_REGISTER;
 }
 
 /**
@@ -185,17 +171,13 @@ export function atomRegisterMetrics(
  * is only that two atoms on adjacent wrapped rows of one long line keep air
  * between them, which is a single pixel.
  */
-export function atomLineBoxFloorPx(
-  register: AtomRegister = DEFAULT_ATOM_REGISTER,
-): number {
-  return atomRegisterMetrics(register).height + ATOM_LINE_BOX_CUSHION;
+export function atomLineBoxFloorPx(): number {
+  return atomRegisterMetrics().height + ATOM_LINE_BOX_CUSHION;
 }
 
 /** The editor's floor — see {@link atomLineBoxFloorPx}. */
-export function atomEditorLineBoxFloorPx(
-  register: AtomRegister = DEFAULT_ATOM_REGISTER,
-): number {
-  return atomRegisterMetrics(register).height + ATOM_ROW_SLACK;
+export function atomEditorLineBoxFloorPx(): number {
+  return atomRegisterMetrics().height + ATOM_ROW_SLACK;
 }
 
 /**
@@ -219,10 +201,8 @@ export function atomEditorLineBoxFloorPx(
  * It lives here rather than in the bake because it is the last of the atom's
  * vertical numbers, and the register is where those are decided.
  */
-export function atomBaselineOffsetPx(
-  register: AtomRegister = DEFAULT_ATOM_REGISTER,
-): number {
-  const m = atomRegisterMetrics(register);
+export function atomBaselineOffsetPx(): number {
+  const m = atomRegisterMetrics();
   return Math.round(m.fontSize * 0.32 - m.height / 2);
 }
 
@@ -238,18 +218,16 @@ const ATOM_ROW_SLACK = 1;
  *
  * The CSS pill reads these; so does the transcript's line-height floor. Every
  * use site pairs them with a fallback ([L20]), so an atom mounted on a surface
- * that publishes nothing is still a whole atom at the default register.
+ * that publishes nothing is still a whole atom.
  */
-export function atomRegisterVars(
-  register: AtomRegister = DEFAULT_ATOM_REGISTER,
-): Record<string, string> {
-  const m = atomRegisterMetrics(register);
+export function atomRegisterVars(): Record<string, string> {
+  const m = atomRegisterMetrics();
   return {
     "--tugx-atom-font-size": `${m.fontSize}px`,
     "--tugx-atom-height": `${m.height}px`,
     "--tugx-atom-dot-size": `${m.dotSize}px`,
     "--tugx-atom-border-width": `${m.borderWidth}px`,
-    "--tugx-atom-line-box-floor": `${atomLineBoxFloorPx(register)}px`,
+    "--tugx-atom-line-box-floor": `${atomLineBoxFloorPx()}px`,
   };
 }
 

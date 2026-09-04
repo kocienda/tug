@@ -56,7 +56,6 @@ import {
   computeAtomChipGeometry,
   ATOM_RECESS,
 } from "./tug-atom-img";
-import { DEFAULT_ATOM_REGISTER, type AtomRegister } from "./atom-register";
 import { chipStyle, chipDisplayLabel, ATOM_KEY_WASH } from "./command-atom";
 
 /**
@@ -98,14 +97,6 @@ export interface TugAtomChipProps {
   value: string;
   /** Optional max width in px — labels longer than this truncate with `…`. */
   maxLabelWidth?: number;
-  /**
-   * Which surface this chip stands on — the register decides its type size and
-   * its box. Defaults to `prose`. The Swift host's `WKWebView.pageZoom` scales
-   * the SVG uniformly with the rest of the page, so the register's numbers stay
-   * fixed.
-   * @default "prose"
-   */
-  register?: AtomRegister;
   className?: string;
   "data-slot"?: string;
   "data-testid"?: string;
@@ -122,7 +113,6 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
       label,
       value,
       maxLabelWidth,
-      register = DEFAULT_ATOM_REGISTER,
       className,
       "data-slot": dataSlot,
       "data-testid": dataTestid,
@@ -135,10 +125,9 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
       () =>
         computeAtomChipGeometry(type, displayLabel, {
           fontFamily: chipFontFamily,
-          register,
           maxLabelWidth,
         }),
-      [type, displayLabel, chipFontFamily, register, maxLabelWidth],
+      [type, displayLabel, chipFontFamily, maxLabelWidth],
     );
     // Shared chip token names, referenced as `var(--…)` so a theme switch
     // or a token edit re-paints via CSS cascade — no SVG re-bake [L06].

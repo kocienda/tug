@@ -57,12 +57,6 @@
  * the surrounding text, so the two runs have different descents and their
  * bottoms are allowed to disagree.
  *
- * And the number holds **at both registers**. The register is what the label's
- * size comes from, so a seating that happened to work at one is not evidence
- * about the other; the reading register's own published values are read off
- * the gallery — the one surface that draws every register — and applied to the
- * live pill in the sentence, which must still sit on the line.
- *
  * Driven against this worktree, the real repo tugcast serves as its bootstrap
  * `--source-tree` (at0239's rationale: a synthetic temp repo hangs the app's
  * boot), so every sha here is one the app's own git feed can confirm.
@@ -80,7 +74,6 @@
  * @covers tugdeck/src/components/tugways/cards/tug-atom-text-body.tsx
  * @covers tugdeck/src/lib/synthesize-user-message.ts
  * @covers tugdeck/src/components/tugways/tug-session-identity.css
- * @covers tugdeck/src/lib/atom-register.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -122,18 +115,6 @@ const USER_BODY = `${CARD} [data-testid="session-card-transcript-user-body"]`;
 const SENT_PILL = `${USER_BODY} ${PILL}`;
 const OVERVIEW_CARD = '[data-testid="overview-card"]';
 const OVERVIEW_PILL = `${OVERVIEW_CARD} .overview-post-refs ${PILL}`;
-
-const GALLERY = '[data-testid="gallery-atom"]';
-const READING_ROW = `${GALLERY} .gallery-atom-register[data-register="reading"]`;
-
-/** Every custom property `atomRegisterVars` publishes. */
-const REGISTER_VARS = [
-  "--tugx-atom-font-size",
-  "--tugx-atom-height",
-  "--tugx-atom-dot-size",
-  "--tugx-atom-border-width",
-  "--tugx-atom-line-box-floor",
-] as const;
 
 const SENTENCE = `Step 9 landed as \`${WRITTEN_SHA}\`.`;
 
@@ -518,7 +499,7 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
   );
 
   test(
-    "the pill's label sits on the sentence's baseline, at both registers",
+    "the pill's label sits on the sentence's baseline",
     async () => {
       const tugbankPath = mkTempTugbank();
       try {
@@ -532,77 +513,20 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
           JSON.parse(await app.evalJS<string>(BASELINES_JS)) as Baselines;
 
         try {
-          // The reading register's own published values, read off the gallery
-          // — the one surface that draws every register — rather than written
-          // down here, where they would be a second copy of the table.
           await app.waitForCondition<boolean>(
             `typeof window.__tug !== "undefined"`,
             { timeoutMs: 20_000 },
           );
-          await app.dispatchControlAction("show-card", { component: "gallery-atom" });
-          await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(`${READING_ROW} ${PILL}`)}) !== null`,
-            { timeoutMs: 20_000 },
-          );
-          const readingVars = JSON.parse(
-            await app.evalJS<string>(
-              `JSON.stringify((function(){
-                var pill = document.querySelector(${JSON.stringify(`${READING_ROW} ${PILL}`)});
-                var cs = getComputedStyle(pill);
-                var out = {};
-                ${JSON.stringify(REGISTER_VARS)}.forEach(function (n) {
-                  out[n] = cs.getPropertyValue(n).trim();
-                });
-                return out;
-              })())`,
-            ),
-          ) as Record<string, string>;
-          note("at0512 reading register", JSON.stringify(readingVars));
-          for (const name of REGISTER_VARS) {
-            expect(readingVars[name], `${name} is published`).not.toBe("");
-          }
 
-          // Now the sentence. Seeding the deck replaces the gallery, which is
-          // why its numbers were taken first.
           await openBoundCard(app);
           await writeMention(app);
 
-          const prose = await readBaselines();
-          note("at0512 baseline (prose)", JSON.stringify(prose));
-          expect(prose.found, prose.why ?? "").toBe(true);
+          const seated = await readBaselines();
+          note("at0512 baseline", JSON.stringify(seated));
+          expect(seated.found, seated.why ?? "").toBe(true);
           expect(
-            prose.delta as number,
-            "the label's baseline is the sentence's, at the prose register",
-          ).toBeLessThanOrEqual(1);
-
-          // The register is where the label's size comes from, so a seating
-          // that worked at one is no evidence about the other. Republish the
-          // reading register's values onto the live pill in the sentence: the
-          // strut is in the pill's own face and centred with the label, so the
-          // baseline it offers the line must still be the label's.
-          await app.evalJS<void>(
-            `(function(){
-              var pill = document.querySelector(${JSON.stringify(MENTION_PILL)});
-              var vars = ${JSON.stringify(JSON.stringify(readingVars))};
-              var parsed = JSON.parse(vars);
-              Object.keys(parsed).forEach(function (n) {
-                pill.style.setProperty(n, parsed[n]);
-              });
-            })()`,
-          );
-          // The pill must actually have grown, or the second measurement is
-          // the first one wearing a different name.
-          await app.waitForCondition<boolean>(
-            `JSON.parse(${BASELINES_JS}).pillHeight > ${prose.pillHeight ?? 0}`,
-            { timeoutMs: 10_000 },
-          );
-
-          const reading = await readBaselines();
-          note("at0512 baseline (reading)", JSON.stringify(reading));
-          expect(reading.found, reading.why ?? "").toBe(true);
-          expect(
-            reading.delta as number,
-            "the label's baseline is the sentence's at the reading register too",
+            seated.delta as number,
+            "the label's baseline is the sentence's",
           ).toBeLessThanOrEqual(1);
 
           process.stdout.write("VERDICT: PASS\n");

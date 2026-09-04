@@ -1429,7 +1429,6 @@ export function ArcPopoverContent({
             note={arcLifecycleNote(model)}
             stepTitle={fact.stepTitle}
             facts={arcMetaFacts(fact.entry)}
-            size="read"
           />
         </div>
         {steps.length > 0 ? (

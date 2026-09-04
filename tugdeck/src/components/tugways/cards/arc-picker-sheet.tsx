@@ -109,7 +109,7 @@ const ArcPickerCell: TugListViewCellRenderer<ArcPickerDataSource> = ({
         <span className="arc-picker-identity">
           <TugArcAtom name={entry.display_name} />
           {(entry.bound_sessions ?? []).map((sessionId) => (
-            <ArcWorkerAtom key={sessionId} sessionId={sessionId} register="prose" />
+            <ArcWorkerAtom key={sessionId} sessionId={sessionId} />
           ))}
         </span>
       }

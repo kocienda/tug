@@ -61,11 +61,6 @@ import "./tug-commit-atom.css";
 
 import React from "react";
 
-import {
-  DEFAULT_ATOM_REGISTER,
-  atomRegisterVars,
-  type AtomRegister,
-} from "@/lib/atom-register";
 import { COMMIT_LABEL_LENGTH } from "@/lib/commit-format";
 
 /** The `data-slot` every surface's copy answers to. One selector, everywhere. */
@@ -88,8 +83,6 @@ export interface TugCommitAtomProps
    * against the address, and eight characters is what the reader searched for.
    */
   labelContent?: React.ReactNode;
-  /** Which surface the atom stands on. @default "prose" */
-  register?: AtomRegister;
   /**
    * The host does something when this is clicked, so the pill takes the skin's
    * pointer cursor.
@@ -145,7 +138,6 @@ export const TugCommitAtom = React.forwardRef<
   {
     sha,
     labelContent,
-    register = DEFAULT_ATOM_REGISTER,
     interactive = false,
     missing = false,
     word = true,
@@ -166,10 +158,12 @@ export const TugCommitAtom = React.forwardRef<
       }
       data-slot={COMMIT_ATOM_SLOT}
       data-tier="chip"
-      data-register={register}
       data-interactive={interactive ? "true" : undefined}
       data-missing={missing ? "true" : undefined}
-      style={{ ...(atomRegisterVars(register) as React.CSSProperties), ...style }}
+      // No register vars: the borrowed skin reads them as its stylesheet's
+      // fallbacks, and a pill that published them on itself would overrule the
+      // host it stands in rather than read it.
+      style={style}
     >
       <span className="tug-commit-atom-node" aria-hidden="true" />
       <span className="tug-commit-atom-label">

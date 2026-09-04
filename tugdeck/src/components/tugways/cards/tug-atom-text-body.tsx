@@ -140,7 +140,7 @@ export const TugAtomTextBody = React.forwardRef<
   // baked or live, and the line-box floor that keeps a line the same height
   // whether or not it carries one. The Swift host's `WKWebView.pageZoom`
   // scales all of them together.
-  const hostStyle = atomRegisterVars("prose") as React.CSSProperties;
+  const hostStyle = atomRegisterVars() as React.CSSProperties;
   return (
     <span
       ref={ref}

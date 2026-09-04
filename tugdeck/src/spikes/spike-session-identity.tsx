@@ -86,9 +86,9 @@
  * the three clipboard flavors (`text/html` stays struck).
  *
  * **What is real here and what is a drawing.** The shipped-component frame mounts
- * the real `TugSessionIdentity` at every state it renders — the line tier, both
- * chip sizes, a named chip, a narrow named chip, and the missing chip — and it is
- * load-bearing beyond illustration: `at0374` and `at0376` drive exactly those
+ * the real `TugSessionIdentity` at every state it renders — the line tier, the
+ * chip tier, a named chip, a narrow named chip, and the missing chip — and it is
+ * load-bearing beyond illustration: `at0376` drives exactly those
  * mounts, so a claim proved there is a claim about what ships. The dot and the
  * tape are the real `TugProgressIndicator` and `TugSparkline` throughout. The
  * masthead mock and the `.gsi-*` title/atom prototypes remain as DRAWINGS of the
@@ -943,18 +943,14 @@ export function SpikeSessionIdentity(): React.ReactElement {
         <div className="gsi-candidate-grid">
           {/* The shipped component at every state it renders. This frame is
               load-bearing: the gallery is the fixture bench the identity
-              app-tests (at0374, at0376) drive, so the line tier, both chip
-              sizes, the named chip, the narrow named chip, and the missing
+              app-tests (at0376) drive, so the line tier, the chip
+              tier, the named chip, the narrow named chip, and the missing
               chip must all stay mounted here. */}
-          <Frame label="the shipped TugSessionIdentity — line, chip, 2xs, named, narrow, missing">
+          <Frame label="the shipped TugSessionIdentity — line, chip, named, narrow, missing">
             <div className="gsi-chip-row">
               <TugSessionIdentity identity={fixtureIdentity(LIVE)} tier="line" />
               <TugSessionIdentity identity={fixtureIdentity(LIVE)} tier="chip" />
-              <TugSessionIdentity
-                identity={fixtureIdentity(LIVE)}
-                tier="chip"
-                register="reading"
-              />
+              <TugSessionIdentity identity={fixtureIdentity(LIVE)} tier="chip" />
               <TugSessionIdentity
                 identity={fixtureIdentity(NAMED_LIVE)}
                 tier="chip"

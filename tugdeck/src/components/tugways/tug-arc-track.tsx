@@ -360,14 +360,11 @@ export function arcCellTip(model: ArcTrackModel, phase: ArcPhase, state: ArcCell
 
 export interface TugArcTrackProps {
   model: ArcTrackModel;
-  /** `rail` beside other rails (the rail, the footer); `read` on a reading surface. */
-  size?: "rail" | "read";
   "aria-label"?: string;
 }
 
 export function TugArcTrack({
   model,
-  size = "rail",
   "aria-label": ariaLabel,
 }: TugArcTrackProps): React.ReactElement {
   // The track draws the phases the arc has, never the six with two struck
@@ -378,7 +375,6 @@ export function TugArcTrack({
     <span
       className="tug-arc-track"
       data-slot="tug-arc-track"
-      data-size={size}
       data-phase={model.phase}
       data-direct={model.direct ? "true" : undefined}
       data-stopped={model.stopped !== null ? "true" : undefined}

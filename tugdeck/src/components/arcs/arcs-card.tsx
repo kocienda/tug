@@ -678,7 +678,6 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           note={arcLifecycleNote(model)}
           stepTitle={entry.step_title ?? null}
           facts={arcMetaFacts(entry)}
-          size="read"
           trailing={
             steps.length > 0 ? (
               // The tool-call header's own cue, in the slot the block reserved
@@ -793,7 +792,6 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           model={model}
           note={arcLifecycleNote(model)}
           facts={arcMetaFacts(documentArcAsEntry(entry))}
-          size="read"
         />
       </span>
     </TugListRow>

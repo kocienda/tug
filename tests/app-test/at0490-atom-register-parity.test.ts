@@ -30,12 +30,11 @@
  * ## Shape
  *
  *   1. Open the atom gallery card, whose Registers section renders every atom
- *      kind at every register with the live session pill last in each row —
+ *      kind in the one register row with the live session pill last in it —
  *      the one surface where the two renderers stand side by side.
- *   2. For each register row, measure the baked `<svg>` chips and the pill.
- *   3. Require: every chip in a row is the register's declared height; the pill
- *      is that same height; and the two registers are not the same height as
- *      each other (or the table has collapsed and the test is vacuous).
+ *   2. In that row, measure the baked `<svg>` chips and the pill.
+ *   3. Require: every chip in the row is the register's declared height, and
+ *      the pill is that same height.
  *   4. Require the phase mark to clear the pill's border — including the ring
  *      it sheds, which runs to 1.75x its glyph box at this scale and so is
  *      wider than anything `getBoundingClientRect` reports for the mark. The
@@ -95,7 +94,6 @@ const SESSION_PILL = '[data-slot="tug-session-identity"]';
 const COMMIT_PILL = '[data-slot="tug-commit-atom"]';
 
 interface RegisterRow {
-  register: string;
   /** What the table says, read back off the published custom property. */
   declaredHeight: number;
   /** Every baked `<svg>` chip's measured height, rounded. */
@@ -152,7 +150,6 @@ const ROWS_JS = `(function () {
       }
     }
     return {
-      register: row.getAttribute("data-register"),
       declaredHeight: parseFloat(declared),
       chipHeights: chips.map(function (c) {
         return Math.round(c.getBoundingClientRect().height);
@@ -218,7 +215,6 @@ const INLINE_JS = `(function () {
 
 /** What one register row reports about its two live pills, side by side. */
 interface PillPair {
-  register: string;
   /** Box heights, rounded — the register's number, twice. */
   sessionHeight: number | null;
   commitHeight: number | null;
@@ -262,7 +258,6 @@ const PILLS_JS = `(function () {
       return el === null ? null : parseFloat(getComputedStyle(el).getPropertyValue(prop));
     }
     return {
-      register: row.getAttribute("data-register"),
       sessionHeight: box(session),
       commitHeight: box(commit),
       sessionBorder: num(session, "border-top-width"),
@@ -287,7 +282,7 @@ describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () =
       try {
         await app.dispatchControlAction("show-card", { component: "gallery-atom" });
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(ROW)}).length >= 2`,
+          `document.querySelectorAll(${JSON.stringify(ROW)}).length >= 1`,
           { timeoutMs: 15_000 },
         );
         // The chips are `<svg>` with a `<text>` the browser must have measured
@@ -306,7 +301,7 @@ describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () =
         // agreeing looks like.
         note("at0490 registers gallery", (await app.screenshot()).path);
 
-        expect(rows.length).toBeGreaterThanOrEqual(2);
+        expect(rows.length).toBeGreaterThanOrEqual(1);
 
         for (const row of rows) {
           // The baked chips are the register's box, exactly. This is the
@@ -336,11 +331,6 @@ describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () =
           expect(row.dotReach).toBeGreaterThan(1);
           expect(envelope).toBeLessThanOrEqual(row.pillOpening! - 4);
         }
-
-        // A table whose registers had collapsed to one number would pass every
-        // check above and prove nothing, so the difference is pinned too.
-        const heights = rows.map((r) => r.declaredHeight);
-        expect(new Set(heights).size).toBe(rows.length);
       } finally {
         await app.close();
       }
@@ -398,7 +388,7 @@ describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () =
         await app.waitForCondition<boolean>(
           `(function () {
              var rows = Array.from(document.querySelectorAll(${JSON.stringify(ROW)}));
-             if (rows.length < 2) return false;
+             if (rows.length < 1) return false;
              return rows.every(function (row) {
                var s = row.querySelector(${JSON.stringify(SESSION_PILL)});
                var c = row.querySelector(${JSON.stringify(COMMIT_PILL)});
@@ -414,9 +404,7 @@ describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () =
         note(`at0490 pill pairs: ${JSON.stringify(pairs)}`);
         note("at0490 commit pill beside session pill", (await app.screenshot()).path);
 
-        // Both registers, or the comparison is about one density and the
-        // borrowing could still be re-authored at the other.
-        expect(pairs.length).toBeGreaterThanOrEqual(2);
+        expect(pairs.length).toBeGreaterThanOrEqual(1);
 
         for (const p of pairs) {
           // The box. Equal to each other AND to the table, so a pair that
@@ -445,10 +433,6 @@ describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () =
           // host's, which is the only way to see an inherit actually happen.
           expect(p.commitFontFamily).toBe(p.hostFontFamily);
         }
-
-        // A table collapsed to one number would pass every line above and
-        // prove nothing — the same guard the first test ends on.
-        expect(new Set(pairs.map((p) => p.declaredHeight)).size).toBe(pairs.length);
       } finally {
         await app.close();
       }

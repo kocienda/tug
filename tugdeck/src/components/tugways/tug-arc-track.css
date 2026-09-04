@@ -62,15 +62,10 @@
   display: inline-flex;
   align-items: stretch;
   gap: 1px;
-  inline-size: var(--tugx-arc-track-cell-w, 14px);
-  block-size: var(--tugx-arc-track-cell-h, 7px);
-  border-radius: 2px;
-  background: var(--tug7-element-global-border-normal-muted-rest);
-}
-
-.tug-arc-track[data-size="read"] .tug-arc-track-cell {
   inline-size: var(--tugx-arc-track-cell-w, 18px);
   block-size: var(--tugx-arc-track-cell-h, 9px);
+  border-radius: 2px;
+  background: var(--tug7-element-global-border-normal-muted-rest);
 }
 
 /* The strip's ends are round, whichever cells it happens to draw. A direct
@@ -94,20 +89,16 @@
    strip's width a function of the plan's length — so the strip grew under the
    reader, and on a narrow surface it grew into whatever was set beside it.
 
-   Selected through the track so it outranks the per-size cell rules above,
-   which are one attribute more specific than a bare `[data-steps]` would be. */
+   Selected through the track so it outranks the base cell rule above, which a
+   bare `[data-steps]` would tie with. */
 .tug-arc-track .tug-arc-track-cell[data-steps="true"] {
-  inline-size: var(--tugx-arc-track-steps-w, 42px);
+  inline-size: var(--tugx-arc-track-steps-w, 54px);
   background: transparent;
   /* The implement cell is a container over its ticks, never a mark of its
      own — so it takes neither the fill nor the pending OUTLINE. A box drawn
      around a row of ticks would read as a sixth cell. */
   box-shadow: none;
   border-radius: 0;
-}
-
-.tug-arc-track[data-size="read"] .tug-arc-track-cell[data-steps="true"] {
-  inline-size: var(--tugx-arc-track-steps-w, 54px);
 }
 
 /* Ticks divide whatever box the implement cell holds — never a width of their

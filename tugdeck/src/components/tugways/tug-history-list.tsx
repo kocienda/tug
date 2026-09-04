@@ -472,7 +472,6 @@ function CommitRow({
                   >
                     <TugArcAtom
                       name={arcName}
-                      register="prose"
                       slot="session-history-join-arc"
                       title={`Joined from arc ${arcName}`}
                       nameContent={renderFilterHighlight(

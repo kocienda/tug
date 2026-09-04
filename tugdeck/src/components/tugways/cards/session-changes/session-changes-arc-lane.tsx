@@ -476,7 +476,6 @@ function ArcRow({
           note={arcLifecycleNote(model)}
           stepTitle={entry.step_title ?? null}
           facts={arcMetaFacts(entry)}
-          size="read"
           trailing={
           <span className="session-changes-arc-row-trailing">
             {/* The row's rare verbs, behind one opener. Bind/Unbind and
@@ -645,7 +644,6 @@ function DocumentArcRow({
           model={model}
           note={arcLifecycleNote(model)}
           facts={arcMetaFacts(asEntry)}
-          size="read"
           trailing={
             binding !== null ? (
               <TugPushButton

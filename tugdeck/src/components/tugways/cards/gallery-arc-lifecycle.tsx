@@ -15,11 +15,11 @@
  *     fact about it.
  *   - `ArcLifecycleLine` — track · glyph · fraction · note · facts. No age.
  *   - `ArcLifecycleBlock` — eyebrow (atom · rule · workers) over the line:
- *     the rail row and the shade row, at the rail and reading scales. The
- *     eyebrow says WHO, the line says WHAT — every reading of the arc's
+ *     the rail row, the shade row and the receipt's header, at one scale.
+ *     The eyebrow says WHO, the line says WHAT — every reading of the arc's
  *     state, the phase glyph included, is on the second line.
  *
- * **Two registers, one grammar.** The strip belongs to the three surfaces
+ * **Two shapes, one grammar.** The strip belongs to the three surfaces
  * whose subject IS the arc (the rail's Arcs section, the Changes shade, the
  * ARC placard); the two where a session is the subject get the mark instead.
  * The sixth, Z2's ARC cell, is an instrument readout and takes the shape its
@@ -78,7 +78,6 @@ import {
   type ArcTrackModel,
 } from "@/components/tugways/tug-arc-track";
 import { TugLabel } from "@/components/tugways/tug-label";
-import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
 import { TugStatusCell } from "@/components/tugways/tug-status-cell";
@@ -92,7 +91,6 @@ import type {
 import type { ResolveState } from "@/lib/changeset-join-store";
 import type { ArcSessionFact } from "@/lib/arc-session-index";
 import { useSessionIdentity } from "@/lib/session-identity";
-import type { AtomRegister } from "@/lib/atom-register";
 import { sessionNameStore } from "@/lib/session-name-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
 
@@ -626,19 +624,12 @@ function Stage({
   );
 }
 
-function Worker({
-  sessionId,
-  register,
-}: {
-  sessionId: string;
-  register: AtomRegister;
-}): React.ReactElement {
+function Worker({ sessionId }: { sessionId: string }): React.ReactElement {
   const identity = useSessionIdentity(sessionId);
   return (
     <TugSessionIdentity
       identity={identity}
       tier="chip"
-      register={register}
       arc={false}
       tooltip={false}
     />
@@ -692,15 +683,14 @@ export function GalleryArcLifecycle(): React.ReactElement {
         <TugLabel className="cg-section-title">
           The atom, once — TugArcAtom
         </TugLabel>
-        <Stage caption="One skin, two registers (prose in a line of running text · reading in a block), proportional everywhere; who is on it is the atom beside it. A direct arc is an arc to the atom: both are work on a worktree">
+        <Stage caption="One skin, one register, proportional everywhere; who is on it is the atom beside it. A direct arc is an arc to the atom: both are work on a worktree">
           <div className="cg-arc-lineup">
-            <TugArcAtom name={ARC} register="prose" />
-            <TugArcAtom name={ARC} register="reading" />
+            <TugArcAtom name={ARC} />
             <span className="cg-arc-pair">
-              <Worker sessionId={WORKER} register="reading" />
-              <TugArcAtom name={ARC} register="reading" />
+              <Worker sessionId={WORKER} />
+              <TugArcAtom name={ARC} />
             </span>
-            <TugArcAtom name="rail-none-empty" register="reading" />
+            <TugArcAtom name="rail-none-empty" />
           </div>
         </Stage>
       </section>
@@ -718,7 +708,6 @@ export function GalleryArcLifecycle(): React.ReactElement {
                   key={m.key}
                   model={model}
                   note={arcLifecycleNote(model)}
-                  size="read"
                 />
               );
             })}
@@ -728,7 +717,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
           <div className="cg-arc-legend">
             {[3, 8, 24].map((n) => (
               <div className="cg-arc-legend-row" key={n}>
-                <TugArcTrack model={planOf(n, Math.ceil(n / 3))} size="read" />
+                <TugArcTrack model={planOf(n, Math.ceil(n / 3))} />
                 <span className="cg-arc-legend-word">{`${n}-step plan`}</span>
               </div>
             ))}
@@ -742,10 +731,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
               state="running"
               aria-hidden
             />
-            <TugArcTrack
-              model={arcTrackModelFromEntry(AT_WORK.entry)}
-              size="read"
-            />
+            <TugArcTrack model={arcTrackModelFromEntry(AT_WORK.entry)} />
             <span className="cg-arc-legend-word">
               on an arc — the bare phase dot, and the track
             </span>
@@ -753,7 +739,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
         </Stage>
         <Stage caption="OUT OF ORDER. Steps 1–3 done, 4 in hand, 5 closed early. Four steps are done, so a strip that painted `n <= done` would fill tick 4 while it is the live one — which is the one reading this instrument must never give. The ticks are positional: done is a set of positions, and the step in hand outranks the closed reading. The ledger now refuses the way this used to happen — a `done` on a step nobody started — so a batched round that closes two steps at its end opens and closes each in turn">
           <div className="cg-arc-legend-row">
-            <TugArcTrack model={OUT_OF_ORDER} size="read" />
+            <TugArcTrack model={OUT_OF_ORDER} />
             <span className="cg-arc-legend-word">
               4/6 — the fourth tick breathes, the fifth is filled
             </span>
@@ -809,7 +795,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
           lead with a name that elides, and the strip beside an eliding name is
           a graphic competing with the thing the row is named for. The pill
           wears the track's own palette and breathes on the track's own cycle,
-          so the two registers read as one grammar.
+          so the mark and the block read as one grammar.
         </p>
       </section>
 
@@ -887,23 +873,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
               <div className="cg-arc-surfaces">
                 <div className="cg-arc-surface">
                   <span className="cg-arc-surface-name">
-                    Compact · ArcLifecycleBlock size=rail
-                  </span>
-                  <TugListRow variant="flush" density="compact">
-                    <ArcLifecycleBlock
-                      name={name}
-                      workers={m.workers}
-                      model={model}
-                      note={note}
-                      stepTitle={stepTitle}
-                      facts={facts}
-                      size="rail"
-                    />
-                  </TugListRow>
-                </div>
-                <div className="cg-arc-surface">
-                  <span className="cg-arc-surface-name">
-                    rail / Changes shade · ArcLifecycleBlock size=read
+                    Arcs card / Changes shade · ArcLifecycleBlock
                   </span>
                   <ArcLifecycleBlock
                     name={name}
@@ -912,7 +882,6 @@ export function GalleryArcLifecycle(): React.ReactElement {
                     note={note}
                     stepTitle={stepTitle}
                     facts={facts}
-                    size="read"
                   />
                 </div>
                 <div className="cg-arc-surface" data-wide="true">
@@ -1017,28 +986,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
           <div className="cg-arc-surfaces">
             <div className="cg-arc-surface">
               <span className="cg-arc-surface-name">
-                Compact · ArcLifecycleBlock size=rail
-              </span>
-              <TugListRow variant="flush" density="compact">
-                <ArcLifecycleBlock
-                  name={BLOCKED_ARC}
-                  workers={[SOLO]}
-                  model={arcTrackModelFromEntry(
-                    blockedEntry(BLOCKED_CASES[1]!.blocker),
-                  )}
-                  note={arcLifecycleNote(
-                    arcTrackModelFromEntry(
-                      blockedEntry(BLOCKED_CASES[1]!.blocker),
-                    ),
-                  )}
-                  facts={arcMetaFacts(blockedEntry(BLOCKED_CASES[1]!.blocker))}
-                  size="rail"
-                />
-              </TugListRow>
-            </div>
-            <div className="cg-arc-surface">
-              <span className="cg-arc-surface-name">
-                rail / Changes shade · ArcLifecycleBlock size=read
+                Arcs card / Changes shade · ArcLifecycleBlock
               </span>
               <ArcLifecycleBlock
                 name={BLOCKED_ARC}
@@ -1052,7 +1000,6 @@ export function GalleryArcLifecycle(): React.ReactElement {
                   ),
                 )}
                 facts={arcMetaFacts(blockedEntry(BLOCKED_CASES[1]!.blocker))}
-                size="read"
               />
             </div>
           </div>

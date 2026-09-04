@@ -52,11 +52,9 @@ import { sessionLineStore } from "@/lib/session-line-store";
 import { arcForSessionNow } from "@/lib/arc-session-index";
 import { withArcSigil } from "@/lib/arc-sigil-text";
 import {
-  DEFAULT_ATOM_REGISTER,
   atomBaselineOffsetPx,
   atomEditorLineBoxFloorPx,
   atomRegisterMetrics,
-  type AtomRegister,
 } from "@/lib/atom-register";
 
 /**
@@ -313,13 +311,10 @@ export function computeAtomChipGeometry(
   options?: {
     maxLabelWidth?: number;
     fontFamily?: string;
-    /** Which surface this chip stands on. @default "prose" */
-    register?: AtomRegister;
   },
 ): AtomChipGeometry {
   const family = options?.fontFamily ?? _measureFamily;
-  const register = options?.register ?? DEFAULT_ATOM_REGISTER;
-  const metrics = atomRegisterMetrics(register);
+  const metrics = atomRegisterMetrics();
   const size = metrics.fontSize;
   const font = atomFontFor(family, size);
   const displayLabel = options?.maxLabelWidth != null
@@ -357,7 +352,7 @@ export function computeAtomChipGeometry(
     fontSize: size,
     fontFamily: family,
     dotSize: metrics.dotSize,
-    baselineOffset: atomBaselineOffsetPx(register),
+    baselineOffset: atomBaselineOffsetPx(),
   };
 }
 
@@ -700,12 +695,6 @@ export function bakeAtomChipDataUri(
      * default bakes are pixel-identical in size.
      */
     variant?: ChipVariant;
-    /**
-     * Which surface the chip stands on. Defaults to `prose` — the editor's
-     * composer line and the transcript row it is sent to are the same
-     * register, which is what keeps an atom the same size across a send.
-     */
-    register?: AtomRegister;
   },
 ): AtomChipBake {
   // A slash command displays its leading slash (`/tugplug:commit`); every
@@ -723,7 +712,6 @@ export function bakeAtomChipDataUri(
   const g = computeAtomChipGeometry(type, displayLabel, {
     ...(options?.maxLabelWidth !== undefined ? { maxLabelWidth: options.maxLabelWidth } : {}),
     ...(options?.fontFamily !== undefined ? { fontFamily: options.fontFamily } : {}),
-    register: options?.register ?? DEFAULT_ATOM_REGISTER,
   });
   const scale = bakeScale();
   const canvas = document.createElement("canvas");

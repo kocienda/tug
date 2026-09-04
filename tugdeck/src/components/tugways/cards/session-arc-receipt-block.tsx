@@ -8,11 +8,14 @@
  * string and presents it as a receipt instead of the generic fenced
  * `ShellExchangeBlock`.
  *
- * **It leads with the track**, which is the whole design. `ArcLifecycleLine`
- * is the second line of {@link ArcLifecycleBlock}, already worn by the Arcs card's
- * Arcs section, the Changes shade's collapsed row, and the masthead placard;
- * a reader who learned the strip on any of those has learned this row for
- * free. The stages the arc actually walked go underneath, one row each.
+ * **The header wears {@link ArcLifecycleBlock} in its row layout**, which is
+ * the whole design: the same block the Arcs card, the Changes shade's
+ * collapsed row and the masthead placard wear stacked, set on one line
+ * because here it captions a body rather than being the thing read. So a
+ * reader who learned the identities and the strip on any of those has learned
+ * this header for free, and there is no second composition of an arc's
+ * identity to keep in step. The stages the arc actually walked go underneath,
+ * one row each.
  *
  * The row is attributed to the **wheel**, not to the shell that carried it and
  * not to git: an arc ends on a server tick, having shelled nothing and having
@@ -35,9 +38,8 @@ import { Play } from "lucide-react";
 
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "@/components/tugways/blocks/collapse-context";
-import { ArcLifecycleLine } from "@/components/tugways/arc-lifecycle-line";
+import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
-import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
 import { arcTrackModel } from "@/components/tugways/tug-arc-track";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -391,11 +393,12 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
         : (parsed.stop?.reason ?? "stopped");
   const identity = (
     <span className="arc-receipt-identity">
-      <TugArcAtom name={parsed.arc} />
-      <ArcLifecycleLine
+      <ArcLifecycleBlock
+        name={parsed.arc}
+        workers={[]}
         model={trackModelFor(parsed)}
         note={note}
-        size="read"
+        layout="row"
       />
     </span>
   );

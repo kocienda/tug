@@ -37,9 +37,6 @@
  * two things obeying two different rules. So the graphic and the words travel
  * together, and the track shifts along the row as the reading's width changes.
  *
- * One grammar, two scales — `rail` beside other rails, `read` on a surface
- * whose job is to be read.
- *
  * Laws: [L06] tones and scale are `data-*` the CSS paints; [L19]
  * `.tsx`/`.css` pair, `data-slot`; [L20] composes the track, the fraction, and
  * the tooltip.
@@ -98,7 +95,6 @@ export interface ArcLifecycleLineProps {
    */
   stepTitle?: string | null;
   facts?: readonly ArcMetaFact[];
-  size?: "rail" | "read";
 }
 
 export function ArcLifecycleLine({
@@ -106,22 +102,20 @@ export function ArcLifecycleLine({
   note,
   stepTitle = null,
   facts = [],
-  size = "rail",
 }: ArcLifecycleLineProps): React.ReactElement {
   const steps = model.steps;
   return (
     <span
       className="tug-arc-lifecycle-line"
       data-slot="tug-arc-lifecycle-line"
-      data-size={size}
       data-stopped={model.stopped !== null ? "true" : undefined}
     >
-      <TugArcTrack model={model} size={size} />
+      <TugArcTrack model={model} />
       <span className="tug-arc-lifecycle-reading" data-slot="tug-arc-lifecycle-reading">
-        {/* One pixel proud of the cap band the track occupies (9px at read, 7 at
-          rail), so the glyph reads as the strip's neighbour rather than as a
-          taller mark set beside it. */}
-        <ArcPhaseMark model={model} size={size === "read" ? 11 : 9} />
+        {/* One pixel proud of the 9px cap band the track occupies, so the glyph
+          reads as the strip's neighbour rather than as a taller mark set
+          beside it. */}
+        <ArcPhaseMark model={model} size={11} />
         {steps !== null && steps.current !== null ? (
           stepTitle !== null && stepTitle.length > 0 ? (
             <TugTooltip content={`step ${steps.current} of ${steps.total} · ${stepTitle}`}>

@@ -9,6 +9,11 @@
  * typography, because on a surface that is the thing, an enclosure reads as a
  * link to it somewhere else.
  *
+ * The two densities named here are TIERS, and the word *register* in this
+ * file means the tier. The atom register — the box the chip tier draws, in
+ * `lib/atom-register.ts` — is a different thing: one row, 22px around 13px
+ * type, with no dial by which a surface chooses another.
+ *
  * **The mark is a live pulsing dot, and it is the same mark on both registers.**
  * It says what the session is *doing* rather than what kind of thing it is,
  * which is the one thing a static glyph could never do — and it is why the
@@ -109,11 +114,8 @@ import {
 import { sessionPrivateStore } from "@/lib/session-private-store";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import {
-  DEFAULT_ATOM_REGISTER,
   atomRegisterMetrics,
   atomPillMarkVars,
-  atomRegisterVars,
-  type AtomRegister,
 } from "@/lib/atom-register";
 import { markBoxForDot } from "@/components/tugways/internal/tug-progress-pulsing-dot";
 import { cn } from "@/lib/utils";
@@ -145,16 +147,6 @@ export interface TugSessionIdentityProps
    * @default "line"
    */
   tier?: TugSessionIdentityTier;
-  /**
-   * Which surface this atom stands on — the register, not a size. `prose` is a
-   * line of running text, `reading` a block at reading scale; the register
-   * decides the type size, the box and the dot, and the component publishes
-   * them on itself as custom properties for its own stylesheet. Ignored by the
-   * line tier, which is bare typography and takes its size from context.
-   * @selector [data-register="prose"] | [data-register="reading"]
-   * @default "prose"
-   */
-  register?: AtomRegister;
   /**
    * The citation resolved to nothing — a post or a commit naming a session
    * this ledger has no record of. Chip tier only; makes the atom inert and
@@ -350,7 +342,6 @@ export const TugSessionIdentity = React.forwardRef<
   {
     identity,
     tier = "line",
-    register = DEFAULT_ATOM_REGISTER,
     missing = false,
     dot = true,
     highlight = "",
@@ -374,7 +365,7 @@ export const TugSessionIdentity = React.forwardRef<
   // its glyph box, which paints a fraction of itself. One conversion, here, so
   // the live dot and the bake's circle measure the same.
   const dotSize = isChip
-    ? markBoxForDot(atomRegisterMetrics(register).dotSize)
+    ? markBoxForDot(atomRegisterMetrics().dotSize)
     : TUG_SESSION_IDENTITY_LINE_DOT_SIZE;
 
   // A chip's click is its own, not the row's. Every citation surface mounts
@@ -415,16 +406,14 @@ export const TugSessionIdentity = React.forwardRef<
       className={cn("tug-session-identity", className)}
       data-slot="tug-session-identity"
       data-tier={tier}
-      data-register={isChip ? register : undefined}
       // The pill is the mark's enclosure, so the pill is what caps its ring
-      // ([atomPillMarkVars]). The `line` tier draws no box around the dot and
-      // publishes no cap, which is why this rides the chip branch rather than
-      // the register vars.
-      style={
-        isChip
-          ? { ...atomRegisterVars(register), ...atomPillMarkVars(), ...restStyle }
-          : restStyle
-      }
+      // ([atomPillMarkVars]) — a fact about this box, not about the surface it
+      // stands on. The register's own numbers are NOT published here: the skin
+      // reads them as its stylesheet's fallbacks, and an atom that published
+      // them on itself would overrule any host that had published them, which
+      // is how a chip came to be a different size from the surface around it.
+      // The `line` tier draws no box around the dot and publishes no cap.
+      style={isChip ? { ...atomPillMarkVars(), ...restStyle } : restStyle}
       data-missing={isMissing ? "true" : undefined}
       data-interactive={interactive ? "true" : undefined}
       onClick={interactive ? handleClick : undefined}
@@ -543,7 +532,6 @@ export function TugSessionCitation({
   citedId,
   recordedTag,
   context,
-  register = DEFAULT_ATOM_REGISTER,
   atom,
   className,
 }: {
@@ -560,8 +548,6 @@ export function TugSessionCitation({
   recordedTag?: string | null;
   /** Further facts the caller already holds — a row's state or lineage. */
   context?: SessionIdentityContext;
-  /** Which surface the citation stands on. @default "prose" */
-  register?: AtomRegister;
   /**
    * The atom this citation IS, when it was rendered from one — a session chip
    * in a transcript row stands at a `U+FFFC` in that row's substrate. Carried
@@ -598,7 +584,6 @@ export function TugSessionCitation({
     <TugSessionIdentity
       identity={identity}
       tier="chip"
-      register={register}
       missing={missing}
       // The raise rides the registry's own `focus-session-card` — the same
       // funnel the Cards card rows dispatch — so a chip's click and a row's click

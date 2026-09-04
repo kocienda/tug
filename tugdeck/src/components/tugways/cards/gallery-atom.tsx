@@ -35,12 +35,7 @@ import { TugSeparator } from "@/components/tugways/tug-separator";
 import { TugAtomChip } from "@/lib/tug-atom-chip";
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
 import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
-import {
-  ATOM_REGISTERS,
-  atomRegisterMetrics,
-  atomRegisterVars,
-  type AtomRegister,
-} from "@/lib/atom-register";
+import { atomRegisterMetrics, atomRegisterVars } from "@/lib/atom-register";
 import { composeSessionIdentity } from "@/lib/session-identity";
 
 // ---- Sample data ----
@@ -118,16 +113,16 @@ const REGISTER_ATOMS: AtomSegment[] = [
  * beside it are measured with — and a divergence shows up here as two heights
  * in one row, which is the only way this class of defect is ever visible.
  */
-function RegisterRow({ register }: { register: AtomRegister }): React.ReactElement {
-  const m = atomRegisterMetrics(register);
+function RegisterRow(): React.ReactElement {
+  const m = atomRegisterMetrics();
   return (
-    <div className="gallery-atom-register" data-register={register}>
+    <div className="gallery-atom-register">
       <div className="gallery-atom-register-caption">
-        {register} — {m.height}px box · {m.fontSize}px type · {m.dotSize}px dot
+        {m.height}px box · {m.fontSize}px type · {m.dotSize}px dot
       </div>
       <div
         className="gallery-atom-row"
-        style={atomRegisterVars(register) as React.CSSProperties}
+        style={atomRegisterVars() as React.CSSProperties}
       >
         {REGISTER_ATOMS.map((seg) => (
           <TugAtomChip
@@ -136,16 +131,14 @@ function RegisterRow({ register }: { register: AtomRegister }): React.ReactEleme
             type={seg.type}
             label={seg.label}
             value={seg.value}
-            register={register}
           />
         ))}
         <TugSessionIdentity
           identity={GALLERY_IDENTITY}
           tier="chip"
-          register={register}
           tooltip={false}
         />
-        <TugCommitAtom sha={GALLERY_COMMIT} register={register} />
+        <TugCommitAtom sha={GALLERY_COMMIT} />
       </div>
     </div>
   );
@@ -261,21 +254,21 @@ export function GalleryAtom() {
       ref={responderRef as (el: HTMLDivElement | null) => void}
     >
 
-      {/* ---- The registers, with the live pills beside the baked chips ---- */}
+      {/* ---- The register, with the live pills beside the baked chips ---- */}
       <div className="cg-section">
-        <TugLabel className="cg-section-title">Registers</TugLabel>
+        <TugLabel className="cg-section-title">The register</TugLabel>
         <div style={descStyle}>
-          Every kind at every register, and the two live pills last in each row
-          — the session and the commit, which must be the same height as the
-          chips beside them and as each other, because all three are drawn from
-          one table. The commit pill borrows the session's enclosure outright,
-          so a difference in border, height or mark between the two is a
-          difference nothing authored. `prose` is an atom in a line of running
-          text; `reading` is one in a block at reading scale.
+          Every kind at the one register, and the two live pills last — the
+          session and the commit, which must be the same height as the chips
+          beside them and as each other, because all three are drawn from one
+          table. The commit pill borrows the session's enclosure outright, so a
+          difference in border, height or mark between the two is a difference
+          nothing authored. A second row once stood here, a `reading` register
+          two pixels taller for the arc block, and it is where a 24px placard
+          pill beside a 22px transcript citation came from; there is one row
+          now, and no prop through which a surface could ask for another.
         </div>
-        {(Object.keys(ATOM_REGISTERS) as AtomRegister[]).map((register) => (
-          <RegisterRow key={register} register={register} />
-        ))}
+        <RegisterRow />
       </div>
 
       <TugSeparator />
@@ -294,14 +287,13 @@ export function GalleryAtom() {
         <div
           ref={inlineRef}
           className="gallery-atom-text-sample"
-          style={atomRegisterVars("prose") as React.CSSProperties}
+          style={atomRegisterVars() as React.CSSProperties}
         />
         {pillHost
           ? createPortal(
               <TugSessionIdentity
                 identity={GALLERY_IDENTITY}
                 tier="chip"
-                register="prose"
                 tooltip={false}
               />,
               pillHost,

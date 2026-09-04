@@ -37,11 +37,6 @@
 
 import React from "react";
 
-import {
-  DEFAULT_ATOM_REGISTER,
-  atomRegisterVars,
-  type AtomRegister,
-} from "@/lib/atom-register";
 import { ARC_SIGIL } from "@/lib/arc-sigil-text";
 
 export interface ArcSigilProps {
@@ -74,8 +69,6 @@ export interface ArcSigilProps {
    * not move, only the markup carrying it.
    */
   atom?: boolean;
-  /** The register the pill is drawn at, passed through to the skin. */
-  atomRegister?: AtomRegister;
 }
 
 export function ArcSigil({
@@ -85,7 +78,6 @@ export function ArcSigil({
   title,
   ariaLabel,
   atom = false,
-  atomRegister = DEFAULT_ATOM_REGISTER,
 }: ArcSigilProps): React.ReactElement {
   const run = (
     <span
@@ -102,12 +94,7 @@ export function ArcSigil({
   );
   if (!atom) return run;
   return (
-    <span
-      className="tug-session-identity"
-      data-tier="chip"
-      data-register={atomRegister}
-      style={atomRegisterVars(atomRegister) as React.CSSProperties}
-    >
+    <span className="tug-session-identity" data-tier="chip">
       {run}
     </span>
   );

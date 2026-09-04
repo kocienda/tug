@@ -27,11 +27,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--tug-space-2xs);
+  gap: var(--tug-space-xs);
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-  font-size: var(--tug-font-size-2xs);
+  font-size: var(--tug-font-size-sm);
+  line-height: calc(var(--tug-font-size-sm) * 1.6);
+  --tugx-step-fraction-font-size: var(--tug-font-size-xs);
 }
 
 /* The graphic keeps its width whatever the reading does: the run gives way
@@ -44,7 +46,7 @@
 .tug-arc-lifecycle-reading {
   display: flex;
   align-items: center;
-  gap: var(--tug-space-2xs);
+  gap: var(--tug-space-xs);
   min-width: 0;
   overflow: hidden;
 }
@@ -55,17 +57,6 @@
 .tug-arc-lifecycle-reading > .tug-arc-lifecycle-note,
 .tug-arc-lifecycle-reading > .tug-arc-lifecycle-fact {
   align-self: baseline;
-}
-
-.tug-arc-lifecycle-line[data-size="read"] {
-  gap: var(--tug-space-xs);
-  font-size: var(--tug-font-size-sm);
-  line-height: calc(var(--tug-font-size-sm) * 1.6);
-  --tugx-step-fraction-font-size: var(--tug-font-size-xs);
-}
-
-.tug-arc-lifecycle-line[data-size="read"] > .tug-arc-lifecycle-reading {
-  gap: var(--tug-space-xs);
 }
 
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */

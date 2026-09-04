@@ -1,18 +1,31 @@
-/* arc-lifecycle-block.css — two lines, a hairline between the identities.
+/* arc-lifecycle-block.css — the identities, then the line. Stacked by
+   default, with a hairline between the identities; set on one row for a
+   header, where the hairline is not drawn at all.
    The block clips at its box; nothing in it may push the row wider. */
 
 .tug-arc-lifecycle-block {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
   flex: 1 1 auto;
 }
 
-.tug-arc-lifecycle-block[data-size="read"] {
-  gap: 4px;
+/* The header shape: the two runs side by side rather than stacked. The
+   eyebrow keeps its own width and the line takes what is left, where it goes
+   on centring itself — the two never come apart, whichever way they are set.
+   The hairline is not drawn at all in this layout (the component omits it):
+   a rule between two lines has nothing to separate when they are one. */
+.tug-arc-lifecycle-block[data-layout="row"] {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+.tug-arc-lifecycle-block[data-layout="row"] > .tug-arc-lifecycle-eyebrow {
+  flex: 0 0 auto;
 }
 
 .tug-arc-lifecycle-eyebrow {

@@ -19,7 +19,7 @@
  *      same height before and after an atom appears.
  *
  * The floor is published by `TugAtomTextBody` on the root span, from
- * `atomRegisterVars("prose")` — the same table the chips inside it are drawn
+ * `atomRegisterVars()` — the same table the chips inside it are drawn
  * from, so the floor and the thing it makes room for cannot drift. The
  * fallback only resolves if the component fails to publish the variable — a
  * wiring bug, not a production state.

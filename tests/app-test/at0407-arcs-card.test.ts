@@ -431,7 +431,6 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         const stack = await app.evalJS<{
           lead: number;
           tail: number;
-          size: string;
           fontSize: string;
           readScale: string;
           leadInset: number;
@@ -452,7 +451,6 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
              return {
                lead: R(track.left - box.left),
                tail: R(box.right - read.right),
-               size: first.querySelector('[data-slot="tug-arc-lifecycle-block"]').dataset.size,
                fontSize: getComputedStyle(line).fontSize,
                readScale: getComputedStyle(document.body).getPropertyValue("--tug-font-size-sm").trim(),
                leadInset: R(block.left - rowBox.left),
@@ -467,14 +465,13 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         );
         note("at0407 stack", JSON.stringify(stack));
         // The card shows a whole arc, so it shows it at the scale every other
-        // whole-arc surface uses — the placard's, the shade's. At `rail` the
-        // track was list ink and too small to read as a graphic.
-        expect(stack.size, "the arc block is set at the reading scale").toBe(
-          "read",
-        );
+        // whole-arc surface uses — the placard's, the shade's. There is no
+        // second scale to select any more, so the measured type size IS the
+        // claim: a block that had drifted off the reading token would say so
+        // here, and an attribute could only have said which name was set.
         expect(
           stack.fontSize,
-          "and the line is sized to that scale's token, not the rail's",
+          "the line is sized to the reading scale's token",
         ).toBe(stack.readScale);
         // The block's two identities are held apart by a hairline, so the air
         // outside them has to be even: `TugListRow` reserves a leading focus
