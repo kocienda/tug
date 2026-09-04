@@ -30,7 +30,8 @@
  * owner key: a bit inside a cell would be lost the moment virtualization
  * recycled it or a changeset beat replaced the row, which on a card that
  * re-projects on every beat is a row folding itself shut while you read it.
- * An arc with no steps draws no cue at all — absent, not disabled.
+ * An arc with no steps draws the cue disabled — present, never absent, so
+ * every row's chevron sits at the same edge.
  *
  * An arc with no branch yet — a brief being written, a plan being devised or
  * reviewed — is the SAME block, over `documentArcAsEntry`, with its track
@@ -642,9 +643,9 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   const activatable = useWorkerCard(entry) !== null;
   const model = arcTrackModelFromEntry(entry);
   // The ledger the row can fold open to, and whether it is open. An arc with a
-  // brief alone — or one still being devised — carries no steps, and a row with
-  // nothing to fold draws no cue at all: a disabled chevron would be a promise
-  // about a future the row does not know it has.
+  // brief alone — or one still being devised — carries no steps. The cue is
+  // drawn either way and disabled when there is nothing to fold, so every row
+  // in the list ends at the same edge and the column never goes ragged.
   const steps = entry.steps ?? [];
   const expanded = dataSource.expanded.has(row.ownerId);
   // Bind / Discard / Replay, on the row's second button — the eyebrow carries
@@ -679,25 +680,24 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           stepTitle={entry.step_title ?? null}
           facts={arcMetaFacts(entry)}
           trailing={
-            steps.length > 0 ? (
-              // The tool-call header's own cue, in the slot the block reserved
-              // for it: same icon pair, same `xs` icon-only shape, and the
-              // default scroll stabilization, because this list scrolls exactly
-              // as the transcript does. No `stopPropagation` and no selection
-              // guard — the list excuses any descendant that refuses focus, so
-              // a press here never picks the row.
-              <BlockFoldCue
-                collapsed={!expanded}
-                onToggle={() => dataSource.toggle(row.ownerId)}
-                collapsedLabel="Expand"
-                expandedLabel="Collapse"
-                ariaLabelExpand={`Expand steps for arc ${entry.display_name}`}
-                ariaLabelCollapse={`Collapse steps for arc ${entry.display_name}`}
-                size="xs"
-                subtype="icon"
-                data-slot="arcs-steps-fold"
-              />
-            ) : undefined
+            // The tool-call header's own cue, in the slot the block reserved
+            // for it: same icon pair, same `xs` icon-only shape, and the
+            // default scroll stabilization, because this list scrolls exactly
+            // as the transcript does. No `stopPropagation` and no selection
+            // guard — the list excuses any descendant that refuses focus, so
+            // a press here never picks the row.
+            <BlockFoldCue
+              collapsed={!expanded}
+              onToggle={() => dataSource.toggle(row.ownerId)}
+              collapsedLabel="Expand"
+              expandedLabel="Collapse"
+              ariaLabelExpand={`Expand steps for arc ${entry.display_name}`}
+              ariaLabelCollapse={`Collapse steps for arc ${entry.display_name}`}
+              size="xs"
+              subtype="icon"
+              disabled={steps.length === 0}
+              data-slot="arcs-steps-fold"
+            />
           }
         />
         {verbsMenu.menu}

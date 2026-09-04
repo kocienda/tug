@@ -27,7 +27,7 @@
  * And the row FOLDS: the cue at the eyebrow's end opens the block over the
  * plan's own ledger, rendered by the very component the `ARC` placard mounts,
  * so the row and the placard cannot disagree about one arc's steps. A row with
- * no steps draws no cue at all — absent, not disabled — and a press on the cue
+ * no steps draws the cue disabled — present, never absent — and a press on it
  * picks no row and fronts no card, which is the one claim about it that no
  * pure test can make.
  *
@@ -673,13 +673,14 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         );
 
         // ── The cue is on the arc with a ledger, and on no other ──────────
-        // A row with nothing to fold draws no cue AT ALL: a disabled chevron
-        // on a row that may never have steps is a promise about a future the
-        // row does not know it has. `at0407-arc` was created and never
+        // Every row draws the cue, at the same edge — a row with nothing to
+        // fold draws it disabled rather than dropping it, so the column of
+        // chevrons never goes ragged. `at0407-arc` was created and never
         // planned, so it is that row.
         const cues = await app.evalJS<{
           planned: number;
           bare: number;
+          bareDisabled: boolean | null;
           label: string | null;
           expanded: string | null;
           lists: number;
@@ -688,9 +689,11 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
              const planned = document.querySelector(${JSON.stringify(PLAN_ROW)});
              const bare = document.querySelector(${JSON.stringify(ROW)});
              const cue = planned.querySelector('[data-slot="arcs-steps-fold"]');
+             const bareCue = bare.querySelector('[data-slot="arcs-steps-fold"]');
              return {
                planned: planned.querySelectorAll('[data-slot="arcs-steps-fold"]').length,
                bare: bare.querySelectorAll('[data-slot="arcs-steps-fold"]').length,
+               bareDisabled: bareCue === null ? null : bareCue.hasAttribute("disabled"),
                label: cue?.getAttribute("aria-label") ?? null,
                expanded: cue?.getAttribute("aria-expanded") ?? null,
                lists: planned.querySelectorAll('[data-slot="arcs-steps"]').length,
@@ -699,7 +702,8 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         );
         note("at0407 fold cues", JSON.stringify(cues));
         expect(cues.planned, "an arc with a ledger carries the cue").toBe(1);
-        expect(cues.bare, "an arc with no steps carries none").toBe(0);
+        expect(cues.bare, "an arc with no steps carries one too").toBe(1);
+        expect(cues.bareDisabled, "and it is disabled, having nothing to fold").toBe(true);
         // The cue names its arc, because a card full of rows offers a screen
         // reader a great many chevrons that would otherwise read alike.
         expect(cues.label).toContain(PLAN_ARC);
