@@ -36,6 +36,7 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
 import { openUrlInOS, revealDirectoryInFinder } from "@/lib/os-open";
 import { openAttachmentPreview } from "@/lib/attachment-preview-open";
+import { atomSegmentFor } from "./atom-segment";
 
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { AnnotationPayload } from "./payloads";
@@ -206,11 +207,36 @@ function seedCommand(
  * mentions, the user can pick it up and talk about it. What lands in the
  * prompt is the handler's call, not a second menu item's: a file arrives
  * as the chip an `@` mention mints, everything else as its text.
+ *
+ * **The label says which of the two it will be.** An entity whose insert
+ * mints an atom names it — `Insert Atom into Prompt` — and one that inserts
+ * as text keeps the plain word, because a label that promised an atom over a
+ * command line or an email address would be a lie the menu tells. The
+ * predicate is `atomSegmentFor`, the same one the atom copy reads, so the two
+ * items cannot disagree about what this entity is.
  */
-const INSERT_ENTRY: AnnotationMenuEntry = {
-  action: TUG_ACTIONS.INSERT_INTO_PROMPT,
-  label: "Insert into Prompt",
-};
+function insertEntry(payload: AnnotationPayload): AnnotationMenuEntry {
+  return {
+    action: TUG_ACTIONS.INSERT_INTO_PROMPT,
+    label:
+      atomSegmentFor(payload) === null
+        ? "Insert into Prompt"
+        : "Insert Atom into Prompt",
+  };
+}
+
+/**
+ * The atom copy, offered exactly where the insert mints one — spread into a
+ * kind's copy block so a kind promoted to atom-insert later picks the row up
+ * with no menu edit of its own ([L31]: an item is offered only where it can
+ * be performed). `Copy as <Format>` is the sanctioned shape for a different
+ * serialization of one entity, which is what an atom is beside a path.
+ */
+function atomCopyEntries(payload: AnnotationPayload): AnnotationMenuEntry[] {
+  return atomSegmentFor(payload) === null
+    ? []
+    : [{ action: TUG_ACTIONS.COPY_ANNOTATION_ATOM, label: "Copy as Atom" }];
+}
 
 /**
  * The pair both command families offer, and they name the noun like every
@@ -225,31 +251,38 @@ const COMMAND_MENU_ENTRIES: AnnotationMenuEntry[] = [
     action: TUG_ACTIONS.COPY_COMMAND_AS_PLAIN_TEXT,
     label: "Copy Command as Plain Text",
   },
-  INSERT_ENTRY,
 ];
+
+const commandMenuEntries = (
+  payload: AnnotationPayload,
+): AnnotationMenuEntry[] => [...COMMAND_MENU_ENTRIES, insertEntry(payload)];
 
 registerAnnotationKind("slash-command", {
   primaryClick: seedCommand,
-  menuEntries: () => COMMAND_MENU_ENTRIES,
+  menuEntries: commandMenuEntries,
   suppressStandardItems: true,
   wholeEntitySelection: true,
 });
 
 registerAnnotationKind("shell-command", {
   primaryClick: seedCommand,
-  menuEntries: () => COMMAND_MENU_ENTRIES,
+  menuEntries: commandMenuEntries,
   suppressStandardItems: true,
   wholeEntitySelection: true,
 });
 
-const URL_MENU_ENTRIES: AnnotationMenuEntry[] = [
+const urlMenuEntries = (payload: AnnotationPayload): AnnotationMenuEntry[] => [
   { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Link" },
-  INSERT_ENTRY,
+  ...atomCopyEntries(payload),
+  insertEntry(payload),
 ];
 
-const EMAIL_MENU_ENTRIES: AnnotationMenuEntry[] = [
+const emailMenuEntries = (
+  payload: AnnotationPayload,
+): AnnotationMenuEntry[] => [
   { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Address" },
-  INSERT_ENTRY,
+  ...atomCopyEntries(payload),
+  insertEntry(payload),
 ];
 
 /**
@@ -274,6 +307,10 @@ registerAnnotationKind("file-path", {
   },
   // "Open in Editor" carries the same target the click sends, so both
   // gestures reach the deck-level open handler by the same route.
+  //
+  // A file is the kind the atom copy lands on first, and a second copy is
+  // what makes this menu's block boundaries worth drawing: reach it, take
+  // it, send it, with a rule between each. `menus.md` fixes that order.
   menuEntries: (payload) => [
     {
       action: TUG_ACTIONS.OPEN_FILE,
@@ -281,8 +318,13 @@ registerAnnotationKind("file-path", {
       value: openTargetFor(payload) ?? undefined,
     },
     { action: TUG_ACTIONS.REVEAL_IN_FINDER, label: "Show in Finder" },
-    { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Path" },
-    INSERT_ENTRY,
+    {
+      action: TUG_ACTIONS.COPY_ANNOTATION_VALUE,
+      label: "Copy Path",
+      separatorBefore: true,
+    },
+    ...atomCopyEntries(payload),
+    { ...insertEntry(payload), separatorBefore: true },
   ],
   suppressStandardItems: false,
 });
@@ -296,19 +338,22 @@ registerAnnotationKind("url", {
     if (payload.kind !== "url") return;
     openUrlInOS(payload.url);
   },
-  menuEntries: () => URL_MENU_ENTRIES,
+  menuEntries: urlMenuEntries,
   suppressStandardItems: false,
 });
 
 registerAnnotationKind("email", {
-  menuEntries: () => EMAIL_MENU_ENTRIES,
+  menuEntries: emailMenuEntries,
   suppressStandardItems: false,
 });
 
-const DIRECTORY_MENU_ENTRIES: AnnotationMenuEntry[] = [
+const directoryMenuEntries = (
+  payload: AnnotationPayload,
+): AnnotationMenuEntry[] => [
   { action: TUG_ACTIONS.REVEAL_IN_FINDER, label: "Show in Finder" },
   { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Path" },
-  INSERT_ENTRY,
+  ...atomCopyEntries(payload),
+  insertEntry(payload),
 ];
 
 registerAnnotationKind("directory", {
@@ -319,14 +364,15 @@ registerAnnotationKind("directory", {
     if (payload.kind !== "directory") return;
     revealDirectoryInFinder(payload.path);
   },
-  menuEntries: () => DIRECTORY_MENU_ENTRIES,
+  menuEntries: directoryMenuEntries,
   suppressStandardItems: false,
 });
 
-const IMAGE_MENU_ENTRIES: AnnotationMenuEntry[] = [
+const imageMenuEntries = (payload: AnnotationPayload): AnnotationMenuEntry[] => [
   { action: TUG_ACTIONS.OPEN_IMAGE_PREVIEW, label: "Open Image" },
   { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Name" },
-  INSERT_ENTRY,
+  ...atomCopyEntries(payload),
+  insertEntry(payload),
 ];
 
 /**
@@ -345,7 +391,7 @@ const IMAGE_MENU_ENTRIES: AnnotationMenuEntry[] = [
  * the reader to recall the row's state.
  */
 function commitMenuEntries(
-  _payload: AnnotationPayload,
+  payload: AnnotationPayload,
   facts: AnnotationMenuFacts,
 ): AnnotationMenuEntry[] {
   const known = facts.kind === "commit-sha" ? facts : null;
@@ -378,7 +424,7 @@ function commitMenuEntries(
     );
     return entries;
   }
-  entries.push(INSERT_ENTRY);
+  entries.push(insertEntry(payload));
   return entries;
 }
 
@@ -419,7 +465,7 @@ registerAnnotationKind("commit-sha", {
  * and a permanently dead row is not information.
  */
 function sessionMenuEntries(
-  _payload: AnnotationPayload,
+  payload: AnnotationPayload,
   facts: AnnotationMenuFacts,
 ): AnnotationMenuEntry[] {
   const known = facts.kind === "session" ? facts : null;
@@ -437,9 +483,11 @@ function sessionMenuEntries(
   }
   // The atom and the citation are written from the session's identity RECORD
   // — its callsign, its project, the sidecar a paste back into Tug rebuilds
-  // the chip from. A payload carries an id and nothing else, so a surface
-  // that knows only the id is not offered two copies it could not perform.
-  // The id itself it can always write.
+  // the chip from. A surface holding the record writes both from its own
+  // facts. A surface holding only the id writes neither from the payload, so
+  // it is offered the citation not at all and the atom only through
+  // `atomSegmentFor`, which resolves the identity for itself and answers
+  // `null` when the ledger cannot. The id it can always write.
   if (known !== null) {
     entries.push({
       action: TUG_ACTIONS.COPY_SESSION_ATOM,
@@ -450,11 +498,17 @@ function sessionMenuEntries(
       action: TUG_ACTIONS.COPY_SESSION_CITATION,
       label: "Copy as Citation",
     });
+  } else {
+    // A surface holding only the id still offers the atom WHEN THE LEDGER CAN
+    // ANSWER FOR IT: `atomSegmentFor` resolves the identity itself, so the
+    // transcript's session ink is not stuck at the id the payload carries.
+    // Without this row the ink would say `Insert Atom into Prompt` and offer
+    // no way to take that atom, which is the one thing the rule forbids.
+    entries.push(...atomCopyEntries(payload));
   }
   entries.push({
     action: TUG_ACTIONS.COPY_SESSION_ID,
     label: "Copy Session ID",
-    ...(entries.length > 0 && known === null ? { separatorBefore: true } : {}),
   });
   if (known?.description !== undefined) {
     entries.push({
@@ -472,7 +526,7 @@ function sessionMenuEntries(
       disabled: (known.activity ?? "").trim().length === 0,
     });
   }
-  entries.push({ ...INSERT_ENTRY, separatorBefore: true });
+  entries.push({ ...insertEntry(payload), separatorBefore: true });
   return entries;
 }
 
@@ -497,6 +551,6 @@ registerAnnotationKind("image", {
     if (payload.kind !== "image") return;
     openAttachmentPreview(payload.atomId);
   },
-  menuEntries: () => IMAGE_MENU_ENTRIES,
+  menuEntries: imageMenuEntries,
   suppressStandardItems: false,
 });

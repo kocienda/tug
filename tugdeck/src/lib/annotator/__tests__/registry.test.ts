@@ -16,6 +16,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { sessionTagStore } from "@/lib/session-tag-store";
 import { annotationEntryFor } from "../registry";
 import type { AnnotationKind } from "../types";
 
@@ -136,11 +137,13 @@ describe("link kinds leave the standard menu block alone", () => {
   });
 
   test("each names its value in the idiom of its kind", () => {
+    // A url inserts as an atom and an email does not, which is the rule
+    // discriminating between two kinds whose menus were once identical.
     expect(
       annotationEntryFor("url")
         ?.menuEntries({ kind: "url", url: "https://x.y" }, { kind: "none" })
         .map((e) => e.label),
-    ).toEqual(["Copy Link", "Insert into Prompt"]);
+    ).toEqual(["Copy Link", "Copy as Atom", "Insert Atom into Prompt"]);
     expect(
       annotationEntryFor("email")
         ?.menuEntries({ kind: "email", address: "a@b.com" }, { kind: "none" })
@@ -152,7 +155,7 @@ describe("link kinds leave the standard menu block alone", () => {
 describe("a file offers one way into the composer", () => {
   // Whether the composer receives a chip or characters is the handler's
   // call, not a second menu item's — at0346 is where that lands.
-  test("open, reveal, copy, insert — and no second insert beside it", () => {
+  test("open, reveal, both copies, insert — and no second insert", () => {
     expect(
       annotationEntryFor("file-path")
         ?.menuEntries({ kind: "file-path", path: "/repo/a.ts" }, { kind: "none" })
@@ -161,8 +164,49 @@ describe("a file offers one way into the composer", () => {
       "Open in Editor",
       "Show in Finder",
       "Copy Path",
-      "Insert into Prompt",
+      "Copy as Atom",
+      "Insert Atom into Prompt",
     ]);
+  });
+});
+
+/**
+ * The rule, as the menu states it in both directions.
+ *
+ * `atomSegmentFor` is the single predicate behind two items, and what would
+ * go wrong without this test is the drift it exists to prevent: a kind
+ * promoted to atom-insert whose label still says the plain word, or an atom
+ * copy offered over an entity that inserts as text. Either one is the menu
+ * telling the reader something untrue about what the gesture will do.
+ */
+describe("an entity names its atom in both directions, or in neither", () => {
+  for (const kind of ALL_KINDS) {
+    test(kind, () => {
+      const labels = bareEntries(kind).map((e) => e.label);
+      const saysAtom = labels.includes("Insert Atom into Prompt");
+      expect(labels).toContain(
+        saysAtom ? "Insert Atom into Prompt" : "Insert into Prompt",
+      );
+      expect(labels.includes("Copy as Atom")).toBe(saysAtom);
+    });
+  }
+
+  test("a file says it, and the copy dispatches the atom action", () => {
+    const entries = bareEntries("file-path");
+    expect(entries.map((e) => e.label)).toContain("Insert Atom into Prompt");
+    expect(
+      entries.find((e) => e.label === "Copy as Atom")?.action,
+    ).toBe(TUG_ACTIONS.COPY_ANNOTATION_ATOM);
+  });
+
+  test("a command inserts as text, so it keeps the plain label", () => {
+    // The regression that proves the rule discriminates: at0225 asserts this
+    // label on a slash command in the running app.
+    for (const kind of ["slash-command", "shell-command", "email"] as const) {
+      const labels = bareEntries(kind).map((e) => e.label);
+      expect(labels).toContain("Insert into Prompt");
+      expect(labels).not.toContain("Copy as Atom");
+    }
   });
 });
 
@@ -232,6 +276,32 @@ describe("a session is offered only the copies its surface can perform", () => {
       TUG_ACTIONS.COPY_SESSION_ID,
       TUG_ACTIONS.INSERT_INTO_PROMPT,
     ]);
+  });
+
+  // The rule reaches the transcript's session ink, which is the one surface
+  // that holds a payload and nothing else. A session the ledger CAN answer
+  // for inserts as an atom, so it must offer the atom copy too — the
+  // half-named entity is what the whole arc exists to prevent, and this is
+  // the only kind whose predicate depends on state a payload cannot carry.
+  test("a resolvable session names its atom in both directions", () => {
+    const ID = (SAMPLE.session as { target: string }).target;
+    sessionTagStore.setTag(ID, "brisk-otter");
+    try {
+      const entries = bareEntries("session");
+      expect(entries.map((e) => e.label)).toEqual([
+        "Copy as Atom",
+        "Copy Session ID",
+        "Insert Atom into Prompt",
+      ]);
+      expect(
+        entries.find((e) => e.label === "Copy as Atom")?.action,
+        // The generic verb, not COPY_SESSION_ATOM: this surface has no
+        // identity record behind it, so the handler that reads the payload
+        // is the only one that can perform the item.
+      ).toBe(TUG_ACTIONS.COPY_ANNOTATION_ATOM);
+    } finally {
+      sessionTagStore.setTag(ID, null);
+    }
   });
 
   test("a surface holding the record is offered all three", () => {

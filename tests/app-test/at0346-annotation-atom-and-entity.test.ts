@@ -7,12 +7,16 @@
  * object-shaped acts and should not narrow it to whatever run of characters
  * the browser thinks a word is.
  *
- *  1. **A file inserts as an atom** — a verified file path offers exactly one
- *     way into the prompt, Insert into Prompt, and it mints the chip an
- *     `@` mention does: the file arrives carrying the canonical path as its
- *     value rather than as a run of path characters. The assertions are that
- *     the menu offers one insert item and not two, the chip's own
- *     `data-atom-value`, and that the path never landed as literal text.
+ *  1. **A file inserts as an atom, and copies as one** — a verified file path
+ *     offers exactly one way into the prompt, and the label says what will
+ *     arrive: Insert Atom into Prompt mints the chip an `@` mention does,
+ *     carrying the canonical path as its value rather than as a run of path
+ *     characters. Beside it, Copy as Atom puts that same object on the
+ *     clipboard, so a paste into the prompt returns a chip rather than the
+ *     characters — the round trip through the pasteboard, which no unit test
+ *     can reach. The assertions are that the menu offers one insert item and
+ *     not two, both labels, the chips' own `data-atom-value`, and that the
+ *     path never landed as literal text.
  *  2. **A mention chip is that same object** — an `@` mention's value is
  *     relative (that is what the file index reports), and a chip carrying
  *     one used to name nothing a menu could act on: the right-click offered
@@ -34,6 +38,8 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/lib/annotator/registry.ts
+ * @covers tugdeck/src/lib/annotator/atom-segment.ts
+ * @covers tugdeck/src/lib/session-atom.ts
  * @covers tugdeck/src/lib/annotator/payloads.ts
  * @covers tugdeck/src/lib/atom-file-path.ts
  * @covers tugdeck/src/components/tugways/cards/tug-atom-markdown-body.tsx
@@ -229,7 +235,9 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
             return el === null ? null : (el.textContent || '').trim();
           })()`,
         );
-        expect(insertLabel).toBe("Insert into Prompt");
+        // The label names what will arrive. A file's insert mints an atom,
+        // so it says so; a command's does not, which at0225 asserts.
+        expect(insertLabel).toBe("Insert Atom into Prompt");
 
         const itemPoint = await app.evalJS<{ x: number; y: number } | null>(
           menuItemPointJS("insert-into-prompt"),
@@ -273,6 +281,86 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
           })()`,
         );
         expect(literal).toBe(false);
+
+        // --- and Copy as Atom puts that same object on the clipboard ----
+        // The half a unit test cannot reach: the sidecar has to survive the
+        // real pasteboard and come back through the paste side as a chip.
+        await app.evalJS<boolean>(revealJS(SPAN));
+        await app.nativeRightClickAtElement(SPAN);
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-item-action="copy-annotation-atom"]') !== null`,
+          { timeoutMs: 4000 },
+        );
+        const copyLabel = await app.evalJS<string | null>(
+          `(function(){
+            var el = document.querySelector('[data-item-action="copy-annotation-atom"]');
+            return el === null ? null : (el.textContent || '').trim();
+          })()`,
+        );
+        // `Copy as <Format>` — a different serialization of one entity,
+        // which is what an atom is beside the path Copy Path writes.
+        expect(copyLabel).toBe("Copy as Atom");
+        const copyPoint = await app.evalJS<{ x: number; y: number } | null>(
+          menuItemPointJS("copy-annotation-atom"),
+        );
+        expect(copyPoint).not.toBeNull();
+        await app.nativeClick(copyPoint as { x: number; y: number });
+
+        // The sidecar reached the REAL pasteboard, on the private
+        // `dev.tugapp.prompt-atoms` type — read back through the same two
+        // functions the paste handler calls, since `pbpaste` cannot see a
+        // private type and no other route can assert the flavor was written.
+        // The read is async (the native bridge calls back) and `evalJS`
+        // cannot return a promise, so kick it off, park it, and poll.
+        await app.evalJS<null>(
+          `(window.__at0346sidecar = undefined,
+            window.__tug.readClipboardAtoms().then(function (r) {
+              window.__at0346sidecar = JSON.stringify(r);
+            }),
+            null)`,
+        );
+        await app.waitForCondition<boolean>(
+          `window.__at0346sidecar !== undefined`,
+          { timeoutMs: 8_000 },
+        );
+        const onClipboard = await app.evalJS<string>(`window.__at0346sidecar`);
+        note(`clipboard sidecar: ${onClipboard}`);
+        expect(JSON.parse(onClipboard)).toEqual({
+          // U+FFFC, the object-replacement char an atom occupies.
+          text: "￼",
+          atoms: [{ type: "file", label: FILE_NAME, value: stampedPath }],
+        });
+
+        // And the paste rebuilds the chip. An EMPTY `clipboardData` is the
+        // shape of the real gesture — everything the paste needs is on the
+        // pasteboard and none of it is in the event, because WebKit hides a
+        // private type from the DOM event. The editor reads the bridge, which
+        // is the route a real ⌘V takes. Same driver as at0474.
+        await app.focusElement(PROMPT_INPUT);
+        await app.evalJS<null>(`(function(){
+          var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
+          cm.dispatchEvent(new ClipboardEvent("paste", {
+            bubbles: true, cancelable: true, clipboardData: new DataTransfer(),
+          }));
+          return null;
+        })()`);
+
+        // Two chips now: the one the insert minted and the one the paste
+        // rebuilt from the sidecar. Both name the same file.
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(PROMPT_INPUT)} + ' img[data-atom-type="file"]').length === 2`,
+          { timeoutMs: 8000 },
+        );
+        const pastedValues = JSON.parse(
+          await app.evalJS<string>(
+            `JSON.stringify(Array.prototype.map.call(
+              document.querySelectorAll(${JSON.stringify(PROMPT_INPUT)} + ' img[data-atom-type="file"]'),
+              function(el){ return el.getAttribute('data-atom-value'); },
+            ))`,
+          ),
+        ) as string[];
+        note(`prompt chips after paste: ${pastedValues.join(" / ")}`);
+        expect(pastedValues).toEqual([stampedPath as string, stampedPath as string]);
 
         process.stdout.write("VERDICT: PASS\n");
       } catch (err) {
@@ -374,7 +462,8 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         expect(labels).toContain("Open in Editor");
         expect(labels).toContain("Show in Finder");
         expect(labels).toContain("Copy Path");
-        expect(labels).toContain("Insert into Prompt");
+        expect(labels).toContain("Copy as Atom");
+        expect(labels).toContain("Insert Atom into Prompt");
 
         process.stdout.write("VERDICT: PASS\n");
       } catch (err) {

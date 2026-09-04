@@ -140,6 +140,17 @@ export const TUG_ACTIONS = {
   //              time rather than the live selection, so it copies the
   //              WHOLE value regardless of any sub-word the browser
   //              smart-selected.
+  // COPY_ANNOTATION_ATOM: payload — none. Copy the sampled annotation as its
+  //              ATOM: the one-atom sidecar beside a `text/plain` flavor
+  //              carrying the atom's own value, so a paste back into any Tug
+  //              editor returns the chip rather than the characters. Offered
+  //              only where the kind's insert mints an atom — the same
+  //              predicate both items read — which is what keeps Copy as Atom
+  //              and Insert Atom into Prompt from disagreeing about what this
+  //              entity is. Menu-only, and menu-only for the reason every
+  //              sampled-target verb is: no chord can name the thing the
+  //              right-click landed on. The generalization of
+  //              COPY_SESSION_ATOM to every kind that has an atom form.
   // INSERT_INTO_PROMPT: payload — none. Send the sampled annotation back
   //              into the conversation: activate the card, then insert it
   //              into the prompt at the caret. Menu-only. This is
@@ -182,6 +193,7 @@ export const TUG_ACTIONS = {
   COPY_COMMAND:        "copy-command",
   COPY_COMMAND_AS_PLAIN_TEXT: "copy-command-as-plain-text",
   COPY_ANNOTATION_VALUE: "copy-annotation-value",
+  COPY_ANNOTATION_ATOM: "copy-annotation-atom",
   COPY_COPYABLE:       "copy-copyable",
   COPY_SESSION_ATOM:   "copy-session-atom",
   COPY_SESSION_CITATION: "copy-session-citation",

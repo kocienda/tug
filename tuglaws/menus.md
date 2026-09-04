@@ -420,7 +420,7 @@ The two reach each other through one typed action. `useAnnotationMenu` samples t
 ────
 [ Copy it ]         Copy <Noun> · Copy as <Format>
 ────
-[ Send it ]         Insert into Prompt
+[ Send it ]         Insert Atom into Prompt · Insert into Prompt
 ────
 [ Standard block ]  Look Up · Cut · Copy · … · Select All
 ```
@@ -432,6 +432,8 @@ Reading down: reach the thing, act on it, take it, say something about it. A men
 `Copy` alone belongs to the standard block, where the noun is *the selection* and the surface supplies it. An entity menu has no selection to mean, so every copy says what it copies: **Copy Path**, **Copy Link**, **Copy Address**, **Copy Full Hash**, **Copy Session ID**, **Copy Command**.
 
 `Copy as <Format>` is the one other shape and it is reserved for a genuinely different **serialization of one entity** — *Copy as Atom* beside *Copy as Citation*, *Copy Command as Plain Text* beside *Copy Command*. Never a second entity, never a second field.
+
+**The atom copy is not a session's alone; it is what an atom-inserting entity offers.** An entity whose insert mints an atom names it in both directions — *Insert Atom into Prompt* to send it, *Copy as Atom* to take it — and one that inserts as text keeps the plain *Insert into Prompt* and offers no atom copy. A file path, a directory, a URL and a resolvable session say it; a command line, an email address and a bare sha do not, because there the insert is a jot and the label would be a lie the menu tells. Both items read one predicate — `atomSegmentFor` in `lib/annotator/atom-segment.ts` — so a kind promoted to atom-insert later inherits both with no menu edit, and the two can never disagree about what the entity is. Its `null` is also [L31] at the source: a session the ledger cannot resolve has no atom to write, so neither row is offered.
 
 `registry.test.ts` fails on a bare `Copy`, on a kind that offers no copy at all, and on a menu that opens with a rule.
 

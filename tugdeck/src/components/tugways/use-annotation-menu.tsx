@@ -67,7 +67,8 @@ import { escapeHtml, writeCopyClipboard } from "@/lib/copy-clipboard";
 import { openAttachmentPreview } from "@/lib/attachment-preview-open";
 import { revealDirectoryInFinder, revealPathInFinder } from "@/lib/os-open";
 import { dispatchCommand } from "@/command-dispatch";
-import { formatAtomLabel, type AtomSegment } from "@/lib/tug-atom-img";
+import { atomPlainTextFor, atomSegmentFor } from "@/lib/annotator/atom-segment";
+import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 
 // ---------------------------------------------------------------------------
@@ -201,16 +202,11 @@ export function useAnnotationMenu({
     const raise = (): void => {
       if (cardId !== null && deck !== null) deck.activateCard(cardId);
     };
-    if (payload.kind === "file-path") {
-      const segment: AtomSegment = {
-        kind: "atom",
-        type: "file",
-        // The chip reads as a filename and carries the whole path underneath —
-        // the same split every other file chip in the app makes, and the
-        // reason one fits on a prompt line at all.
-        label: formatAtomLabel(payload.path, "filename"),
-        value: payload.path,
-      };
+    // Whether this entity inserts as an atom or as text is the registry's
+    // rule, stated once in `atomSegmentFor` and read by the Copy as Atom
+    // item as well as by this one.
+    const segment = atomSegmentFor(payload);
+    if (segment !== null) {
       return () => {
         raise();
         codeSessionStore.insertAtomDraft(segment);
@@ -223,6 +219,31 @@ export function useAnnotationMenu({
       codeSessionStore.insertJot(value, null);
     };
   }, [cardId, codeSessionStore, deck]);
+
+  // The atom copy — the same segment the insert mints, on the clipboard as
+  // the one-atom sidecar a paste back into any Tug editor rebuilds the chip
+  // from. Exactly the shape `sessionAtomClipboardPayload` writes: one atom at
+  // position 0 of the one-character text an atom occupies.
+  //
+  // The `text/plain` flavor is the atom's own plain form rather than the
+  // annotation's value, which is where the two copies differ on a cited file:
+  // `Copy Path` on `foo.ts:14` copies the citation as written, and an atom
+  // names a file. `atomPlainTextFor` states that per kind — a session's is
+  // its citation, because a bare callsign is not a reference off the machine.
+  //
+  // [L31] — a kind with no atom form is never offered this item, and the
+  // handler answers the same predicate rather than trusting that.
+  const handleCopyAnnotationAtom = useCallback((): ActionHandlerResult => {
+    const payload = contextAnnotationRef.current;
+    if (payload === null) return;
+    const segment = atomSegmentFor(payload);
+    if (segment === null) return;
+    writeCopyClipboard(atomPlainTextFor(payload, segment), null, origin(), {
+      version: 1,
+      text: TUG_ATOM_CHAR,
+      atoms: [{ position: 0, segment }],
+    });
+  }, [origin]);
 
   // Show in Finder for the right-clicked file annotation. Revealing a file
   // opens the folder around it; a directory is already that folder, so the two
@@ -285,6 +306,7 @@ export function useAnnotationMenu({
       // menus the same menu.
       [TUG_ACTIONS.COPY_SESSION_ID]: handleCopyAnnotationValue,
       [TUG_ACTIONS.INSERT_INTO_PROMPT]: handleInsertIntoPrompt,
+      [TUG_ACTIONS.COPY_ANNOTATION_ATOM]: handleCopyAnnotationAtom,
       [TUG_ACTIONS.REVEAL_IN_FINDER]: handleRevealAnnotatedFile,
       [TUG_ACTIONS.OPEN_IMAGE_PREVIEW]: handleOpenImagePreview,
       [TUG_ACTIONS.OPEN_DIFF]: handleOpenAnnotatedDiff,
@@ -296,6 +318,7 @@ export function useAnnotationMenu({
       handleCopyCommandPlain,
       handleCopyAnnotationValue,
       handleInsertIntoPrompt,
+      handleCopyAnnotationAtom,
       handleRevealAnnotatedFile,
       handleOpenImagePreview,
       handleOpenAnnotatedDiff,
