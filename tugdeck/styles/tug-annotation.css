@@ -177,3 +177,23 @@ code.tugx-annotation[data-tug-annotation="shell-command"]:hover {
   background-color: var(--tug7-surface-selection-primary-normal-plain-rest);
   color: var(--tug7-element-selection-text-normal-plain-rest);
 }
+
+/* And the native highlight stands down INSIDE the box, because otherwise the
+   two of them stack. The selection surface is a translucent wash — one alpha
+   over the transcript's own background — so a label wearing it on top of a
+   pill already wearing it came out a shade darker than the enclosure around
+   it, and the mark read as a selected word inside a selected pill: the very
+   double-reading the whole-entity rule exists to end.
+
+   The box keeps the fill because it is the one that covers the node, the gap
+   and the padding; the runs keep only the ink, which they need — the
+   `commit:` word is authored muted and would stay muted against the wash.
+   One fill, one ink, and the whole mark is a single flat surface.
+
+   @tug-renders-on var(--tug7-surface-selection-primary-normal-plain-rest) */
+[data-tug-entity-selected] .tug-session-identity[data-tier="chip"] ::selection,
+[data-tug-entity-selected] .tug-session-identity[data-tier="chip"]::selection,
+.tug-session-identity[data-tier="chip"][data-tug-entity-selected] ::selection {
+  background-color: transparent;
+  color: var(--tug7-element-selection-text-normal-plain-rest);
+}
