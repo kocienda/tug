@@ -1436,6 +1436,20 @@
   margin-bottom: 6px;
 }
 
+/* The bridge's emit-site slug in the session-dead detail panel. Ordinary
+   prose carrying one monospace token: the slug is an identifier the reader
+   greps for, so it is set apart from the sentence around it. */
+.session-card-error-site {
+  margin-top: 8px;
+}
+
+.session-card-error-site-slug {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.8125rem;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .session-card-error-diagnostic {
   margin: 0;
   max-height: 220px;

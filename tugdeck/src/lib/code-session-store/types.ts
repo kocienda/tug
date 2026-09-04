@@ -1224,6 +1224,12 @@ export interface CodeSessionSnapshot {
       | "resume_failed";
     message: string;
     at: number;
+    /**
+     * For `wire_error` only: the bridge's slug for the emit site that wrote
+     * the frame. Absent on every other cause, and on a frame from a tugcode
+     * older than the field.
+     */
+    site?: string;
   } | null;
 
   /**

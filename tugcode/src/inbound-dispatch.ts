@@ -26,6 +26,7 @@ import { join } from "node:path";
 import type { InboundMessage } from "@tugproto/inbound";
 import type { OutboundMessage } from "./types.ts";
 import type { SessionManager } from "./session.ts";
+import { errorFrame } from "./ipc.ts";
 import { buildSkillsInventory } from "./skills-inventory.ts";
 import { buildHooksInventory } from "./hooks-inventory.ts";
 
@@ -63,12 +64,9 @@ function reportAsync(
   if (promise instanceof Promise) {
     promise.catch((err) => {
       console.error(`${label}:`, err);
-      writeLine({
-        type: "error",
-        message: `${label}: ${err}`,
-        recoverable: true,
-        ipc_version: 2,
-      });
+      // The frame goes out through the injected `writeLine` (the ctx's, so a
+      // test can capture it); the builder is what logs the site beside it.
+      writeLine(errorFrame("inbound_dispatch", `${label}: ${err}`, true));
     });
   }
 }

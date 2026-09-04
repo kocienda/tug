@@ -332,10 +332,52 @@ export interface TurnCancelled {
   ipc_version: number;
 }
 
+/**
+ * The emit sites an `error` frame can come from — the one frame family
+ * that locks a card body, so the set is enumerated rather than left to
+ * free-form strings. A new site adds a slug here; `emitErrorFrame` is the
+ * only way to write the frame, so a site cannot forget to name itself.
+ */
+export type ErrorFrameSite =
+  /** A stub-replay transcript that would not load at startup. */
+  | "stub_transcript_load"
+  /** A `protocol_init` naming a version this bridge does not speak. */
+  | "protocol_version_unsupported"
+  /** `prepareSession` threw on the resume path. */
+  | "session_prepare_failed"
+  /** The background claude spawn threw synchronously. */
+  | "background_spawn_failed"
+  /** `initialize()` threw on the fresh-session path. */
+  | "session_init_failed"
+  /** `handleUserMessage` rejected. */
+  | "user_message_failed"
+  /** A fire-and-forget inbound verb handler rejected. */
+  | "inbound_dispatch"
+  /** A slash command's `<local-command-stderr>` echoed back during replay. */
+  | "local_command_stderr"
+  /** claude exited after the handshake — a runtime crash the budget retries. */
+  | "post_handshake_exit"
+  /** claude exited during a fresh init. */
+  | "fresh_init_exit"
+  /** claude's stdout closed over a turn nobody had interrupted. */
+  | "drain_eof_open_turn"
+  /** A submit arrived after the drain had already observed EOF. */
+  | "send_after_eof"
+  /** The stub replay engine ran past the end of its transcript. */
+  | "stub_replay_exhausted";
+
 export interface ErrorEvent {
   type: "error";
   message: string;
   recoverable: boolean;
+  /**
+   * Which emit site wrote this frame. The deck's banner reads
+   * "Protocol error" off the frame family alone, which asks whoever
+   * sees it to read tugcode's source to learn what broke; the slug
+   * names the code path instead, and rides the same string the
+   * `tugcode.error_frame` lifecycle line carries.
+   */
+  site: ErrorFrameSite;
   ipc_version: number;
 }
 

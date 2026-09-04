@@ -53,6 +53,14 @@ export type SessionCardBannerSpec =
        * error (different `at`) re-raises naturally.
        */
       at: number;
+      /**
+       * For a `wire_error`, the bridge's slug for the emit site that wrote
+       * the frame. The detail panel names it, because a strip reading
+       * "Protocol error" and nothing else asks the reader to go find
+       * tugcode's source. Absent on every other cause, and on a frame from a
+       * tugcode older than the field.
+       */
+      site?: string;
     };
 
 /**
@@ -102,6 +110,9 @@ export function deriveSessionCardBannerSpec(
       cause: snap.lastError.cause as BannerErrorCause,
       message: snap.lastError.message,
       at: snap.lastError.at,
+      ...(snap.lastError.site !== undefined
+        ? { site: snap.lastError.site }
+        : {}),
     };
   }
   return { kind: "none" };

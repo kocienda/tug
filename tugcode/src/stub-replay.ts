@@ -84,6 +84,7 @@ import type {
   ControlRequestCancel,
   ResumeFailed,
 } from "./types.ts";
+import { errorFrame } from "./ipc.ts";
 
 /**
  * Schema version of the transcript document. Bumped when the
@@ -282,12 +283,11 @@ export class StubReplayEngine {
    */
   dispatchTurn(): boolean {
     if (this.nextTurnIndex >= this.transcript.turns.length) {
-      const err: ErrorEvent = {
-        type: "error",
-        message: `stub-replay: user_message ${this.nextTurnIndex} exceeds transcript length ${this.transcript.turns.length}`,
-        recoverable: false,
-        ipc_version: 2,
-      };
+      const err: ErrorEvent = errorFrame(
+        "stub_replay_exhausted",
+        `stub-replay: user_message ${this.nextTurnIndex} exceeds transcript length ${this.transcript.turns.length}`,
+        false,
+      );
       this.emit(err);
       return false;
     }

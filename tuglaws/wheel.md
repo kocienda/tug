@@ -54,6 +54,8 @@ That edge is a claim about an *instant*, so the arc runner settles it for `[tugt
 
 A caller who is genuinely not in a turn is asking about the next one, and the receipt says so. Nothing is lost — a request is a promise about a turn's end, and there is always a next turn.
 
+**And a rotation ends the retiring claude's turn as a cancel, never as an error, so the card wears no banner for it.** The rule above makes an open turn rare rather than impossible — a turn the dispatcher never intercepted reads idle while claude is working, which is the same wrong reading it refuses to act on — so the bridge closes whatever it finds as `turn_cancelled` with `is_recovery` before the kill, the frame family the deck already renders quietly. An `error` frame is the one message that locks a card body behind a "Protocol error" banner, and a rotation is the wheel's deliberate act: the turn it retires was not lost, and a banner raised on a line the rotation has already closed has no path off it.
+
 ## Arcs, and how a card is handed back
 
 An **arc** is what drives a series of rotations. Its name reaches tugcode as the stage object's `arc` field and the child process's `TUG_ARC`.

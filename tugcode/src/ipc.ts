@@ -1,7 +1,13 @@
 // JSON-lines IPC protocol implementation
 
-import type { InboundMessage, OutboundMessage } from "./types.ts";
+import type {
+  ErrorEvent,
+  ErrorFrameSite,
+  InboundMessage,
+  OutboundMessage,
+} from "./types.ts";
 import { isInboundMessage } from "./types.ts";
+import { logSessionLifecycle } from "./session-lifecycle-log.ts";
 
 /**
  * Async generator that reads JSON lines from stdin.
@@ -137,6 +143,43 @@ export async function writeLineAndExit(
   // process.exit normally never returns. In tests `process.exit` is
   // stubbed to a no-op so the test process survives — let the function
   // simply return in that case rather than throwing.
+}
+
+/**
+ * Build an `error` frame and log a `tugcode.error_frame` line beside it.
+ *
+ * An `error` frame is the bridge's most consequential outbound message —
+ * the only one that locks a card body behind the deck's "Protocol error"
+ * banner — and for a long time it was the one frame emitted with no
+ * telemetry at all, so tugcast's `tugcode_stderr` capture could not say
+ * which of the dozen sites had fired. This builder is the single
+ * construction point: the log line and the frame carry the same `site`,
+ * and a `grep tugcode.error_frame` answers "which frame" in one read.
+ *
+ * Callers that write to stdout want {@link emitErrorFrame}; this builder is
+ * for the two paths that cannot — an exit-bound frame going through
+ * {@link writeLineAndExit}, and a frame pushed into a batch of translated
+ * replay messages.
+ */
+export function errorFrame(
+  site: ErrorFrameSite,
+  message: string,
+  recoverable: boolean,
+): ErrorEvent {
+  logSessionLifecycle("tugcode.error_frame", { site, message, recoverable });
+  return { type: "error", message, recoverable, site, ipc_version: 2 };
+}
+
+/**
+ * Write an `error` frame to stdout and log it. The ordinary emit path;
+ * see {@link errorFrame} for why every site goes through one of the two.
+ */
+export function emitErrorFrame(
+  site: ErrorFrameSite,
+  message: string,
+  recoverable: boolean,
+): void {
+  writeLine(errorFrame(site, message, recoverable));
 }
 
 /**

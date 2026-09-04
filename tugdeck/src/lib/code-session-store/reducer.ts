@@ -528,6 +528,12 @@ export interface CodeSessionState {
       | "resume_failed";
     message: string;
     at: number;
+    /**
+     * For `wire_error` only: the bridge's slug for the emit site that wrote
+     * the frame. Absent on every other cause, and on a frame from a tugcode
+     * older than the field.
+     */
+    site?: string;
   } | null;
   lastCost: CostSnapshot | null;
   /**
@@ -4088,12 +4094,18 @@ function handleSessionStage(
   event: SessionStageEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
   const text = stageNoteText(event.stage, event.model, event.document, event.steps);
-  const turnKey = state.pendingTurn?.turnKey;
-  const entry = turnKey === undefined ? undefined : state.scratch.get(turnKey);
+  // A rotation announced a fresh claude, which disproves a wire error raised
+  // on the one it superseded — the same rule `clearedTransportError` states
+  // for a recovered transport. Nothing else moves: a `session_state_errored`
+  // is about the card's process supervision, which a rotation does not
+  // replace, and it survives here exactly as it survives a reconnect.
+  const base = clearedWireError(state);
+  const turnKey = base.pendingTurn?.turnKey;
+  const entry = turnKey === undefined ? undefined : base.scratch.get(turnKey);
   if (turnKey === undefined || entry === undefined) {
     const divider: Effect = { kind: "append-stage-note", text };
     if (event.prompt === undefined || event.turnKey === undefined) {
-      return { state, effects: [divider] };
+      return { state: base, effects: [divider] };
     }
     // The runner's prompt opens the turn the deck will watch, on the path a
     // typed prompt takes — the same pending turn, the same scratch seed —
@@ -4104,7 +4116,7 @@ function handleSessionStage(
     // mints for a typed one — see `mintLeadingCommandAtom`. `content` keeps
     // the raw prompt: it records what the runner already sent.
     const minted = mintLeadingCommandAtom(event.prompt, [], TUG_ATOM_CHAR);
-    const opened = handleSend(state, {
+    const opened = handleSend(base, {
       type: "send",
       origin: "wheel",
       text: minted?.text ?? event.prompt,
@@ -4131,8 +4143,8 @@ function handleSessionStage(
   };
   return {
     state: {
-      ...state,
-      scratch: withScratchEntry(state.scratch, turnKey, nextEntry),
+      ...base,
+      scratch: withScratchEntry(base.scratch, turnKey, nextEntry),
     },
     effects: [],
   };
@@ -4342,6 +4354,12 @@ function handleWireError(
         cause: "wire_error",
         message,
         at: Date.now(),
+        // The bridge names which of its emit sites wrote the frame; the
+        // banner's detail panel shows it, so "Protocol error" stops being a
+        // label with nothing behind it. Older bridges send none.
+        ...(typeof event.site === "string" && event.site.length > 0
+          ? { site: event.site }
+          : {}),
       },
     },
     effects: [],
@@ -4597,6 +4615,37 @@ function clearedTransportError(
   return state.lastError?.cause === "transport_closed"
     ? { lastError: null }
     : {};
+}
+
+/**
+ * Drop a `wire_error` banner on the rotation edge, and only that cause.
+ *
+ * A rotation is the wheel's deliberate act: it retires one claude and
+ * announces a fresh one, so a wire-level error frame raised on the retired
+ * process describes a line the rotation has already closed. The banner is the
+ * one surface that locks the card body, and it has no other path off a
+ * superseded line — a `turn_complete(success)` for that line will never
+ * arrive, and a rotation with no prompt opens no turn to clear it. Same rule
+ * as {@link clearedTransportError}: nothing the fresh session disproves
+ * should outlive it.
+ *
+ * Every other cause is untouched. A `session_state_errored` from the crash
+ * budget is about the card's process supervision, which a rotation does not
+ * replace, and the two ownership causes are about the binding.
+ *
+ * **Live rotations only.** A `replay_stage` divider reaches the same handler,
+ * and it redraws a rotation that already happened rather than performing one —
+ * so it supersedes nothing and disproves nothing. Without this gate a banner's
+ * survival across a bridge respawn would turn on whether the replayed
+ * transcript happened to contain a stage divider, which is no rule at all.
+ *
+ * Returns the state itself when there is nothing to clear, so a quiescent
+ * rotation costs no snapshot identity ([L02]).
+ */
+function clearedWireError(state: CodeSessionState): CodeSessionState {
+  return state.phase !== "replaying" && state.lastError?.cause === "wire_error"
+    ? { ...state, lastError: null }
+    : state;
 }
 
 function handleTransportSettled(

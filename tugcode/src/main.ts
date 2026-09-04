@@ -3,6 +3,8 @@
 
 import {
   drainPendingWrites,
+  emitErrorFrame,
+  errorFrame,
   readLine,
   writeLine,
   writeLineAndExit,
@@ -354,12 +356,11 @@ async function main() {
       // A bare writeLine + process.exit races the async write
       // against the exit and silently drops the frame.
       await writeLineAndExit(
-        {
-          type: "error",
-          message: `${err instanceof Error ? err.message : String(err)}`,
-          recoverable: false,
-          ipc_version: 2,
-        },
+        errorFrame(
+          "stub_transcript_load",
+          `${err instanceof Error ? err.message : String(err)}`,
+          false,
+        ),
         1,
       );
       return; // unreachable in production; guard for tests that stub process.exit
@@ -376,12 +377,11 @@ async function main() {
         // `writeLine(...); process.exit(1)` would race the queued
         // microtask against the exit and silently drop the frame.
         await writeLineAndExit(
-          {
-            type: "error",
-            message: `Unsupported protocol version: ${msg.version}`,
-            recoverable: false,
-            ipc_version: 2,
-          },
+          errorFrame(
+            "protocol_version_unsupported",
+            `Unsupported protocol version: ${msg.version}`,
+            false,
+          ),
           1,
         );
         return; // unreachable in production; guard for tests that stub process.exit
@@ -457,12 +457,7 @@ async function main() {
         } catch (err) {
           console.error("Session prepare failed:", err);
           await writeLineAndExit(
-            {
-              type: "error",
-              message: `Session prepare failed: ${err}`,
-              recoverable: false,
-              ipc_version: 2,
-            },
+            errorFrame("session_prepare_failed", `Session prepare failed: ${err}`, false),
             1,
           );
         }
@@ -490,12 +485,11 @@ async function main() {
         claudeReady.catch(async (err) => {
           console.error("Background claude spawn failed:", err);
           await writeLineAndExit(
-            {
-              type: "error",
-              message: `Background claude spawn failed: ${err}`,
-              recoverable: false,
-              ipc_version: 2,
-            },
+            errorFrame(
+              "background_spawn_failed",
+              `Background claude spawn failed: ${err}`,
+              false,
+            ),
             1,
           );
         });
@@ -507,12 +501,11 @@ async function main() {
         } catch (err) {
           console.error("Session initialization failed:", err);
           await writeLineAndExit(
-            {
-              type: "error",
-              message: `Session initialization failed: ${err}`,
-              recoverable: false,
-              ipc_version: 2,
-            },
+            errorFrame(
+              "session_init_failed",
+              `Session initialization failed: ${err}`,
+              false,
+            ),
             1,
           );
         }
@@ -538,12 +531,11 @@ async function main() {
       if (sessionManager) {
         sessionManager.handleUserMessage(msg).catch((err) => {
           console.error("handleUserMessage failed:", err);
-          writeLine({
-            type: "error",
-            message: `Failed to handle user message: ${err}`,
-            recoverable: true,
-            ipc_version: 2,
-          });
+          emitErrorFrame(
+            "user_message_failed",
+            `Failed to handle user message: ${err}`,
+            true,
+          );
         });
       } else {
         console.error("User message received before session initialized");

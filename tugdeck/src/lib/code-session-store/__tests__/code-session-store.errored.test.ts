@@ -181,6 +181,115 @@ describe("CodeSessionStore — wire error event (Step 9a audit)", () => {
   });
 });
 
+describe("CodeSessionStore — a rotation clears the banner it superseded", () => {
+  /** Raise a wire-error banner on a card mid-turn. */
+  function raiseWireError(
+    conn: TestFrameChannel,
+    store: CodeSessionStore,
+    site?: string,
+  ): void {
+    store.send("hi", []);
+    driveToStreaming(conn, store, FIXTURE_IDS.MSG_ID);
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "error",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      message: "Claude process stream ended unexpectedly",
+      recoverable: true,
+      ...(site !== undefined ? { site } : {}),
+    });
+    expect(store.getSnapshot().lastError?.cause).toBe("wire_error");
+  }
+
+  /** The rotation announcement tugcode writes just before its `session_init`. */
+  function rotate(conn: TestFrameChannel): void {
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "session_segment",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      kind: "rotation",
+      stage: "audit",
+      model: "opus",
+      document: ".tug/arcs/some-arc/tasks.md",
+      arc: "some-arc",
+    });
+  }
+
+  it("clears a wire_error banner on the rotation segment", () => {
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+    raiseWireError(conn, store);
+
+    rotate(conn);
+
+    // The rotation announced a fresh claude, which disproves a wire error on
+    // the one it retired. The banner has no other path off a superseded line:
+    // that line's `turn_complete(success)` will never arrive.
+    expect(store.getSnapshot().lastError).toBeNull();
+  });
+
+  it("leaves a session_state_errored banner standing", () => {
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+    store.send("hi", []);
+    driveToStreaming(conn, store, FIXTURE_IDS.MSG_ID);
+    conn.dispatchDecoded(FeedId.SESSION_STATE, {
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      state: "errored",
+      detail: "crash_budget_exhausted",
+    });
+    expect(store.getSnapshot().lastError?.cause).toBe("session_state_errored");
+
+    rotate(conn);
+
+    // Process supervision is not what a rotation replaces, so this survives a
+    // rotation exactly as it survives a reconnect.
+    const snap = store.getSnapshot();
+    expect(snap.lastError?.cause).toBe("session_state_errored");
+    expect(snap.lastError?.message).toBe("crash_budget_exhausted");
+  });
+
+  it("keeps the bridge's emit site on the banner", () => {
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+    raiseWireError(conn, store, "drain_eof_open_turn");
+
+    // "Protocol error" names the frame family and nothing else; the slug is
+    // what the detail panel shows so the reader need not read tugcode.
+    expect(store.getSnapshot().lastError?.site).toBe("drain_eof_open_turn");
+  });
+
+  it("carries no site when the bridge sent none", () => {
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+    raiseWireError(conn, store);
+
+    expect(store.getSnapshot().lastError?.site).toBeUndefined();
+  });
+
+  it("leaves the banner standing on a replayed stage divider", () => {
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+    raiseWireError(conn, store);
+
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "replay_started",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+    });
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "replay_stage",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      stage: "audit",
+      model: "opus",
+      document: ".tug/arcs/some-arc/tasks.md",
+      arc: "some-arc",
+    });
+
+    // A replayed divider redraws a rotation that already happened; it
+    // supersedes nothing, so it disproves nothing. Only the live rotation
+    // segment clears the banner.
+    expect(store.getSnapshot().lastError?.cause).toBe("wire_error");
+  });
+});
+
 describe("CodeSessionStore — retry recovery from errored (Step 8)", () => {
   it("re-submits from errored, keeps lastError until turn_complete(success)", () => {
     const conn = new TestFrameChannel();

@@ -2536,6 +2536,16 @@ function renderSessionCardBanner(
           This card lost its session. Dismiss to keep working here, or close and
           reopen the card to start a fresh session.
         </p>
+        {spec.site ? (
+          // The bridge's own name for the code path that wrote the frame.
+          // "Protocol error" identifies the frame family and nothing more, so
+          // without this the detail panel asks the reader to go read
+          // tugcode's source to learn what actually broke.
+          <p className="session-card-error-site">
+            Reported by the bridge at{" "}
+            <code className="session-card-error-site-slug">{spec.site}</code>.
+          </p>
+        ) : null}
         {diagnostic ? (
           <div className="session-card-error-diagnostic-block">
             <div className="session-card-error-diagnostic-bar">

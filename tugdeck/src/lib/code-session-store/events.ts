@@ -826,6 +826,14 @@ export interface WireErrorEvent {
   type: "error";
   message?: string;
   recoverable?: boolean;
+  /**
+   * The bridge's slug for the emit site that wrote this frame
+   * (`drain_eof_open_turn`, `send_after_eof`, `inbound_dispatch`, …).
+   * Absent on a frame from a tugcode older than the field. The banner shows
+   * it in the detail panel, because "Protocol error" on its own asks the
+   * reader to go find tugcode's source.
+   */
+  site?: string;
   tug_session_id?: string;
   [key: string]: unknown;
 }

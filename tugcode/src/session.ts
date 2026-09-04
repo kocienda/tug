@@ -1,7 +1,13 @@
 // Session lifecycle management via direct claude CLI spawning
 
 import { PermissionManager, type PermissionMode } from "./permissions.ts";
-import { writeLine, writeLineAndExit, drainPendingWrites } from "./ipc.ts";
+import {
+  writeLine,
+  writeLineAndExit,
+  drainPendingWrites,
+  emitErrorFrame,
+  errorFrame,
+} from "./ipc.ts";
 import {
   sendControlRequest,
   sendControlResponse,
@@ -1893,12 +1899,7 @@ export function routeTopLevelEvent(
         }
         const stderrMatch = rawContent.match(/<local-command-stderr>([\s\S]*?)<\/local-command-stderr>/);
         if (stderrMatch) {
-          messages.push({
-            type: "error",
-            message: stderrMatch[1],
-            recoverable: true,
-            ipc_version: 2,
-          });
+          messages.push(errorFrame("local_command_stderr", stderrMatch[1], true));
         }
         break;
       }
@@ -1984,12 +1985,9 @@ export function routeTopLevelEvent(
               }
               const stderrMatch = blockContent.match(/<local-command-stderr>([\s\S]*?)<\/local-command-stderr>/);
               if (stderrMatch) {
-                messages.push({
-                  type: "error",
-                  message: stderrMatch[1],
-                  recoverable: true,
-                  ipc_version: 2,
-                });
+                messages.push(
+                  errorFrame("local_command_stderr", stderrMatch[1], true),
+                );
               }
             }
           }
@@ -4712,12 +4710,7 @@ export class SessionManager {
           exit_code: code,
         });
         await writeLineAndExit(
-          {
-            type: "error",
-            message: reason,
-            recoverable: true,
-            ipc_version: 2,
-          },
+          errorFrame("post_handshake_exit", reason, true),
           0,
         );
         return;
@@ -4752,12 +4745,7 @@ export class SessionManager {
       } else {
         const reason = `claude exited with code ${code} during fresh init`;
         await writeLineAndExit(
-          {
-            type: "error",
-            message: reason,
-            recoverable: false,
-            ipc_version: 2,
-          },
+          errorFrame("fresh_init_exit", reason, false),
           0,
         );
       }
@@ -7283,12 +7271,11 @@ export class SessionManager {
       }
     } else if (!turn.gotResult) {
       if (!turn.suppressEmit) {
-        writeLine({
-          type: "error",
-          message: "Claude process stream ended unexpectedly",
-          recoverable: true,
-          ipc_version: 2,
-        });
+        emitErrorFrame(
+          "drain_eof_open_turn",
+          "Claude process stream ended unexpectedly",
+          true,
+        );
       }
     }
     turn.finish();
@@ -7344,12 +7331,11 @@ export class SessionManager {
     // pre-R1e's read-loop emitted when its `readNextLine` returned
     // null on the first iteration.
     if (this.claudeStdoutEofObserved) {
-      writeLine({
-        type: "error",
-        message: "Claude process stream ended unexpectedly",
-        recoverable: true,
-        ipc_version: 2,
-      });
+      emitErrorFrame(
+        "send_after_eof",
+        "Claude process stream ended unexpectedly",
+        true,
+      );
       return;
     }
 
@@ -8507,6 +8493,20 @@ export class SessionManager {
 
   private async newSession(stage?: SessionStageSpec): Promise<void> {
     const parentSessionId = this.resolveClaudeId();
+    // Close any in-flight turn on the retiring claude as a cancel, not an
+    // error, exactly as `forceTerminateAndRespawn` does — the drain observes
+    // this kill's EOF and, without the flag, emits
+    // `error "Claude process stream ended unexpectedly"`, which the deck
+    // renders as the "Protocol error" banner. Retiring a claude is a
+    // deliberate act (a rotation, or a `/new` from the deck); a turn it ends
+    // was not lost, and the frame family for "something else ended this" is
+    // the cancel with `is_recovery`, which the deck already renders with no
+    // banner at all.
+    if (this.activeTurn !== null) {
+      this.activeTurn.interrupted = true;
+      // First writer wins: a user cancel already in flight keeps its cause.
+      this.activeTurn.interruptCause ??= "recovery";
+    }
     await this.killAndCleanup();
 
     // Absent is what *clears* it: the arc variable belongs to an arc, not to a
