@@ -107,7 +107,9 @@ Then the WebKit caches, which are per-bundle-identifier directories and are pure
 rm -rf ~/Library/Caches/dev.tugtool.app*
 ```
 
-The stale LaunchServices registrations need nothing: they point at DerivedData bundles that a `just build-app` under the new identity has already replaced, and `lsregister` prunes a registration whose bundle is gone on its own schedule.
+The stale LaunchServices registrations are harmless, but they do **not** go away on their own — that claim stood here once and the machine falsified it: 521 dead `dev.tugtool.*` records were still registered after the rename, the oldest from July, every one pointing at a DerivedData bundle long since deleted. They are inert because a record whose bundle is missing cannot be offered by Spotlight or by the Accessibility list's `+` picker, and that is the only reason to tolerate them. Nothing surgical removes one either: `lsregister -u <path>` exits 0 but has to read the bundle to identify the record, so against a path that no longer exists it is a no-op. Only a full `lsregister -kill -r -domain local -domain system -domain user` clears them, and that rebuilds Open With for every app on the machine — a system-wide cost for cosmetic tidiness.
+
+What does matter is a **live** bundle still carrying an old identity, because that one can be picked by mistake during the drag-to-grant. Find them by dumping `lsregister` and keeping the records with no `Bundle node not found on disk` line. Unregister each with `lsregister -u <path>` **while the bundle still exists** — that is the one moment the record can be removed — and then delete the bundle. A copy sitting in `~/.Trash` counts as live and is the easy one to miss.
 
 **Do not reset anything under `dev.tugapp`.** Those are the live identities, and `dev.tugapp.app.apptest` in particular holds the one hand-granted Accessibility grant every unattended app-test run depends on — resetting it costs another trip through [the grant dance](#the-grant-dance-hard-won-specifics).
 
