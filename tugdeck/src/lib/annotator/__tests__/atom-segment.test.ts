@@ -23,16 +23,16 @@ const TEXT_KINDS: ReadonlyArray<[string, AnnotationPayload]> = [
     { kind: "slash-command", name: "tugplug:draft", args: "" },
   ],
   ["shell command", { kind: "shell-command", command: "just app-test" }],
-  [
-    "commit sha",
-    {
-      kind: "commit-sha",
-      sha: "63de5762a1b2c3d4e5f60718293a4b5c6d7e8f90",
-      root: "/repo",
-      paths: ["lib/a.ts"],
-    },
-  ],
 ];
+
+/** One commit, shared by the block below and the plain-flavor block. */
+const COMMIT_SHA = "63de5762a1b2c3d4e5f60718293a4b5c6d7e8f90";
+const COMMIT: AnnotationPayload = {
+  kind: "commit-sha",
+  sha: COMMIT_SHA,
+  root: "/repo",
+  paths: ["lib/a.ts"],
+};
 
 describe("atomSegmentFor", () => {
   test("a file path answers a file segment labelled by its filename", () => {
@@ -180,6 +180,53 @@ describe("a session", () => {
   });
 });
 
+describe("a commit", () => {
+  test("answers a commit atom labelled the way every commit surface names one", () => {
+    expect(atomSegmentFor(COMMIT)).toEqual({
+      kind: "atom",
+      type: "commit",
+      label: "commit:63de5762",
+      value: COMMIT_SHA,
+    });
+  });
+
+  test("round-trips through payloadForAtom against the card's own root", () => {
+    // The value carries the sha and nothing else, so the REPOSITORY has to
+    // come from the roots — the same `projectDir` a relative file value counts
+    // from. `paths` comes back empty and that is the contract: it scopes the
+    // diff as an optimization, the descriptor makes it optional, and only the
+    // repository knows the answer.
+    const segment = atomSegmentFor(COMMIT);
+    expect(
+      payloadForAtom(
+        { type: segment!.type, value: segment!.value },
+        { projectDir: "/repo", cwd: null },
+      ),
+    ).toEqual({
+      kind: "commit-sha",
+      sha: COMMIT_SHA,
+      root: "/repo",
+      paths: [],
+    });
+  });
+
+  test("with no root to resolve against there is no payload", () => {
+    // The file arm's rule, for the file arm's reason: a diff descriptor naming
+    // no repository opens nothing, and a chip that looks actionable and is not
+    // is the failure `payloadForAtom` exists to refuse.
+    const segment = atomSegmentFor(COMMIT);
+    expect(
+      payloadForAtom({ type: segment!.type, value: segment!.value }),
+    ).toBeNull();
+    expect(
+      payloadForAtom(
+        { type: segment!.type, value: segment!.value },
+        { projectDir: null, cwd: "/elsewhere" },
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("the plain-text flavor beside the atom", () => {
   test("a path, a directory and a URL are their own plain form", () => {
     const plain = (payload: AnnotationPayload): string =>
@@ -190,6 +237,16 @@ describe("the plain-text flavor beside the atom", () => {
     expect(plain({ kind: "directory", path: "/repo/src/" })).toBe("/repo/src");
     expect(plain({ kind: "url", url: "https://anthropic.com/x" })).toBe(
       "https://anthropic.com/x",
+    );
+  });
+
+  test("a commit writes its label, never the bare sha", () => {
+    // The mirror of the session's rule. Plain text is what leaves Tug, and a
+    // bare hash pasted outside the app names nothing a reader can place —
+    // while `commit:63de5762` is the spelling every commit surface shows and
+    // every commit copy path already writes.
+    expect(atomPlainTextFor(COMMIT, atomSegmentFor(COMMIT)!)).toBe(
+      "commit:63de5762",
     );
   });
 

@@ -1,0 +1,166 @@
+/* @tug-pairings {
+ * --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-default-rest | informational
+ * } */
+
+/**
+ * @tug-pairings
+ * | Element                                      | Surface                                           | Role          | Context             |
+ * |----------------------------------------------|---------------------------------------------------|---------------|---------------------|
+ * | --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-default-rest | informational | the label's `commit:` word |
+ *
+ * One pairing, and it is the one `.tug-session-identity-arc` already makes on
+ * this same pill: a quieted run inside the atom's own enclosure. Everything
+ * else the mark is made of — the box, the border, the hover, the missing
+ * shape, the ink the node paints in — is `tug-session-identity.css`'s, reached
+ * by borrowing rather than restated here, so this sheet authors no rest colour
+ * of its own. [L15]
+ */
+
+/**
+ * tug-commit-atom.css — the two things a commit adds to the borrowed pill.
+ *
+ * The enclosure is NOT here. `TugCommitAtom` wears `tug-session-identity` at
+ * `data-tier="chip"`, so its box, corners, border, padding, `text-indent: 0`,
+ * baseline strut, `data-interactive` hover and `data-missing` shape all arrive
+ * from the settled skin through the same selectors a session citation is
+ * reached by. A commit adds a node and a label to that pill and nothing else —
+ * which is the property that keeps the three pills from drifting on numbers.
+ * [L20]
+ *
+ * Every rule below is scoped by `data-slot`, so it reaches this mount of the
+ * skin and no other.
+ */
+
+/* ── The face is the surface's ─────────────────────────────────────────────
+   The one declaration of the borrowed skin a commit reverses.
+
+   The identity pill pins `--tug-font-family-sans` deliberately, so no host can
+   restyle a session's or an arc's NAME — a name has a face, and dropped in the
+   History shade's mono rows the pill came out in a weight and width nothing
+   about the mark asked for. A hash has no face of its own: it is machine
+   output, and the surface a reader is standing on is what decides how machine
+   output should look there. So a commit atom inherits — proportional in a
+   transcript paragraph, an Overview post and a receipt header, mono in the
+   History shade's rows — and reads as one mark across both faces, which is
+   what the spike's composer bench was for.
+
+   This scopes the pin rather than contradicting it, and the `data-slot`
+   qualifier is how: three attribute-and-class selectors beat the skin's two,
+   and only on this mount. */
+.tug-session-identity[data-tier="chip"][data-slot="tug-commit-atom"] {
+  font-family: inherit;
+}
+
+/* ── The rollover ──────────────────────────────────────────────────────────
+   The border firms from the skin's resting 30% of the ink to 45% — the same
+   move the session and arc pills make, and the same value, taken from the same
+   place ([L20]: state varies over the authored rest value, it does not author
+   a second one).
+
+   The skin gives that move only to `[data-interactive="true"]`, and a commit
+   atom mostly is not: a sha in a History row or a receipt header is a COPY
+   target, and a pointer cursor there would promise a navigation that never
+   comes. But the mark must still answer the pointer — without it a sha was the
+   one entity in a History row that went on looking exactly the same as the
+   pointer crossed it — so the two are decoupled here: the border move is what
+   every commit pill does, and `data-interactive` buys only the cursor.
+
+   This is what retired `commit-sha-text.css`'s hover underline. A pill does
+   not take a text underline, and authoring the rollover on the ATOM rather
+   than on one host is what makes every mount answer the same way, including
+   the ones that component does not draw.
+
+   Not on a missing pill. An unresolvable commit is inert — dashed border,
+   muted ink, `cursor: default` — and a mark that firmed under the pointer
+   would be offering something the failure has already ruled out. */
+.tug-session-identity[data-tier="chip"][data-slot="tug-commit-atom"]:not([data-missing="true"]):hover {
+  border-color: color-mix(in oklab, currentcolor 45%, transparent);
+}
+
+/* ── The node ──────────────────────────────────────────────────────────────
+   A commit's mark, and it is STATIC. The session's dot carries a phase and
+   pulses at it; a commit has no phase — it is the one kind of thing in the app
+   that cannot change after it exists — so the mark says only "a point in
+   history" and says it in the ink the pill already set. No colour channel, no
+   pulse, and no `atomPillMarkVars`: that cap exists to stop a pulse's ring
+   crossing the border two pixels away, and there is no ring in flight here to
+   cap.
+
+   Its diameter is the register's own dot, so a commit's node and a session's
+   dot are the same size standing in one line — the register table is the only
+   place either number is authored (`lib/atom-register.ts`).
+
+   `align-self: center` seats it on the label's optical middle. It must not
+   supply the pill's baseline: it has no text in it, so a baseline is something
+   the browser would synthesize from its bottom edge, and the pill would hang
+   off the underside of its own node. The skin's `align-items: center` already
+   means no item is baseline-aligned and the strut is what the line reads —
+   this is belt and braces on the item that would otherwise be the tempting
+   one to align by.
+
+   1.5px of ring rather than a filled disc: filled, at 6px, it reads as the
+   session's phase dot with the colour drained out of it, which is the one
+   thing the mark must not say. A ring is the commit graph's own node. */
+.tug-commit-atom-node {
+  flex: none;
+  align-self: center;
+  box-sizing: border-box;
+  inline-size: var(--tugx-atom-dot-size, 6px);
+  block-size: var(--tugx-atom-dot-size, 6px);
+  border: 1.5px solid currentcolor;
+  border-radius: 999px;
+}
+
+/* ── The label ─────────────────────────────────────────────────────────────
+   `commit:<8>` — the clipboard's own spelling, one token, and the only run
+   there is.
+
+   It shrinks and elides INSIDE itself rather than refusing to fit. The session
+   pill learned this the hard way: an incompressible atom pushes its
+   neighbours, and an Overview header's clock broke onto a second line to make
+   room for one. Which characters a reader loses is a rule; the atom refusing
+   to fit is a bug. There is no elision ORDER to author here the way the
+   session pill has one, because a commit atom has a single run — the word and
+   the hash are one label, and a squeeze takes the hash's tail. */
+.tug-commit-atom-label {
+  display: inline-flex;
+  align-items: baseline;
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The word recedes a step: it is scaffolding for the hash, not part of the
+   address. Eight bare hex characters name nothing, which is why the word is
+   here at all — the spike drew the word-off axis and it was judged to still be
+   needed — but the eight characters are what the eye should land on. Muted ink
+   rather than a `currentcolor` mix, because this is a text colour and the
+   theme has a token for a quieted run: the same one `.tug-session-identity-arc`
+   takes on this same pill. */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.tug-commit-atom-word {
+  flex: none;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* `tabular-nums` survives the face change and matters MORE in proportional
+   type: without it eight hex characters are eight different widths and a
+   column of shas stops lining up. The tracking is the hash's alone — the word
+   is prose and does not want it. */
+.tug-commit-atom-hash {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+/* The `data-missing` pill mutes its whole ink through the borrowed skin, which
+   would leave the word muted twice and reading as a third tone. It rejoins the
+   hash: on an unresolvable commit the word and the address are equally inert,
+   and the shape is what states the failure. */
+.tug-session-identity[data-tier="chip"][data-missing="true"] .tug-commit-atom-word {
+  color: inherit;
+}

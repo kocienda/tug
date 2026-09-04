@@ -52,6 +52,7 @@ import { createPortal } from "react-dom";
 import { TugMarkdownBlock } from "../tug-markdown-block";
 import { TugAtomChip } from "@/lib/tug-atom-chip";
 import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
+import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
 import {
   isSessionAtomType,
   sessionAtomCallsign,
@@ -62,7 +63,7 @@ import {
   type AtomSegment,
 } from "@/lib/tug-atom-img";
 import { atomRegisterVars } from "@/lib/atom-register";
-import { hasLeadingCommandAtom } from "@/lib/command-atom";
+import { COMMIT_ATOM_TYPE, hasLeadingCommandAtom } from "@/lib/command-atom";
 import { parseSlashCommandLine } from "@/lib/annotator/command-grammar";
 import { stampAnnotation } from "@/lib/annotator/annotation-element";
 import { payloadForAtom } from "@/lib/annotator/payloads";
@@ -340,6 +341,23 @@ export const TugAtomMarkdownBody = React.forwardRef<
                 recordedProject: sessionAtomProject(atom.value),
               }}
               atom={atom}
+            />
+          ) : atom.type === COMMIT_ATOM_TYPE ? (
+            // And a commit atom portals its own pill, for the session arm's
+            // reason one kind over: the mark a reader saw in the composer is
+            // the mark they must still be looking at once the prompt is sent.
+            // Through the generic chip it came back as the family's washed
+            // box wearing the FILE glyph — the drawing the pill was built to
+            // replace. The host span already carries the annotation
+            // `tagAtomHosts` stamped, so the cursor is all the pill has to
+            // say about the gesture, and the `data-atom-*` trio is what the
+            // selection serializer reads a chip through whatever drew it.
+            <TugCommitAtom
+              sha={atom.value}
+              interactive={payloadForAtom(atom, atomPathRoots) !== null}
+              data-atom-type={atom.type}
+              data-atom-label={atom.label}
+              data-atom-value={atom.value}
             />
           ) : (
             <TugAtomChip

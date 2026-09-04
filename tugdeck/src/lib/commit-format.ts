@@ -38,6 +38,23 @@ export interface CommitFileShape {
 /** Short display form of a sha — git's own abbreviation length. */
 export const COMMIT_LABEL_LENGTH = 8;
 
+/**
+ * The label a commit atom carries — `commit:<8ch>`.
+ *
+ * The whole app's one spelling for naming a commit: what the pill prints, what
+ * `Copy Short Hash` writes, and what an atom copy's `text/plain` flavor
+ * carries. Eight bare hex characters name nothing a reader can act on, and a
+ * small glyph was judged not to rescue them — an atom stands with no sentence
+ * around it, so the work a sentence would have done moves into the label.
+ *
+ * It lives here beside {@link COMMIT_LABEL_LENGTH} rather than in a component,
+ * because the clipboard paths and the annotator's atom vocabulary both need it
+ * and neither may import a `components/` module.
+ */
+export function commitAtomLabel(sha: string): string {
+  return `commit:${sha.slice(0, COMMIT_LABEL_LENGTH)}`;
+}
+
 /** How many files a hover lists before it starts counting instead. */
 export const HOVER_FILE_LIMIT = 8;
 

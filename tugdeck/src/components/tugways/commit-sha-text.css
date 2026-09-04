@@ -5,12 +5,14 @@
    this used to paint is gone with the `<code>` element that carried it: the
    sha in a receipt header is a placed value, not something an author
    formatted as code, and the code tint is the channel that says the latter.
-   Appearance is `tug-atom-ref.css`'s now — one read-only skin, so a commit
-   cannot drift from a file ref again.
+   Appearance is the pill's now (`tug-commit-atom.css` over the borrowed
+   session skin), so a commit reads as a commit rather than as whatever a file
+   reference happens to look like.
 
    What survives here is the cursor. A commit atom is a copy target, not a
-   link: it carries no annotation, so the skin's own pointer rule never fires,
-   and this states the intent rather than relying on that absence. */
+   link: this mount passes no `interactive`, so the skin's own pointer rule
+   never fires, and this states the intent rather than relying on that
+   absence. */
 .commit-sha-text {
   cursor: default;
 }
@@ -21,19 +23,16 @@
   display: contents;
 }
 
-/* The rollover. The skin's own hover rule is keyed to the annotation
-   contract, and a commit atom carries none — every pointer gesture on a sha
-   stops here — so without this the chip is the one entity in a History row
-   that answers nothing when the pointer crosses it. The underline is the same
-   one an annotated atom and a confirmed mention wear on hover, so a sha reads
-   the same wherever it is met.
+/* The rollover retired from here. It was an underline — the one an annotated
+   atom and a confirmed mention wear — added because the skin's own hover rule
+   was keyed to an annotation contract a commit does not carry, which left the
+   sha the one entity in a History row that answered nothing to the pointer.
 
-   Underline only, and the cursor stays `default`: this is a copy target, not
-   a link. The mention's hover recolor is a link's promise, and a chip that
-   made it here would be promising a navigation that never comes.
-
-   @tug-renders-on: the host surface's own background */
-.commit-sha-text:hover .tug-atom-ref {
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-}
+   A pill does not take a text underline, and it does not need one: the mark
+   firms its own border from 30% to 45% of the ink when the pointer crosses it,
+   which is the same rollover the session and arc pills give and is authored
+   once, on the atom, in `tug-commit-atom.css`. Putting it there rather than
+   here is what makes every commit atom answer the pointer the same way —
+   including the ones this component does not draw. The cursor still stays
+   `default` above: firming a border is not a link's promise, and a copy target
+   must not make one. */

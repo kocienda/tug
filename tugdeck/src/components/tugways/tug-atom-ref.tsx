@@ -2,13 +2,13 @@
  * `TugAtomRef` — the read-only atom skin.
  *
  * An **atom** is the rendering of a value somebody *placed*: an `@`-mention,
- * a tool call's `file_path` field, an entry in a Overview post's `refs` array,
- * the sha in a commit receipt's header. An atom has exactly two skins and
- * never a third. The **editable skin** is the boxed chip (`TugAtomChip`), and
- * the box means one thing: *this object can be selected, deleted, or dragged
- * where it sits*. This is the other one — glyph + label, transparent, no
- * border — for every placed value in read-only ink. See
- * `tuglaws/entity-presentation.md`.
+ * a tool call's `file_path` field, an entry in a Overview post's `refs`
+ * array, the session id in an arc receipt's stage row. An atom has exactly
+ * two skins and never a third. The **editable skin** is the boxed chip
+ * (`TugAtomChip`), and the box means one thing: *this object can be
+ * selected, deleted, or dragged where it sits*. This is the other one —
+ * glyph + label, transparent, no border — for every placed value in
+ * read-only ink. See `tuglaws/entity-presentation.md`.
  *
  * The counterpart is a **mention**: characters somebody *wrote* in a
  * sentence, which render as those characters plus a resting underline once a
@@ -17,7 +17,7 @@
  * applies is never a judgment call.
  *
  * **The label is a name, not the value.** A file atom shows its basename; a
- * commit atom shows `commit:227a8eb9`. An atom stands with no sentence
+ * session atom shows `session:227a8eb9`. An atom stands with no sentence
  * around it, so the word a sentence would have supplied belongs in the
  * label — eight bare hex characters name nothing a reader can act on, and a
  * small glyph does not rescue them. A mention needs no such word, because
@@ -31,11 +31,10 @@
  * reference rather than a parallel implementation. In presentational mode
  * it stamps nothing, for hosts that already carry the full contract: the
  * Overview's `annotationProps` wrapper span, which also owns the pending and
- * unresolvable tooltip states, and `CommitShaText`, which owns every pointer
- * gesture on a sha. A commit skin never stamps its own — a commit
- * annotation needs the repo root and the commit's touched paths, which only
- * the host's resolver has, so `annotate` is offered on the file arm alone
- * rather than as a prop that would be silently ignored.
+ * unresolvable tooltip states. A session or arc skin never stamps its own —
+ * where that click goes is the host's business rather than the skin's, so
+ * `annotate` is offered on the file arm alone rather than as a prop that
+ * would be silently ignored.
  *
  * **The hover follows the stamping.** A self-stamping file skin owns its
  * hover too, and it is the house {@link fileTip} in a {@link TugTooltip} —
@@ -73,7 +72,7 @@
 import "./tug-atom-ref.css";
 
 import React from "react";
-import { FileText, GitBranch, GitCommit, MessageSquare } from "lucide-react";
+import { FileText, GitBranch, MessageSquare } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { fileTip } from "@/components/tugways/entity-tips";
@@ -114,41 +113,38 @@ export type TugAtomRefEntity =
        */
       annotate?: boolean;
     }
-  | { kind: "commit"; sha: string }
   /**
    * A claude session, by the id that is its only durable name.
    *
-   * Presentational like a commit, and short for the same reason: the whole
-   * UUID names nothing a reader can hold, and the leading run is enough to
-   * tell one stage of an arc from the next. The label carries the word
-   * because eight bare hex characters carry none.
+   * Presentational, and short: the whole UUID names nothing a reader can
+   * hold, and the leading run is enough to tell one stage of an arc from
+   * the next. The label carries the word because eight bare hex characters
+   * carry none.
    */
   | { kind: "session"; id: string }
   /**
    * An arc, by the name that is its address everywhere else in the app.
-   * Presentational like a commit: the host owns the gesture, because where a
-   * arc click goes is the host's business rather than the skin's.
+   * Presentational: the host owns the gesture, because where an arc click
+   * goes is the host's business rather than the skin's.
    */
   | { kind: "arc"; name: string };
 
 export interface TugAtomRefProps {
   entity: TugAtomRefEntity;
   /**
-   * Override the default label (the basename, or `commit:<8>`). What is
+   * Override the default label (the basename, or `session:<8>`). What is
    * rendered MUST read as the same characters — this is for decorating
    * them, as a filter match decorates a sha with `<mark>`s, never for
    * substituting different ones.
    */
   label?: React.ReactNode;
-  /** Leading glyph. Defaults to `FileText` / `GitCommit` by kind. */
+  /**
+   * Leading glyph. Defaults to `FileText` / `GitBranch` / `MessageSquare`
+   * by kind.
+   */
   icon?: React.ReactNode;
   "data-slot"?: string;
   className?: string;
-}
-
-/** The label a commit atom carries when nothing overrides it. */
-export function commitAtomLabel(sha: string): string {
-  return `commit:${sha.slice(0, COMMIT_LABEL_LENGTH)}`;
 }
 
 /** The label a session atom carries when nothing overrides it. */
@@ -216,9 +212,7 @@ export function TugAtomRef({
       ? basename(entity.path)
       : entity.kind === "arc"
         ? entity.name
-        : entity.kind === "session"
-          ? sessionAtomLabel(entity.id)
-          : commitAtomLabel(entity.sha);
+        : sessionAtomLabel(entity.id);
 
   const skin = (
     <span
@@ -232,10 +226,8 @@ export function TugAtomRef({
             <FileText />
           ) : entity.kind === "arc" ? (
             <GitBranch />
-          ) : entity.kind === "session" ? (
-            <MessageSquare />
           ) : (
-            <GitCommit />
+            <MessageSquare />
           ))}
       </span>
       {/* The name, in an element of its own so the annotation rule can land

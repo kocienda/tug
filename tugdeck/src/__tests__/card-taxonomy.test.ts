@@ -93,7 +93,7 @@ describe("card taxonomy", () => {
     const spikes = allRegistrations().filter((reg) =>
       reg.componentId.startsWith("spike-"),
     );
-    expect(spikes.length).toBe(14);
+    expect(spikes.length).toBe(13);
   });
 
   test("every spike registers under the spike family", () => {

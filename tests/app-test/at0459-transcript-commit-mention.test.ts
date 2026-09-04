@@ -35,6 +35,7 @@
  *
  * @covers tugdeck/src/components/tugways/tug-markdown-block.tsx
  * @covers tugdeck/src/components/tugways/commit-tip-portals.tsx
+ * @covers tugdeck/src/components/tugways/tug-commit-atom.tsx
  * @covers tugdeck/src/components/tugways/annotation-portals.tsx
  * @covers tugdeck/src/lib/annotator/commit-resolution.ts
  */

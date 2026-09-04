@@ -28,6 +28,7 @@ import {
 import type { PathVerdict } from "./path-resolution";
 import type { AnnotationKind } from "./types";
 import { resolveAtomFilePath, type AtomPathRoots } from "@/lib/atom-file-path";
+import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
 
 /** A URL in transcript ink. */
 export interface UrlPayload {
@@ -176,6 +177,22 @@ function mentionPathOf(value: string, roots?: AtomPathRoots): string | null {
  * resolve against, a relative value is still refused: the contract is an
  * openable target, and guessing what a bare name is relative to is how a
  * link starts dead-ending.
+ *
+ * **A commit resolves the same way, through the same root.** Its value is the
+ * sha and nothing else, so the repository the sha belongs to has to come from
+ * somewhere — and that somewhere is `roots.projectDir`, the card's own project
+ * directory, exactly the root a relative file value counts from. With no root
+ * the answer is `null`, for the file arm's reason: a diff descriptor naming no
+ * repository opens nothing, and an atom that looked actionable and was not is
+ * the failure this whole function exists to avoid.
+ *
+ * The touched-file list a commit payload can carry comes back EMPTY here, and
+ * that is correct rather than a gap. `paths` scopes the diff as an
+ * optimization — it is optional on the descriptor — and the only thing that
+ * knows which files a commit touched is the repository, which the resolver
+ * asks over the wire and caches per workspace. This function is pure by
+ * contract, and acquiring a store to consult would cost that for a field the
+ * diff re-derives anyway.
  */
 export function payloadForAtom(
   atom: AtomLike,
@@ -203,6 +220,12 @@ export function payloadForAtom(
     return null;
   }
   if (type === "link" && value !== "") return { kind: "url", url: value };
+  if (type === COMMIT_ATOM_TYPE && value !== "") {
+    const root = roots?.projectDir ?? null;
+    return root === null
+      ? null
+      : { kind: "commit-sha", sha: value, root, paths: [] };
+  }
   return null;
 }
 

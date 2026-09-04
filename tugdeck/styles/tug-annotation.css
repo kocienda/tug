@@ -86,13 +86,22 @@
        citation chip, which carries its own affordance and empties the span
        it mounts into. The chip is the atom; the run is a host.
      - `url` / `email` — anchors, already links.
-   An atom's own arms are not kind-qualified: an atom carries `file-path`
-   or `commit-sha` and nothing else, and both take the rule.
+   An atom's own arms are not kind-qualified: a `TugAtomRef` carries
+   `file-path` and nothing else now, so there is no kind to qualify by.
+
+   `commit-sha` LEFT the wrapped-run lists when the commit atom arrived. A
+   confirmed sha in prose is no longer a decorated run of text: the span is
+   emptied and a pill is portalled into it, and a text underline authored on
+   the host paints straight across the mark inside — through its border, its
+   node and its label alike. The hover recolour is the same defect one step on,
+   since the pill draws itself in `currentcolor` and would repaint whole. The
+   mark's rollover is its own border move now, on every surface at once. It is
+   absent from the `code` lists for the older reason: nothing classifies inline
+   code as a commit.
 
    @tug-renders-on: the surrounding surface's own background */
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="file-path"],
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="directory"],
-[data-tugx-wrapped].tugx-annotation[data-tug-annotation="commit-sha"],
 code.tugx-annotation[data-tug-annotation="file-path"],
 code.tugx-annotation[data-tug-annotation="directory"],
 code.tugx-annotation[data-tug-annotation="slash-command"],
@@ -112,7 +121,6 @@ code.tugx-annotation[data-tug-annotation="shell-command"],
    @tug-renders-on: the surrounding surface's own background */
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="file-path"]:hover,
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="directory"]:hover,
-[data-tugx-wrapped].tugx-annotation[data-tug-annotation="commit-sha"]:hover,
 code.tugx-annotation[data-tug-annotation="file-path"]:hover,
 code.tugx-annotation[data-tug-annotation="directory"]:hover,
 code.tugx-annotation[data-tug-annotation="slash-command"]:hover,

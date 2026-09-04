@@ -34,6 +34,14 @@
  *     span the resolver refused carries none: code tone and actionability
  *     are separate channels, and only the second is the resolver's to speak
  *     for.
+ *  5. **A commit is that same object too** — the newest kind to answer
+ *     {@link atomSegmentFor}, and the one whose atom's value carries no
+ *     repository, so the round trip has to resolve one from the card. A
+ *     confirmed sha in prose offers the atom insert and the atom copy, mints a
+ *     `commit` chip whose value is the sha, survives the real pasteboard, and
+ *     comes back as a second chip. The bake and the live pill are read against
+ *     each other in the same frame, because "one mark everywhere" is a claim
+ *     about two renderers and only a measurement can hold it.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -42,6 +50,9 @@
  * @covers tugdeck/src/lib/session-atom.ts
  * @covers tugdeck/src/lib/annotator/payloads.ts
  * @covers tugdeck/src/lib/atom-file-path.ts
+ * @covers tugdeck/src/lib/command-atom.ts
+ * @covers tugdeck/src/lib/commit-format.ts
+ * @covers tugdeck/src/components/tugways/tug-commit-atom.tsx
  * @covers tugdeck/src/components/tugways/cards/tug-atom-markdown-body.tsx
  * @covers tugdeck/styles/tug-annotation.css
  * @covers tugdeck/src/components/tugways/tug-markdown-view.css
@@ -57,9 +68,11 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolve } from "node:path";
 import { launchTugApp, note } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -74,6 +87,16 @@ const FILE_BODY = ["alpha", "bravo", "charlie"].join("\n");
 const KNOWN_CMD = "tugplug:implement";
 const ARG = "arc/find-route.md";
 const UNKNOWN_CMD = "definitely-not-a-command";
+
+/** This repository — a real git repo whose HEAD the app's git feed confirms. */
+const REPO_ROOT = resolve(import.meta.dir, "..", "..");
+const HEAD_SHA = execSync("git rev-parse HEAD", { cwd: REPO_ROOT })
+  .toString()
+  .trim();
+/** The short form prose uses — deliberately longer than the label's eight. */
+const WRITTEN_SHA = HEAD_SHA.slice(0, 10);
+/** What every commit surface, and the atom's plain flavor, spell. */
+const COMMIT_LABEL = `commit:${HEAD_SHA.slice(0, 8)}`;
 
 const PROMPT_INPUT = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';
 
@@ -683,6 +706,189 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         };
         note("unresolved code span", plainRule);
         expect(plainRule.line).toBe("none");
+
+        process.stdout.write("VERDICT: PASS\n");
+      } catch (err) {
+        process.stdout.write("VERDICT: FAIL\n");
+        const tail = app.tailLog(200);
+        if (tail !== "") process.stderr.write(`\n[at0346] log tail:\n${tail}\n`);
+        throw err;
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a commit inserts and copies as an atom, and the bake matches the pill",
+    async () => {
+      const app = await launchTugApp({ testName: "at0346-commit-atom" });
+      const ingest = (decoded: unknown) =>
+        app.driveSession("A", {
+          op: "ingestFrame",
+          feedId: CODE_OUTPUT_FEED,
+          decoded,
+        });
+
+      try {
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+          { timeoutMs: 30_000 },
+        );
+        // The binding is what gives the annotator a commit root — this
+        // repository, where the sha resolves — and it is also the root the
+        // pasted atom resolves back through.
+        await app.bindSession("A", {
+          tugSessionId: SID,
+          projectDir: REPO_ROOT,
+          sessionMode: "resume",
+        });
+
+        await ingest(replayStarted());
+        await ingest(userMsg("which commit"));
+        await ingest(asstText("m1", `It landed as \`${WRITTEN_SHA}\`.`, 1));
+        await ingest(turnDone("m1"));
+        await ingest(replayComplete());
+
+        // The run is inert until the repository confirms the sha, and the
+        // pill is what the portal mounts once it does.
+        const SPAN = `[data-card-id="A"] [data-tug-annotation="commit-sha"]`;
+        const PILL = `${SPAN} [data-slot="tug-commit-atom"]`;
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PILL)}) !== null`,
+          { timeoutMs: 15_000 },
+        );
+        // The prose spelled ten characters; the mark shows the label's eight,
+        // with the word the pill supplies.
+        const shown = await app.evalJS<string>(
+          `(document.querySelector(${JSON.stringify(PILL)}).textContent || "").trim()`,
+        );
+        note(`at0346 commit pill: ${shown}`);
+        expect(shown).toBe(COMMIT_LABEL);
+
+        // --- the insert mints a commit chip ----------------------------
+        await app.evalJS<boolean>(revealJS(SPAN));
+        await app.nativeRightClickAtElement(SPAN);
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
+          { timeoutMs: 4000 },
+        );
+        // The label names what will arrive. Before a commit had an atom form
+        // this said the plain word, and the menu was telling the truth.
+        expect(
+          await app.evalJS<string | null>(
+            `(function(){
+              var el = document.querySelector('[data-item-action="insert-into-prompt"]');
+              return el === null ? null : (el.textContent || '').trim();
+            })()`,
+          ),
+        ).toBe("Insert Atom into Prompt");
+
+        const insertPoint = await app.evalJS<{ x: number; y: number } | null>(
+          menuItemPointJS("insert-into-prompt"),
+        );
+        expect(insertPoint).not.toBeNull();
+        await app.nativeClick(insertPoint as { x: number; y: number });
+
+        const CHIP = `${PROMPT_INPUT} img[data-atom-type="commit"]`;
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
+          { timeoutMs: 8000 },
+        );
+        const chip = JSON.parse(
+          await app.evalJS<string>(
+            `JSON.stringify((function(){
+              var img = document.querySelector(${JSON.stringify(CHIP)});
+              if (img === null) return {};
+              return {
+                value: img.getAttribute('data-atom-value'),
+                label: img.getAttribute('data-atom-label'),
+                alt: img.getAttribute('alt'),
+                height: Math.round(img.getBoundingClientRect().height),
+              };
+            })())`,
+          ),
+        ) as { value?: string; label?: string; alt?: string; height?: number };
+        note(`at0346 commit chip: ${JSON.stringify(chip)}`);
+        // The chip carries the SHA as the prose spelled it — an object, not a
+        // run of hex characters — and reads as the label every surface shows.
+        expect(chip.value).toBe(WRITTEN_SHA);
+        expect(chip.label).toBe(COMMIT_LABEL);
+        expect(chip.alt).toBe(COMMIT_LABEL);
+
+        // The bake and the live pill are ONE PICTURE. Both boxes measured in
+        // the same frame: the pill is the CSS renderer reading the register
+        // table as custom properties, the chip is the Canvas renderer reading
+        // it as numbers, and the whole point of the table is that they cannot
+        // answer differently.
+        const pillHeight = await app.evalJS<number>(
+          `Math.round(document.querySelector(${JSON.stringify(PILL)}).getBoundingClientRect().height)`,
+        );
+        note(`at0346 bake ${chip.height}px vs pill ${pillHeight}px`);
+        expect(chip.height).toBe(pillHeight);
+
+        // --- and Copy as Atom puts that same object on the pasteboard ---
+        await app.evalJS<boolean>(revealJS(SPAN));
+        await app.nativeRightClickAtElement(SPAN);
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-item-action="copy-annotation-atom"]') !== null`,
+          { timeoutMs: 4000 },
+        );
+        const copyPoint = await app.evalJS<{ x: number; y: number } | null>(
+          menuItemPointJS("copy-annotation-atom"),
+        );
+        expect(copyPoint).not.toBeNull();
+        await app.nativeClick(copyPoint as { x: number; y: number });
+
+        await app.evalJS<null>(
+          `(window.__at0346commit = undefined,
+            window.__tug.readClipboardAtoms().then(function (r) {
+              window.__at0346commit = JSON.stringify(r);
+            }),
+            null)`,
+        );
+        await app.waitForCondition<boolean>(
+          `window.__at0346commit !== undefined`,
+          { timeoutMs: 8_000 },
+        );
+        const onClipboard = await app.evalJS<string>(`window.__at0346commit`);
+        note(`at0346 commit sidecar: ${onClipboard}`);
+        expect(JSON.parse(onClipboard)).toEqual({
+          text: "￼",
+          atoms: [
+            { type: "commit", label: COMMIT_LABEL, value: WRITTEN_SHA },
+          ],
+        });
+
+        // The paste rebuilds the chip from the sidecar, the same route a real
+        // ⌘V takes — an empty `clipboardData`, because WebKit hides a private
+        // type from the DOM event.
+        await app.focusElement(PROMPT_INPUT);
+        await app.evalJS<null>(`(function(){
+          var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
+          cm.dispatchEvent(new ClipboardEvent("paste", {
+            bubbles: true, cancelable: true, clipboardData: new DataTransfer(),
+          }));
+          return null;
+        })()`);
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(CHIP)}).length === 2`,
+          { timeoutMs: 8000 },
+        );
+
+        // --- and submitting carries it on the wire ---------------------
+        // The last leg: a chip is only a real atom if it survives the send.
+        await app.evalJS<boolean>(
+          `window.__tug.dispatchControlAction("submit-prompt", { cardId: "A" }), true`,
+        );
+        await app.waitForCondition<boolean>(
+          `(document.querySelector('[data-card-id="A"]').textContent || "").indexOf(${JSON.stringify(
+            HEAD_SHA.slice(0, 8),
+          )}) !== -1`,
+          { timeoutMs: 10_000 },
+        );
 
         process.stdout.write("VERDICT: PASS\n");
       } catch (err) {

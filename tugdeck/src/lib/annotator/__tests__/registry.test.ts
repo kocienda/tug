@@ -357,7 +357,8 @@ describe("a commit's menu grows with what the surface holds", () => {
       "Open Diff",
       "Copy Short Hash",
       "Copy Full Hash",
-      "Insert into Prompt",
+      "Copy as Atom",
+      "Insert Atom into Prompt",
     ]);
   });
 

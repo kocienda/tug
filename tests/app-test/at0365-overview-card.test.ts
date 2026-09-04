@@ -153,7 +153,11 @@ const ROWS_JS = `Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
         return i === null ? null : (i.textContent || "").trim();
       })(),
       body: (body === null ? "" : body.textContent || "").trim(),
-      chips: Array.from(el.querySelectorAll(".overview-post-refs .tug-atom-ref"))
+      chips: Array.from(
+        el.querySelectorAll(
+          '.overview-post-refs .tug-atom-ref, .overview-post-refs [data-slot="tug-commit-atom"]',
+        ),
+      )
         .map(function (c) { return (c.textContent || "").trim(); }),
       glyph: el.querySelector(".tug-transcript-entry__icon svg") !== null,
       glyphPx: (function () {

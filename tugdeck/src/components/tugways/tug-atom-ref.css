@@ -1,7 +1,6 @@
 /* @tug-pairings:
    - (currentColor) | --tugx-block-strip-bg   (tool-call header: glyph + label inherit the header detail's muted code tone)
    - (currentColor) | --tug7-surface-1        (Overview trailing refs row)
-   - (currentColor) | --tug7-surface-1        (commit receipt header, History rows)
    `TugAtomRef` paints no surface of its own — it inherits its host's size
    and colour and contributes the code font, the leading glyph's size, and
    an optical baseline nudge.

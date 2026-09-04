@@ -384,6 +384,19 @@ const imageMenuEntries = (payload: AnnotationPayload): AnnotationMenuEntry[] => 
  * the copies and every other form is measured from it: the bare full hash for
  * a git argument, the header for a sentence, the record for a paste.
  *
+ * `Copy as Atom` sits with them, because a commit is a real atom now: it
+ * writes the same two flavors a file or session atom does — the sidecar the
+ * composer re-materializes a chip from, and `commit:<8>` as the plain text a
+ * reader outside Tug can place. It is spread from {@link atomCopyEntries}
+ * rather than written here, so the row and the insert's label read one
+ * predicate and cannot come to disagree about what a commit is.
+ *
+ * It sits BESIDE the insert rather than up with the hash copies, so the two
+ * items arrive and depart together on every path through this function. A
+ * History row, which holds the whole record and offers no insert at all, is
+ * the path that would otherwise have earned an atom copy with nothing naming
+ * it in the other direction.
+ *
  * Transcript ink and a receipt header know a sha and nothing else, so they
  * get the two forms a sha alone can stand behind. A History row holds the
  * subject and the whole record, and its facts say so. The fold leads when the
@@ -424,6 +437,7 @@ function commitMenuEntries(
     );
     return entries;
   }
+  entries.push(...atomCopyEntries(payload));
   entries.push(insertEntry(payload));
   return entries;
 }

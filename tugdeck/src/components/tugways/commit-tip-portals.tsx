@@ -11,14 +11,40 @@
  * out: an OS-drawn box in the system font, light in a dark theme.
  *
  * Portals bridge the two, exactly as {@link useSessionCitationPortals} does
- * for citation chips. The portal renders the commit's **mention label** —
- * `commit:<8ch>`, the same spelling every atom surface shows — wrapped in a
- * {@link TugTooltip} carrying {@link commitTip}. The spelling the prose used
- * is machine output, not authorship (git's short form lengthens with the
- * repository, so raw shas drift between 7 and 12 characters post to post);
- * it is preserved on {@link COMMIT_TEXT_ATTRIBUTE} for re-scan and unwrap,
- * and the reader sees one uniform, worded form. See
- * `tuglaws/entity-presentation.md`.
+ * for citation chips. The portal renders the commit's own **atom** — the
+ * {@link TugCommitAtom} pill, label `commit:<8ch>`, the same mark every other
+ * commit surface shows — wrapped in a {@link TugTooltip} carrying
+ * {@link commitTip}. The spelling the prose used is machine output, not
+ * authorship (git's short form lengthens with the repository, so raw shas
+ * drift between 7 and 12 characters post to post); it is preserved on
+ * {@link COMMIT_TEXT_ATTRIBUTE} for re-scan and unwrap, and the reader sees
+ * one uniform mark. See `tuglaws/entity-presentation.md`.
+ *
+ * **This is the mount where the pill IS interactive**, and it is the only one
+ * of the atom's mounts that is. A confirmed run in prose carries the
+ * annotation contract on the span the portal fills, and that contract opens
+ * the commit's diff — so the mark takes the pointer cursor here, where a sha
+ * in a History row or a receipt header does not, because there the mark is a
+ * copy target with no navigation to promise. The affordance is keyed on the
+ * confirmed verdict rather than on the mount, so an unconfirmed run gets a
+ * bare pill and no cursor.
+ *
+ * **A pill takes no text underline, which is why the mention's own decoration
+ * retired.** `commit-sha` left the `[data-tugx-wrapped]` underline and
+ * hover-recolour lists in `styles/tug-annotation.css` when the pill arrived: a
+ * rule painted on the host span runs straight through the mark portalled into
+ * it, and a recolour of the host's ink repaints a mark that draws itself in
+ * `currentcolor`. The pill's own border move is the rollover now, exactly as
+ * on every other surface.
+ *
+ * **The prose-doubling yield survives the pill, and is the one thing about
+ * this mark that reads its neighbours.** When the sentence has already said
+ * the word right where the run begins, the label shows the hash alone, so a
+ * reader does not get `Commit commit:86af912c`. That rule predates the pill
+ * and is unchanged by it — it is about the SENTENCE, not about the mark, which
+ * is why it lives here where the neighbouring text is legible and travels as a
+ * single `word` prop rather than as a second kind of commit atom. Every placed
+ * mount carries the word, because a placed atom has no sentence beside it.
  *
  * **Emptying the host is safe here.** `dropStaleWraps` re-checks only the
  * kinds whose truth can change; a commit that resolved once stays resolved,
@@ -39,8 +65,8 @@
 import React from "react";
 import { createPortal } from "react-dom";
 
-import { SHA_DISPLAY_LEN } from "@/components/tugways/commit-sha-text";
 import { commitTip } from "@/components/tugways/entity-tips";
+import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import type { CommitFacts } from "@/lib/annotator/commit-resolution";
 import type { AnnotationContext } from "@/lib/annotator/types";
@@ -145,15 +171,18 @@ export function useCommitTipPortals(
     const verdict = resolveCommit?.(sha) ?? { state: "unknown" as const };
     const facts: CommitFacts | null =
       verdict.state === "confirmed" ? verdict.facts : null;
-    // The mention label, not the prose spelling: `commit:<8ch>`, the same
-    // worded form every atom surface shows — unless the sentence already
-    // said the word, in which case the hash alone completes it. The
-    // as-written characters stay on the host attribute; what the reader
-    // sees is uniform.
-    // A plain span, because the tooltip's trigger has to be an element and
-    // the mark's own appearance is already on the host it portals into.
-    const short = sha.slice(0, SHA_DISPLAY_LEN);
-    const run = <span>{worded ? short : `commit:${short}`}</span>;
+    // The atom, not the prose spelling — the same pill, with the same
+    // `commit:<8ch>` label, that a History row and a receipt header draw. The
+    // as-written characters stay on the host attribute; what the reader sees
+    // is one mark wherever a commit is named — except for the word, which the
+    // sentence takes back when it has already said it.
+    //
+    // Interactive only on a CONFIRMED commit, which is also the only case the
+    // annotator stamps the payload the click reads. An unconfirmed run gets
+    // the pill with no cursor rather than a promise nothing can keep.
+    const run = (
+      <TugCommitAtom sha={sha} interactive={facts !== null} word={!worded} />
+    );
     return createPortal(
       facts === null ? (
         run

@@ -98,6 +98,7 @@ import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
+import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
 import { TugAttachmentPreview } from "@/components/tugways/cards/tug-attachment-preview";
 import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
 import {
@@ -318,6 +319,14 @@ function refTip(
  * prose beside it was, for looking like nothing. See
  * `tuglaws/entity-presentation.md`.
  *
+ * **A commit is the exception, and it is not one of the two skins at all.** A
+ * commit has its own atom now ({@link TugCommitAtom}) — the pill the session
+ * and arc beside it wear — because a point in history is a different kind of
+ * thing from a path, and drawing the two identically was what made a refs row
+ * carrying both read as one undifferentiated run. The pill is not the editable
+ * skin returning by the back door: it is read-only ink like everything else in
+ * this row, and it carries a box because that is what a commit's mark IS.
+ *
  * The skin renders **presentationally** here: the wrapper span below already
  * carries the full annotation contract and the pending/unresolvable tooltip
  * states, so a skin that also stamped its own would duplicate the contract
@@ -325,7 +334,11 @@ function refTip(
  * `tug-atom-ref.css` keys cursor and hover off an annotated wrapper, and
  * {@link annotationProps} stamps one only for an `actionable` resolution, so
  * a pending or unresolvable ref renders inert with its reason on the tooltip
- * and no prop had to be threaded to say so.
+ * and no prop had to be threaded to say so. The pill cannot key off the
+ * wrapper that way — its states are attributes on the mark itself — so the
+ * commit branch reads the same resolution and hands it down as `interactive`
+ * and `missing`, which is the same fact travelling by the one route the pill
+ * has.
  *
  * A session — not a file-shaped thing at all — renders as the live
  * {@link TugSessionCitation}, exactly as a session atom does in a transcript
@@ -384,18 +397,37 @@ function RefAtom({
   // commit. An atom stands with no sentence around it, so a bare hash names
   // nothing a reader can use and the word belongs in the label — which is
   // also the spelling copy already uses, so selection and menu agree.
-  const skin = (
-    <TugAtomRef
-      entity={
-        chipRef.kind === "commit"
-          ? { kind: "commit", sha: chipRef.target }
-          : { kind: "file", path: chipRef.target, annotate: false }
-      }
-      // The glyph families are the atom vocabulary's own: a commit is a point
-      // on a line, a folder a folder, everything else a file.
-      icon={isDir ? <Folder /> : undefined}
-    />
-  );
+  //
+  // A commit takes its own pill and reads the resolution itself. `actionable`
+  // is the state where this row's wrapper opens the diff, so that is the one
+  // that earns the pointer cursor; `inert` is a sha this repository does not
+  // have, and the pill answers it by keeping its shape and dashing its border
+  // rather than degrading to a bare label — a reader still needs to know what
+  // kind of thing failed to resolve. `pending` is neither: a probe in flight
+  // is not a failure, and a mark that flashed dashed on the way to resolving
+  // would report one.
+  //
+  // The register is the default `prose`, and it is not an oversight that a
+  // block-shaped row takes the running-text one: a session ref in this same
+  // row is a `TugSessionCitation` that takes the same default, and two pills
+  // side by side at 22px and 24px is precisely the drift the register table
+  // exists to prevent. The row's density is one decision for the whole row —
+  // when it moves, it moves for both marks at once.
+  const skin =
+    chipRef.kind === "commit" ? (
+      <TugCommitAtom
+        sha={chipRef.target}
+        interactive={resolution.state === "actionable"}
+        missing={resolution.state === "inert"}
+      />
+    ) : (
+      <TugAtomRef
+        entity={{ kind: "file", path: chipRef.target, annotate: false }}
+        // The glyph families are the atom vocabulary's own: a folder a folder,
+        // everything else a file.
+        icon={isDir ? <Folder /> : undefined}
+      />
+    );
   const marked = (
     // No `data-tugx-wrapped` — that mark is for a run the annotator split
     // out of prose, whose affordance has to be painted onto the text. An atom

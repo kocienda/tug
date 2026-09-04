@@ -78,20 +78,51 @@ export function chipDisplayLabel(
  * - `"dot"` — the session atom's phase dot. The session's mark says what it is
  *   *doing*, which is the one thing a static glyph could never do ([P01]), so
  *   the chip leads with the dot and carries no glyph beside it.
+ * - `"ring"` — the commit atom's node. A commit cannot change after it
+ *   exists, so its mark says only "a point in history": the same diameter as
+ *   the session's dot, drawn as a ring in the chip's own ink with no colour
+ *   channel at all. It replaced a `GitCommitHorizontal` glyph, which put a
+ *   commit in the file family's vocabulary and drew rails inside an enclosure
+ *   they had nowhere to run to.
  * - `"none"` — a slash command, whose leading `/` (see
  *   {@link chipDisplayLabel}) is its marker.
  *
- * Both marks occupy the same leading span, so geometry is one rule.
+ * Every mark occupies the same leading span, so geometry is one rule.
  */
-export function chipMark(type: string): "icon" | "dot" | "none" {
+export function chipMark(type: string): "icon" | "dot" | "ring" | "none" {
   if (type === "command") return "none";
   if (isSessionAtomType(type)) return "dot";
+  if (type === COMMIT_ATOM_TYPE) return "ring";
   return "icon";
 }
 
 /** Whether a chip of this type reserves a leading mark span. */
 export function chipHasIcon(type: string): boolean {
   return chipMark(type) !== "none";
+}
+
+/**
+ * The atom type a commit travels as, on the clipboard and on the wire.
+ *
+ * Named here beside the chip vocabulary rather than in the annotator, because
+ * the two renderers ask this question and neither of them knows what an
+ * annotation is.
+ */
+export const COMMIT_ATOM_TYPE = "commit";
+
+/**
+ * Whether this type wears the PILL — the transparent, hairline-bounded,
+ * text-ink enclosure, rather than the atom family's washed-and-recessed box.
+ *
+ * Two types do: a session and a commit. That is not a coincidence of taste but
+ * the same claim twice — each names an object somebody can hold in their head
+ * and point at, where a file chip names a thing you open. Both live pills
+ * borrow one CSS skin (`tug-session-identity.css`'s chip tier) and both bakes
+ * take the geometry and ink below, so a pill cannot come out one shape in the
+ * composer and another in the transcript it was sent to.
+ */
+export function isPillAtomType(type: string): boolean {
+  return isSessionAtomType(type) || type === COMMIT_ATOM_TYPE;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,32 +243,35 @@ export function chipStyle(variant: ChipVariant = "default"): ChipStyle {
 }
 
 /**
- * The session atom's face ([P13], Spec S05) — the one atom type outside the
- * shared family above.
+ * The pill's face ([P13], Spec S05) — the two atom types outside the shared
+ * family above, a session and a commit.
  *
  * A rounded pill in **text ink**: no ground, no Key wash, and a plain hairline
- * at {@link SESSION_CHIP_BORDER_ALPHA} of the text color in place of the
- * family's recess. The dot is the chip's only color channel, because a colored
- * pill around a colored dot was two tints saying one thing.
+ * at {@link PILL_CHIP_BORDER_ALPHA} of the text color in place of the family's
+ * recess. A session's dot is the chip's only color channel, because a colored
+ * pill around a colored dot was two tints saying one thing; a commit's ring
+ * takes the ink and is no channel at all, because a commit has no state to
+ * report.
  *
  * The numbers are the ones `tug-session-identity.css` authors for the `sm`
- * chip, so the composer's bake and the mounted component read as the same
- * object at the same size.
+ * chip — the same skin `TugCommitAtom` borrows — so the composer's bake and
+ * the mounted component read as the same object at the same size, for either
+ * kind.
  */
-export const SESSION_CHIP_GEOMETRY: ChipGeometryStyle = {
+export const PILL_CHIP_GEOMETRY: ChipGeometryStyle = {
   // A pill: both renderers clamp a corner radius to half the box.
   radius: 999,
   paddingX: 9,
   gap: 5,
 };
 
-/** Alpha of the session chip's hairline, over the chip's own text ink —
+/** Alpha of a pill chip's hairline, over the chip's own text ink —
  *  the bake's equivalent of the component's `currentcolor 30%` mix. */
-export const SESSION_CHIP_BORDER_ALPHA = 0.3;
+export const PILL_CHIP_BORDER_ALPHA = 0.3;
 
-/** The text/border ink the session chip paints in — ordinary text color, not
+/** The text/border ink a pill chip paints in — ordinary text color, not
  *  the atom family's own tokens. */
-export const SESSION_CHIP_INK_TOKEN =
+export const PILL_CHIP_INK_TOKEN =
   "--tug7-element-global-text-normal-default-rest";
 
 // ---------------------------------------------------------------------------

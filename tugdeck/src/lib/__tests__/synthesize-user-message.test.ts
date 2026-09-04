@@ -465,6 +465,42 @@ describe("synthesizeUserMessageFromBlocks + buildWirePayload round-trip", () => 
     });
   });
 
+  test("commit atom round-trip: the mark keeps its kind and its `commit:<8>` spelling", () => {
+    const store = createAtomBytesStore();
+    // The mark a reader placed in the composer — a commit, whose value is a
+    // bare sha and whose label is the one spelling every commit surface shows.
+    const sha = "d69e4f8bcb850c5b617270e5dee19ed6460966af";
+    const editorText = `look at ${C} again`;
+    const editorAtoms: AtomSegment[] = [
+      { kind: "atom", type: "commit", label: "commit:d69e4f8b", value: sha },
+    ];
+
+    const wire = buildWirePayload(editorText, editorAtoms, store);
+    // One mechanism on the wire, the same marker a file mention rides.
+    expect(wire.content).toEqual([
+      { type: "text", text: `look at \`@${sha}\` again` },
+    ]);
+
+    const synth = synthesizeUserMessageFromBlocks(wire.content, store, {
+      atomIdAt: wire.atomIdAt,
+      mintAtomId: makeCounter(),
+      bakeImage: stubBake,
+    });
+
+    // It comes back as what it went out as. Before the sha shape was a
+    // discriminator it came back a FILE labelled with all forty characters,
+    // so the sent row drew the file chip and the reader watched the mark
+    // change kind on submit.
+    expect(synth.text).toBe(`look at ${C} again`);
+    expect(synth.atoms).toHaveLength(1);
+    expect(synth.atoms[0]).toMatchObject({
+      kind: "atom",
+      type: "commit",
+      label: "commit:d69e4f8b",
+      value: sha,
+    });
+  });
+
   test("non-image + image atoms interleaved round-trip cleanly", () => {
     const store = createAtomBytesStore();
     store.put("editor-img", { content: "PNG", mediaType: "image/png" });

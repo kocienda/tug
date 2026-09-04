@@ -5,9 +5,17 @@
  * rows and the `/commit` receipt's header. A sha in a receipt header or a
  * History row arrived in a *field* of a commit record — somebody placed it,
  * nobody wrote it in a sentence — so it is an atom, and it takes the same
- * read-only skin every other placed value takes ({@link TugAtomRef}). A sha
- * written in prose stays a mention and is the annotator's business, not this
- * component's. See `tuglaws/entity-presentation.md`.
+ * placed skin every commit takes ({@link TugCommitAtom}). A sha written in
+ * prose stays a mention and is the annotator's business, not this component's.
+ * See `tuglaws/entity-presentation.md`.
+ *
+ * **The skin is the commit's own pill now, not the generic read-only ref.** A
+ * commit used to wear the same glyph-label-underline mark a `file_path` in a
+ * tool header wears, so a History row's sha and a file reference two inches
+ * away were the same drawing of two different kinds of thing. The pill says
+ * what a commit is — a point in history, wearing the enclosure the session and
+ * the arc beside it wear — and it says it identically on every surface this
+ * component feeds, which is what makes it worth having one component here.
  *
  * **The label carries the word.** `commit:227a8eb9`, not `227a8eb9`: eight
  * bare hex characters name nothing a reader can act on, and a small glyph was
@@ -21,7 +29,8 @@
  * A commit atom is a copy target, not a link, and the gestures stop here so a
  * right-click in the History shade cannot fold the row out from under its own
  * menu. It therefore renders the skin **presentationally** — no annotation
- * dataset, no delegated click.
+ * dataset, no delegated click, and no `interactive`, so the pill takes no
+ * pointer cursor and promises no navigation.
  *
  * The complete 40-char hash comes from the row's Copy button, which writes
  * the whole commit record.
@@ -33,7 +42,7 @@ import "./commit-sha-text.css";
 
 import React, { useRef } from "react";
 
-import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
+import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
 import { useCopyableText } from "@/components/tugways/use-copyable-text";
 
 /** Short-sha display length — enough to uniquely name a commit at a glance. */
@@ -62,7 +71,9 @@ export function CommitShaText({
    * MUST read as the same characters the plain form shows; it replaces how the
    * sha is painted, never what it says. It decorates the sha characters
    * *within* the label, so a filter match highlights the hash and leaves the
-   * word alone. Omitted ⇒ the plain short text.
+   * word and the enclosure alone — which the pill now guarantees rather than
+   * merely intends, because it takes the hash run as `labelContent` and
+   * supplies the word itself. Omitted ⇒ the plain short text.
    */
   content?: React.ReactNode;
   className?: string;
@@ -96,14 +107,10 @@ export function CommitShaText({
         onMouseUp={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
       >
-        <TugAtomRef
-          entity={{ kind: "commit", sha }}
-          // The default label is already `commit:<8>`; an override is needed
-          // only to let a decorated sha through, and it keeps the word.
-          label={
-            content === undefined ? undefined : <>commit:{content}</>
-          }
-        />
+        {/* The word is the pill's, so a decorated sha no longer has to
+            reconstruct it: `content` is the HASH's characters and nothing
+            else, which is what a filter matched and all it may paint. */}
+        <TugCommitAtom sha={sha} labelContent={content} />
       </span>
       {/* The copy menu's own gestures stop here. A React portal still bubbles
           through the REACT tree, so without this a click on the menu's Copy

@@ -53,6 +53,15 @@
  * while the bake beside it aligned by its own label, and a session citation in
  * a transcript paragraph sat off the line of the sentence holding it.
  *
+ * A third test asks the question the commit atom's arrival raised: the commit
+ * pill is not a second drawing of the session pill but the SAME drawing — it
+ * wears `tug-session-identity` at `data-tier="chip"` and adds a node and a
+ * label to it, exactly as `ArcSigil atom` does. That claim is only worth
+ * anything if a browser agrees, so the two pills are measured against each
+ * other in the same row: same box, same border, same mark diameter. A number
+ * that diverges means somebody re-authored one of them, which is the whole
+ * defect the borrowing exists to make impossible.
+ *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/lib/atom-register.ts
@@ -60,6 +69,8 @@
  * @covers tugdeck/src/lib/tug-atom-img.ts
  * @covers tugdeck/src/components/tugways/tug-session-identity.css
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
+ * @covers tugdeck/src/components/tugways/tug-commit-atom.tsx
+ * @covers tugdeck/src/components/tugways/tug-commit-atom.css
  * @covers tugdeck/src/components/tugways/cards/gallery-atom.tsx
  */
 
@@ -78,6 +89,10 @@ const ROW = `${CARD} .gallery-atom-register`;
  * their boxes are comparable.
  */
 const PAIR = `${CARD} [data-slot="gallery-atom-inline-pair"]`;
+
+/** The two live pills in a register row, by the slots they answer to. */
+const SESSION_PILL = '[data-slot="tug-session-identity"]';
+const COMMIT_PILL = '[data-slot="tug-commit-atom"]';
 
 interface RegisterRow {
   register: string;
@@ -201,6 +216,69 @@ const INLINE_JS = `(function () {
   };
 })()`;
 
+/** What one register row reports about its two live pills, side by side. */
+interface PillPair {
+  register: string;
+  /** Box heights, rounded — the register's number, twice. */
+  sessionHeight: number | null;
+  commitHeight: number | null;
+  /** Resolved border widths, in px. Both come from the one skin. */
+  sessionBorder: number | null;
+  commitBorder: number | null;
+  /** Resolved corner radius, in px — the pill shape itself. */
+  sessionRadius: number | null;
+  commitRadius: number | null;
+  /** The marks' glyph boxes: the session's phase dot, the commit's node. */
+  sessionDot: number | null;
+  commitNode: number | null;
+  /** What the register table published, read back off the host. */
+  declaredHeight: number;
+  declaredDot: number;
+  /** The commit label's resolved face, so the [B02] inherit is visible. */
+  commitFontFamily: string | null;
+  /** The row's own face, which the commit pill must be wearing. */
+  hostFontFamily: string | null;
+}
+
+/**
+ * Measure the two pills against each other in every register row.
+ *
+ * Computed values rather than authored ones: the claim is that the commit
+ * pill's box arrives from the session pill's stylesheet, and the only witness
+ * to that is a browser that resolved both cascades and got one answer twice.
+ */
+const PILLS_JS = `(function () {
+  var rows = Array.from(document.querySelectorAll(${JSON.stringify(ROW)}));
+  return rows.map(function (row) {
+    var host = row.querySelector(".gallery-atom-row");
+    var hostStyle = getComputedStyle(host);
+    var session = host.querySelector(${JSON.stringify(SESSION_PILL)});
+    var commit = host.querySelector(${JSON.stringify(COMMIT_PILL)});
+    var dot = session === null ? null : session.querySelector(".tug-session-identity-dot");
+    var node = commit === null ? null : commit.querySelector(".tug-commit-atom-node");
+    var label = commit === null ? null : commit.querySelector(".tug-commit-atom-label");
+    function box(el) { return el === null ? null : Math.round(el.getBoundingClientRect().height); }
+    function num(el, prop) {
+      return el === null ? null : parseFloat(getComputedStyle(el).getPropertyValue(prop));
+    }
+    return {
+      register: row.getAttribute("data-register"),
+      sessionHeight: box(session),
+      commitHeight: box(commit),
+      sessionBorder: num(session, "border-top-width"),
+      commitBorder: num(commit, "border-top-width"),
+      sessionRadius: num(session, "border-top-left-radius"),
+      commitRadius: num(commit, "border-top-left-radius"),
+      sessionDot: dot === null ? null : Math.round(dot.getBoundingClientRect().width),
+      commitNode: node === null ? null : Math.round(node.getBoundingClientRect().width),
+      declaredHeight: parseFloat(hostStyle.getPropertyValue("--tugx-atom-height")),
+      declaredDot: parseFloat(hostStyle.getPropertyValue("--tugx-atom-dot-size")),
+      commitFontFamily: label === null ? null : getComputedStyle(label).fontFamily,
+      hostFontFamily: hostStyle.fontFamily,
+    };
+  });
+})()`;
+
 describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () => {
   test(
     "the live pill measures the same box as the baked chips at every register",
@@ -304,6 +382,73 @@ describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () =
         // form of it a reader of the sentence can see. A pixel of slack for
         // sub-pixel layout; the defect this catches was five.
         expect(Math.abs(inline.pillBottom! - inline.bakedBottom!)).toBeLessThanOrEqual(1);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "the commit pill is the session pill's enclosure, not a second drawing of it",
+    async () => {
+      const app = await launchTugApp({ testName: "at0490-commit-pill-borrowing" });
+      try {
+        await app.dispatchControlAction("show-card", { component: "gallery-atom" });
+        await app.waitForCondition<boolean>(
+          `(function () {
+             var rows = Array.from(document.querySelectorAll(${JSON.stringify(ROW)}));
+             if (rows.length < 2) return false;
+             return rows.every(function (row) {
+               var s = row.querySelector(${JSON.stringify(SESSION_PILL)});
+               var c = row.querySelector(${JSON.stringify(COMMIT_PILL)});
+               return s !== null && c !== null
+                 && s.getBoundingClientRect().height > 0
+                 && c.getBoundingClientRect().height > 0;
+             });
+           })()`,
+          { timeoutMs: 15_000 },
+        );
+
+        const pairs = await app.evalJS<PillPair[]>(PILLS_JS);
+        note(`at0490 pill pairs: ${JSON.stringify(pairs)}`);
+        note("at0490 commit pill beside session pill", (await app.screenshot()).path);
+
+        // Both registers, or the comparison is about one density and the
+        // borrowing could still be re-authored at the other.
+        expect(pairs.length).toBeGreaterThanOrEqual(2);
+
+        for (const p of pairs) {
+          // The box. Equal to each other AND to the table, so a pair that
+          // agreed by both having drifted the same way cannot pass.
+          expect(p.commitHeight).toBe(p.sessionHeight);
+          expect(p.commitHeight).toBe(p.declaredHeight);
+          // The border and the corner — the two values that say "pill". These
+          // are the numbers a re-authoring would most plausibly get nearly
+          // right, which is why they are read rather than assumed.
+          expect(p.commitBorder).toBe(p.sessionBorder);
+          expect(p.commitRadius).toBe(p.sessionRadius);
+          // The mark. Both are the register's own diameter, so a commit's node
+          // and a session's dot are one size standing in one line — but they
+          // are read against the TABLE rather than against each other, because
+          // the session's mark is a ring GLYPH whose box is twice what it
+          // paints (`atom-register.ts`: the ring overhangs, and the published
+          // number is the painted diameter). Comparing the two boxes would
+          // compare 6px of ink against a 12px box and fail on a component that
+          // is correct — which is exactly what it did the first time this was
+          // written.
+          expect(p.commitNode).toBe(p.declaredDot);
+          expect(p.sessionDot).toBe(p.declaredDot * 2);
+          // [B02]: the face is the SURFACE's. The session pill pins sans so no
+          // host can restyle a name; a hash has no face of its own and takes
+          // the row it stands in. Read as the resolved family against the
+          // host's, which is the only way to see an inherit actually happen.
+          expect(p.commitFontFamily).toBe(p.hostFontFamily);
+        }
+
+        // A table collapsed to one number would pass every line above and
+        // prove nothing — the same guard the first test ends on.
+        expect(new Set(pairs.map((p) => p.declaredHeight)).size).toBe(pairs.length);
       } finally {
         await app.close();
       }

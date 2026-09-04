@@ -45,6 +45,8 @@ import { atomRegisterVars } from "@/lib/atom-register";
 import { walkAtomText } from "@/lib/atom-text";
 import { TugAtomChip } from "@/lib/tug-atom-chip";
 import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
+import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
+import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
 import {
   isSessionAtomType,
   sessionAtomCallsign,
@@ -178,24 +180,46 @@ export const TugAtomTextBody = React.forwardRef<
           );
         }
         const displayLabel = decorateChipLabel(seg.atom, address);
-        // The shared `.tug-atom-chip { vertical-align: middle }`
-        // class centres the chip in the line-box; the line-height
-        // floor above guarantees the box is at least atom-tall.
-        const chip = (
-          <TugAtomChip
-            key={`a-${i}`}
-            className="tug-atom-chip"
-            type={seg.atom.type}
-            label={displayLabel}
-            value={seg.atom.value}
-          />
-        );
         // A chip whose atom names something actionable — a file, a link —
         // wears the annotation, so the transcript's delegated layer gives
         // it the same gestures the markdown renderer's chips get. The
         // wrapper exists only to carry that dataset; chips with nothing to
         // act on render bare, exactly as before.
         const payload = payloadForAtom(seg.atom, pathRoots);
+        // A commit atom is not a look-alike of the pill either — it IS the
+        // pill, the same mark this transcript's prose mentions, the History
+        // shade and the receipt headers all draw. Without this arm a sent
+        // commit came back through the family's washed box wearing the FILE
+        // glyph, which is the exact drawing the pill exists to replace: the
+        // atom would have read as one thing in the composer and another the
+        // moment it was sent. The three `data-atom-*` attributes ride along
+        // exactly as they do on a session citation, because the selection
+        // serializer reads every chip through them whatever drew it.
+        //
+        // The shared `.tug-atom-chip { vertical-align: middle }` class
+        // centres a chip in the line-box; the line-height floor above
+        // guarantees the box is at least atom-tall. The pill takes neither —
+        // its baseline is its label's, by the strut, and a `vertical-align`
+        // over that is a correction on top of a lie.
+        const chip =
+          seg.atom.type === COMMIT_ATOM_TYPE ? (
+            <TugCommitAtom
+              key={`a-${i}`}
+              sha={seg.atom.value}
+              interactive={payload !== null}
+              data-atom-type={seg.atom.type}
+              data-atom-label={seg.atom.label}
+              data-atom-value={seg.atom.value}
+            />
+          ) : (
+            <TugAtomChip
+              key={`a-${i}`}
+              className="tug-atom-chip"
+              type={seg.atom.type}
+              label={displayLabel}
+              value={seg.atom.value}
+            />
+          );
         if (payload === null) return chip;
         return (
           <span

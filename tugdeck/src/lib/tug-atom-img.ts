@@ -28,9 +28,11 @@ import {
   chipDisplayLabel,
   chipHasIcon,
   ATOM_KEY_WASH,
-  SESSION_CHIP_BORDER_ALPHA,
-  SESSION_CHIP_GEOMETRY,
-  SESSION_CHIP_INK_TOKEN,
+  PILL_CHIP_BORDER_ALPHA,
+  PILL_CHIP_GEOMETRY,
+  PILL_CHIP_INK_TOKEN,
+  isPillAtomType,
+  chipMark,
 } from "./command-atom";
 import type { ChipVariant } from "./command-atom";
 import { progressRoleFillToken } from "@/components/tugways/tug-progress-indicator";
@@ -145,9 +147,6 @@ const ATOM_ICON_PATHS: Record<string, string> = {
   // component paints in both of its registers.
   session:
     '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/>',
-  // GitCommitHorizontal — a commit is a point on a line, not a file on disk.
-  commit:
-    '<circle cx="12" cy="12" r="3"/><path d="M3 12h6"/><path d="M15 12h6"/>',
 };
 
 // ---- Layout constants ----
@@ -333,8 +332,8 @@ export function computeAtomChipGeometry(
   // (not duplicated in the two renderers). Every atom type shares this layout;
   // a slash command differs only in that it has no icon (its `/` is the
   // marker), so it reserves no icon span.
-  const { paddingX, gap, radius } = isSessionAtomType(type)
-    ? SESSION_CHIP_GEOMETRY
+  const { paddingX, gap, radius } = isPillAtomType(type)
+    ? PILL_CHIP_GEOMETRY
     : chipStyle().geometry;
   const hasIcon = chipHasIcon(type);
   const iconSpan = hasIcon ? icon_px + gap : 0;
@@ -548,14 +547,23 @@ function sessionDotToken(value: string): string | null {
 }
 
 /**
- * Paint the session atom: a transparent pill in text ink, hairline-bounded,
- * led by the phase dot. No ground, no Key wash, no recess — the family's
- * treatment says "inline reference", and this chip's shape says it instead
- * (Spec S05).
+ * Paint a PILL atom: a transparent pill in text ink, hairline-bounded, led by
+ * its mark. No ground, no Key wash, no recess — the family's treatment says
+ * "inline reference", and this chip's shape says it instead (Spec S05).
+ *
+ * Two types reach here and they differ in one stroke, which is why this is one
+ * painter rather than two. A **session** leads with a filled dot in its phase
+ * colour: the mark says what the session is *doing*, and colour is the only
+ * channel that can. A **commit** leads with a ring in the chip's own ink: a
+ * commit cannot change after it exists, so there is no state to report and no
+ * colour to report it in. Same centre, same diameter — the register's — so the
+ * two marks are one size standing in one line, and neither can drift from the
+ * live pill's, which reads the same table as CSS.
  */
-function paintSessionChip(
+function paintPillChip(
   ctx: CanvasRenderingContext2D,
   g: AtomChipGeometry,
+  type: string,
   value: string,
   variant: ChipVariant,
 ): void {
@@ -565,11 +573,13 @@ function paintSessionChip(
   const ink = getTokenValue(
     variant === "selected"
       ? chipStyle("selected").tokens.text
-      : SESSION_CHIP_INK_TOKEN,
+      : PILL_CHIP_INK_TOKEN,
   );
-  const dotToken = sessionDotToken(value);
+  const mark = chipMark(type);
+  // Only a session has a phase to ask about; a commit's ring is the ink.
+  const dotToken = mark === "dot" ? sessionDotToken(value) : null;
 
-  ctx.globalAlpha = SESSION_CHIP_BORDER_ALPHA;
+  ctx.globalAlpha = PILL_CHIP_BORDER_ALPHA;
   ctx.strokeStyle = ink;
   ctx.lineWidth = 1;
   traceRoundedRect(
@@ -584,19 +594,28 @@ function paintSessionChip(
   ctx.globalAlpha = 1;
 
   if (g.hasIcon) {
-    // The dot's painted diameter is the register's, so this circle and the
-    // live pill's ring glyph are the same mark rather than two sizes of one.
+    // The mark's painted diameter is the register's, so this circle and the
+    // live pill's are the same mark rather than two sizes of one.
     const box = g.fontSize;
-    ctx.beginPath();
-    ctx.arc(
-      g.iconX + box / 2,
-      g.height / 2,
-      g.dotSize / 2,
-      0,
-      Math.PI * 2,
-    );
-    ctx.fillStyle = dotToken === null ? ink : getTokenValue(dotToken);
-    ctx.fill();
+    const cx = g.iconX + box / 2;
+    const cy = g.height / 2;
+    if (mark === "ring") {
+      // A ring, not a disc, and stroked INSIDE its diameter: the live node is
+      // a `box-sizing: border-box` element whose 1.5px border eats into the
+      // register's dot size rather than growing past it, so the stroke is
+      // centred half a width in and the two marks occupy the same circle.
+      const w = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(0, (g.dotSize - w) / 2), 0, Math.PI * 2);
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = w;
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(cx, cy, g.dotSize / 2, 0, Math.PI * 2);
+      ctx.fillStyle = dotToken === null ? ink : getTokenValue(dotToken);
+      ctx.fill();
+    }
   }
 
   ctx.font = `${g.fontSize}px ${g.fontFamily}`;
@@ -724,10 +743,10 @@ export function bakeAtomChipDataUri(
   }
   ctx.scale(canvas.width / g.width, canvas.height / g.height);
 
-  // The session atom is the one type outside the shared family: its own paint,
-  // its own tokens, and a dot where the others carry a glyph.
-  if (isSessionAtomType(type)) {
-    paintSessionChip(ctx, g, value, options?.variant ?? "default");
+  // The pills are the types outside the shared family: their own paint, their
+  // own tokens, and a mark where the others carry a glyph.
+  if (isPillAtomType(type)) {
+    paintPillChip(ctx, g, type, value, options?.variant ?? "default");
     return {
       dataUri: canvas.toDataURL("image/png"),
       width: g.width,

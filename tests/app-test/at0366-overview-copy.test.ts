@@ -34,6 +34,7 @@
  * @covers tugdeck/src/lib/markdown/serialize-selection.ts
  * @covers tugdeck/src/lib/copy-as-plain-text.ts
  * @covers tugdeck/src/components/tugways/tug-atom-ref.tsx
+ * @covers tugdeck/src/components/tugways/tug-commit-atom.tsx
  * @covers tugdeck/src/components/tugways/cards/transcript-host-helpers.ts
  */
 
@@ -237,7 +238,10 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
           ),
         ).toBe(true);
 
-        const REF = `${CARD} .overview-post-refs .tug-atom-ref`;
+        // The commit's own pill, not the generic read-only skin: a commit ref
+        // in this row is a `TugCommitAtom`, and the slot is the one selector
+        // every surface's copy of the mark answers to.
+        const REF = `${CARD} .overview-post-refs [data-slot="tug-commit-atom"]`;
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(REF)}) !== null`,
           { timeoutMs: 10_000 },

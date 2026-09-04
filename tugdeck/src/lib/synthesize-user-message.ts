@@ -27,7 +27,9 @@
  *    `id` resolved via `options.atomIdAt` (live path) or minted
  *    fresh (replay path). Mention atoms default to `type: "file"`
  *    (the wire marker doesn't preserve the original atom type) and
- *    carry the mention's value as both label and value.
+ *    carry the mention's value as both label and value; the three
+ *    kinds whose value gives them away — a directory, a session and a
+ *    commit — are recovered instead (see {@link mentionAtomType}).
  *  - `thumbnailBake`: a promise that resolves when all newly-fired
  *    thumbnail bakes have settled. Production callers fire-and-forget;
  *    tests can await for deterministic ordering.
@@ -77,7 +79,9 @@ import type { AtomBytesEntry, AtomBytesStore } from "./atom-bytes-store";
 import { TUG_ATOM_CHAR, type AtomSegment } from "./tug-atom-img";
 import { bakeThumbnail } from "./image-downsample";
 import { parseAtomMentionSegments } from "./atom-mention-marker";
-import { detectCommandEcho } from "./command-atom";
+import { COMMIT_ATOM_TYPE, detectCommandEcho } from "./command-atom";
+import { commitAtomLabel } from "./commit-format";
+import { isCommitSha } from "./annotator/detect-commit-sha";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -166,17 +170,42 @@ export interface SynthesizeResult {
  * real file named for a minted `adjective-noun` from the curated lexicon
  * sitting one directory deep, and the cost of one is a chip with the wrong
  * icon. Everything else defaults to `"file"`.
+ *
+ * A commit is recovered the same way and for the same reason — the value's
+ * own shape, no second grammar on the wire. Its value is a bare sha, so the
+ * discriminator is the sha grammar itself ({@link isCommitSha}: 7–40
+ * lowercase hex with at least one digit), which is the same test that decides
+ * whether a run of hex in prose is worth asking the repository about. A path
+ * would have to be bare hex with no directory and no extension to collide,
+ * and the cost of one is a mark drawn as the wrong kind of thing. Without
+ * this a commit atom came back from its own submit as a FILE whose label was
+ * the full forty-character sha — the mark changed kind and the label changed
+ * spelling, on the surface the user was still looking at.
  */
 function mentionAtomType(
   value: string,
   isKnownTag?: (tag: string) => boolean,
 ): string {
   if (value.endsWith("/")) return "directory";
+  if (isCommitSha(value)) return COMMIT_ATOM_TYPE;
   if (isKnownTag !== undefined) {
     const parts = value.split("/");
     if (parts.length === 2 && isKnownTag(parts[1])) return "session";
   }
   return "file";
+}
+
+/**
+ * The label a recovered mention wears.
+ *
+ * The value is its own label for every kind whose label IS its value — a
+ * path, a directory, a URL. A commit is the exception the whole app already
+ * makes: its label is `commit:<8>`, the one spelling the pill prints, the
+ * clipboard writes and the copy menu offers, so recovering the type without
+ * recovering the spelling would put a forty-character sha inside the mark.
+ */
+function mentionAtomLabel(type: string, value: string): string {
+  return type === COMMIT_ATOM_TYPE ? commitAtomLabel(value) : value;
 }
 
 function defaultMintAtomId(): string {
@@ -258,10 +287,11 @@ export function synthesizeUserMessageFromBlocks(
           continue;
         }
         echoText += TUG_ATOM_CHAR;
+        const type = mentionAtomType(seg.value, isKnownTag);
         echoAtoms.push({
           kind: "atom",
-          type: mentionAtomType(seg.value, isKnownTag),
-          label: seg.value,
+          type,
+          label: mentionAtomLabel(type, seg.value),
           value: seg.value,
         });
       }
@@ -296,14 +326,17 @@ export function synthesizeUserMessageFromBlocks(
         // command) is not preserved on the wire; we default to
         // `"file"` since that's the overwhelmingly common case for
         // `@`-mention completions and the chip's icon falls back
-        // gracefully if the value is actually a URL or command. A
-        // trailing `/` marks a directory mention, which does
-        // round-trip.
+        // gracefully if the value is actually a URL or command. Three
+        // kinds are recovered from the value's own shape instead — a
+        // trailing `/` is a directory, a known callsign one segment
+        // deep is a session, and a bare run of sha-shaped hex is a
+        // commit, which also takes back its `commit:<8>` spelling.
         textBuf += TUG_ATOM_CHAR;
+        const type = mentionAtomType(seg.value, isKnownTag);
         atoms.push({
           kind: "atom",
-          type: mentionAtomType(seg.value, isKnownTag),
-          label: seg.value,
+          type,
+          label: mentionAtomLabel(type, seg.value),
           value: seg.value,
         });
       }

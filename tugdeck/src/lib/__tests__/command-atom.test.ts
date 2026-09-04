@@ -14,8 +14,8 @@ import {
   detectCommandEcho,
   hasLeadingCommandAtom,
   mintLeadingCommandAtom,
-  SESSION_CHIP_GEOMETRY,
-  SESSION_CHIP_INK_TOKEN,
+  PILL_CHIP_GEOMETRY,
+  PILL_CHIP_INK_TOKEN,
 } from "../command-atom";
 import type { ContentBlock } from "@/protocol";
 
@@ -94,6 +94,7 @@ describe("chipHasIcon", () => {
 describe("chipMark", () => {
   test("the session's mark is the dot, never a glyph", () => {
     expect(chipMark("session")).toBe("dot");
+    expect(chipMark("commit")).toBe("ring");
     expect(chipMark("file")).toBe("icon");
     expect(chipMark("command")).toBe("none");
   });
@@ -111,15 +112,15 @@ describe("the session chip face", () => {
   });
 
   test("is a pill in text ink — outside the shared atom family", () => {
-    expect(SESSION_CHIP_GEOMETRY.radius).toBeGreaterThan(
+    expect(PILL_CHIP_GEOMETRY.radius).toBeGreaterThan(
       chipStyle().geometry.radius,
     );
-    expect(SESSION_CHIP_INK_TOKEN).toBe(
+    expect(PILL_CHIP_INK_TOKEN).toBe(
       "--tug7-element-global-text-normal-default-rest",
     );
     // The theme's atom tokens are the family's; the session paints in ordinary
     // text ink, and the dot is its only color.
-    expect(SESSION_CHIP_INK_TOKEN).not.toBe(chipStyle().tokens.text);
+    expect(PILL_CHIP_INK_TOKEN).not.toBe(chipStyle().tokens.text);
   });
 });
 

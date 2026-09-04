@@ -38,7 +38,6 @@ import { spike as sessionIdentitySpike } from "./spike-session-identity";
 import { spike as transcriptRegistersSpike } from "./spike-transcript-registers";
 import { spike as pinnedHeadersSpike } from "./spike-pinned-headers";
 import { spike as commitSurfacesSpike } from "./spike-commit-surfaces";
-import { spike as commitAtomSpike } from "./spike-commit-atom";
 import { spike as placeCoordinateSpike } from "./spike-place-coordinate";
 import { spike as cardChromeSpike } from "./spike-card-chrome";
 import { spike as modalHeadersSpike } from "./spike-modal-headers";
@@ -108,7 +107,6 @@ export const SPIKES: readonly SpikeDef[] = [
   transcriptRegistersSpike,
   pinnedHeadersSpike,
   commitSurfacesSpike,
-  commitAtomSpike,
   placeCoordinateSpike,
   // Settled references: these began as spikes and closed into the reference
   // for their subject. They stay here rather than becoming permanent gallery

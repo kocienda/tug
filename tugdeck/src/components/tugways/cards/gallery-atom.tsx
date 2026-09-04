@@ -34,6 +34,7 @@ import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
 import { TugAtomChip } from "@/lib/tug-atom-chip";
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
+import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
 import {
   ATOM_REGISTERS,
   atomRegisterMetrics,
@@ -81,6 +82,15 @@ function renderAtoms(
     container.appendChild(img);
   }
 }
+
+/**
+ * The commit the gallery's pill names.
+ *
+ * A full sha rather than an abbreviation, because the atom is what abbreviates
+ * it — a fixture that arrived pre-shortened would let a bug in the slicing
+ * through unnoticed.
+ */
+const GALLERY_COMMIT = "3b80a6899e1c4d27f0a5b8e63d91c4aa77e2b510";
 
 /** One resolved session, so the live pill has something to name. */
 const GALLERY_IDENTITY = composeSessionIdentity({
@@ -135,6 +145,7 @@ function RegisterRow({ register }: { register: AtomRegister }): React.ReactEleme
           register={register}
           tooltip={false}
         />
+        <TugCommitAtom sha={GALLERY_COMMIT} register={register} />
       </div>
     </div>
   );
@@ -250,13 +261,16 @@ export function GalleryAtom() {
       ref={responderRef as (el: HTMLDivElement | null) => void}
     >
 
-      {/* ---- The registers, with the live pill beside the baked chips ---- */}
+      {/* ---- The registers, with the live pills beside the baked chips ---- */}
       <div className="cg-section">
         <TugLabel className="cg-section-title">Registers</TugLabel>
         <div style={descStyle}>
-          Every kind at every register, and the live session pill last in each
-          row — it must be the same height as the chips beside it, because they
-          are drawn from one table. `prose` is an atom in a line of running
+          Every kind at every register, and the two live pills last in each row
+          — the session and the commit, which must be the same height as the
+          chips beside them and as each other, because all three are drawn from
+          one table. The commit pill borrows the session's enclosure outright,
+          so a difference in border, height or mark between the two is a
+          difference nothing authored. `prose` is an atom in a line of running
           text; `reading` is one in a block at reading scale.
         </div>
         {(Object.keys(ATOM_REGISTERS) as AtomRegister[]).map((register) => (

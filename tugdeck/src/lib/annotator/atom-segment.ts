@@ -18,6 +18,8 @@
 
 import type { AnnotationPayload } from "./payloads";
 import { formatAtomLabel, type AtomSegment } from "@/lib/tug-atom-img";
+import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
+import { commitAtomLabel } from "@/lib/commit-format";
 import {
   sessionAtomPlainTextFor,
   sessionAtomSegmentFor,
@@ -93,6 +95,20 @@ export function atomSegmentFor(payload: AnnotationPayload): AtomSegment | null {
     // whole function's `null` is what withholds both menu items.
     return sessionAtomSegmentFor(payload.target);
   }
+  if (payload.kind === "commit-sha") {
+    return {
+      kind: "atom",
+      type: COMMIT_ATOM_TYPE,
+      // The label every commit surface shows, so what a reader copied and what
+      // they were looking at are one string.
+      label: commitAtomLabel(payload.sha),
+      // The sha AS THE PAYLOAD CARRIES IT — short or full, whichever the
+      // reference was written with; git resolves either, and the round trip
+      // through `payloadForAtom` is the identity function on this field for
+      // the same reason the file arm's is on its path.
+      value: payload.sha,
+    };
+  }
   return null;
 }
 
@@ -107,6 +123,12 @@ export function atomSegmentFor(payload: AnnotationPayload): AtomSegment | null {
  * handler so both surfaces that offer `Copy as Atom` write one string. Its
  * plain form is the CITATION: plain text is what leaves Tug, and a bare
  * callsign is a name nothing outside the app can resolve back to a session.
+ *
+ * A commit is the other, for the mirror reason: its atom's VALUE is a bare
+ * sha, and a bare sha pasted outside Tug names nothing a reader can place. Its
+ * plain form is the LABEL — `commit:<8>` — which is the spelling every commit
+ * surface already shows and every commit copy path already writes, so what the
+ * eye read and what the clipboard carries are one string.
  */
 export function atomPlainTextFor(
   payload: AnnotationPayload,
@@ -115,5 +137,6 @@ export function atomPlainTextFor(
   if (payload.kind === "session") {
     return sessionAtomPlainTextFor(payload.target) ?? segment.value;
   }
+  if (payload.kind === "commit-sha") return commitAtomLabel(payload.sha);
   return segment.value;
 }
