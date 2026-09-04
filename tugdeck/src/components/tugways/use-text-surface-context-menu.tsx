@@ -127,6 +127,10 @@ import {
   dictionaryLookupFor,
   type DictionaryLookupRequest,
 } from "@/lib/dictionary-lookup";
+import {
+  clearEntitySelected,
+  paintEntitySelected,
+} from "@/lib/entity-selection-paint";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -377,6 +381,12 @@ function selectWholeElement(element: HTMLElement): void {
  * live selection stands in, and the only selection that can be live by then
  * is either the browser's smart-select — inside the element, so replaced —
  * or one the surface kept from before the click.
+ *
+ * The DOM selection is only half of what the reader sees. A text highlight
+ * paints the runs it covers, so an entity whose mark is a BOX — a commit
+ * pill, a session chip — would light its label and leave its node, padding
+ * and border at rest. `paintEntitySelected` marks the element so the box can
+ * wear the selection whole; see `lib/entity-selection-paint`.
  */
 function settleWholeEntitySelection(
   element: HTMLElement,
@@ -385,9 +395,11 @@ function settleWholeEntitySelection(
   const prior = preClick ?? snapshotSelection();
   if (reachesPastElement(prior, element)) {
     restoreSelection(prior);
+    clearEntitySelected();
     return;
   }
   selectWholeElement(element);
+  paintEntitySelected(element);
 }
 
 export function useTextSurfaceContextMenu(

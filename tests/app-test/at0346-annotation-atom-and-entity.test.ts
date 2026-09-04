@@ -63,6 +63,7 @@
  * @covers tugdeck/src/lib/copy-clipboard.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor/atom-decoration.ts
  * @covers tugdeck/src/lib/annotator/annotation-element.ts
+ * @covers tugdeck/src/lib/entity-selection-paint.ts
  * @covers tugdeck/src/components/tugways/use-text-surface-context-menu.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  * @covers tugdeck/src/lib/code-session-store.ts
@@ -812,6 +813,31 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
             })()`,
           ),
         ).toBe("Insert Atom into Prompt");
+
+        // The whole PILL wears the selection, not just the label inside it.
+        // A text highlight reaches the runs it covers and stops, so the box
+        // — node, gap, padding, border — paints itself from the settle's
+        // `data-tug-entity-selected` or the mark reads as a fragment of
+        // itself under a menu about the whole commit.
+        const selectedFace = JSON.parse(
+          await app.evalJS<string>(
+            `JSON.stringify((function(){
+              var span = document.querySelector(${JSON.stringify(SPAN)});
+              var pill = document.querySelector(${JSON.stringify(PILL)});
+              if (span === null || pill === null) return {};
+              return {
+                marked: span.hasAttribute('data-tug-entity-selected'),
+                fill: getComputedStyle(pill).backgroundColor,
+              };
+            })())`,
+          ),
+        ) as { marked?: boolean; fill?: string };
+        note(`at0346 selected pill: ${JSON.stringify(selectedFace)}`);
+        expect(selectedFace.marked).toBe(true);
+        // At rest the pill is transparent; selected it carries the same fill
+        // the native highlight paints its label with.
+        expect(selectedFace.fill).not.toBe("rgba(0, 0, 0, 0)");
+        expect(selectedFace.fill).not.toBe("transparent");
 
         const insertPoint = await app.evalJS<{ x: number; y: number } | null>(
           menuItemPointJS("insert-into-prompt"),

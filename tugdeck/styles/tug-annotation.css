@@ -146,3 +146,34 @@ code.tugx-annotation[data-tug-annotation="shell-command"]:hover {
   > .tug-atom-ref-label {
   text-decoration: var(--tugx-md-link-decoration);
 }
+
+/* ---------- The selected face ----------
+
+   A right-click on an annotation selects the whole entity, and for a run of
+   ink the browser's own highlight is the whole story: it paints the
+   characters, which is what the selection is about.
+
+   A mark that is a BOX is where that stops being true. A commit pill, a
+   session citation and an arc sigil are flex enclosures — a node, a gap, a
+   label — and a text highlight reaches only the runs inside them, so the
+   label lit up while the node, the padding and the border stayed at rest.
+   The pill read as a fragment of itself sitting in an unselected box, under
+   a menu whose every item acts on the whole thing.
+
+   `data-tug-entity-selected` is the settle saying *this entity is the
+   selection* (`lib/entity-selection-paint`), and the box takes the same two
+   colours the native highlight paints its text with — so the fill under the
+   label and the fill around it are one surface rather than two that agree.
+   A plain run of ink carries the attribute too and takes no rule here: the
+   browser had already drawn it correctly.
+
+   `currentcolor` is what the enclosure's border and a commit's node ring are
+   mixed from, so the ink move carries them along and the whole mark lands in
+   the selection's colours in one declaration. [L20]
+
+   @tug-renders-on var(--tug7-surface-selection-primary-normal-plain-rest) */
+[data-tug-entity-selected] .tug-session-identity[data-tier="chip"],
+.tug-session-identity[data-tier="chip"][data-tug-entity-selected] {
+  background-color: var(--tug7-surface-selection-primary-normal-plain-rest);
+  color: var(--tug7-element-selection-text-normal-plain-rest);
+}

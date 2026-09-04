@@ -451,6 +451,8 @@ Right-clicking an annotation selects **all** of it — the whole path, the whole
 
 The one selection it leaves alone is a ranged one the user made that reaches *past* the entity: that selection is about more than this annotation, and the standard block's Copy is still about it.
 
+**A mark that is a box paints itself.** A text highlight reaches the runs it covers and stops, so a pill — a commit atom, a session citation, an arc sigil — lit its label and left its node, its padding and its border at rest, which is the same fragment-under-a-whole-menu mismatch one layer down. The settle marks the element with `data-tug-entity-selected` (`lib/entity-selection-paint`) and `styles/tug-annotation.css` fills the enclosure with the colours the native highlight is already painting the label with. A plain run of ink carries the attribute and takes no rule: the browser had drawn it correctly.
+
 ### What is deliberately not here
 
 - **An arc.** It appears only as a row, `arc-row-menu.tsx` is already its one definition, and a registry keyed by what ink and atoms carry is the wrong home for something no ink ever holds.
