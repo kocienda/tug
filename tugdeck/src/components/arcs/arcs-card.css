@@ -111,6 +111,26 @@
   display: none;
 }
 
+/* The row's ledger, folded open. It sits at the same inset the register does,
+   so the step ordinals stand under the block's text rather than under its atom
+   and the whole expansion reads as the block's third line rather than as a
+   list pasted beneath it.
+
+   The rows' own inline padding goes: it is the popup frame's gutter, and here
+   the gutter is the inset above. The block padding comes down to the rail's
+   own rhythm — a placard's rows are a page, and these are a fold. */
+.arcs-steps {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-inline-start: var(--tugx-session-atom-text-inset);
+}
+
+.arcs-steps .tug-popup-list-item {
+  padding-inline: 0;
+  padding-block: var(--tug-space-2xs);
+}
+
 /* The row's affordances. An arc row's verbs are its context menu, and this box
    holds only that menu's portal — a plan row has no control at all. */
 .arcs-verbs {

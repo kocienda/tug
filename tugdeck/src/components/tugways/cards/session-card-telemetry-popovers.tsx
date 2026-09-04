@@ -75,6 +75,7 @@ import {
   type TurnAddress,
 } from "@/components/tugways/tug-transcript-entry";
 import { TugLabel } from "@/components/tugways/tug-label";
+import { ArcStepItems } from "@/components/tugways/arc-step-list";
 import {
   TugProgressIndicator,
   type TugProgressIndicatorState,
@@ -83,7 +84,6 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import {
   goalRowState,
   jobRowState,
-  ledgerRowState,
   taskRowState,
 } from "@/lib/code-session-store/indicator-liveness";
 import type { TaskStatus } from "@/lib/code-session-store/select-task-list";
@@ -134,7 +134,6 @@ import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { arcLifecycleNote } from "@/components/tugways/arc-lifecycle-line";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
 import { arcMetaFacts } from "@/lib/arc-meta-facts";
-import type { ArcStep } from "@/lib/changeset-types";
 import type { ArcSessionFact } from "@/lib/arc-session-index";
 
 // ---------------------------------------------------------------------------
@@ -1273,57 +1272,6 @@ export function JobsPopoverContent({
 // ---------------------------------------------------------------------------
 // Arc popover
 // ---------------------------------------------------------------------------
-
-/**
- * An arc's plan ledger as numbered popup-list items — the same row shape
- * `TaskListItems` renders, over the document rather than over the transcript.
- *
- * The ordinal is the row's ledger position, which is the step number the plan
- * itself uses and the number the fraction above counts against. Nothing here
- * is derived: the title is the ledger's spelling of the title, and the state is
- * the status cell put through {@link ledgerRowState}.
- */
-export function ArcStepItems({
-  steps,
-  idle,
-}: {
-  steps: ReadonlyArray<ArcStep>;
-  idle: boolean;
-}): React.ReactElement {
-  return (
-    <>
-      {steps.map((step, index) => (
-        <TugPopupListItem
-          // The ledger is a table with one row per step, so position is
-          // identity — two rows may legitimately carry the same title.
-          key={index}
-          className="session-tasks-popover-item"
-          data-slot="session-arc-popover-step"
-          data-status={step.status}
-          indicator={
-            <TugProgressIndicator
-              variant="pulsing-dot"
-              size={17}
-              state={ledgerRowState(step.status, idle)}
-              aria-label={`step ${step.status}`}
-            />
-          }
-        >
-          <TugPopupListItemText
-            primary={
-              <>
-                <span className="session-tasks-popover-ordinal">
-                  {index + 1}.
-                </span>
-                {step.title}
-              </>
-            }
-          />
-        </TugPopupListItem>
-      ))}
-    </>
-  );
-}
 
 /**
  * The index of the row a reader opens this placard to find: the first one

@@ -276,12 +276,10 @@
    reinforced beyond the success-colored dot. Presentation-only cue on
    the item's primary slot; the indicator's own appearance is owned by
    the component via its `state` prop. */
-/* A finished row is struck through, in both vocabularies: `completed` is a
-   task's spelling, `done` is a ledger cell's. Two selectors rather than a
-   normalizing shim, because the two words are two sources' own words and
-   neither is the other's to rename. */
-.session-tasks-popover-item[data-status="completed"] .tug-popup-list-item-primary,
-.session-tasks-popover-item[data-status="done"] .tug-popup-list-item-primary {
+/* `completed` is a task's spelling. A ledger cell's is `done`, and that row
+   lives in `arc-step-list.css` now — the two words are two sources' own words
+   and neither is the other's to rename. */
+.session-tasks-popover-item[data-status="completed"] .tug-popup-list-item-primary {
   text-decoration: line-through;
   opacity: 0.7;
 }

@@ -15,18 +15,30 @@
  *     track · glyph · fraction · note · divergence
  *
  * Every row is one `ArcLifecycleBlock`, the grammar every arc surface wears.
- * Its EYEBROW holds the identities and nothing else: the arc atom at the
- * left, the hairline, the "who" at the right — each bound worker as a mini
- * atom (no callsign, no arc run: the row already names both). The arc pill
- * wears no review tint here: that yellow is the WAITING color, and an arc is
- * not waiting for anyone. Beneath it, the lifecycle line carries everything
- * the arc is DOING, phase glyph included.
+ * Its EYEBROW holds the identities and, at its end, the row's one control: the
+ * arc atom at the left, the hairline, the "who" at the right — each bound
+ * worker as a mini atom (no callsign, no arc run: the row already names both)
+ * — and then the fold cue. The arc pill wears no review tint here: that yellow
+ * is the WAITING color, and an arc is not waiting for anyone. Beneath it, the
+ * lifecycle line carries everything the arc is DOING, phase glyph included.
+ *
+ * **And the row FOLDS to the arc's ledger.** An arc whose entry carries steps
+ * wears the tool-call header's own `BlockFoldCue` at the eyebrow's end, and
+ * opens over the plan's step rows — `ArcStepItems`, the very component the
+ * `ARC` placard mounts, so the row and the placard cannot disagree about one
+ * arc's steps ([D176]). The bit is held HERE, in `ArcsBody`, keyed by the arc's
+ * owner key: a bit inside a cell would be lost the moment virtualization
+ * recycled it or a changeset beat replaced the row, which on a card that
+ * re-projects on every beat is a row folding itself shut while you read it.
+ * An arc with no steps draws no cue at all — absent, not disabled.
  *
  * An arc with no branch yet — a brief being written, a plan being devised or
  * reviewed — is the SAME block, over `documentArcAsEntry`, with its track
  * model from `documentArcTrackModel` so a plan already under way reads
  * `implement` with the ledger's own counts. It carries no trailing control at
- * all: the row menu is a live arc's, and a plan is paperwork to read.
+ * all — neither the menu, which is a live arc's, nor the fold, which reads a
+ * ledger a waiting document's entry does not carry — because a plan is
+ * paperwork to read.
  *
  * `ChangesetAllStore` is the account-global snapshot, so this card is a
  * projection of it and nothing more. Rows key on the arc's **owner key**, which makes two
@@ -79,6 +91,7 @@
 import "./arcs-card.css";
 
 import React, {
+  useCallback,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -87,6 +100,7 @@ import React, {
 import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentation";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { arcLifecycleNote } from "@/components/tugways/arc-lifecycle-line";
+import { ArcStepItems } from "@/components/tugways/arc-step-list";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
 import { arcMetaFacts } from "@/lib/arc-meta-facts";
 import { compareArcEntries } from "@/lib/arc-order";
@@ -95,6 +109,7 @@ import {
   documentArcTrackModel,
 } from "@/lib/document-arc-entry";
 import { ArcJoinRegister } from "@/components/tugways/arc-join-register";
+import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { useChangesetJoinLand } from "@/lib/changeset-join-store";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugListView } from "@/components/tugways/tug-list-view";
@@ -326,11 +341,20 @@ export function documentArcRowsFromSnapshot(
  *
  * Arcs first, then plans: live work outranks waiting paperwork, so the index
  * split is the ordering — no interleaving and no comparator across kinds.
+ *
+ * The expansion bit rides here too, because it is the host's: the set
+ * of expanded arcs and the toggle that moves it are `ArcsBody`'s, and this
+ * source is how a cell reaches them. A new `expanded` set makes a new source,
+ * which is exactly the version the list needs to re-render the row that grew.
  */
 class CockpitRowsDataSource implements TugListViewDataSource {
   constructor(
     readonly rows: readonly ArcRow[],
     readonly plans: readonly DocumentArcRow[],
+    /** The owner keys whose steps are showing. */
+    readonly expanded: ReadonlySet<string>,
+    /** Flip one arc's bit, by the same owner key the rows are identified by. */
+    readonly toggle: (ownerId: string) => void,
   ) {}
   numberOfItems(): number {
     return this.rows.length + this.plans.length;
@@ -617,6 +641,12 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   // so it owes no refusal.
   const activatable = useWorkerCard(entry) !== null;
   const model = arcTrackModelFromEntry(entry);
+  // The ledger the row can fold open to, and whether it is open. An arc with a
+  // brief alone — or one still being devised — carries no steps, and a row with
+  // nothing to fold draws no cue at all: a disabled chevron would be a promise
+  // about a future the row does not know it has.
+  const steps = entry.steps ?? [];
+  const expanded = dataSource.expanded.has(row.ownerId);
   // Bind / Discard / Replay, on the row's second button — the eyebrow carries
   // no opener of its own any more.
   const verbsMenu = useArcRowVerbsMenu(row);
@@ -649,12 +679,43 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           stepTitle={entry.step_title ?? null}
           facts={arcMetaFacts(entry)}
           size="read"
+          trailing={
+            steps.length > 0 ? (
+              // The tool-call header's own cue, in the slot the block reserved
+              // for it: same icon pair, same `xs` icon-only shape, and the
+              // default scroll stabilization, because this list scrolls exactly
+              // as the transcript does. No `stopPropagation` and no selection
+              // guard — the list excuses any descendant that refuses focus, so
+              // a press here never picks the row.
+              <BlockFoldCue
+                collapsed={!expanded}
+                onToggle={() => dataSource.toggle(row.ownerId)}
+                collapsedLabel="Expand"
+                expandedLabel="Collapse"
+                ariaLabelExpand={`Expand steps for arc ${entry.display_name}`}
+                ariaLabelCollapse={`Collapse steps for arc ${entry.display_name}`}
+                size="xs"
+                subtype="icon"
+                data-slot="arcs-steps-fold"
+              />
+            ) : undefined
+          }
         />
         {verbsMenu.menu}
         {/* And what its JOIN is doing, in the one shared register — the same
             sentence the shade and the composer show, because all three call
             one derivation. Renders nothing until there is a join. */}
         <ArcJoinRow row={row} />
+        {/* And, folded open, the plan's own ledger — the same component the
+            `ARC` placard mounts, so the row and the placard cannot disagree
+            about one arc's steps. Structure rather than appearance: the rows
+            mount while open and unmount when folded, so an arc nobody has
+            opened costs no ledger DOM at all. */}
+        {expanded && steps.length > 0 ? (
+          <span className="arcs-steps" data-slot="arcs-steps">
+            <ArcStepItems steps={steps} idle={entry.holders_busy !== true} />
+          </span>
+        ) : null}
       </span>
     </TugListRow>
   );
@@ -778,9 +839,25 @@ export function ArcsContent({ cardId }: ArcsContentProps): React.ReactElement {
 function ArcsBody(): React.ReactElement {
   const rows = useArcRows();
   const plans = usePlanRows();
+  // Which arcs are showing their steps. Card-local view scope: closing the
+  // card forgets every fold, which is the right lifetime for a reading. The
+  // set is keyed by the arc's owner key — the same key the list identifies its
+  // cells by — and it lives up here rather than in the cell because a cell
+  // recycled by virtualization, or replaced when a changeset beat recomputes
+  // the snapshot, would drop a bit held inside it, and a rail card that
+  // re-projects on every beat would be a row folding itself shut while you
+  // read it.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const toggle = useCallback((ownerId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(ownerId)) next.add(ownerId);
+      return next;
+    });
+  }, []);
   const dataSource = useMemo(
-    () => new CockpitRowsDataSource(rows, plans),
-    [rows, plans],
+    () => new CockpitRowsDataSource(rows, plans, expanded, toggle),
+    [rows, plans, expanded, toggle],
   );
   // Both kinds, not the arc count. This one value decides two things — whether
   // the keyboard has anything to walk onto, and whether the body is the empty

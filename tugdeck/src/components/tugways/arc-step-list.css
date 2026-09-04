@@ -1,0 +1,60 @@
+/**
+ * arc-step-list.css — the step row's reading, paid for on the row.
+ *
+ * The row's chrome is `TugPopupListItem`'s and stays there. What this file
+ * owns is the three rules that make a ledger read as prose: the muted tabular
+ * ordinal, the finished row's strikethrough, and the lead column and sans face
+ * the titles are set in. All three are scoped to the row rather than to an
+ * ancestor slot, because this list mounts on more than one surface and a rule
+ * that lived on the `ARC` placard's scroller would leave the Arcs card's copy
+ * set in the frame's tabular mono.
+ *
+ * [L20] — row-scoped only; the composed primitives' own token families are
+ * theirs.
+ */
+
+/* The step rows lead with a 17px dot in a 22px box. The placard's head leads
+   with a strip rather than a mark, so the box belongs to the rows — it is the
+   rows that have a mark to line up. */
+.arc-step-list-item {
+  --tugx-arc-step-lead-width: 22px;
+}
+
+/* Prose, not a table. A plan's step titles are sentences a person wrote, and
+   the popup-list frame's mono set them at a width that pushed the titles into
+   an ellipsis three words early. The wider caps of the reading size buy back
+   the characters the larger type spends. */
+.arc-step-list-item {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-sm);
+}
+
+/* Set on the row rather than on its primary line so the lead column's
+   `calc(1lh)` box grows with the text and keeps the dot centred on line one. */
+.arc-step-list-item .tug-popup-list-item-lead {
+  justify-content: center;
+  inline-size: var(--tugx-arc-step-lead-width);
+}
+
+/* The `N.` that leads each row's primary line. Muted and tabular so a
+   two-digit ordinal aligns under a one-digit one down the column.
+
+   Two surfaces, because this list has two: the `ARC` placard's popover and
+   the Arcs card's own. A component authored to mount anywhere names every
+   ground it lands on, or the contrast audit reads it against one of them.
+   @tug-renders-on: --tug7-surface-popover-primary-normal-default-rest, --tug7-surface-global-primary-normal-default-rest */
+.arc-step-list-ordinal {
+  margin-inline-end: 0.4em;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A finished row is struck through, so the "done" reading is reinforced
+   beyond the success-colored dot. Presentation-only cue on the item's primary
+   slot; the indicator's own appearance is owned by the component via its
+   `state` prop. `withdrawn` is not struck: it is a step nobody walked, not a
+   step that finished. */
+.arc-step-list-item[data-status="done"] .tug-popup-list-item-primary {
+  text-decoration: line-through;
+  opacity: 0.7;
+}

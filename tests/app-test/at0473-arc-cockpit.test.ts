@@ -55,6 +55,8 @@
  * @covers tugdeck/src/components/arcs/arcs-card.css
  * @covers tugdeck/src/lib/document-arc-entry.ts
  * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
+ * @covers tugdeck/src/components/tugways/arc-step-list.tsx
+ * @covers tugdeck/src/components/tugways/arc-step-list.css
  * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
  * @covers tugdeck/src/components/tugways/tug-arc-track.css
  * @covers tugdeck/src/lib/changeset-types.ts
@@ -623,7 +625,7 @@ describe.skipIf(!SHOULD_RUN)(
           }>(
             `(() => {
              const body = document.querySelector(${JSON.stringify(ARC_PLACARD)});
-             const steps = Array.from(body?.querySelectorAll('[data-slot="session-arc-popover-step"]') ?? []);
+             const steps = Array.from(body?.querySelectorAll('[data-slot="arc-step"]') ?? []);
 
              return {
                text: (body?.textContent ?? "").trim(),
@@ -712,7 +714,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await app.waitForCondition<boolean>(
             `(() => {
-               const rows = document.querySelectorAll(${JSON.stringify(`${ARC_PLACARD} [data-slot="session-arc-popover-step"]`)});
+               const rows = document.querySelectorAll(${JSON.stringify(`${ARC_PLACARD} [data-slot="arc-step"]`)});
                return rows.length === 16 && rows[15].getAttribute("data-status") === "in progress";
              })()`,
             { timeoutMs: 60000 },
@@ -725,7 +727,7 @@ describe.skipIf(!SHOULD_RUN)(
           }>(
             `(() => {
                const body = document.querySelector(${JSON.stringify(ARC_PLACARD)});
-               const rows = Array.from(body.querySelectorAll('[data-slot="session-arc-popover-step"]'));
+               const rows = Array.from(body.querySelectorAll('[data-slot="arc-step"]'));
                const active = rows[15];
                const bodyRect = body.getBoundingClientRect();
                const rowRect = active.getBoundingClientRect();

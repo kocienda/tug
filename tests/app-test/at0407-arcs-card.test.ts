@@ -24,12 +24,22 @@
  * The stage ordering rides along, because it needs two arcs at different
  * stages and this is the file that has them.
  *
+ * And the row FOLDS: the cue at the eyebrow's end opens the block over the
+ * plan's own ledger, rendered by the very component the `ARC` placard mounts,
+ * so the row and the placard cannot disagree about one arc's steps. A row with
+ * no steps draws no cue at all — absent, not disabled — and a press on the cue
+ * picks no row and fronts no card, which is the one claim about it that no
+ * pure test can make.
+ *
  * @covers tugdeck/src/components/arcs/arcs-card.tsx
  * @covers tugdeck/src/components/arcs/arcs-card.css
  * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
  * @covers tugdeck/src/components/tugways/arc-lifecycle-block.css
  * @covers tugdeck/src/components/tugways/arc-lifecycle-line.tsx
  * @covers tugdeck/src/components/tugways/arc-lifecycle-line.css
+ * @covers tugdeck/src/components/tugways/arc-step-list.tsx
+ * @covers tugdeck/src/components/tugways/arc-step-list.css
+ * @covers tugdeck/src/components/tugways/body-kinds/affordances/block-fold-cue.tsx
  * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
  * @covers tugdeck/src/components/tugways/tug-arc-track.css
  * @covers tugdeck/src/components/tugways/tug-step-fraction.tsx
@@ -633,6 +643,166 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // does after its last commit is the same work whoever asked for it.
         expect(plain.phases).toContain("audit");
         note("at0407 kind rows", await app.screenshot().then((s) => s.path));
+      } finally {
+        await app.close();
+        rmTempTugbank(tugbankPath);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "the row folds open to the plan's own ledger, and the press picks nothing",
+    async () => {
+      const tugbankPath = mkTempTugbank();
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
+      const app = await launchTugApp({
+        testName: "at0407-arcs-fold",
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
+      });
+      try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+        );
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
+        await app.awaitEngineReady("A", { timeoutMs: 15000 });
+        await app.dispatchControlAction("toggle-arcs");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PLAN_ROW)}) !== null &&
+           document.querySelector(${JSON.stringify(ROW)}) !== null`,
+          { timeoutMs: 30000 },
+        );
+
+        // ── The cue is on the arc with a ledger, and on no other ──────────
+        // A row with nothing to fold draws no cue AT ALL: a disabled chevron
+        // on a row that may never have steps is a promise about a future the
+        // row does not know it has. `at0407-arc` was created and never
+        // planned, so it is that row.
+        const cues = await app.evalJS<{
+          planned: number;
+          bare: number;
+          label: string | null;
+          expanded: string | null;
+          lists: number;
+        }>(
+          `(() => {
+             const planned = document.querySelector(${JSON.stringify(PLAN_ROW)});
+             const bare = document.querySelector(${JSON.stringify(ROW)});
+             const cue = planned.querySelector('[data-slot="arcs-steps-fold"]');
+             return {
+               planned: planned.querySelectorAll('[data-slot="arcs-steps-fold"]').length,
+               bare: bare.querySelectorAll('[data-slot="arcs-steps-fold"]').length,
+               label: cue?.getAttribute("aria-label") ?? null,
+               expanded: cue?.getAttribute("aria-expanded") ?? null,
+               lists: planned.querySelectorAll('[data-slot="arcs-steps"]').length,
+             };
+           })()`,
+        );
+        note("at0407 fold cues", JSON.stringify(cues));
+        expect(cues.planned, "an arc with a ledger carries the cue").toBe(1);
+        expect(cues.bare, "an arc with no steps carries none").toBe(0);
+        // The cue names its arc, because a card full of rows offers a screen
+        // reader a great many chevrons that would otherwise read alike.
+        expect(cues.label).toContain(PLAN_ARC);
+        // Every row starts collapsed: the card stays a list at a glance.
+        expect(cues.expanded).toBe("false");
+        expect(cues.lists, "and nothing is mounted beneath it yet").toBe(0);
+
+        // What the row would disturb if the press reached it — read BEFORE,
+        // so the claim below is that neither moved rather than that both hold
+        // some remembered constant.
+        const focusedBefore = await app.getFocusedCardId();
+        const selectedBefore = await app.evalJS<string[]>(
+          `Array.from(
+             document.querySelectorAll(${JSON.stringify(`${SECTION} [data-selected="true"]`)}),
+           ).map((el) => el.getAttribute("data-arc") ?? el.className)`,
+        );
+
+        // ── The press ────────────────────────────────────────────────────
+        await app.click(`${PLAN_ROW} [data-slot="arcs-steps-fold"]`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${PLAN_ROW} [data-slot="arcs-steps"]`)}) !== null`,
+          { timeoutMs: 10000 },
+        );
+
+        const opened = await app.evalJS<{
+          rows: Array<{ status: string | null; text: string }>;
+          expanded: string | null;
+          ticks: string[];
+        }>(
+          `(() => {
+             const row = document.querySelector(${JSON.stringify(PLAN_ROW)});
+             const list = row.querySelector('[data-slot="arcs-steps"]');
+             const cue = row.querySelector('[data-slot="arcs-steps-fold"]');
+             const cell = row
+               .querySelector('[data-slot="tug-arc-track"]')
+               ?.querySelector('[data-slot="tug-arc-track-cell"][data-phase="implement"]');
+             return {
+               rows: Array.from(list.querySelectorAll('[data-slot="arc-step"]')).map((el) => ({
+                 status: el.getAttribute("data-status"),
+                 text: (el.textContent ?? "").trim(),
+               })),
+               expanded: cue?.getAttribute("aria-expanded") ?? null,
+               ticks: cell
+                 ? Array.from(cell.querySelectorAll(".tug-arc-track-tick")).map(
+                     (el) => el.getAttribute("data-state"),
+                   )
+                 : [],
+             };
+           })()`,
+        );
+        note("at0407 folded open", JSON.stringify(opened));
+        expect(opened.expanded).toBe("true");
+        // One row per ledger line, each carrying its ordinal and its title —
+        // the plan's own spelling, nothing derived. This fixture's plan holds
+        // three rows with the first one open.
+        expect(opened.rows.map((r) => r.text)).toEqual([
+          "1.The only step",
+          "2.The second step",
+          "3.The third step",
+        ]);
+        // And the status the entry carries, which is the same fact the track
+        // beside it paints: the row and its ticks read one ledger.
+        expect(opened.rows.map((r) => r.status)).toEqual([
+          "in progress",
+          "pending",
+          "pending",
+        ]);
+        expect(opened.ticks).toEqual(["active", "pending", "pending"]);
+
+        // ── And the press picked nothing ─────────────────────────────────
+        // The list commits selection at pointerdown and excuses any
+        // descendant that refuses focus, so a control inside a row never
+        // reaches the delegate. Nothing was fronted and nothing was selected —
+        // the claim that needs the real app, since the excusing happens in the
+        // list's own pointer handling.
+        const focusedAfter = await app.getFocusedCardId();
+        const selectedAfter = await app.evalJS<string[]>(
+          `Array.from(
+             document.querySelectorAll(${JSON.stringify(`${SECTION} [data-selected="true"]`)}),
+           ).map((el) => el.getAttribute("data-arc") ?? el.className)`,
+        );
+        expect(focusedAfter, "the press fronted no card").toBe(focusedBefore);
+        expect(selectedAfter, "and picked no row").toEqual(selectedBefore);
+        note("at0407 folded row", await app.screenshot().then((s) => s.path));
+
+        // ── Folding again unmounts it ────────────────────────────────────
+        // Structure, not appearance: an arc nobody has opened costs no ledger
+        // DOM at all, which is why this is a presence claim rather than a
+        // visibility one.
+        await app.click(`${PLAN_ROW} [data-slot="arcs-steps-fold"]`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${PLAN_ROW} [data-slot="arcs-steps"]`)}) === null`,
+          { timeoutMs: 10000 },
+        );
+        const closedCue = await app.evalJS<string | null>(
+          `document
+             .querySelector(${JSON.stringify(`${PLAN_ROW} [data-slot="arcs-steps-fold"]`)})
+             ?.getAttribute("aria-expanded") ?? null`,
+        );
+        expect(closedCue).toBe("false");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

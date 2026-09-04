@@ -27,6 +27,10 @@
  * The trailing slot is the surface's own — a row menu, a fold cue — and rides
  * the eyebrow's end.
  *
+ * The Arcs card is the first surface to fill it: an arc row whose entry carries
+ * a ledger wears the tool-call header's fold cue there, and folds open to the
+ * plan's own steps ([D176]).
+ *
  * Laws: [L02] the worker atom's identity is its own subscription; [L19]
  * `.tsx`/`.css` pair, `data-slot`; [L20] composes the atom, the identity, and
  * the line, and publishes {@link ArcWorkerAtom} for the arc picker, which
