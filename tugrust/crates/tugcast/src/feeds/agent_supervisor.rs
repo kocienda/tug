@@ -3292,8 +3292,46 @@ fn frame_family(payload: &[u8]) -> &'static str {
     }
 }
 
-fn parse_context_window(payload: &[u8]) -> Option<i64> {
+/// What one frame says about the session's resident context window.
+enum ContextWindowUpdate {
+    /// A usage frame's reading, held until the next one replaces it.
+    Measured(i64),
+    /// A compaction: whatever was being held measures a context that no longer
+    /// exists.
+    Retired,
+}
+
+/// The window reading a frame writes, or `None` for the frames that say
+/// nothing about it.
+///
+/// **A compact turn produces no usage frame of its own**, so before this the
+/// pre-compaction figure stood as the session's reading straight through the
+/// compaction and into the tick that judged it — and the arc, reading a number
+/// still above its threshold, would rotate the stage to a fresh session over a
+/// context it had just brought down. Retiring it says the true thing instead:
+/// there is no measurement of this context yet. A missing reading is no reason
+/// to strand a stage that has steps left, so the arc walks on and the next
+/// real turn's first `streaming_usage` writes the size that matters.
+///
+/// The boundary carries a `post_tokens` of its own, and it is deliberately not
+/// read here: it counts the compacted transcript rather than the resident
+/// window, and turning one into the other would need an estimate of the
+/// session's base — a second measurement of the same thing.
+fn context_window_update(payload: &[u8]) -> Option<ContextWindowUpdate> {
     let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    // The frame's own `type`, never a substring of its bytes. The merger's
+    // other gates are needles because they run in front of a parse nobody
+    // else is paying for; this one runs in front of the reading below, which
+    // parses every frame anyway — so a needle here buys nothing and costs the
+    // false match, and an assistant message quoting a boundary frame (this
+    // feature's own documents do) would retire a reading nothing replaced.
+    if value.get("type").and_then(|ty| ty.as_str()) == Some("compact_boundary") {
+        return Some(ContextWindowUpdate::Retired);
+    }
+    parse_context_window(&value).map(ContextWindowUpdate::Measured)
+}
+
+fn parse_context_window(value: &serde_json::Value) -> Option<i64> {
     match value.get("type")?.as_str()? {
         // Turn-final and main-lane only, so it needs no guard.
         "cost_update" => {}
@@ -10406,14 +10444,30 @@ impl AgentSupervisor {
                     // rotation. Both frames that carry usage write it: a
                     // `streaming_usage` keeps it current inside the turn, and
                     // the turn-final `cost_update` is the authoritative last
-                    // write.
-                    if let Some(window) = parse_context_window(&frame.payload) {
+                    // write — and a `compact_boundary` retires it, because a
+                    // compaction leaves the held number measuring a context
+                    // that is gone.
+                    if let Some(update) = context_window_update(&frame.payload) {
                         let entry_arc = {
                             let ledger = self.ledger.lock().await;
                             ledger.get(&id).cloned()
                         };
                         if let Some(entry_arc) = entry_arc {
-                            entry_arc.lock().await.context_window_tokens = Some(window);
+                            let mut entry = entry_arc.lock().await;
+                            match update {
+                                ContextWindowUpdate::Measured(window) => {
+                                    entry.context_window_tokens = Some(window)
+                                }
+                                // A replayed boundary is history: it says a
+                                // compaction happened once, not that this
+                                // session's context just came down. Guarded
+                                // for the same reason the turn edge above is.
+                                ContextWindowUpdate::Retired => {
+                                    if entry.replay_brackets_open == 0 {
+                                        entry.context_window_tokens = None;
+                                    }
+                                }
+                            }
                         }
                     }
                     // claude's whole background roster. Logged rather than
@@ -11575,6 +11629,15 @@ mod tests {
         assert_eq!(entry.open_jobs.len(), 1, "mid-turn, nothing is reaped");
     }
 
+    /// The reading one frame writes, for the tests below — the same answer
+    /// [`parse_context_window`] gives, read off the frame's bytes.
+    fn measured(payload: &[u8]) -> Option<i64> {
+        match context_window_update(payload) {
+            Some(ContextWindowUpdate::Measured(tokens)) => Some(tokens),
+            _ => None,
+        }
+    }
+
     /// Both frames that carry usage write the window, and they sum the same
     /// four fields — a `streaming_usage` keeps the reading current inside the
     /// turn, a `cost_update` is the turn's last word.
@@ -11583,26 +11646,64 @@ mod tests {
         let usage = r#""usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000}"#;
         let cost = format!(r#"{{"type":"cost_update",{usage}}}"#);
         let streaming = format!(r#"{{"type":"streaming_usage",{usage}}}"#);
-        assert_eq!(parse_context_window(cost.as_bytes()), Some(1115));
-        assert_eq!(parse_context_window(streaming.as_bytes()), Some(1115));
+        assert_eq!(measured(cost.as_bytes()), Some(1115));
+        assert_eq!(measured(streaming.as_bytes()), Some(1115));
 
         // A background subagent lane carries its own small window, stamped
         // with the tool use that spawned it. That is not the session's
         // resident context, so it writes nothing.
         let subagent =
             format!(r#"{{"type":"streaming_usage","parent_tool_use_id":"toolu_1",{usage}}}"#);
-        assert_eq!(parse_context_window(subagent.as_bytes()), None);
+        assert_eq!(measured(subagent.as_bytes()), None);
         let main_lane =
             format!(r#"{{"type":"streaming_usage","parent_tool_use_id":null,{usage}}}"#);
-        assert_eq!(parse_context_window(main_lane.as_bytes()), Some(1115));
+        assert_eq!(measured(main_lane.as_bytes()), Some(1115));
 
         // Every other frame, and a usage that sums to nothing, is no reading.
-        assert_eq!(parse_context_window(br#"{"type":"turn_complete"}"#), None);
+        assert_eq!(measured(br#"{"type":"turn_complete"}"#), None);
         assert_eq!(
-            parse_context_window(br#"{"type":"cost_update","usage":{"input_tokens":0}}"#),
+            measured(br#"{"type":"cost_update","usage":{"input_tokens":0}}"#),
             None
         );
-        assert_eq!(parse_context_window(b"not json"), None);
+        assert_eq!(measured(b"not json"), None);
+    }
+
+    /// The frame a compaction ends on **clears** the reading rather than
+    /// setting one.
+    ///
+    /// A compact turn carries no usage frame, so the figure held across it
+    /// measures a context that no longer exists — and the arc, judging the
+    /// compaction by it, would rotate the stage it had just compacted. The
+    /// boundary's own `post_tokens` is ignored on purpose: it is the compacted
+    /// transcript's size, not the resident window's.
+    #[test]
+    fn a_compact_boundary_retires_the_reading_rather_than_setting_one() {
+        let boundary =
+            br#"{"type":"compact_boundary","trigger":"manual","pre_tokens":328150,"post_tokens":9000,"ipc_version":1}"#;
+        assert!(matches!(
+            context_window_update(boundary),
+            Some(ContextWindowUpdate::Retired)
+        ));
+
+        // Every other frame keeps the meaning it had: a usage frame measures,
+        // and the rest say nothing.
+        assert!(matches!(
+            context_window_update(
+                br#"{"type":"cost_update","usage":{"input_tokens":10,"cache_read_input_tokens":90}}"#
+            ),
+            Some(ContextWindowUpdate::Measured(100))
+        ));
+        assert!(context_window_update(br#"{"type":"turn_complete"}"#).is_none());
+
+        // And a frame that merely *quotes* a boundary is not one. The
+        // documents for this very feature carry the literal, and they cross
+        // the pipe as prompt and transcript text.
+        assert!(
+            context_window_update(
+                br#"{"type":"assistant","message":{"content":[{"type":"text","text":"the frame is {\"type\":\"compact_boundary\"}"}]}}"#
+            )
+            .is_none()
+        );
     }
 
     fn commit_request(session_id: Option<&str>) -> ChangesetCommitPayload {

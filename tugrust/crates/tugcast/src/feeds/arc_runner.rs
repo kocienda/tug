@@ -687,14 +687,16 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
             reading.done_count,
             reading.facts.session_idle,
         );
-        // A pending prompt is read back exactly once: the tick that derived
-        // `compact_turn_just_ended` from it is the tick that consumes it.
-        if memory.compact_turn_just_ended {
-            entry.pending = None;
-        }
         // The re-ask is retired on the tick that reads the count past it — the
         // same rule, on the turn that answered it. Left standing it would
         // suppress the next quiet turn's re-ask as well.
+        //
+        // This one *is* retired above the gate, unlike the compaction's record
+        // below it, and the difference is what each is read against. The
+        // re-ask is compared against a turn count that only moves forward, so
+        // a withheld tick leaves the comparison saying exactly what it said
+        // before; the compaction's record is *derived from* — spending it
+        // erases the fact a withheld decision was made from.
         if entry.pending.as_ref().is_some_and(|pending| {
             matches!(pending.kind, PromptKind::StillOpen { .. })
                 && session.prompt_turns_ended > pending.turns_ended_at
@@ -732,6 +734,19 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     // Above the act and below the bookkeeping, deliberately: `quiet_turns` and
     // `last_motion_at` are counts of what happened, and what happened does not
     // depend on whether the runner chose to act on it.
+    //
+    // What the predicate returned is read off *before* the gate, because the
+    // gate withholds by clearing the action: after it, an `action=none` line
+    // cannot say whether nothing was decided or something was held. That
+    // ambiguity is what made the 2026-09-04 wedge take a cross-log
+    // reconstruction to place — the decision had to be inferred from
+    // `quiet_for="0"` — so the line carries both words now.
+    let decided = describe_action(action.as_ref());
+    // …and whether it returned anything at all, which is what the word alone
+    // cannot say once the gate has run. `action=none` after the gate has two
+    // meanings — a decision held, and no decision reached — and the record
+    // below has to tell them apart.
+    let decided_something = action.is_some();
     let settled = settle_gate(
         ctx,
         state,
@@ -743,6 +758,40 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         &mut action,
     )
     .await;
+
+    // **A pending prompt survives exactly one thing: the gate withholding the
+    // decision it was made from.** It is read back once — the tick that
+    // derived `compact_turn_just_ended` from it is the tick that consumes it —
+    // but "the tick that derived it" and "the tick that judged it" were the
+    // same tick only until the settle gate landed between them. A withheld
+    // reading is also an unspent one: consuming this above the gate left the
+    // settle's own re-sweep with nothing to re-derive, so a compaction whose
+    // turn ended inside a window wedged its arc silently and forever
+    // (2026-09-04). The gate says the same thing about `last_done_count` by
+    // restoring it; this says it by waiting.
+    //
+    // Withheld, and **nothing else**. An idle tick that reached no decision at
+    // all has judged the compaction's end just as surely — the judgement being
+    // that the ledger names no next step to prompt on — and there is no
+    // re-sweep coming to re-derive anything, because the gate arms one only
+    // over an action. Kept for that case the record latches, and a standing
+    // `compact_turn_just_ended` suppresses the quiet-turn count on every tick
+    // after it, so the horizon that exists to end this exact silence never
+    // reaches its own threshold: the same wedge under a narrower door.
+    //
+    // A reading that is not idle is not a judgement either way, and leaves it
+    // standing: a wake turn landing inside the settle must not spend the
+    // compaction's end on nobody's behalf.
+    //
+    // Above the dispatch, because a delivered prompt writes a record of its
+    // own and this would erase it.
+    let judged_nothing = reading.facts.session_idle && !decided_something;
+    if memory.compact_turn_just_ended && (settled.settled || judged_nothing) {
+        let mut map = state.lock().await;
+        if let Some(entry) = map.get_mut(&key) {
+            entry.pending = None;
+        }
+    }
 
     // Every tick says what it read and what it decided, including the ticks
     // that decided nothing. An arc that advances silently is an arc whose
@@ -779,6 +828,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         stalled = reading.facts.stalled,
         compacted_since_below = reading.facts.compacted_since_below,
         compact_turn_just_ended = reading.facts.compact_turn_just_ended,
+        decided = %decided,
         action = %describe_action(action.as_ref()),
     );
 
@@ -1079,8 +1129,13 @@ fn describe_opener(opener: Option<TurnOpener>) -> &'static str {
     }
 }
 
-/// The `action` word on an `arc.tick` line — one token per decision, so the
-/// log can be grepped for what the arc did at a boundary.
+/// The `decided` and `action` words on an `arc.tick` line — one token per
+/// decision, so the log can be grepped for what the arc did at a boundary.
+///
+/// Both fields are this function's output over the same value at two moments:
+/// `decided` is what the predicate returned, `action` what survived the settle
+/// gate. They differ exactly when a reading was held, which is the state no
+/// single field could express.
 fn describe_action(action: Option<&ArcAction>) -> String {
     match action {
         None => "none".to_string(),
@@ -4402,7 +4457,10 @@ Some context.
             .output()
             .unwrap();
         assert!(out.status.success(), "the worktree is gone");
-        assert_eq!(tugarc_core::ops::rounds_a_rebuild_would_lose(root, "demo"), 1);
+        assert_eq!(
+            tugarc_core::ops::rounds_a_rebuild_would_lose(root, "demo"),
+            1
+        );
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -4978,6 +5036,16 @@ Some context.
         used: i64,
     ) {
         entry.lock().await.context_window_tokens = Some(used);
+    }
+
+    /// What the `compact_boundary` frame leaves behind: no reading at all.
+    ///
+    /// The supervisor retires the number on that frame, because a compact turn
+    /// carries no usage frame of its own and the figure it held measures a
+    /// context that is gone. This is what the arc sees on the tick that reads
+    /// the compaction's end.
+    async fn retire_context(entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>) {
+        entry.lock().await.context_window_tokens = None;
     }
 
     /// Set the seated session's counts as **asked** turns ending would ([P02]):
@@ -6524,6 +6592,223 @@ Some context.
         }
     }
 
+    /// The wedge of 2026-09-04: a compaction whose end fell inside a settle
+    /// window left the arc with nothing to decide on ever again.
+    ///
+    /// The whole sequence, because no shorter one shows it — a step closing,
+    /// the settle, the `/compact` the arc sent, that turn ending, **a
+    /// changeset tick inside the settle window**, and the re-sweep. That
+    /// inside-the-window tick is the load-bearing line: a test that ticks once
+    /// and ages the settle passes on the code that wedged, because the tick
+    /// which derived `compact_turn_just_ended` was also the one that acted.
+    /// The rule under test is the gate's own — a withheld reading is an unspent
+    /// one — applied to the compaction's record as it already is to
+    /// `last_done_count`.
+    #[tokio::test]
+    async fn a_compaction_inside_the_settle_still_prompts_the_stage_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        with_settle(root, 5);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 350_000).await;
+        // The step's own turn has ended; the boundary is what the first sweep
+        // reads.
+        asked(&entry, 1).await;
+        let state = settling_state(root);
+
+        // The step boundary, held for the settle and then spent on the
+        // compaction.
+        sweep(&ctx, &state).await;
+        age_the_settle(&state, Duration::from_secs(6)).await;
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            submitted(&entry).await,
+            vec!["/compact".to_string()],
+            "the boundary above the threshold is answered by a compaction"
+        );
+
+        // The compaction ran and its turn ended, with a reading that came down.
+        asked(&entry, 2).await;
+        set_context(&entry, 120_000).await;
+
+        // The tick that reads the compaction's end decides a continue, and the
+        // settle holds it — a new window over a session whose counts moved.
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            submitted(&entry).await,
+            vec!["/compact".to_string()],
+            "the compaction's end is held for the settle like every other idle edge"
+        );
+
+        // A changeset tick inside that window. It must not spend the record
+        // the withheld decision was made from — and its line has to say that
+        // a decision was made and held, rather than that none was reached.
+        let held = capturing_ticks(async {
+            sweep(&ctx, &state).await;
+        })
+        .await;
+        assert_eq!(held.len(), 1, "one line per tick, got {held:#?}");
+        assert!(
+            held[0].contains("decided=prompt:continue")
+                && held[0].contains("action=none")
+                && held[0].contains("settled=false"),
+            "a held decision is a one-line read rather than an inference: {}",
+            held[0]
+        );
+        assert!(
+            state.lock().await[&demo_key(root)].pending.is_some(),
+            "a withheld tick leaves the compaction's record standing"
+        );
+
+        // The re-sweep the gate armed: the same reading, now old enough.
+        age_the_settle(&state, Duration::from_secs(6)).await;
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            submitted_asks(&entry).await,
+            vec![
+                "/compact".to_string(),
+                "/tugplug:arc-implement demo implement Step 2 and end the turn; it is the arc's last step"
+                    .to_string()
+            ],
+            "the stage is prompted on from the compaction's own turn end"
+        );
+        assert!(
+            state.lock().await[&demo_key(root)].pending.is_none(),
+            "and the record is spent on the tick that acted, not before"
+        );
+    }
+
+    /// A compaction judged against **no** reading walks the stage on, and the
+    /// judgement is never made against the reading from before it.
+    ///
+    /// The other half of the same wedge: the last usage frame before the
+    /// `/compact` said 350,000, the compact turn produces none of its own, and
+    /// the tick that reads the compaction's end is the one that decides whether
+    /// the compaction worked. Left standing, that stale number rotates the
+    /// stage to a fresh session over a context the compaction had just brought
+    /// down — the expensive act the compaction exists to avoid. The supervisor
+    /// retires the reading at the boundary, and a missing reading is no reason
+    /// to strand a stage with steps left.
+    #[tokio::test]
+    async fn a_compaction_with_no_reading_after_it_continues_rather_than_rotating() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        with_settle(root, 5);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        // The last usage frame before the compaction, and the only one there
+        // will ever be: nothing measures the window again in this test.
+        set_context(&entry, 350_000).await;
+        asked(&entry, 1).await;
+        let state = settling_state(root);
+
+        sweep(&ctx, &state).await;
+        age_the_settle(&state, Duration::from_secs(6)).await;
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            submitted(&entry).await,
+            vec!["/compact".to_string()],
+            "the boundary above the threshold is answered by a compaction"
+        );
+
+        // The compaction ran; its boundary retired the reading, and no frame
+        // has written a new one.
+        asked(&entry, 2).await;
+        retire_context(&entry).await;
+
+        sweep(&ctx, &state).await;
+        age_the_settle(&state, Duration::from_secs(6)).await;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            submitted_asks(&entry).await,
+            vec![
+                "/compact".to_string(),
+                "/tugplug:arc-implement demo implement Step 2 and end the turn; it is the arc's last step"
+                    .to_string()
+            ],
+            "with no reading of the new context, the stage keeps its session"
+        );
+        assert!(
+            state.lock().await[&demo_key(root)].in_flight_at.is_none(),
+            "and nothing was rotated over a measurement that no longer exists"
+        );
+    }
+
+    /// A compaction whose end finds nothing left to name spends its record all
+    /// the same, and the arc goes on to stop rather than sitting forever.
+    ///
+    /// The gate withholds by clearing the action, so `action == None` on the
+    /// tick after it has two meanings, and only one of them is a reason to
+    /// keep the compaction's record. The other is this: an idle tick that
+    /// judged the compaction's end and found the ledger naming no next step —
+    /// here because the one row still open was withdrawn while the compaction
+    /// ran. There is no re-sweep coming for that tick, so a record kept over
+    /// it is kept forever, and `compact_turn_just_ended` standing forever
+    /// zeroes the quiet-turn count on every tick after it. The arc would then
+    /// sit exactly as it sat on 2026-09-04, one door further in.
+    #[tokio::test]
+    async fn a_compaction_that_ends_with_nothing_to_name_still_spends_its_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        // A selection running past the ledger's last row, so the withdrawal
+        // below leaves the run neither complete nor able to name a next step.
+        tugarc_core::log::append_arc_log(root, "demo", "run-through", "3").unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 350_000).await;
+        asked(&entry, 1).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(0),
+                prompt_turns_seen: Some(1),
+                all_turns_seen: Some(1),
+                ..Default::default()
+            },
+        );
+
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            submitted(&entry).await,
+            vec!["/compact".to_string()],
+            "the boundary above the threshold is answered by a compaction"
+        );
+
+        // While the compaction ran, the last open row was withdrawn: nothing
+        // is left to prompt on, and the run is not complete either.
+        std::fs::write(
+            root.join(".tug/arcs/demo/plan.md"),
+            plan_with_statuses("done", "withdrawn"),
+        )
+        .unwrap();
+        asked(&entry, 2).await;
+        set_context(&entry, 120_000).await;
+
+        sweep(&ctx, &state).await;
+        assert!(
+            state.lock().await[&demo_key(root)].pending.is_none(),
+            "the tick that judged the compaction's end spends its record, decision or none"
+        );
+
+        // And the count a standing record would have frozen reaches the
+        // horizon, so the arc ends with a sentence instead of a silence.
+        asked(&entry, 3).await;
+        sweep(&ctx, &state).await;
+        asked(&entry, 4).await;
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            Some((ArcStage::Implement, "implement idle".to_string())),
+            "an arc with nothing left to name stops rather than ticking forever"
+        );
+    }
+
     /// The arc writes down every prompt it sends, not just the one that opened
     /// the stage.
     ///
@@ -6840,6 +7125,7 @@ Some context.
                 "settled=",
                 "prompt_turns=",
                 "wake_turns=",
+                "decided=",
             ] {
                 assert!(tick.contains(field), "no {field} on {tick}");
             }
@@ -6876,13 +7162,15 @@ Some context.
         assert!(
             ticks[0].contains("settled=false")
                 && ticks[0].contains("quiet_for=\"0\"")
-                && ticks[0].contains("action=none"),
-            "the held tick says it decided nothing and why: {}",
+                && ticks[0].contains("action=none")
+                && ticks[0].contains("decided=prompt:continue"),
+            "the held tick says what it decided, that it acted on none of it, and why: {}",
             ticks[0]
         );
         assert!(
             ticks[1].contains("settled=true")
                 && ticks[1].contains("action=prompt:")
+                && ticks[1].contains("decided=prompt:")
                 && !ticks[1].contains("quiet_for=\"-\""),
             "and the settled one says how long it waited: {}",
             ticks[1]
