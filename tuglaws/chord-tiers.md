@@ -37,8 +37,8 @@ Composed sets are never assigned fresh — each one *means* its composition, and
 | Set | Reading |
 |---|---|
 | ⌥⇧⌘ | Both twists at once. "…as Plain Text" is always ⌥⇧⌘ (⌥⇧⌘C, ⌥⇧⌘V — the latter matching macOS "Paste and Match Style" exactly). First/Last Turn ⌥⇧⌘↑/↓ are the ⇧-extremes of Previous/Next Turn ⌥⌘↑/↓. |
-| ⌃⇧⌘ | The counterpart of a Tug-tier command. Currently vacant. |
-| ⌃⌥⌘ | The variant or advanced form of a Tug-tier command — the "super-advanced" tier. Cycle Permission Mode ⌃⌥⌘P, since permission modes govern agent autonomy, the quintessential expert feature; and the Changes shade's two bulk verbs, ⌃⌥⌘A Claim All and ⌃⌥⌘D Disclaim All. |
+| ⌃⇧⌘ | The counterpart of a Tug-tier command. Disclaim All ⌃⇧⌘A, against Claim All ⌃⌘A — the same key, the opposite bulk verb of the Changes shade ([D175]). |
+| ⌃⌥⌘ | The variant or advanced form of a Tug-tier command — the "super-advanced" tier. Cycle Permission Mode ⌃⌥⌘P, since permission modes govern agent autonomy, the quintessential expert feature. Its sole resident again since [D175] returned the Changes shade's bulk verbs to the tiers [D126] derived for them. |
 
 ## The digit row
 
@@ -112,8 +112,8 @@ The algebra's first application. Each row's rationale is a derivation, not a pre
 | `toggle-changes-view` | ⇧⌘C | **⌃⌘C** | A shade toggle is Tug machinery. |
 | `toggle-history-view` | ⇧⌘H | **⌃⌘H** | The twin of Changes; it moves with it. |
 | `commit-auto-message` | ⇧⌘M | **⌃⌘M** | Joins the Changes cluster on one tier: ⌃⌘C the shade, ⌃⌘M the message, ⌃⌘A the claim. Stays composer-scoped. |
-| `claim-all-changes` | — | **⌃⌘A** | New. One mnemonic neighborhood with ⌃⌘C and ⌃⌘M. *Now ⌃⌥⌘A.* |
-| `disclaim-all-changes` | — | **⌃⇧⌘A** | New. R1: the ⇧-counterpart of ⌃⌘A, sharing its key, one finger from its pair. *Now ⌃⌥⌘D.* |
+| `claim-all-changes` | — | **⌃⌘A** | New. One mnemonic neighborhood with ⌃⌘C and ⌃⌘M. *Displaced to ⌃⌥⌘A by [D172], returned by [D175].* |
+| `disclaim-all-changes` | — | **⌃⇧⌘A** | New. R1: the ⇧-counterpart of ⌃⌘A, sharing its key, one finger from its pair. *Displaced to ⌃⌥⌘D by [D172], returned by [D175].* |
 | `next-theme` | ⌥⌘T | **⌃⌘T** | Themes are Tug machinery. ⌥ was carrying nothing — there is no ⌘T base of which Next Theme is a variant. *Now ⇧⌘T.* |
 | `insert-file` | ⌘I | **⌃⌘I** | Inserting a file reference into the composer is Tug machinery, not a many-times-an-hour universal verb (R3), and the move frees ⌘I from its italic baggage. |
 
@@ -141,18 +141,20 @@ This widens an earlier wording that named the tier's letters as the sidebar-togg
 
 ⌃⌘ arrows are neither bound in Tug nor on the macOS never-bind list, which reserves **plain** ⌃-arrows for Spaces and Mission Control rather than the ⌘ composition — the argument `move-in-column` already made on the vertical pair. Both are `menuEligible` with **empty** Swift key equivalents, so `applyCommandChords` writes them and both stay rebindable; see the shade-toggle anomaly below for what the alternative costs.
 
-**⌃⌘⟨letter⟩ names a sidebar card, one letter per card.** The two families do not compete: **the pair addresses a SIDE of the deck, a letter addresses a CARD.** The letters are a complete set rather than an open-ended one — the sidebar holds six cards and registration is a boot step, so every card has a letter and there is no seventh to derive a grant for.
+**⌃⌘⟨letter⟩ names a sidebar card, one letter per card.** The two families do not compete: **the pair addresses a SIDE of the deck, a letter addresses a CARD.** The letters are a complete set rather than an open-ended one — the sidebar holds six cards and registration is a boot step, so every card has a letter and there is no seventh to derive a grant for. Four of the six are initials; Cards and Arcs are not, each for a reason the table gives.
 
 | Card | Chord | Derivation |
 |---|---|---|
-| Arcs | **⌃⌘A** | Its own initial. |
+| Arcs | **⌃⌘R** | Not its initial — A is Claim All, and a promoted ⌃⌘A would kill that composer-scoped binding outright ([D175]). R is the noun's own second letter. ⌘R is Reveal Stack and ⌃⌘R is not a variant of it, which the tier permits: the ⌃⌘ band is read by tier rather than by base, exactly as ⌃⌘C sits over ⌘C Copy. |
 | Cards | **⌃⌘W** | Not its initial — C is the Changes shade. W is taken against this card's coming rename to **Workspaces**, so the letter is right slightly before its noun is. |
 | Jots | **⌃⌘J** | Its own initial, and a pair with ⌘J New Jot read through the tiers rather than through R1: plain-⌘ *captures* a jot (R3 — reached mid-thought, many times a day), ⌃⌘ *shows the card* that holds them. |
 | Layout | **⌃⌘L** | Its own initial. |
 | Overview | **⌃⌘O** | Its own initial. |
 | Tripwires | **⌃⌘T** | Its own initial. Next Theme sits on ⇧⌘T so this letter is free: of the two claims on T the card's is the stronger, since the six cards must be spelled consistently while Next Theme has no ⌘T base to be a variant of and can sit anywhere. |
 
-**⌃⌘A is why the Changes shade's bulk verbs are on ⌃⌥⌘.** A `menuEligible` chord becomes an AppKit key equivalent, and AppKit resolves those before the web view ever sees the keydown — so a promoted ⌃⌘A leaves a composer-scoped ⌃⌘A dead even inside the composer. That is the preemption R6's half of a menu grant is entitled to: *a deck-level verb is not a surface's to decline.* Claim All takes **⌃⌥⌘A**, the advanced form of a Tug-tier command, and Disclaim All takes **⌃⌥⌘D** — a letter of its own rather than a ⇧-counterpart, because the two were never a set-inverse and D says *Disclaim* as plainly with one fewer modifier. ⌃⌥⌘D is distinct from the reserved ⌃⌘D; the system dictionary is the ⌥-less chord.
+**A promoted chord displaces, and the question is only which side moves.** A `menuEligible` chord becomes an AppKit key equivalent, and AppKit resolves those before the web view ever sees the keydown — so a promoted ⌃⌘A leaves a composer-scoped ⌃⌘A dead even inside the composer. There is no sharing to arrange: one of the two moves or it dies silently. [D172] moved the verbs, to ⌃⌥⌘A and ⌃⌥⌘D. [D175] moved the **card** instead, to ⌃⌘R — because the mnemonic cluster (⌃⌘C the shade, ⌃⌘M the message, ⌃⌘A the claim) is worth more than a card's initial, and of the two claims on the key a card's letter is the more arbitrary. Claim All is back on **⌃⌘A** and Disclaim All on **⌃⇧⌘A**.
+
+**Disclaim All cannot take ⌃⌘D, and the scope is the reason.** ⌃⌘D is macOS Look Up, on the never-bind list above — and Look Up is live *in a text field*, which is precisely the surface this binding is scoped to. A responder binding there would be fighting the system in the one place it is least likely to win, so the ⇧-counterpart carries it instead: the same key as its pair, the opposite sense. The ⇧ means "the opposite bulk verb of this shade", not set inversion — Claim acts on what is not yet this session's, Disclaim on what is — which is exactly what R1 promises and exactly where it stops.
 
 **A chord per side does not grow at all**, which is the pair's own argument: six sidebar cards need the same two keys three do, and two is closed because the deck has two edges. The letters are closed for a contingent reason — the card set is six — where the pair's is structural, so **a seventh sidebar card is the letter family's to answer for.**
 

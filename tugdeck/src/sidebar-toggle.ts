@@ -1,6 +1,6 @@
 /**
  * sidebar-toggle.ts — what a rail's shortcut means (⌃⌘← left, ⌃⌘→ right), and
- * what a sidebar card's own chord and menu row mean (⌃⌘A Arcs, ⌃⌘W Cards,
+ * what a sidebar card's own chord and menu row mean (⌃⌘R Arcs, ⌃⌘W Cards,
  * ⌃⌘J Jots, ⌃⌘L Layout, ⌃⌘O Overview, ⌃⌘T Tripwires).
  *
  * One key, three states, read off the deck:

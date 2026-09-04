@@ -414,7 +414,7 @@ const RETIRED_SINCE_THE_MAP: ReadonlySet<string> = new Set([
  */
 const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: string]> = [
   ["⌘J", TUG_ACTIONS.NEW_JOT],
-  ["⌃⌘A", TUG_ACTIONS.TOGGLE_ARCS],
+  ["⌃⌘R", TUG_ACTIONS.TOGGLE_ARCS],
   ["⌃⌘W", TUG_ACTIONS.TOGGLE_CARDS],
   ["⌃⌘J", TUG_ACTIONS.TOGGLE_JOTS],
   ["⌃⌘L", TUG_ACTIONS.TOGGLE_LAYOUT],

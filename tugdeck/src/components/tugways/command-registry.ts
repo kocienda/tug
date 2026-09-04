@@ -999,17 +999,19 @@ const RAIL_TOGGLE_COMMANDS: readonly CommandEntry[] = (
  *
  * **⌃⌘⟨letter⟩ names a sidebar card, one letter per card** ([D172]). The set is
  * closed at six — registration is a boot step — so the grammar is complete
- * rather than open-ended. Five letters are initials; Cards takes W against its
- * coming rename to Workspaces, because C is the Changes shade. Jots reads as a
- * pair with ⌘J New Jot: plain-⌘ captures, ⌃⌘ shows the card that holds them.
+ * rather than open-ended. Four letters are initials; two are not. Cards takes W
+ * against its coming rename to Workspaces, because C is the Changes shade, and
+ * Arcs takes R — a letter of its own noun — because A goes back to Claim All
+ * ([D175]). Jots reads as a pair with ⌘J New Jot: plain-⌘ captures, ⌃⌘ shows
+ * the card that holds them.
  */
 const SIDEBAR_MENU_CARDS = [
   {
     componentId: ARCS_CARD_ID,
     noun: "Arcs",
     toggle: TUG_ACTIONS.TOGGLE_ARCS,
-    key: "KeyA",
-    label: "a",
+    key: "KeyR",
+    label: "r",
   },
   {
     componentId: CARDS_CARD_ID,
@@ -2203,13 +2205,13 @@ export const COMMANDS: readonly CommandEntry[] = [
     ],
   },
   {
-    // ⌃⌥⌘A — Claim All, on the advanced tier ⌃⌥⌘P debuted. It cannot sit on
-    // ⌃⌘A, which the Arcs card's Window row holds: a menu-eligible chord
-    // becomes an AppKit key equivalent and AppKit resolves it before the web
-    // view sees the keydown, so a scoped binding underneath one reaches
-    // nothing even inside its own surface ([D172]). The key is kept, so the
-    // neighbourhood with ⌃⌘C (the shade) and ⌃⌘M (the message) survives one
-    // modifier away.
+    // ⌃⌘A — Claim All, in one mnemonic neighbourhood with ⌃⌘C (the shade) and
+    // ⌃⌘M (the message). [D172] had evicted it to ⌃⌥⌘A because the Arcs card's
+    // Window row held ⌃⌘A, and a menu-eligible chord becomes an AppKit key
+    // equivalent that AppKit resolves before the web view sees the keydown —
+    // so a scoped binding underneath one reaches nothing even inside its own
+    // surface. Arcs moved to ⌃⌘R, which takes the promoted chord off these
+    // keys and lets the scoped binding be live again ([D175]).
     //
     // Live only while the composer is in commit mode, which is what raising
     // the Changes shade means. Composite on purpose: the shade wires the
@@ -2225,7 +2227,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     routing: "first-responder",
     bindings: [
       {
-        chord: { key: "KeyA", ctrl: true, alt: true, meta: true, label: "a" },
+        chord: { key: "KeyA", ctrl: true, meta: true, label: "a" },
         scope: { kind: "responder", responderId: COMPOSER_RESPONDER_SCOPE },
         source: "default",
         preventDefault: true,
@@ -2233,18 +2235,19 @@ export const COMMANDS: readonly CommandEntry[] = [
     ],
   },
   {
-    // ⌃⌥⌘D — Disclaim All. A letter of its own rather than the ⇧-counterpart
-    // of its pair: the two were never a set-inverse (⌃⌥⌘A acts on what is not
-    // yet this session's, this one on what is), so ⇧ was carrying "the
-    // opposite bulk verb of this shade" and a D for Disclaim says that as
-    // plainly with one fewer modifier. Distinct from the reserved ⌃⌘D — the
-    // system dictionary is the ⌥-less chord.
+    // ⌃⇧⌘A — Disclaim All, the ⇧-counterpart of Claim All: same key, opposite
+    // sense, one finger from its pair. NOT ⌃⌘D, which is macOS Look Up and on
+    // the never-bind list — and live in a text field, which is exactly the
+    // surface this binding is scoped to. The ⇧ carries "the opposite bulk verb
+    // of this shade", not set inversion: ⌃⌘A acts on what is not yet this
+    // session's, this one on what is. R1 promises a shared key and an opposite
+    // sense and never promised more ([D175]).
     id: TUG_ACTIONS.DISCLAIM_ALL_CHANGES,
     title: "Disclaim All Changes",
     routing: "first-responder",
     bindings: [
       {
-        chord: { key: "KeyD", ctrl: true, alt: true, meta: true, label: "d" },
+        chord: { key: "KeyA", ctrl: true, shift: true, meta: true, label: "a" },
         scope: { kind: "responder", responderId: COMPOSER_RESPONDER_SCOPE },
         source: "default",
         preventDefault: true,
