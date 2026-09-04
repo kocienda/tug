@@ -22,12 +22,13 @@
  *     one used to name nothing a menu could act on: the right-click offered
  *     the bare editing block. Resolved against the card's project it is the
  *     same file the same path in prose is, and offers the same four items.
- *  3. **A command is one entity** — right-clicking a command span leaves no
- *     selection behind. The control is the span beside it: an inline-code
- *     span the registry has no entry for, where WebKit's smart-select still
- *     runs and paints a sub-word. Same DOM shape, same gesture, different
- *     verdict — which is what proves the suppression is the registry's doing
- *     and not the surface refusing selection wholesale.
+ *  3. **A command is one entity** — right-clicking a command span selects the
+ *     whole span, not a word inside it. The control is the span beside it: an
+ *     inline-code span the annotator marked nothing on, where WebKit's
+ *     smart-select still runs and paints a sub-word. Same DOM shape, same
+ *     gesture, different verdict — which is what proves the whole-entity
+ *     selection is the annotation's doing and not the surface selecting
+ *     everything it is clicked on.
  *  4. **A mention says so at rest** — the same claim seen from the surface
  *     rather than from the menu. A run the resolver confirmed carries the
  *     resting rule whether it was backticked or bare, and an inline-code
@@ -252,6 +253,23 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
           `document.querySelectorAll('[data-item-action="insert-into-prompt"]').length`,
         );
         expect(insertItems).toBe(1);
+        // And the click that opened this menu selected the whole path, not
+        // the sub-word WebKit picks out of it — the menu names the file, so
+        // the highlight under it names the file too.
+        const spanText = await app.evalJS<string>(
+          `(function(){
+            var el = document.querySelector(${JSON.stringify(SPAN)});
+            return el === null ? "" : (el.textContent || "");
+          })()`,
+        );
+        const pathSelection = await app.evalJS<string>(
+          `(function(){
+            var sel = window.getSelection();
+            return sel === null ? "" : sel.toString();
+          })()`,
+        );
+        expect(spanText.length).toBeGreaterThan(0);
+        expect(pathSelection).toBe(spanText);
         const insertLabel = await app.evalJS<string | null>(
           `(function(){
             var el = document.querySelector('[data-item-action="insert-into-prompt"]');
@@ -502,7 +520,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
   );
 
   test(
-    "right-clicking a command selects nothing, where plain code still smart-selects",
+    "right-clicking a command selects the whole command, where plain code still smart-selects",
     async () => {
       const app = await launchTugApp({
         testName: "at0346-annotation-whole-entity",
@@ -580,7 +598,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         expect((await selectionText()).length).toBeGreaterThan(0);
         await app.nativeKey("Escape");
 
-        // --- the command: one entity, so nothing narrows ---------------
+        // --- the command: one entity, so the whole of it is taken -------
         await clearSelection();
         await app.evalJS<boolean>(revealJS(CMD_SPAN));
         await app.nativeRightClickAtElement(CMD_SPAN);
@@ -588,9 +606,18 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
           `document.querySelector('[data-item-action="copy-command"]') !== null`,
           { timeoutMs: 4000 },
         );
-        expect(await selectionText()).toBe("");
+        // Not the sub-word WebKit picked out of it: the entire span, which
+        // is the thing every item in this menu acts on.
+        const commandText = await app.evalJS<string>(
+          `(function(){
+            var el = document.querySelector(${JSON.stringify(CMD_SPAN)});
+            return el === null ? "" : (el.textContent || "");
+          })()`,
+        );
+        expect(commandText.length).toBeGreaterThan(0);
+        expect(await selectionText()).toBe(commandText);
         // And the menu is the command's own — no selection-scoped Copy
-        // beside it to act on a sub-word that was never selected.
+        // beside Copy Command to say the same thing twice.
         const standardCopy = await app.evalJS<boolean>(
           `document.querySelector('[data-item-action="copy"]') !== null`,
         );

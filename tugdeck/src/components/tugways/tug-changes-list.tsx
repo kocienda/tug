@@ -1207,7 +1207,7 @@ export function TugChangesList({
     adapterRef: null,
     extraEntries: annotation.extraEntries,
     hideStandardItems: annotation.hideStandardItems,
-    suppressSelectionChange: annotation.suppressSelectionChange,
+    wholeEntityTarget: annotation.wholeEntityTarget,
   });
   // Only a press that landed on a stamped reference opens this menu. A press
   // on the list's own chrome carries no entity, and answering it with an

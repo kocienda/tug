@@ -21,12 +21,11 @@
  *    smart-selected, which is never what the user meant. Kinds whose
  *    entries don't collide with Copy append instead, so right-clicking an
  *    annotation inside a selection keeps Copy and Select All.
- *  - `wholeEntitySelection` — whether a secondary click may leave a
- *    sub-word highlighted inside the annotation. Commands say no: the
- *    browser's smart-select would paint a word the menu has no item for.
  *
- * @see module:components/tugways/use-text-surface-context-menu for where
- * the last of those is honored.
+ * What a secondary click *selects* is not among them: every annotation is one
+ * indivisible thing to a right-click, so the surface selects the whole of it
+ * rather than the sub-word WebKit picked. That rule needs no per-kind opinion
+ * — see `components/tugways/use-text-surface-context-menu`, where it lives.
  *
  * @module lib/annotator/registry
  */
@@ -153,13 +152,6 @@ export interface AnnotationKindEntry {
    * rather than appending below it.
    */
   suppressStandardItems: boolean;
-  /**
-   * Whether a secondary click treats this annotation as one indivisible
-   * thing. When true the surface stops the browser's smart-select on the
-   * click, so a right-click on a command never leaves a sub-word
-   * highlighted under a menu whose every item acts on the whole command.
-   */
-  wholeEntitySelection?: boolean;
 }
 
 const REGISTRY = new Map<AnnotationKind, AnnotationKindEntry>();
@@ -261,14 +253,12 @@ registerAnnotationKind("slash-command", {
   primaryClick: seedCommand,
   menuEntries: commandMenuEntries,
   suppressStandardItems: true,
-  wholeEntitySelection: true,
 });
 
 registerAnnotationKind("shell-command", {
   primaryClick: seedCommand,
   menuEntries: commandMenuEntries,
   suppressStandardItems: true,
-  wholeEntitySelection: true,
 });
 
 const urlMenuEntries = (payload: AnnotationPayload): AnnotationMenuEntry[] => [

@@ -102,15 +102,6 @@ describe("command kinds replace the standard menu block", () => {
     ]);
   });
 
-  test("and a command is one thing to a secondary click", () => {
-    // The whole point of replacing the standard block: the menu's items
-    // all act on the entire command, so the click must not leave the
-    // browser's smart-selected sub-word painted underneath it.
-    for (const kind of ["slash-command", "shell-command"] as const) {
-      expect(annotationEntryFor(kind)?.wholeEntitySelection).toBe(true);
-    }
-  });
-
   test("and a command click is registered at all", () => {
     expect(annotationEntryFor("slash-command")?.primaryClick).toBeDefined();
     expect(annotationEntryFor("shell-command")?.primaryClick).toBeDefined();

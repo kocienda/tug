@@ -11,8 +11,9 @@
  *  - **sampling** — which annotation the press landed on, held for the
  *    handlers that run when an item is picked;
  *  - **the three predicates** `useTextSurfaceContextMenu` asks a consumer for
- *    (`extraEntries` / `hideStandardItems` / `suppressSelectionChange`), each
- *    answered from the registry entry for the sampled kind;
+ *    (`extraEntries` / `hideStandardItems` / `wholeEntityTarget`), the first
+ *    two answered from the registry entry for the sampled kind and the last
+ *    from the sampled element itself;
  *  - **the handlers** those items dispatch to, which a consumer folds into its
  *    own responder's action map.
  *
@@ -105,7 +106,7 @@ export interface UseAnnotationMenuResult {
   /** Pass to `useTextSurfaceContextMenu`. */
   hideStandardItems: (event: MouseEvent) => boolean;
   /** Pass to `useTextSurfaceContextMenu`. */
-  suppressSelectionChange: (event: MouseEvent) => boolean;
+  wholeEntityTarget: (event: MouseEvent) => HTMLElement | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -360,14 +361,17 @@ export function useAnnotationMenu({
     return annotationEntryFor(hit.payload.kind)?.suppressStandardItems ?? false;
   }, []);
 
-  // A secondary click on a whole-entity annotation (a command) keeps its hands
-  // off the selection: the browser would smart-select a sub-word, and every
-  // item the menu is about to show acts on the entire command.
-  const suppressSelectionChange = useCallback((event: MouseEvent): boolean => {
-    const hit = annotationFromEvent(event);
-    if (hit === null) return false;
-    return annotationEntryFor(hit.payload.kind)?.wholeEntitySelection ?? false;
-  }, []);
+  // An annotation is one thing to a secondary click, whatever its kind. The
+  // browser would smart-select a sub-word of it — a segment of the path, a
+  // word of the command — under a menu whose every item acts on the whole
+  // entity, and a highlight that names less than the menu does is a lie about
+  // what the gesture is about to do. Handing the element back is what lets
+  // the surface select all of it instead.
+  const wholeEntityTarget = useCallback(
+    (event: MouseEvent): HTMLElement | null =>
+      annotationFromEvent(event)?.element ?? null,
+    [],
+  );
 
-  return { actions, extraEntries, hideStandardItems, suppressSelectionChange };
+  return { actions, extraEntries, hideStandardItems, wholeEntityTarget };
 }

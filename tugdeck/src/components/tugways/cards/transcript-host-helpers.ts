@@ -555,7 +555,7 @@ export function useTranscriptCellMenu({
     adapterRef,
     extraEntries: annotation.extraEntries,
     hideStandardItems: annotation.hideStandardItems,
-    suppressSelectionChange: annotation.suppressSelectionChange,
+    wholeEntityTarget: annotation.wholeEntityTarget,
   });
 
   // The hook returns native-event handlers; the cell wires them

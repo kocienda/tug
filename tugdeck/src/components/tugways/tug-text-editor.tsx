@@ -2134,7 +2134,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       // transcript offers, and neither surface states the list.
       extraEntries: annotation.extraEntries,
       hideStandardItems: annotation.hideStandardItems,
-      suppressSelectionChange: annotation.suppressSelectionChange,
+      wholeEntityTarget: annotation.wholeEntityTarget,
     });
 
     // Attach the contextmenu listener only when the click lands inside the

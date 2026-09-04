@@ -443,7 +443,13 @@ A **text surface** — transcript, prose, an editor, an input — appends the st
 
 An **object** — a badge, a label, a chip, a row, a tile — omits it entirely. It holds no selection, so Cut, Paste and Select All have nothing to be about. They were once drawn dimmed on the theory that a familiar menu with three dead rows reads better than a short live one; it does not, and the flag that chose between the two shapes gave one kind of object a five-row menu and another a one-row menu on nothing but a call site's opt-in.
 
-The **replace** case is narrower and stays: a kind marked `wholeEntitySelection` (both command families) shows its items *instead of* the standard block, because a selection-scoped Copy beside Copy-the-command would copy whatever sub-word WebKit smart-selected.
+The **replace** case is narrower and stays: a kind marked `suppressStandardItems` (both command families) shows its items *instead of* the standard block, because a selection-scoped Copy beside Copy-the-command would copy whatever the surface's selection happened to be.
+
+### A secondary click selects the whole entity
+
+Right-clicking an annotation selects **all** of it — the whole path, the whole command, the whole hash — before the menu opens. WebKit smart-selects the nearest word inside `sendContextMenuEvent`, ahead of any handler, so the default is a highlight naming a fragment of the thing under a menu whose every item acts on the entity; the mismatch reads as the menu being about the fragment. The surface overwrites that pick in `useTextSurfaceContextMenu` (`wholeEntityTarget`), and the rule is the annotator's, not a per-kind opinion.
+
+The one selection it leaves alone is a ranged one the user made that reaches *past* the entity: that selection is about more than this annotation, and the standard block's Copy is still about it.
 
 ### What is deliberately not here
 
