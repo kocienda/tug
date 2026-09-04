@@ -31,19 +31,37 @@
 
 /* ══ The shared tree ═══════════════════════════════════════════════════ */
 
-/* Common to all four: the code face, a box that never wraps mid-hash, and an
-   optical baseline seat. The face is the ATOM's, not the host's — a hash is a
-   hash in a mono row and in a prose paragraph alike, and this is the one thing
-   the commit atom does not share with the sans-faced pills beside it. */
+/* Common to all four: a box that never wraps mid-hash, and a seat on the
+   host's own baseline.
+
+   **The face is the SURFACE's, not the atom's.** Nothing here sets a
+   `font-family`, so a commit atom comes out proportional in a transcript
+   paragraph and mono in a composer line or a History row — the same way every
+   other atom behaves, because the face is a fact about where the reader IS,
+   not about what a commit is. A hash pinned to mono everywhere was the first
+   drawing's mistake: it made the mark shout its machine-ness on a surface that
+   had not asked, and it put a commit in a different typeface from the arc pill
+   standing right beside it. `tug-atom-ref.css` still pins mono; if a candidate
+   here graduates, that pin is what it reverses.
+
+   `tabular-nums` survives the change and matters MORE in proportional type: it
+   is what keeps eight hex characters from being eight different widths, so a
+   column of shas still lines up.
+
+   **The baseline is the text's.** `align-items: baseline` with the node
+   opting out (`align-self: center`) makes `.ca-text` the item that supplies
+   the flex container's baseline, so the hash sits exactly on the line the
+   sentence around it sits on. The first drawing used `align-items: center`,
+   which leaves an inline-flex box with no baseline-aligned item at all — the
+   browser then synthesizes one from the box's bottom margin edge, and the
+   hand-picked `vertical-align` nudge was papering over the result. */
 .ca-atom {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--tug-space-2xs);
-  font-family: var(--tug-font-family-mono);
   font-size: var(--tugx-atom-font-size, 13px);
   line-height: normal;
   white-space: nowrap;
-  vertical-align: -0.25em;
   cursor: default;
   user-select: none;
 }
@@ -68,10 +86,17 @@
 /* The node — one dot, sized from the register's dot the way a session atom's
    phase mark is, so a commit's node and a session's dot are the same size when
    they stand in one line. Its rails are `::before` / `::after` and every
-   candidate decides their reach for itself. */
+   candidate decides their reach for itself.
+
+   It opts OUT of baseline alignment: a node has no text in it, so a baseline
+   is something the browser would have to invent for it — from its bottom
+   margin edge, which would hang the dot below the hash. `center` instead
+   seats it on the text's own optical middle, and leaves `.ca-text` as the one
+   item supplying the atom's baseline to the line it stands in. */
 .ca-node {
   position: relative;
   flex: none;
+  align-self: center;
   inline-size: var(--tugx-atom-dot-size, 6px);
   block-size: var(--tugx-atom-dot-size, 6px);
   border-radius: 999px;
@@ -105,16 +130,41 @@
    commit is a named object exactly like its neighbours and should wear their
    box; the argument against it is standing next to one, where two pills read
    as two of the same kind of thing when they are not. Rails suppressed — a
-   node inside an enclosure has nowhere to run to. */
+   node inside an enclosure has nowhere to run to.
+
+   **The pill's baseline is its label's — by the session pill's own trick.**
+   An enclosure with a fixed height has to CENTER its contents, and a flex
+   container with no baseline-aligned item borrows its FIRST item's baseline.
+   Here that item is the node, a box with no text, whose baseline the browser
+   synthesizes from its bottom edge — so the pill hung off the underside of its
+   own node, six pixels low in a sentence. A `vertical-align` length on top of
+   that was a correction on top of a lie (the second drawing tried one, seated
+   on `1ex`, and the pill still hung).
+
+   `tug-session-identity.css` met exactly this and answered it with a strut: a
+   zero-width `::before` carrying `U+200B` in the pill's own face, centred by
+   the same `align-items: center` as the label. Same face, same leading, same
+   centring, so its baseline IS the label's, and the pill offers the line the
+   baseline a reader is actually looking at. No `vertical-align` at all. The
+   strut is still a flex item and takes a `gap`; the negative margin gives it
+   back. This is the rule the graduated component inherits verbatim. */
 .ca-atom[data-candidate="pill"] {
   box-sizing: border-box;
+  align-items: center;
   block-size: var(--tugx-atom-height, 22px);
   gap: 5px;
   padding-inline: 9px;
   border: var(--tugx-atom-border-width, 1px) solid
     color-mix(in oklab, currentcolor 30%, transparent);
   border-radius: 999px;
-  vertical-align: -0.4em;
+}
+
+.ca-atom[data-candidate="pill"]::before {
+  content: "\200B";
+  flex: none;
+  align-self: center;
+  inline-size: 0;
+  margin-inline-end: -5px;
 }
 
 /* ══ Candidate 2 — Rail ════════════════════════════════════════════════
@@ -349,8 +399,39 @@
   gap: var(--tug-space-md);
 }
 
-/* A History shade row, in the mono context that taught the pills to pin their
-   own face. */
+/* A composer line — text entry, which is mono. The candidates set no
+   `font-family` at all, so this bench is mono purely because its host is, and
+   the transcript bench is proportional for the same reason. That is the whole
+   of the face rule, and it is stated by these two benches disagreeing rather
+   than by a property on the atom. */
+.ca-composer {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-md);
+  line-height: var(--tugx-atom-line-box-floor, 26px);
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tug-radius-sm);
+  min-inline-size: 0;
+}
+
+/* A resting caret, so the line reads as a field somebody is typing in rather
+   than as a quotation of one. Static — a blink would be motion the bench is
+   not about. */
+.ca-caret {
+  inline-size: 1px;
+  block-size: 1.1em;
+  align-self: center;
+  background-color: currentcolor;
+  opacity: 0.7;
+}
+
+/* A History shade row — the other mono host, and the one that taught the
+   session pill to pin its own face. A commit atom does the opposite here and
+   goes mono with the row, because a hash and the row's own text ARE the same
+   register; that is the disagreement worth arguing over on this bench. */
 .ca-history-row {
   display: flex;
   align-items: center;

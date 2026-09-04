@@ -16,25 +16,33 @@
  * color — because they are *named objects* somebody can hold in their head
  * (`tug-session-identity.css`'s chip tier, reached through
  * {@link TugArcAtom}). A commit is not that: nobody named it, and its name
- * is eight hex characters that must stay mono to be readable as a hash. So a
- * commit atom cannot simply be a third pill, and it cannot stay generic ink
- * either. It needs a look of its own that is legibly a *sibling* of the
- * pill without being one.
+ * is eight hex characters nobody chose. So a commit atom cannot simply be a
+ * third pill, and it cannot stay generic ink either. It needs a look of its
+ * own that is legibly a *sibling* of the pill without being one.
+ *
+ * **The face is the surface's, not the atom's.** The candidates set no
+ * `font-family` at all, so a commit atom is proportional in a transcript
+ * paragraph and mono in a composer line or a History row — the same way every
+ * other atom behaves. A hash pinned to mono everywhere makes the mark shout
+ * its machine-ness on surfaces that did not ask, and puts a commit in a
+ * different typeface from the arc pill standing beside it. `tug-atom-ref.css`
+ * pins mono today; whichever candidate graduates reverses that pin, and the
+ * transcript and composer benches are where the two faces are compared.
  *
  * Four candidates, drawn side by side on every surface a commit is named on:
  *
  *   1. **Node pill** — the pill enclosure the arc and session already wear,
- *      with the sha in mono inside it. Says a commit is a named object,
- *      exactly like its neighbours. The cost is that four of them in a row
- *      is four boxes.
+ *      with the hash inside it. Says a commit is a named object, exactly
+ *      like its neighbours. The cost is that four of them in a row is four
+ *      boxes.
  *   2. **Rail** — no enclosure at all: a node with a hairline of rail either
- *      side, then the mono sha. Borrows the commit graph's own vocabulary,
+ *      side, then the hash. Borrows the commit graph's own vocabulary,
  *      which is the one picture every reader of this app already has of what
  *      a commit is. Cheapest in a run; weakest standing alone.
  *   3. **Slab** — the sha on a faint tinted field, squared where the node
  *      attaches and rounded away from it: a tag hung off a point in history.
  *      Reads as machine fact rather than as a name, which is what a hash is.
- *   4. **Ink** — the quietest: node plus mono sha, no field, no word, a
+ *   4. **Ink** — the quietest: node plus hash, no field, no word, a
  *      hairline rule under the hash only. The run-of-many case's best
  *      behaviour, and the one that risks vanishing back into prose.
  *
@@ -52,12 +60,13 @@
  *     commit atom that adopts a box adopts that box's height rather than
  *     inventing one.
  *
- * **The benches are the point, not the specimens.** Four surfaces, because
+ * **The benches are the point, not the specimens.** Five surfaces, because
  * "everywhere in the app" is a claim only a surface can falsify: a
- * transcript paragraph at 14px prose, a run of four shas with an arc pill
- * beside them (the screenshot that prompted this), a History shade row in
- * mono context, and a reading-scale block. A candidate that wins one bench
- * and loses another has not won.
+ * transcript paragraph at 14px prose, a composer line in mono, a run of four
+ * shas with an arc pill beside them (the screenshot that prompted this), a
+ * History shade row, and a reading-scale block. A candidate that wins one
+ * bench and loses another has not won — and the first two are one test, not
+ * two: the shape has to read as one mark across both faces.
  *
  * The status quo is drawn from the real {@link CommitShaText} throughout, so
  * the "before" is what the app renders and not a reconstruction of it. The
@@ -115,7 +124,7 @@ const CANDIDATES: readonly { key: Candidate; title: string; gist: string }[] = [
   {
     key: "pill",
     title: "Node pill",
-    gist: "The arc and session enclosure, with a mono hash inside it. A commit is a named object like its neighbours — at the cost of a box per sha.",
+    gist: "The arc and session enclosure, with the hash inside it. A commit is a named object like its neighbours — at the cost of a box per sha.",
   },
   {
     key: "rail",
@@ -130,7 +139,7 @@ const CANDIDATES: readonly { key: Candidate; title: string; gist: string }[] = [
   {
     key: "ink",
     title: "Ink",
-    gist: "Node, mono hash, a hairline under the hash alone. The quietest — best in a run, most at risk of dissolving back into the prose.",
+    gist: "Node, hash, a hairline under the hash alone. The quietest — best in a run, most at risk of dissolving back into the prose.",
   },
 ];
 
@@ -329,7 +338,33 @@ export function SpikeCommitAtom(): React.ReactElement {
 
         <TugSeparator />
 
-        {/* ── Bench 2: the run ─────────────────────────────────────── */}
+        {/* ── Bench 2: text entry ──────────────────────────────────── */}
+        <section className="sp-section">
+          <h2 className="sp-section-title">Bench — a composer line (text entry)</h2>
+          <Caption>
+            The face is the <em>surface’s</em>, not the atom’s: an atom comes out mono
+            here and proportional in the transcript above, the same way every other atom
+            behaves, because the typeface is a fact about where the reader is rather than
+            about what a commit is. Nothing in the candidates sets a{" "}
+            <code>font-family</code> at all — this bench is mono because a composer line
+            is. Compare each drawing against its twin two sections up: the shape must be
+            recognisably one mark across the two faces, which is the real test.
+          </Caption>
+          <div className="ca-bench">
+            {CANDIDATES.map((c) => (
+              <Cell title={c.title} key={c.key}>
+                <div className="ca-composer">
+                  <span>land {atom(c.key)} on the arc and open the shade</span>
+                  <span className="ca-caret" aria-hidden="true" />
+                </div>
+              </Cell>
+            ))}
+          </div>
+        </section>
+
+        <TugSeparator />
+
+        {/* ── Bench 3: the run ─────────────────────────────────────── */}
         <section className="sp-section">
           <h2 className="sp-section-title">Bench — four in a row, beside an arc</h2>
           <Caption>
@@ -354,7 +389,7 @@ export function SpikeCommitAtom(): React.ReactElement {
 
         <TugSeparator />
 
-        {/* ── Bench 3: mono context ────────────────────────────────── */}
+        {/* ── Bench 4: mono context ────────────────────────────────── */}
         <section className="sp-section">
           <h2 className="sp-section-title">Bench — a History shade row (mono context)</h2>
           <Caption>
@@ -381,7 +416,7 @@ export function SpikeCommitAtom(): React.ReactElement {
 
         <TugSeparator />
 
-        {/* ── Bench 4: reading scale ───────────────────────────────── */}
+        {/* ── Bench 5: reading scale ───────────────────────────────── */}
         <section className="sp-section">
           <h2 className="sp-section-title">Bench — a reading-scale block (13px)</h2>
           <Caption>
@@ -463,9 +498,10 @@ export function SpikeCommitAtom(): React.ReactElement {
             <strong> No second set of numbers.</strong> If the winner takes a box, the box
             is <code>lib/atom-register.ts</code>’s, so a live atom and a Canvas bake of it
             cannot be two sizes.
-            <strong> No proportional hash.</strong> Eight hex characters are a hash, and a
-            hash is mono — that is the one thing this atom does not share with its
-            neighbours.
+            <strong> No pinned typeface.</strong> A hash is not always mono: the face
+            follows the surface, proportional in the transcript and mono in text entry,
+            exactly as the atoms beside it behave. A candidate that only works in one of
+            the two faces has not won — which is what the composer bench is for.
           </Caption>
         </section>
       </div>
