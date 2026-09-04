@@ -126,16 +126,28 @@ const ARC_SETTLED_STAGES: ReadonlySet<string> = new Set([
 
 /**
  * The ARC reading's indicator pose — the arc lifecycle in the same
- * three poses the TASKS reading it replaces uses:
+ * poses the TASKS reading it replaces uses, plus danger for a stop:
  *
+ *  - a recorded stop (`wheel.stopped`) → `aborted`, which outranks every
+ *    other reading;
  *  - a resting point of the arc (`ready` / `built` / `audited` /
  *    `draft-ready`) → `completed`;
- *  - an arc under way → `running`, demoted to `stopped` while the
- *    session is idle, on the same grounds as TASKS: an arc does not
- *    advance between turns, and a dot still pulsing over an idle
- *    session would say it did;
+ *  - an arc the wheel is driving — a wheel record present, not `done`,
+ *    not stopped → `running`, **whatever the session is doing**;
+ *  - an arc under way with no wheel record → `running`, demoted to
+ *    `stopped` while the session is idle, on the same grounds as TASKS:
+ *    nothing else is acting on it between turns, and a dot still
+ *    pulsing over an idle session would say something was;
  *  - an arc nobody has begun — no arc, and no stage or `created` →
  *    `stopped`.
+ *
+ * **Under the wheel the idle edge is the arc's busiest moment.** A
+ * rotation, a compaction, and every stage seat happen *at* the turn end,
+ * never inside a turn, so the idle demotion that is right for a hand-run
+ * arc painted a wheel-driven one as stopped at the door's turn end, at
+ * every step boundary, and across every rotation gap — exactly the
+ * moments the wheel was working. The wheel record is what says the arc
+ * is being driven, so its liveness is what holds the pulse.
  *
  * **"Under way" is the ARC, not the git stage.** An arc writing its
  * brief, devising a plan, or reviewing one has no stage at all —
@@ -150,14 +162,46 @@ const ARC_SETTLED_STAGES: ReadonlySet<string> = new Set([
  * reads as work rather than as nothing.
  */
 export function arcCellPose(
-  arc: { stage: string | null; arcStage: string | null },
+  arc: {
+    stage: string | null;
+    wheel: { stage?: string; stopped?: string; done?: boolean } | null;
+  },
   isIdle: boolean,
-): "stopped" | "running" | "completed" {
-  const { stage, arcStage } = arc;
+): "stopped" | "running" | "completed" | "aborted" {
+  const { stage, wheel } = arc;
+  if (wheel?.stopped !== undefined) return "aborted";
   if (stage !== null && ARC_SETTLED_STAGES.has(stage)) return "completed";
+  if (wheel !== null && wheel.done !== true) return "running";
+  const arcStage = wheel?.stage ?? null;
   const begun = arcStage !== null || (stage !== null && stage !== "created");
   if (!begun) return "stopped";
   return isIdle ? "stopped" : "running";
+}
+
+/**
+ * The pair the ARC reading may show, or null when it must say a word instead.
+ *
+ * **Z2's numerals are the implement stage's reading and no other stage's.**
+ * The masthead counts a declared selection wherever the arc is — `3/3` on a
+ * title is right — but the state cell says what the seated session is
+ * *doing*, and a pair of numbers says "walking steps". Two moments used to
+ * produce a pair that said the wrong thing: after the walk the run fraction
+ * pins at `N/N` and the audit stage read `3/3`; before the first step opens
+ * the fallback counts zero and a reviewed plan read `0/4`. So the pair shows
+ * only while the wheel's stage is `implement` — or no wheel drives the arc at
+ * all, since a hand-run arc's step verbs are its implement stage — and only
+ * once a step is actually in hand. Everywhere else the caller says the seated
+ * stage's word, which is the honest fact at those moments; the plan's size is
+ * not lost, the placard's list and the track's ticks carry it.
+ */
+export function arcCellNumerals(
+  wheel: { stage?: string; stopped?: string; done?: boolean } | null,
+  fraction: { current: number; total: number } | null,
+): { current: number; total: number } | null {
+  if (fraction === null || fraction.current <= 0) return null;
+  if (wheel === null) return fraction;
+  const live = wheel.done !== true && wheel.stopped === undefined;
+  return live && wheel.stage === "implement" ? fraction : null;
 }
 
 /**
@@ -234,7 +278,10 @@ export function jobsCellDisplayPose(
  * recently-finished count (the linger). Active work never inflates by
  * history — the linger only softens the drop to zero.
  */
-export function cellDisplayCount(activeCount: number, recentlyDone: number): number {
+export function cellDisplayCount(
+  activeCount: number,
+  recentlyDone: number,
+): number {
   return activeCount > 0 ? activeCount : recentlyDone;
 }
 

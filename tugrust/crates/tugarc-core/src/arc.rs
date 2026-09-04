@@ -187,6 +187,24 @@ pub enum ArcStopReason {
     /// — the vocabulary is closed and a reason cannot carry a payload — and the
     /// receipt reads it back beneath the sentence.
     NeedsDecision,
+    /// The arc's four records disagree about where it is, and the runner found
+    /// it before seating a stage over them.
+    ///
+    /// The check is `doctor::doctor` at dispatch time, run against the same
+    /// four records `tugtool arc doctor` compares: the ledger table, the arc
+    /// log's declarations, the sqlite binding, and the arc record. A stage
+    /// seated over a disagreement reads a frontier that is not where the
+    /// surfaces say it is, closes a step the log will not credit, and the arc
+    /// finishes somewhere nobody can follow — a wedge with no receipt, which
+    /// is the shape this whole vocabulary exists to prevent.
+    ///
+    /// Resumable: the disagreement is a repair (`tugtool arc doctor <name>
+    /// --repair` where the finding carries one), and the arc picks back up.
+    /// The findings' sentences ride as an `arc-note` written immediately
+    /// before the stop — the same carriage [`ArcStopReason::NeedsDecision`]
+    /// uses, and for the same reason: the vocabulary is closed and a reason
+    /// cannot carry a payload.
+    RecordsDisagree,
 }
 
 impl ArcStopReason {
@@ -218,6 +236,7 @@ impl ArcStopReason {
         ArcStopReason::ImplementIdle,
         ArcStopReason::Stalled,
         ArcStopReason::NeedsDecision,
+        ArcStopReason::RecordsDisagree,
     ];
 
     /// The word written into `arc-stop`'s note.
@@ -247,6 +266,7 @@ impl ArcStopReason {
             ArcStopReason::ImplementIdle => "implement idle",
             ArcStopReason::Stalled => "stalled",
             ArcStopReason::NeedsDecision => "needs a decision",
+            ArcStopReason::RecordsDisagree => "records disagree",
         }
     }
 
@@ -285,6 +305,9 @@ impl ArcStopReason {
             }
             ArcStopReason::NeedsDecision => {
                 "it met a decision that is yours to make, so it stopped rather than asking"
+            }
+            ArcStopReason::RecordsDisagree => {
+                "its records disagree about where it is, so it stopped rather than seating a stage over them"
             }
         }
     }

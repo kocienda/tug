@@ -862,6 +862,11 @@ pub enum ArcCommands {
         /// Create the documents directory if it does not exist.
         #[arg(long)]
         ensure: bool,
+        /// After ensuring the directory, bind the calling session to the arc —
+        /// the door's first act, so the arc reads as running from its first
+        /// keystroke rather than from its last command. Requires `--ensure`.
+        #[arg(long, requires = "ensure")]
+        bind: bool,
     },
     /// Report one arc's record — document, plan, kind, owner, stages, stopped
     /// reason, done.

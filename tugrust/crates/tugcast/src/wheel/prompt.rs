@@ -98,10 +98,10 @@ fn looks_like_a_path(token: &str) -> bool {
 /// What every implement ask tells a seated stage about its own pacing.
 ///
 /// The ask leads with the one step this turn owes — "implement Step N and
-/// end your turn" — and only then names what remains of the run, so the
-/// unit of work and the run's declared end cannot be read as one
+/// end the turn" — and only then names what remains of the arc, so the
+/// unit of work and the selection's declared end cannot be read as one
 /// assignment. The remainder is not decoration: the selection's end is
-/// what arms the join, the stage must never re-ask how far the run goes,
+/// what arms the join, the stage must never re-ask how far it reaches,
 /// and after a rotation this line is the only place the fresh session
 /// re-learns it. What the ask no longer says is that the arc prompts the
 /// next step — that is the skill's fact and the `step done` directive's,
@@ -116,17 +116,17 @@ fn implement_ask(arc: &str, steps: Option<&str>) -> String {
     let Some(steps) = steps else {
         // No selector on the first implement stage: the whole plan, and
         // `arc-implement`'s own setup declares `--through`.
-        return format!("/tugplug:arc-implement {arc} implement one step and end your turn");
+        return format!("/tugplug:arc-implement {arc} implement one step and end the turn");
     };
     let next = steps.split('-').next().unwrap_or(steps);
     let last = steps.rsplit('-').next().unwrap_or(steps);
     if next == last {
         format!(
-            "/tugplug:arc-implement {arc} implement Step {next} and end your turn; it is the run's last step"
+            "/tugplug:arc-implement {arc} implement Step {next} and end the turn; it is the arc's last step"
         )
     } else {
         format!(
-            "/tugplug:arc-implement {arc} implement Step {next} and end your turn; Steps {steps} remain on this run"
+            "/tugplug:arc-implement {arc} implement Step {next} and end the turn; Steps {steps} remain on this arc"
         )
     }
 }
@@ -165,24 +165,64 @@ pub fn stage_ask(
     }
 }
 
+/// Where a stage is, as one line it can read instead of asking.
+///
+/// Every stage skill used to open by *probing* for its own coordinates —
+/// `printenv TUG_ARC`, `arc bind --dry-run`, `arc status --json` — four
+/// commands to learn four facts the runner held all along and had just
+/// finished acting on. A probe is also the weaker answer: it reads the
+/// records a second time, after the dispatch, so it can disagree with what
+/// the dispatch decided. This clause is the dispatch's own reading, handed
+/// down, and the doctor ran against those same records immediately before it
+/// — so `bound` is a fact the runner checked rather than a word the prompt
+/// asserts.
+///
+/// The step coordinates are the implement stage's alone; every other stage
+/// walks no ledger, so the clause ends at the stage word.
+pub fn where_clause(
+    worktree: &Path,
+    session: &str,
+    stage: &str,
+    steps: Option<(usize, usize)>,
+) -> String {
+    let mut out = format!(
+        "where: worktree {} · session {session} bound · stage {stage}",
+        worktree.display()
+    );
+    if let Some((from, through)) = steps {
+        out.push_str(&format!(" · Step {from} in hand, through {through}"));
+    }
+    out
+}
+
 /// The stage's opening prompt.
 ///
-/// Four clauses, each dropped when its fact is absent: the ask, the paths the
-/// document cites, what moved in those files since the document was written,
-/// and — for an arc that stopped and is resuming — where it stopped and
-/// why. A call with only an ask returns exactly that ask, which is what makes
-/// this a safe replacement for a bare one.
+/// Five clauses, each dropped when its fact is absent: the ask, where the
+/// stage is ([`where_clause`]), the paths the document cites, what moved in
+/// those files since the document was written, and — for an arc that stopped
+/// and is resuming — where it stopped and why. A call with only an ask returns
+/// exactly that ask, which is what makes this a safe replacement for a bare
+/// one.
+///
+/// The `where` clause comes second because it is what the stage reads *before*
+/// it reads anything else: the ask says what to do, and the line under it says
+/// from where. A stage that finds no `where` line is not under a wheel, and
+/// its skill says so and stops.
 ///
 /// The paths clause **names what the list is** rather than telling the model
 /// what to do with it: they are the files the document cites, and where to
 /// begin is the stage's own judgement.
 pub fn compose(
     ask: &str,
+    place: Option<&str>,
     paths: &[String],
     commits: &[String],
     resume: Option<(&str, &str)>,
 ) -> String {
     let mut out = ask.to_owned();
+    if let Some(place) = place {
+        out.push_str(&format!("\n\n{place}"));
+    }
     if !paths.is_empty() {
         out.push_str(&format!("\n\ncitations: {}", paths.join(", ")));
     }
@@ -211,7 +251,7 @@ mod tests {
         // The regression guard for every stage whose document cites nothing
         // and whose repo git has never seen: the prompt must be byte-identical
         // to the bare ask the runner sent before this composition existed.
-        assert_eq!(compose(ASK, &[], &[], None), ASK);
+        assert_eq!(compose(ASK, None, &[], &[], None), ASK);
     }
 
     #[test]
@@ -219,20 +259,20 @@ mod tests {
         let paths = vec!["src/a.rs".to_string(), "src/b.ts".to_string()];
         let commits = vec!["abc1234 move the thing".to_string()];
 
-        let with_paths = compose(ASK, &paths, &[], None);
+        let with_paths = compose(ASK, None, &paths, &[], None);
         assert!(with_paths.starts_with(ASK));
         assert!(with_paths.contains("citations: src/a.rs, src/b.ts"));
         assert!(!with_paths.contains("what changed"));
 
-        let with_commits = compose(ASK, &[], &commits, None);
+        let with_commits = compose(ASK, None, &[], &commits, None);
         assert!(with_commits.contains("what changed in those files"));
         assert!(with_commits.contains("abc1234 move the thing"));
         assert!(!with_commits.contains("citations:"));
 
-        let resuming = compose(ASK, &[], &[], Some(("implement", "lint")));
+        let resuming = compose(ASK, None, &[], &[], Some(("implement", "lint")));
         assert!(resuming.ends_with("this arc was stopped in implement — lint; it is resuming"));
 
-        let everything = compose(ASK, &paths, &commits, Some(("review", "api error")));
+        let everything = compose(ASK, None, &paths, &commits, Some(("review", "api error")));
         assert!(
             everything.find("citations:").unwrap() < everything.find("what changed").unwrap(),
             "the citations come before what moved in them"
@@ -281,28 +321,59 @@ mod tests {
         assert_eq!(cited_paths(&source, root, 0).len(), 0);
     }
 
+    /// The `where` clause is a stage's coordinates, handed down rather than
+    /// probed for. Four facts on one line: the worktree it works in, the
+    /// session it is seated on and that the arc is bound to it, the stage it
+    /// is, and — for the one stage that walks a ledger — the step in hand and
+    /// the run's declared end.
+    #[test]
+    fn the_where_clause_hands_a_stage_its_coordinates() {
+        let worktree = Path::new("/repo/.tug/worktrees/demo");
+        assert_eq!(
+            where_clause(worktree, "s-1", "implement", Some((4, 9))),
+            "where: worktree /repo/.tug/worktrees/demo · session s-1 bound · stage implement · Step 4 in hand, through 9"
+        );
+        // Devise, review and audit walk no ledger, so the clause has no step
+        // coordinates to give and ends at the stage word rather than inventing
+        // a pair.
+        assert_eq!(
+            where_clause(worktree, "s-1", "devise", None),
+            "where: worktree /repo/.tug/worktrees/demo · session s-1 bound · stage devise"
+        );
+
+        // In a composed prompt it sits directly under the ask, above the
+        // citations: what to do, then from where, then what to read.
+        let place = where_clause(worktree, "s-1", "review", None);
+        let composed = compose(ASK, Some(&place), &["src/a.rs".to_string()], &[], None);
+        assert!(composed.starts_with(ASK));
+        assert!(
+            composed.find("where:").unwrap() < composed.find("citations:").unwrap(),
+            "{composed}"
+        );
+    }
+
     /// A seated implement stage walks one step and stops, because that is
     /// where the arc gets to act. The ask leads with that one step and then
-    /// names the run's remainder — or, on the run's last step, says it is
+    /// names the arc's remainder — or, on the arc's last step, says it is
     /// the last. Devise and review end by rotating, so the clause would be
     /// telling them about a turn they do not get.
     #[test]
     fn the_implement_ask_tells_a_seated_stage_to_stop_at_one_step() {
         assert_eq!(
             stage_ask("implement", None, "foo", Some("2-4")).expect("an implement ask"),
-            "/tugplug:arc-implement foo implement Step 2 and end your turn; Steps 2-4 remain on this run"
+            "/tugplug:arc-implement foo implement Step 2 and end the turn; Steps 2-4 remain on this arc"
         );
         assert_eq!(
             stage_ask("implement", None, "foo", Some("4-4")).expect("an implement ask"),
-            "/tugplug:arc-implement foo implement Step 4 and end your turn; it is the run's last step"
+            "/tugplug:arc-implement foo implement Step 4 and end the turn; it is the arc's last step"
         );
         assert_eq!(
             stage_ask("implement", None, "foo", None).expect("an implement ask"),
-            "/tugplug:arc-implement foo implement one step and end your turn"
+            "/tugplug:arc-implement foo implement one step and end the turn"
         );
         for stage in ["devise", "review"] {
             let ask = stage_ask(stage, Some("arc/idea.md"), "foo", None).expect("an ask");
-            assert!(!ask.contains("end your turn"), "{ask}");
+            assert!(!ask.contains("end the turn"), "{ask}");
         }
     }
 }

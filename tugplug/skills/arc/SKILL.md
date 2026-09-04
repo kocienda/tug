@@ -16,7 +16,7 @@ The two doors differ by **settling time**, and by nothing else:
 - **`/arc`** — the brief and the **task list** are written here, in this conversation, and the wheel opens straight at implement. Brief → implement → audit.
 - **`/arc-plan`** — the brief is written here and a **plan** is devised and cold-reviewed before the first step is walked. Brief → devise → review → implement → audit.
 
-Everything downstream of the ledger is identical in the two: one step per turn, compaction between steps, an audit of the whole diff by a session that never saw the run, the join offered through the Changes shade. `/arc` is not a lesser lane; it is the same lane entered by a door that has already answered what devise and review would have asked.
+Everything downstream of the ledger is identical in the two: one step per turn, compaction between steps, an audit of the whole diff by a session that never saw the work, the join offered through the Changes shade. `/arc` is not a lesser lane; it is the same lane entered by a door that has already answered what devise and review would have asked.
 
 **Which door they typed is the routing decision**, and it was made before you read this. Nothing here asks the user to choose a route.
 
@@ -24,7 +24,7 @@ Everything downstream of the ledger is identical in the two: one step per turn, 
 
 **You are the orchestrator, in-thread.** Do not spawn sub-agents (`Task`).
 
-**Read [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrine.md)** for the discipline the run works under. This skill states the door; the doctrine states the rules. **When the project has no `tuglaws/`,** those documents are absent and cannot be read — there is no brief format and no linter standing in for one. Write the six beats below and say plainly that the judgment half of the format is missing; do not reconstruct it from memory.
+**Read [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrine.md)** for the discipline the arc works under. This skill states the door; the doctrine states the rules. **When the project has no `tuglaws/`,** those documents are absent and cannot be read — there is no brief format and no linter standing in for one. Write the six beats below and say plainly that the judgment half of the format is missing; do not reconstruct it from memory.
 
 ## Input grammar
 
@@ -60,15 +60,17 @@ Converse until the work is concrete. This is a conversation, not an intake form:
 
 What is worth asking is bounded by the doctrine's [never-ask list](../../../tuglaws/arc-work-doctrine.md#what-never-gets-asked): design questions, never process ones, and nothing with a conventional default. Where that document is absent, that sentence is the boundary. **A question the code can answer is not a question for the user** — read the code and write the answer into the brief as a `[B##]`.
 
-**This is the last place a question can be asked.** Once the hand-off happens, the run answers its own unknowns and finishes.
+**This is the last place a question can be asked.** Once the hand-off happens, the arc answers its own unknowns and finishes.
 
 ### 3. Write the brief
 
 Both doors open on a brief, and the brief is what carries this conversation's settling to sessions that will never see it. Settle the arc's name first, then:
 
 ```bash
-tugtool arc documents <name> --ensure --json
+tugtool arc documents <name> --ensure --bind --json
 ```
+
+`--bind` binds this session to the arc in the same act that makes its directory, so the Session card reads `ARC` from the door's first command rather than from its last. It is not optional here: an arc the card cannot see is an arc nobody is watching.
 
 Write the brief to the `brief` path it prints, against [`tuglaws/brief-skeleton.md`](../../../tuglaws/brief-skeleton.md). Its six beats: the **purpose** in the user's own terms, the **evidence** actually observed, the **decisions** already settled, what is **out of scope**, the **open questions** that remain, and the **shape** the work is expected to take. A brief opens at `#` and carries no execution steps.
 
@@ -107,7 +109,7 @@ Write **this document** to the `tasks` path `arc documents` printed — the whol
 <A sentence or two.>
 ```
 
-**Every row `pending`, and no commits.** The other cells belong to the run, and `tugtool arc step` writes them.
+**Every row `pending`, and no commits.** The other cells belong to the arc, and `tugtool arc step` writes them.
 
 **Size it to the work.** A one-line fix is one step and reads `1/1` when it lands — a task list of one is the form telling the truth. Something with three distinct pieces is three.
 
@@ -127,17 +129,17 @@ The verb otherwise takes no document: it opens on what the arc has.
 
 It refuses without a calling session, because an arc runs *on a card* and there would otherwise be nowhere for a stage to rotate. It records the arc, binds this session to it, and returns — **and the first rotation happens when this turn ends, not on arrival.** That ordering is not incidental: the request is issued from inside your own turn, and rotating on receipt would kill the session mid-sentence.
 
-**Every ledger gesture from here on draws itself on the card**: the arc created, the run declared, each step opened and closed, each round committed. The server reads them off the **arc log** — the record the verbs already write — so the line is a derived view rather than something a stage is asked to remember. That is what the user watches a run by, and it is machinery rather than a stage's manners: nothing you do or forget can add or remove one.
+**Every ledger gesture from here on draws itself on the card**: the arc created, the selection declared, each step opened and closed, each round committed. The server reads them off the **arc log** — the record the verbs already write — so the line is a derived view rather than something a stage is asked to remember. That is what the user watches an arc by, and it is machinery rather than a stage's manners: nothing you do or forget can add or remove one.
 
 **Read the receipt before you end the turn.** That is not polling and it is not waiting: the verb has already returned, and its own words are the one place the anchor is visible. Confirm two things in them — that the arc opened or resumed, and that the session it names is a **live** one. `--json` says both directly: `started` or `resumed` is true, and `tug_session_id` is the server's answer rather than the id this shell was born holding.
 
-A run whose receipt names no live session has bound the arc to nothing, and every stage it seats will rotate onto a card that is not there. **If the receipt is not what it should be, say so and run `tugtool arc doctor <name>`** — it compares the arc record against the binding and the ledger and names which disagrees. This is the one session that can see the anchor being set; a stage that finds it wrong later has to recover from it instead.
+An arc whose receipt names no live session is bound to nothing, and every stage it seats will rotate onto a card that is not there. **If the receipt is not what it should be, say so and run `tugtool arc doctor <name>`** — it compares the arc record against the binding and the ledger and names which disagrees. This is the one session that can see the anchor being set; a stage that finds it wrong later has to recover from it instead.
 
 With the receipt confirmed, issuing that command was the last thing you do. Say what happens next, and end the turn. **Ending the turn is the hand-off.** Do not wait for a rotation, do not poll `arc record`, and do not print a command for the user to click.
 
 ### 6. Say what happens next
 
-Nothing else will speak until the run is over, so tell the user what they are about to watch, in a few sentences:
+Nothing else will speak until the arc is over, so tell the user what they are about to watch, in a few sentences:
 
 - **One card, one scroll.** Every stage runs on *this* card, on a fresh claude session, and the transcript is not cleared between them. A labelled divider marks each boundary, naming the stage, its model, and the document it opened on.
 - **Two stages, then a stop.** Implement walks the task list — one step per turn, a commit per step — and audit reads the whole landed diff cold against the task list and the brief, fixing what does not match. A stage that fails writes why and stops rather than retrying; `tugtool arc run <name>` resumes exactly there.

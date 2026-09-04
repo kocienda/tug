@@ -1072,7 +1072,7 @@ fn lints_as_plan(source: &str) -> bool {
 /// The facts were gathered in `read`'s blocking pass; the wording is the
 /// wheel's, so every arc composes the same way. Nothing here is a word a
 /// model wrote.
-fn opening_prompt(reading: &ArcReading, rotation: &Rotation) -> Option<String> {
+fn opening_prompt(reading: &ArcReading, rotation: &Rotation, arc: &BoundArc) -> Option<String> {
     let steps = rotation
         .steps
         .map(|(from, through)| step_range(from, through));
@@ -1082,6 +1082,24 @@ fn opening_prompt(reading: &ArcReading, rotation: &Rotation) -> Option<String> {
         &reading.name,
         steps.as_deref(),
     )?;
+    // Where the stage is, in the runner's own words rather than in four
+    // commands the stage would otherwise run to re-learn what this tick just
+    // decided. The step coordinates are the implement stage's: a rotation that
+    // declares a range carries it, and a first implement stage takes the
+    // ledger's own frontier and the run the arc declared.
+    let steps_in_hand = rotation.steps.or_else(|| {
+        if rotation.stage != ArcStage::Implement {
+            return None;
+        }
+        let ledger = &reading.facts.ledger;
+        Some((ledger.first_pending?, ledger.run_through?))
+    });
+    let place = wheel::prompt::where_clause(
+        &tugarc_core::ops::worktree_path(&arc.project, &reading.name),
+        arc.session.as_str(),
+        rotation.stage.as_str(),
+        steps_in_hand,
+    );
     // A stopped arc that is rotating again is resuming, and the stage it opens
     // is owed that fact: it is the difference between starting the work and
     // picking it back up.
@@ -1092,6 +1110,7 @@ fn opening_prompt(reading: &ArcReading, rotation: &Rotation) -> Option<String> {
         .map(|(stage, reason)| (stage.as_str(), reason.as_str()));
     Some(wheel::prompt::compose(
         &ask,
+        Some(&place),
         &reading.cited_paths,
         &reading.commits_since,
         resume,
@@ -1152,7 +1171,17 @@ async fn deliver_prompt(
             // No clauses: the session already holds its own context, and the
             // opening prompt's start-there and what-changed clauses are for a
             // session that does not.
-            wheel::prompt::compose(&ask, &[], &[], None)
+            //
+            // The `where` clause is the exception, because its step
+            // coordinates are the one fact this prompt moves: the step in hand
+            // is the range's first, and the run still reaches its declared end.
+            let place = wheel::prompt::where_clause(
+                &tugarc_core::ops::worktree_path(&arc.project, &reading.name),
+                arc.session.as_str(),
+                ArcStage::Implement.as_str(),
+                Some(*steps),
+            );
+            wheel::prompt::compose(&ask, Some(&place), &[], &[], None)
         }
     };
 
@@ -1238,7 +1267,49 @@ async fn rotate(
         return;
     }
 
-    let Some(prompt) = opening_prompt(reading, rotation) else {
+    // **The records agree, or nothing is seated.** The dispatch is about to
+    // hand a stage its coordinates — the worktree, the seat, the step in hand
+    // — as facts rather than as something to probe for, and a stage that
+    // believes a `where` line built over a desynced record works from a
+    // frontier the surfaces do not share. So the doctor's four-record
+    // comparison runs here, at the one point where a disagreement can still be
+    // caught before anybody acts on it, and its named findings become the stop
+    // rather than the prompt.
+    let project = arc.project.clone();
+    let name = arc.name.clone();
+    let diagnosis = tokio::task::spawn_blocking(move || {
+        tugarc_core::doctor::doctor(&project, &name, false)
+    })
+    .await
+    .ok()
+    .and_then(|outcome| outcome.ok());
+    if let Some(outcome) = diagnosis {
+        // Every finding but one. `arc-unbound` asks whether any live session
+        // is bound to this arc, and answers it out of the machine's sessions
+        // ledger — a question this path already answered better, from the
+        // binding that produced the seat it is holding. A runner that stopped
+        // on it would be taking a second, worse reading of its own premise.
+        let disagreements: Vec<String> = outcome
+            .diagnosis
+            .findings
+            .iter()
+            .filter(|f| f.code != "arc-unbound")
+            .map(|f| f.sentence.clone())
+            .collect();
+        if !disagreements.is_empty() {
+            // The sentences ride as a note, the carriage `NeedsDecision`
+            // already established: the reason vocabulary is closed and cannot
+            // carry a payload, and a receipt saying only that the records
+            // disagree is a stop nobody can act on.
+            let note = disagreements.join("; ");
+            let (p, d) = (arc.project.clone(), arc.name.clone());
+            let _ = tokio::task::spawn_blocking(move || append_arc_note(&p, &d, &note)).await;
+            stop(ctx, arc, rotation.stage, ArcStopReason::RecordsDisagree).await;
+            return;
+        }
+    }
+
+    let Some(prompt) = opening_prompt(reading, rotation, arc) else {
         stop(ctx, arc, rotation.stage, ArcStopReason::PromptUnavailable).await;
         return;
     };
@@ -1424,14 +1495,18 @@ fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopR
     } else {
         "\nthere is nothing to resume".to_string()
     };
-    // The one reason whose sentence is not the whole story. `NeedsDecision` is
-    // a stage saying it met a question it had no authority to answer, and a
-    // receipt that said only *that* would be a stop nobody could act on — so
-    // the question itself, which `arc ask` wrote as the record's last note
-    // immediately before this stop, is read back beneath it. Absent when the
-    // note did not land, which the append warns about; the stop still speaks.
+    // The two reasons whose sentence is not the whole story. `NeedsDecision` is
+    // a stage saying it met a question it had no authority to answer, and
+    // `RecordsDisagree` is the runner saying the arc's four records do not
+    // agree; a receipt that said only *that* would in either case be a stop
+    // nobody could act on — so the payload itself, which the stop's caller
+    // wrote as the record's last note immediately before it, is read back
+    // beneath it. Absent when the note did not land, which the append warns
+    // about; the stop still speaks.
     let asked = match (reason, record.notes.last()) {
-        (ArcStopReason::NeedsDecision, Some(question)) => format!("\n{question}"),
+        (ArcStopReason::NeedsDecision | ArcStopReason::RecordsDisagree, Some(payload)) => {
+            format!("\n{payload}")
+        }
         _ => String::new(),
     };
     format!(
@@ -1900,9 +1975,11 @@ Some context.
             steps: None,
             note: None,
         };
+        let prompt = opening_prompt(&reading, &review, &bound(root, "demo")).expect("a prompt");
         assert_eq!(
-            opening_prompt(&reading, &review).as_deref(),
-            Some("/tugplug:arc-review demo")
+            prompt.lines().next(),
+            Some("/tugplug:arc-review demo"),
+            "{prompt}"
         );
         assert_eq!(
             arc_action(&reading.record, &reading.facts),
@@ -1997,11 +2074,14 @@ Some context.
                 steps: None,
                 note: None,
             },
+            &bound(root, "demo"),
         )
         .unwrap();
-        assert_eq!(
-            prompt,
+        assert!(
+            prompt.starts_with(
             "/tugplug:arc-devise a plan for .tug/arcs/demo/brief.md, honoring every [B##] decision it records 🢂 demo"
+            ),
+            "{prompt}"
         );
     }
 
@@ -2016,12 +2096,12 @@ Some context.
         assert_eq!(
             wheel::prompt::stage_ask("implement", None, "foo", Some("2-4")).as_deref(),
             Some(
-                "/tugplug:arc-implement foo implement Step 2 and end your turn; Steps 2-4 remain on this run"
+                "/tugplug:arc-implement foo implement Step 2 and end the turn; Steps 2-4 remain on this arc"
             )
         );
         assert_eq!(
             wheel::prompt::stage_ask("implement", None, "foo", None).as_deref(),
-            Some("/tugplug:arc-implement foo implement one step and end your turn")
+            Some("/tugplug:arc-implement foo implement one step and end the turn")
         );
     }
 
@@ -2151,6 +2231,7 @@ Some context.
                 steps: None,
                 note: None,
             },
+            &bound(root, "demo"),
         )
         .unwrap();
         assert!(prompt.starts_with("/tugplug:arc-devise a plan for .tug/arcs/demo/brief.md"));
@@ -2185,11 +2266,21 @@ Some context.
                 steps: Some((4, 9)),
                 note: None,
             },
+            &bound(root, "demo"),
         )
         .unwrap();
-        assert_eq!(
-            prompt,
-            "/tugplug:arc-implement demo implement Step 4 and end your turn; Steps 4-9 remain on this run"
+        assert!(
+            prompt.starts_with(
+                "/tugplug:arc-implement demo implement Step 4 and end the turn; Steps 4-9 remain on this arc"
+            ),
+            "{prompt}"
+        );
+        // The step in hand is the range's first, and the run's declared end
+        // rides with it — the two coordinates a rotated-in session would
+        // otherwise have to read the ledger to learn.
+        assert!(
+            prompt.contains("· stage implement · Step 4 in hand, through 9"),
+            "{prompt}"
         );
     }
 
@@ -2215,24 +2306,48 @@ Some context.
                 steps: None,
                 note: None,
             },
+            &bound(root, "demo"),
         )
         .unwrap();
-        assert_eq!(
-            prompt,
-            "/tugplug:arc-implement demo implement one step and end your turn"
+        assert!(
+            prompt.starts_with("/tugplug:arc-implement demo implement one step and end the turn"),
+            "{prompt}"
         );
     }
 
+    /// The seat a prompt is composed for. The `where` clause names a worktree,
+    /// a session and a stage, so composing one needs the arc the tick is
+    /// working — the tests' arcs are all `demo` on a temp root.
+    fn bound(root: &Path, name: &str) -> BoundArc {
+        BoundArc {
+            project: root.to_path_buf(),
+            name: name.to_string(),
+            session: TugSessionId::new("claude-1".to_string()),
+        }
+    }
+
     /// [`LINTING_PLAN`] with its two ledger rows driven to `first` / `second`.
+    ///
+    /// A `done` row gets a commit cell with it. The two move together
+    /// everywhere a real ledger is written — `arc step done` writes both — and
+    /// a fixture that moved only the status would be handing the dispatch's
+    /// doctor a disagreement the test is not about.
     fn plan_with_statuses(first: &str, second: &str) -> String {
+        let cell = |status: &str| {
+            if status == "done" {
+                "`abc1234`"
+            } else {
+                "—"
+            }
+        };
         LINTING_PLAN
             .replace(
                 "| #step-1 | The first step | pending | — |",
-                &format!("| #step-1 | The first step | {first} | — |"),
+                &format!("| #step-1 | The first step | {first} | {} |", cell(first)),
             )
             .replace(
                 "| #step-2 | The second step | pending | — |",
-                &format!("| #step-2 | The second step | {second} | — |"),
+                &format!("| #step-2 | The second step | {second} | {} |", cell(second)),
             )
     }
 
@@ -2399,6 +2514,51 @@ Some context.
 
         sweep(&ctx, &state).await;
         assert_eq!(entry.lock().await.queue.len(), 0);
+    }
+
+    /// The dispatch reads the arc's four records before it hands a stage its
+    /// coordinates.
+    ///
+    /// A `where` clause built over a disagreement is worse than no clause at
+    /// all: the stage believes a frontier the surfaces do not share, closes a
+    /// step the log will not credit, and the arc finishes somewhere nobody can
+    /// follow. So the doctor's comparison runs at the dispatch, and its named
+    /// finding becomes the stop.
+    #[tokio::test]
+    async fn records_that_disagree_stop_the_arc_instead_of_seating_a_stage() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        // The table reads step 1 open and the arc log never declared it —
+        // the crash-between-the-two-writes shape `arc doctor` names.
+        std::fs::write(
+            root.join(".tug/arcs/demo/plan.md"),
+            plan_with_statuses("in progress", "pending"),
+        )
+        .unwrap();
+
+        let (ctx, _entry, _register_rx) = harness(root).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+
+        let record = tugarc_core::read_arc(root, "demo").expect("the arc record");
+        assert!(
+            record.stages.is_empty() && record.dispatched.is_none(),
+            "no stage is seated over records that disagree"
+        );
+        let (_, reason) = record.stopped.expect("a stop");
+        assert_eq!(reason, ArcStopReason::RecordsDisagree.as_str());
+        // The doctor's own sentence rides as the note, which is what the stop
+        // receipt reads back beneath its one-line reason.
+        assert!(
+            record
+                .notes
+                .last()
+                .is_some_and(|note| note.contains("never declared it opened")),
+            "{:?}",
+            record.notes
+        );
     }
 
     /// The sweep finds the card behind a segment a rotation moved the binding
@@ -3575,6 +3735,23 @@ Some context.
             .collect()
     }
 
+    /// The **ask** of every prompt the arc submitted — each prompt's first
+    /// line.
+    ///
+    /// A test about *which* prompt was sent reads the ask; the clauses under
+    /// it (`where:`, the citations, what moved in them) carry paths a temp
+    /// root makes different on every run, and their composition is asserted
+    /// where it is written.
+    async fn submitted_asks(
+        entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>,
+    ) -> Vec<String> {
+        submitted(entry)
+            .await
+            .iter()
+            .map(|prompt| prompt.lines().next().unwrap_or_default().to_string())
+            .collect()
+    }
+
     /// The arc's own key for the harness's project and arc, which is what the
     /// per-arc memory is filed under.
     fn demo_key(root: &Path) -> String {
@@ -3605,9 +3782,9 @@ Some context.
         sweep(&ctx, &state).await;
 
         assert_eq!(
-            submitted(&entry).await,
+            submitted_asks(&entry).await,
             vec![
-                "/tugplug:arc-implement demo implement Step 2 and end your turn; it is the run's last step"
+                "/tugplug:arc-implement demo implement Step 2 and end the turn; it is the arc's last step"
                     .to_string()
             ],
             "the boundary is seen and the stage is told to walk on"
@@ -3638,9 +3815,9 @@ Some context.
         sweep(&ctx, &state).await;
 
         assert_eq!(
-            submitted(&entry).await,
+            submitted_asks(&entry).await,
             vec![
-                "/tugplug:arc-implement demo implement Step 2 and end your turn; it is the run's last step"
+                "/tugplug:arc-implement demo implement Step 2 and end the turn; it is the arc's last step"
                     .to_string()
             ],
             "the close the crash interrupted is answered on the first tick back"
@@ -3947,9 +4124,9 @@ Some context.
 
             match expected {
                 "continue" => assert_eq!(
-                    submitted(&entry).await,
+                    submitted_asks(&entry).await,
                     vec![
-                "/tugplug:arc-implement demo implement Step 2 and end your turn; it is the run's last step"
+                "/tugplug:arc-implement demo implement Step 2 and end the turn; it is the arc's last step"
                     .to_string()
             ],
                     "a window the compaction brought down keeps its session"

@@ -90,23 +90,14 @@ Then run the **cold-reader test**: could a fresh session, given only this docume
 
 ### 5. Hand the review to the wheel
 
-**This stage runs under an arc.** `printenv TUG_ARC` names the arc you are the **devise stage** of, and the wheel handles the hand-off itself:
+**This stage runs under an arc.** The prompt that seated you carries a `where` line — `where: worktree <abs path> · session <id> bound · stage devise` — naming the arc's worktree and the seat it is bound to. That is the whole of your coordinates: the runner composed it from the records it owns and checked all four of them immediately before sending it, so there is nothing to probe for and nothing to confirm. The wheel handles the hand-off itself:
 
 - Finish at the natural end — a written plan, lint-clean, at the path you were given — and stop there.
 - **Do not review it, on any model, including Opus.** The review is the arc's *next stage*: its own fresh session, on the model the project declared for it, reading the plan cold. That cold read is the point, and reviewing inline destroys it by handing the review the author's context.
 - **Print no chip and name no next command.** Nobody is going to click it. The runner is watching the documents — it reads `tugtool plan lint` and `tugtool plan status` on the plan you just wrote and rotates the stage itself.
 - **Ask for no rotation either.** The card is already running an arc, and a second request on it is refused by name. Say what you wrote and where, and end the turn. Ending the turn *is* the hand-off.
 
-**With it absent from the environment, stop and say so.** This skill is a stage of an arc rather than a standalone command, and `/arc-plan` is the door into it: it sharpens the idea with the user, writes the brief you would be devising from, and opens the arc that carries the plan to its review. (The other door, `/arc`, settles its steps as a task list and opens an arc with no devise stage at all.) There is no path from here that ends anywhere else, because the plan is not ready when you finish writing it — it is ready when a fresh session has read it cold, and only the arc opens that session.
-
-**Confirm the arc can still find you**, once, before you write:
-
-```bash
-tugtool arc bind <name> --dry-run
-tugtool arc status <name> --json
-```
-
-The dry run writes nothing; it resolves which session this shell actually belongs to and says `(this shell holds …, which has rotated)` when the shell's own id has gone stale — ordinary under an arc, and not a problem. What is a problem is a resolved session missing from `arc status --json`'s `bound_sessions`: the binding did not ride the rotation, and nothing downstream will find this run. **The repair is `tugtool arc doctor <name>`**, which reads all four of an arc's records and names which disagrees — not `/arc-bind`, which writes one of them and answers nothing about the rest.
+**With no `where` line above, stop and say so.** This skill is a stage of an arc rather than a standalone command, and `/arc-plan` is the door into it: it sharpens the idea with the user, writes the brief you would be devising from, and opens the arc that carries the plan to its review. (The other door, `/arc`, settles its steps as a task list and opens an arc with no devise stage at all.) There is no path from here that ends anywhere else, because the plan is not ready when you finish writing it — it is ready when a fresh session has read it cold, and only the arc opens that session.
 
 ### 6. Hand off
 

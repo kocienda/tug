@@ -58,7 +58,12 @@ export const ARC_PHASES: readonly ArcPhase[] = [
  * The check cell is drawn on both routes, because both verify: what a run does
  * after its last commit is the same work whoever asked for it.
  */
-const DIRECT_PHASES: readonly ArcPhase[] = ["brief", "implement", "check", "join"];
+const DIRECT_PHASES: readonly ArcPhase[] = [
+  "brief",
+  "implement",
+  "check",
+  "join",
+];
 
 /**
  * Each phase as a reading — Title Case, the register every named state in the
@@ -74,7 +79,11 @@ export const ARC_PHASE_LABELS: Record<ArcPhase, string> = {
   devise: "Devise",
   review: "Review",
   implement: "Implement",
-  check: "Check",
+  // The audit stage's cell. The key stays `check` — it is the code, and every
+  // `data-phase` and test that reads the strip names it — while the word is
+  // the reading, and every arc ends in an audit stage now: one word on one
+  // stage, in Z2 and on the strip.
+  check: "Audit",
   join: "Join",
 };
 

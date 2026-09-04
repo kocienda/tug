@@ -543,6 +543,85 @@ fn arc_bind_and_unbind_post_to_the_instance_and_emit_envelopes() {
     assert_eq!(body["tug_session_id"], "sess-1");
 }
 
+/// **`arc documents --ensure --bind` is the door's first act.** It makes the
+/// directory and binds the calling session in one verb, through the same
+/// `bind` op `arc bind` posts — and a bare `--ensure` posts nothing at all,
+/// which is what keeps every stage skill's ensure from re-binding.
+#[test]
+fn arc_documents_ensure_bind_posts_the_bind_and_bare_ensure_does_not() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    git(&root, &["init", "-b", "main"]);
+
+    let (port, requests) = fake_tugcast();
+    register_fake_instance(&tmp_path, port);
+
+    let mut bare = tug(&tmp_path);
+    bare.current_dir(&root);
+    bare.env("TUG_SESSION_ID", "sess-1");
+    bare.args(["arc", "documents", "plain", "--ensure", "--json"]);
+    let out = bare.output().unwrap();
+    assert!(
+        out.status.success(),
+        "bare ensure failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(root.join(".tug/arcs/plain").is_dir());
+    let envelope: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(
+        envelope["data"].get("bound_session").is_none(),
+        "a bare ensure names no binding: {envelope}"
+    );
+    assert!(
+        requests
+            .recv_timeout(std::time::Duration::from_millis(300))
+            .is_err(),
+        "a bare ensure posts nothing to the instance"
+    );
+
+    let mut bound = tug(&tmp_path);
+    bound.current_dir(&root);
+    bound.env("TUG_SESSION_ID", "sess-1");
+    bound.args(["arc", "documents", "demo", "--ensure", "--bind", "--json"]);
+    let out = bound.output().unwrap();
+    assert!(
+        out.status.success(),
+        "ensure --bind failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(root.join(".tug/arcs/demo").is_dir());
+    let envelope: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(envelope["command"], "arc documents");
+    assert_eq!(envelope["data"]["bound_session"], "sess-1");
+
+    let body = requests
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("a resolve request");
+    assert_eq!(body["op"], "resolve");
+    let body = requests
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("a bind request");
+    assert_eq!(body["op"], "bind");
+    assert_eq!(body["tug_session_id"], "sess-1");
+    assert_eq!(body["arc"], "demo");
+    assert_eq!(body["project_dir"], root.to_string_lossy().as_ref());
+
+    // `--bind` without `--ensure` is refused at the parser: the bind rides
+    // the ensure, and a binding to a directory nobody made is the old order.
+    let mut alone = tug(&tmp_path);
+    alone.current_dir(&root);
+    alone.env("TUG_SESSION_ID", "sess-1");
+    alone.args(["arc", "documents", "demo", "--bind"]);
+    let out = alone.output().unwrap();
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("--ensure"),
+        "the refusal names the flag it needs"
+    );
+}
+
 /// **A tugcast that predates the chokepoint still binds.**
 ///
 /// The resolver asks an instance to expand the calling session, and an

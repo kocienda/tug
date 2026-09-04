@@ -3263,6 +3263,42 @@ fn parse_model_selector(payload: &[u8]) -> Option<String> {
     (!model.is_empty()).then(|| model.to_owned())
 }
 
+/// The four spellings of the two doors, as a prompt's first token.
+const ARC_DOOR_PREFIXES: [&str; 4] = ["/arc", "/arc-plan", "/tugplug:arc", "/tugplug:arc-plan"];
+
+/// The arc a door prompt names, or `None` for every other prompt.
+///
+/// A prompt whose first token is one of the two doors — `/arc`, `/arc-plan`,
+/// or their `/tugplug:` spellings — and whose one and only other token is a
+/// well-formed arc name (alphanumerics and hyphens, at least two characters,
+/// and one `validate_arc_name` would accept, so a reserved word like
+/// `status` never binds) names the arc the door is about to open. That is
+/// the earliest moment the arc exists anywhere, and it is when the Session
+/// card should start reading `ARC` over the session.
+///
+/// Deliberately narrow: a name is never guessed from prose. `/arc make the
+/// ring pulse` opens on an idea whose first word happens to be a legal
+/// name, and `/arc` alone opens on nothing yet; both return `None`, and that
+/// door settles its name in conversation and binds itself when it writes
+/// the brief. The lone-argument form is the one the door itself reads as a
+/// name ("a lone argument that names an existing arc is a continuation").
+fn arc_door_target(text: &str) -> Option<&str> {
+    let mut tokens = text.split_whitespace();
+    let door = tokens.next()?;
+    if !ARC_DOOR_PREFIXES.contains(&door) {
+        return None;
+    }
+    let name = tokens.next()?;
+    if tokens.next().is_some() {
+        return None;
+    }
+    let shaped = name.len() >= 2 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+    if !shaped || tugarc_core::validate_arc_name(name).is_err() {
+        return None;
+    }
+    Some(name)
+}
+
 fn parse_tug_session_id_payload(payload: &[u8]) -> Result<TugSessionId, ControlError> {
     let value: serde_json::Value =
         serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
@@ -5922,6 +5958,87 @@ impl AgentSupervisor {
                     &self.control_tx,
                     &request.tug_session_id,
                     &format!("bind task failed: {join_err}"),
+                );
+            }
+        }
+    }
+
+    /// Bind the calling session to the arc a door prompt named, at submit
+    /// time — the same ledger half `do_bind_arc` and `/api/arc` share, so a
+    /// bind from the keystroke, from the card, and from the CLI cannot
+    /// diverge. A bind mints the arc's *id*, not its directory, and the
+    /// aggregate lists an arc by its branch or its directory — neither of
+    /// which a just-typed name has — so on success this also makes the
+    /// documents directory, the same empty directory `arc documents
+    /// --ensure` is about to make, which is what puts the arc on the wire
+    /// for the card to read `ARC` against ([F03]).
+    ///
+    /// A refusal is logged and nothing else. This bind is a head start on the
+    /// one the door's own first command makes with `arc documents --ensure
+    /// --bind`, and that one reports its refusal on the transcript where the
+    /// model reads it; raising a card bulletin here as well would say the
+    /// same thing twice, once to nobody.
+    async fn bind_arc_at_the_door(
+        &self,
+        tug_session_id: &TugSessionId,
+        entry_arc: &Arc<Mutex<LedgerEntry>>,
+        arc: &str,
+    ) {
+        let Some(ledger) = self.session_ledger.clone() else {
+            return;
+        };
+        let project_dir = entry_arc.lock().await.project_dir.clone();
+        // The gateway ([L29]) — the same resolution every other bind applies.
+        let project = crate::path_resolver::resolve_to_claude_form(&project_dir);
+        let session = tug_session_id.as_str().to_string();
+        let name = arc.to_string();
+        let outcome = tokio::task::spawn_blocking(move || {
+            let outcome = crate::arc_api::bind(&ledger, &project, &session, &name);
+            if matches!(outcome, crate::arc_api::ArcApiOutcome::Bound { .. }) {
+                let dir = tugarc_core::documents_dir(&project, &name);
+                match std::fs::create_dir_all(&dir) {
+                    Ok(()) => tugarc_core::ensure_tug_excluded(&project),
+                    Err(err) => warn!(
+                        error = %err,
+                        dir = %dir.display(),
+                        "door prompt: bound, but could not make the documents directory",
+                    ),
+                }
+            }
+            outcome
+        })
+        .await;
+        match outcome {
+            Ok(crate::arc_api::ArcApiOutcome::Bound {
+                session_id,
+                arc_id,
+                arc_name,
+            }) => {
+                self.registry.changeset_all_bump().notify_one();
+                broadcast_bind_arc_ok(
+                    &self.control_tx,
+                    &session_id,
+                    &arc_id,
+                    &arc_name,
+                    None,
+                    None,
+                );
+            }
+            Ok(crate::arc_api::ArcApiOutcome::Error(detail)) => {
+                warn!(
+                    tug_session_id = %tug_session_id,
+                    arc,
+                    detail,
+                    "door prompt: bind refused; the door's own bind will say so",
+                );
+            }
+            Ok(_) => {}
+            Err(join_err) => {
+                warn!(
+                    tug_session_id = %tug_session_id,
+                    arc,
+                    error = %join_err,
+                    "door prompt: bind task failed",
                 );
             }
         }
@@ -9751,6 +9868,13 @@ impl AgentSupervisor {
                     // closing `turn_complete` / `turn_cancelled`, the activity
                     // sampler attributes this session's OS work.
                     entry_arc.lock().await.turn_active = true;
+                    // A door prompt binds with the keystroke, so the card
+                    // reads `ARC` before the door's first tool call rather
+                    // than after its last one. Anything else is untouched.
+                    if let Some(arc) = arc_door_target(&user_text) {
+                        self.bind_arc_at_the_door(&tug_session_id, &entry_arc, arc)
+                            .await;
+                    }
                 }
                 Err(err) => {
                     warn!(
@@ -14521,6 +14645,104 @@ mod tests {
         let body = next_action(&mut control_rx, "list_card_bindings_ok").await;
         assert!(body["bindings"][0]["arc_id"].is_null());
         assert!(body["bindings"][0]["arc_name"].is_null());
+    }
+
+    /// The door prompt's token parse: exactly the four door spellings, then a
+    /// well-formed arc name, and nothing else reads as a door.
+    #[test]
+    fn arc_door_target_reads_exactly_the_four_doors() {
+        for door in ["/arc", "/arc-plan", "/tugplug:arc", "/tugplug:arc-plan"] {
+            assert_eq!(
+                super::arc_door_target(&format!("{door} demo-arc2")),
+                Some("demo-arc2"),
+                "{door}"
+            );
+            assert_eq!(
+                super::arc_door_target(&format!("  {door}   demo  \n")),
+                Some("demo"),
+                "{door} with stray whitespace"
+            );
+        }
+        // Not a door.
+        for text in [
+            "/arc-join demo",
+            "/arc-bind demo",
+            "/tugplug:draft demo",
+            "/commit",
+            "arc demo",
+            "please /arc demo",
+            "",
+        ] {
+            assert_eq!(super::arc_door_target(text), None, "{text:?}");
+        }
+        // A door with no name, with a name that is not one, or with an idea
+        // whose first word merely looks like one.
+        for text in [
+            "/arc",
+            "/arc-plan   ",
+            "/arc make the ring pulse",
+            "/arc demo sharpen this",
+            "/arc a",
+            "/arc demo_arc",
+            "/arc Demo",
+            "/arc status",
+            "/arc --plan",
+        ] {
+            assert_eq!(super::arc_door_target(text), None, "{text:?}");
+        }
+    }
+
+    /// **[B02]'s second step.** A door prompt binds the session at submit
+    /// time, through the intercept that already writes `turn_active`; an
+    /// ordinary prompt binds nothing.
+    #[tokio::test]
+    async fn a_door_prompt_binds_the_session_at_submit_time() {
+        let (_dir, root) = repo_with_arc("demo");
+        let (mut sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+        sup.session_ledger = Some(Arc::new(
+            crate::session_ledger::SessionLedger::open_in_memory().unwrap(),
+        ));
+        let ledger = sup.session_ledger.clone().unwrap();
+        let project = root.to_string_lossy().to_string();
+        seed_live_session(&ledger, "sess-1", "card-1", &project);
+        let tug_id = TugSessionId::new("sess-1");
+        let entry = insert_ledger_entry(&sup, &tug_id).await;
+        entry.lock().await.project_dir = root.clone();
+
+        let prompt = |text: &str| {
+            let body = serde_json::json!({
+                "tug_session_id": "sess-1",
+                "type": "user_message",
+                "text": text,
+            });
+            Frame::new(FeedId::CODE_INPUT, serde_json::to_vec(&body).unwrap())
+        };
+
+        sup.dispatch_one(prompt("/tugplug:draft demo")).await;
+        assert!(
+            ledger.get("sess-1").unwrap().unwrap().arc_id.is_none(),
+            "an ordinary prompt binds nothing"
+        );
+        while control_rx.try_recv().is_ok() {}
+
+        sup.dispatch_one(prompt("/arc demo")).await;
+        let row = ledger.get("sess-1").unwrap().unwrap();
+        assert!(
+            row.arc_id
+                .as_deref()
+                .unwrap_or("")
+                .starts_with("tugarc/demo#"),
+            "the door prompt bound the session with the keystroke: {:?}",
+            row.arc_id
+        );
+        assert_eq!(row.arc_name.as_deref(), Some("demo"));
+        let body = next_action(&mut control_rx, "bind_arc_ok").await;
+        assert_eq!(body["tug_session_id"], "sess-1");
+        assert_eq!(body["arc_name"], "demo");
+        assert!(
+            root.join(".tug/arcs/demo").is_dir(),
+            "the bind minted the directory the aggregate lists"
+        );
     }
 
     /// A binding whose arc branch is gone reads as unbound even when nothing

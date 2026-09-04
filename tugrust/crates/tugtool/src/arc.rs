@@ -91,7 +91,9 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
             project,
             session,
         } => run_arc_run(&name, plan, project, session, json, quiet),
-        ArcCommands::Documents { name, ensure } => run_documents(&name, ensure, json, quiet),
+        ArcCommands::Documents { name, ensure, bind } => {
+            run_documents(&name, ensure, bind, json, quiet)
+        }
         ArcCommands::Record { name, project } => run_arc_report(&name, project, json, quiet),
         ArcCommands::Bind {
             name,
@@ -1285,7 +1287,22 @@ fn open_arc(
 /// An arc with no directory is a state rather than an error: exit 0, both
 /// absent. `--ensure` creates the directory and keeps `.tug/` out of git, so a
 /// skill that is about to write a brief needs one call, not three.
-fn run_documents(name: &str, ensure: bool, json: bool, quiet: bool) -> Result<(), String> {
+///
+/// `--ensure --bind` also binds the calling session to the arc, through the
+/// same `/api/arc` `bind` op `tugtool arc bind` posts, so the server's
+/// `bind_arc` mints and lists the directory the ensure just made. It is the
+/// door's first act: until the binding exists the Session card's Z2 cell
+/// reads `TASKS` over a session that is plainly writing an arc's brief, and
+/// the door used to bind last, at `arc run`. The directory is ensured before
+/// the bind is attempted, so a bind the instance refuses leaves the documents
+/// in place and the refusal on stderr.
+fn run_documents(
+    name: &str,
+    ensure: bool,
+    bind: bool,
+    json: bool,
+    quiet: bool,
+) -> Result<(), String> {
     tugarc_core::validate_arc_name(name).map_err(|e| e.to_string())?;
     let root = tugtool_core::find_repo_root().map_err(|e| e.to_string())?;
     let dir = tugarc_core::documents_dir(&root, name);
@@ -1295,6 +1312,21 @@ fn run_documents(name: &str, ensure: bool, json: bool, quiet: bool) -> Result<()
             .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
         tugarc_core::ensure_tug_excluded(&root);
     }
+
+    let bound_session = if bind {
+        let session = calling_session_id("arc binding", None)?;
+        let project = binding_project(None)?;
+        let response = post_arc_api(serde_json::json!({
+            "op": "bind",
+            "tug_session_id": session.session_id,
+            "project_dir": project.to_string_lossy(),
+            "arc": name,
+        }))
+        .map_err(|e| refuse(&session, e))?;
+        Some(answered_session(&response, &session))
+    } else {
+        None
+    };
 
     let brief = tugarc_core::brief_file(&root, name);
     let plan = tugarc_core::plan_file(&root, name);
@@ -1308,6 +1340,7 @@ fn run_documents(name: &str, ensure: bool, json: bool, quiet: bool) -> Result<()
         brief_exists: brief.is_file(),
         plan_exists: plan.is_file(),
         tasks_exists: tasks.is_file(),
+        bound_session,
     };
 
     if json {
@@ -1319,6 +1352,9 @@ fn run_documents(name: &str, ensure: bool, json: bool, quiet: bool) -> Result<()
         println!("brief:  {} ({})", payload.brief, mark(payload.brief_exists));
         println!("plan:   {} ({})", payload.plan, mark(payload.plan_exists));
         println!("tasks:  {} ({})", payload.tasks, mark(payload.tasks_exists));
+        if let Some(bound) = payload.bound_session.as_deref() {
+            println!("bound:  session {bound}");
+        }
     }
     Ok(())
 }
@@ -1335,6 +1371,10 @@ struct DocumentsPayload {
     brief_exists: bool,
     plan_exists: bool,
     tasks_exists: bool,
+    /// The session `--bind` bound, as the server named it; absent without
+    /// `--bind`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bound_session: Option<String>,
 }
 
 /// Pick a stopped arc back up: write `arc-resume` naming the stage it stopped

@@ -113,6 +113,7 @@ import { goalIsActive } from "@/lib/code-session-store/select-goal";
 import {
   cellDisplayCount,
   composeJobsCellSummary,
+  arcCellNumerals,
   arcCellPose,
   formatCellCount,
   formatTaskFraction,
@@ -833,6 +834,21 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           arcFact.stepTotal,
         )
       : null;
+  // The pair this cell may actually show: the implement stage's reading and
+  // no other stage's ([B03]) — the declared selection first, and the plan's
+  // own pair when none was declared, both through `arcCellNumerals`' gate.
+  // The label below and the value further down read this one pair rather
+  // than each deriving its own, so the sentence a screen reader hears never
+  // counts steps the cell is not showing, nor stays silent about ones it is.
+  const arcModel =
+    arcFact === null ? null : arcTrackModelFromEntry(arcFact.entry);
+  const arcFraction =
+    arcModel === null
+      ? null
+      : arcCellNumerals(
+          arcFact?.arc ?? null,
+          arcGlance ?? arcMarkFraction(arcModel),
+        );
   // The cell shows no name at all; the label carries the whole identity, so a
   // screen reader hears which arc the glyph and the fraction belong to.
   // The tint the cell paints for an arc is invisible to a screen reader, so
@@ -849,9 +865,9 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const arcCellLabel =
     arcFact === null
       ? ""
-      : arcGlance === null
+      : arcFraction === null
         ? `arc ${arcFact.name}${arcRunLabel}`
-        : `arc ${arcFact.name}, step ${arcGlance.current} of ${arcGlance.total}${arcRunLabel}`;
+        : `arc ${arcFact.name}, step ${arcFraction.current} of ${arcFraction.total}${arcRunLabel}`;
   // The placard's one exit: this card's own Changes shade, where every decision
   // about an arc already lives ([D152]). The content scope, not the bare card
   // id — `sendToTarget` walks upward from its target and the session card's
@@ -995,36 +1011,31 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     tasksRecent > 0,
   );
   const tasksSummary = composeTaskSummary(taskCounts);
-  // The ARC reading's flanking dots take the arc's stage, under the
-  // same idle demotion the TASKS pose uses — except a stopped arc, which
-  // outranks every other reading and paints danger.
-  const arcIndicatorState: TugProgressIndicatorState =
-    arcFact?.arc?.stopped !== undefined
-      ? "aborted"
-      : arcCellPose(
-          {
-            stage: arcFact?.stage ?? null,
-            arcStage: arcFact?.arc?.stage ?? null,
-          },
-          isIdle,
-        );
-  // **Numbers whenever there are numbers.** The declared RUN first — the
-  // selection somebody asked for — and the PLAN's own pair when no run was
-  // declared, which is what makes a reviewed-but-unstarted plan read `0/10`
-  // rather than falling back to a word for an arc that plainly has steps to
-  // count. The word is only for an arc with no plan at all.
+  // The ARC reading's flanking dots: a stopped arc paints danger, a
+  // wheel-driven one runs across turn ends, and only a hand-run arc takes
+  // the TASKS idle demotion. The pose function owns all four.
+  const arcIndicatorState: TugProgressIndicatorState = arcCellPose(
+    { stage: arcFact?.stage ?? null, wheel: arcFact?.arc ?? null },
+    isIdle,
+  );
+  // **Numbers only while steps are being walked.** The declared selection
+  // first — the pair somebody asked for — and the plan's own pair when none
+  // was declared, but only through `arcCellNumerals`' gate: the wheel's stage
+  // is `implement` (or nothing drives the arc) and a step is in hand. A
+  // reviewed-but-unstarted plan says `Review` or `Implement` rather than
+  // `0/10`, and an arc under audit says `Audit` rather than `3/3` — a zero
+  // numerator counts work that has not started, and a full one counts work
+  // the seated stage is no longer doing ([B03]).
   //
-  // That word is the lifecycle PHASE, the same vocabulary the track's cells
+  // The word is the lifecycle PHASE, the same vocabulary the track's cells
   // and the placard's note use, Title Case like every other named state in
   // this row. Not the git stage: an arc devising or reviewing a plan has no
   // stage at all, which is how this cell came to show a fallback glyph for the
   // whole first half of an arc's life. A direct arc with no task list at all
   // says `Working` rather than `Implement`: nothing is driving it through a
   // lifecycle, so a phase word would be naming a stage it does not have. A
-  // direct arc that wrote one has a fraction, and never reaches the word.
-  const arcModel = arcFact === null ? null : arcTrackModelFromEntry(arcFact.entry);
-  const arcFraction =
-    arcModel === null ? null : (arcGlance ?? arcMarkFraction(arcModel));
+  // direct arc that wrote one has a fraction while it walks it, and the phase
+  // word — `Audit`, at the end — once it stops walking.
   const arcReading =
     arcModel === null
       ? ""

@@ -96,8 +96,10 @@ This is the whole of the route, and its whole difficulty: **you do not run the a
 **The brief comes first.** When the decisions are the hard part it is the point of the turn; otherwise it is the input the wheel needs and cannot invent. Either way it is written here. Settle the arc's name first, then:
 
 ```bash
-tugtool arc documents <name> --ensure --json
+tugtool arc documents <name> --ensure --bind --json
 ```
+
+`--bind` binds this session to the arc in the same act that makes its directory, so the Session card reads `ARC` from the door's first command rather than from its last. It is not optional here: an arc the card cannot see is an arc nobody is watching.
 
 Write the brief to the `brief` path it prints, against [`tuglaws/brief-skeleton.md`](../../../tuglaws/brief-skeleton.md). Its six beats: the **purpose** in the user's own terms, the **evidence** actually observed, the **decisions** already settled, what is **out of scope**, the **open questions** that remain, and the **shape** the work is expected to take. Read the skeleton before writing; it is the format contract, and it says which sections may be omitted when they have nothing to say.
 
@@ -115,11 +117,11 @@ The verb takes no document: it opens on what the arc has. **`--plan` is what rec
 
 The verb refuses without a calling session, because an arc runs *on a card* and there would otherwise be nowhere for a stage to rotate. It records the arc, binds this session to it, and returns — **and the first rotation happens when this turn ends, not on arrival** ([P05]). That ordering is not incidental: the request is issued from inside your own turn, and rotating on receipt would kill the session mid-sentence.
 
-**Every ledger gesture from here on draws itself on the card**: the arc created, the run declared, each step opened and closed, each round committed. The server reads them off the **arc log** — the record the verbs already write — so the line is a derived view rather than something a stage is asked to remember. That is what the user watches a run by, and it is machinery rather than a stage's manners: nothing you do or forget can add or remove one.
+**Every ledger gesture from here on draws itself on the card**: the arc created, the selection declared, each step opened and closed, each round committed. The server reads them off the **arc log** — the record the verbs already write — so the line is a derived view rather than something a stage is asked to remember. That is what the user watches an arc by, and it is machinery rather than a stage's manners: nothing you do or forget can add or remove one.
 
 **Read the receipt before you end the turn.** That is not polling and it is not waiting: the verb has already returned, and its own words are the one place the anchor is visible. Confirm two things in them — that the arc opened or resumed, and that the session it names is a **live** one. `--json` says both directly: `started` or `resumed` is true, and `tug_session_id` is the server's answer rather than the id this shell was born holding.
 
-A run whose receipt names no live session has bound the arc to nothing, and every stage it seats will rotate onto a card that is not there. **If the receipt is not what it should be, say so and run `tugtool arc doctor <name>`.** This is the one session that can see the anchor being set; a stage that finds it wrong later has to recover from it instead.
+An arc whose receipt names no live session is bound to nothing, and every stage it seats will rotate onto a card that is not there. **If the receipt is not what it should be, say so and run `tugtool arc doctor <name>`.** This is the one session that can see the anchor being set; a stage that finds it wrong later has to recover from it instead.
 
 With the receipt confirmed, issuing that command was the last thing you do. Say what happens next (stage 6), and end the turn. **Ending the turn is the hand-off.** Do not wait for a rotation, do not poll `arc record`, and do not print a command for the user to click — there is nothing for them to do, which is the entire point of the wheel.
 
@@ -139,7 +141,7 @@ This is the stage this skill owns outright, because nothing else in the arc will
 
 - **One card, one scroll.** Every stage runs on *this* card, on a fresh claude session, and the transcript is not cleared between them. A labelled divider marks each boundary, naming the stage, its model, and the document it opened on.
 - **Four stages, then a stop.** Devise writes the plan from the brief, review reads it cold and stamps it, implement walks the ledger one step per turn, audit reads the landed code against the plan and fixes what does not match. A stage that fails writes why and stops rather than retrying — the card's faces say which stage and the reason, and `tugtool arc run <name>` resumes exactly there.
-- **The ending is the join offer.** When the audit marks the arc, the Changes shade reveals itself on this card, carrying the message the join would land. Plus one receipt row saying which stages ran, on which sessions. Until then the arc's own strip says which cell it is in, so a run still checking its work does not read as one waiting to be joined.
+- **The ending is the join offer.** When the audit marks the arc, the Changes shade reveals itself on this card, carrying the message the join would land. Plus one receipt row saying which stages ran, on which sessions. Until then the arc's own strip says which cell it is in, so an arc still checking its work does not read as one waiting to be joined.
 - **Nothing needs typing in between.** That is the claim the whole arc rests on, and it is worth stating plainly.
 
 **Do not print a `/arc-join <name>` chip**, here or anywhere. The shade summons itself; a chip beside it teaches the user that nothing happens until they type, which is the belief the wheel exists to retire ([D147], [D152]).

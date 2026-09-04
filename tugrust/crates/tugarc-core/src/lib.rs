@@ -69,7 +69,7 @@ pub use ops::{
     arc_detail_entries_in, arc_draft_key, brief_file, commit, create, derive_stage, discard,
     discard_in, document_arcs, documents_dir, ensure_tug_excluded, join, join_in, join_in_flight,
     join_in_with_progress, join_preflight_in, ledger_file, list, mark, plan_file, show, status,
-    status_in, step_done, step_start, tasks_file,
+    status_in, step_done, step_start, tasks_file, worktree_path,
 };
 pub use replay::{ReplayOutcome, ReplayedRounds, replay, replay_onto};
 pub use resolve::{

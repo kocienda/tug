@@ -1477,22 +1477,32 @@ fn document_arc_entries_in(
     root: &Path,
     bound_by_arc: &std::collections::HashMap<String, Vec<String>>,
 ) -> Vec<DocumentArcEntry> {
-    tugarc_core::document_arcs(root)
+    // Every arc-named directory, not only the ones holding a document: the
+    // door's first act binds the session to a directory it has just made and
+    // not yet written into, and a session bound to an arc the aggregate does
+    // not list is a session whose card reads TASKS over a door in progress.
+    // An empty directory nobody is bound to is still nothing — litter from an
+    // abandoned door — and is dropped below exactly as before.
+    tugarc_core::ops::document_arc_dirs(root)
         .into_iter()
         .filter(|name| !tugarc_core::ops::branch_exists(root, &format!("tugarc/{name}")))
-        .map(|name| {
+        .filter_map(|name| {
             let documents = tugarc_core::ArcDocuments::read(root, &name);
+            let owner_id = tugarc_core::ops::arc_owner_key(root, &name);
+            let bound_sessions = bound_by_arc.get(&owner_id).cloned().unwrap_or_default();
+            if documents.is_empty() && bound_sessions.is_empty() {
+                return None;
+            }
             let (review, steps, task_list) = ledger_document(&documents)
                 .map(|plan| arc_plan_reading(Path::new(plan)))
                 .unwrap_or((None, Vec::new(), false));
-            let owner_id = tugarc_core::ops::arc_owner_key(root, &name);
             // The arc record, read once: the run state below and the recorded
             // kind are two facts off the same read, exactly as the live arc's
             // composition takes them. The kind is what the branchless row was
             // missing, and it is the row every plain arc starts on.
             let record = tugarc_core::read_arc(root, &name);
-            DocumentArcEntry {
-                bound_sessions: bound_by_arc.get(&owner_id).cloned().unwrap_or_default(),
+            Some(DocumentArcEntry {
+                bound_sessions,
                 owner_id,
                 task_list,
                 step_total: steps.len() as u32,
@@ -1521,7 +1531,7 @@ fn document_arc_entries_in(
                 }),
                 documents: arc_documents(documents),
                 display_name: name,
-            }
+            })
         })
         .collect()
 }
@@ -3347,6 +3357,42 @@ Some context.
                 .collect::<Vec<_>>(),
             vec!["fresh-arc", "reviewed-arc"]
         );
+    }
+
+    /// **An empty directory lists when a session is bound to it, and only
+    /// then.** The door's first act makes the directory and binds in one verb,
+    /// before the brief exists; the card reads `ARC` off the binding, so the
+    /// aggregate has to carry the arc in that gap. An empty directory nobody
+    /// is bound to is an abandoned door and stays off the wire.
+    #[test]
+    fn an_empty_directory_lists_only_while_a_session_is_bound_to_it() {
+        let (_dir, root) = init_repo();
+        for name in ["opening", "abandoned"] {
+            std::fs::create_dir_all(root.join(".tug").join("arcs").join(name)).unwrap();
+        }
+        let mut bound = std::collections::HashMap::new();
+        bound.insert(
+            tugarc_core::ops::arc_owner_key(&root, "opening"),
+            vec!["sess-1".to_string()],
+        );
+
+        let entries = document_arc_entries_in(&root, &bound);
+        assert_eq!(
+            entries
+                .iter()
+                .map(|e| e.display_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["opening"]
+        );
+        let opening = &entries[0];
+        assert_eq!(opening.bound_sessions, vec!["sess-1".to_string()]);
+        assert!(opening.documents.brief.is_none());
+        assert!(opening.documents.plan.is_none());
+        assert!(opening.documents.tasks.is_none());
+        assert_eq!(opening.step_total, 0);
+
+        // Unbound, the same directory is nothing — exactly as before.
+        assert!(document_entries(&root).is_empty());
     }
 
     /// A withdrawn step is closed and begun, so the fraction the feed reports

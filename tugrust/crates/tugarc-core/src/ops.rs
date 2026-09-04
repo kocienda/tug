@@ -474,6 +474,23 @@ pub fn ledger_file(repo: &Path, name: &str) -> Option<PathBuf> {
 /// plan or a task list. An absent `.tug/arcs` is an empty list, not an error —
 /// a repository with no arcs is the ordinary case.
 pub fn document_arcs(repo: &Path) -> Vec<String> {
+    document_arc_dirs(repo)
+        .into_iter()
+        .filter(|name| !ArcDocuments::read(repo, name).is_empty())
+        .collect()
+}
+
+/// Every arc-named directory under `.tug/arcs/`, whether or not it holds a
+/// document yet — the superset [`document_arcs`] filters.
+///
+/// An empty directory is what a door's first act leaves behind: `arc
+/// documents --ensure --bind` makes it and binds the session in the same
+/// breath, seconds before the brief is written. A surface that reads the
+/// binding needs the directory listed in that gap, and only a caller that
+/// knows the bindings can say which empty directories are an arc opening and
+/// which are litter — so this scan does not decide, and `document_arcs` keeps
+/// deciding the way it always has.
+pub fn document_arc_dirs(repo: &Path) -> Vec<String> {
     let root = main_repo_root(repo).join(".tug").join("arcs");
     let Ok(entries) = std::fs::read_dir(&root) else {
         return Vec::new();
@@ -483,7 +500,6 @@ pub fn document_arcs(repo: &Path) -> Vec<String> {
         .filter(|entry| entry.path().is_dir())
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter(|name| validate_arc_name(name).is_ok())
-        .filter(|name| !ArcDocuments::read(repo, name).is_empty())
         .collect();
     names.sort();
     names
@@ -712,7 +728,13 @@ fn old_worktree_path(repo: &Path, name: &str) -> PathBuf {
 /// it exists (created there, or migrated), else the legacy `.tugtree/` path when
 /// that still holds it, else the new home (the creation target). So every verb
 /// operates on wherever the worktree actually is, migrated or not.
-pub(crate) fn worktree_path(repo: &Path, name: &str) -> PathBuf {
+///
+/// Public because the wheel's opening prompt names it: the `where` clause hands
+/// a stage its worktree so it need not probe for one, and a caller that
+/// reconstructed the path itself would be reconstructing the legacy fallback
+/// too — the one thing here that is a filesystem question rather than a
+/// formatting rule.
+pub fn worktree_path(repo: &Path, name: &str) -> PathBuf {
     let new = new_worktree_path(repo, name);
     if new.exists() {
         return new;
@@ -5489,6 +5511,9 @@ mod tests {
 
         assert_eq!(document_arcs(root), vec!["alpha", "beta"]);
         assert!(document_arcs(temp.path().join("absent").as_path()).is_empty());
+        // The unfiltered scan keeps the empty directory — it is the one a
+        // door's first act leaves — and still drops what is not an arc.
+        assert_eq!(document_arc_dirs(root), vec!["alpha", "beta", "empty"]);
     }
 
     #[test]

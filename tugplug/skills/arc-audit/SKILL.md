@@ -9,11 +9,11 @@ disallowed-tools: Task, AskUserQuestion
 
 ## What this is
 
-`arc-audit` is the **post-implementation** pass: read the code an arc actually landed, judge it against the plan it was written from, and **fix what does not match**. It is the arc's last stage, and it runs on a session that has never seen the run it is reading.
+`arc-audit` is the **post-implementation** pass: read the code an arc actually landed, judge it against the plan it was written from, and **fix what does not match**. It is the arc's last stage, and it runs on a session that has never seen the work it is reading.
 
 That coldness is the whole design. The session that wrote the code is the weakest possible reader of it — it knows what it meant, so it sees what it meant, and the gap between the plan's promise and the bytes on the branch is exactly the thing a defending reader cannot see. A fresh session opening on the plan and the diff has nothing to defend.
 
-It is the sibling of `arc-review`, at the other end of the run. Review reads a plan against the code that exists and fixes the plan; audit reads the code against the plan that was reviewed and fixes the code. Neither reports; both do the work they find.
+It is the sibling of `arc-review`, at the other end of the arc. Review reads a plan against the code that exists and fixes the plan; audit reads the code against the plan that was reviewed and fixes the code. Neither reports; both do the work they find.
 
 **You are the auditor, in-thread.** Do not spawn sub-agents (`Task`).
 
@@ -25,34 +25,13 @@ It is the sibling of `arc-review`, at the other end of the run. Review reads a p
 
 ## The pass
 
-### 0. Confirm the arc that runs you
+### 0. Read the `where` line
 
-```bash
-printenv TUG_ARC
-```
+The prompt that seated you carries one: `where: worktree <abs path> · session <id> bound · stage audit`. That is the arc's worktree — **the one working root, and the absolute path every read, write and check below is addressed by** — and the seat the arc is bound to. Read it and start reading the code. The runner composed it from the records it owns and ran `arc doctor`'s four-record comparison against them immediately before sending it, so there is nothing here to probe for, nothing to confirm, and nothing to say about having done either.
 
-It names the arc you are the audit stage of.
+**With no `where` line above, stop and say so.** This skill is a stage of an arc rather than a standalone command, and it is the last stage of **every** arc: `/arc` opens one at implement and `/arc-plan` opens one at devise, and each reaches here when its final declared step closes. There is no path from here that ends anywhere else — the mark this stage writes is read by a runner, and with no runner reading it the mark declares an arc finished that nothing was running.
 
-**With it absent from the environment, stop and say so.** This skill is a stage of an arc rather than a standalone command, and it is the last stage of **every** arc: `/arc` opens one at implement and `/arc-plan` opens one at devise, and each reaches here when its run's final declared step closes. There is no path from here that ends anywhere else — the mark this stage writes is read by a runner, and with no runner reading it the mark declares an arc finished that nothing was running.
-
-**Then confirm the arc can still find you.**
-
-```bash
-tugtool arc bind <name> --dry-run
-tugtool arc status <name> --json
-```
-
-The dry run writes nothing; it resolves which session this shell actually belongs to and says `(this shell holds …, which has rotated)` when the shell's own id has gone stale. **You are always a rotated-in session** — the audit's whole design is a reader that never saw the run — so that line is expected here rather than merely tolerated. What is a problem is a resolved session missing from `arc status --json`'s `bound_sessions`: the binding did not ride the rotation, and the join offer this stage arms will reach nobody.
-
-**The repair is `tugtool arc doctor <name>`**, which compares all four of an arc's records — the ledger table, the arc log, the sqlite binding, and the arc record — and names each disagreement in a sentence. Not `/arc-bind`, which writes one of the four and answers nothing about the other three. Run it here anyway when the status output carries findings: a table and log that disagree about the run's frontier is exactly the kind of thing an audit should say out loud, and it changes what "the ledger's step titles are the promises" is worth.
-
-### 1. Take the worktree, and read what the run said it would do
-
-```bash
-tugtool arc create <name> --json
-```
-
-Idempotent — it returns the existing arc and records that this session is working it. **Capture the absolute `worktree` path**; from here it is the only working root, and every read, write, and check is addressed by absolute path into it.
+### 1. Read what the arc said it would do
 
 ```bash
 tugtool arc documents <name> --json
@@ -66,7 +45,7 @@ tugtool plan status <name> --json
 
 `arc documents --json` names all three paths and says which exist. Read the brief even when a plan exists — especially then, since the plan is one session's reading of the brief and this stage's job is not to trust a reading.
 
-**Read the arc's `baseline.md` too if the run left one.** It records what was already red before the first step, which is the difference between a defect this run introduced and one it inherited.
+**Read the arc's `baseline.md` too if the implement stage left one.** It records what was already red before the first step, which is the difference between a defect this arc introduced and one it inherited.
 
 ### 2. Read the whole diff, cold
 
@@ -83,7 +62,7 @@ Then the diff itself, from the worktree — every commit the branch carries agai
 Five questions, in this order. The first three are the audit's own; the last two are the bar every arc round was already held to, asked once more by somebody with no stake in the answer.
 
 - **Does the code do what the ledger said?** Step by step, promise by promise. A step marked `done` whose behaviour is not in the tree is the finding this whole stage exists to catch — including the honest version of it, where the step did something adjacent and nobody noticed the difference.
-- **Does it answer what the brief asked for?** The ledger is one session's reading of the brief, and a run can walk every step of it faithfully and still leave the brief's `[B##]` decisions unhonoured or its `[F##]` findings unaddressed. This is the question only the brief can ask, and it is why the brief is in the reading list ([B06]).
+- **Does it answer what the brief asked for?** The ledger is one session's reading of the brief, and an arc can walk every step of it faithfully and still leave the brief's `[B##]` decisions unhonoured or its `[F##]` findings unaddressed. This is the question only the brief can ask, and it is why the brief is in the reading list ([B06]).
 - **Does it do anything neither document said?** Scope that arrived without a decision behind it. Not every unplanned line is wrong — work discovers things — but an unplanned line that changes a contract, a default, or a surface is a decision somebody made silently.
 - **Is it right?** Real defects, in the ordinary sense: the unhandled case, the wrong boundary, the state that can be reached and is not handled, the check that passes for the wrong reason.
 - **Does it fit?** The laws the change touches, the conventions of the files it sits in, the tests at the layer that can actually see the behaviour. For work under a project's law documents, name the specific laws — mimicry of neighbouring code proves nothing about which invariant that code was upholding.
@@ -92,7 +71,7 @@ Five questions, in this order. The first three are the audit's own; the last two
 
 ### 4. Fix what you find
 
-Fix it. That is the whole of what to do with a finding, and the reason this stage edits code at all: an audit that could only report would hand its findings to nobody, because the run that would have acted on them is over.
+Fix it. That is the whole of what to do with a finding, and the reason this stage edits code at all: an audit that could only report would hand its findings to nobody, because the stage that would have acted on them is over.
 
 The fixes are **ordinary rounds** on the arc, under the doctrine's round mechanics and its verification bar. Verify before every commit — the checks the project declares for what you moved — and never commit red:
 
@@ -104,31 +83,31 @@ EOF
 
 The plan's ledger is already walked and stays walked: an audit opens no step and closes none. Its rounds are the record of what it changed, and the mark at the end is the record that it ran.
 
-**What not to fix.** Anything you merely would have done differently. A run is not wrong for not being yours, and a stage that rewrites working code to its own taste at the end of somebody else's run is the most expensive kind of noise. Style, naming that is merely not your preference, a structure that works — leave them.
+**What not to fix.** Anything you merely would have done differently. An arc is not wrong for not being yours, and a stage that rewrites working code to its own taste at the end of somebody else's is the most expensive kind of noise. Style, naming that is merely not your preference, a structure that works — leave them.
 
-**A finding you cannot settle is written down, not asked.** This stage raises no dialog: it runs cold, often unattended, and a question here would stop the arc in front of nobody. When the work leaves a genuine judgment call — a scope decision, a trade-off with no technically correct answer — say so plainly in the report and in the join draft, and leave the code as the run left it. The user reads it at the join, which is where that decision was always theirs to make.
+**A finding you cannot settle is written down, not asked.** This stage raises no dialog: it runs cold, often unattended, and a question here would stop the arc in front of nobody. When the work leaves a genuine judgment call — a scope decision, a trade-off with no technically correct answer — say so plainly in the report and in the join draft, and leave the code as the implement stage left it. The user reads it at the join, which is where that decision was always theirs to make.
 
 ### 5. Verify the fit
 
-Whether or not you changed anything, the tree that lands is the run's work replayed onto the live base, and nothing has tested that:
+Whether or not you changed anything, the tree that lands is the arc's work replayed onto the live base, and nothing has tested that:
 
 ```bash
 tugtool arc replay <name>
 ```
 
-On **`Replayed`** / **`Recorded`** the tree moved — verify it with `tugtool arc verify <name>` from the worktree, which resolves every path the replay moved to a surface the project declared and runs what those surfaces declare. A refusal (exit 2) names paths no surface claims and runs nothing: declare a surface for them rather than working around it. Red (exit 1) is ordinary work — fix it as a round. A project that declares no surfaces says so and exits 0; check what the replay moved with the commands the run already used, never one you invent, and say so. On **`Current`** the base never moved and the checks that just passed covered these exact bytes, so run nothing and say so. On **`Conflicted`** the replay names the round it stopped at: resolve it in the worktree, commit the fix as a round, then verify.
+On **`Replayed`** / **`Recorded`** the tree moved — verify it with `tugtool arc verify <name>` from the worktree, which resolves every path the replay moved to a surface the project declared and runs what those surfaces declare. A refusal (exit 2) names paths no surface claims and runs nothing: declare a surface for them rather than working around it. Red (exit 1) is ordinary work — fix it as a round. A project that declares no surfaces says so and exits 0; check what the replay moved with the commands the arc's own checkpoints already used, never one you invent, and say so. On **`Current`** the base never moved and the checks that just passed covered these exact bytes, so run nothing and say so. On **`Conflicted`** the replay names the round it stopped at: resolve it in the worktree, commit the fix as a round, then verify.
 
 ### 6. Refresh the join draft
 
-The draft is the squash message the user's join will land, and it is the only durable prose the base will ever carry about this arc. The run left one; if the audit changed anything, it is now describing a tree that has moved:
+The draft is the squash message the user's join will land, and it is the only durable prose the base will ever carry about this arc. The implement stage left one; if the audit changed anything, it is now describing a tree that has moved:
 
 ```bash
 tugtool draft set --owner arc:<name> --message "<subject + durable body>"
 ```
 
-An **imperative subject** in the repository's recent-commit style, bare — no `tugarc(<name>): ` prefix, because the join adds the scope itself. Then a **summary paragraph**, one to three sentences of plain prose a reader can stop at, saying what the base is about to receive and why. Then the body: what the change does and the argument it rests on, for a reader who never saw the run.
+An **imperative subject** in the repository's recent-commit style, bare — no `tugarc(<name>): ` prefix, because the join adds the scope itself. Then a **summary paragraph**, one to three sentences of plain prose a reader can stop at, saying what the base is about to receive and why. Then the body: what the change does and the argument it rests on, for a reader who never saw the arc.
 
-**Never a narration of the run, and that includes yours.** No round-by-round digest, no step numbers, no "the audit found and fixed" archaeology. What the audit repaired is part of what the change *is* — describe the change, not its history. Every line unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
+**Never a narration of the arc, and that includes your own part in it.** No round-by-round digest, no step numbers, no "the audit found and fixed" archaeology. What the audit repaired is part of what the change *is* — describe the change, not its history. Every line unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
 
 Read a good one before writing yours: `git log` on the base shows the project's recent joins.
 
@@ -142,7 +121,20 @@ tugtool arc mark <name> audited --note "<one line: what was checked, and what wa
 
 Then report what you found and what you changed, in a few lines, and **stop. Do not join.** Landing is the user's act, always.
 
-The Changes shade is how the join reaches them: it reveals itself on the bound card in the first quiet moment, carrying the arc's row and the message the join would land. **Print no `/arc-join <name>` chip** — it reads as "nothing will happen until you type this" beside a room that is about to open on its own.
+### 8. The join is the user's gesture
+
+**The shade is the door**, and this stage is the only one that speaks of it — the offer arms on the arc's own record, and this is the stage standing at the end of it. The Changes shade reveals itself on the bound card in the first quiet moment, showing the arc's row, the message the join would land, and where those words came from. Entering the landing mode and pressing the composer's ⬆ squash-lands the arc with the draft you refreshed in stage 6, narrating the beats and settling on the outcome. The user does that; you do not. Your part ended at the mark.
+
+Closing the shade costs nothing and answers nothing — the row is still in there, and new work on the arc reveals it again. There is no "not yet" to record and nothing that can lock the offer out.
+
+**`/arc-join <name>` in the Session card is the escape hatch**, the same join by hand, previewing the merge in memory before anything is touched. Reach for it only in the two cases below.
+
+**The escapes.** Print the chip in exactly two situations, because in both of them the shade genuinely has nothing to reveal:
+
+- **The arc is unbound by choice.** The offer only reaches a card bound to the arc, and an unbound arc is never even reconciled. If the user has declined to bind one, `/arc-join <name>` is their only path.
+- **A legacy arc** with no declared selection and no mark — nothing arms it, so no offer ever stands.
+
+Everywhere else the chip is noise at best and misinformation at worst: it reads as "nothing will happen until you type this" beside a room that is about to open on its own. If the user reports the join blocked on base dirt, the preflight is intersection-aware — only base changes overlapping the arc's files block, and unrelated base dirt is committed or stashed first.
 
 ## Guardrails
 
@@ -150,12 +142,12 @@ Everything in [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrin
 
 - **No sub-agents.** Read, judge, and fix in-thread.
 - **Read the code before the claims.** The commit messages and the arc log are read after the diff, so the code is judged rather than the account of it.
-- **Fix, never report-and-defer.** The run that would have acted on a report is over. What you cannot settle is written into the report and the draft, not asked.
+- **Fix, never report-and-defer.** The stage that would have acted on a report is over. What you cannot settle is written into the report and the draft, not asked.
 - **No dialogs.** This stage runs cold and often unattended; a question here stops the arc in front of nobody.
-- **Judge against both documents.** The ledger says what, the brief says why, and a run can satisfy one without the other.
-- **Run only under an arc.** With no arc in the environment, say what this is the last stage of and which doors start one, and stop.
+- **Judge against both documents.** The ledger says what, the brief says why, and an arc can satisfy one without the other.
+- **Run only under an arc.** With no `where` line in the prompt that seated you, say what this is the last stage of and which doors start one, and stop.
 - **Never open or close a step.** The ledger is walked; an audit's work is rounds.
-- **Leave alone what is merely not yours.** A run is not wrong for not being your run.
+- **Leave alone what is merely not yours.** An arc is not wrong for not being yours.
 - **Verify before every commit, and never commit red.**
 - **The mark is last, and it is the product.** Every round committed, the fit verified, then `arc mark audited`.
 - **Stop before the join.** Landing is the user's act.

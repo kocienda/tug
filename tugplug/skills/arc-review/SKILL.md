@@ -11,7 +11,7 @@ disallowed-tools: Task, Write, AskUserQuestion
 
 `arc-review` is the **review stage** of a planned arc, and the pre-implementation pass: read the plan the devise stage wrote, judge it against the real code, and **fix what you find**. It is not a report — the old `vet` skill was read-only by construction, so the only thing it could do with a finding was hand it back, and the answer was invariably "do the fixups". This does the fixups.
 
-**It is a stage of an arc, not a standalone command.** The wheel seats it on a fresh session, on the model the project declared for the review, reading the plan cold — and that coldness is the whole of what the stage buys. The devise stage before it ends by asking the wheel to seat this one rather than by handing the user a chip, and the stamp this stage writes is what rotates the arc onward. So [the arc check](#0-confirm-the-arc-that-runs-you) is the first thing this skill does.
+**It is a stage of an arc, not a standalone command.** The wheel seats it on a fresh session, on the model the project declared for the review, reading the plan cold — and that coldness is the whole of what the stage buys. The devise stage before it ends by asking the wheel to seat this one rather than by handing the user a chip, and the stamp this stage writes is what rotates the arc onward. So [the `where` line](#0-read-the-where-line) is the first thing this skill does.
 
 **You are the reviewer, in-thread.** Do not spawn sub-agents (`Task`).
 
@@ -23,26 +23,11 @@ disallowed-tools: Task, Write, AskUserQuestion
 
 ## The pass
 
-### 0. Confirm the arc that runs you
+### 0. Read the `where` line
 
-```bash
-printenv TUG_ARC
-```
+The prompt that seated you carries one: `where: worktree <abs path> · session <id> bound · stage review`. That is the arc's worktree and the seat it is bound to. Read it and start reading the plan. The runner composed it from the records it owns and ran `arc doctor`'s four-record comparison against them immediately before sending it, so there is nothing here to probe for, nothing to confirm, and nothing to say about having done either.
 
-It names the arc you are the review stage of.
-
-**With it absent from the environment, stop and say so.** This skill is a stage of a planned arc rather than a standalone command, and `/arc-plan` is the door into it: it sharpens the idea with the user, writes the brief, and opens the arc that devises the plan and hands it here. (The other door, `/arc`, settles its steps as a task list and opens an arc with no devise stage and no review stage at all.) There is no path from here that ends anywhere else — the stamp this stage writes is read by a runner, and with no runner watching it there is nothing behind the gesture.
-
-**Then confirm the arc can still find you.**
-
-```bash
-tugtool arc bind <name> --dry-run
-tugtool arc status <name> --json
-```
-
-The dry run writes nothing; it resolves which session this shell actually belongs to and says `(this shell holds …, which has rotated)` when the shell's own id has gone stale — which is ordinary under an arc and is not a problem. What is a problem is a resolved session missing from `arc status --json`'s `bound_sessions`: the binding did not ride the rotation, and nothing downstream will find this run.
-
-**The repair is `tugtool arc doctor <name>`**, which compares all four of an arc's records and names each disagreement in a sentence. Not `/arc-bind`, which writes one of the four and answers nothing about the other three.
+**With no `where` line above, stop and say so.** This skill is a stage of a planned arc rather than a standalone command, and `/arc-plan` is the door into it: it sharpens the idea with the user, writes the brief, and opens the arc that devises the plan and hands it here. (The other door, `/arc`, settles its steps as a task list and opens an arc with no devise stage and no review stage at all.) There is no path from here that ends anywhere else — the stamp this stage writes is read by a runner, and with no runner watching it there is nothing behind the gesture.
 
 ### 1. Read the plan's review state, then lint it
 
@@ -149,4 +134,4 @@ A review that ends **without a stamp** has answered nothing, exactly as an audit
 - **Always append the Review Record**, even on a clean pass — a round that found nothing is a fact worth recording, and a vacuous round is supposed to be visible in the artifact.
 - **The stamp is the last thing you do, and you never type it.** `tugtool plan stamp` computes it; an edit after it makes it a lie.
 - **Print no chip and name no next command.** The runner reads the stamp and rotates to implement itself; a command line here is a button nobody will press.
-- **Run only under an arc.** With no arc in the environment, say what this is a stage of and which door starts one, and stop.
+- **Run only under an arc.** With no `where` line in the prompt that seated you, say what this is a stage of and which door starts one, and stop.

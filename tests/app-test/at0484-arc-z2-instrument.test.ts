@@ -10,11 +10,11 @@
  *
  * What it reads is a precedence, walked here in the order the code states it:
  *
- *  - **Numbers whenever there are numbers.** A reviewed plan nobody has
- *    started reads `0/4`, not a word — the plan's own pair, because no run is
- *    declared yet.
- *  - **The declared run wins** over the plan's pair once one exists: `1/2` on
- *    that same four-row plan ([D148]).
+ *  - **A zero numerator is a word, never `0/N`.** A reviewed plan nobody has
+ *    started reads `Review` — where the arc actually is — because a pair
+ *    with nothing in hand counts work that has not begun ([B03]).
+ *  - **The declared run wins** once a step is in hand: `1/2` on that same
+ *    four-row plan ([D148]).
  *  - **The word is the lifecycle PHASE**, Title Case: `Brief` for an arc whose
  *    git stage is `created`, which is the half of an arc's life this cell used
  *    to draw a fallback glyph for.
@@ -253,7 +253,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         expect(bare.cells.jobs.width).toBe("14ch");
         expectWholeRow(bare);
 
-        // ── A reviewed plan nobody has started: numbers, not a word ───────
+        // ── A reviewed plan nobody has started: the stage's word, not 0/4 ─
         // Mark the TASKS glyphs first: what makes the pair below a PAIR is
         // that both of them are new (see the header). The cell reads `—`
         // while the replay is inert, and that reading has no glyphs at all —
@@ -275,7 +275,11 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
           binaryRoot: CHECKOUT,
           env: scratch?.cli.env,
         });
-        await awaitReading(app, "0/4");
+        // No wheel drives this arc and no step is open, so the plan's own
+        // pair would read `0/4` — the zero numerator Z2 never shows. The
+        // track model places an unstarted plan at review, and that is the
+        // word.
+        await awaitReading(app, "Review");
 
         // The instrument's SHAPE, taken once — it does not change with the
         // reading, and asserting it four times would say nothing new.

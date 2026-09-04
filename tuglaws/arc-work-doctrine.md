@@ -4,7 +4,7 @@
 
 *The lane has two doors, and which one the user typed is the routing decision. **Both run under the wheel and both open on a brief**; they differ by **settling time**, and by nothing else. The bare `/arc` writes the brief and the **task list** at the door and opens the arc plain, so it starts straight at implement. `/arc-plan` writes the brief and passes `--plan`, so the arc devises a plan from it and reads that plan cold before any step is walked. The kind is recorded when the arc opens; nothing derives it from which documents are on disk. Everything downstream of the ledger is identical in the two.*
 
-***The four stage skills are not doors.** `arc-devise`, `arc-review`, `arc-implement`, and `arc-audit` are internal machinery — stages of an arc, each refusing to run outside one, because the discipline each works under is only safe when something is pacing it. There is no one-stage arc for a typed invocation to land in and none is built. A user may still dig in and invoke one by hand; nothing prevents that, and nothing goes out of its way to support it. Whichever door a run comes through, the discipline below is the same one.*
+***The four stage skills are not doors.** `arc-devise`, `arc-review`, `arc-implement`, and `arc-audit` are internal machinery — stages of an arc, each refusing to run outside one, because the discipline each works under is only safe when something is pacing it. There is no one-stage arc for a typed invocation to land in and none is built. A user may still dig in and invoke one by hand; nothing prevents that, and nothing goes out of its way to support it. Whichever door an arc comes through, the discipline below is the same one.*
 
 This document covers **how the work is done**. The arc's state model — what `created`, `working`, `implementing`, `built`, `audited`, `draft-ready`, and `joining` mean and how each is derived or declared — is a separate subject, and lives in [arc-lifecycle.md](arc-lifecycle.md) along with the identity and binding models.
 
@@ -16,13 +16,13 @@ An arc *is* a git branch plus a worktree. The branch is `tugarc/<name>`; an arc 
 - **Never write to the base checkout's working tree.** Not code, not a scratch file. The base branch is the user's; the only path back is their join gesture. The arc's own `.tug/arcs/<name>/` is not an exception to that rule but the reason there is nothing left to except: it is gitignored, invisible to `git status`, reached only through a verb, and so is not part of the tree the rule protects.
 - A stray write to the base root also *blocks* the join — the join preflight requires the base clean where it intersects the arc's files.
 
-An arc's documents live at `<main-repo>/.tug/arcs/<name>/` — `brief.md`, `plan.md`, and `tasks.md` — and the **name** is their address on every verb ([D139]). `tugtool arc documents <name>` reports all three and says which exist; `--ensure` creates the directory to write into. Every arc has a **brief**; a planned arc grows a `plan.md` at its devise stage, and a plain one carries a `tasks.md` its door wrote. The directory holds whatever else a run leaves for the sessions after it — the implement stage's `baseline.md` is the one this doctrine names.
+An arc's documents live at `<main-repo>/.tug/arcs/<name>/` — `brief.md`, `plan.md`, and `tasks.md` — and the **name** is their address on every verb ([D139]). `tugtool arc documents <name>` reports all three and says which exist; `--ensure` creates the directory to write into. Every arc has a **brief**; a planned arc grows a `plan.md` at its devise stage, and a plain one carries a `tasks.md` its door wrote. The directory holds whatever else a stage leaves for the sessions after it — the implement stage's `baseline.md` is the one this doctrine names.
 
 They are never tracked and never in the worktree, so nothing transplants them, nothing detects divergence between copies, and nothing has to clean them up. There is no directory to declare, assume, or ask about.
 
 ## Starting from a dirty base
 
-An arc is cut from the base *branch tip*, so the worktree always starts clean no matter what the base checkout holds. What it holds is still your problem: uncommitted work left on the base is either invisible divergence for the length of the run, or the join's `base-dirt` refusal at the end of it.
+An arc is cut from the base *branch tip*, so the worktree always starts clean no matter what the base checkout holds. What it holds is still your problem: uncommitted work left on the base is either invisible divergence for the length of the arc, or the join's `base-dirt` refusal at the end of it.
 
 So `arc create` ends by saying what it left behind — the uncommitted paths, classified, and a warning when the checkout is not on the base branch (creation does not care; the join's preflight does). It is a report, not a veto. Most creates happen over some unrelated dirt, and a create that refused over it would be intolerable. **Read the census; taking nothing is the default and usually the right one.**
 
@@ -53,7 +53,7 @@ The move itself is a compare-and-swap — the worktree re-verified clean, its HE
 
 **No server-initiated turn is ever unannounced.** This is the general rule, and it outranks convenience. Journaling an injection makes the turn real to the server and to a later reload, but it puts no row on screen — the transcript's live user row comes from the composer echoing its own submission, and an injection has no composer. So every injected turn carries a system-origin opener alongside it, rendered as a distinct row attributed to the subsystem that spoke. Attributing it to the user instead would be cheaper and would put words in their mouth in their own transcript. A model that begins working with no visible cause is a worse ambush than the one this whole mechanism replaces.
 
-**A replay under a live plan run tells the model its context moved.** The engine does not wait for a plan run to finish — that would leave an arc behind for hours, which is the ambush again. It replays between turns and follows a clean replay with a short notice naming the new base tip and the files the base brought in. The model's context holds pre-replay file contents, so its next edit could silently revert base changes it never saw; the notice repairs that rather than avoiding it. It asks for nothing, and says so.
+**A replay under a live arc tells the model its context moved.** The engine does not wait for an arc to finish — that would leave an arc behind for hours, which is the ambush again. It replays between turns and follows a clean replay with a short notice naming the new base tip and the files the base brought in. The model's context holds pre-replay file contents, so its next edit could silently revert base changes it never saw; the notice repairs that rather than avoiding it. It asks for nothing, and says so.
 
 The engine is on by default, because the doctrine *is* the default and an opt-in flag would make the designed behavior the exception. `git config tugarc.autoreplay false` disables automatic motion for a repository where any unattended ref motion is unwelcome; the `tugtool arc replay` verb and the marks keep working. That repository-level key moved with the branch prefix, and the per-branch override beside it reads `branch.tugarc/<name>.tugautoreplay`.
 
@@ -61,16 +61,16 @@ The engine is on by default, because the doctrine *is* the default and an opt-in
 
 **Warnings are errors.** The Rust workspace enforces `-D warnings`; treat a type error, a lint finding, or a failing test the same way.
 
-The portable rule is two-sided: **a step's checkpoint runs the commands the plan names for the work that step did; the run's ending runs the project's declared verify command.** The list below is what that first side comes to in this repository — read it as this project's instance of the rule, not as the rule.
+The portable rule is two-sided: **a step's checkpoint runs the commands the plan names for the work that step did; the arc's ending runs the project's declared verify command.** The list below is what that first side comes to in this repository — read it as this project's instance of the rule, not as the rule.
 
 - `bunx tsc --noEmit` for TypeScript that moved.
 - Pure-logic tests for the scope that moved (`bun test <scope>`).
-- `cargo nextest run` for Rust — the affected crates while iterating, the workspace on the **last step that touched Rust**. Not "before the run ends": the ending has its own job, and re-running this is not it.
+- `cargo nextest run` for Rust — the affected crates while iterating, the workspace on the **last step that touched Rust**. Not "before the arc ends": the ending has its own job, and re-running this is not it.
 - A real-app test where the change is one only the real app can show.
 
 **Never commit red.** If a check fails, fix it and re-run; a round that lands broken makes every later round's verdict meaningless.
 
-**A checkpoint that passed is spent.** It ran against these bytes, inside the step that changed them; running it again at the end proves nothing new and costs minutes. So: **the run ends when the fit is verified — replay, verify only what the replay moved, report, and stop; never re-run a checkpoint that already passed.** The fit is the one thing the per-step checkpoints genuinely cannot have covered, because until the replay the arc's tree is the sandbox it forked from rather than the tree a join would land. The procedure is the devise skeleton's Integration Checkpoint pattern: `tugtool arc replay <name>`, then the scoped verification **only** on `Replayed`/`Recorded`; `Current` re-runs nothing; `Conflicted` is resolved in the worktree and then verified. What that verification *is* comes from the project, and one verb reads it: `tugtool arc verify <name>` resolves every path the replay moved to a surface declared in the project's own `[[tugtool.arc.surface]]` table and runs what those surfaces declare. A path no surface claims is a **refusal** — it runs no check at all and names the paths, because a table that has fallen behind its tree is a gap to declare rather than to work around. A project that declares no surfaces says so and verifies with the plan's own checkpoint commands over what the replay moved — never an invented one — and says so.
+**A checkpoint that passed is spent.** It ran against these bytes, inside the step that changed them; running it again at the end proves nothing new and costs minutes. So: **the arc ends when the fit is verified — replay, verify only what the replay moved, report, and stop; never re-run a checkpoint that already passed.** The fit is the one thing the per-step checkpoints genuinely cannot have covered, because until the replay the arc's tree is the sandbox it forked from rather than the tree a join would land. The procedure is the devise skeleton's Integration Checkpoint pattern: `tugtool arc replay <name>`, then the scoped verification **only** on `Replayed`/`Recorded`; `Current` re-runs nothing; `Conflicted` is resolved in the worktree and then verified. What that verification *is* comes from the project, and one verb reads it: `tugtool arc verify <name>` resolves every path the replay moved to a surface declared in the project's own `[[tugtool.arc.surface]]` table and runs what those surfaces declare. A path no surface claims is a **refusal** — it runs no check at all and names the paths, because a table that has fallen behind its tree is a gap to declare rather than to work around. A project that declares no surfaces says so and verifies with the plan's own checkpoint commands over what the replay moved — never an invented one — and says so.
 
 **Fix what you touch.** A pre-existing warning, type error, or dead branch in a file you are editing is yours to fix, not to report. Punting it as "pre-existing" leaves the next reader the same trap.
 
@@ -109,9 +109,9 @@ Git records the diff; the log records the instruction git cannot see. `tugtool a
 
 ## Step work runs to completion
 
-**Once step work has commenced, the run finishes it.** The value passed to `--through` is the run's declared end, and a run that has declared one does not stop before it: not to report a round, not to describe the next step, not to ask whether to keep going, not because a commit landed and a commit looked like a natural place to hand back. It stops at exactly two points — the step it declared it would run through, or a blocker it names and cannot resolve — and nothing else. A round's commit is a checkpoint inside the run, never its end. A turn that ends with a step reading `in progress` and no named blocker is a defect: every arc face reads a live mark that nobody is working, the join cannot arm, and the user is left to discover that the arc needs prodding. Arcs do not need prodding.
+**Once step work has commenced, the arc finishes it.** The value passed to `--through` is the selection's declared end, and an arc that has declared one does not stop before it: not to report a round, not to describe the next step, not to ask whether to keep going, not because a commit landed and a commit looked like a natural place to hand back. It stops at exactly two points — the step it declared it would run through, or a blocker it names and cannot resolve — and nothing else. A round's commit is a checkpoint inside the arc, never its end. A turn that ends with a step reading `in progress` and no named blocker is a defect: every arc face reads a live mark that nobody is working, the join cannot arm, and the user is left to discover that the arc needs prodding. Arcs do not need prodding.
 
-**Questions belong to the door, not the steps.** The clarifying question has one home: the invoking conversation, before the arc opens — while `/arc-plan` sharpens an idea into a brief, or while `/arc` sharpens one into a brief and a task list. Even there it is narrow, raised only when the run is genuinely at its wits' end on a decision the code cannot answer, and it is bounded by the [never-ask list](#what-never-gets-asked). Once the hand-off happens, that door is closed: a question that arrives mid-run is answered by reading the code, by the conventional default, or by the documents the stage was handed, and the run keeps going.
+**Questions belong to the door, not the steps.** The clarifying question has one home: the invoking conversation, before the arc opens — while `/arc-plan` sharpens an idea into a brief, or while `/arc` sharpens one into a brief and a task list. Even there it is narrow, raised only when the door is genuinely at its wits' end on a decision the code cannot answer, and it is bounded by the [never-ask list](#what-never-gets-asked). Once the hand-off happens, that door is closed: a question that arrives mid-step is answered by reading the code, by the conventional default, or by the documents the stage was handed, and the arc keeps going.
 
 **No stage raises a dialog**, and all four say so in their tools rather than only in their prose. The refused ledger edit used to be one exception, on the grounds that a wrong guess there corrupts the durable record — and that reasoning was right about the hazard and wrong about the answer. The hand-edit the dialog offered was itself the corruption; what closes the hazard is a verb for every move (`step reset` to park, `step reopen --why` to un-finish) and `arc doctor` to name which record disagrees. A stage with the right verbs has nothing left to ask.
 
@@ -121,7 +121,7 @@ Git records the diff; the log records the instruction git cannot see. `tugtool a
 
 The bar for reaching for it is the never-ask list, unchanged and now uniform: design questions only, never process ones, and nothing with a conventional default. A stage stopping over a question it could have answered from the code costs a person a round trip; the answer to that is a better-judged stage, not a dialog.
 
-**A step boundary is a turn boundary.** Under an arc — which is now every run, through either door — the implement stage closes one step per turn and ends it. Not because a longer turn would do worse work, but because the wheel can only act between turns: every act it takes on the seated session — a compaction above `implement_compact_tokens`, and the rotation that follows one the compaction could not bring back under it — is sent at a turn's end, since a prompt sent into an open turn would queue behind a model still working. The wheel reads the boundary and prompts the same session with the next range, so the run still runs to its declared end; the turn is only the unit the arc paces it in. Declare `--through` with the run's last step throughout — it never shrinks to the step being walked, because that value is what arms the join.
+**A step boundary is a turn boundary.** Under an arc — which is now every walk, through either door — the implement stage closes one step per turn and ends it. Not because a longer turn would do worse work, but because the wheel can only act between turns: every act it takes on the seated session — a compaction above `implement_compact_tokens`, and the rotation that follows one the compaction could not bring back under it — is sent at a turn's end, since a prompt sent into an open turn would queue behind a model still working. The wheel reads the boundary and prompts the same session with the next range, so the arc still runs to its declared end; the turn is only the unit it paces the walk in. Declare `--through` with the selection's last step throughout — it never shrinks to the step being walked, because that value is what arms the join.
 
 **With no arc in the environment there is no wheel, and nothing will prompt the next step** — so the stage does not start. Ending a turn at a step boundary with nothing to read it is not pacing but abandonment: the ledger reads `in progress`, the arc sits, and the user finds it stopped. And walking the whole range in one turn instead is the discipline the retrenchment exists to retire — it is what produced a 660k-token unsupervised turn with no compaction available to it and no cold reader at any point. Neither answer is available, which is why `arc-implement` refuses outside an arc rather than choosing between them.
 
@@ -139,15 +139,15 @@ What to run is the project's to say: the `build` command declared in `[tugtool.a
 
 Before stopping, leave the **join draft** behind: write the squash message with `tugtool draft set --owner arc:<name> --message "…"`. The join gesture lands that message; it does not compose one. An arc that arrives at the join draftless stops there, which is a stall you caused one step earlier.
 
-Write it knowing exactly what it becomes: **a join lands one commit on the base, and the draft is its message** ([D144]). Not one commit per round, not the rounds replayed — one, whatever the ladder did off to the side to make the bytes merge, and regardless of how many rounds the run took. The draft is therefore the *only* durable prose the base will carry about this arc, and the round commits it might have leaned on to fill in what it left out will not be there.
+Write it knowing exactly what it becomes: **a join lands one commit on the base, and the draft is its message** ([D144]). Not one commit per round, not the rounds replayed — one, whatever the ladder did off to the side to make the bytes merge, and regardless of how many rounds the arc took. The draft is therefore the *only* durable prose the base will carry about this arc, and the round commits it might have leaned on to fill in what it left out will not be there.
 
-**So the draft is a commit message, held to the same standard as every other commit the base carries.** An imperative subject in the repository's recent-commit style, then a body describing the change the base is about to receive — what it does, and the argument the work rests on — written for a reader who never saw the run. Never a narration of the run: no round-by-round digest, no step numbers, no "the run did X and then Y", and no archaeology about defects the run found and fixed along the way. The round count is the receipt's fact rather than the message's: the join receipt shows it, the `Tug-Arc:` trailer names the branch and base, and the arc branch's own log holds the rounds until the join sweeps it. State the argument the work actually rests on and do not append an inferred benefit to make the change sound worthier. The subject is **bare** — no `tugarc(<name>): ` prefix, because the join wears the scope itself. Every line runs unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
+**So the draft is a commit message, held to the same standard as every other commit the base carries.** An imperative subject in the repository's recent-commit style, then a body describing the change the base is about to receive — what it does, and the argument the work rests on — written for a reader who never saw the arc. Never a narration of the arc: no round-by-round digest, no step numbers, no "it did X and then Y", and no archaeology about defects found and fixed along the way. The round count is the receipt's fact rather than the message's: the join receipt shows it, the `Tug-Arc:` trailer names the branch and base, and the arc branch's own log holds the rounds until the join sweeps it. State the argument the work actually rests on and do not append an inferred benefit to make the change sound worthier. The subject is **bare** — no `tugarc(<name>): ` prefix, because the join wears the scope itself. Every line runs unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
 
-The exemplar is in the tree: `a18557090`, an arc join whose message says what a project can now declare, what routes through it, which boundary was held, and how it was proven — with no round list and nothing that requires having watched the run. Read it before writing one.
+The exemplar is in the tree: `a18557090`, an arc join whose message says what a project can now declare, what routes through it, which boundary was held, and how it was proven — with no round list and nothing that requires having watched the arc. Read it before writing one.
 
-**The arc arms itself, and `tugtool arc mark <name> built` is telemetry** ([D147]). What arms it is the run reaching the step it declared it would run through — nothing has to remember to say so, which is the point: an endgame that depended on a chore was an endgame that went dark the first time a run ended early. The mark stamps the word `built` on the arc's faces in place of the derived `ready`, which is worth doing when you did build and changes nothing when you skip it.
+**The arc arms itself, and `tugtool arc mark <name> built` is telemetry** ([D147]). What arms it is the arc reaching the step its selection declared it would run through — nothing has to remember to say so, which is the point: an endgame that depended on a chore was an endgame that went dark the first time an arc ended early. The mark stamps the word `built` on the arc's faces in place of the derived `ready`, which is worth doing when you did build and changes nothing when you skip it.
 
-Once armed, the pilot reconciles the arc against its base, unprompted. It runs no build and no tests — the run's ending already verified the tree that lands ([D149]) — so a standing candidate is the whole of readiness, and the arc **offers** the moment it has one: the Changes shade reveals itself on the bound session in the first quiet moment, showing the arc's row, what the join would land, and where those words came from ([D152]). A run's report therefore does not end in a `/arc-join <name>` chip and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself ([D142], [D147]).
+Once armed, the pilot reconciles the arc against its base, unprompted. It runs no build and no tests — the arc's ending already verified the tree that lands ([D149]) — so a standing candidate is the whole of readiness, and the arc **offers** the moment it has one: the Changes shade reveals itself on the bound session in the first quiet moment, showing the arc's row, what the join would land, and where those words came from ([D152]). A stage's report therefore does not end in a `/arc-join <name>` chip and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself ([D142], [D147]).
 
 ## The join finishes itself
 
@@ -161,8 +161,8 @@ decided** against the arc's recorded intent, and reports what it did.
 **The gate is reconcile-clean, and nothing else** ([D149]). An arc joins when
 its merge onto the current base is clean — either because it always was, or
 because the ladder and the resolver made it so. No build runs here and no tests
-run here, because verification belongs to the run's ending, over the tree the
-run actually produced. A join that re-verified would be re-reading work that was
+run here, because verification belongs to the arc's ending, over the tree the
+arc actually produced. A join that re-verified would be re-reading work that was
 already read, at the one moment the user is waiting.
 
 Two consequences for anyone working in this lane:
@@ -179,16 +179,16 @@ Two consequences for anyone working in this lane:
 Two rules the pipeline holds itself to, which are worth knowing when a join
 behaves in a way that looks like nothing happening:
 
-- **One arc, one run.** A resolve and a non-preview join each take the arc
+- **One arc, one worker.** A resolve and a non-preview join each take the arc
   before they touch anything, and any second one is refused by name — "a resolve
   is already running for this arc". They share a workshop worktree, so two at
   once means one resetting the tree the other is editing. A preview takes
   nothing, because it touches nothing. Admission, never a queue: one arc, one
-  run, and the refused press is told what holds it.
+  worker, and the refused press is told what holds it.
 - **A failure fact is always terminal.** Nothing durable describes an activity
-  nobody is performing: a run that dies writes its outcome rather than leaving
+  nobody is performing: an arc that dies writes its outcome rather than leaving
   itself running, and a question whose resolver is gone becomes a stuck line
-  quoting what was asked. So a face that says a run is live means one is.
+  quoting what was asked. So a face that says an arc is live means one is.
   Silence from the resolver is not evidence of anything — its rung reports four
   discrete beats with minutes between them, and only the server's own timeouts
   can call it dead.
@@ -217,12 +217,12 @@ in the transcript.
 
 ## What never gets asked
 
-A skill in this lane may raise a dialog at a real decision point — an unsettleable design question, a judgment call with no technically correct answer, a stale plan, a refused ledger edit, a disposition the user owns. That licence is narrow, and it comes with a boundary, because a run that asks about everything is worse than one that asks about nothing: it trains the user to click through the dialog that mattered.
+A skill in this lane may raise a dialog at a real decision point — an unsettleable design question, a judgment call with no technically correct answer, a stale plan, a refused ledger edit, a disposition the user owns. That licence is narrow, and it comes with a boundary, because an arc that asks about everything is worse than one that asks about nothing: it trains the user to click through the dialog that mattered.
 
 - Never ask to commit a round.
 - Never ask before running a checkpoint.
 - Never ask permission to write the join draft.
-- Never ask "should I continue?" between ordinary steps — and never end the turn between them as a silent way of asking it. Once step work has commenced, the run finishes its declared range.
+- Never ask "should I continue?" between ordinary steps — and never end the turn between them as a silent way of asking it. Once step work has commenced, the arc finishes its declared selection.
 - Never ask a clarifying question once step work has commenced. Clarification is a plan-time and task-list-time act; a mid-step unknown is answered by the code, the conventional default, or the design already in the session.
 - Never ask anything with a conventional default.
 - Never ask which route or which shape the work takes when the invocation, or a design the session already holds, has settled it.
@@ -230,11 +230,25 @@ A skill in this lane may raise a dialog at a real decision point — an unsettle
 
 Join's other stops — a conflict, a missing draft, a named blocker — stay stops. They are correct refusals with one right answer, not unasked questions.
 
+## What never gets said
+
+A stage's first words are about the work. The wheel already handed it the `where` line — the arc's worktree, the seat it is bound to, the stage it is, the step in hand — and ran the four-record comparison against those records immediately before sending it, so a stage that opens by confirming any of it is reporting a fact it was given, spent on a reader who cannot act on it and did not ask.
+
+These three sentences are the banned shape, verbatim, and everything cut from the same cloth with them:
+
+- *"I'll start by confirming the arc that runs me."*
+- *"Bound cleanly, no issues."*
+- *"The arc record exists and the doctor's only complaint is the missing plan."*
+
+The rule generalises past the wording: **a stage does not report that it found its arc, its worktree, its binding, or its ledger.** Nor that it read the plan, nor that it is about to begin. None of those is a result; each is the stage narrating its own setup, and the setup is the runner's work rather than the stage's. What the stage says is what it built, what it found, what it changed, and — where the discipline calls for it — what it could not settle.
+
+A record that genuinely disagrees is a different matter, and it is not this stage's to announce either: the runner catches it at the dispatch and stops the arc with the doctor's own sentence, so a disagreement arrives as a receipt on the card rather than as a paragraph in a stage's opening.
+
 ## No plan numbers in durable artifacts
 
 Never write step identifiers — "Step 4.5", "4i", "plan step X" — into code, comments, docstrings, test names, or commit messages. Describe the behavior or the reason directly.
 
-A plan document carries step numbers because it *is* the bookkeeping; so does the arc log's `instruction` field, for the same reason. Nothing that outlives the run does.
+A plan document carries step numbers because it *is* the bookkeeping; so does the arc log's `instruction` field, for the same reason. Nothing that outlives the arc does.
 
 ## Retiring something: the design goes, the spelling stays
 

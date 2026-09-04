@@ -23,6 +23,7 @@ import {
   jobsRecentlyDone,
   nextLingerExpiryMs,
   arcCellPose,
+  arcCellNumerals,
   tasksCellPose,
   tasksRecentlyDone,
 } from "@/lib/code-session-store/select-work";
@@ -113,9 +114,10 @@ describe("tasksCellPose", () => {
 });
 
 describe("arcCellPose", () => {
-  const arc = (stage: string | null, arcStage: string | null = null) => ({
+  type Wheel = { stage?: string; stopped?: string; done?: boolean };
+  const arc = (stage: string | null, wheel: Wheel | null = null) => ({
     stage,
-    arcStage,
+    wheel,
   });
 
   test("an arc nobody has worked yet is quiet", () => {
@@ -130,20 +132,105 @@ describe("arcCellPose", () => {
     }
   });
 
-  test("work in flight runs, and idle demotes it", () => {
+  test("hand-run work in flight runs, and idle demotes it", () => {
     for (const stage of ["working", "implementing", "joining", "whatever"]) {
       expect(arcCellPose(arc(stage), false)).toBe("running");
       expect(arcCellPose(arc(stage), true)).toBe("stopped");
     }
   });
 
-  // The half of an arc's life that happens in documents: an arc is running a
-  // stage and `arc create` has not cut a branch, so the git stage is null.
-  test("an arc under way runs even with no git stage", () => {
-    for (const arcStage of ["brief", "devise", "review", "implement"]) {
-      expect(arcCellPose(arc(null, arcStage), false)).toBe("running");
-      expect(arcCellPose(arc(null, arcStage), true)).toBe("stopped");
+  // The half of an arc's life that happens in documents: the wheel is
+  // driving a stage and `arc create` has not cut a branch, so the git stage
+  // is null — and the wheel's liveness is what holds the pulse.
+  test("a wheel-driven arc runs even with no git stage", () => {
+    for (const stage of ["brief", "devise", "review", "implement"]) {
+      expect(arcCellPose(arc(null, { stage }), false)).toBe("running");
+      expect(arcCellPose(arc(null, { stage }), true)).toBe("running");
     }
+  });
+
+  // [B01]: under the wheel the idle edge is the arc's busiest moment — the
+  // door's turn end, every step boundary, every rotation gap — so the
+  // session's idleness never demotes a live wheel record. A recorded stop,
+  // a settled stage, and an arc with no wheel record each keep their own
+  // reading, idle or not.
+  test("the pose rule across turn ends", () => {
+    const live: Wheel = { stage: "implement" };
+    const table: Array<[string, Parameters<typeof arcCellPose>[0], string]> = [
+      ["live wheel, git stage in hand", arc("implementing", live), "running"],
+      ["live wheel, no git stage yet", arc(null, live), "running"],
+      ["live wheel, git stage still created", arc("created", live), "running"],
+      [
+        "stopped wheel",
+        arc("implementing", { ...live, stopped: "implement idle" }),
+        "aborted",
+      ],
+      [
+        "stopped wheel over a settled stage",
+        arc("ready", { ...live, stopped: "stalled" }),
+        "aborted",
+      ],
+      ["settled stage under a live wheel", arc("ready", live), "completed"],
+      [
+        "settled stage, wheel done",
+        arc("audited", { ...live, done: true }),
+        "completed",
+      ],
+      ["no wheel, hand-run stage", arc("implementing"), "idle-demoted"],
+      [
+        "wheel done, stage not settled",
+        arc("implementing", { ...live, done: true }),
+        "idle-demoted",
+      ],
+    ];
+    for (const [label, input, want] of table) {
+      const busy = arcCellPose(input, false);
+      const idle = arcCellPose(input, true);
+      if (want === "idle-demoted") {
+        expect([label, busy, idle]).toEqual([label, "running", "stopped"]);
+      } else {
+        expect([label, busy, idle]).toEqual([label, want, want]);
+      }
+    }
+  });
+});
+
+describe("arcCellNumerals", () => {
+  const pair = { current: 2, total: 4 };
+
+  // [B03]: the pair is the implement stage's reading and no other stage's,
+  // and a zero numerator is never a reading at all.
+  test("the implement stage counts; every other stage says its word", () => {
+    const table: Array<
+      [string, Parameters<typeof arcCellNumerals>[0], boolean]
+    > = [
+      ["no wheel — a hand-run arc is in implement by definition", null, true],
+      ["wheel at implement", { stage: "implement" }, true],
+      ["wheel at devise", { stage: "devise" }, false],
+      ["wheel at review", { stage: "review" }, false],
+      ["wheel at audit", { stage: "audit" }, false],
+      [
+        "wheel stopped in implement",
+        { stage: "implement", stopped: "stalled" },
+        false,
+      ],
+      ["wheel done", { stage: "implement", done: true }, false],
+      ["wheel with no stage yet", {}, false],
+    ];
+    for (const [label, wheel, counts] of table) {
+      expect([label, arcCellNumerals(wheel, pair)]).toEqual([
+        label,
+        counts ? pair : null,
+      ]);
+    }
+  });
+
+  test("a zero numerator is a word, never 0/N", () => {
+    expect(arcCellNumerals(null, { current: 0, total: 4 })).toBeNull();
+    expect(
+      arcCellNumerals({ stage: "implement" }, { current: 0, total: 4 }),
+    ).toBeNull();
+    expect(arcCellNumerals({ stage: "implement" }, null)).toBeNull();
   });
 });
 

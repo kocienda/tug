@@ -80,7 +80,14 @@ export const ARC_BRANCH_PREFIX = "tugarc/";
  */
 export function tugtoolPath(projectDir: string): string {
   const commonDir = Bun.spawnSync(
-    ["git", "-C", projectDir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    [
+      "git",
+      "-C",
+      projectDir,
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+    ],
     {},
   )
     .stdout.toString()
@@ -116,7 +123,14 @@ export function universeRoot(projectDir: string): string {
     return realpathSync(universe.trim());
   }
   const commonDir = Bun.spawnSync(
-    ["git", "-C", projectDir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    [
+      "git",
+      "-C",
+      projectDir,
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+    ],
     {},
   )
     .stdout.toString()
@@ -178,7 +192,8 @@ function tailLines(text: string, n: number): string {
  */
 function describeFailure(f: SpawnFailure): string {
   const parts = [`exit ${f.exitCode ?? "none"}`];
-  if (f.signalCode !== null && f.signalCode !== undefined) parts.push(`signal ${f.signalCode}`);
+  if (f.signalCode !== null && f.signalCode !== undefined)
+    parts.push(`signal ${f.signalCode}`);
   const stderr = f.stderr.trim();
   const stdout = tailLines(f.stdout, 20).trim();
   parts.push(`stderr: ${stderr === "" ? "(empty)" : stderr}`);
@@ -210,7 +225,10 @@ export function tugtool(args: string[], opts: TugtoolRun): string {
   for (let attempt = 0; attempt <= LOCK_RETRIES; attempt += 1) {
     const out = Bun.spawnSync([bin, ...args], {
       cwd: opts.cwd,
-      stdin: opts.stdin === undefined ? "ignore" : new TextEncoder().encode(opts.stdin),
+      stdin:
+        opts.stdin === undefined
+          ? "ignore"
+          : new TextEncoder().encode(opts.stdin),
       env: { ...process.env, ...(opts.env ?? {}) },
     });
     if (out.exitCode === 0) return out.stdout.toString();
@@ -224,7 +242,9 @@ export function tugtool(args: string[], opts: TugtoolRun): string {
     sleepSync(LOCK_BACKOFF_MS);
   }
   if (opts.required === false) return "";
-  throw new Error(`tugtool ${args.join(" ")} failed\n  ${describeFailure(last)}`);
+  throw new Error(
+    `tugtool ${args.join(" ")} failed\n  ${describeFailure(last)}`,
+  );
 }
 
 /**
@@ -351,7 +371,9 @@ export function smallConflictSubject(
  */
 function dirtyPaths(projectDir: string): ReadonlySet<string> {
   const paths = new Set<string>();
-  for (const line of gitRetry(projectDir, "status", "--porcelain").split("\n")) {
+  for (const line of gitRetry(projectDir, "status", "--porcelain").split(
+    "\n",
+  )) {
     if (line.length < 4) continue;
     for (const part of line.slice(3).split(" -> ")) {
       const path = part.trim().replace(/^"(.*)"$/, "$1");
@@ -364,16 +386,20 @@ function dirtyPaths(projectDir: string): ReadonlySet<string> {
 /** Whether `main` still carries this path — the conflict needs both sides. */
 function pathAtTip(projectDir: string, path: string): boolean {
   return (
-    Bun.spawnSync(["git", "-C", projectDir, "cat-file", "-e", `main:${path}`], {})
-      .exitCode === 0
+    Bun.spawnSync(
+      ["git", "-C", projectDir, "cat-file", "-e", `main:${path}`],
+      {},
+    ).exitCode === 0
   );
 }
 
 /** Whether a revision resolves — used to skip a commit with no parent. */
 function revExists(projectDir: string, rev: string): boolean {
   return (
-    Bun.spawnSync(["git", "-C", projectDir, "rev-parse", "--verify", "--quiet", rev], {})
-      .exitCode === 0
+    Bun.spawnSync(
+      ["git", "-C", projectDir, "rev-parse", "--verify", "--quiet", rev],
+      {},
+    ).exitCode === 0
   );
 }
 
@@ -469,13 +495,21 @@ export function createArc(
   const branch = currentBranch(projectDir);
   const base = branch === "" ? [] : ["--base", branch];
   const out = JSON.parse(
-    tugtool(["arc", "create", name, "--description", description, ...base, "--json"], {
-      cwd: projectDir,
-      binaryRoot: opts.binaryRoot,
-      env: opts.env,
-    }),
+    tugtool(
+      ["arc", "create", name, "--description", description, ...base, "--json"],
+      {
+        cwd: projectDir,
+        binaryRoot: opts.binaryRoot,
+        env: opts.env,
+      },
+    ),
   ) as { data: { id: string; worktree: string } };
-  gitRetry(projectDir, "config", `branch.${ARC_BRANCH_PREFIX}${name}.tugautoreplay`, "false");
+  gitRetry(
+    projectDir,
+    "config",
+    `branch.${ARC_BRANCH_PREFIX}${name}.tugautoreplay`,
+    "false",
+  );
   return { id: out.data.id, worktree: out.data.worktree };
 }
 
@@ -491,7 +525,10 @@ export function commitRound(
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
     env: opts.env,
-    stdin: JSON.stringify({ instruction: subject, summary: "app-test fixture round" }),
+    stdin: JSON.stringify({
+      instruction: subject,
+      summary: "app-test fixture round",
+    }),
   });
 }
 
@@ -723,22 +760,11 @@ export function recordStampedPlan(
   // spans the whole plan — one row, `--through 1` — which is the shape where
   // the run's counters and the plan's agree. Pass `through` below `rows` for
   // the case they diverge: a partial selection out of a longer document.
-  tugtool(
-    [
-      "arc",
-      "step",
-      name,
-      "start",
-      "1",
-      "--through",
-      String(through),
-    ],
-    {
-      cwd: projectDir,
-      binaryRoot: opts.binaryRoot,
-      env: opts.env,
-    },
-  );
+  tugtool(["arc", "step", name, "start", "1", "--through", String(through)], {
+    cwd: projectDir,
+    binaryRoot: opts.binaryRoot,
+    env: opts.env,
+  });
   tugtool(["plan", "stamp", planPath], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
@@ -781,10 +807,17 @@ export function bindArc(
   // throws with the server's own sentence.
   const deadline = Date.now() + 20_000;
   for (;;) {
-    const out = Bun.spawnSync([tugtoolPath(opts.binaryRoot ?? projectDir), "arc", "bind", name], {
-      cwd: projectDir,
-      env: { ...process.env, ...(opts.env ?? {}), TUG_SESSION_ID: tugSessionId },
-    });
+    const out = Bun.spawnSync(
+      [tugtoolPath(opts.binaryRoot ?? projectDir), "arc", "bind", name],
+      {
+        cwd: projectDir,
+        env: {
+          ...process.env,
+          ...(opts.env ?? {}),
+          TUG_SESSION_ID: tugSessionId,
+        },
+      },
+    );
     if (out.exitCode === 0) return;
     const stderr = out.stderr.toString();
     const transient =
@@ -793,6 +826,52 @@ export function bindArc(
     if (!transient || Date.now() >= deadline) {
       throw new Error(
         `arc bind ${name} failed\n  exit ${out.exitCode}\n  stderr: ${stderr.trim()}`,
+      );
+    }
+    sleepSync(500);
+  }
+}
+
+/**
+ * The door's first act: `arc documents <name> --ensure --bind`, which makes
+ * the arc's documents directory and binds the session in one verb — before
+ * any branch exists, which is the whole point. The same ledger-lag retry
+ * {@link bindArc} runs, for the same reason.
+ */
+export function bindArcAtTheDoor(
+  projectDir: string,
+  name: string,
+  tugSessionId: string,
+  opts: ArcFixtureOpts = {},
+): void {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    const out = Bun.spawnSync(
+      [
+        tugtoolPath(opts.binaryRoot ?? projectDir),
+        "arc",
+        "documents",
+        name,
+        "--ensure",
+        "--bind",
+      ],
+      {
+        cwd: projectDir,
+        env: {
+          ...process.env,
+          ...(opts.env ?? {}),
+          TUG_SESSION_ID: tugSessionId,
+        },
+      },
+    );
+    if (out.exitCode === 0) return;
+    const stderr = out.stderr.toString();
+    const transient =
+      stderr.includes("unknown_session") ||
+      stderr.includes("no segment of its line is live");
+    if (!transient || Date.now() >= deadline) {
+      throw new Error(
+        `arc documents ${name} --ensure --bind failed\n  exit ${out.exitCode}\n  stderr: ${stderr.trim()}`,
       );
     }
     sleepSync(500);
@@ -818,7 +897,11 @@ export function bindArc(
  * interruption the fixture should have already answered.
  */
 export function silenceJoinPrompt(projectDir: string, name: string): void {
-  const head = gitRetry(projectDir, "rev-parse", `${ARC_BRANCH_PREFIX}${name}`).trim();
+  const head = gitRetry(
+    projectDir,
+    "rev-parse",
+    `${ARC_BRANCH_PREFIX}${name}`,
+  ).trim();
   gitRetry(
     projectDir,
     "config",
@@ -848,7 +931,10 @@ export function recordAdoptedPlan(
 
 /** Move the document past its stamp — one appended line is the whole edit. */
 export function makePlanStale(planPath: string): void {
-  writeFileSync(planPath, `${readFileSync(planPath, "utf8")}\nOne more line.\n`);
+  writeFileSync(
+    planPath,
+    `${readFileSync(planPath, "utf8")}\nOne more line.\n`,
+  );
 }
 
 /** Discard the arc — branch and worktree, dirt included. Best effort: a
@@ -1014,7 +1100,11 @@ export function seedScratchSession(repo: string, sessionId: string): string {
   // resume, which reverts the card to the session picker mid-test — a failure
   // that surfaces as "composer selector matched no element", nowhere near its
   // cause. Refused here so it is never diagnosed from that distance again.
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(sessionId)) {
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+      sessionId,
+    )
+  ) {
     throw new Error(
       `seedScratchSession: session id ${JSON.stringify(sessionId)} is not a UUID — ` +
         "claude --resume refuses it. Use a uuid-shaped constant " +
@@ -1063,7 +1153,10 @@ export function seedScratchSession(repo: string, sessionId: string): string {
       },
     },
   ];
-  writeFileSync(join(dir, `${sessionId}.jsonl`), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  writeFileSync(
+    join(dir, `${sessionId}.jsonl`),
+    rows.map((r) => JSON.stringify(r)).join("\n") + "\n",
+  );
   return dir;
 }
 
@@ -1194,7 +1287,12 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
   gitRetry(repo, "add", "-A");
   gitRetry(repo, "commit", "-m", `${opts.prefix}: the base rewrites it`);
   writeFileSync(join(created.worktree, opts.file), opts.arcBody);
-  commitRound(repo, opts.arc, `${opts.prefix}(round): rewrite ${opts.file}`, base.cli);
+  commitRound(
+    repo,
+    opts.arc,
+    `${opts.prefix}(round): rewrite ${opts.file}`,
+    base.cli,
+  );
 
   const script = (name: string, body: string): string => {
     const path = join(stubDir, name);
@@ -1202,9 +1300,19 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
     chmodSync(path, 0o755);
     return path;
   };
-  gitRetry(repo, "config", "tugarc.joinresolver", script("stub-resolver.sh", opts.resolver));
+  gitRetry(
+    repo,
+    "config",
+    "tugarc.joinresolver",
+    script("stub-resolver.sh", opts.resolver),
+  );
   if (opts.mergeDriver !== undefined) {
-    gitRetry(repo, "config", "tugarc.mergedriver", script("stub-driver.sh", opts.mergeDriver));
+    gitRetry(
+      repo,
+      "config",
+      "tugarc.mergedriver",
+      script("stub-driver.sh", opts.mergeDriver),
+    );
   }
 
   // Last, and after the resolver is configured: `built` is what hands the arc
