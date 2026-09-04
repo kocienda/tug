@@ -1,10 +1,13 @@
 /**
  * The Changes shade's section labels — every one of them, in one place.
  *
- * The shade names six buckets, and until now each string was spelled at its own
- * call site: three in `session-changes-view.tsx`, two composed inside
- * `session-changes-arc-lane.tsx`. A gallery fixture claiming to hold the full
- * inventory would have been a seventh spelling, free to drift from all six.
+ * The shade names six buckets — the session's files, unattributed (twice, once
+ * with the ledger damaged), orphaned, the fronted arc (two headers for two
+ * situations), and the unbound arcs — and until now each string was spelled
+ * at its own call site: three in `session-changes-view.tsx`, two composed
+ * inside `session-changes-arc-lane.tsx`. A gallery fixture claiming to hold
+ * the full inventory would have been a seventh spelling, free to drift from
+ * all six.
  *
  * **A label is a name and an optional qualifier**, not one string with an em
  * arc in it. The eyebrow treatment paints the two differently — the bucket
@@ -69,12 +72,16 @@ export function arcFrontedLabel(bound: boolean): SectionLabel {
 }
 
 /**
- * The rest of the project's arcs. The count is the qualifier, because it is
- * the part that changes — "arcs" is what the reader is scanning for.
+ * The arcs no live session is working — the arc analogue of {@link
+ * ORPHANED_LABEL}, and in the same grammar: a name, and a qualifier that says
+ * why the row is here. The rows are the count, which was the whole argument
+ * for showing rows instead of a `N arcs` fold, so the label carries none. And
+ * it does not change when a fronted row stands above it: "also on this
+ * project" was only ever explaining the relationship to the row above, while
+ * "unbound" is a fact about the row itself. An arc another live session holds
+ * is not in this bucket at all — it is not a row in the shade.
  */
-export function arcRestLabel(count: number, hasFronted: boolean): SectionLabel {
-  const noun = count === 1 ? "arc" : "arcs";
-  return hasFronted
-    ? { name: "also on this project", qualifier: `${count} ${noun}` }
-    : { name: `${noun} on this project`, qualifier: String(count) };
-}
+export const ARC_UNBOUND_LABEL: SectionLabel = {
+  name: "unbound",
+  qualifier: "no session is working these",
+};

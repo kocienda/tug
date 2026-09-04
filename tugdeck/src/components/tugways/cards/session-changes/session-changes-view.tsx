@@ -566,6 +566,7 @@ export function SessionChangesView({
       <SessionChangesArcLane
         arcs={offeredArcs}
         boundArcId={boundArcId}
+        ownTugSessionId={changesController.tugSessionId}
         frontedArcId={frontedArcId}
         projectRoot={project.project_dir}
         workspaceKey={changesController.workspaceKey}

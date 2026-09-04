@@ -11,13 +11,28 @@
  * lane's one diff affordance is the whole-range pop-out, because the server's
  * range diff takes no pathspec and the arc is the unit anyway.
  *
- * **Every arc in the project is a visible row.** The card's own arc renders
- * first and expanded; the rest follow under a plain label, each collapsed to
- * its one-line sentence. They used to hide behind a `N arcs` count, which is
- * the same mistake the unattributed-files bucket avoids by showing its rows: a
- * count is a rumor, a row is a situation you can act on. Each costs one line,
- * so showing them all costs a handful — and the fold's own cue was the control
- * at0405's chronic "did not land" click was aimed at.
+ * **The lane lists this card's arc and the unbound arcs, and no other.** The
+ * card's own arc renders first and expanded; the arcs no live session holds
+ * follow under a label that says so, each collapsed to its one-line sentence.
+ * An arc *another* live session holds is not a row here at all. The lane once
+ * showed every arc in the project, on the argument that a count is a rumor
+ * and a row is a situation you can act on — and that argument is right about
+ * an unbound arc and wrong about a held one, because there is nothing to act
+ * on from here: Discard is withheld ({@link canDiscardFromHere}), a join
+ * lands work this card never touched, and Bind would co-bind onto a session
+ * mid-run. Meanwhile [D153] already gives a held arc its room — the Arcs card
+ * row routes to the card working it and reveals *that* shade — so a row here
+ * was a second, weaker face for a room one click away. An unbound arc is the
+ * opposite case: its builder closed, nobody holds it, and every act on the
+ * row is real and this card's to take, so those rows stay and are ordered
+ * the way the Arcs card orders them ({@link compareArcEntries}).
+ *
+ * The predicate reads `bound_sessions`, the one definition of bound-ness the
+ * shade already has: the server computes it from live sessions only, so an
+ * arc whose holder closed reads unbound — the arc analogue of the shade's
+ * orphaned file bucket. The filter is the rest group's alone. A fronted arc
+ * is fronted whatever holds it, because fronting is about what is being
+ * *landed*, and `/arc-join <name>` may aim at an arc this card never bound.
  *
  * Per-row expansion stays view-scope state: the shade is a glance surface,
  * dismiss and forget, so nothing here is persisted.
@@ -80,9 +95,10 @@ import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { arcLifecycleNote } from "@/components/tugways/arc-lifecycle-line";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
 import { arcMetaFacts } from "@/lib/arc-meta-facts";
+import { compareArcEntries } from "@/lib/arc-order";
 import { ArcJoinRegister } from "@/components/tugways/arc-join-register";
 import { useChangesetJoinLand, useChangesetJoinResolve } from "@/lib/changeset-join-store";
-import { arcFrontedLabel, arcRestLabel } from "./changes-section-labels";
+import { ARC_UNBOUND_LABEL, arcFrontedLabel } from "./changes-section-labels";
 import {
   SessionChangesArcJoin,
   discardPreflightLine,
@@ -118,25 +134,32 @@ export function arcRowOpensItself(entry: ArcChangesetEntry): boolean {
   return (entry.join?.blockers ?? []).length > 0;
 }
 
-/** The lane's two groups: the card's own arc, then everything else. */
+/** The lane's two groups: the card's own arc, then the unbound arcs. */
 export interface ArcLaneOrder {
   /** The arc this card's session is mated to, or null when unbound. */
   fronted: ArcChangesetEntry | null;
-  /** Every other arc in the project, in snapshot order. */
+  /** Every other arc no other live session holds, nearest-to-done first
+   *  ({@link compareArcEntries}). */
   rest: ArcChangesetEntry[];
 }
 
 /**
- * Split the project's arcs into the fronted one and the rest.
+ * Split the project's arcs into the fronted one and the unbound rest.
  *
  * The match is on the **owner key**, never the name: a stale binding to a dead
  * incarnation of a reused name must not front the wrong arc. An unmatched
  * binding is simply an unbound lane — which is also what the one-recompose
  * window after a bind that minted a new id should show.
+ *
+ * The rest drops any arc held by a live session other than this card's
+ * ({@link heldElsewhere}) and sorts what remains by the Arcs card's order.
+ * An arc this card's session holds without fronting stays: it is this
+ * session's work, whichever row happens to be fronted.
  */
 export function orderArcLane(
   arcs: readonly ArcChangesetEntry[],
   boundArcId: string | null,
+  ownTugSessionId: string | undefined,
 ): ArcLaneOrder {
   const fronted =
     boundArcId !== null
@@ -144,8 +167,27 @@ export function orderArcLane(
       : null;
   return {
     fronted,
-    rest: arcs.filter((entry) => entry !== fronted),
+    rest: arcs
+      .filter((entry) => entry !== fronted && !heldElsewhere(entry, ownTugSessionId))
+      .sort(compareArcEntries),
   };
+}
+
+/**
+ * Whether a live session other than this card's holds the arc.
+ *
+ * `bound_sessions` is live sessions only — a closed holder's row is never
+ * reported — and an older sender that omits the field reads as unbound, the
+ * same safe direction {@link canDiscardFromHere} takes. A card with no session
+ * id of its own is nobody, so any holder at all is somebody else.
+ */
+function heldElsewhere(
+  entry: ArcChangesetEntry,
+  ownTugSessionId: string | undefined,
+): boolean {
+  const bound = entry.bound_sessions ?? [];
+  if (bound.length === 0) return false;
+  return ownTugSessionId === undefined || !bound.includes(ownTugSessionId);
 }
 
 /** The arc's git ref — `branch`, falling back to the older sender's spelling. */
@@ -650,6 +692,10 @@ export interface SessionChangesArcLaneProps {
   /** The owner key of the arc this card's session is mated to, if any. It
    *  decides which row offers **Unbind** rather than **Bind**. */
   boundArcId: string | null;
+  /** This card's own session id — what tells an arc held *elsewhere* from
+   *  one this session holds without fronting. Absent reads as nobody: every
+   *  held arc is then somebody else's and drops from the lane. */
+  ownTugSessionId?: string;
   /** The owner key of the row to front, when that is not the bound one — a
    *  join aimed by name (`/arc-join <name>`) fronts its target so the
    *  join face has somewhere to mount. Defaults to `boundArcId`.
@@ -684,6 +730,7 @@ export interface SessionChangesArcLaneProps {
 export function SessionChangesArcLane({
   arcs,
   boundArcId,
+  ownTugSessionId,
   frontedArcId,
   projectRoot,
   workspaceKey,
@@ -715,20 +762,25 @@ export function SessionChangesArcLane({
     setPendingDiscard({ entry, anchor });
   };
 
-  // A branchless bound arc is a lane with something to say and no arc
-  // entries at all — the planning phase, before any branch is cut.
-  if (arcs.length === 0 && documentArc == null) return null;
-
   const { fronted, rest } = orderArcLane(
     arcs,
     frontedArcId ?? boundArcId,
+    ownTugSessionId,
   );
+  // A lane with nothing in it renders nothing at all, not an empty group
+  // label — and not an empty element either, since it is a flex item of the
+  // shade's body and would spend that body's gap on air. The test is what
+  // will actually render rather than what arrived: a branchless bound arc is
+  // a lane with something to say and no arc entries (the planning phase,
+  // before any branch is cut), and a project whose every arc is held
+  // elsewhere is the opposite — entries that all drop out of the rest group.
+  if (fronted === null && rest.length === 0 && documentArc == null) return null;
+
   const isExpanded = (entry: ArcChangesetEntry): boolean =>
     overrides[entry.owner_id] ?? (entry === fronted || arcRowOpensItself(entry));
   const toggle = (entry: ArcChangesetEntry, next: boolean): void => {
     setOverrides((prev) => ({ ...prev, [entry.owner_id]: next }));
   };
-  const restLabel = arcRestLabel(rest.length, fronted !== null);
 
   return (
     <div className="session-changes-arc-lane" data-slot="session-changes-arc-lane">
@@ -774,7 +826,7 @@ export function SessionChangesArcLane({
       {rest.length > 0 ? (
         <>
           <TugSectionLabel
-            label={restLabel}
+            label={ARC_UNBOUND_LABEL}
             slot="session-changes-arc-lane-rest-label"
           />
           {rest.map((entry) => (

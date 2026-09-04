@@ -89,6 +89,7 @@ import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { arcLifecycleNote } from "@/components/tugways/arc-lifecycle-line";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
 import { arcMetaFacts } from "@/lib/arc-meta-facts";
+import { compareArcEntries } from "@/lib/arc-order";
 import {
   documentArcAsEntry,
   documentArcTrackModel,
@@ -173,58 +174,18 @@ function rowFromEntry(
   };
 }
 
-/**
- * How far along an arc is, as a sortable rank ([P02], Table T01).
- *
- * Nearest-to-done ranks highest, because the actionable arc is the one about
- * to land rather than the one just created. `joining` tops the table because
- * it is the state that most needs a person. Exported so its test can be a
- * table test rather than a DOM assertion.
- */
-export const ARC_STAGE_RANK: Record<string, number> = {
-  joining: 6,
-  "draft-ready": 5,
-  audited: 4,
-  built: 3,
-  implementing: 2,
-  working: 1,
-  created: 0,
-};
-
-/** An absent or unrecognized stage sorts last, and never throws: an older or
- *  newer sender must not be able to break the section's render. */
-function stageRank(stage: string | null | undefined): number {
-  return stage == null ? -1 : (ARC_STAGE_RANK[stage] ?? -1);
-}
-
-/**
- * Two ISO-8601 UTC instants, newest first, with absent sorting **last**.
- *
- * A raw string comparison is the whole implementation: the timestamps are UTC
- * with a fixed-width layout, so lexical order is chronological order and no
- * `Date` is ever parsed here. Absent-last keeps arcs created before creation
- * wrote a birth record from claiming the top of every stage band.
- */
-function compareIsoDesc(
-  a: string | null | undefined,
-  b: string | null | undefined,
-): number {
-  if (a == null && b == null) return 0;
-  if (a == null) return 1;
-  if (b == null) return -1;
-  return b.localeCompare(a);
-}
+/** The stage table the order reads ([P02], Table T01) — re-exported so the
+ *  card's table test keeps its address. The table lives in `lib/arc-order`. */
+export { ARC_STAGE_RANK } from "@/lib/arc-order";
 
 /**
  * The section's total order: stage rank descending, then freshest first, then
- * by name.
+ * by name — {@link compareArcEntries} over the rows' entries. The Changes
+ * shade's arc lane sorts its unbound arcs with the same function, so the two
+ * surfaces cannot drift apart.
  */
 export function compareArcRows(a: ArcRow, b: ArcRow): number {
-  const byStage = stageRank(b.entry.stage) - stageRank(a.entry.stage);
-  if (byStage !== 0) return byStage;
-  const byAge = compareIsoDesc(a.entry.last_activity, b.entry.last_activity);
-  if (byAge !== 0) return byAge;
-  return a.entry.display_name.localeCompare(b.entry.display_name);
+  return compareArcEntries(a.entry, b.entry);
 }
 
 /**

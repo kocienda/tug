@@ -20,23 +20,30 @@
  * what a reader sees. The assertions below therefore wait for the draft's
  * **words** and then read whichever grammar carried them.
  *
- * Every arc in the project is a visible row, with no fold to open first. The
- * fold's absence is asserted directly, not merely relied upon.
+ * The lane lists this card's arc and the unbound arcs, with no fold to open
+ * first — the fold's absence is asserted directly, not merely relied upon.
+ * An arc *another* live session holds is not a row here at all ([D173]): its
+ * room is the card working it, reached from the Arcs card ([D153]). The
+ * unbound rows stand under the `unbound` label, in the same grammar as the
+ * orphaned file bucket.
  *
  * It also pins the fronting rule: a `bind_arc_ok` naming this card's session
  * moves the arc to the top of the lane, expanded, under the "This card's
  * arc" label. The broadcast is dispatched through `dispatchAction` — the
  * production entry point the wire's decoder hands frames to.
  *
- * ## Discard's reach
+ * ## A held arc, and Discard's reach
  *
- * Both sides of the rule are driven. An unbound arc — one no live session is
- * mated to — offers Release from any shade, because there is nobody to take it
- * away from. An arc a *different* live session holds offers none at all: it is
- * that session's to release, and the refusal is permanent, so the control is
- * absent rather than disabled. The holding session is seeded into the ledger
- * with a `arc_id`, since `bound_sessions` is computed from those rows and a
- * client-side `bind_arc_ok` cannot fake it.
+ * Both sides are driven. An unbound arc — one no live session is mated to —
+ * is a row that offers Discard from any shade, because there is nobody to
+ * take it away from. An arc a *different* live session holds is not a row in
+ * this shade at all: every act it could offer is withheld or wrong from here,
+ * and the Arcs card — which lists every arc, always — is where it is seen and
+ * where its room is one click away. The holding session is seeded into the
+ * ledger with an `arc_id`, since `bound_sessions` is computed from those rows
+ * and a client-side `bind_arc_ok` cannot fake it; the Arcs card row's worker
+ * atom is the positive signal that the binding reached the aggregate, and the
+ * lane's absence is asserted only after it.
  *
  * The project is a scratch repository this file owns, registered as a
  * workspace by spawning a real session on it — an arc is for implementing a
@@ -59,6 +66,7 @@
  * asserting it against a fabricated frame.
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/changes-section-labels.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-brief.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-brief.css
  * @covers tugdeck/src/lib/arc-file-clusters.ts
@@ -116,10 +124,14 @@ const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-s
 
 const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 const FRONTED_LABEL = `${LANE} [data-slot="session-changes-arc-lane-fronted-label"]`;
+const REST_LABEL = `${LANE} [data-slot="session-changes-arc-lane-rest-label"]`;
 
 const ARC_NAME = "at0405-lane";
 const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
 const ROW_FOLD = `${ROW} [data-slot="session-changes-arc-fold"]`;
+/** The same arc on the Arcs card — the every-arc surface, where a held arc
+ *  is still a row. */
+const ARCS_ROW = `.arcs-section [data-slot="arcs-row"][data-arc="${ARC_NAME}"]`;
 /**
  * The row's three rare verbs live behind its `⋯` now ([P08]), so every
  * question about them is asked of an opened menu rather than of the row.
@@ -249,7 +261,7 @@ async function clickUntil(
 
 describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
   test(
-    "an arc another live session holds offers this shade no Release at all",
+    "an arc another live session holds is no row in this shade, and still one on the Arcs card",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -295,6 +307,16 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
           ],
         });
 
+        // The Arcs card is the every-arc surface, and its row's worker atom is
+        // the positive signal that the seeded binding reached the aggregate.
+        // Asserting the lane's absence before this would pass on a snapshot
+        // that simply has not recomposed yet.
+        await app.dispatchControlAction("toggle-arcs");
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${ARCS_ROW} [data-slot="tug-arc-lifecycle-worker"]') !== null`,
+          { timeoutMs: 30000 },
+        );
+
         await app.nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
@@ -302,27 +324,38 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         await settle();
         await app.nativeKey("Return", ["cmd"]);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(ROW)}) !== null`,
-          { timeoutMs: 30000 },
+          `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
+          { timeoutMs: 8000 },
         );
-
-        // The row is here — an arc somebody else is working is still a
-        // situation worth seeing. What is absent is the gesture that would
-        // destroy it: that arc is its own session's to release.
-        //
-        // Absent, not disabled. Nothing the reader does *here* will ever make
-        // it available, and a disabled control with a reason is the idiom for
-        // "not yet", not for "not yours".
         await settle(1500);
-        const held = await readArcRowMenu(app, ROW);
-        expect(
-          held.discard.present,
-          "an arc another live session holds offers no Discard",
-        ).toBe(false);
-        expect(
-          held.bind.present,
-          "Bind is unaffected — taking an arc on is not destroying it",
-        ).toBe(true);
+
+        // No row, and no `unbound` label over an empty group ([D173]). An arc
+        // somebody else is working has nothing this card can do to it — the
+        // one destructive gesture is withheld, a join lands work this card
+        // never touched, a bind would co-bind onto a session mid-run — and its
+        // room is the card working it, one click away on the Arcs card. A row
+        // here was a weaker face for that room.
+        const held = await app.evalJS<{
+          lanes: number;
+          rows: number;
+          restLabels: number;
+          arcsRows: number;
+        }>(
+          `(() => ({
+             lanes: document.querySelectorAll(${JSON.stringify(LANE)}).length,
+             rows: document.querySelectorAll(${JSON.stringify(ROW)}).length,
+             restLabels: document.querySelectorAll(${JSON.stringify(REST_LABEL)}).length,
+             arcsRows: document.querySelectorAll(${JSON.stringify(ARCS_ROW)}).length,
+           }))()`,
+        );
+        // This scratch project's only arc is the held one, so the lane has
+        // nothing left to draw — and a lane with nothing in it renders
+        // nothing at all, not an empty element spending the shade body's gap
+        // on air (at0340 pins the same contract for a project with no arcs).
+        expect(held.lanes, "an emptied lane renders no element at all").toBe(0);
+        expect(held.rows, "a held arc is not a row in this shade").toBe(0);
+        expect(held.restLabels, "and no label stands over an empty group").toBe(0);
+        expect(held.arcsRows, "while the Arcs card still lists it").toBe(1);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
@@ -372,8 +405,8 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
 
         // ── Unbound: the lane exists, and the arc is a visible row ────────
         // Nothing is fronted yet — the card is bound to no arc — but the row
-        // is on screen with no gesture at all. An arc somebody else is working
-        // is a situation to look at, not a count to expand.
+        // is on screen with no gesture at all. An arc nobody is working is a
+        // situation to look at, not a count to expand.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
@@ -381,14 +414,20 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // The count is of THIS fixture's row, not of the lane. An arc's refs
         // are repo-global, so any arc the developer has open is a row here
         // too — a total is a fact about whoever is running the suite.
-        const unfrontedState = await app.evalJS<{ fronted: number; rows: number }>(
+        const unfrontedState = await app.evalJS<{ fronted: number; rows: number; restLabel: string }>(
           `(() => ({
              fronted: document.querySelectorAll(${JSON.stringify(FRONTED_LABEL)}).length,
              rows: document.querySelectorAll(${JSON.stringify(ROW)}).length,
+             restLabel: (document.querySelector(${JSON.stringify(REST_LABEL)})?.textContent ?? "").trim(),
            }))()`,
         );
         expect(unfrontedState.fronted).toBe(0);
         expect(unfrontedState.rows).toBe(1);
+        // The group is named for what its rows are, in the grammar of the
+        // orphaned file bucket: a name and the reason the row is here, and no
+        // count — the rows are the count ([D173]).
+        expect(unfrontedState.restLabel, "the rest group is the unbound arcs").toContain("unbound");
+        expect(unfrontedState.restLabel).toContain("no session is working these");
 
         // The fold is gone, not merely unused — nothing anywhere renders it.
         expect(
