@@ -1442,6 +1442,34 @@ pub fn round_count_in(repo_root: &Path, name: &str) -> usize {
     arc_rounds(&repo_root, &base, &branch).len()
 }
 
+/// How many rounds a [`create_in`] revisit would destroy, if it were called
+/// now.
+///
+/// `create_in` is idempotent only where the branch *and* the worktree both
+/// stand. With the worktree gone and the branch left behind, its repair path
+/// is `git branch -D` followed by a fresh `worktree add` from the base — the
+/// right answer for a half-built arc nobody wrote in, and a silent
+/// destruction of the work for one somebody did. That was tolerable while
+/// the only caller was a person typing `tugtool arc create`; the wheel's
+/// dispatch now makes the seat before every implement and audit prompt, so
+/// the question has to be asked before the call rather than regretted after
+/// it.
+///
+/// Non-zero means "do not make this seat" — the caller stops the arc and
+/// says so, which is the same judgment `doctor`'s `seat-missing` finding
+/// makes when it declines to offer a repair. Zero means a revisit is safe:
+/// either everything stands, or there is nothing on the branch to lose.
+pub fn rounds_a_rebuild_would_lose(repo_root: &Path, name: &str) -> usize {
+    let repo_root = main_repo_root(repo_root);
+    if !branch_exists(&repo_root, &branch_name(name)) {
+        return 0;
+    }
+    if worktree_path(&repo_root, name).exists() {
+        return 0;
+    }
+    round_count_in(&repo_root, name)
+}
+
 /// Show one arc's metadata + rounds (commits ahead of base) + worktree dirt.
 pub fn show(name: &str) -> Result<ShowOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
@@ -1975,7 +2003,7 @@ pub struct ArcStatus {
     /// masquerade as a live one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conflict: Option<ConflictSummary>,
-    /// Where this arc's four records disagree, one sentence each — the
+    /// Where this arc's five records disagree, one sentence each — the
     /// read-only core of `arc doctor`, run on every status call.
     ///
     /// A status that answers from one side of a disagreement is exactly how
@@ -6785,6 +6813,117 @@ Some context.
                 .disagreements
                 .is_empty()
         );
+    }
+
+    /// The seat is the doctor's fifth record. An arc past devise whose
+    /// worktree is gone is named, `--repair` makes the seat through the same
+    /// idempotent `create_in` the dispatch calls, and the finding clears;
+    /// a name with no arc behind it is refused rather than called healthy.
+    #[serial]
+    #[test]
+    fn the_doctor_finds_a_missing_seat_and_repair_makes_it() {
+        let (_temp, root) = stepped_arc("seat-arc");
+        crate::arc::append_arc_start(&root, "seat-arc", ".tug/arcs/seat-arc/plan.md").unwrap();
+        crate::arc::append_arc_stage(
+            &root,
+            "seat-arc",
+            crate::arc::ArcStage::Implement,
+            "s1",
+            None,
+        )
+        .unwrap();
+
+        let seat_findings = |root: &Path| -> Vec<String> {
+            crate::doctor::diagnose(root, "seat-arc")
+                .findings
+                .into_iter()
+                .filter(|f| f.code == "seat-missing")
+                .map(|f| f.sentence)
+                .collect()
+        };
+
+        // A seat that stands is quiet.
+        assert!(seat_findings(&root).is_empty());
+
+        // The worktree deleted by hand — or never made, which read the same.
+        let worktree = worktree_path(&root, "seat-arc");
+        run_git(
+            &root,
+            &["worktree", "remove", "--force", &worktree.to_string_lossy()],
+        );
+        assert!(!worktree.exists());
+
+        let found = seat_findings(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].contains("implement stage") && found[0].contains("does not exist"),
+            "the sentence names the stage and the missing record: {}",
+            found[0]
+        );
+        let finding = crate::doctor::diagnose(&root, "seat-arc")
+            .findings
+            .into_iter()
+            .find(|f| f.code == "seat-missing")
+            .unwrap();
+        assert!(
+            matches!(
+                finding.repair,
+                Some(crate::doctor::ArcRepair::MakeSeat { .. })
+            ),
+            "a branch with no rounds is safe to rebuild: {:?}",
+            finding.repair
+        );
+
+        // `--repair` makes the seat, and the record clears.
+        let outcome = crate::doctor::doctor(&root, "seat-arc", true).unwrap();
+        assert_eq!(outcome.made, vec![worktree.to_string_lossy().into_owned()]);
+        assert!(worktree.is_dir());
+        assert_eq!(
+            git_stdout(&worktree, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap(),
+            branch_name("seat-arc")
+        );
+        assert!(seat_findings(&root).is_empty());
+
+        // A worktree parked on some other branch is a seat no round may use,
+        // and not one the doctor rebuilds.
+        run_git(&worktree, &["checkout", "-b", "somewhere-else"]);
+        let found = crate::doctor::diagnose(&root, "seat-arc")
+            .findings
+            .into_iter()
+            .filter(|f| f.code == "seat-missing")
+            .collect::<Vec<_>>();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].sentence.contains("somewhere-else"),
+            "{}",
+            found[0].sentence
+        );
+        assert!(found[0].repair.is_none());
+
+        // A name nobody opened is not an arc whose records agree.
+        let err = crate::doctor::doctor(&root, "nobody", false).unwrap_err();
+        assert!(err.contains("no arc named `nobody`"), "{err}");
+    }
+
+    /// A devise-stage arc is owed no seat, so a missing one is not a finding.
+    #[serial]
+    #[test]
+    fn a_devise_stage_arc_with_no_seat_is_quiet() {
+        let temp = TempDir::new().unwrap();
+        let repo = repo_beside_state(&temp);
+        let root = fs::canonicalize(&repo).unwrap();
+        crate::arc::append_arc_start(&root, "devising", ".tug/arcs/devising/brief.md").unwrap();
+        crate::arc::append_arc_stage(&root, "devising", crate::arc::ArcStage::Devise, "s1", None)
+            .unwrap();
+        assert!(!worktree_path(&root, "devising").exists());
+        assert!(
+            crate::doctor::diagnose(&root, "devising")
+                .findings
+                .iter()
+                .all(|f| f.code != "seat-missing"),
+        );
+        // And the doctor knows the arc by its log alone.
+        crate::doctor::doctor(&root, "devising", false).unwrap();
     }
 
     /// The audit's headline through the real verbs: a run the log says

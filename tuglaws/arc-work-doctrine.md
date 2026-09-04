@@ -10,7 +10,7 @@ This document covers **how the work is done**. The arc's state model — what `c
 
 ## The one and only working root
 
-An arc *is* a git branch plus a worktree. The branch is `tugarc/<name>`; an arc cut under the old `tugdash/` prefix is migrated to it at the top of every arc verb. `tugtool arc create <name> --json` returns that worktree's absolute path. **Capture it.** From that moment it is the only working root:
+An arc *is* a git branch plus a worktree. The branch is `tugarc/<name>`; an arc cut under the old `tugdash/` prefix is migrated to it at the top of every arc verb. **The root is made by the machine and verified before the line that names it**: the wheel's dispatch creates the worktree and composes the `where` line from the path the creation returned, so a stage reads its root off that line rather than making one. `tugtool arc create <name> --json` is the same act as a verb — idempotent, returning the worktree's absolute path — and a stage runs it only as the fallback its skill names, when the path on the line is not a directory. Either way, **capture the path.** From that moment it is the only working root:
 
 - Address **every** read, write, edit, and test by absolute path into the worktree. A shell's cwd silently reverts to the base checkout between tool calls; a relative path is a coin flip.
 - **Never write to the base checkout's working tree.** Not code, not a scratch file. The base branch is the user's; the only path back is their join gesture. The arc's own `.tug/arcs/<name>/` is not an exception to that rule but the reason there is nothing left to except: it is gitignored, invisible to `git status`, reached only through a verb, and so is not part of the tree the rule protects.
@@ -234,7 +234,7 @@ Join's other stops — a conflict, a missing draft, a named blocker — stay sto
 
 ## What never gets said
 
-A stage's first words are about the work. The wheel already handed it the `where` line — the arc's worktree, the seat it is bound to, the stage it is, the step in hand — and ran the four-record comparison against those records immediately before sending it, so a stage that opens by confirming any of it is reporting a fact it was given, spent on a reader who cannot act on it and did not ask.
+A stage's first words are about the work. The wheel already handed it the `where` line — the arc's worktree, the seat it is bound to, the stage it is, the step in hand — and ran the five-record comparison against those records immediately before sending it, so a stage that opens by confirming any of it is reporting a fact it was given, spent on a reader who cannot act on it and did not ask.
 
 These three sentences are the banned shape, verbatim, and everything cut from the same cloth with them:
 

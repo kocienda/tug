@@ -34,7 +34,7 @@ pub mod resolve;
 /// performed for real, so an agent has a tree and verification has a build.
 pub mod workshop;
 
-/// `arc doctor` — the four records an arc keeps, compared, with every
+/// `arc doctor` — the five records an arc keeps, compared, with every
 /// disagreement named in a sentence and a reconciling append offered where one
 /// record can be caught up to another without a judgment.
 pub mod doctor;

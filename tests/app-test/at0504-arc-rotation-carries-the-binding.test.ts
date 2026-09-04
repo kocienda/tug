@@ -76,7 +76,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { realpathSync, writeFileSync } from "node:fs";
+import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
@@ -89,7 +89,10 @@ import {
   createArc,
   arcBriefPath,
   arcTasksPath,
+  arcWorktreePath,
+  disarmAutoreplay,
   fixturePlanDocument,
+  gitRetry,
   makeArcScratchRepo,
   rmArcScratchRepo,
   rmScratchSession,
@@ -164,8 +167,19 @@ beforeAll(() => {
   // is the shape the bare door leaves. Identical on purpose: the only thing
   // that differs between the two tests is the `--plan` flag, so a difference in
   // where the arc opens can only be the recorded kind talking.
+  //
+  // The plain arc has **no seat** before the wheel runs — no `arc create`, no
+  // branch, no worktree — which is exactly what a door leaves: the documents
+  // and the name. The dispatch makes the worktree before it composes the
+  // `where` line that names it, and the first test asserts that it did. The
+  // planned arc keeps the fixture's `arc create`: it opens at devise, which
+  // makes nothing, so a seat for it is not this file's question.
   for (const arc of [PLAIN_ARC, PLANNED_ARC]) {
-    createArc(projectDir(), arc, `at0504 ${arc}`, scratch.cli);
+    if (arc === PLANNED_ARC) {
+      createArc(projectDir(), arc, `at0504 ${arc}`, scratch.cli);
+    } else {
+      disarmAutoreplay(projectDir(), arc);
+    }
     writeFileSync(arcBriefPath(projectDir(), arc), "# A brief\n\nOne small thing.\n");
     writeFileSync(arcTasksPath(projectDir(), arc), fixturePlanDocument(1));
   }
@@ -321,11 +335,27 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
       try {
         await openCard(app, SID_PLAIN);
 
+        const worktree = arcWorktreePath(projectDir(), PLAIN_ARC);
+        expect(existsSync(worktree), "no seat exists before the wheel runs").toBe(false);
+
         // The door. Opening the arc binds this card and starts the wheel,
         // whose first act is the rotation this whole file is about.
         await shell(app, `${cli} arc run ${PLAIN_ARC}`);
         const arc = await waitForRotation(PLAIN_ARC);
         note(`at0504 plain arc: ${JSON.stringify(arc)}`);
+
+        // ── 0. The dispatch made the seat it named ───────────────────────
+        //
+        // Nothing in this fixture created a branch or a worktree for the
+        // plain arc. The implement dispatch makes both before it composes the
+        // `where` line, so by the time the rotation is recorded the worktree
+        // stands and is checked out on the arc's branch — a line naming a
+        // path that was only computed is the promise this asserts against.
+        expect(existsSync(worktree), "the dispatch made the worktree").toBe(true);
+        expect(
+          gitRetry(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim(),
+          "and it is on the arc's branch",
+        ).toBe(`tugarc/${PLAIN_ARC}`);
 
         // ── 1. The recorded kind decided where to open ───────────────────
         //

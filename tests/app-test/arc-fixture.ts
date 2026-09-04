@@ -504,13 +504,35 @@ export function createArc(
       },
     ),
   ) as { data: { id: string; worktree: string } };
+  disarmAutoreplay(projectDir, name);
+  return { id: out.data.id, worktree: out.data.worktree };
+}
+
+/**
+ * Turn the join pilot's auto-replay off for an arc, by name.
+ *
+ * A branch config key hangs off the arc's *name*, so this is valid before
+ * any branch exists — which is what lets a wheel-driven fixture arc skip
+ * {@link createArc} altogether and leave the seat to the dispatch, the way a
+ * real arc opened at a door does. `createArc` calls it too, so the two
+ * fixture shapes disarm the same key.
+ */
+export function disarmAutoreplay(projectDir: string, name: string): void {
   gitRetry(
     projectDir,
     "config",
     `branch.${ARC_BRANCH_PREFIX}${name}.tugautoreplay`,
     "false",
   );
-  return { id: out.data.id, worktree: out.data.worktree };
+}
+
+/**
+ * The worktree the dispatch makes for an arc — `<project>/.tug/worktrees/<name>`
+ * — as a path, whether or not it exists yet. A test that lets the wheel make
+ * the seat asserts on this after the rotation.
+ */
+export function arcWorktreePath(projectDir: string, name: string): string {
+  return join(projectDir, ".tug", "worktrees", name);
 }
 
 /** Commit everything dirty in the arc's worktree as one round. */

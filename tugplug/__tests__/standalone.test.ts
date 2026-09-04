@@ -242,4 +242,24 @@ describe("every verb a skill names is one the shipped binary has", () => {
     }
     expect(missing).toEqual([]);
   });
+
+  /**
+   * The seat fallback lives in the two stages that work in a worktree, and
+   * nowhere else. The dispatch makes the seat before it names it; the stage
+   * skills keep the idempotent `arc create` as the repair they say out loud,
+   * because the plugin ships beside the tugcast that composes the line and a
+   * stage that can fix a missing seat in one verb is cheaper than an arc that
+   * stops for it. A door names no such verb: it writes documents and hands
+   * the arc to the wheel, and a door that created a worktree would be the
+   * shape this test exists to keep out.
+   */
+  test("the stage skills carry the seat fallback and the doors do not", () => {
+    const skills = join(pluginRoot, "skills");
+    const names = (skill: string): boolean =>
+      readFileSync(join(skills, skill, "SKILL.md"), "utf8").includes("tugtool arc create");
+    expect(names("arc-implement"), "arc-implement keeps the fallback").toBe(true);
+    expect(names("arc-audit"), "arc-audit keeps the fallback").toBe(true);
+    expect(names("arc"), "the plain door makes no seat").toBe(false);
+    expect(names("arc-plan"), "the planning door makes no seat").toBe(false);
+  });
 });

@@ -43,8 +43,8 @@ use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use tugarc_core::arc::{
-    ArcRecord, ArcStage, ArcStopReason, append_arc_dispatch, append_arc_done, append_arc_note,
-    append_arc_continue, append_arc_owner, append_arc_plan, append_arc_resume, append_arc_stop,
+    ArcRecord, ArcStage, ArcStopReason, append_arc_continue, append_arc_dispatch, append_arc_done,
+    append_arc_note, append_arc_owner, append_arc_plan, append_arc_resume, append_arc_stop,
     read_arc, stage_model,
 };
 use tugarc_core::log::append_arc_log;
@@ -616,8 +616,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         // The clock's own comparison, over turns of every opener: a wake-opened
         // turn ending is not an answer, but it is the arc moving ([P02]).
         let previously_seen_all = entry.all_turns_seen.replace(reading.all_turns_ended);
-        let any_turn_ended =
-            previously_seen_all.is_some_and(|seen| reading.all_turns_ended > seen);
+        let any_turn_ended = previously_seen_all.is_some_and(|seen| reading.all_turns_ended > seen);
         if reading.facts.ledger.step_just_done {
             entry.quiet_turns = 0;
         } else if a_turn_ended && !reading.facts.compact_turn_just_ended {
@@ -733,8 +732,17 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     // Above the act and below the bookkeeping, deliberately: `quiet_turns` and
     // `last_motion_at` are counts of what happened, and what happened does not
     // depend on whether the runner chose to act on it.
-    let settled =
-        settle_gate(ctx, state, &key, arc, &session, &reading, memory, &mut action).await;
+    let settled = settle_gate(
+        ctx,
+        state,
+        &key,
+        arc,
+        &session,
+        &reading,
+        memory,
+        &mut action,
+    )
+    .await;
 
     // Every tick says what it read and what it decided, including the ticks
     // that decided nothing. An arc that advances silently is an arc whose
@@ -1522,7 +1530,12 @@ fn lints_as_plan(source: &str) -> bool {
 /// The facts were gathered in `read`'s blocking pass; the wording is the
 /// wheel's, so every arc composes the same way. Nothing here is a word a
 /// model wrote.
-fn opening_prompt(reading: &ArcReading, rotation: &Rotation, arc: &BoundArc) -> Option<String> {
+fn opening_prompt(
+    reading: &ArcReading,
+    rotation: &Rotation,
+    arc: &BoundArc,
+    seat: &Path,
+) -> Option<String> {
     let steps = rotation
         .steps
         .map(|(from, through)| step_range(from, through));
@@ -1545,7 +1558,7 @@ fn opening_prompt(reading: &ArcReading, rotation: &Rotation, arc: &BoundArc) -> 
         Some((ledger.first_pending?, ledger.run_through?))
     });
     let place = wheel::prompt::where_clause(
-        &tugarc_core::ops::worktree_path(&arc.project, &reading.name),
+        seat,
         arc.session.as_str(),
         rotation.stage.as_str(),
         steps_in_hand,
@@ -1565,6 +1578,79 @@ fn opening_prompt(reading: &ArcReading, rotation: &Rotation, arc: &BoundArc) -> 
         &reading.commits_since,
         resume,
     ))
+}
+
+/// The seat a stage is handed on its `where` line — made, not computed.
+///
+/// An implement or audit stage works in the arc's worktree, so the dispatch
+/// makes it before it writes the line that names it: `create_in` is
+/// idempotent on a present branch and worktree, runs the project's
+/// `post_create` on a fresh one, and returns the path it left standing,
+/// which is the path the clause names. A line composed from `worktree_path`
+/// alone was a promise — the `arc-unification` join removed the stage's own
+/// `arc create` and nothing took its place, so every first implement stage
+/// opened on a worktree that did not exist and died of it.
+///
+/// Devise and review make nothing. They write documents at
+/// `.tug/arcs/<name>/`, which is not in the worktree, and a seat made at
+/// devise would sit empty through two stages that never enter it; their line
+/// names the path the seat will have, and that is the one computed path left
+/// in the dispatch, kept here so it is one and stated.
+///
+/// Blocking — git runs under it — so every caller wraps it in
+/// `spawn_blocking`. An `Err` is `create_in`'s own sentence, and the caller
+/// stops the arc as [`ArcStopReason::SeatUnavailable`] with it as the note.
+///
+/// **A seat is never made over somebody's rounds.** `create_in`'s repair for
+/// a branch whose worktree is gone is to delete the branch and cut a fresh
+/// one from the base, which is right for a half-built arc and a silent
+/// destruction of the work for one that has been walked. The dispatch calls
+/// this before every implement and audit prompt, so the question is asked
+/// here rather than regretted after: a branch carrying rounds with no
+/// worktree is an `Err`, and the arc stops with the sentence that says how
+/// to get the seat back.
+fn seat_for(project: &Path, name: &str, stage: ArcStage) -> Result<PathBuf, String> {
+    match stage {
+        ArcStage::Implement | ArcStage::Audit => {
+            let rounds = tugarc_core::ops::rounds_a_rebuild_would_lose(project, name);
+            if rounds > 0 {
+                return Err(format!(
+                    "the arc's branch carries {rounds} round(s) and its worktree is gone, so \
+                     making the seat would rebuild the branch from its base and lose them. \
+                     Re-attach the worktree by hand — `git worktree add .tug/worktrees/{name} \
+                     tugarc/{name}` from the project root — and run the arc again."
+                ));
+            }
+            tugarc_core::ops::create_in(project, name, None, false, None)
+                .map(|outcome| PathBuf::from(outcome.worktree))
+        }
+        ArcStage::Devise | ArcStage::Review => Ok(tugarc_core::ops::worktree_path(project, name)),
+    }
+}
+
+/// [`seat_for`] off the blocking pool, and the stop when it fails.
+///
+/// `Some(seat)` is a path that exists for the stages that need one. `None`
+/// means the arc has already been stopped as `seat unavailable`, its note
+/// carrying `create_in`'s error, and the caller returns.
+async fn seat_or_stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage) -> Option<PathBuf> {
+    let (project, name) = (arc.project.clone(), arc.name.clone());
+    let outcome = tokio::task::spawn_blocking(move || seat_for(&project, &name, stage))
+        .await
+        .unwrap_or_else(|join| Err(format!("the seat task did not finish: {join}")));
+    match outcome {
+        Ok(seat) => Some(seat),
+        Err(error) => {
+            // The error rides as a note, the carriage `NeedsDecision` and
+            // `RecordsDisagree` use: the reason vocabulary is closed and
+            // cannot carry a payload, and a receipt that only says the seat
+            // could not be made is a stop nobody can act on.
+            let (p, d) = (arc.project.clone(), arc.name.clone());
+            let _ = tokio::task::spawn_blocking(move || append_arc_note(&p, &d, &error)).await;
+            stop(ctx, arc, stage, ArcStopReason::SeatUnavailable).await;
+            None
+        }
+    }
 }
 
 /// The origin a wheel-sent prompt is attributed to.
@@ -1629,7 +1715,13 @@ async fn deliver_prompt(
                 // The twin of `rotate`'s: an ask that cannot be composed is
                 // an arc with no words for its own stage, and it stopped on
                 // the rotation path and sat silently here ([P10]).
-                stop(ctx, arc, ArcStage::Implement, ArcStopReason::PromptUnavailable).await;
+                stop(
+                    ctx,
+                    arc,
+                    ArcStage::Implement,
+                    ArcStopReason::PromptUnavailable,
+                )
+                .await;
                 return;
             };
             // No clauses: the session already holds its own context, and the
@@ -1639,8 +1731,11 @@ async fn deliver_prompt(
             // The `where` clause is the exception, because its step
             // coordinates are the one fact this prompt moves: the step in hand
             // is the range's first, and the run still reaches its declared end.
+            let Some(seat) = seat_or_stop(ctx, arc, ArcStage::Implement).await else {
+                return;
+            };
             let place = wheel::prompt::where_clause(
-                &tugarc_core::ops::worktree_path(&arc.project, &reading.name),
+                &seat,
                 arc.session.as_str(),
                 ArcStage::Implement.as_str(),
                 Some(*steps),
@@ -1652,8 +1747,11 @@ async fn deliver_prompt(
         // context and the step coordinates are the one fact this prompt moves.
         PromptKind::StillOpen { steps } => {
             let ask = wheel::prompt::still_open_ask(&reading.name, steps.0, steps.1);
+            let Some(seat) = seat_or_stop(ctx, arc, ArcStage::Implement).await else {
+                return;
+            };
             let place = wheel::prompt::where_clause(
-                &tugarc_core::ops::worktree_path(&arc.project, &reading.name),
+                &seat,
                 arc.session.as_str(),
                 ArcStage::Implement.as_str(),
                 Some(*steps),
@@ -1770,24 +1868,35 @@ async fn rotate(
         return;
     }
 
+    // **The seat exists before anything names it.** An implement or audit
+    // stage is about to be handed its worktree as a fact, so the worktree is
+    // made here — idempotently, so a re-rotation costs nothing — and made
+    // *before* the doctor runs, because the doctor now reads the seat as a
+    // record and would otherwise stop the arc over the very seat this
+    // dispatch was about to make. A `create_in` that fails is its own stop.
+    let Some(seat) = seat_or_stop(ctx, arc, rotation.stage).await else {
+        return;
+    };
+
     // **The records agree, or nothing is seated.** The dispatch is about to
     // hand a stage its coordinates — the worktree, the seat, the step in hand
     // — as facts rather than as something to probe for, and a stage that
     // believes a `where` line built over a desynced record works from a
-    // frontier the surfaces do not share. So the doctor's four-record
+    // frontier the surfaces do not share. So the doctor's five-record
     // comparison runs here, at the one point where a disagreement can still be
     // caught before anybody acts on it, and its named findings become the stop
     // rather than the prompt.
     let project = arc.project.clone();
     let name = arc.name.clone();
-    let diagnosis = tokio::task::spawn_blocking(move || {
-        tugarc_core::doctor::doctor(&project, &name, false)
-    })
-    .await
-    .ok()
-    .and_then(|outcome| outcome.ok());
+    let diagnosis =
+        tokio::task::spawn_blocking(move || tugarc_core::doctor::doctor(&project, &name, false))
+            .await
+            .ok()
+            .and_then(|outcome| outcome.ok());
     if let Some(outcome) = diagnosis {
-        // Every finding but one. `arc-unbound` asks whether any live session
+        // Every finding but one — `seat-missing` included, which is what makes
+        // a worktree deleted by hand and a `create_in` that failed read the
+        // same way. `arc-unbound` asks whether any live session
         // is bound to this arc, and answers it out of the machine's sessions
         // ledger — a question this path already answered better, from the
         // binding that produced the seat it is holding. A runner that stopped
@@ -1812,7 +1921,7 @@ async fn rotate(
         }
     }
 
-    let Some(prompt) = opening_prompt(reading, rotation, arc) else {
+    let Some(prompt) = opening_prompt(reading, rotation, arc, &seat) else {
         stop(ctx, arc, rotation.stage, ArcStopReason::PromptUnavailable).await;
         return;
     };
@@ -2128,7 +2237,10 @@ async fn continue_stage(
         .await
         .ok()
         .flatten();
-    if fresh.as_ref().is_none_or(|record| record.resume != Some(stage)) {
+    if fresh
+        .as_ref()
+        .is_none_or(|record| record.resume != Some(stage))
+    {
         info!(
             target: "dev::session-lifecycle",
             event = "arc.continue_skipped",
@@ -2173,12 +2285,12 @@ async fn continue_stage(
         );
     }
 
-    let place = wheel::prompt::where_clause(
-        &tugarc_core::ops::worktree_path(&arc.project, &reading.name),
-        arc.session.as_str(),
-        stage.as_str(),
-        steps,
-    );
+    // The seat, made rather than computed, exactly as the rotation makes it:
+    // a resumed stage is owed a worktree that exists as much as a fresh one.
+    let Some(seat) = seat_or_stop(ctx, arc, stage).await else {
+        return;
+    };
+    let place = wheel::prompt::where_clause(&seat, arc.session.as_str(), stage.as_str(), steps);
     let resume = reading
         .record
         .last_stop
@@ -2309,7 +2421,7 @@ fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopR
     };
     // The two reasons whose sentence is not the whole story. `NeedsDecision` is
     // a stage saying it met a question it had no authority to answer, and
-    // `RecordsDisagree` is the runner saying the arc's four records do not
+    // `RecordsDisagree` is the runner saying the arc's five records do not
     // agree; a receipt that said only *that* would in either case be a stop
     // nobody could act on — so the payload itself, which the stop's caller
     // wrote as the record's last note immediately before it, is read back
@@ -2872,7 +2984,13 @@ Some context.
             steps: None,
             note: None,
         };
-        let prompt = opening_prompt(&reading, &review, &bound(root, "demo")).expect("a prompt");
+        let prompt = opening_prompt(
+            &reading,
+            &review,
+            &bound(root, "demo"),
+            &tugarc_core::ops::worktree_path(root, "demo"),
+        )
+        .expect("a prompt");
         assert_eq!(
             prompt.lines().next(),
             Some("/tugplug:arc-review demo"),
@@ -2972,6 +3090,7 @@ Some context.
                 note: None,
             },
             &bound(root, "demo"),
+            &tugarc_core::ops::worktree_path(root, "demo"),
         )
         .unwrap();
         assert!(
@@ -3129,6 +3248,7 @@ Some context.
                 note: None,
             },
             &bound(root, "demo"),
+            &tugarc_core::ops::worktree_path(root, "demo"),
         )
         .unwrap();
         assert!(prompt.starts_with("/tugplug:arc-devise a plan for .tug/arcs/demo/brief.md"));
@@ -3164,6 +3284,7 @@ Some context.
                 note: None,
             },
             &bound(root, "demo"),
+            &tugarc_core::ops::worktree_path(root, "demo"),
         )
         .unwrap();
         assert!(
@@ -3204,6 +3325,7 @@ Some context.
                 note: None,
             },
             &bound(root, "demo"),
+            &tugarc_core::ops::worktree_path(root, "demo"),
         )
         .unwrap();
         assert!(
@@ -3231,11 +3353,7 @@ Some context.
     /// doctor a disagreement the test is not about.
     fn plan_with_statuses(first: &str, second: &str) -> String {
         let cell = |status: &str| {
-            if status == "done" {
-                "`abc1234`"
-            } else {
-                "—"
-            }
+            if status == "done" { "`abc1234`" } else { "—" }
         };
         LINTING_PLAN
             .replace(
@@ -3244,7 +3362,10 @@ Some context.
             )
             .replace(
                 "| #step-2 | The second step | pending | — |",
-                &format!("| #step-2 | The second step | {second} | {} |", cell(second)),
+                &format!(
+                    "| #step-2 | The second step | {second} | {} |",
+                    cell(second)
+                ),
             )
     }
 
@@ -3417,7 +3538,7 @@ Some context.
         assert_eq!(entry.lock().await.queue.len(), 0);
     }
 
-    /// The dispatch reads the arc's four records before it hands a stage its
+    /// The dispatch reads the arc's five records before it hands a stage its
     /// coordinates.
     ///
     /// A `where` clause built over a disagreement is worse than no clause at
@@ -4088,6 +4209,239 @@ Some context.
         out
     }
 
+    /// A project that is also a git repository with one commit on `main` —
+    /// what `create_in` needs to make a seat. The arc's own homes are ignored
+    /// so the worktree it makes is not base dirt.
+    fn git_project(root: &Path) {
+        for args in [
+            vec!["init", "-b", "main"],
+            vec!["config", "user.name", "Test User"],
+            vec!["config", "user.email", "test@example.com"],
+        ] {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(&args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}");
+        }
+        std::fs::write(root.join(".gitignore"), ".tug/\n.tugtool/\n").unwrap();
+        std::fs::write(root.join("README.md"), "# Test\n").unwrap();
+        for args in [vec!["add", "-A"], vec!["commit", "-m", "Initial commit"]] {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(&args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}");
+        }
+    }
+
+    /// The text of every user-message frame in a drained queue.
+    fn prompt_texts(frames: &[Frame]) -> Vec<String> {
+        frames
+            .iter()
+            .filter_map(|frame| serde_json::from_slice::<serde_json::Value>(&frame.payload).ok())
+            .filter(|value| value.get("type").and_then(|t| t.as_str()) == Some("user_message"))
+            .filter_map(|value| {
+                value
+                    .get("content")
+                    .and_then(|c| c.as_array())
+                    .and_then(|parts| parts.first())
+                    .and_then(|part| part.get("text"))
+                    .and_then(|t| t.as_str())
+                    .map(str::to_owned)
+            })
+            .collect()
+    }
+
+    /// The dispatch makes the seat before it names it. A plain arc opening
+    /// at implement in a repository with no branch and no worktree for it is
+    /// rotated with a `where` line naming a worktree that exists — made by
+    /// the dispatch, through the idempotent `create_in`, so the stage's
+    /// coordinates are facts rather than a path somebody computed.
+    #[tokio::test]
+    async fn the_implement_dispatch_makes_the_seat_and_the_where_line_names_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git_project(root);
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_kind(root, "demo", tugarc_core::arc::ArcKind::Plain).unwrap();
+        let worktree = tugarc_core::ops::worktree_path(root, "demo");
+        assert!(
+            !worktree.exists(),
+            "the seat is not there before the dispatch"
+        );
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+
+        let record = read_arc(root, "demo").expect("the arc record");
+        assert_eq!(record.stopped, None, "{:?}", record.notes);
+        assert_eq!(record.dispatched, Some(ArcStage::Implement));
+        assert!(worktree.is_dir(), "the dispatch made the seat");
+
+        let frames = queued(&entry).await;
+        let texts = prompt_texts(&frames);
+        let where_line = format!("where: worktree {}", worktree.display());
+        assert!(
+            texts.iter().any(|t| t.contains(&where_line)),
+            "the where line names the seat the dispatch made: {texts:?}"
+        );
+    }
+
+    /// A seat that cannot be made is a stop with a receipt, never a `where`
+    /// line naming a path that is not there. A project that is not a git
+    /// repository is the one shape `create_in` cannot serve.
+    #[tokio::test]
+    async fn a_seat_that_cannot_be_made_stops_the_arc_as_seat_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_kind(root, "demo", tugarc_core::arc::ArcKind::Plain).unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+
+        let record = read_arc(root, "demo").expect("the arc record");
+        assert_eq!(
+            record.stopped,
+            Some((
+                ArcStage::Implement,
+                ArcStopReason::SeatUnavailable.as_str().to_string()
+            ))
+        );
+        assert!(
+            record.stages.is_empty() && record.dispatched.is_none(),
+            "no stage is seated over a seat that does not exist"
+        );
+        // `create_in`'s own sentence rides as the note.
+        assert!(
+            record.notes.last().is_some_and(|note| !note.is_empty()),
+            "{:?}",
+            record.notes
+        );
+        assert!(!tugarc_core::ops::worktree_path(root, "demo").exists());
+        assert!(
+            prompt_texts(&queued(&entry).await).is_empty(),
+            "no prompt was sent"
+        );
+        let said = receipts(&mut control_rx);
+        assert_eq!(said.len(), 1, "one receipt, got {said:?}");
+        assert!(
+            said[0].contains("its worktree could not be made"),
+            "{said:?}"
+        );
+    }
+
+    /// A seat is never made over somebody's rounds. `create_in`'s repair for
+    /// a branch whose worktree has gone is `git branch -D` and a fresh cut
+    /// from the base — so the dispatch, which now runs it before every
+    /// implement prompt, asks first and stops rather than deleting the work.
+    #[tokio::test]
+    async fn a_branch_carrying_rounds_with_no_worktree_stops_instead_of_being_rebuilt() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git_project(root);
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_kind(root, "demo", tugarc_core::arc::ArcKind::Plain).unwrap();
+
+        // A seat that was walked: one round on the branch, and then the
+        // worktree removed the way a `git worktree remove` or a disk sweep
+        // leaves it — branch behind, tree gone.
+        let outcome = tugarc_core::ops::create_in(root, "demo", None, false, None).unwrap();
+        let worktree = PathBuf::from(&outcome.worktree);
+        std::fs::write(worktree.join("round.txt"), "work\n").unwrap();
+        for args in [vec!["add", "-A"], vec!["commit", "-m", "A round"]] {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&worktree)
+                .args(&args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}");
+        }
+        let tip = String::from_utf8(
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(["rev-parse", "tugarc/demo"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap();
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["worktree", "remove", "--force"])
+            .arg(&worktree)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "the worktree is gone");
+        assert_eq!(tugarc_core::ops::rounds_a_rebuild_would_lose(root, "demo"), 1);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+
+        let record = read_arc(root, "demo").expect("the arc record");
+        assert_eq!(
+            record.stopped,
+            Some((
+                ArcStage::Implement,
+                ArcStopReason::SeatUnavailable.as_str().to_string()
+            ))
+        );
+        assert!(
+            record
+                .notes
+                .last()
+                .is_some_and(|note| note.contains("1 round(s)")),
+            "the note counts what a rebuild would have lost: {:?}",
+            record.notes
+        );
+        assert!(
+            prompt_texts(&queued(&entry).await).is_empty(),
+            "no prompt was sent"
+        );
+        // And the rounds are still there.
+        let still = String::from_utf8(
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(["rev-parse", "tugarc/demo"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap();
+        assert_eq!(still, tip, "the branch was not rebuilt");
+    }
+
     /// Drain a session's spawn queue.
     async fn queued(entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>) -> Vec<Frame> {
         let mut entry = entry.lock().await;
@@ -4594,8 +4948,11 @@ Some context.
 
     /// A project with a seated implement stage: a reviewed two-step plan, an
     /// `arc-stage implement` line naming the harness's session, and a declared
-    /// run through step 2.
+    /// run through step 2. A real repository underneath, because every prompt
+    /// the implement stage is sent names a seat the dispatch made, and a
+    /// project `create_in` cannot serve stops the arc before the prompt.
     fn implementing_project(root: &Path, first: &str, second: &str) {
+        git_project(root);
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
@@ -4636,10 +4993,7 @@ Some context.
     /// dispatches marks the entry's turn active, so a test that bumped only
     /// the count would go on reading a session mid-turn and every arm below
     /// the idle gate would be unreachable.
-    async fn asked(
-        entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>,
-        turns: u32,
-    ) {
+    async fn asked(entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>, turns: u32) {
         let mut entry = entry.lock().await;
         entry.turns_ended = turns;
         entry.prompt_turns_ended = turns;
@@ -4660,7 +5014,10 @@ Some context.
         let existing = std::fs::read_to_string(root.join(".tugtool/config.toml")).unwrap();
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            existing.replace("idle_settle_secs = 0", &format!("idle_settle_secs = {secs}")),
+            existing.replace(
+                "idle_settle_secs = 0",
+                &format!("idle_settle_secs = {secs}"),
+            ),
         )
         .unwrap();
     }
@@ -5692,7 +6049,13 @@ Some context.
         sweep(&ctx, &state).await;
 
         let markers = arc_log_markers(root);
-        let tail: Vec<&str> = markers.iter().rev().take(3).rev().map(String::as_str).collect();
+        let tail: Vec<&str> = markers
+            .iter()
+            .rev()
+            .take(3)
+            .rev()
+            .map(String::as_str)
+            .collect();
         assert_eq!(
             tail,
             vec![
@@ -5866,8 +6229,14 @@ Some context.
 
         let said = receipts(&mut control_rx);
         assert_eq!(said.len(), 2, "two rows, got {said:?}");
-        assert!(said[0].starts_with("arc stopped · demo · in implement"), "{said:?}");
-        assert!(said[1].starts_with("arc picked back up · demo · in implement"), "{said:?}");
+        assert!(
+            said[0].starts_with("arc stopped · demo · in implement"),
+            "{said:?}"
+        );
+        assert!(
+            said[1].starts_with("arc picked back up · demo · in implement"),
+            "{said:?}"
+        );
     }
 
     /// **The tripwire** ([P11]). The incident's morning undid two Resume
@@ -6295,10 +6664,7 @@ Some context.
             body.await;
             String::from_utf8(sink.0.lock().unwrap().clone()).unwrap()
         };
-        captured
-            .lines()
-            .map(str::to_string)
-            .collect()
+        captured.lines().map(str::to_string).collect()
     }
 
     /// The same capture, narrowed to the `arc.tick` lines.

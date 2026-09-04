@@ -1,6 +1,6 @@
-//! `arc doctor` — what the four records say, and where they disagree.
+//! `arc doctor` — what the five records say, and where they disagree.
 //!
-//! An arc keeps four records of itself, and no two of them are written by the
+//! An arc keeps five records of itself, and no two of them are written by the
 //! same act:
 //!
 //! | record | written by | read by |
@@ -9,6 +9,7 @@
 //! | the **arc log**'s declarations | `arc step …`, `arc mark` | `arc status`, `run_fraction`, `derive_stage`, `join_ready` |
 //! | the **sqlite binding** | tugcast, at bind and at the rotation seat | which card an arc is showing in |
 //! | the **arc record** (also the log) | the arc runner | which stage the Wheel rotates next |
+//! | the **seat** — branch and worktree | `ops::create_in`, from the dispatch | the stage's `where` line, every round |
 //!
 //! The split in the first two rows is the one that matters, and it is easy to
 //! read backwards: **join-arming derives from the log; the resume pointer
@@ -23,13 +24,18 @@
 //! side. Repair is opt-in (`arc doctor <name> --repair`) because detection is
 //! always safe and a repair is a judgment about which record was right.
 //!
-//! **Every repair is an append.** The arc log is append-only across
+//! **Every log repair is an append.** The arc log is append-only across
 //! generations and is never rewritten — that property is load-bearing for
 //! `read_declarations`' generation reset — so a reconciling repair adds the
 //! declaration the table's own state implies. The table is the authored
 //! document a person edits; the log is the derivation surface. When they
 //! disagree about a step's status, the table is taken as the intent and the
 //! log is caught up to it.
+//!
+//! The one repair that is not an append is the seat's: a record past devise
+//! whose branch or worktree is gone gets them made, through the same
+//! idempotent `create_in` the dispatch calls. Nothing else the doctor can do
+//! writes anything but the log.
 
 use std::path::Path;
 
@@ -46,19 +52,45 @@ pub struct ArcFinding {
     /// The disagreement in one sentence, naming both records and the step.
     /// This is what `arc status` prints and what a person reads.
     pub sentence: String,
-    /// The append that reconciles it, when one record can be caught up to the
+    /// The act that reconciles it, when one record can be caught up to the
     /// other without a judgment. `None` when the disagreement needs a person.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repair: Option<ArcRepair>,
 }
 
-/// An arc log line that would reconcile a finding.
+/// The act that would reconcile a finding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ArcRepair {
-    pub marker: String,
-    pub note: String,
-    /// What appending it would achieve, in one clause.
-    pub effect: String,
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ArcRepair {
+    /// An arc log line to append.
+    Append {
+        marker: String,
+        note: String,
+        /// What appending it would achieve, in one clause.
+        effect: String,
+    },
+    /// The arc's branch and worktree, made by `ops::create_in`.
+    MakeSeat {
+        /// What making it would achieve, in one clause.
+        effect: String,
+    },
+}
+
+impl ArcRepair {
+    /// What the repair would achieve, in one clause.
+    pub fn effect(&self) -> &str {
+        match self {
+            ArcRepair::Append { effect, .. } | ArcRepair::MakeSeat { effect } => effect,
+        }
+    }
+
+    /// The act itself, in the words a CLI line shows before `--repair` takes it.
+    pub fn describe(&self) -> String {
+        match self {
+            ArcRepair::Append { marker, note, .. } => format!("append `{marker}  {note}`"),
+            ArcRepair::MakeSeat { .. } => "make the branch and worktree".to_string(),
+        }
+    }
 }
 
 /// Everything the doctor found, and enough context to read it.
@@ -73,7 +105,7 @@ pub struct ArcDiagnosis {
 }
 
 impl ArcDiagnosis {
-    /// Whether the four records agree.
+    /// Whether the five records agree.
     pub fn healthy(&self) -> bool {
         self.findings.is_empty()
     }
@@ -138,7 +170,7 @@ fn catch_log_up(row: &Row, total: u32) -> Option<ArcRepair> {
         "Step {}: {} (reconciled by arc doctor)",
         row.step, row.title
     );
-    Some(ArcRepair {
+    Some(ArcRepair::Append {
         marker: phase.marker().to_string(),
         note: step_declaration_note(row.step, total, &tail),
         effect: format!(
@@ -148,7 +180,7 @@ fn catch_log_up(row: &Row, total: u32) -> Option<ArcRepair> {
     })
 }
 
-/// Compare an arc's four records and name every disagreement.
+/// Compare an arc's five records and name every disagreement.
 ///
 /// Read-only: it opens no writable handle and takes no lock. An arc with no
 /// documents, no log, or no branch is not an error here — it is an arc with
@@ -167,6 +199,7 @@ pub fn diagnose(repo_root: &Path, name: &str) -> ArcDiagnosis {
     check_run_arming(&mut findings, rows, &decls);
     check_commit_cells(&mut findings, rows);
     check_arc(&mut findings, rows, arc.as_ref(), repo_root, name);
+    check_seat(&mut findings, arc.as_ref(), repo_root, name);
 
     ArcDiagnosis {
         arc: name.to_string(),
@@ -385,6 +418,107 @@ fn check_arc(
     }
 }
 
+/// The seat against the record: an arc past devise has a branch and a
+/// worktree, and the worktree is checked out on the branch.
+///
+/// Devise and review make nothing — they write documents at
+/// `.tug/arcs/<name>/`, which is not in the worktree — so a record whose
+/// stage is one of those is owed no seat and asked nothing here. The stage
+/// read is the dispatched one first: the dispatch writes its intent before
+/// the bridge lands the `arc-stage` line, and the seat is owed from the
+/// dispatch on. A finished arc is skipped, because a join tears the seat
+/// down on purpose.
+///
+/// The repair is `ops::create_in`, the same idempotent verb the dispatch
+/// calls, and it is offered only where it is safe: a branch that is absent,
+/// or present with no rounds on it. `create_in` rebuilds a branch whose
+/// worktree is gone from the base, so a branch carrying rounds gets a
+/// sentence naming them and no repair — which rounds to keep is a person's
+/// judgment. A worktree standing on some other branch is the same kind of
+/// question.
+fn check_seat(
+    findings: &mut Vec<ArcFinding>,
+    arc: Option<&crate::arc::ArcRecord>,
+    repo_root: &Path,
+    name: &str,
+) {
+    use crate::arc::ArcStage;
+
+    let Some(arc) = arc else {
+        return;
+    };
+    if arc.done {
+        return;
+    }
+    let stage = arc.dispatched.or(arc.current_stage());
+    if !matches!(stage, Some(ArcStage::Implement | ArcStage::Audit)) {
+        return;
+    }
+    let stage_word = stage.map(|s| s.as_str().to_owned()).unwrap_or_default();
+
+    let root = ops::main_repo_root(repo_root);
+    let branch = ops::branch_name(name);
+    let worktree = ops::worktree_path(&root, name);
+    let have_branch = ops::branch_exists(&root, &branch);
+    let have_worktree = worktree.is_dir();
+
+    if have_branch && have_worktree {
+        let on =
+            ops::git_stdout(&worktree, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
+        if on != branch {
+            findings.push(ArcFinding {
+                code: "seat-missing".into(),
+                sentence: format!(
+                    "the arc is in its {stage_word} stage and its worktree at `{}` has `{on}` \
+                     checked out rather than `{branch}` — a round made there would land on the \
+                     wrong branch.",
+                    worktree.display()
+                ),
+                repair: None,
+            });
+        }
+        return;
+    }
+
+    let rounds = if have_branch {
+        ops::round_count_in(&root, name)
+    } else {
+        0
+    };
+    let missing = match (have_branch, have_worktree) {
+        (false, false) => "neither its branch nor its worktree exists".to_string(),
+        (true, false) => format!("its worktree at `{}` does not exist", worktree.display()),
+        (false, true) => format!("its branch `{branch}` does not exist"),
+        (true, true) => unreachable!("handled above"),
+    };
+    let repair = if rounds == 0 {
+        Some(ArcRepair::MakeSeat {
+            effect: format!(
+                "the branch `{branch}` and the worktree at `{}` would exist for the stage to work in",
+                worktree.display()
+            ),
+        })
+    } else {
+        None
+    };
+    let tail = if rounds == 0 {
+        String::new()
+    } else {
+        format!(
+            " The branch carries {rounds} round(s), so the doctor will not rebuild it; re-attach \
+             the worktree by hand with `git worktree add`."
+        )
+    };
+    findings.push(ArcFinding {
+        code: "seat-missing".into(),
+        sentence: format!(
+            "the arc is in its {stage_word} stage and {missing} — the `where` line would name a \
+             seat no stage can sit in.{tail}"
+        ),
+        repair,
+    });
+}
+
 /// What a `arc doctor` run did.
 #[derive(Debug, Clone, Serialize)]
 pub struct DoctorOutcome {
@@ -394,28 +528,52 @@ pub struct DoctorOutcome {
     pub repaired: bool,
     /// The arc log lines actually appended, in order.
     pub appended: Vec<String>,
+    /// The seat, when the run made one: the worktree path `create_in`
+    /// returned. Empty on every run that did not make the seat.
+    pub made: Vec<String>,
     /// Findings that carry no repair, so a `--repair` run still leaves them.
     pub left_for_a_person: usize,
 }
 
-/// Diagnose `name`, and — with `repair` — append every reconciling line.
+/// Diagnose `name`, and — with `repair` — take every reconciling act.
 ///
 /// A repair run re-diagnoses first, so it never appends against a reading
 /// taken before something else moved. The appends go through
 /// [`crate::log::append_arc_log`], the same door every other declaration
 /// uses, because a repair that wrote the log a second way would be the first
-/// thing a later reader had to learn about.
+/// thing a later reader had to learn about. The seat is made through
+/// [`ops::create_in`], the same door the dispatch uses.
+///
+/// A name with no arc behind it — no arc record in the log and no branch or
+/// id in git — is refused rather than pronounced healthy: "the records
+/// agree" about an arc that does not exist is the reading that hid the
+/// missing seat in the first place.
 pub fn doctor(repo_root: &Path, name: &str, repair: bool) -> Result<DoctorOutcome, String> {
+    if crate::arc::read_arc(repo_root, name).is_none()
+        && !ops::arc_record_exists(&ops::main_repo_root(repo_root), name)
+    {
+        return Err(format!("no arc named `{name}`"));
+    }
     let diagnosis = diagnose(repo_root, name);
     let mut appended = Vec::new();
+    let mut made = Vec::new();
     if repair {
         for finding in &diagnosis.findings {
             let Some(fix) = &finding.repair else {
                 continue;
             };
-            crate::log::append_arc_log(repo_root, name, &fix.marker, &fix.note)
-                .map_err(|e| format!("the reconciling append failed: {e}"))?;
-            appended.push(format!("{}  {}", fix.marker, fix.note));
+            match fix {
+                ArcRepair::Append { marker, note, .. } => {
+                    crate::log::append_arc_log(repo_root, name, marker, note)
+                        .map_err(|e| format!("the reconciling append failed: {e}"))?;
+                    appended.push(format!("{marker}  {note}"));
+                }
+                ArcRepair::MakeSeat { .. } => {
+                    let outcome = ops::create_in(repo_root, name, None, false, None)
+                        .map_err(|e| format!("the seat could not be made: {e}"))?;
+                    made.push(outcome.worktree);
+                }
+            }
         }
     }
     let left_for_a_person = diagnosis
@@ -427,6 +585,7 @@ pub fn doctor(repo_root: &Path, name: &str, repair: bool) -> Result<DoctorOutcom
         diagnosis,
         repaired: repair,
         appended,
+        made,
         left_for_a_person,
     })
 }
@@ -507,11 +666,13 @@ mod tests {
             findings[0].sentence
         );
         let fix = findings[0].repair.as_ref().expect("this one reconciles");
-        assert_eq!(fix.marker, "step-start");
+        let ArcRepair::Append { marker, note, .. } = fix else {
+            panic!("a log disagreement is repaired by an append: {fix:?}");
+        };
+        assert_eq!(marker, "step-start");
         assert!(
-            fix.note.starts_with("1/2 "),
-            "the repair is a real step declaration: {}",
-            fix.note
+            note.starts_with("1/2 "),
+            "the repair is a real step declaration: {note}"
         );
     }
 
@@ -528,7 +689,10 @@ mod tests {
 
         assert_eq!(codes(&findings), ["open-step-status"]);
         let fix = findings[0].repair.as_ref().expect("this one reconciles");
-        assert_eq!(fix.marker, "step-done");
+        assert!(
+            matches!(fix, ArcRepair::Append { marker, .. } if marker == "step-done"),
+            "{fix:?}"
+        );
     }
 
     /// A denominator that moved under a run in flight.

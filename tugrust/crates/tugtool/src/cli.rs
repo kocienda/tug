@@ -767,11 +767,12 @@ pub enum ArcCommands {
         /// Arc name.
         name: String,
     },
-    /// Compare the four records an arc keeps and name every disagreement.
+    /// Compare the five records an arc keeps and name every disagreement.
     ///
-    /// An arc records itself four ways — the plan's Step Status Ledger, the
-    /// arc log's declarations, the sqlite session binding, and the arc
-    /// record — and no two are written by the same act. The split that
+    /// An arc records itself five ways — the plan's Step Status Ledger, the
+    /// arc log's declarations, the sqlite session binding, the arc record,
+    /// and the seat its branch and worktree make — and no two are written by
+    /// the same act. The split that
     /// matters: **status and join-arming derive from the log, while the arc's
     /// resume pointer and the changeset feed's closed count derive from the
     /// table.** So a hand-edited table does not desync a display from the
@@ -779,11 +780,12 @@ pub enum ArcCommands {
     /// landed.
     ///
     /// Detection is free and always safe — its read-only core also runs
-    /// inside `arc status`. Repair is opt-in, and is always an *append* to
-    /// the arc log, never a rewrite: the log is append-only, and the table
-    /// is the authored document, so a reconcilable disagreement is fixed by
-    /// catching the log up to the table. Disagreements that need a judgment
-    /// are named and left.
+    /// inside `arc status`. Repair is opt-in. A log repair is always an
+    /// *append*, never a rewrite: the log is append-only, and the table is
+    /// the authored document, so a reconcilable disagreement is fixed by
+    /// catching the log up to the table. The seat's repair is the only other
+    /// one, and it makes the branch and worktree where doing so cannot lose
+    /// a round. Disagreements that need a judgment are named and left.
     ///
     /// Exit 0 when the records agree, 1 when they do not.
     Doctor {

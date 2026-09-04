@@ -42,14 +42,32 @@ If no ledger exists yet, start at a door. `/arc` sharpens the idea into a brief 
 
 ### 0. Read the `where` line
 
-The prompt that seated you carries one: `where: worktree <abs path> · session <id> bound · stage implement · Step N in hand, through M`. That is the arc's worktree — **the one working root, and the absolute path every read, write and check below is addressed by** — the seat the arc is bound to, and the step this turn owes against the selection's end. Read it and start working. The runner composed it from the records it owns and ran `arc doctor`'s four-record comparison against them immediately before sending it, so there is nothing here to probe for, nothing to confirm, and nothing to say about having done either.
+The prompt that seated you carries one: `where: worktree <abs path> · session <id> bound · stage implement · Step N in hand, through M`. That is the arc's worktree — **the one working root, and the absolute path every read, write and check below is addressed by** — the seat the arc is bound to, and the step this turn owes against the selection's end. Read it and start working. The runner made the worktree before it composed the line, then ran `arc doctor`'s comparison — the ledger table, the arc log, the binding, the arc record, and the seat itself — immediately before sending it, so there is nothing here to probe for, nothing to confirm, and nothing to say about having done either.
 
-**With no `where` line above, stop and say so.** This skill is a stage of an arc rather than a standalone command, and the doors are what start one: `/arc` sharpens an idea into a brief and a task list and opens an arc straight at this stage, `/arc-plan` writes the brief and its arc devises a plan and reads it cold first. There is no path from here that ends anywhere else, because the discipline this stage runs under — one step per turn — is only safe when something is pacing it. Without a wheel, a turn that ends at a step boundary abandons the arc: the ledger reads `in progress`, every face says somebody is working it, and nobody is.
+**The session id on the line is the card's tug session id** — the one `printenv TUG_SESSION_ID` prints in your shell. Claude's own session id never appears on a stage-facing line, so a mismatch between the two is not a finding; there is no comparison to make here, and none is asked of you.
+
+**Two things stop this stage before any step, and both stop it through the arc rather than in prose.** With no `where` line at all, or with a `where` line whose worktree is still not a directory after [Setup's fallback](#1-setup), do not end the turn on a sentence — a turn that ends in prose reads to the wheel as a quiet turn, and the arc it was carrying dies of silence half an hour later, with a receipt that says the opposite of what happened. Stop it instead:
+
+```bash
+tugtool arc ask <name> "<what you found, in one sentence>"
+```
+
+That writes the sentence as the arc's last note and stops the arc as `needs a decision`, with a Resume on the receipt the user sees in seconds. It is the one gesture by which a stage's refusal becomes a stop rather than a stall, and it is the doctrine's rule that a stop recording a person's decision is never reversed by the machine.
+
+**With no `where` line above, that is the sentence to stop on.** This skill is a stage of an arc rather than a standalone command, and the doors are what start one: `/arc` sharpens an idea into a brief and a task list and opens an arc straight at this stage, `/arc-plan` writes the brief and its arc devises a plan and reads it cold first. There is no path from here that ends anywhere else, because the discipline this stage runs under — one step per turn — is only safe when something is pacing it. Without a wheel, a turn that ends at a step boundary abandons the arc: the ledger reads `in progress`, every face says somebody is working it, and nobody is.
 
 ### 1. Setup
 
 1. Read the **Step Status Ledger** and resolve the step selector into a concrete list of steps to walk.
-2. **The worktree is the `where` line's, already hydrated and already yours.** Whatever the project declared in `[tugtool.arc].post_create` ran when the arc was created, so it arrives ready — never install dependencies by hand; a project that needs none declares none.
+2. **The worktree is the `where` line's, made by the dispatch, already hydrated and already yours.** Whatever the project declared in `[tugtool.arc].post_create` ran when the worktree was made, so it arrives ready — never install dependencies by hand; a project that needs none declares none.
+
+   **If the path on the line is not a directory, make it yourself, once, and say so.** The dispatch makes the seat before it names it, so on a healthy run this verb runs nothing. It is here as the fallback: the plugin ships beside the tugcast that composes the line, and a stage that can repair a missing seat in one idempotent verb is cheaper than an arc that stops for it.
+
+   ```bash
+   tugtool arc create <name> --json
+   ```
+
+   It is idempotent — a present branch and worktree return as-is, `created: false`, and nothing is re-hydrated. Take `worktree` from the response as the working root from here on, and say in one sentence that the dispatch had not made it, so the fact is on the transcript the audit reads. A line whose path *is* a directory runs nothing. If the path is still not a directory afterwards, that is the [second stop case](#0-read-the-where-line): `tugtool arc ask`, not prose.
 
    The plan lives at `.tug/arcs/<name>/plan.md` and nothing copies it anywhere ([D139]). `tugtool arc documents <name>` prints that path; **never copy a plan file by hand**, and never write one into the worktree. An arc whose door wrote a **task list** instead has its ledger at `tasks.md`, which the same verb prints and every `plan` verb resolves from the name alone — everything below reads "the plan" as "whichever of the two this arc has".
 3. **Check that the plan's review covers the plan.**
@@ -213,10 +231,10 @@ Everything in [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrin
 
 - **Honor the selector and the ledger.** Walk exactly the requested steps; resume from the first row that is neither `done` nor `withdrawn`; never rebuild a `done` step or build on an unfinished dependency.
 - **The verbs own the bookkeeping, and there is one for every move.** `start`, `done`, `withdraw`, `reset` to park, `reopen --why` to un-finish — never a hand-edited table. The log line each verb writes is what the arc surfaces derive `implementing (i/N)` from and what arms the join, and a hand-edit leaves the two records disagreeing with nothing to notice. A step you decided not to walk has its own verb; recording that decision in the plan's prose instead is what stales the plan's review.
-- **When a step verb refuses and no verb answers it, `tugtool arc doctor <name>` is the gesture.** It is the only one that reads all four records and says which disagrees. `/arc-bind` writes one of them and answers nothing about the rest.
+- **When a step verb refuses and no verb answers it, `tugtool arc doctor <name>` is the gesture.** It is the only one that reads all five records and says which disagrees. `/arc-bind` writes one of them and answers nothing about the rest.
 - **Ask nothing, and say nothing about yourself.** This stage runs under an arc, often unattended, so a dialog stops the arc in front of nobody — the doctrine's [never-ask list](../../../tuglaws/arc-work-doctrine.md#what-never-gets-asked) and its [never-say list](../../../tuglaws/arc-work-doctrine.md#what-never-gets-said) at their strictest. The stale plan is said in a sentence; a refused verb is answered by the verb that fits; a long selection is not a fork; and a stage's first words are about the work rather than about having found its arc.
 - **Speak of no stage after this one.** The join and the audit belong to the audit stage, which is where the shade and its escapes are written down. The ending here is one sentence about the step that closed.
-- **Run only under an arc.** With no `where` line in the prompt that seated you, say what this is a stage of and which doors start one, and stop.
+- **Run only under an arc, in a seat that exists.** With no `where` line in the prompt that seated you, or with a worktree that is still not a directory after the one idempotent `tugtool arc create`, say what you found through `tugtool arc ask <name>` and stop — never on a sentence alone.
 
 ## When to reach for something else
 

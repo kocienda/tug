@@ -189,14 +189,14 @@ pub enum ArcStopReason {
     /// — the vocabulary is closed and a reason cannot carry a payload — and the
     /// receipt reads it back beneath the sentence.
     NeedsDecision,
-    /// The arc's four records disagree about where it is, and the runner found
+    /// The arc's five records disagree about where it is, and the runner found
     /// it before seating a stage over them.
     ///
     /// The check is `doctor::doctor` at dispatch time, run against the same
-    /// four records `tugtool arc doctor` compares: the ledger table, the arc
-    /// log's declarations, the sqlite binding, and the arc record. A stage
-    /// seated over a disagreement reads a frontier that is not where the
-    /// surfaces say it is, closes a step the log will not credit, and the arc
+    /// five records `tugtool arc doctor` compares: the ledger table, the arc
+    /// log's declarations, the sqlite binding, the arc record, and the seat.
+    /// A stage seated over a disagreement reads a frontier that is not where
+    /// the surfaces say it is, closes a step the log will not credit, and the arc
     /// finishes somewhere nobody can follow — a wedge with no receipt, which
     /// is the shape this whole vocabulary exists to prevent.
     ///
@@ -207,6 +207,16 @@ pub enum ArcStopReason {
     /// uses, and for the same reason: the vocabulary is closed and a reason
     /// cannot carry a payload.
     RecordsDisagree,
+    /// The arc's worktree could not be made, so there was no seat to name.
+    ///
+    /// The dispatch makes the seat before it composes the `where` line that
+    /// names it — a line naming a path that is only computed is a promise,
+    /// and an arc opened on one dies of it. `ops::create_in` is idempotent,
+    /// so a seat already standing costs nothing; this is the reason for the
+    /// one that could not be built at all, and its note carries
+    /// `create_in`'s own error. Resumable: fix what the note names and
+    /// `tugtool arc run` dispatches the same stage again.
+    SeatUnavailable,
 }
 
 impl ArcStopReason {
@@ -239,6 +249,7 @@ impl ArcStopReason {
         ArcStopReason::Stalled,
         ArcStopReason::NeedsDecision,
         ArcStopReason::RecordsDisagree,
+        ArcStopReason::SeatUnavailable,
     ];
 
     /// The word written into `arc-stop`'s note.
@@ -269,6 +280,7 @@ impl ArcStopReason {
             ArcStopReason::Stalled => "stalled",
             ArcStopReason::NeedsDecision => "needs a decision",
             ArcStopReason::RecordsDisagree => "records disagree",
+            ArcStopReason::SeatUnavailable => "seat unavailable",
         }
     }
 
@@ -349,6 +361,7 @@ impl ArcStopReason {
             ArcStopReason::RecordsDisagree => {
                 "its records disagree about where it is, so it stopped rather than seating a stage over them"
             }
+            ArcStopReason::SeatUnavailable => "its worktree could not be made",
         }
     }
 

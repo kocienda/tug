@@ -41,9 +41,8 @@ use super::agent_bridge::{
 };
 use super::code::{parse_tug_session_id, splice_tug_session_id};
 use super::session_metadata::{
-    is_activity_delta, is_rate_limit_event, is_session_capabilities, is_system_metadata,
-    is_background_tasks_changed, is_task_edge, is_task_progress, is_tool_use, is_turn_end,
-    is_wake_started,
+    is_activity_delta, is_background_tasks_changed, is_rate_limit_event, is_session_capabilities,
+    is_system_metadata, is_task_edge, is_task_progress, is_tool_use, is_turn_end, is_wake_started,
 };
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};

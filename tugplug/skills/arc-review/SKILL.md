@@ -25,7 +25,7 @@ disallowed-tools: Task, Write, AskUserQuestion
 
 ### 0. Read the `where` line
 
-The prompt that seated you carries one: `where: worktree <abs path> · session <id> bound · stage review`. That is the arc's worktree and the seat it is bound to. Read it and start reading the plan. The runner composed it from the records it owns and ran `arc doctor`'s four-record comparison against them immediately before sending it, so there is nothing here to probe for, nothing to confirm, and nothing to say about having done either.
+The prompt that seated you carries one: `where: worktree <abs path> · session <id> bound · stage review`. That is the arc's worktree and the seat it is bound to. Read it and start reading the plan. The runner composed it from the records it owns and ran `arc doctor`'s five-record comparison against them immediately before sending it, so there is nothing here to probe for, nothing to confirm, and nothing to say about having done either.
 
 **With no `where` line above, stop and say so.** This skill is a stage of a planned arc rather than a standalone command, and `/arc-plan` is the door into it: it sharpens the idea with the user, writes the brief, and opens the arc that devises the plan and hands it here. (The other door, `/arc`, settles its steps as a task list and opens an arc with no devise stage and no review stage at all.) There is no path from here that ends anywhere else — the stamp this stage writes is read by a runner, and with no runner watching it there is nothing behind the gesture.
 

@@ -27,9 +27,19 @@ It is the sibling of `arc-review`, at the other end of the arc. Review reads a p
 
 ### 0. Read the `where` line
 
-The prompt that seated you carries one: `where: worktree <abs path> · session <id> bound · stage audit`. That is the arc's worktree — **the one working root, and the absolute path every read, write and check below is addressed by** — and the seat the arc is bound to. Read it and start reading the code. The runner composed it from the records it owns and ran `arc doctor`'s four-record comparison against them immediately before sending it, so there is nothing here to probe for, nothing to confirm, and nothing to say about having done either.
+The prompt that seated you carries one: `where: worktree <abs path> · session <id> bound · stage audit`. That is the arc's worktree — **the one working root, and the absolute path every read, write and check below is addressed by** — and the seat the arc is bound to. Read it and start reading the code. The runner made the worktree before it composed the line — idempotently, since the implement stage already worked in it — then ran `arc doctor`'s comparison across the ledger table, the arc log, the binding, the arc record, and the seat itself immediately before sending it, so there is nothing here to probe for, nothing to confirm, and nothing to say about having done either.
 
-**With no `where` line above, stop and say so.** This skill is a stage of an arc rather than a standalone command, and it is the last stage of **every** arc: `/arc` opens one at implement and `/arc-plan` opens one at devise, and each reaches here when its final declared step closes. There is no path from here that ends anywhere else — the mark this stage writes is read by a runner, and with no runner reading it the mark declares an arc finished that nothing was running.
+**The session id on the line is the card's tug session id** — the one `printenv TUG_SESSION_ID` prints in your shell. Claude's own session id never appears on a stage-facing line, so a mismatch between the two is not a finding; there is no comparison to make here, and none is asked of you. The dispatch's binding is what the join offer reads, so this stage claims nothing and needs no `arc create` for the claim it once made.
+
+**Two things stop this stage before it reads a line, and both stop it through the arc rather than in prose.** With no `where` line at all, or with a `where` line whose worktree is still not a directory after [the fallback below](#1-read-what-the-arc-said-it-would-do), do not end the turn on a sentence — a turn that ends in prose reads to the wheel as a quiet turn, and the arc dies of silence at the clock with a receipt that says the opposite of what happened. Stop it instead:
+
+```bash
+tugtool arc ask <name> "<what you found, in one sentence>"
+```
+
+That writes the sentence as the arc's last note and stops the arc as `needs a decision`, with a Resume on the receipt the user sees in seconds.
+
+**With no `where` line above, that is the sentence to stop on.** This skill is a stage of an arc rather than a standalone command, and it is the last stage of **every** arc: `/arc` opens one at implement and `/arc-plan` opens one at devise, and each reaches here when its final declared step closes. There is no path from here that ends anywhere else — the mark this stage writes is read by a runner, and with no runner reading it the mark declares an arc finished that nothing was running.
 
 ### 1. Read what the arc said it would do
 
@@ -37,6 +47,14 @@ The prompt that seated you carries one: `where: worktree <abs path> · session <
 tugtool arc documents <name> --json
 tugtool plan status <name> --json
 ```
+
+**The worktree on the `where` line was made by the dispatch.** If it is not a directory, run the idempotent verb once, take `worktree` from the response as the working root, and say in one sentence that the dispatch had not made it:
+
+```bash
+tugtool arc create <name> --json
+```
+
+A present branch and worktree return as-is (`created: false`), so on a healthy run this runs nothing and changes nothing. A path that is still not a directory afterwards is the second stop case above.
 
 **Read the ledger and the brief, both, in full.** They are the audit's standard of comparison and they answer different halves of it ([B06]):
 

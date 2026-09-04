@@ -554,7 +554,7 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Compare an arc's four records and say where they disagree ([P04]).
+/// Compare an arc's five records and say where they disagree ([P04]).
 ///
 /// The exit code is the finding: 0 when the records agree, 1 when they do
 /// not, so a script can gate on it without parsing anything. A `--repair` run
@@ -581,8 +581,9 @@ fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), S
                 println!("\n  [{}] {}", finding.code, finding.sentence);
                 match (&finding.repair, repair) {
                     (Some(fix), false) => println!(
-                        "      Repair (`--repair`): append `{}  {}` — {}",
-                        fix.marker, fix.note, fix.effect
+                        "      Repair (`--repair`): {} — {}",
+                        fix.describe(),
+                        fix.effect()
                     ),
                     (Some(_), true) => println!("      Repaired."),
                     (None, _) => println!("      No safe automatic repair; this one needs you."),
@@ -591,6 +592,9 @@ fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), S
         }
         if !outcome.appended.is_empty() {
             println!("\nAppended {} arc log line(s).", outcome.appended.len());
+        }
+        for worktree in &outcome.made {
+            println!("\nMade the seat: {worktree}");
         }
     }
 
