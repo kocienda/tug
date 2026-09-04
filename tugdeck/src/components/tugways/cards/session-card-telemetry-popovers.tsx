@@ -1326,6 +1326,63 @@ export function ArcStepItems({
 }
 
 /**
+ * The index of the row a reader opens this placard to find: the first one
+ * whose status cell says it is under way. `-1` when nothing is.
+ *
+ * "First" rather than "only" because a ledger may legitimately carry two
+ * `in progress` rows — a run that stopped mid-step leaves its cell written —
+ * and the earliest is the one the fraction counts against. Both spellings are
+ * matched because the ledger writes `in progress` and a task writes
+ * `in_progress`, and this placard may show either list.
+ */
+function activeRowIndex(statuses: ReadonlyArray<string>): number {
+  return statuses.findIndex((s) => s === "in progress" || s === "in_progress");
+}
+
+/**
+ * Bring the active row into the scroller's view when the placard opens, and
+ * again whenever a different row becomes the active one while it is open.
+ *
+ * A long ledger opens scrolled to the top, which is the one place the running
+ * step is not: by step 14 of 15 the row the reader opened the placard for is
+ * below the fold, and every row that is visible is struck through. The reveal
+ * is the scroller's own `scrollTop`, never `scrollIntoView` — a placard sits
+ * inside the deck's scrollports and `scrollIntoView` reasons about all of
+ * them, which is the argument `focus-reveal.ts` already makes.
+ *
+ * A row already comfortably in view is left where it is, so a reader who has
+ * scrolled the list themselves is not yanked back by an unrelated re-render.
+ */
+function useRevealActiveRow(
+  scrollerRef: React.RefObject<HTMLDivElement | null>,
+  activeIndex: number,
+): void {
+  React.useLayoutEffect(() => {
+    if (activeIndex < 0) return;
+    const root = scrollerRef.current;
+    if (root === null) return;
+    const rows = root.querySelectorAll<HTMLElement>(".tug-popup-list-item");
+    const row: HTMLElement | undefined = rows[activeIndex];
+    if (row === undefined) return;
+
+    const rootRect = root.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const margin = rowRect.height;
+    if (
+      rowRect.top >= rootRect.top + margin &&
+      rowRect.bottom <= rootRect.bottom - margin
+    ) {
+      return;
+    }
+    // Centred, so the steps on either side of the running one are readable;
+    // the browser clamps the result at both ends, which is what puts a first
+    // or last active row flush against its edge.
+    root.scrollTop +=
+      rowRect.top - rootRect.top - (root.clientHeight - rowRect.height) / 2;
+  }, [scrollerRef, activeIndex]);
+}
+
+/**
  * `ARC` popup — opened from the status row's fourth cell while the session is
  * driving an arc, in place of the `TASKS` reading.
  *
@@ -1377,6 +1434,17 @@ export function ArcPopoverContent({
 }): React.ReactElement {
   const steps = fact.entry.steps ?? [];
   const model = arcTrackModelFromEntry(fact.entry);
+  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
+  // The list below is the ledger when there is one and the task list when
+  // there is not, so the row to reveal is read off whichever is rendered.
+  useRevealActiveRow(
+    scrollerRef,
+    activeRowIndex(
+      steps.length > 0
+        ? steps.map((s) => s.status)
+        : tasks.map((t) => t.status),
+    ),
+  );
   return (
     <TugPopupListFrame
       kind="item"
@@ -1397,7 +1465,10 @@ export function ArcPopoverContent({
         </TugPopupListFooter>
       }
     >
-      <TugPopupListScroller data-slot="session-arc-popover-body">
+      <TugPopupListScroller
+        ref={scrollerRef}
+        data-slot="session-arc-popover-body"
+      >
         {/* The placard's heading is the same block every arc surface wears,
             at the reading scale this list is set in: the atom and the workers
             over the track, the fraction, the note and the divergence facts.

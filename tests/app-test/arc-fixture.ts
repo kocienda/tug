@@ -725,6 +725,12 @@ const STEP_TITLES = [
   "The tenth step",
   "The eleventh step",
   "The twelfth step",
+  "The thirteenth step",
+  "The fourteenth step",
+  "The fifteenth step",
+  "The sixteenth step",
+  "The seventeenth step",
+  "The eighteenth step",
 ];
 
 const FIXTURE_PLAN_TEMPLATE = `## A Fixture Plan {#fixture-plan}

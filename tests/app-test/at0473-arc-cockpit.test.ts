@@ -690,6 +690,65 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBeLessThanOrEqual(longBox.clientWidth);
           expect(longBox.width).toBe(bare.width);
 
+          // ── The placard opens on the step under way ───────────────────────
+          // A sixteen-row ledger is taller than the placard's list, and a list
+          // that opens at the top opens on the rows the walk has left behind:
+          // at step sixteen every visible title is struck through and the
+          // running one is below the fold. So the placard scrolls itself to
+          // the row under way. Written straight into the document and
+          // re-stamped, because a walk is what the run does over minutes and
+          // the ledger's cells are what the placard reads.
+          writeFileSync(
+            arcPlanPath(dirA(), ARC_NAME),
+            fixturePlanDocument(16, [
+              ...Array<string>(15).fill("done"),
+              "in progress",
+            ]),
+          );
+          tugtool(["plan", "stamp", arcPlanPath(dirA(), ARC_NAME)], {
+            cwd: dirA(),
+            binaryRoot: CHECKOUT,
+            env: { ...projectA!.cli.env, TUG_SESSION_ID: SID_A },
+          });
+          await app.waitForCondition<boolean>(
+            `(() => {
+               const rows = document.querySelectorAll(${JSON.stringify(`${ARC_PLACARD} [data-slot="session-arc-popover-step"]`)});
+               return rows.length === 16 && rows[15].getAttribute("data-status") === "in progress";
+             })()`,
+            { timeoutMs: 60000 },
+          );
+          const reveal = await app.evalJS<{
+            scrollTop: number;
+            scrollable: boolean;
+            visible: boolean;
+            activeText: string;
+          }>(
+            `(() => {
+               const body = document.querySelector(${JSON.stringify(ARC_PLACARD)});
+               const rows = Array.from(body.querySelectorAll('[data-slot="session-arc-popover-step"]'));
+               const active = rows[15];
+               const bodyRect = body.getBoundingClientRect();
+               const rowRect = active.getBoundingClientRect();
+               return {
+                 scrollTop: body.scrollTop,
+                 scrollable: body.scrollHeight > body.clientHeight,
+                 visible:
+                   rowRect.top >= bodyRect.top - 1 &&
+                   rowRect.bottom <= bodyRect.bottom + 1,
+                 activeText: (active.querySelector(".tug-popup-list-item-primary")?.textContent ?? "").trim(),
+               };
+             })()`,
+          );
+          note("at0473 arc placard reveal", JSON.stringify(reveal));
+          // The premise: this list really does overflow its scroller. Without
+          // it the assertion below would pass on a placard that never scrolled
+          // anything, and the reveal would be untested.
+          expect(reveal.scrollable, "a sixteen-row ledger overflows").toBe(true);
+          expect(reveal.scrollTop).toBeGreaterThan(0);
+          expect(reveal.visible, "the running step is in view").toBe(true);
+          expect(reveal.activeText).toBe("16.The sixteenth step");
+          note("at0473 arc placard revealed", (await app.screenshot()).path);
+
           // ── Z2 during the audit ([B03], [B04]) ────────────────────────────
           // The walk is over and the audit stage is seated. The step in hand is
           // still row 1 by the ledger, and the cell no longer counts it: the
