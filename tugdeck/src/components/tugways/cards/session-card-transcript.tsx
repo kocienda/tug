@@ -90,7 +90,6 @@ import {
   ClipboardList,
   Cog,
   Search,
-  ShipWheel,
   X,
 } from "lucide-react";
 import {
@@ -198,7 +197,7 @@ import {
 import "./session-commit-receipt-block";
 import "./session-join-receipt-block";
 import "./session-arc-receipt-block";
-import "./session-arc-note-block";
+import { ArcNoteLine } from "./session-arc-note-block";
 import "./session-notice-block";
 import { SessionNoticeLine } from "./session-notice-line";
 import { composeShellShareText } from "./shell-exchange-view";
@@ -1348,22 +1347,20 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
       if (message.source === "arc") {
         // An arc gesture's quiet line ([P12]), seated inside the turn it
         // narrates — "step 1/3 started" above the work, "step 1/3 closed"
-        // below it — so an arc reads as one conversation. The wheel's
-        // glyph says whose record is speaking; the sentence is server-
-        // derived and rendered verbatim. Same quiet-line substrate as the
-        // notice row; the marked span is what the search index projects.
+        // below it — so an arc reads as one conversation. The row itself is
+        // `ArcNoteLine`, the same component the between-turns seat mounts
+        // ([B06]): with a name, a verb, a subject, a glyph and a fallback in
+        // play, a second spelling here would drift out of step unseen. The
+        // hover title comes with it — this seat had none before.
         elements.push(
-          <div
+          <ArcNoteLine
             key={message.messageKey}
+            command={message.command}
+            sentence={message.text}
+            atMs={message.createdAt}
             className="session-card-transcript-arc-note"
-            data-slot="arc-note"
-          >
-            <TugQuietLine
-              icon={<ShipWheel size={16} aria-hidden="true" />}
-              subject={<span data-tugx-findable="">{message.text}</span>}
-              tone="quiet"
-            />
-          </div>,
+            slot="arc-note"
+          />,
         );
         continue;
       }

@@ -206,6 +206,18 @@ export interface SystemNote extends MessageBase {
    * letting the words read as the user's.
    */
   noticeOrigin?: string;
+  /**
+   * On an `arc`, the gesture's synthetic record-rendered command (`arc step
+   * <name> done`) — the marker the row's bold verb and its glyph are read
+   * from ([B02]).
+   *
+   * The between-turns seat has always had this on its shell row; the mid-turn
+   * seat dropped it, and could therefore only render the flat sentence. It is
+   * optional because every other `source` has none and a note restored from
+   * before this field existed carries none — both render `arcNoteParts`'
+   * fallback, which is today's shape.
+   */
+  command?: string;
 }
 
 /**

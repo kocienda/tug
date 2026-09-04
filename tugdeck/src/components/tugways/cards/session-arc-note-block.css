@@ -1,18 +1,80 @@
+/* @tug-pairings {
+  --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-content-rest | content
+} */
+
+/**
+ * @tug-pairings
+ * | Element                                      | Surface                                           | Role    | Context                    |
+ * |----------------------------------------------|---------------------------------------------------|---------|----------------------------|
+ * | --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-content-rest | content | .session-arc-note-name     |
+ */
+
 /* ============================================================================
-   Arc-note quiet line — the between-turns seat
+   Arc-note quiet line — the between-turns seat, and the name run both seats share
    ========================================================================= */
 
 /**
- * One sentence on the `TugQuietLine` substrate ([P12]). The mid-turn seat
+ * One gesture on the `TugQuietLine` substrate ([P12]). The mid-turn seat
  * renders inside the assistant body column and inherits its inset for free;
  * this row stands alone at the transcript's edge, so it takes the same inset
  * by arithmetic (`--tugx-transcript-body-inset`, the gutter plus its gap) —
  * both seats of the same line land at the same x, and an arc reads as one
  * column of conversation whichever seat a note took.
  *
+ * The label node carries two runs rather than one ([B03]): the arc's name,
+ * quiet, then the gesture's bold verb. Only the name is styled here — the
+ * verb, the row's geometry and its colour are all `TugQuietLine`'s under
+ * `tone="primary"`, and this file reaches into none of them ([L20]).
+ *
+ * Both seats take the Task marker's vertical rhythm ([B05]) — one
+ * `margin-block` per row rather than an adjacency scheme, which is the
+ * precedent's own argument: a streamed row never hops as siblings append.
+ * The mid-turn seat had no rule at all before this ([F04]), which is why a
+ * run of arc lines read as one welded block.
+ *
+ * The rhythm is the whole of what the precedent lends here. `user-select:
+ * none` is deliberately **not** taken: the Task marker does not carry it
+ * either, and the between-turns row is explicitly built to select and copy
+ * like any other ink (`ShellTurnCell` keeps its responder scope and cell menu
+ * for exactly that). Taking it on one seat and not the other would reopen the
+ * drift this row was unified to close.
+ *
  * @module components/tugways/cards/session-arc-note-block
  */
 
+body {
+  /* The name's own slot — a step quieter than the verb beside it. */
+  --tugx-arc-note-name-color: var(--tug7-element-global-text-normal-muted-rest);
+  --tugx-arc-note-name-weight: var(--tug-font-weight-normal);
+  /* The vertical rhythm both seats take. */
+  --tugx-arc-note-row-margin: var(--tug-space-md);
+}
+
 .session-card-transcript-quiet-row {
   padding-inline-start: var(--tugx-transcript-body-inset);
+}
+
+/* The two seats' wrappers. The between-turns row keeps its inset above — it
+   stands at the transcript's edge and reaches the body column by arithmetic,
+   where the mid-turn row is already inside that column and inherits it. */
+.session-arc-note-line,
+.session-card-transcript-arc-note {
+  margin-block: var(--tugx-arc-note-row-margin);
+}
+
+/**
+ * The name and the verb travel as a unit — the label slot is `nowrap`, so the
+ * subject is what gives way when the row runs long, which is the right thing
+ * to lose. Inline rather than flex, deliberately: the space between the two
+ * runs is a real text node, so the row's rendered text and the search index's
+ * projection of it are the same bytes.
+ */
+.session-arc-note-label {
+  display: inline;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-arc-note-name {
+  color: var(--tugx-arc-note-name-color);
+  font-weight: var(--tugx-arc-note-name-weight);
 }

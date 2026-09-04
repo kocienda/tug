@@ -6141,6 +6141,7 @@ export function absorbArcNotes(
           messageKey: key,
           createdAt: ts,
           text,
+          command: msg.command,
           source: "arc",
         },
       });
@@ -6267,6 +6268,7 @@ function handleArcNote(
     messageKey: `arc-note-${event.exchangeId}`,
     createdAt: event.timestamp,
     text: event.text,
+    command: event.command,
     source: "arc",
   };
   return {

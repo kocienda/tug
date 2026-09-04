@@ -16,6 +16,8 @@
  *     unchanged transcript comes back as the SAME reference,
  *   - a turn already carrying the note (same `arc-note-<exchangeId>` key —
  *     the live seat) absorbs the row by dropping it, no duplicate,
+ *   - a re-seated note carries the ledger row's command through, so the seat
+ *     reads the same after a relaunch as it did live ([B02]),
  *   - a non-arc shell row inside a span is never absorbed,
  *   - idempotence: absorbing twice equals absorbing once.
  */
@@ -157,6 +159,10 @@ describe("absorbArcNotes", () => {
     if (messages[2]!.kind === "system_note") {
       expect(messages[2]!.source).toBe("arc");
       expect(messages[2]!.text).toBe("demo: step 1/3 started — carve");
+      // The ledger row's own command rides into the seat ([B02]). Without it
+      // a restored run would render flat lines where the live one rendered
+      // verbs — the two must read identically, which is this pass' whole job.
+      expect(messages[2]!.command).toBe("arc step demo start");
     }
   });
 

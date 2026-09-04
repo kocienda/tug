@@ -11,6 +11,11 @@
  * registration now declares `presentation: "quiet"`, and `ShellTurnCell`
  * renders a claimed quiet row as the sentence alone.
  *
+ * This file is about the row's SEAT — which container a gesture lands in. The
+ * row's own register (the name run, the bold verb, the glyph) is at0508's
+ * subject, so the text assertions here read the parts loosely rather than
+ * pinning a flat sentence the row no longer renders.
+ *
  * Assertions, in the order the two seats are exercised:
  *
  *  1. **Between turns** (the restore path's shape): an arc-note exchange
@@ -159,7 +164,11 @@ describe.skipIf(!SHOULD_RUN)("AT0507: an arc-note row is a quiet line, not an en
         })()`);
 
         note(`at0507 quiet-row shape: ${JSON.stringify(shape)}`);
-        expect(shape.sentence).toBe(SENTENCE);
+        // The row splits the sentence into a name, a verb and a subject, so
+        // its text is those parts rather than the server's line verbatim.
+        expect(shape.sentence).toContain("demo");
+        expect(shape.sentence).toContain("Step 1/3");
+        expect(shape.sentence).toContain("carve the first slice");
         expect(shape.entries).toBe(0);
         expect(shape.addresses).toBe(0);
         expect(shape.endStates).toBe(0);
@@ -201,7 +210,9 @@ describe.skipIf(!SHOULD_RUN)("AT0507: an arc-note row is a quiet line, not an en
         })()`);
 
         note(`at0507 mid-turn seat: ${JSON.stringify(seat)}`);
-        expect(seat.text).toBe(MID_TURN_SENTENCE);
+        expect(seat.text).toContain("demo");
+        expect(seat.text).toContain("Step 1/3 closed");
+        expect(seat.text).toContain("9969b1e81");
         expect(seat.insideEntry).toBe(true);
         // The live note took the in-turn seat, so the between-turns quiet
         // row count is unchanged from seat 1.
@@ -278,7 +289,7 @@ describe.skipIf(!SHOULD_RUN)("AT0507: an arc-note row is a quiet line, not an en
             }).length,
             quietRows: document.querySelectorAll('${CARD} [data-slot="session-transcript-quiet-row"]').length,
             restoredText: seats.some(function(el){
-              return (el.textContent || "").indexOf(${JSON.stringify(RESTORED_SENTENCE)}) !== -1;
+              return (el.textContent || "").indexOf("Round 0ae618a02") !== -1;
             }),
           };
         })()`);

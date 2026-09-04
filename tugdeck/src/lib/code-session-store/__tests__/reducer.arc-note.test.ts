@@ -14,6 +14,8 @@
  * Pins:
  *   - mid-turn: a `source:"arc"` system_note is appended carrying the
  *     server-derived sentence verbatim, without displacing the opener,
+ *   - mid-turn: the note also carries the gesture's synthetic command, which
+ *     is what lets this seat render a bold verb and a glyph at all ([B02]),
  *   - two mid-turn notes take distinct message keys (the systemNoteSeq),
  *   - idle: state unchanged + one `ingest-ink-turn` effect whose sole
  *     message is a settled `arc …` shell exchange with the sentence as its
@@ -42,11 +44,15 @@ const SEND: CodeSessionEvent = {
   turnKey: "k1",
 } as CodeSessionEvent;
 
-function arcNote(text: string, exchangeId = "restored-7"): CodeSessionEvent {
+function arcNote(
+  text: string,
+  exchangeId = "restored-7",
+  command = "arc step demo start",
+): CodeSessionEvent {
   return {
     type: "arc_note",
     exchangeId,
-    command: "arc step demo start",
+    command,
     text,
     cwd: "/tmp/demo",
     timestamp: 1_700_000_000_000,
@@ -66,6 +72,9 @@ describe("reducer — handleArcNote", () => {
     if (note && note.kind === "system_note") {
       expect(note.source).toBe("arc");
       expect(note.text).toBe("demo: step 1/3 started — carve");
+      // The marker, carried through to the seat that could not read one
+      // before ([B02]) — the sentence alone can only ever be a flat line.
+      expect(note.command).toBe("arc step demo start");
     }
     // The opening user_message is still at the head, undisturbed.
     expect(entry!.messages[0]?.kind).toBe("user_message");
@@ -104,5 +113,21 @@ describe("reducer — handleArcNote", () => {
       expect(msg.exitCode).toBe(0);
       expect(msg.settledAtMs).toBe(1_700_000_000_000);
     }
+  });
+
+  it("carries each gesture's own command, not one shape for all of them", () => {
+    // The command is what tells the gestures apart, so a seat that pinned only
+    // one of them would pass while every row rendered the same verb.
+    let s = fresh();
+    s = reduce(s, SEND).state;
+    s = reduce(s, arcNote("demo: arc created", "restored-1", "arc create demo")).state;
+    s = reduce(
+      s,
+      arcNote("demo: round 999353ca1 — carve", "restored-2", "arc commit demo"),
+    ).state;
+    const notes = s.scratch
+      .get("k1")!
+      .messages.filter((m) => m.kind === "system_note");
+    expect(notes.map((n) => n.command)).toEqual(["arc create demo", "arc commit demo"]);
   });
 });

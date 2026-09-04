@@ -37,3 +37,205 @@ export function arcNoteSentence(message: { command: string; output: string }): s
   const trimmed = message.output.trim();
   return trimmed !== "" ? trimmed : message.command;
 }
+
+/**
+ * The glyph an arc gesture takes, named rather than imported ([B04]).
+ *
+ * This module is pure — it is read by the store layer as well as the row, so
+ * it must not pull React or `lucide-react` in. The renderer maps these names
+ * to components; the mapping here is the decision about *which* shape a
+ * gesture wears, and state is carried by shape rather than by hue.
+ */
+export type ArcNoteGlyph =
+  | "Wrench"
+  | "CircleCheck"
+  | "CircleMinus"
+  | "RotateCcw"
+  | "Undo2"
+  | "GitCommitHorizontal"
+  | "ListChecks"
+  | "ShipWheel";
+
+/**
+ * The parts one arc-note row renders: three weights left to right, plus the
+ * shape ([B01], [B03]).
+ *
+ * `name` is present whenever the *command* read, `label` whenever the
+ * sentence read too — so a recognised gesture whose sentence did not parse
+ * keeps its name and its shape and carries the sentence whole in `subject`,
+ * and a command this module does not recognise renders today's shape, the
+ * whole sentence under the wheel with neither. Never a blank row, and never
+ * a row that has silently dropped text the server sent.
+ */
+export interface ArcNoteParts {
+  /** The arc's name, its own quiet run at the head of the label node. */
+  name: string | null;
+  /** The bold verb. */
+  label: string | null;
+  /** The muted tail: a step's title, a round's sha, the instruction. */
+  subject: string | null;
+  glyph: ArcNoteGlyph;
+}
+
+/** What a recognised command says the gesture was. */
+type ArcGesture =
+  | "created"
+  | "run-through"
+  | "step-start"
+  | "step-done"
+  | "step-withdrawn"
+  | "step-reset"
+  | "step-reopen"
+  | "built"
+  | "audited"
+  | "round";
+
+const GLYPHS: Record<ArcGesture, ArcNoteGlyph> = {
+  created: "ShipWheel",
+  "run-through": "ListChecks",
+  "step-start": "Wrench",
+  "step-done": "CircleCheck",
+  "step-withdrawn": "CircleMinus",
+  "step-reset": "RotateCcw",
+  "step-reopen": "Undo2",
+  built: "ShipWheel",
+  audited: "ShipWheel",
+  round: "GitCommitHorizontal",
+};
+
+/**
+ * Which gesture a synthetic command names, and the arc it names it for.
+ *
+ * The command is the marker ([F05]): tugcast renders it from the record in
+ * `command_for_line`, one-to-one with the marker `note_for_line` composed the
+ * sentence from. So the gesture is read here and never parsed back out of the
+ * rendered prose — a sentence is the server's output, and re-reading it would
+ * be the wrong direction.
+ *
+ * Both heads are claimed for the same reason the matcher claims both: the
+ * shell ledger is durable and rows written before the word moved carry
+ * `dash …` ([F19]).
+ */
+function readCommand(command: string): { gesture: ArcGesture; name: string } | null {
+  const tokens = command.trim().split(/\s+/);
+  const [head, verb, name, sub, flag] = tokens;
+  if (head !== "arc" && head !== "dash") return null;
+  if (!name) return null;
+  switch (verb) {
+    case "create":
+      return { gesture: "created", name };
+    case "commit":
+      return { gesture: "round", name };
+    case "mark":
+      return sub === "built" || sub === "audited" ? { gesture: sub, name } : null;
+    case "step":
+      switch (sub) {
+        case "start":
+          return { gesture: flag === "--through" ? "run-through" : "step-start", name };
+        case "done":
+          return { gesture: "step-done", name };
+        case "withdraw":
+          return { gesture: "step-withdrawn", name };
+        case "reset":
+          return { gesture: "step-reset", name };
+        case "reopen":
+          return { gesture: "step-reopen", name };
+        default:
+          return null;
+      }
+    default:
+      return null;
+  }
+}
+
+/**
+ * The sentence with its `{arc}: ` prefix taken off, and its ` — ` tail split
+ * away.
+ *
+ * `note_for_line` prefixes the arc's name to every sentence it composes
+ * ([F07]) and joins a tail with an em dash. The prefix is stripped against
+ * the name the *command* carried rather than against the first colon in the
+ * sentence, so a round whose instruction contains a colon is never cut at the
+ * wrong place.
+ */
+function readSentence(
+  sentence: string,
+  name: string,
+): { head: string; tail: string | null; rest: string } {
+  const trimmed = sentence.trim();
+  const prefix = `${name}: `;
+  const rest = trimmed.startsWith(prefix) ? trimmed.slice(prefix.length) : trimmed;
+  const at = rest.indexOf(" — ");
+  return at === -1
+    ? { head: rest, tail: null, rest }
+    : { head: rest.slice(0, at), tail: rest.slice(at + 3) || null, rest };
+}
+
+/** The `N/M` a step sentence opens with, when it reads. */
+function readFraction(head: string): string | null {
+  return /^step (\d+\/\d+)\b/.exec(head)?.[1] ?? null;
+}
+
+/**
+ * The parts an arc-note row renders, from its synthetic command and the
+ * server's sentence ([B01]).
+ *
+ * The command decides the gesture and the glyph; the sentence supplies the
+ * tail, which is the only thing the command cannot carry — a step's title, a
+ * round's sha, the verbatim instruction. A command this does not recognise,
+ * and a sentence that does not read the way its command says it should, both
+ * degrade to today's shape rather than to a blank row.
+ */
+export function arcNoteParts(command: string, sentence: string): ArcNoteParts {
+  const read = readCommand(command);
+  const whole = sentence.trim();
+  if (!read) return { name: null, label: null, subject: whole || null, glyph: "ShipWheel" };
+
+  const { gesture, name } = read;
+  const glyph = GLYPHS[gesture];
+  const { head, tail, rest } = readSentence(whole, name);
+  /**
+   * A sentence that did not read: keep the name and the gesture's shape, and
+   * show the sentence WHOLE — `rest`, not `head`. The split into head and
+   * tail is only meaningful once the sentence has read the way its command
+   * says it should; on this path it has not, so honouring it would drop
+   * everything past the em dash on exactly the rows least understood.
+   */
+  const unread: ArcNoteParts = { name, label: null, subject: rest || null, glyph };
+
+  switch (gesture) {
+    case "created":
+      return { name, label: "Arc opened", subject: null, glyph };
+    case "built":
+    case "audited":
+      return { name, label: `Marked ${gesture}`, subject: null, glyph };
+    case "run-through": {
+      const through = /^run declared (.+)$/.exec(head)?.[1];
+      return through ? { name, label: "Run declared", subject: through, glyph } : unread;
+    }
+    case "round": {
+      const sha = /^round ([0-9a-f]+)$/.exec(head)?.[1];
+      return sha ? { name, label: `Round ${sha}`, subject: tail, glyph } : unread;
+    }
+    default: {
+      const fraction = readFraction(head);
+      if (!fraction) return unread;
+      // A done's tail is its round's sha, and the sentence parenthesises it.
+      if (gesture === "step-done") {
+        return {
+          name,
+          label: `Step ${fraction} closed`,
+          subject: /\(([^)]+)\)$/.exec(head)?.[1] ?? null,
+          glyph,
+        };
+      }
+      const WORD: Record<string, string> = {
+        "step-start": "",
+        "step-withdrawn": " withdrawn",
+        "step-reset": " parked",
+        "step-reopen": " reopened",
+      };
+      return { name, label: `Step ${fraction}${WORD[gesture]}`, subject: tail, glyph };
+    }
+  }
+}

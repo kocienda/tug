@@ -627,8 +627,22 @@
    now bigger and the identifier slightly smaller, the nudge
    pushes the glyph visibly below the text baseline; setting it to
    0 puts the icon and text top edges back into alignment. */
-.session-card-transcript .tug-transcript-entry {
+/* Declared on the transcript root rather than on the entry, and this is
+   load-bearing. `--tugx-transcript-body-inset` is the primitive's arithmetic
+   for where the body column begins, and it is the value a surface sitting at
+   the transcript's live edge — an arc-note quiet line, the landing progress
+   row — reads to line up with that column without an entry's grid to inherit.
+   A custom property's `var()`s resolve where the property is DECLARED, so
+   with the override scoped to the entry, the inset went on computing from the
+   primitive's own 36px and every edge surface landed a pixel to the right of
+   the column it was aligning to. Re-deriving it here, beside the override,
+   keeps the two in step for every reader; the entries inherit both. `em`
+   resolves identically either way — neither this root nor the entry sets a
+   font-size, so both sit on the same inherited value. */
+.session-card-transcript {
   --tugx-transcript-icon-column-width: 2.5em;
+  --tugx-transcript-body-inset:
+    calc(var(--tugx-transcript-icon-column-width) + var(--tugx-transcript-icon-column-gap));
 }
 
 .session-card-transcript .tug-transcript-entry__icon svg {
