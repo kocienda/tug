@@ -198,6 +198,34 @@ export function atomEditorLineBoxFloorPx(
   return atomRegisterMetrics(register).height + ATOM_ROW_SLACK;
 }
 
+/**
+ * Px of `vertical-align` that lands a BAKED atom's internal text baseline on
+ * the baseline of the prose around it — negative, because the box hangs below.
+ *
+ * The bake draws its label with the baseline at `height/2 + fontSize × 0.32`
+ * from the top of the box (it writes that `textY` literally), so the box's
+ * bottom has to sit `height/2 − fontSize × 0.32` BELOW the host's baseline for
+ * the two baselines to coincide.
+ *
+ * Only the baked renderers take it, and the asymmetry is the point rather than
+ * an omission: a bitmap and an `<svg>` have no baseline to offer a line of
+ * text, so one is computed for them from where they are about to paint the
+ * ink. The live CSS pill has the ink itself — it exposes its label's own
+ * baseline (`tug-session-identity.css`'s strut) and needs no correction on top
+ * of it. What both renderings owe is the same OUTCOME, the label sitting on
+ * the host's line, and `at0490` measures the two against each other in one
+ * sentence rather than trusting either.
+ *
+ * It lives here rather than in the bake because it is the last of the atom's
+ * vertical numbers, and the register is where those are decided.
+ */
+export function atomBaselineOffsetPx(
+  register: AtomRegister = DEFAULT_ATOM_REGISTER,
+): number {
+  const m = atomRegisterMetrics(register);
+  return Math.round(m.fontSize * 0.32 - m.height / 2);
+}
+
 /** The room a baseline-aligned atom's overhang needs above the cap line. */
 const ATOM_LINE_BOX_CUSHION = 4;
 

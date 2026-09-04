@@ -44,6 +44,15 @@
  *      pseudo-element measured during its animation reports an interpolated
  *      pose, which would make the assertion a coin flip.
  *
+ * A second test takes the same pair down to the gallery's running-text sample,
+ * where the two renderers stand in one sentence rather than in a flex row, and
+ * asks the other half of the question: not how tall the atom is but where it
+ * SITS. The rows above cannot ask it — `vertical-align` is inert in a flex
+ * container — which is how the live pill came to align by its phase dot's
+ * bottom edge (an `inline-flex` takes its baseline from its first flex item)
+ * while the bake beside it aligned by its own label, and a session citation in
+ * a transcript paragraph sat off the line of the sentence holding it.
+ *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/lib/atom-register.ts
@@ -63,6 +72,12 @@ const TEST_TIMEOUT_MS = 120_000;
 
 const CARD = '[data-testid="gallery-atom"]';
 const ROW = `${CARD} .gallery-atom-register`;
+/**
+ * The running-text sample's nowrap pair — a baked chip and the live pill with
+ * only a word between them, so the two are guaranteed to share a line and
+ * their boxes are comparable.
+ */
+const PAIR = `${CARD} [data-slot="gallery-atom-inline-pair"]`;
 
 interface RegisterRow {
   register: string;
@@ -152,6 +167,40 @@ const ROWS_JS = `(function () {
   });
 })()`;
 
+/** What the sample line reports about where its two atoms sit. */
+interface InlineBaselines {
+  /** The last baked `<img>` chip's bottom edge, in viewport px. */
+  bakedBottom: number | null;
+  /** The live pill's bottom edge, in viewport px. */
+  pillBottom: number | null;
+  /** Both boxes' heights, so an alignment match cannot hide a size mismatch. */
+  bakedHeight: number | null;
+  pillHeight: number | null;
+}
+
+/**
+ * Measure the two renderers where they share a line.
+ *
+ * Bottom edges, not baselines: neither box has a text baseline the DOM will
+ * report, and both are the same height and aligned to the same prose line — so
+ * equal bottoms IS equal alignment, and the heights come back alongside so a
+ * pair that agreed by both being wrong could not pass.
+ */
+const INLINE_JS = `(function () {
+  var pair = document.querySelector(${JSON.stringify(PAIR)});
+  if (pair === null) return { bakedBottom: null, pillBottom: null, bakedHeight: null, pillHeight: null };
+  var baked = pair.querySelector("img[data-atom-type]");
+  var pill = pair.querySelector('[data-slot="tug-session-identity"]');
+  var b = baked === null ? null : baked.getBoundingClientRect();
+  var p = pill === null ? null : pill.getBoundingClientRect();
+  return {
+    bakedBottom: b === null ? null : b.bottom,
+    pillBottom: p === null ? null : p.bottom,
+    bakedHeight: b === null ? null : Math.round(b.height),
+    pillHeight: p === null ? null : Math.round(p.height),
+  };
+})()`;
+
 describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () => {
   test(
     "the live pill measures the same box as the baked chips at every register",
@@ -214,6 +263,47 @@ describe.skipIf(!SHOULD_RUN)("atom registers — one table, two renderers", () =
         // check above and prove nothing, so the difference is pinned too.
         const heights = rows.map((r) => r.declaredHeight);
         expect(new Set(heights).size).toBe(rows.length);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "the live pill sits on the same line as the baked chip beside it",
+    async () => {
+      const app = await launchTugApp({ testName: "at0490-atom-inline-baseline" });
+      try {
+        await app.dispatchControlAction("show-card", { component: "gallery-atom" });
+        await app.waitForCondition<boolean>(
+          `(function () {
+             var pair = document.querySelector(${JSON.stringify(PAIR)});
+             if (pair === null) return false;
+             var img = pair.querySelector("img[data-atom-type]");
+             var pill = pair.querySelector('[data-slot="tug-session-identity"]');
+             return img !== null && pill !== null
+               && img.getBoundingClientRect().height > 0
+               && pill.getBoundingClientRect().height > 0;
+           })()`,
+          { timeoutMs: 15_000 },
+        );
+
+        const inline = await app.evalJS<InlineBaselines>(INLINE_JS);
+        note(`at0490 inline pair: ${JSON.stringify(inline)}`);
+        note("at0490 inline pair", (await app.screenshot()).path);
+
+        // Same box first — an alignment that matched because both renderers
+        // had drifted the same way would say nothing.
+        expect(inline.pillHeight).toBe(inline.bakedHeight);
+        // …and the same seat. The two renderers get there by different
+        // routes — the bake is offset by `atomBaselineOffsetPx` because a
+        // bitmap has no baseline of its own, while the pill exposes its
+        // label's — so their bottom edges landing together is a claim about
+        // the OUTCOME rather than about a shared number, which is the only
+        // form of it a reader of the sentence can see. A pixel of slack for
+        // sub-pixel layout; the defect this catches was five.
+        expect(Math.abs(inline.pillBottom! - inline.bakedBottom!)).toBeLessThanOrEqual(1);
       } finally {
         await app.close();
       }

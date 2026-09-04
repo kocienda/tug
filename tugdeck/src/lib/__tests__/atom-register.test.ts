@@ -14,6 +14,7 @@ import {
   ATOM_DOT_CLEARANCE,
   ATOM_DOT_REACH,
   ATOM_REGISTERS,
+  atomBaselineOffsetPx,
   atomEditorLineBoxFloorPx,
   atomRegisterMetrics,
   type AtomRegister,
@@ -127,6 +128,32 @@ describe("the phase mark stays inside the pill", () => {
       expect(Number.isInteger(m.dotSize)).toBe(true);
       expect(Number.isInteger(box)).toBe(true);
       expect((box - m.dotSize) % 2).toBe(0);
+    }
+  });
+});
+
+describe("the atom's baseline", () => {
+  // The box hangs BELOW the line it stands on, always: the label sits under
+  // the middle of the pill, so the pill's bottom must fall under the prose
+  // baseline for the two baselines to meet. A non-negative offset would mean
+  // an atom sitting on the line like a word, which is the alignment this
+  // replaced.
+  test("every register hangs its box below the host baseline", () => {
+    for (const register of REGISTERS) {
+      expect(atomBaselineOffsetPx(register)).toBeLessThan(0);
+    }
+  });
+
+  // …and the label's own baseline stays inside the box it is painted in. The
+  // offset is derived from `height/2 + fontSize × 0.32`, which is a claim about
+  // where the ink lands; a register whose type outgrew its box would keep
+  // passing the arithmetic while painting the label through the border.
+  test("the label's baseline lands inside the box at every register", () => {
+    for (const register of REGISTERS) {
+      const m = atomRegisterMetrics(register);
+      const textBaseline = m.height / 2 + m.fontSize * 0.32;
+      expect(textBaseline).toBeGreaterThan(m.borderWidth);
+      expect(textBaseline).toBeLessThan(m.height - m.borderWidth);
     }
   });
 });

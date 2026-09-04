@@ -280,7 +280,10 @@ body {
 .tug-session-identity[data-tier="chip"] {
   box-sizing: border-box;
   block-size: var(--tugx-atom-height, 22px);
-  gap: 5px;
+  /* Declared as a property because the baseline strut below has to cancel
+     exactly one of these gaps, and two 5s that must agree is one 5 too many. */
+  --tugx-atom-pill-gap: 5px;
+  gap: var(--tugx-atom-pill-gap);
   padding-block: 0;
   padding-inline: 9px;
   border: var(--tugx-atom-border-width, 1px) solid
@@ -291,6 +294,36 @@ body {
   font-family: var(--tug-font-family-sans);
   font-size: var(--tugx-atom-font-size, 13px);
   line-height: normal;
+}
+
+/* ── The pill's BASELINE is its label's ────────────────────────────────────
+   A flex container has no baseline of its own: it borrows its FIRST flex
+   item's. For this pill that item is the phase dot — a box with no text in
+   it, whose baseline the browser therefore synthesizes from its bottom edge —
+   so an atom standing in a sentence hung off the underside of its own dot
+   rather than sitting on the line, five pixels low in the transcript with
+   nothing to notice against but the words on either side of it. The flex rows
+   the gallery draws could not show it: `vertical-align` is inert in a flex
+   container, and every surface that had a citation in RUNNING TEXT was the
+   only place the mark was ever wrong.
+
+   The fix is to give the container a real first item with a real baseline: a
+   zero-width strut carrying `U+200B`, in the pill's own font, centred by the
+   same `align-items: center` that centres the label. Same face, same leading,
+   same centring, so its baseline IS the label's — and the pill now offers the
+   line the baseline a reader is actually looking at. No `vertical-align` goes
+   with it, and none should: `baseline` is now the truth, where a length would
+   be a correction on top of a lie. (`middle` least of all — it centres on the
+   x-height and floats the label off the prose baseline.)
+
+   It is zero-width, but it is still a flex item, so it takes a `gap` the way
+   any item does. The negative margin gives that gap back. */
+.tug-session-identity[data-tier="chip"]::before {
+  content: "\200B";
+  flex: none;
+  align-self: center;
+  inline-size: 0;
+  margin-inline-end: calc(-1 * var(--tugx-atom-pill-gap));
 }
 
 /* State varies on top of the authored rest values rather than deriving them:

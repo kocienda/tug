@@ -51,6 +51,7 @@ import { arcForSessionNow } from "@/lib/arc-session-index";
 import { withArcSigil } from "@/lib/arc-sigil-text";
 import {
   DEFAULT_ATOM_REGISTER,
+  atomBaselineOffsetPx,
   atomEditorLineBoxFloorPx,
   atomRegisterMetrics,
   type AtomRegister,
@@ -204,18 +205,6 @@ export function setAtomFont(family: string): void {
   _measureFamily = family;
 }
 
-/**
- * vertical-align offset (px) so the atom's internal text baseline aligns
- * with the surrounding text baseline. The chip draws label text with its
- * baseline at `height/2 + fontSize * 0.32` from the top of the box, so the
- * IMG's bottom must sit `height/2 - fontSize * 0.32` below the parent
- * baseline — i.e. a negative vertical-align of that magnitude.
- */
-function atomBaselineOffsetFor(register: AtomRegister): number {
-  const m = atomRegisterMetrics(register);
-  return Math.round(m.fontSize * 0.32 - m.height / 2);
-}
-
 // ---- Text measurement ----
 
 /** Shared canvas for text measurement. */
@@ -305,7 +294,7 @@ export interface AtomChipGeometry {
   /** The session dot's painted diameter, in px — the register's. */
   dotSize: number;
   /** Vertical-align offset (px) for `<img>`-based renderers — see
-   *  {@link atomBaselineOffsetFor}. Inline-`<svg>` renderers ignore
+   *  {@link atomBaselineOffsetPx}. Inline-`<svg>` renderers ignore
    *  this and align via the shared `.tug-atom-chip` CSS rule. */
   baselineOffset: number;
 }
@@ -369,7 +358,7 @@ export function computeAtomChipGeometry(
     fontSize: size,
     fontFamily: family,
     dotSize: metrics.dotSize,
-    baselineOffset: atomBaselineOffsetFor(register),
+    baselineOffset: atomBaselineOffsetPx(register),
   };
 }
 

@@ -20,6 +20,7 @@
  */
 
 import React, { useId, useRef, useLayoutEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   createAtomImgElement,
   formatAtomLabel,
@@ -153,6 +154,13 @@ export function GalleryAtom() {
   const inlineRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
   const [labelMode, setLabelMode] = useState<AtomLabelMode>("filename");
+  /* The running-text sample's host for the LIVE pill — created by the same
+     imperative pass that appends the baked chips, so the pill stands in the
+     sentence's own inline flow rather than beside it. That flow is the only
+     place the baseline claim can be read: `vertical-align` does nothing in the
+     flex rows above, so a pill hanging off its phase dot instead of its label
+     looked identical up there and wrong down here. */
+  const [pillHost, setPillHost] = useState<HTMLSpanElement | null>(null);
 
   // All types [L06]
   useLayoutEffect(() => {
@@ -185,6 +193,28 @@ export function GalleryAtom() {
         el.appendChild(createAtomImgElement(part.type, part.label, part.value));
       }
     }
+    // …and the live pill, last, in the same sentence: the one atom of the
+    // family that is a subscribed component rather than a drawing of one.
+    //
+    // It stands inside a nowrap span with a baked chip beside it, and that
+    // pairing is the point: the two renderers align by two different routes
+    // and only a shared LINE can show that they arrive at the same place. A
+    // wrap between them would put the comparison on two lines and quietly
+    // make it meaningless.
+    el.appendChild(document.createTextNode(" Asked of "));
+    const pair = document.createElement("span");
+    pair.dataset.slot = "gallery-atom-inline-pair";
+    pair.style.whiteSpace = "nowrap";
+    pair.appendChild(
+      createAtomImgElement("file", "deck-manager.ts", "/src/deck-manager.ts"),
+    );
+    pair.appendChild(document.createTextNode(" by "));
+    const host = document.createElement("span");
+    host.dataset.slot = "gallery-atom-inline-pill";
+    pair.appendChild(host);
+    el.appendChild(pair);
+    el.appendChild(document.createTextNode("."));
+    setPillHost(host);
   }, []);
 
   // Label modes [L06]
@@ -247,7 +277,22 @@ export function GalleryAtom() {
       {/* ---- Inline with text ---- */}
       <div className="cg-section">
         <TugLabel className="cg-section-title">Inline with Text</TugLabel>
-        <div ref={inlineRef} className="gallery-atom-text-sample" />
+        <div
+          ref={inlineRef}
+          className="gallery-atom-text-sample"
+          style={atomRegisterVars("prose") as React.CSSProperties}
+        />
+        {pillHost
+          ? createPortal(
+              <TugSessionIdentity
+                identity={GALLERY_IDENTITY}
+                tier="chip"
+                register="prose"
+                tooltip={false}
+              />,
+              pillHost,
+            )
+          : null}
       </div>
 
       <TugSeparator />
