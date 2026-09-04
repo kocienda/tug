@@ -18,6 +18,7 @@ import {
   buildTaskStartedMessage,
   buildTaskUpdatedMessage,
   buildTaskProgressMessage,
+  buildBackgroundTasksChangedMessage,
   routeTopLevelEvent,
   type EventMappingContext,
 } from "../session.ts";
@@ -174,6 +175,81 @@ describe("buildTaskProgressMessage", () => {
   });
 });
 
+/**
+ * The roster event, from the live capture in
+ * `tugcode/probes/background-bash-wake/FINDINGS.md` with its identifiers
+ * shortened. It fires twice around a backgrounded call: once at the launch
+ * carrying the new task, once at the wake carrying what remains.
+ */
+const ROSTER_AT_LAUNCH = {
+  type: "system",
+  subtype: "background_tasks_changed",
+  tasks: [
+    {
+      task_id: "t1",
+      task_type: "local_bash",
+      description: "Run sleep then echo in background",
+    },
+  ],
+  uuid: "u1",
+  session_id: "c1",
+} as Record<string, unknown>;
+
+const ROSTER_AT_WAKE = {
+  type: "system",
+  subtype: "background_tasks_changed",
+  tasks: [],
+  uuid: "u2",
+  session_id: "c1",
+} as Record<string, unknown>;
+
+describe("buildBackgroundTasksChangedMessage", () => {
+  test("forwards the event minus its envelope", () => {
+    const frame = buildBackgroundTasksChangedMessage(ROSTER_AT_LAUNCH, "sess-1");
+    expect(frame).not.toBeNull();
+    expect(frame!.type).toBe("background_tasks_changed");
+    expect(frame!.session_id).toBe("sess-1");
+    // The envelope is the frame's own `type`; carrying it inside `payload`
+    // too would give a reader two places to look for one fact.
+    expect(frame!.payload.type).toBeUndefined();
+    expect(frame!.payload.subtype).toBeUndefined();
+    // Everything else rides through unread, which is the point — a field
+    // claude adds arrives without a tugcode release.
+    expect(frame!.payload).toEqual({
+      tasks: [
+        {
+          task_id: "t1",
+          task_type: "local_bash",
+          description: "Run sleep then echo in background",
+        },
+      ],
+      uuid: "u1",
+      session_id: "c1",
+    });
+  });
+
+  test("carries the empty roster the wake reports", () => {
+    // An empty `tasks` is a real statement — nothing is running — and must
+    // not be mistaken for nothing to say.
+    const frame = buildBackgroundTasksChangedMessage(ROSTER_AT_WAKE, "sess-1");
+    expect(frame).not.toBeNull();
+    expect(frame!.payload.tasks).toEqual([]);
+  });
+
+  test("returns null for every other event", () => {
+    const started = fixtureEvents().find(
+      (e) => e.type === "system" && e.subtype === "task_started",
+    )!;
+    expect(buildBackgroundTasksChangedMessage(started, "sess-1")).toBeNull();
+    expect(
+      buildBackgroundTasksChangedMessage(
+        { type: "assistant", subtype: "background_tasks_changed" },
+        "sess-1",
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("in-turn routing", () => {
   test("routeTopLevelEvent emits task_started / task_updated IPC frames", () => {
     const events = fixtureEvents();
@@ -198,6 +274,15 @@ describe("in-turn routing", () => {
     const progressResult = routeTopLevelEvent(progress, baseCtx);
     expect(progressResult.messages).toHaveLength(1);
     expect(progressResult.messages[0]!.type).toBe("task_progress");
+  });
+
+  test("routeTopLevelEvent emits the background roster instead of dropping it", () => {
+    // It reached `noteUnhandledSystemSubtype` until the Step 1 capture found
+    // it there, which cost tugcast the one frame that states the roster
+    // rather than deriving it from edges.
+    const result = routeTopLevelEvent(ROSTER_AT_LAUNCH, baseCtx);
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0]!.type).toBe("background_tasks_changed");
   });
 
   test("malformed task frames route to zero messages, not a throw", () => {

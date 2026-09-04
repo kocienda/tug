@@ -784,12 +784,12 @@ pub async fn run_session_bridge(
             entry.child_gone_at = Some(std::time::Instant::now());
             entry.turn_active = false;
             // Whatever it had backgrounded died with it; a job that will never
-            // report must not leave the session permanently unfinished.
+            // report must not leave the session permanently unfinished. That
+            // covers the provisional `launch:` entries too, and for the same
+            // reason with more force: a launch the dead child made will never
+            // produce its `task_started`, so the entry holding the session
+            // busy has nothing left that could ever close it.
             entry.open_jobs.clear();
-            // And a launch the dead child made will never produce its
-            // `task_started` — a stale id must not arm the gate for a
-            // coincidentally-matching frame after respawn.
-            entry.background_launches.clear();
         }
 
         match outcome {

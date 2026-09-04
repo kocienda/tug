@@ -42,6 +42,12 @@ body {
    * the full card width. */
   --tugx-idialog-max-width:    600px;
   --tugx-idialog-padding:      0.625rem 0.75rem 1.5rem;
+  /* A header-only frame's padding. The full frame's asymmetric bottom
+   * inset exists to separate the header row from the description, body,
+   * and options below it; with none of those present it reads as a
+   * frame that lost its balance. Same top and sides, bottom equal to
+   * the top. */
+  --tugx-idialog-padding-header: 0.625rem 0.75rem;
   --tugx-idialog-bg:           var(--tug7-surface-global-primary-normal-raised-rest);
   --tugx-idialog-border:       var(--tug7-element-global-border-normal-default-rest);
   --tugx-idialog-radius:       var(--tug-radius-md);
@@ -123,6 +129,13 @@ body {
   border: 1px solid var(--tugx-idialog-border);
   border-radius: var(--tugx-idialog-radius);
   box-sizing: border-box;
+}
+
+/* The header-only shape — no description, no body, no options. `data-layout`
+ * is set by the component from the same three predicates that gate those
+ * rows, so this rule and the markup cannot disagree about which shape it is. */
+[data-slot="tug-inline-dialog"][data-layout="header"] {
+  padding: var(--tugx-idialog-padding-header);
 }
 
 /* ---- Header row (icon + leadingActions + title + actions) ----

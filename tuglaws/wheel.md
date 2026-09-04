@@ -42,11 +42,13 @@ A rotation is defined as much by what it cannot change as by what it carries. `R
 
 ## The turn-end rule
 
-**A rotation happens at the end of a turn, and never inside one.**
+**A rotation happens at the settled end of a turn, and never inside one.**
 
 The reason is not scheduling politeness. A rotation retires the claude session seated under the card, and the caller asking for one is a model *running inside that session* — so performing the rotation on receipt would kill the model mid-sentence, in the middle of the turn that asked for it. The request is recorded and the verb returns; the card rotates seconds later, when the turn ends.
 
 The edge it waits for is the idle transition tugcast already computes once, in the supervisor's dispatcher, and fans to sibling channels — base-motion's, the arc runner's, and the wheel's. Three channels rather than three subscribers because an mpsc has one consumer.
+
+That edge is a claim about an *instant*, so the arc runner settles it for `[tugtool.arc].idle_settle_secs` before spending it on anything irreversible: a turn end followed within milliseconds by a wake is not an end, and the gap between the two reads idle to anybody who looks once.
 
 **There is no perform-at-request-time path, and adding one would be a bug.** It is tempting: if the session reads idle, why wait? Because `turn_active` is written true in exactly one place — the dispatcher's `user_message` intercept — so a turn tugcast did not itself open reads *idle while claude is working*. Parking under a wrong reading costs one turn; performing under a wrong reading kills a working session. The asymmetry is the whole argument.
 

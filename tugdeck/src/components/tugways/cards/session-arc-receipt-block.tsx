@@ -68,7 +68,7 @@ export interface ArcReceiptStage {
 
 /** The display facts parsed from an arc receipt, complete or stopped. */
 export interface ParsedArcReceipt {
-  outcome: "complete" | "stopped";
+  outcome: "complete" | "stopped" | "resumed";
   arc: string;
   /** The document the arc opened on; absent on a record that had none. */
   document: string | null;
@@ -97,6 +97,17 @@ export interface ParsedArcReceipt {
     said: string | null;
     terminal: boolean;
   } | null;
+  /**
+   * A pick-up's stage and the fact that undid the stop, or `null` on the other
+   * two outcomes.
+   *
+   * The stage is on the receipt's own header rather than looked up, and it has
+   * to be: `trackModelFor` cannot build an identity strip without one, and a
+   * receipt is a frozen record of a past moment with no live store to ask —
+   * the same reason `terminal` is read off a frozen sentence rather than
+   * carried on the wire.
+   */
+  resumed: { stage: string; moved: string } | null;
 }
 
 // The two headers, matched exactly. `·` is U+00B7 and the em arc U+2014, so a
@@ -104,6 +115,13 @@ export interface ParsedArcReceipt {
 // and commit receipts keep, for the same reason.
 const COMPLETE_RE = /^arc complete · (.+)$/;
 const STOPPED_RE = /^arc stopped · (.+?) · in (.+?) — (.+)$/;
+/**
+ * The third header: a silence-judged stop that the stopped stage itself
+ * contradicted. Tried **before** `STOPPED_RE`, which it cannot collide with —
+ * the two differ in their second word — but ordering the more specific first
+ * is the discipline that keeps a fourth header from having to think about it.
+ */
+const RESUMED_RE = /^arc picked back up · (.+?) · in (.+?) · (.+)$/;
 /**
  * A stage line, keyed on the closed stage vocabulary rather than on the shape
  * of a session id. `ArcStage::as_str` is the whole set, and matching it is what
@@ -129,13 +147,14 @@ const LEGACY_RESUME_RE = /^resume with tugtool arc run \S+$/;
 export function parseArcReceipt(output: string): ParsedArcReceipt | null {
   const lines = output.split("\n");
   const head = lines[0] ?? "";
-  const stopped = STOPPED_RE.exec(head);
-  const complete = stopped === null ? COMPLETE_RE.exec(head) : null;
-  if (stopped === null && complete === null) return null;
+  const resumed = RESUMED_RE.exec(head);
+  const stopped = resumed === null ? STOPPED_RE.exec(head) : null;
+  const complete = resumed === null && stopped === null ? COMPLETE_RE.exec(head) : null;
+  if (resumed === null && stopped === null && complete === null) return null;
 
   const parsed: ParsedArcReceipt = {
-    outcome: stopped !== null ? "stopped" : "complete",
-    arc: (stopped !== null ? stopped[1] : complete?.[1]) ?? "",
+    outcome: resumed !== null ? "resumed" : stopped !== null ? "stopped" : "complete",
+    arc: (resumed?.[1] ?? (stopped !== null ? stopped[1] : complete?.[1])) ?? "",
     document: null,
     stages: [],
     plan: null,
@@ -147,6 +166,10 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
             said: null,
             terminal: false,
           }
+        : null,
+    resumed:
+      resumed !== null
+        ? { stage: resumed[2] ?? "", moved: resumed[3] ?? "" }
         : null,
   };
 
@@ -184,18 +207,52 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
 }
 
 /**
+ * The tone the block wears, one arm per outcome.
+ *
+ * Keyed on `stopped` rather than on `complete`, so a third outcome is not an
+ * error by default: `error` says *do something about this*, and an arc that
+ * picked itself back up needs nothing done about it. A demoted stop is `idle`
+ * because the row has been answered and there is nothing left to do either.
+ *
+ * Pure and exported, so the tone is a table test rather than a rendering.
+ */
+export function arcReceiptPhase(
+  parsed: ParsedArcReceipt,
+  demoted: boolean,
+): "idle" | "error" | "success" {
+  if (demoted) return "idle";
+  return parsed.outcome === "stopped" ? "error" : "success";
+}
+
+/**
  * The strip the receipt leads with.
  *
  * A finished arc reads as arrived — its last stage is behind it and the join
  * is what is left — so it is driven by `audited`, the stage the audit's mark
  * leaves. A stopped arc rests on the stage it stopped in and carries the
  * reason, which is what paints the strip's stopped tone.
+ *
+ * A **picked-back-up** arc is neither: it is running again, in the stage the
+ * header names, with no `stopped` and no `done` — which is exactly what makes
+ * `arcRunning` read true and paints the strip as work in progress. Named
+ * rather than left to fall through, because falling through would draw a
+ * pick-up as an arc the audit had finished.
+ *
+ * Exported for the same reason `shouldOfferResume` is: the deck's tests are
+ * pure-logic `bun:test` with no fake DOM, so a reader only the JSX reaches is
+ * a reader nothing can assert.
  */
-function trackModelFor(parsed: ParsedArcReceipt): ReturnType<typeof arcTrackModel> {
+export function trackModelFor(parsed: ParsedArcReceipt): ReturnType<typeof arcTrackModel> {
   const documents =
     parsed.document !== null && parsed.document.endsWith("brief.md")
       ? { brief: parsed.document, plan: parsed.plan ?? undefined }
       : { plan: parsed.plan ?? undefined };
+  if (parsed.outcome === "resumed") {
+    return arcTrackModel({
+      documents,
+      arc: { stage: parsed.resumed?.stage ?? "implement" },
+    });
+  }
   if (parsed.outcome === "stopped") {
     return arcTrackModel({
       documents,
@@ -239,7 +296,18 @@ export function shouldOfferResume(
 }
 
 /**
+ * The offer's title. Exported so it can be pinned without rendering — the
+ * deck's tests are pure-logic `bun:test` with no fake DOM, so a string only
+ * the JSX holds is a string nothing can assert.
+ */
+export const ARC_RESUME_OFFER_TITLE = "Resume this arc";
+
+/**
  * The offer itself: `TugInlineDialog` carrying one **Resume**.
+ *
+ * **The title says what the button does** ([P11]). "Resume this arc" and a
+ * `Resume` button are one gesture named once; the older "Pick this arc back
+ * up" made the reader translate the title into the button before pressing it.
  *
  * **The primitive, not the scope** ([B02]). No `useInlineDialogScope`, and so
  * no focus trap, no scrim, no card-modality, no `CANCEL_DIALOG` responder. A
@@ -285,7 +353,7 @@ function ArcResumeOffer({ arc }: { arc: string }): React.ReactElement {
   return (
     <TugInlineDialog
       icon={<Play />}
-      title="Pick this arc back up"
+      title={ARC_RESUME_OFFER_TITLE}
       className="arc-receipt-resume"
       actions={
         <TugPushButton
@@ -312,16 +380,21 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
   // record of that moment, so what changes is how loudly it is offered —
   // `error` says *do something about this*, and there is nothing left to do.
   const demoted = props.superseded === true && parsed.outcome === "stopped";
+  // The row's note, one arm per outcome. A pick-up's `stop` is `null`, so the
+  // stopped arm's `?? "stopped"` would label a row saying the arc is running
+  // again with the word *stopped* — the fall-through this arm exists to stop.
+  const note =
+    parsed.outcome === "complete"
+      ? `${parsed.stages.length} ${parsed.stages.length === 1 ? "stage" : "stages"}`
+      : parsed.outcome === "resumed"
+        ? "picked back up"
+        : (parsed.stop?.reason ?? "stopped");
   const identity = (
     <span className="arc-receipt-identity">
       <TugArcAtom name={parsed.arc} />
       <ArcLifecycleLine
         model={trackModelFor(parsed)}
-        note={
-          parsed.outcome === "complete"
-            ? `${parsed.stages.length} ${parsed.stages.length === 1 ? "stage" : "stages"}`
-            : (parsed.stop?.reason ?? "stopped")
-        }
+        note={note}
         size="read"
       />
     </span>
@@ -335,11 +408,16 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
         rootSlot="arc-receipt-block"
         variant="receipt"
         identity={identity}
-        phase={demoted ? "idle" : parsed.outcome === "complete" ? "success" : "error"}
+        phase={arcReceiptPhase(parsed, demoted)}
         status="ready"
         copyText={props.message.output}
       >
         <div className="arc-receipt-body">
+          {parsed.resumed !== null ? (
+            <p className="arc-receipt-doc" data-tugx-findable="">
+              {parsed.resumed.moved}
+            </p>
+          ) : null}
           {parsed.document !== null ? (
             <p className="arc-receipt-doc" data-tugx-findable="">
               opened on <code>{parsed.document}</code>

@@ -580,6 +580,37 @@ pub async fn hand_back(
     supervisor: &AgentSupervisor,
     tug_session_id: &TugSessionId,
 ) -> Result<(), Refusal> {
+    let model = {
+        let ledger = supervisor.ledger.lock().await;
+        let entry_arc = match ledger.get(tug_session_id) {
+            Some(e) => e.clone(),
+            None => return Err(Refusal::UnknownSession),
+        };
+        drop(ledger);
+        let entry = entry_arc.lock().await;
+        entry
+            .deck_model
+            .clone()
+            .unwrap_or_else(|| "default".to_string())
+    };
+    send_model(supervisor, tug_session_id, &model).await
+}
+
+/// Put the card on `model` with exactly one `model_change` frame.
+///
+/// The delivery half of [`hand_back`], lifted out because the reversal needs
+/// the same act pointed the other way: a stop hands the card back to the
+/// deck's model, and a stop being *undone* has to put the stage's model back
+/// on. Which model is the caller's question; getting one frame there, or a
+/// refusal naming why not, is this one's.
+///
+/// The `Spawning` arm queues rather than sends, because a card mid-spawn has
+/// no input channel yet and the queue is what the spawn drains.
+pub async fn send_model(
+    supervisor: &AgentSupervisor,
+    tug_session_id: &TugSessionId,
+    model: &str,
+) -> Result<(), Refusal> {
     let entry_arc = {
         let ledger = supervisor.ledger.lock().await;
         match ledger.get(tug_session_id) {
@@ -587,12 +618,8 @@ pub async fn hand_back(
             None => return Err(Refusal::UnknownSession),
         }
     };
-    let (model, snapshot) = {
+    let snapshot = {
         let entry = entry_arc.lock().await;
-        let model = entry
-            .deck_model
-            .clone()
-            .unwrap_or_else(|| "default".to_string());
         match entry.spawn_state {
             SpawnState::Spawning => {
                 drop(entry);
@@ -607,7 +634,7 @@ pub async fn hand_back(
                 }
                 return Ok(());
             }
-            SpawnState::Live => (model, entry.input_tx.clone()),
+            SpawnState::Live => entry.input_tx.clone(),
             SpawnState::Idle => return Err(Refusal::Idle),
             SpawnState::Errored => return Err(Refusal::Errored),
             SpawnState::Closed => return Err(Refusal::Closed),

@@ -10,10 +10,13 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  ARC_RESUME_OFFER_TITLE,
   arcReceiptFindParts,
+  arcReceiptPhase,
   matchesArcReceipt,
   parseArcReceipt,
   shouldOfferResume,
+  trackModelFor,
 } from "@/components/tugways/cards/session-arc-receipt-block";
 import { resolveCommandAttribution } from "@/components/tugways/cards/session-command-block-registry";
 import { sessionAtomLabel } from "@/components/tugways/tug-atom-ref";
@@ -91,6 +94,7 @@ describe("parsing a completed arc", () => {
       ],
       plan: "arc/foo.md",
       stop: null,
+      resumed: null,
     });
   });
 
@@ -211,10 +215,17 @@ describe("offering the resume", () => {
     const parsed = parseArcReceipt(LEGACY);
     expect(shouldOfferResume(parsed!, undefined)).toBe(true);
   });
+
+  it("titles the offer with the gesture its button performs", () => {
+    // The title and the button are one gesture, so they say one word. The
+    // older "Pick this arc back up" made the reader translate the title into
+    // the `Resume` button before pressing it.
+    expect(ARC_RESUME_OFFER_TITLE).toBe("Resume this arc");
+  });
 });
 
 describe("what does not parse", () => {
-  it("refuses a line that is not one of the two headers", () => {
+  it("refuses a line that is not one of the three headers", () => {
     expect(parseArcReceipt("arc: something nobody wrote a format for")).toBeNull();
     expect(parseArcReceipt("")).toBeNull();
     expect(arcReceiptFindParts(message("not a receipt"))).toBeNull();
@@ -227,6 +238,76 @@ describe("what does not parse", () => {
       "arc complete · foo\nopened on arc/foo-brief.md\nplan arc/foo.md",
     );
     expect(parsed?.stages).toEqual([]);
+  });
+});
+
+/**
+ * The third outcome: a silence-judged stop the stopped stage itself
+ * contradicted, which the runner undoes on its own. The literal is copied
+ * verbatim from `a_step_closing_on_a_stopped_arc_picks_it_back_up`, the same
+ * pinning every other literal in this file does.
+ *
+ * `outcome` is a three-member union with three readers that each split it two
+ * ways, so the risk this block covers is not the parse — it is a reader falling
+ * through: a pick-up drawn as an audited arc, labelled with the word *stopped*,
+ * in the error tone.
+ */
+describe("parsing an arc picked back up", () => {
+  const PICKED_UP = "arc picked back up · demo · in implement · a step closed";
+
+  it("reads the arc, the stage, and what moved", () => {
+    const parsed = parseArcReceipt(PICKED_UP);
+    expect(parsed?.outcome).toBe("resumed");
+    expect(parsed?.arc).toBe("demo");
+    expect(parsed?.resumed).toEqual({
+      stage: "implement",
+      moved: "a step closed",
+    });
+  });
+
+  it("carries no stop, because the stop is what it undid", () => {
+    expect(parseArcReceipt(PICKED_UP)?.stop).toBeNull();
+  });
+
+  it("offers no resume: the arc is already running again", () => {
+    const parsed = parseArcReceipt(PICKED_UP);
+    expect(parsed).not.toBeNull();
+    expect(shouldOfferResume(parsed!, undefined)).toBe(false);
+  });
+
+  it("is not read as a stop by the header before it", () => {
+    // The two headers differ in their second word, so `STOPPED_RE` cannot
+    // match this line — asserted rather than assumed, because the order the
+    // parser tries them in is the only thing that would hide a collision.
+    const parsed = parseArcReceipt(PICKED_UP);
+    expect(parsed?.outcome).not.toBe("stopped");
+  });
+
+  it("a stop is still a stop", () => {
+    // The negative control: adding a third header must not have changed what
+    // the other two parse to.
+    expect(parseArcReceipt(STOPPED)?.outcome).toBe("stopped");
+    expect(parseArcReceipt(COMPLETE)?.outcome).toBe("complete");
+  });
+
+  it("draws as an arc that is running, not one the audit finished", () => {
+    // The fall-through this covers: `trackModelFor`'s complete arm seats the
+    // strip at `audit` with `done: true`, which is what a pick-up would have
+    // been drawn as. It is running in the stage the header names instead.
+    const parsed = parseArcReceipt(PICKED_UP);
+    expect(parsed).not.toBeNull();
+    const model = trackModelFor(parsed!);
+    const audited = trackModelFor(parseArcReceipt(COMPLETE)!);
+    expect(model.phase).not.toBe(audited.phase);
+  });
+
+  it("wears the success tone, never the error one", () => {
+    // `error` says *do something about this*, and there is nothing to do about
+    // an arc that picked itself back up.
+    const parsed = parseArcReceipt(PICKED_UP);
+    expect(arcReceiptPhase(parsed!, false)).toBe("success");
+    expect(arcReceiptPhase(parseArcReceipt(STOPPED)!, false)).toBe("error");
+    expect(arcReceiptPhase(parseArcReceipt(STOPPED)!, true)).toBe("idle");
   });
 });
 

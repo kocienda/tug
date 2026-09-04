@@ -2195,6 +2195,7 @@ struct ConfigPayload {
     implement_model: Option<String>,
     audit_model: Option<String>,
     implement_compact_tokens: Option<u64>,
+    idle_settle_secs: Option<u64>,
 }
 
 /// Read the declarations the run's ending and the build offer consume.
@@ -2225,6 +2226,7 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
         implement_model: arc.implement_model,
         audit_model: arc.audit_model,
         implement_compact_tokens: arc.implement_compact_tokens,
+        idle_settle_secs: arc.idle_settle_secs,
     };
 
     if json {
@@ -2283,6 +2285,14 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
                 "implement_compact_tokens: {} (defaults to {})",
                 undeclared,
                 tugtool_core::config::IMPLEMENT_COMPACT_TOKENS_DEFAULT
+            ),
+        }
+        match payload.idle_settle_secs {
+            Some(secs) => println!("idle_settle_secs: {}", secs),
+            None => println!(
+                "idle_settle_secs: {} (defaults to {})",
+                undeclared,
+                tugtool_core::config::IDLE_SETTLE_SECS_DEFAULT
             ),
         }
     }
@@ -2684,6 +2694,7 @@ mod tests {
             implement_model: None,
             audit_model: None,
             implement_compact_tokens: None,
+            idle_settle_secs: None,
         };
         let value = serde_json::to_value(&payload).expect("serialize");
         for key in [
@@ -2691,6 +2702,7 @@ mod tests {
             "review_model",
             "implement_model",
             "implement_compact_tokens",
+            "idle_settle_secs",
         ] {
             assert!(
                 value.get(key).is_some_and(serde_json::Value::is_null),

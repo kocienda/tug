@@ -1913,6 +1913,9 @@ async fn main() {
             wheel: Arc::clone(&wheel_state),
             cancel: cancel.clone(),
             live_owner: tugcore::instance::instance_tmux_live,
+            // Filled by `run_arc_engine` itself, which owns the channel's
+            // other end.
+            settle: None,
         },
         arc_tick_rx,
         changeset_all_rx.clone(),

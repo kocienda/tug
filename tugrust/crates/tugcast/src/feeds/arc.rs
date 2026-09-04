@@ -3,9 +3,18 @@
 //!
 //! [`arc_action`] is a first-match-wins rule list over [`ArcFacts`], in the
 //! order the doctrine states the transitions. The order *is* the specification: a
-//! dead session outranks every document fact, an open turn outranks every
-//! rotation, and within a stage the earlier row wins. Reordering the arms
-//! changes the machine.
+//! dead session outranks every document fact, a resume outranks the clock, an
+//! open turn outranks every rotation, and within a stage the earlier row wins.
+//! Reordering the arms changes the machine.
+//!
+//! The resume arm sits where it does because of an incident. It used to be
+//! *below* the clock, so a stopped arc whose stall deadline had run out while
+//! it sat stopped answered `Stalled` to the very tick the user's resume was
+//! asking to act on — the resume landed and was undone within 160 ms, twice.
+//! A stale clock is a fact about the silence before the resume, and the resume
+//! is the answer to it; the answer has to outrank the complaint. The arm
+//! carries its own idle check for that reason, rather than relying on the
+//! shared gate below it.
 //!
 //! # The predicate is pure
 //!
@@ -144,6 +153,20 @@ pub struct ArcFacts {
     /// `/new` reset, a rewind fork, a re-spawn onto a picked session.
     /// `true` when the arc has rotated nothing yet.
     pub stage_seated: bool,
+    /// The **stopped** stage's own session has moved since the stop — a wake
+    /// ending or opening a turn on it, or a step closing ([P05]).
+    ///
+    /// Runner memory rather than a document fact: the comparison is against
+    /// the `StopMarks` the stop left behind, which is the only record of what
+    /// the arc looked like at the moment it was judged silent. Meaningless on
+    /// a record that is not stopped, and the predicate reads it only there.
+    ///
+    /// A stop for silence is a claim that nothing is happening. This fact is
+    /// that claim being wrong, arriving from the one session entitled to
+    /// contradict it — and on the night of 2026-09-03 it arrived ninety-six
+    /// seconds after the stop, in the form of the step the stage had been
+    /// working on all along closing, and nobody read it.
+    pub stopped_stage_moved: bool,
     /// The stage session's context size in tokens, from the latest recorded
     /// `context_breakdown`. `None` when nothing has been recorded — a missing
     /// measurement is not a reason to guess.
@@ -186,6 +209,15 @@ pub struct ArcFacts {
     /// indistinguishable from a first walk here, and needs to be: what resets
     /// the count is a step closing, whichever walk closed it.
     pub quiet_turns: u32,
+    /// A re-ask is out and the turn it opened has not ended yet ([P06]).
+    ///
+    /// The horizon spends one re-ask per quiet asked turn, and this is what
+    /// stops it spending a second on the same one: a tick fires on a changeset
+    /// recompute as well as on a turn end, so `quiet_turns == 1` is true of
+    /// every tick between the re-ask and the turn that answers it. The runner
+    /// holds the pending prompt and retires it on the tick that reads the
+    /// count past it, exactly as with the compaction.
+    pub reask_pending: bool,
     /// The arc's clock has run out: nothing has moved — no turn ended, no
     /// step closed, no act by the runner — for the whole of
     /// `[tugtool.arc].arc_stall_secs`.
@@ -193,18 +225,26 @@ pub struct ArcFacts {
     /// The runner computes it, because it is the only party that holds a
     /// previous reading *and* a wall clock; the predicate reads it like any
     /// other fact and spends it on a stop. It is the one fact here that is not
-    /// derived from an edge, and it exists because the two wedges it catches
+    /// derived from an edge, and it exists because the wedges it catches
     /// produce no edge to derive anything from.
+    ///
+    /// **Its one job is a turn that never ends** (and the unseated wait, which
+    /// is clocked elsewhere). The runner computes it only on a reading that is
+    /// *not* idle; an idle session is the settle's and the horizon's to judge,
+    /// because a stage between turns has an edge to be judged on and the
+    /// horizon answers it in one turn rather than in thirty minutes.
     pub stalled: bool,
 }
 
 /// How many turns an implement stage may end without closing a step before
 /// the arc stops and hands the card back.
 ///
-/// Two, so a stage that ends one turn asking a question or reporting a snag
-/// gets the next turn to recover — which is the ordinary shape of a stage
-/// that then closes its step. Two in a row is a stage that is not walking the
-/// ledger, and no number of further ticks will make it start.
+/// Two **asks**, not two turn ends ([P06]). The first quiet asked turn is
+/// answered by a re-ask naming the open step, so a stage that ended one turn
+/// on a question or a snag gets the next turn to recover — and gets it because
+/// somebody asked, which is what the count assumes and what nothing used to
+/// supply. Two asked turns in a row closing nothing is a stage that is not
+/// walking the ledger, and a third ask would be the same question louder.
 pub const QUIET_TURN_HORIZON: u32 = 2;
 
 /// The inclusive step range a continued implement stage walks, as the opening
@@ -246,6 +286,11 @@ pub enum PromptKind {
     /// The continue ask — `arc-implement` again, over the inclusive step
     /// range the stage has left.
     Continue { steps: (usize, usize) },
+    /// The re-ask — the open step named back to a stage whose asked turn
+    /// ended without closing it ([P06], Spec S03). `steps` is the same
+    /// inclusive pair the continue ask carries: the open step, and the run's
+    /// declared end.
+    StillOpen { steps: (usize, usize) },
 }
 
 /// The facts that produced a prompt, carried so the runner records exactly
@@ -254,6 +299,7 @@ pub enum PromptKind {
 pub enum PromptWhy {
     Compact { tokens: u64, compact_tokens: u64 },
     Continue,
+    StillOpen,
 }
 
 /// What the arc should do next.
@@ -274,15 +320,54 @@ pub enum ArcAction {
         stage: ArcStage,
         reason: ArcStopReason,
     },
+    /// Undo a silence-judged stop: the stopped stage's own session moved, so
+    /// the silence the stop recorded was not there ([P05]). `stage` is the one
+    /// to pick back up, and it is already seated — nothing rotates.
+    Reverse {
+        stage: ArcStage,
+    },
+    /// Pick a resumed stage back up **on the session it is already sitting
+    /// on** ([P08]). Nothing rotates: the card is the stage's own, so the
+    /// context it built is still there, and a rotation would spend it to say
+    /// something the stage already knows.
+    ///
+    /// `steps` is the inclusive range an implement stage is asked for, and
+    /// `None` for every other stage — the same pair a rotation would have
+    /// carried, because the ask is composed the same way.
+    Continue {
+        stage: ArcStage,
+        steps: Option<(usize, usize)>,
+    },
 }
 
 /// Decide the arc's next act, or `None` when it should sit still.
 ///
 /// The arms are in the doctrine's order and the first match wins.
 pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
-    // A finished or stopped arc is not advanced by a tick. Resuming a stopped
-    // arc is an explicit `/arc`, which rotates the stopped stage again and
-    // clears the stop by doing so.
+    // **The reversal, first of all** ([P05]). A stop for silence is a claim
+    // that nothing is happening, and the stopped stage's own session moving is
+    // that claim being wrong — from the one session entitled to contradict it.
+    // Above every other arm because none of them may run on a stopped record,
+    // and above the idle gate because a stage that is mid-turn is the most
+    // emphatic form the contradiction takes.
+    //
+    // Three conditions, and each excludes a way of being wrong: the reason
+    // must be one the machine *inferred* rather than one a person's act
+    // recorded (Table T03); the session must be the stopped stage's own, not
+    // a fresh card that happens to be bound; and something must actually have
+    // moved since the stop, rather than the stop's own reading being seen a
+    // second time.
+    if let Some((stage, reason)) = record.stopped.as_ref()
+        && facts.stopped_stage_moved
+        && facts.stage_session_current
+        && ArcStopReason::parse(reason).is_some_and(|reason| reason.judged_silence())
+    {
+        return Some(ArcAction::Reverse { stage: *stage });
+    }
+
+    // Every other stopped arc, and every finished one, is not advanced by a
+    // tick. Resuming one is an explicit `/arc`, which rotates the stopped
+    // stage again and clears the stop by doing so.
     if record.done || record.stopped.is_some() {
         return None;
     }
@@ -296,6 +381,48 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
             stage: stage.unwrap_or(ArcStage::Devise),
             reason: ArcStopReason::SessionGone,
         });
+    }
+
+    // A resume names the stage to rotate again and outranks every document
+    // fact and the clock alike: the documents still say what they said when
+    // the arc stopped, and the user has asked for the stopped stage back.
+    //
+    // Above the clock, which is the arm this one is here to beat. An arc that
+    // sat stopped overnight has a stall deadline long since run out, and that
+    // silence is the silence the stop already accounted for — answering
+    // `Stalled` to it would re-stop the arc on the same tick the resume
+    // arrived, which is what the incident's two undone Resume presses were.
+    //
+    // The idle check is this arm's own rather than the shared gate's below,
+    // because the shared gate is now under the clock. The verb runs from
+    // inside the asking session's own turn, so waiting for idle is what places
+    // this rotation at that turn's end — and returning `None` rather than
+    // falling through is the point: a resume that is merely *early* must not
+    // become some other arm's decision.
+    if let Some(stage) = record.resume {
+        if !facts.session_idle {
+            return None;
+        }
+        let steps = (stage == ArcStage::Implement)
+            .then(|| facts.ledger.first_pending.zip(facts.ledger.run_through))
+            .flatten();
+        // **The stage's own card, so the stage's own session** ([P08]). A
+        // resume used to rotate unconditionally, and a rotation is a fresh
+        // session: the incident's resume spent the whole working context of a
+        // stage that had been working when it was wrongly stopped. When the
+        // card is still the one the record names, the stage is already sitting
+        // there and only needs to be asked again.
+        //
+        // A card that has been taken — another session bound, or the stage's
+        // one gone — has nothing to continue, and rotates exactly as before.
+        if facts.stage_session_current {
+            return Some(ArcAction::Continue { stage, steps });
+        }
+        return Some(ArcAction::Rotate(Rotation {
+            stage,
+            steps,
+            note: None,
+        }));
     }
 
     // The clock, above the idle gate on purpose. A hung turn never goes idle,
@@ -313,21 +440,6 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     // Nothing rotates mid-turn.
     if !facts.session_idle {
         return None;
-    }
-
-    // A resume names the stage to rotate again and outranks the document
-    // facts: the documents still say what they said when the arc stopped, and
-    // the user has asked for the stopped stage back. The verb runs
-    // from inside the asking session's own turn, so the idle check above is
-    // what places this rotation at that turn's end.
-    if let Some(stage) = record.resume {
-        return Some(ArcAction::Rotate(Rotation {
-            stage,
-            steps: (stage == ArcStage::Implement)
-                .then(|| facts.ledger.first_pending.zip(facts.ledger.run_through))
-                .flatten(),
-            note: None,
-        }));
     }
 
     // A recorded stage that is not the one running is one of two things, and
@@ -580,6 +692,28 @@ fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
                 reason: ArcStopReason::ImplementIdle,
             });
         }
+        // One quiet asked turn is answered, not waited out ([P06]). Before
+        // this the horizon had no legitimate path to it: nothing prompted the
+        // stage after its first quiet turn, so the second turn end could only
+        // be a wake or a person, and the count was a wake detector wearing a
+        // stop's sentence. The re-ask is what makes the second count mean what
+        // it says.
+        //
+        // Exactly one, and `reask_pending` is what holds it to one: a tick
+        // fires on a changeset recompute too, so `quiet_turns == 1` is true of
+        // every tick until the re-asked turn ends.
+        if facts.quiet_turns == 1
+            && !facts.reask_pending
+            && let Some((next, through)) = facts.ledger.first_pending.zip(facts.ledger.run_through)
+            && next <= through
+        {
+            return Some(ArcAction::Prompt {
+                kind: PromptKind::StillOpen {
+                    steps: (next, through),
+                },
+                why: PromptWhy::StillOpen,
+            });
+        }
         return None;
     }
     let next = facts.ledger.first_pending?;
@@ -675,6 +809,7 @@ mod tests {
                 .collect(),
             notes: Vec::new(),
             stopped: None,
+            last_stop: None,
             resume: None,
             dispatched: None,
             owner: None,
@@ -694,6 +829,9 @@ mod tests {
             ledger: StepLedgerFacts::default(),
             session_live: true,
             session_idle: true,
+            // Meaningless on a running record, which is what these facts
+            // describe; the reversal's own tests set it and a stop beside it.
+            stopped_stage_moved: false,
             stage_turn_ended: true,
             stage_api_error: false,
             stage_turn_cancelled: false,
@@ -706,6 +844,7 @@ mod tests {
             compact_turn_just_ended: false,
             audit_declared: false,
             quiet_turns: 0,
+            reask_pending: false,
             stalled: false,
         }
     }
@@ -722,6 +861,109 @@ mod tests {
             Some(ArcAction::Prompt { kind, why }) => (kind, why),
             other => panic!("expected a prompt, got {other:?}"),
         }
+    }
+
+    /// A stopped record whose stage has moved: the arc, the facts, and the
+    /// stop, ready for the reversal arm to be asked about.
+    fn stopped_and_moving(reason: &str) -> (ArcRecord, ArcFacts) {
+        let mut record = record(&[ArcStage::Implement]);
+        record.stopped = Some((ArcStage::Implement, reason.to_string()));
+        let mut facts = facts();
+        facts.stopped_stage_moved = true;
+        (record, facts)
+    }
+
+    /// **The incident's ninety-six seconds, as a decision.** A stop for silence
+    /// is a claim that nothing is happening; the stopped stage's own session
+    /// moving is that claim being wrong, and every one of the five stops the
+    /// machine *inferred* is undone by it.
+    #[test]
+    fn a_wake_on_a_stopped_stages_session_reverses_a_silence_judged_stop() {
+        for reason in [
+            "implement idle",
+            "stalled",
+            "lint",
+            "review did not stamp",
+            "audit did not mark",
+        ] {
+            let (record, facts) = stopped_and_moving(reason);
+            assert_eq!(
+                arc_action(&record, &facts),
+                Some(ArcAction::Reverse {
+                    stage: ArcStage::Implement
+                }),
+                "a stop for {reason} is a judgement the stage may contradict",
+            );
+        }
+    }
+
+    /// And every stop recording a **person's** act stands, however much the
+    /// session moves afterwards. A stop that is not a judgement about silence
+    /// is not a judgement the machine may correct — reversing `stopped by user`
+    /// would be the runner overruling the user.
+    #[test]
+    fn a_persons_stop_is_never_reversed() {
+        for reason in [
+            "card taken",
+            "stopped by user",
+            "card closed",
+            "needs a decision",
+            "records disagree",
+        ] {
+            let (record, facts) = stopped_and_moving(reason);
+            assert_eq!(
+                arc_action(&record, &facts),
+                None,
+                "a stop for {reason} is not the machine's to undo",
+            );
+        }
+    }
+
+    /// The contradiction has to come from the session that was stopped. A
+    /// fresh card bound to the arc is somebody else's turn ending, and reading
+    /// it as the stage waking would pick an arc back up on a session that has
+    /// never seen it.
+    #[test]
+    fn a_reversal_needs_the_stopped_stages_own_session() {
+        let (record, mut facts) = stopped_and_moving("implement idle");
+        facts.stage_session_current = false;
+        assert_eq!(arc_action(&record, &facts), None);
+    }
+
+    /// A tick over a stopped record with no motion since the stop decides
+    /// nothing — which is the stop's own reading arriving a second time, and
+    /// the one shape a reversal must not read as life.
+    #[test]
+    fn a_stopped_arc_that_has_not_moved_is_left_alone() {
+        let (record, mut facts) = stopped_and_moving("implement idle");
+        facts.stopped_stage_moved = false;
+        assert_eq!(arc_action(&record, &facts), None);
+    }
+
+    /// **The reversal outranks the idle gate**, and that is the point rather
+    /// than an oversight. A stage that is mid-turn is the most emphatic form
+    /// the contradiction takes: it is not merely that the stage moved, it is
+    /// that the stage is working right now, on a card the stop has already
+    /// handed back to the deck's model.
+    #[test]
+    fn a_reversal_outranks_the_idle_gate() {
+        let (record, mut facts) = stopped_and_moving("stalled");
+        facts.session_idle = false;
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Reverse {
+                stage: ArcStage::Implement
+            }),
+        );
+    }
+
+    /// A stop whose word the vocabulary does not hold — a log written by a
+    /// newer tugcast, or by hand — reverses nothing. `parse` answering `None`
+    /// is the conservative direction: an unrecognised stop stands.
+    #[test]
+    fn a_stop_reason_nobody_wrote_is_never_reversed() {
+        let (record, facts) = stopped_and_moving("a reason from the future");
+        assert_eq!(arc_action(&record, &facts), None);
     }
 
     #[test]
@@ -1020,9 +1262,12 @@ mod tests {
         let mut resuming = record(&[ArcStage::Review]);
         resuming.resume = Some(ArcStage::Review);
         assert_eq!(
-            rotation(arc_action(&resuming, &facts())).stage,
-            ArcStage::Review,
-            "and a resume rotates the stage it stopped in",
+            arc_action(&resuming, &facts()),
+            Some(ArcAction::Continue {
+                stage: ArcStage::Review,
+                steps: None,
+            }),
+            "and a resume picks the stopped stage back up on its own session",
         );
         let mut mid_turn = facts();
         mid_turn.session_idle = false;
@@ -1232,22 +1477,35 @@ mod tests {
         facts
     }
 
-    /// **The quiet-turn horizon.** An implement turn that ends closing no step
-    /// leaves the arc nothing to do — and used to leave it nothing to do
-    /// *forever*, with no receipt and no gesture to answer. One such turn is
-    /// patience; the horizon's worth is a stop.
+    /// **The horizon is two asks** ([P06]). An implement turn that ends
+    /// closing no step used to leave the arc nothing to do *forever*, with no
+    /// receipt and no gesture to answer — and then, at a count nothing
+    /// legitimately reached, a stop. The first quiet asked turn is answered by
+    /// a re-ask naming the open step; the second is the stop, and the re-ask
+    /// is what makes that count mean what its sentence says.
     #[test]
-    fn one_quiet_implement_turn_waits_and_the_horizon_stops() {
+    fn one_quiet_asked_turn_is_re_asked_and_the_second_stops() {
         let seated = record(&[ArcStage::Implement]);
 
         let mut facts = implementing(Some(120_000), false);
         facts.quiet_turns = 1;
         assert_eq!(
             arc_action(&seated, &facts),
-            None,
-            "one quiet turn is a stage that may yet close its step"
+            Some(ArcAction::Prompt {
+                kind: PromptKind::StillOpen { steps: (4, 9) },
+                why: PromptWhy::StillOpen,
+            }),
+            "one quiet turn is a stage that may yet close its step, and is asked to"
         );
 
+        facts.reask_pending = true;
+        assert_eq!(
+            arc_action(&seated, &facts),
+            None,
+            "the re-ask is spent once, not once per tick"
+        );
+
+        facts.reask_pending = false;
         facts.quiet_turns = QUIET_TURN_HORIZON;
         assert_eq!(
             arc_action(&seated, &facts),
@@ -1571,21 +1829,27 @@ mod tests {
         );
     }
 
-    /// The other half of the absence: a stage that ends *one* turn without
-    /// closing a step and then goes silent. The quiet-turn horizon cannot
-    /// reach it — the horizon counts turns that end, and no more end — so it
-    /// sits at 1 forever. The clock is what answers it.
+    /// **An idle session is never the clock's** ([P06]). The two facts cannot
+    /// both be true from this step on: the runner computes `stalled` only on a
+    /// reading that is not idle, because an idle reading has an edge and the
+    /// horizon answers it in one turn. What the clock is left to answer is a
+    /// turn that never ends, and it still does.
     #[test]
-    fn one_quiet_turn_and_then_silence_is_the_clocks_to_answer() {
+    fn an_idle_session_is_never_the_clocks() {
         let mut facts = implementing(Some(120_000), false);
         facts.quiet_turns = 1;
+        facts.reask_pending = true;
+        assert!(facts.session_idle, "the reading under test is an idle one");
         assert_eq!(
             arc_action(&record(&[ArcStage::Implement]), &facts),
             None,
-            "the horizon is not reached and never will be"
+            "a re-ask is out, and the clock has nothing to say over an idle reading"
         );
 
+        // `stalled = true` with `session_idle = true` is a reading the runner
+        // no longer produces; the pairing that does occur is a turn in flight.
         facts.stalled = true;
+        facts.session_idle = false;
         assert_eq!(
             arc_action(&record(&[ArcStage::Implement]), &facts),
             Some(ArcAction::Stop {
@@ -1653,6 +1917,9 @@ mod tests {
         record.resume = Some(ArcStage::Review);
         let mut facts = facts();
         facts.lint_ok = false;
+        // On a card that is no longer the stage's, which is the shape that
+        // still rotates ([P08]); the same-session fork has its own test.
+        facts.stage_session_current = false;
         assert_eq!(
             rotation(arc_action(&record, &facts)).stage,
             ArcStage::Review,
@@ -1664,9 +1931,52 @@ mod tests {
     fn a_resumed_implement_stage_carries_its_step_range() {
         let mut record = record(&[ArcStage::Implement]);
         record.resume = Some(ArcStage::Implement);
-        let rotation = rotation(arc_action(&record, &implementing(None, false)));
+        let mut facts = implementing(None, false);
+        facts.stage_session_current = false;
+        let rotation = rotation(arc_action(&record, &facts));
         assert_eq!(rotation.stage, ArcStage::Implement);
         assert_eq!(rotation.steps, Some((4, 9)));
+    }
+
+    /// **A resume keeps the stage's own session when the card is still its
+    /// own** ([P08]). The incident's resume rotated, and a rotation is a fresh
+    /// session: it spent the whole working context of a stage that had been
+    /// working when it was wrongly stopped. The steps are the same pair the
+    /// rotation would have carried, because the ask is composed the same way.
+    #[test]
+    fn a_resume_on_the_stages_own_session_continues_it() {
+        let mut record = record(&[ArcStage::Implement]);
+        record.resume = Some(ArcStage::Implement);
+        let mut facts = implementing(None, false);
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Continue {
+                stage: ArcStage::Implement,
+                steps: Some((4, 9)),
+            }),
+            "the stage is sitting right there, so it is asked rather than replaced"
+        );
+
+        // A card somebody else took, or one whose session is gone, has nothing
+        // to continue.
+        facts.stage_session_current = false;
+        assert_eq!(
+            rotation(arc_action(&record, &facts)).stage,
+            ArcStage::Implement,
+            "a taken card rotates exactly as it did before"
+        );
+
+        // Every stage but implement walks no ledger, so it carries no steps —
+        // and continues on its own session just the same.
+        let mut devise = self::record(&[ArcStage::Devise]);
+        devise.resume = Some(ArcStage::Devise);
+        assert_eq!(
+            arc_action(&devise, &self::facts()),
+            Some(ArcAction::Continue {
+                stage: ArcStage::Devise,
+                steps: None,
+            })
+        );
     }
 
     #[test]
@@ -1683,5 +1993,59 @@ mod tests {
         let mut record = record(&[ArcStage::Implement]);
         record.done = true;
         assert_eq!(arc_action(&record, &facts()), None);
+    }
+
+    /// **The incident's morning, as a predicate table.**
+    ///
+    /// The arc stopped in the evening; the clock went on ageing over the
+    /// stopped record all night; the user pressed Resume twice the next
+    /// morning and both presses were undone within 160 ms. With the resume arm
+    /// below the clock, a stale `stalled` was the answer to the very tick the
+    /// resume was asking to act on. Above it, the resume wins — and a resume
+    /// that arrives mid-turn waits rather than falling through to the arm it
+    /// was placed above.
+    #[test]
+    fn a_tick_that_reads_a_resume_can_never_decide_stalled() {
+        let mut record = record(&[ArcStage::Implement]);
+        record.resume = Some(ArcStage::Implement);
+
+        let mut facts = facts();
+        facts.stalled = true;
+        facts.session_idle = true;
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Continue {
+                stage: ArcStage::Implement,
+                steps: None,
+            }),
+            "an idle resume is answered, however stale the clock is",
+        );
+
+        facts.session_idle = false;
+        assert_eq!(
+            arc_action(&record, &facts),
+            None,
+            "a resume mid-turn waits for the turn to end — it never becomes a stop",
+        );
+    }
+
+    /// The one arm a resume does not outrank. A resume asks for a stage back
+    /// on a session that is gone, and there is nothing to rotate onto — so the
+    /// more specific stop still wins, which is why the resume arm went below
+    /// `session_live` rather than above everything.
+    #[test]
+    fn a_gone_session_still_outranks_a_resume() {
+        let mut record = record(&[ArcStage::Implement]);
+        record.resume = Some(ArcStage::Implement);
+
+        let mut facts = facts();
+        facts.session_live = false;
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::SessionGone,
+            }),
+        );
     }
 }

@@ -44,14 +44,15 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use tugarc_core::arc::{
     ArcRecord, ArcStage, ArcStopReason, append_arc_dispatch, append_arc_done, append_arc_note,
-    append_arc_owner, append_arc_plan, append_arc_stop, read_arc, stage_model,
+    append_arc_continue, append_arc_owner, append_arc_plan, append_arc_resume, append_arc_stop,
+    read_arc, stage_model,
 };
 use tugarc_core::log::append_arc_log;
 use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 use tugtool_core::config::{ArcConfig, Config};
 use tugtool_core::plan;
 
-use super::agent_supervisor::{AgentSupervisor, SpawnState};
+use super::agent_supervisor::{AgentSupervisor, SpawnState, TurnOpener};
 use super::arc::{
     ArcAction, ArcFacts, PromptKind, PromptWhy, QUIET_TURN_HORIZON, Rotation, StepLedgerFacts,
     arc_action, step_range,
@@ -78,6 +79,19 @@ pub struct ArcContext {
     /// injection [`crate::feeds::arc_ownership::verdict`] takes, lifted one
     /// level to where the runner reaches for it.
     pub live_owner: fn(&str) -> bool,
+    /// Where the settle's armed re-sweep lands ([P01]).
+    ///
+    /// An unsettled idle reading acts on nothing and arms one task that sleeps
+    /// the settle and sends the arc's session id here; `run_arc_engine` reads
+    /// it on a fourth `select!` arm and sweeps. Without it a reading that goes
+    /// unspent would wait for whatever wakes the loop next — a changeset
+    /// recompute, or the minute clock — which is the wrong latency for a
+    /// stage sitting at a step boundary.
+    ///
+    /// `None` in the test harness, which drives `sweep` directly and ages the
+    /// clock through `quiet_since` rather than sleeping. Arming nothing is
+    /// then the correct behaviour rather than a stub.
+    pub settle: Option<mpsc::Sender<String>>,
 }
 
 /// Per-arc memory the documents cannot hold.
@@ -114,22 +128,37 @@ struct ArcState {
     /// step. Cleared by a close and by a rotation; a compact turn neither
     /// clears it nor adds to it.
     quiet_turns: u32,
-    /// The seated session's `turns_ended` as the previous tick read it — what
-    /// makes "a turn ended since we last looked" answerable at all. `None`
-    /// until the first tick, which seeds it without counting: a stage tugcast
-    /// inherited across a restart has ended turns nobody here watched, and
-    /// they are not this horizon's to hold against it.
-    turns_seen: Option<u32>,
+    /// The seated session's **asked** turn count as the previous tick read it
+    /// — what makes "a turn ended since we last looked" answerable at all, for
+    /// the horizon, which counts answers. `None` until the first tick, which
+    /// seeds it without counting: a stage tugcast inherited across a restart
+    /// has ended turns nobody here watched, and they are not this horizon's to
+    /// hold against it.
+    prompt_turns_seen: Option<u32>,
+    /// The seated session's turn count of *every* opener, as the previous tick
+    /// read it — the clock's comparison point ([P02]).
+    ///
+    /// The horizon and the clock read different counts because they are asking
+    /// different questions. A wake-opened turn ending is not the stage
+    /// answering, so the horizon must not count it; but it is unambiguously
+    /// the arc *moving*, so the clock must. The incident is what happens when
+    /// one count serves both: six wakes read as six unanswered asks.
+    all_turns_seen: Option<u32>,
     /// When this arc last moved: a turn of the seated stage ending, a step
     /// closing, the seated session's context growing, or the runner itself
     /// acting. `None` until the first tick, which seeds it — the clock
     /// measures silence it has actually watched, never silence it merely
     /// inherited.
     ///
-    /// The one wall-clock fact in the machine. Everything else the arc
-    /// decides is decided on an edge, and the two wedges the clock closes
-    /// produce no edge: a turn that hangs, and a stage that ends one turn and
-    /// then stops working.
+    /// The one wall-clock fact in the machine, and it answers **a turn that
+    /// never ends** ([P06]). Everything else the arc decides is decided on an
+    /// edge, and a hung turn is the shape that produces none: `session_idle`
+    /// never becomes true, so every arm below the clock is unreachable. A
+    /// stage that ends one turn and then stops working is *not* this field's
+    /// to answer any more — that reading is idle, it has an edge, and the
+    /// quiet-turn horizon answers it in one turn rather than in a deadline.
+    /// The stamp is kept current on every tick regardless, because the next
+    /// mid-turn tick is what reads it.
     last_motion_at: Option<Instant>,
     /// The seated session's context size as the previous tick read it.
     ///
@@ -146,14 +175,84 @@ struct ArcState {
     /// have to be: it only has to stop the clock being *reset* by a turn that
     /// is producing nothing.
     tokens_seen: Option<u64>,
+    /// What the arc looked like at the moment it stopped, and the only field
+    /// a stop leaves behind.
+    ///
+    /// Everything else in this struct is memory of a *running* arc, and after
+    /// a stop every one of it is wrong: the clock would go on measuring a
+    /// silence the stop already accounted for, and the quiet count would go on
+    /// holding turns against a stage that is no longer being asked for any.
+    /// The incident's morning was exactly that — an overnight-stale
+    /// `last_motion_at` re-stopping the arc within 160 ms of each Resume
+    /// press. So `finish` evicts the entry and puts back only this.
+    ///
+    /// `Some` means "this arc stopped and nothing has run since". Step 7 reads
+    /// it to tell life on a stopped stage from the stop's own echo.
+    stop_marks: Option<StopMarks>,
+    /// When the reading now being settled was first taken, or `None` when the
+    /// last reading was not idle ([P01]).
+    quiet_since: Option<Instant>,
+    /// The facts that reading was made of. The settle holds only if *these*
+    /// have not moved — a wake, a turn, or a job opening inside the window is
+    /// a different session, and the window starts again over it.
+    quiet_marks: Option<QuietMarks>,
+}
+
+/// The facts an idle reading is made of, compared against themselves one
+/// settle later ([P01]).
+///
+/// Idleness is a claim about an instant, and the runner spends it on something
+/// irreversible. A turn ending and the wake that answers it are ~120 ms apart,
+/// and the session is genuinely idle in between — the arc stopped on the night
+/// of 2026-09-03 was stopped inside one of those gaps, six wakes into work that
+/// was going fine. So the reading is taken twice, and these are what "the same
+/// reading" means: every count a turn or a job could move.
+///
+/// `turns_ended` as well as its two halves, because a fourth opener the wire
+/// grows later would move the total and neither half, and the settle should
+/// notice it without waiting for anyone to teach it the new word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct QuietMarks {
+    turns_ended: u32,
+    prompt_turns_ended: u32,
+    wake_turns_ended: u32,
+    open_jobs: usize,
+    turn_active: bool,
+}
+
+impl QuietMarks {
+    fn of(session: &SessionSnapshot) -> Self {
+        Self {
+            turns_ended: session.turns_ended,
+            prompt_turns_ended: session.prompt_turns_ended,
+            wake_turns_ended: session.wake_turns_ended,
+            open_jobs: session.open_jobs,
+            turn_active: session.turn_active,
+        }
+    }
+}
+
+/// The baseline a stop leaves for whatever notices life after it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct StopMarks {
+    /// The seated session's wake-opened turn count at the stop — the baseline
+    /// a later wake is legible against, so life on a stopped stage can be told
+    /// from the stop's own reading seen a second time.
+    wake_turns_ended: u32,
+    /// How many ledger rows read `done` at the stop — so a step closing
+    /// afterwards is legible as motion rather than as the stop's own reading
+    /// seen a second time.
+    done_count: usize,
 }
 
 /// A prompt already delivered, remembered until the turn it opened ends.
 #[derive(Debug, Clone)]
 struct PendingPrompt {
     kind: PromptKind,
-    /// The session's `turns_ended` at the moment the prompt went out. The turn
-    /// this prompt opened has ended once the count has moved past it.
+    /// The session's **asked** turn count at the moment the prompt went out.
+    /// The turn this prompt opened has ended once the count has moved past it
+    /// — and only an asked turn can be that one, which is why the comparison
+    /// is against the prompt count rather than every opener's ([P02]).
     turns_ended_at: u32,
 }
 
@@ -174,6 +273,14 @@ pub async fn run_arc_engine(
     mut recompute_rx: watch::Receiver<Frame>,
 ) {
     let state: Arc<Mutex<HashMap<String, ArcState>>> = Arc::new(Mutex::new(HashMap::new()));
+
+    // The settle's own return path ([P01]). An idle reading the runner
+    // declines to spend arms one task that sleeps and sends the arc's session
+    // here; without it the re-read would wait on whatever wakes the loop next,
+    // which for a stage sitting still is the minute clock.
+    let mut ctx = ctx;
+    let (settle_tx, mut settle_rx) = mpsc::channel::<String>(64);
+    ctx.settle = Some(settle_tx);
 
     // The level read the edge cannot give: an arc mid-stage when tugcast
     // restarted has no turn left to end, and would otherwise wait forever.
@@ -206,6 +313,10 @@ pub async fn run_arc_engine(
                     return;
                 }
             }
+            // A settle elapsed. It carries the arc's session, but the sweep
+            // re-reads every arc anyway — the id is what the arming task had
+            // to hand, not a filter.
+            Some(_) = settle_rx.recv() => {}
         }
         sweep(&ctx, &state).await;
     }
@@ -363,7 +474,15 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
                 compacted_since_below: entry.compacted_since_below,
                 compact_turn_just_ended: entry.pending.as_ref().is_some_and(|pending| {
                     pending.kind == PromptKind::Compact
-                        && session.turns_ended > pending.turns_ended_at
+                        && session.prompt_turns_ended > pending.turns_ended_at
+                }),
+                // The re-ask's own read of the same memory, and the inverse
+                // comparison: the compaction is interesting once its turn has
+                // ended, the re-ask once it has *not*. `matches!` rather than
+                // `==` because the variant carries the steps it named.
+                reask_pending: entry.pending.as_ref().is_some_and(|pending| {
+                    matches!(pending.kind, PromptKind::StillOpen { .. })
+                        && session.prompt_turns_ended <= pending.turns_ended_at
                 }),
             },
             None => TickMemory::default(),
@@ -382,8 +501,14 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
 
     let project = arc.project.clone();
     let name = arc.name.clone();
+    // The read is blocking and takes the snapshot by value, so it takes a
+    // clone: the settle's marks, the reversal's comparison and the tick line's
+    // `opener` all read the same facts on this side of it, and a snapshot that
+    // ended at the `spawn_blocking` would leave each of them threading a field
+    // of its own onto `ArcReading`.
+    let snapshot = session.clone();
     let Ok(Some(reading)) =
-        tokio::task::spawn_blocking(move || read(&project, &name, &session, memory)).await
+        tokio::task::spawn_blocking(move || read(&project, &name, &snapshot, memory)).await
     else {
         return;
     };
@@ -393,7 +518,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     // reason — placed here rather than at this function's top, which has no
     // record to read: the record arrives from the blocking read just above, as
     // `reading.record`. It goes before the `state.lock()` below, which is where
-    // `turns_seen`, `quiet_turns` and `last_motion_at` are updated: stand down
+    // the turn counts, `quiet_turns` and `last_motion_at` are updated: stand down
     // before touching the state map, never after.
     //
     // In practice this arm should be unreachable. `session_snapshot` returning
@@ -424,6 +549,58 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         return;
     }
 
+    // **A stopped record is read for one thing only: life on the stage that
+    // was stopped** ([P05]).
+    //
+    // It is clocked by nothing and counts nothing — every field the block
+    // below would update describes a stage still being asked for turns, and
+    // `last_motion_at` in particular would go on ageing over a record whose
+    // silence the stop already accounted for. That is the wedge the incident's
+    // morning fell into: the clock ran all night over a stopped arc and
+    // outranked both Resume presses.
+    //
+    // But a stop for silence is a *claim*, and the session it was made about
+    // is the one thing entitled to contradict it. Step 4 of the incident's arc
+    // closed ninety-six seconds after the stop that said the stage had gone
+    // idle, on the stage's own session, and nothing read it. So this path
+    // computes what moved since the stop, hands it to the predicate, and acts
+    // on the one answer the predicate may give here.
+    if reading.record.stopped.is_some() {
+        let stop_marks = {
+            let map = state.lock().await;
+            map.get(&key).and_then(|entry| entry.stop_marks)
+        };
+        // No marks is a stop this process did not watch — a tugcast restart,
+        // or an arc stopped by the verb rather than by the runner. There is no
+        // baseline to compare against, so nothing can be said to have moved,
+        // and inventing one would reverse on the stop's own reading.
+        reading.facts.stopped_stage_moved = stop_marks.is_some_and(|marks| {
+            session.wake_turns_ended > marks.wake_turns_ended
+                || (session.turn_active && session.turn_opener == Some(TurnOpener::Wake))
+                || reading.done_count > marks.done_count
+        });
+        let action = arc_action(&reading.record, &reading.facts);
+        info!(
+            target: "dev::session-lifecycle",
+            event = "arc.tick",
+            arc = %arc.name,
+            stage = reading
+                .record
+                .current_stage()
+                .map(|stage| stage.as_str())
+                .unwrap_or("-"),
+            stopped = true,
+            moved = reading.facts.stopped_stage_moved,
+            wake_turns = session.wake_turns_ended,
+            done_count = reading.done_count,
+            action = %describe_action(action.as_ref()),
+        );
+        if let Some(ArcAction::Reverse { stage }) = action {
+            reverse(ctx, state, arc, &key, &reading, stage).await;
+        }
+        return;
+    }
+
     let quiet_turns;
     let stalled;
     {
@@ -434,8 +611,13 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         // end, so the count is over *turns* — the unit the stage acts in —
         // rather than over ticks, which fire for reasons the stage had no
         // part in.
-        let previously_seen = entry.turns_seen.replace(reading.turns_ended);
+        let previously_seen = entry.prompt_turns_seen.replace(reading.turns_ended);
         let a_turn_ended = previously_seen.is_some_and(|seen| reading.turns_ended > seen);
+        // The clock's own comparison, over turns of every opener: a wake-opened
+        // turn ending is not an answer, but it is the arc moving ([P02]).
+        let previously_seen_all = entry.all_turns_seen.replace(reading.all_turns_ended);
+        let any_turn_ended =
+            previously_seen_all.is_some_and(|seen| reading.all_turns_ended > seen);
         if reading.facts.ledger.step_just_done {
             entry.quiet_turns = 0;
         } else if a_turn_ended && !reading.facts.compact_turn_just_ended {
@@ -457,18 +639,26 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
                 _ => false,
             }
         };
-        if a_turn_ended
+        if any_turn_ended
             || reading.facts.ledger.step_just_done
             || context_grew
             || entry.last_motion_at.is_none()
         {
             entry.last_motion_at = Some(Instant::now());
         }
-        stalled = clock_ran_out(
-            entry.last_motion_at,
-            Instant::now(),
-            reading.config.stall_timeout(),
-        );
+        // **The clock is read against a turn that never ends, and nothing
+        // else** ([P06]). An idle session has an edge to be judged on, and the
+        // horizon judges it in one turn; letting the clock answer it too meant
+        // a stage that ended one quiet turn and then genuinely went quiet was
+        // answered thirty minutes later by the wrong sentence. `false` on an
+        // idle reading rather than an unread clock: the stamp above is still
+        // kept current, because the very next mid-turn tick reads it.
+        stalled = !reading.facts.session_idle
+            && clock_ran_out(
+                entry.last_motion_at,
+                Instant::now(),
+                reading.config.stall_timeout(),
+            );
         // A dispatched rotation whose `arc-stage` line has not landed yet: the
         // newest line still names the session that just ended, which is
         // indistinguishable from a stage that died. Wait for the line.
@@ -503,6 +693,15 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         if memory.compact_turn_just_ended {
             entry.pending = None;
         }
+        // The re-ask is retired on the tick that reads the count past it — the
+        // same rule, on the turn that answered it. Left standing it would
+        // suppress the next quiet turn's re-ask as well.
+        if entry.pending.as_ref().is_some_and(|pending| {
+            matches!(pending.kind, PromptKind::StillOpen { .. })
+                && session.prompt_turns_ended > pending.turns_ended_at
+        }) {
+            entry.pending = None;
+        }
         // A compaction is remembered only while it is still the answer that
         // was tried. A reading back at or below the threshold retires it, and
         // so does a compact turn that never happened — an API error or a user
@@ -520,7 +719,22 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     reading.facts.quiet_turns = quiet_turns;
     reading.facts.stalled = stalled;
 
-    let action = arc_action(&reading.record, &reading.facts);
+    let mut action = arc_action(&reading.record, &reading.facts);
+
+    // **The settle** ([P01]). An idle reading is a claim about an instant, and
+    // everything below spends one on something irreversible — a rotation, a
+    // prompt, a stop. A turn ending and the wake that answers it are ~120 ms
+    // apart and the session is genuinely idle in between; the arc stopped on
+    // the night of 2026-09-03 was stopped inside one of those gaps, six wakes
+    // into work that was going fine. So the same reading has to still be true
+    // a settle later, with no turn, wake or job in between, before it is worth
+    // anything.
+    //
+    // Above the act and below the bookkeeping, deliberately: `quiet_turns` and
+    // `last_motion_at` are counts of what happened, and what happened does not
+    // depend on whether the runner chose to act on it.
+    let settled =
+        settle_gate(ctx, state, &key, arc, &session, &reading, memory, &mut action).await;
 
     // Every tick says what it read and what it decided, including the ticks
     // that decided nothing. An arc that advances silently is an arc whose
@@ -542,8 +756,18 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         done_count = reading.done_count,
         last_done_count = ?memory.last_done_count,
         idle = reading.facts.session_idle,
+        turn_active = session.turn_active,
+        open_jobs = session.open_jobs,
+        opener = describe_opener(session.turn_opener),
         step_just_done = reading.facts.ledger.step_just_done,
         quiet_turns = reading.facts.quiet_turns,
+        prompt_turns = session.prompt_turns_ended,
+        wake_turns = session.wake_turns_ended,
+        settled = settled.settled,
+        quiet_for = settled
+            .quiet_for
+            .map(|d| d.as_millis().to_string())
+            .unwrap_or_else(|| "-".to_string()),
         stalled = reading.facts.stalled,
         compacted_since_below = reading.facts.compacted_since_below,
         compact_turn_just_ended = reading.facts.compact_turn_just_ended,
@@ -557,10 +781,15 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         ArcAction::Prompt { kind, why } => {
             deliver_prompt(ctx, state, arc, &key, &reading, &kind, &why).await
         }
-        ArcAction::Done => finish(ctx, arc, &reading, None).await,
+        ArcAction::Done => finish(ctx, state, arc, &key, &reading, None).await,
         ArcAction::Stop { stage, reason } => {
-            finish(ctx, arc, &reading, Some((stage, reason))).await
+            finish(ctx, state, arc, &key, &reading, Some((stage, reason))).await
         }
+        ArcAction::Continue { stage, steps } => {
+            continue_stage(ctx, state, arc, &key, &reading, stage, steps).await
+        }
+        // Only reachable on a stopped record, which returned above.
+        ArcAction::Reverse { .. } => {}
     }
 }
 
@@ -687,6 +916,161 @@ async fn watch_the_clock_unseated(
     state.lock().await.remove(key);
 }
 
+/// What the settle decided this tick, for the `arc.tick` line (Table T02).
+struct SettleVerdict {
+    /// True when this tick's action passed the gate; false when it was
+    /// withheld, and false when no action was decided at all.
+    settled: bool,
+    /// How long the current reading has been standing, or `None` when nothing
+    /// is being settled.
+    quiet_for: Option<Duration>,
+}
+
+/// Hold an idle reading for `idle_settle` before anything irreversible is done
+/// with it ([P01]), clearing `action` when the wait is not over.
+///
+/// The window is over the reading's own facts rather than over wall time
+/// alone: a wake, a turn, or a job opening inside it means the second reading
+/// is of a different session, so the window starts again over the new one. It
+/// is what makes the gap between a turn ending and its wake unspendable, which
+/// is the gap the incident was decided in.
+///
+/// Two stops go through ungated. `SessionGone` and `Stalled` are decided above
+/// the predicate's own idle gate, so they are reachable on a reading that is
+/// not idle at all — and neither is a claim about an instant: a session with no
+/// child is gone whenever it is looked at, and the clock has already waited
+/// half an hour.
+///
+/// **A withheld reading is also an unspent one**, and `last_done_count` is the
+/// one piece of memory that says so. It advances on any idle reading, which is
+/// how a boundary is retired once it has been answered — so a tick that
+/// declined to answer one and advanced it anyway would swallow the boundary:
+/// the settled sweep behind it reads `step_just_done: false` and the stage
+/// waits forever for a prompt nobody will send now. The other bookkeeping above
+/// the predicate is left alone on purpose, because it records what *happened* —
+/// a turn ended, the context grew — and that is true whether or not the runner
+/// chose to act on it.
+///
+/// Eight parameters, and each is a different reader's fact rather than a
+/// bundle waiting to be found: the context and the state map are the runner's
+/// own, the key and the arc address one entry, the snapshot and the reading
+/// are the two halves of what this tick saw, the memory is what the previous
+/// tick left, and the action is the thing being held — taken by `&mut`
+/// because withholding it is the whole job.
+#[allow(clippy::too_many_arguments)]
+async fn settle_gate(
+    ctx: &ArcContext,
+    state: &Arc<Mutex<HashMap<String, ArcState>>>,
+    key: &str,
+    arc: &BoundArc,
+    session: &SessionSnapshot,
+    reading: &ArcReading,
+    memory: TickMemory,
+    action: &mut Option<ArcAction>,
+) -> SettleVerdict {
+    let unheld = SettleVerdict {
+        settled: action.is_some(),
+        quiet_for: None,
+    };
+    if !reading.facts.session_idle {
+        // A reading that is not idle settles nothing, and whatever window was
+        // open described a session that has since moved.
+        let mut map = state.lock().await;
+        if let Some(entry) = map.get_mut(key) {
+            entry.quiet_since = None;
+            entry.quiet_marks = None;
+        }
+        return unheld;
+    }
+    if matches!(
+        action,
+        Some(ArcAction::Stop {
+            reason: ArcStopReason::SessionGone | ArcStopReason::Stalled,
+            ..
+        })
+    ) {
+        return unheld;
+    }
+    let Some(settle) = reading.config.idle_settle() else {
+        return unheld;
+    };
+    if action.is_none() {
+        // Nothing to hold. The window is left standing rather than cleared:
+        // the reading is still idle, and a tick that decided nothing is not
+        // evidence the session moved.
+        let map = state.lock().await;
+        return SettleVerdict {
+            settled: false,
+            quiet_for: map
+                .get(key)
+                .and_then(|entry| entry.quiet_since)
+                .map(|since| since.elapsed()),
+        };
+    }
+
+    let marks = QuietMarks::of(session);
+    let arm = {
+        let mut map = state.lock().await;
+        let entry = map.entry(key.to_string()).or_default();
+        match (entry.quiet_marks, entry.quiet_since) {
+            // The same session, standing still long enough to be worth
+            // spending. This is the only path that acts.
+            (Some(seen), Some(since)) if seen == marks && since.elapsed() >= settle => {
+                return SettleVerdict {
+                    settled: true,
+                    quiet_for: Some(since.elapsed()),
+                };
+            }
+            // The same session, but not for long enough yet — a changeset tick
+            // landing early inside a window somebody already armed. The armed
+            // re-sweep is still coming, so arming a second would only mean two
+            // sweeps for one window.
+            (Some(seen), Some(since)) if seen == marks => {
+                entry.last_done_count = memory.last_done_count;
+                *action = None;
+                return SettleVerdict {
+                    settled: false,
+                    quiet_for: Some(since.elapsed()),
+                };
+            }
+            // A different reading, or the first one. Start the window over it.
+            _ => {
+                entry.last_done_count = memory.last_done_count;
+                entry.quiet_marks = Some(marks);
+                entry.quiet_since = Some(Instant::now());
+                true
+            }
+        }
+    };
+
+    if arm && let Some(tx) = ctx.settle.clone() {
+        let session_id = arc.session.to_string();
+        tokio::spawn(async move {
+            tokio::time::sleep(settle).await;
+            let _ = tx.send(session_id).await;
+        });
+    }
+    *action = None;
+    SettleVerdict {
+        settled: false,
+        quiet_for: Some(Duration::ZERO),
+    }
+}
+
+/// The `opener` word on an `arc.tick` line (Table T02) — what opened the turn
+/// the seated session is in, or `-` between turns.
+///
+/// The two counts beside it say how the arc got here; this says what it is in
+/// the middle of, which is the difference between a stage that has gone quiet
+/// and one the harness has just woken.
+fn describe_opener(opener: Option<TurnOpener>) -> &'static str {
+    match opener {
+        Some(TurnOpener::Prompt) => "prompt",
+        Some(TurnOpener::Wake) => "wake",
+        None => "-",
+    }
+}
+
 /// The `action` word on an `arc.tick` line — one token per decision, so the
 /// log can be grepped for what the arc did at a boundary.
 fn describe_action(action: Option<&ArcAction>) -> String {
@@ -701,8 +1085,14 @@ fn describe_action(action: Option<&ArcAction>) -> String {
             kind: PromptKind::Continue { .. },
             ..
         }) => "prompt:continue".to_string(),
+        Some(ArcAction::Prompt {
+            kind: PromptKind::StillOpen { .. },
+            ..
+        }) => "prompt:still-open".to_string(),
         Some(ArcAction::Done) => "done".to_string(),
         Some(ArcAction::Stop { reason, .. }) => format!("stop:{}", reason.as_str()),
+        Some(ArcAction::Reverse { stage }) => format!("reverse:{}", stage.as_str()),
+        Some(ArcAction::Continue { stage, .. }) => format!("continue:{}", stage.as_str()),
     }
 }
 
@@ -717,19 +1107,39 @@ fn retain_done_count(previous: Option<usize>, current: usize, idle: bool) -> Opt
 }
 
 /// What one card is doing right now, read from the supervisor's live ledger.
+///
+/// `Clone` because `evaluate` hands one to the blocking read and every reader
+/// after that read — the settle's marks, the reversal's comparison, the tick
+/// line's `opener` — needs the same facts on this side of it. One clone at the
+/// call rather than fields threaded onto `ArcReading` one at a time.
+#[derive(Clone)]
 struct SessionSnapshot {
     live: bool,
     idle: bool,
-    /// The seated claude session has ended at least one turn.
+    /// A turn is in flight on the seated claude session.
+    turn_active: bool,
+    /// What opened the turn now in flight, or `None` between turns.
+    turn_opener: Option<TurnOpener>,
+    /// The seated claude session has ended at least one turn **it was asked
+    /// for** ([P02]). A wake-opened turn ending is not a stage answering.
     turn_ended: bool,
     /// Its most recent turn ended in an API error rather than a response.
     api_error: bool,
     /// Its most recent turn was cancelled by the user.
     turn_cancelled: bool,
-    /// How many turns the seated claude session has ended. The count, not the
-    /// flag, because a pending prompt is read back by comparing against the
-    /// count at the moment it was sent.
+    /// How many turns the seated claude session has ended, of every opener —
+    /// the clock's motion signal, and never the horizon's.
     turns_ended: u32,
+    /// How many of those a prompt opened. The count, not the flag, because a
+    /// pending prompt is read back by comparing against the count at the
+    /// moment it was sent — and only an asked turn can be the answer to one.
+    prompt_turns_ended: u32,
+    /// How many of those a wake opened ([P02]).
+    wake_turns_ended: u32,
+    /// How many background jobs the session holds open — the other half of
+    /// `idle`, carried so a reader past the blocking read can say *why* a
+    /// session was busy.
+    open_jobs: usize,
     /// The claude session running on the card carries a `stage_label` — a
     /// rotation seated it.
     stage_seated: bool,
@@ -751,7 +1161,20 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     // are the states with nothing left to advance — and so, since W7, is an
     // `Idle` this process watched go `Live` first.
     let entry_arc = entry_arc?;
-    let (live, idle, turns_ended, api_error, turn_cancelled, claude_session_id, context_window) = {
+    let (
+        live,
+        idle,
+        turn_active,
+        turn_opener,
+        turns_ended,
+        prompt_turns_ended,
+        wake_turns_ended,
+        open_jobs,
+        api_error,
+        turn_cancelled,
+        claude_session_id,
+        context_window,
+    ) = {
         let entry = entry_arc.lock().await;
         let live = match entry.spawn_state {
             // **The two `Idle`s.** A card parked `Idle` used to be
@@ -799,7 +1222,12 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
             // rotation on that reading would advance the arc past work still
             // running.
             entry.is_quiet(),
+            entry.turn_active,
+            entry.turn_opener,
             entry.turns_ended,
+            entry.prompt_turns_ended,
+            entry.wake_turns_ended,
+            entry.open_jobs.len(),
             entry.turn_api_error,
             entry.turn_cancelled,
             entry.claude_session_id.clone(),
@@ -815,8 +1243,13 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     Some(SessionSnapshot {
         live,
         idle,
-        turn_ended: turns_ended > 0,
+        turn_active,
+        turn_opener,
+        turn_ended: prompt_turns_ended > 0,
         turns_ended,
+        prompt_turns_ended,
+        wake_turns_ended,
+        open_jobs,
         api_error,
         turn_cancelled,
         stage_seated,
@@ -843,8 +1276,16 @@ struct ArcReading {
     /// What moved in those paths since the document was last written.
     commits_since: Vec<String>,
     /// How many turns the seated session had ended when this tick read it —
-    /// the mark a delivered prompt's own turn is later recognized against.
+    /// counting only the turns it was *asked* for, which is the mark a
+    /// delivered prompt's own turn is later recognized against: a wake cannot
+    /// be the answer to a prompt.
     turns_ended: u32,
+    /// The same, of every opener — the clock's motion signal.
+    all_turns_ended: u32,
+    /// How many of the seated session's turns a wake opened ([P02]). Carried
+    /// here as well as on the snapshot because `finish` takes a `&ArcReading`
+    /// and no snapshot, and the marks a stop leaves behind are read from it.
+    wake_turns_ended: u32,
     config: ArcConfig,
 }
 
@@ -855,6 +1296,8 @@ struct TickMemory {
     last_done_count: Option<usize>,
     compacted_since_below: bool,
     compact_turn_just_ended: bool,
+    /// A re-ask is out and the turn it opened has not ended yet ([P06]).
+    reask_pending: bool,
 }
 
 /// Gather the facts. Blocking: file reads and, for an implement stage, one
@@ -1025,6 +1468,7 @@ fn read(
         stage_continues,
         compacted_since_below: memory.compacted_since_below,
         compact_turn_just_ended: memory.compact_turn_just_ended,
+        reask_pending: memory.reask_pending,
         audit_declared: matches!(
             declarations.latest,
             Some(tugarc_core::log::ArcDeclaration::Audited)
@@ -1033,6 +1477,10 @@ fn read(
         // is over turns the *previous* tick already saw, so `evaluate` stamps
         // it after this read returns.
         quiet_turns: 0,
+        // Runner memory too, and only meaningful on a stopped record: the
+        // comparison is against the marks the stop left, which live in the
+        // state map. `evaluate` stamps it on the one path that reads it.
+        stopped_stage_moved: false,
         // Runner memory too, and for the same reason: the clock is read
         // against a stamp only the caller holds. `evaluate` stamps it.
         stalled: false,
@@ -1051,7 +1499,9 @@ fn read(
         devise_target,
         cited_paths,
         commits_since,
-        turns_ended: session.turns_ended,
+        turns_ended: session.prompt_turns_ended,
+        all_turns_ended: session.turns_ended,
+        wake_turns_ended: session.wake_turns_ended,
         config,
     })
 }
@@ -1153,6 +1603,16 @@ async fn deliver_prompt(
         .ok()
         .flatten();
     if fresh.as_ref().map(|r| r.stages.len()) != Some(reading.record.stages.len()) {
+        // **Never a bare return** ([P10]). A guard that declines silently is
+        // indistinguishable in the trace from an act that was never decided,
+        // and the arc's own log line for this tick already said it was going
+        // to prompt.
+        info!(
+            target: "dev::session-lifecycle",
+            event = "arc.prompt_skipped",
+            arc = %arc.name,
+            reason = "record moved under the tick",
+        );
         return;
     }
 
@@ -1166,6 +1626,10 @@ async fn deliver_prompt(
                 &reading.name,
                 Some(&range),
             ) else {
+                // The twin of `rotate`'s: an ask that cannot be composed is
+                // an arc with no words for its own stage, and it stopped on
+                // the rotation path and sat silently here ([P10]).
+                stop(ctx, arc, ArcStage::Implement, ArcStopReason::PromptUnavailable).await;
                 return;
             };
             // No clauses: the session already holds its own context, and the
@@ -1175,6 +1639,19 @@ async fn deliver_prompt(
             // The `where` clause is the exception, because its step
             // coordinates are the one fact this prompt moves: the step in hand
             // is the range's first, and the run still reaches its declared end.
+            let place = wheel::prompt::where_clause(
+                &tugarc_core::ops::worktree_path(&arc.project, &reading.name),
+                arc.session.as_str(),
+                ArcStage::Implement.as_str(),
+                Some(*steps),
+            );
+            wheel::prompt::compose(&ask, Some(&place), &[], &[], None)
+        }
+        // The re-ask, composed exactly as the continue ask is: the `where`
+        // clause and nothing else, because the session already holds its own
+        // context and the step coordinates are the one fact this prompt moves.
+        PromptKind::StillOpen { steps } => {
+            let ask = wheel::prompt::still_open_ask(&reading.name, steps.0, steps.1);
             let place = wheel::prompt::where_clause(
                 &tugarc_core::ops::worktree_path(&arc.project, &reading.name),
                 arc.session.as_str(),
@@ -1209,7 +1686,13 @@ async fn deliver_prompt(
     // which is the only other writer here.
     {
         let mut map = state.lock().await;
-        map.entry(key.to_string()).or_default().last_motion_at = Some(Instant::now());
+        let entry = map.entry(key.to_string()).or_default();
+        entry.last_motion_at = Some(Instant::now());
+        // The window this prompt was spent from is closed (Table T01). Left
+        // standing it would still read as settled at the next tick, and the
+        // same reading would buy a second prompt.
+        entry.quiet_since = None;
+        entry.quiet_marks = None;
     }
 
     if let PromptWhy::Compact {
@@ -1231,6 +1714,19 @@ async fn deliver_prompt(
         entry.compacted_since_below = true;
         entry.pending = Some(PendingPrompt {
             kind: PromptKind::Compact,
+            turns_ended_at: reading.turns_ended,
+        });
+    }
+
+    // The re-ask is remembered the same way, and read back the same way: the
+    // turn it opened has ended once the asked count moves past this. Until
+    // then `reask_pending` is what keeps the horizon from spending a second
+    // re-ask on the quiet turn this one already answered.
+    if let PromptKind::StillOpen { .. } = kind {
+        let mut map = state.lock().await;
+        let entry = map.entry(key.to_string()).or_default();
+        entry.pending = Some(PendingPrompt {
+            kind: kind.clone(),
             turns_ended_at: reading.turns_ended,
         });
     }
@@ -1264,6 +1760,13 @@ async fn rotate(
         .ok()
         .flatten();
     if fresh.as_ref().map(|r| r.stages.len()) != Some(reading.record.stages.len()) {
+        info!(
+            target: "dev::session-lifecycle",
+            event = "arc.rotate_skipped",
+            arc = %arc.name,
+            stage = rotation.stage.as_str(),
+            reason = "record moved under the tick",
+        );
         return;
     }
 
@@ -1406,13 +1909,23 @@ async fn rotate(
         entry.compacted_since_below = false;
         entry.pending = None;
         // A fresh stage is owed the whole horizon: whatever the last one did
-        // or failed to do is not this one's record. `turns_seen` goes with it
-        // — the seated session is new, and its turn count starts over.
+        // or failed to do is not this one's record. Both turn counts go with
+        // it — the seated session is new, and its counts start over.
         entry.quiet_turns = 0;
-        entry.turns_seen = None;
+        entry.prompt_turns_seen = None;
+        entry.all_turns_seen = None;
         // The fresh session's context starts over, so a comparison against
         // the retiring one's would read as motion once and then as silence.
         entry.tokens_seen = None;
+        // A fresh stage carries no stop baseline. The entry a rotation reaches
+        // may be the one a stop left behind — a resume rotates the stage the
+        // stop named — and marks left standing would describe an arc that is
+        // running again.
+        entry.stop_marks = None;
+        // The window the rotation was spent from is closed (Table T01), and
+        // the session it described is the retiring one either way.
+        entry.quiet_since = None;
+        entry.quiet_marks = None;
         // The runner acting is motion. A rotation restarts the clock even
         // when the seated session never announces — what the clock then
         // measures is the silence after the dispatch, which is the wedge, and
@@ -1443,6 +1956,305 @@ async fn rotate(
 ///
 /// The model restore goes first so the card the user is handed back is already
 /// theirs by the time the terminal line lands.
+/// **Undo a stop the stage itself has contradicted** ([P05]).
+///
+/// The three appends are the record and their order is load-bearing. The note
+/// says *what moved*, so the reversal can be read back by somebody who was not
+/// watching; `arc-resume` clears the stop; `arc-continue` clears the resume
+/// that would otherwise seat a fresh session on top of a stage that is already
+/// working. Writing `arc-resume` alone would rotate the stage — replacing a
+/// stage mid-thought with an empty one — and that is exactly the failure the
+/// second marker exists to prevent, so the pair is written together or the
+/// record is wrong.
+///
+/// Then the stage's model goes back on the card. A stop hands the card back to
+/// the deck's model **before** its receipt, so a stage picked back up is
+/// running on the wrong model until this puts it right.
+///
+/// The state reset is `rotate`'s, minus the in-flight latch: nothing was
+/// dispatched, because nothing needed to be.
+async fn reverse(
+    ctx: &ArcContext,
+    state: &Arc<Mutex<HashMap<String, ArcState>>>,
+    arc: &BoundArc,
+    key: &str,
+    reading: &ArcReading,
+    stage: ArcStage,
+) {
+    // Re-read immediately before acting, as `rotate` does: a tick that raced
+    // another one decided over facts that may already have moved, and the
+    // second reversal of one stop would write a second receipt saying the
+    // same thing.
+    let (project, name) = (arc.project.clone(), arc.name.clone());
+    let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &name))
+        .await
+        .ok()
+        .flatten();
+    if fresh.as_ref().is_none_or(|record| record.stopped.is_none()) {
+        info!(
+            target: "dev::session-lifecycle",
+            event = "arc.reverse_skipped",
+            arc = %arc.name,
+            stage = stage.as_str(),
+            reason = "the stop was already answered",
+        );
+        return;
+    }
+
+    // What moved, in the order a reader would want it: a step closing is the
+    // most specific thing that can have happened and the one the incident
+    // actually produced, so it is named first when more than one is true.
+    let marks = {
+        let map = state.lock().await;
+        map.get(key).and_then(|entry| entry.stop_marks)
+    };
+    let what_moved = match marks {
+        Some(marks) if reading.done_count > marks.done_count => "a step closed",
+        Some(marks) if reading.wake_turns_ended > marks.wake_turns_ended => "a wake on its session",
+        _ => "a turn opened on its session",
+    };
+
+    let note = format!("picked back up: {what_moved}");
+    let (project, name) = (arc.project.clone(), arc.name.clone());
+    let outcome = tokio::task::spawn_blocking({
+        let (project, name) = (project.clone(), name.clone());
+        move || append_arc_note(&project, &name, &note)
+    })
+    .await;
+    report_append(&project, &name, "arc-note", outcome);
+    let outcome = tokio::task::spawn_blocking({
+        let (project, name) = (project.clone(), name.clone());
+        move || append_arc_resume(&project, &name, stage)
+    })
+    .await;
+    report_append(&project, &name, "arc-resume", outcome);
+    let outcome = tokio::task::spawn_blocking({
+        let (project, name) = (project.clone(), name.clone());
+        move || append_arc_continue(&project, &name, stage)
+    })
+    .await;
+    report_append(&project, &name, "arc-continue", outcome);
+
+    let model = stage_model(&reading.config, stage).unwrap_or_else(|| "default".to_string());
+    if let Err(refusal) = wheel::send_model(&ctx.supervisor, &arc.session, &model).await {
+        warn!(
+            arc = %arc.name,
+            reason = refusal.reason(),
+            "arc could not put the stage's model back",
+        );
+    }
+
+    ctx.supervisor.record_arc_receipt(
+        arc.session.as_str(),
+        &arc.name,
+        &arc.project.to_string_lossy(),
+        &format_arc_pickup_receipt(&arc.name, stage, what_moved),
+    );
+
+    {
+        let mut map = state.lock().await;
+        let entry = map.entry(key.to_string()).or_default();
+        // **The boundary that undid the stop is left unanswered**, which is
+        // the difference between an arc that is running again and one that is
+        // merely not stopped. A step closing is the act the wheel owes a
+        // continue prompt for, and the stop is the only reason nobody sent
+        // one; recording the current count here would spend that boundary on
+        // the reversal itself, and the stage would sit at a step it had
+        // already closed with nothing left to prompt it. So the count goes
+        // back to what the stop saw, and the next tick reads the close the
+        // way it would have read it had the stop never happened.
+        entry.last_done_count = Some(marks.map_or(reading.done_count, |marks| marks.done_count));
+        entry.compacted_since_below = false;
+        entry.pending = None;
+        entry.quiet_turns = 0;
+        // **Seeded, never cleared** — the session is the stage's own and its
+        // counts are known right now. `rotate` clears them because a fresh
+        // session's turns start over; here, clearing would make the *next*
+        // turn end the tick that seeds, so the first quiet turn after a
+        // pick-up would go uncounted — and with the clock no longer reading
+        // an idle session ([P06]), nothing else would answer it.
+        entry.prompt_turns_seen = Some(reading.turns_ended);
+        entry.all_turns_seen = Some(reading.all_turns_ended);
+        entry.tokens_seen = None;
+        entry.quiet_since = None;
+        entry.quiet_marks = None;
+        // The arc is running again, so the baseline a stop left for whoever
+        // noticed life after it has done its work and describes nothing.
+        entry.stop_marks = None;
+        // Nothing was dispatched: the stage was already seated.
+        entry.in_flight_at = None;
+        entry.last_motion_at = Some(Instant::now());
+    }
+
+    info!(
+        target: "dev::session-lifecycle",
+        event = "arc.reversed",
+        arc = %arc.name,
+        stage = stage.as_str(),
+        moved = what_moved,
+    );
+}
+
+/// Pick a resumed stage back up on the session it is already sitting on
+/// ([P08]).
+///
+/// The act a resume takes when the card is still the stage's own, and the
+/// difference from [`rotate`] is the whole point: a rotation is a fresh
+/// session, and the incident's resume spent the entire working context of a
+/// stage that had been working when it was wrongly stopped. Nothing here
+/// spawns anything — the stage is seated, so it is asked again, on its own
+/// card, in its own model.
+///
+/// The ask is composed exactly as an opening prompt's is, minus the citations
+/// and the commits: a session that has been working this arc for hours does
+/// not need the document's paths read back to it. What it is owed is the
+/// `where` line, whose step coordinates are the one fact that moved, and the
+/// resume clause — which is read from `last_stop` rather than `stopped`,
+/// because the `arc-resume` line that got us here already cleared `stopped`.
+async fn continue_stage(
+    ctx: &ArcContext,
+    state: &Arc<Mutex<HashMap<String, ArcState>>>,
+    arc: &BoundArc,
+    key: &str,
+    reading: &ArcReading,
+    stage: ArcStage,
+    steps: Option<(usize, usize)>,
+) {
+    // The same guard `rotate` and `reverse` take: a tick that raced another
+    // one decided over facts that may already have moved, and a second
+    // continue of one resume would ask the stage twice.
+    let (project, name) = (arc.project.clone(), arc.name.clone());
+    let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &name))
+        .await
+        .ok()
+        .flatten();
+    if fresh.as_ref().is_none_or(|record| record.resume != Some(stage)) {
+        info!(
+            target: "dev::session-lifecycle",
+            event = "arc.continue_skipped",
+            arc = %arc.name,
+            stage = stage.as_str(),
+            reason = "the resume was already answered",
+        );
+        return;
+    }
+
+    let steps_range = steps.map(|(from, through)| step_range(from, through));
+    let Some(ask) = wheel::prompt::stage_ask(
+        stage.as_str(),
+        reading.record.document.as_deref(),
+        &reading.name,
+        steps_range.as_deref(),
+    ) else {
+        // A stage whose ask cannot be composed is one the arc has no words
+        // for, and asking half a sentence is worse than saying so. The same
+        // stop `rotate` and `deliver_prompt` take ([P10]).
+        stop(ctx, arc, stage, ArcStopReason::PromptUnavailable).await;
+        return;
+    };
+
+    let (project, name) = (arc.project.clone(), arc.name.clone());
+    let outcome = tokio::task::spawn_blocking({
+        let (project, name) = (project.clone(), name.clone());
+        move || append_arc_continue(&project, &name, stage)
+    })
+    .await;
+    report_append(&project, &name, "arc-continue", outcome);
+
+    // The stage's model back on the card. A stop hands the card back to the
+    // deck's model, so a resume that did not put the stage's model on would
+    // hand the work to whatever the user was last talking to.
+    let model = stage_model(&reading.config, stage).unwrap_or_else(|| "default".to_string());
+    if let Err(refusal) = wheel::send_model(&ctx.supervisor, &arc.session, &model).await {
+        warn!(
+            arc = %arc.name,
+            reason = refusal.reason(),
+            "arc could not put the continued stage's model back",
+        );
+    }
+
+    let place = wheel::prompt::where_clause(
+        &tugarc_core::ops::worktree_path(&arc.project, &reading.name),
+        arc.session.as_str(),
+        stage.as_str(),
+        steps,
+    );
+    let resume = reading
+        .record
+        .last_stop
+        .as_ref()
+        .map(|(stage, reason)| (stage.as_str(), reason.as_str()));
+    let text = wheel::prompt::compose(&ask, Some(&place), &[], &[], resume);
+
+    // Dispatched exactly as `deliver_prompt` dispatches: the wheel's own row
+    // on CODE_OUTPUT first, then the submission, then Tug's record of what the
+    // wheel said. A prompt the reader cannot see the cause of is the
+    // unannounced server turn the doctrine forbids.
+    let session = arc.session.as_str().to_string();
+    ctx.supervisor.code_output.publish_tagged(Frame::new(
+        FeedId::CODE_OUTPUT,
+        super::base_motion::notice_payload(&session, WHEEL_NOTICE_ORIGIN, &text),
+    ));
+    ctx.supervisor
+        .dispatch_one(Frame::new(
+            FeedId::CODE_INPUT,
+            super::base_motion::user_message_payload(&session, &text),
+        ))
+        .await;
+    ctx.supervisor
+        .sessions_recorder
+        .record_wheel_prompt(&session, &text);
+
+    {
+        let mut map = state.lock().await;
+        let entry = map.entry(key.to_string()).or_default();
+        // As `rotate` resets it (Table T01), with one difference: nothing was
+        // dispatched, because the stage was already seated.
+        entry.in_flight_at = None;
+        entry.last_done_count = Some(reading.done_count);
+        entry.compacted_since_below = false;
+        entry.pending = None;
+        entry.quiet_turns = 0;
+        // Seeded rather than cleared, as `reverse` seeds them and for the
+        // same reason: this session is the stage's own, so the turn that
+        // answers the ask just sent is the next one its count moves past.
+        entry.prompt_turns_seen = Some(reading.turns_ended);
+        entry.all_turns_seen = Some(reading.all_turns_ended);
+        entry.tokens_seen = None;
+        entry.stop_marks = None;
+        entry.quiet_since = None;
+        entry.quiet_marks = None;
+        entry.last_motion_at = Some(Instant::now());
+    }
+
+    info!(
+        target: "dev::session-lifecycle",
+        event = "arc.continued",
+        arc = %arc.name,
+        stage = stage.as_str(),
+        session = %arc.session,
+        model = %model,
+    );
+}
+
+/// The receipt a reversal leaves: one row saying the arc is running again, and
+/// which fact said so (Spec S04).
+///
+/// The stage is on the header because the block cannot draw its identity strip
+/// without one — a receipt is a frozen record of a past moment with no live
+/// store to ask, the same reason the stop receipt reads its own terminality off
+/// its own frozen sentence.
+///
+/// It does not replace the stop's row. The stop happened, and a transcript that
+/// erased it would be lying about a minute of the arc's life; the superseding
+/// pass folds the older row instead, and this one is what supersedes it.
+fn format_arc_pickup_receipt(arc: &str, stage: ArcStage, moved: &str) -> String {
+    format!(
+        "arc picked back up · {arc} · in {} · {moved}",
+        stage.as_str()
+    )
+}
+
 /// The arc's terminal receipt, as one string.
 ///
 /// What it says is the record itself: which stages ran, on which claude
@@ -1598,6 +2410,7 @@ pub(crate) async fn stop_arc_for_session(
                 stages: Vec::new(),
                 notes: Vec::new(),
                 stopped: None,
+                last_stop: None,
                 resume: None,
                 dispatched: None,
                 owner: None,
@@ -1637,7 +2450,9 @@ pub(crate) async fn stop_arc_for_session(
 
 async fn finish(
     ctx: &ArcContext,
+    state: &Arc<Mutex<HashMap<String, ArcState>>>,
     arc: &BoundArc,
+    key: &str,
     reading: &ArcReading,
     stopped: Option<(ArcStage, ArcStopReason)>,
 ) {
@@ -1651,11 +2466,40 @@ async fn finish(
             stage,
             reason,
             StopDelivery {
+                // **The hand-back is sent, and that is safe because the stop
+                // is settled** ([B08], [P09]). A `model_change` arriving
+                // mid-turn swaps the model under a stage that is working — the
+                // incident's stop did exactly that — and what keeps it from
+                // happening is not this line but the settle above: a stop is
+                // decided only on an idle reading that was still idle a settle
+                // later, so the card this reaches is genuinely between turns.
+                // `a_stop_decided_before_the_settle_sends_no_model_change` is
+                // the pin.
                 hand_back: HandBack::Send,
                 record: true,
             },
         )
         .await;
+        // Evict the running arc's memory and put back only the stop's own
+        // marks. Every other field described a stage that is no longer being
+        // asked for turns, and each would go on being read: the clock against
+        // a `last_motion_at` that only gets staler, the horizon against a
+        // quiet count that can only grow. The incident's morning was that
+        // memory outliving the stop it recorded.
+        {
+            let mut map = state.lock().await;
+            map.remove(key);
+            map.insert(
+                key.to_string(),
+                ArcState {
+                    stop_marks: Some(StopMarks {
+                        wake_turns_ended: reading.wake_turns_ended,
+                        done_count: reading.done_count,
+                    }),
+                    ..Default::default()
+                },
+            );
+        }
         return;
     }
     // The done ending keeps its own body, receipt before hand-back. Only the
@@ -1683,6 +2527,12 @@ async fn finish(
     })
     .await;
     report_append(&project, &name, "arc-done", outcome);
+    // A finished arc keeps no memory at all. Nothing but the unseated clock's
+    // own sweep ever removed an entry, so a completed arc's `last_motion_at`
+    // and quiet count outlived it in the map for as long as tugcast ran. There
+    // is no stop to leave marks for here — the arc is done, not resumable —
+    // so the entry goes and nothing replaces it.
+    state.lock().await.remove(key);
 }
 
 /// Record a stop and hand the card back, for a refusal discovered mid-rotation.
@@ -1810,6 +2660,11 @@ Some context.
             // The seated session has run; the never-run case builds its own.
             turn_ended: true,
             turns_ended: 1,
+            prompt_turns_ended: 1,
+            wake_turns_ended: 0,
+            turn_active: false,
+            turn_opener: None,
+            open_jobs: 0,
             api_error: false,
             turn_cancelled: false,
             // A seated stage is the ordinary case; the taken-card tests build
@@ -1827,6 +2682,15 @@ Some context.
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "# A brief\n\nSome prose.\n").unwrap();
         std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+        // The settle off by default, so a test that means "one sweep decides"
+        // still means it. The settle's own tests declare a real one; every
+        // other writer below repeats the line because it *overwrites* this
+        // file rather than adding to it.
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\n",
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1923,6 +2787,8 @@ Some context.
         // stage has not run and nothing may be decided about its documents.
         let mut session = snapshot(true, true, Some("live"));
         session.turn_ended = false;
+        session.turns_ended = 0;
+        session.prompt_turns_ended = 0;
         let reading = read(root, "demo", &session, TickMemory::default()).unwrap();
         assert!(reading.facts.stage_session_current);
         assert!(!reading.facts.stage_turn_ended);
@@ -1939,7 +2805,7 @@ Some context.
             .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
-        entry.lock().await.turns_ended = 0;
+        asked(&entry, 0).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
 
         sweep(&ctx, &state).await;
@@ -1948,6 +2814,37 @@ Some context.
         assert_eq!(
             record.stopped, None,
             "and no stop written for a plan the stage has not begun"
+        );
+    }
+
+    /// **The same tick, with a wake behind it instead of an ask.** A stage
+    /// whose only ended turn was opened by the harness has still not been
+    /// asked anything, so its documents are still not the arc's to judge —
+    /// `stage_turn_ended` reads the prompt count and nothing else ([P02]).
+    ///
+    /// The counts here are the incident's shape at its smallest: the ledger
+    /// has ended a turn, and no answer was ever given.
+    #[tokio::test]
+    async fn stage_turn_ended_reads_asked_turns_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        // No plan on disk: a stage that had ended an *asked* turn here would
+        // stop on lint, which is what makes this assertion mean something.
+        asked(&entry, 0).await;
+        woke(&entry).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            tugarc_core::read_arc(root, "demo").unwrap().stopped,
+            None,
+            "a wake is not the stage answering, so nothing is judged about its plan",
         );
     }
 
@@ -2452,6 +3349,7 @@ Some context.
         // The seated session has run: a stage that has ended no turn is
         // left alone, and that case has its own test.
         entry.turns_ended = 1;
+        entry.prompt_turns_ended = 1;
         let entry = Arc::new(Mutex::new(entry));
         supervisor.ledger.lock().await.insert(id, entry.clone());
 
@@ -2465,6 +3363,9 @@ Some context.
                 // the two tests that need a live foreign owner say so by
                 // overriding the field.
                 live_owner: |_| false,
+                // The harness drives `sweep` directly and ages the clock
+                // through `quiet_since`, so there is nothing to arm.
+                settle: None,
             },
             entry,
             register_rx,
@@ -2478,7 +3379,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.arc]\ndocs = \"arc\"\n",
+            "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -2735,7 +3636,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.arc]\narc_stall_secs = 1\n",
+            "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -2785,7 +3686,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.arc]\narc_stall_secs = 1\n",
+            "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -2886,7 +3787,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.arc]\narc_stall_secs = 1\n",
+            "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -2980,7 +3881,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.arc]\ndocs = \"arc\"\n",
+            "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -3012,7 +3913,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.arc]\ndocs = \"arc\"\n",
+            "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -3088,10 +3989,15 @@ Some context.
     }
 
     #[tokio::test]
-    async fn a_resumed_arc_rotates_its_stopped_stage_at_the_next_idle() {
+    async fn a_resume_on_a_taken_card_still_rotates() {
         // Resume, end to end at the runner: `arc run` on a stopped arc writes
-        // `arc-resume`, and the next idle tick rotates that stage — not the
+        // `arc-resume`, and the next idle tick answers that stage — not the
         // one before it, and not nothing.
+        //
+        // On a card that is no longer the stage's, the answer is the rotation
+        // it always was ([P08]): there is no session left holding the stage's
+        // context, so there is nothing to continue and a fresh one is the only
+        // thing a resume can mean.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
@@ -3109,6 +4015,8 @@ Some context.
         tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Review).unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
+        // Another claude on the card: the record's session is not this one.
+        entry.lock().await.claude_session_id = Some("claude-2".to_string());
         let state = Arc::new(Mutex::new(HashMap::new()));
         sweep(&ctx, &state).await;
 
@@ -3199,7 +4107,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.arc]\ndocs = \"arc\"\n",
+            "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
         )
         .unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
@@ -3491,6 +4399,7 @@ Some context.
             stages,
             notes: Vec::new(),
             stopped: None,
+            last_stop: None,
             resume: None,
             dispatched: None,
             owner: None,
@@ -3690,7 +4599,7 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
-            "[tugtool.arc]\nimplement_compact_tokens = 300000\n",
+            "[tugtool.arc]\nidle_settle_secs = 0\nimplement_compact_tokens = 300000\n",
         )
         .unwrap();
         std::fs::write(
@@ -3712,6 +4621,86 @@ Some context.
         used: i64,
     ) {
         entry.lock().await.context_window_tokens = Some(used);
+    }
+
+    /// Set the seated session's counts as **asked** turns ending would ([P02]):
+    /// the all-openers count and the prompt count move together.
+    ///
+    /// Every test that predates the split meant asked turns — the horizon was
+    /// the only reader — so this is what "the stage ended N turns" spells now.
+    /// A test about a *wake*-opened turn reaches for [`woke`] instead, and the
+    /// difference between the two is the whole of what this step is about.
+    ///
+    /// The turn is left **inactive**, because that is what ending one means —
+    /// and it has to be said out loud from the re-ask onward: a prompt the arc
+    /// dispatches marks the entry's turn active, so a test that bumped only
+    /// the count would go on reading a session mid-turn and every arm below
+    /// the idle gate would be unreachable.
+    async fn asked(
+        entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>,
+        turns: u32,
+    ) {
+        let mut entry = entry.lock().await;
+        entry.turns_ended = turns;
+        entry.prompt_turns_ended = turns;
+        entry.turn_active = false;
+    }
+
+    /// Advance the seated session by one **wake**-opened turn end: the
+    /// all-openers count moves and the prompt count does not.
+    async fn woke(entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>) {
+        let mut entry = entry.lock().await;
+        entry.turns_ended += 1;
+        entry.wake_turns_ended += 1;
+    }
+
+    /// Declare a real settle over a project the writers left at `0`, so a
+    /// settle test says out loud that it is one.
+    fn with_settle(root: &Path, secs: u64) {
+        let existing = std::fs::read_to_string(root.join(".tugtool/config.toml")).unwrap();
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            existing.replace("idle_settle_secs = 0", &format!("idle_settle_secs = {secs}")),
+        )
+        .unwrap();
+    }
+
+    /// Age the window back past the settle rather than sleeping through it —
+    /// the same shape the clock's tests use on `last_motion_at`.
+    async fn age_the_settle(state: &Arc<Mutex<HashMap<String, ArcState>>>, by: Duration) {
+        let mut map = state.lock().await;
+        for entry in map.values_mut() {
+            entry.quiet_since = entry.quiet_since.map(|since| since - by);
+        }
+    }
+
+    /// Everything the entry has queued, drained.
+    async fn drained(
+        entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>,
+    ) -> Vec<serde_json::Value> {
+        let mut entry = entry.lock().await;
+        let mut out = Vec::new();
+        while let Some(frame) = entry.queue.pop() {
+            out.push(serde_json::from_slice(&frame.payload).unwrap());
+        }
+        out
+    }
+
+    /// The state the settle tests start from: a step boundary the runner would
+    /// answer with a continue prompt on the very first sweep, were it not for
+    /// the settle.
+    fn settling_state(root: &Path) -> Arc<Mutex<HashMap<String, ArcState>>> {
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        let mut map = HashMap::new();
+        map.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(0),
+                ..Default::default()
+            },
+        );
+        *state.try_lock().unwrap() = map;
+        state
     }
 
     /// The queue's text submissions, in order.
@@ -3824,6 +4813,228 @@ Some context.
         );
     }
 
+    /// **An idle reading is not an edge** ([P01]). The first sweep over a step
+    /// boundary reads a session that is idle *at that instant*, which is what
+    /// the runner used to spend on a prompt. It now records what it read and
+    /// spends nothing.
+    #[tokio::test]
+    async fn an_idle_reading_is_not_an_edge() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        with_settle(root, 5);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = settling_state(root);
+
+        sweep(&ctx, &state).await;
+
+        assert!(
+            submitted_asks(&entry).await.is_empty(),
+            "the reading was recorded, not spent",
+        );
+        let map = state.lock().await;
+        let after = &map[&demo_key(root)];
+        assert!(after.quiet_since.is_some(), "the window is open");
+        assert!(after.quiet_marks.is_some(), "over the facts it was made of");
+    }
+
+    /// And a reading that is still true a settle later **is** one. Same
+    /// boundary, same facts, one aged window: the prompt goes.
+    #[tokio::test]
+    async fn a_settled_reading_is_an_edge() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        with_settle(root, 5);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = settling_state(root);
+
+        sweep(&ctx, &state).await;
+        assert!(submitted_asks(&entry).await.is_empty());
+
+        age_the_settle(&state, Duration::from_secs(6)).await;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            submitted_asks(&entry).await,
+            vec![
+                "/tugplug:arc-implement demo implement Step 2 and end the turn; it is the arc's last step"
+                    .to_string()
+            ],
+            "the same reading, still true, is worth acting on",
+        );
+    }
+
+    /// **The incident's shape.** A wake inside the window is not the same
+    /// session standing still — it is the session working, in the gap between
+    /// a turn ending and the harness re-invoking it. The window starts again
+    /// over the new reading rather than elapsing over the old one.
+    ///
+    /// Then a turn opening: not idle at all, so there is no window left.
+    #[tokio::test]
+    async fn a_wake_inside_the_settle_resets_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        with_settle(root, 5);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = settling_state(root);
+
+        sweep(&ctx, &state).await;
+        let armed_at = state.lock().await[&demo_key(root)].quiet_since.unwrap();
+
+        // Four seconds in, a background completion wakes the session. Under a
+        // wall clock alone the fifth second would have spent the reading.
+        age_the_settle(&state, Duration::from_secs(4)).await;
+        woke(&entry).await;
+        sweep(&ctx, &state).await;
+
+        {
+            let map = state.lock().await;
+            let after = &map[&demo_key(root)];
+            assert!(
+                after.quiet_since.is_some_and(|since| since > armed_at),
+                "the window starts again over the reading that replaced it",
+            );
+        }
+        assert!(
+            submitted_asks(&entry).await.is_empty(),
+            "and nothing was spent on the reading the wake interrupted",
+        );
+
+        // The wake's turn opens. A reading that is not idle settles nothing.
+        entry.lock().await.turn_active = true;
+        sweep(&ctx, &state).await;
+        let map = state.lock().await;
+        assert_eq!(map[&demo_key(root)].quiet_since, None);
+        assert_eq!(map[&demo_key(root)].quiet_marks, None);
+    }
+
+    /// The same, for the other half of `is_quiet`: a job opening inside the
+    /// window is work starting, and the reading it interrupts is stale.
+    #[tokio::test]
+    async fn a_job_opening_inside_the_settle_resets_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        with_settle(root, 5);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = settling_state(root);
+
+        sweep(&ctx, &state).await;
+        let armed_at = state.lock().await[&demo_key(root)].quiet_since.unwrap();
+
+        // A job opens: the session is no longer idle at all, so the window
+        // goes rather than restarting.
+        age_the_settle(&state, Duration::from_secs(4)).await;
+        entry
+            .lock()
+            .await
+            .open_jobs
+            .insert("t1".to_owned(), Instant::now());
+        sweep(&ctx, &state).await;
+        {
+            let map = state.lock().await;
+            assert_eq!(map[&demo_key(root)].quiet_since, None, "no idle reading");
+        }
+        assert!(submitted_asks(&entry).await.is_empty());
+
+        // It closes. That is a fresh reading, and a fresh window over it.
+        entry.lock().await.open_jobs.remove("t1");
+        sweep(&ctx, &state).await;
+        let map = state.lock().await;
+        assert!(
+            map[&demo_key(root)]
+                .quiet_since
+                .is_some_and(|since| since > armed_at),
+            "the window is the new reading's, not the interrupted one's",
+        );
+    }
+
+    /// **[P09], at the act that costs most to get wrong.** A stop hands the
+    /// card back on the deck's model and writes a terminal line nothing undoes,
+    /// so it is the one act that must not be decided in a 120 ms gap. It goes
+    /// through the settle like every other.
+    #[tokio::test]
+    async fn a_stop_decided_before_the_settle_sends_no_model_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        with_settle(root, 5);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(1),
+                // At the horizon already: the next quiet turn is the stop.
+                quiet_turns: QUIET_TURN_HORIZON - 1,
+                prompt_turns_seen: Some(0),
+                all_turns_seen: Some(0),
+                ..Default::default()
+            },
+        );
+        asked(&entry, 1).await;
+
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            None,
+            "no arc-stop line on an unsettled reading",
+        );
+        assert!(
+            drained(&entry).await.is_empty(),
+            "and no model_change: the card is still the stage's",
+        );
+
+        age_the_settle(&state, Duration::from_secs(6)).await;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            Some((ArcStage::Implement, "implement idle".to_string())),
+            "the settled reading stops the arc",
+        );
+        let frames = drained(&entry).await;
+        assert_eq!(frames.len(), 1, "the hand-back and nothing else");
+        assert_eq!(frames[0]["type"], "model_change");
+    }
+
+    /// The two stops the settle never holds. A session with no child is gone
+    /// whenever it is looked at — the fact is not a claim about an instant —
+    /// and holding it would leave the card seated on the stage's model for five
+    /// seconds with nothing behind it.
+    #[tokio::test]
+    async fn a_dead_session_is_never_settled() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        with_settle(root, 5);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        entry.lock().await.spawn_state = SpawnState::Errored;
+        let state = settling_state(root);
+
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            Some((ArcStage::Implement, "session gone".to_string())),
+            "the first sweep stops it, settle or no settle",
+        );
+    }
+
     /// The other side of the same read: a stage caught **mid-step** by the
     /// crash is not owed a prompt, and must not be handed one — it would land
     /// on top of a step already being walked.
@@ -3846,19 +5057,25 @@ Some context.
         assert!(read_arc(root, "demo").unwrap().stopped.is_none());
     }
 
-    /// **The quiet-turn horizon, counted over turns rather than ticks.**
+    /// **The horizon is two asks, counted over turns rather than ticks.**
     ///
     /// The arc's largest silent wedge: an implement turn that ends closing no
     /// step decided `None`, and every tick after it decided `None` too. No
     /// receipt, no gesture, no face — an unattended run simply stopped
     /// advancing and said nothing.
     ///
+    /// The first quiet asked turn is now answered with a re-ask naming the
+    /// open step, which is what gives the second count a legitimate path: a
+    /// stage that ends a turn on a question is asked once more, and only a
+    /// stage that declines a second *ask* is handed back.
+    ///
     /// A tick fires on a changeset recompute as well as on a turn end, so the
     /// count must be over turns; this drives two sweeps against one turn count
-    /// to prove a repeated tick is not a repeated turn, then advances the
-    /// count and takes the second quiet turn to the stop.
+    /// to prove a repeated tick is neither a repeated turn nor a second
+    /// re-ask, then advances the count and takes the second quiet turn to the
+    /// stop.
     #[tokio::test]
-    async fn two_quiet_implement_turns_stop_the_arc_and_leave_a_receipt() {
+    async fn an_asked_turn_that_closes_nothing_is_re_asked_once_and_then_stopped() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         implementing_project(root, "done", "pending");
@@ -3873,12 +5090,13 @@ Some context.
             demo_key(root),
             ArcState {
                 last_done_count: Some(1),
-                turns_seen: Some(0),
+                prompt_turns_seen: Some(0),
+                all_turns_seen: Some(0),
                 ..Default::default()
             },
         );
 
-        // Turn one ends quietly. The arc waits.
+        // Turn one ends quietly. The arc asks again rather than waiting.
         sweep(&ctx, &state).await;
         assert_eq!(
             state.lock().await[&demo_key(root)].quiet_turns,
@@ -3886,8 +5104,24 @@ Some context.
             "one turn ended and closed nothing"
         );
         assert!(read_arc(root, "demo").unwrap().stopped.is_none());
+        assert_eq!(
+            submitted_asks(&entry).await,
+            vec![
+                "/tugplug:arc-implement demo Step 2 is still open: finish it, close it, and end the turn; it is the arc's last step"
+                    .to_string()
+            ],
+            "the open step is named back to the stage that left it open",
+        );
 
-        // A second tick on the *same* turn is not a second turn.
+        // A second tick on the *same* turn is neither a second turn nor a
+        // second re-ask.
+        //
+        // Read as an *idle* tick on purpose: the dispatch marked the turn
+        // active, and a sweep held off by the idle gate would prove nothing
+        // about the re-ask being spent once. This is the changeset recompute
+        // landing between the re-ask and the turn that answers it, and
+        // `reask_pending` is the only thing standing in its way.
+        entry.lock().await.turn_active = false;
         sweep(&ctx, &state).await;
         assert_eq!(
             state.lock().await[&demo_key(root)].quiet_turns,
@@ -3895,9 +5129,14 @@ Some context.
             "a tick is not a turn"
         );
         assert!(read_arc(root, "demo").unwrap().stopped.is_none());
+        assert_eq!(
+            submitted_asks(&entry).await.len(),
+            1,
+            "the re-ask is spent once, and the pending prompt is what says so",
+        );
 
         // Turn two ends quietly too. That is the horizon.
-        entry.lock().await.turns_ended = 2;
+        asked(&entry, 2).await;
         sweep(&ctx, &state).await;
 
         let record = read_arc(root, "demo").unwrap();
@@ -3906,9 +5145,777 @@ Some context.
             Some((ArcStage::Implement, "implement idle".to_string())),
             "the stop is written where every reader of the arc will find it"
         );
+        assert_eq!(
+            submitted_asks(&entry).await.len(),
+            1,
+            "the horizon's own answer is a stop with a receipt, never a third ask"
+        );
+    }
+
+    /// **An idle session is never the clock's** ([P06]). Before this the
+    /// stall deadline was a second answer to a stage that had ended one quiet
+    /// turn — and the slower, wronger one: the horizon answers that stage in
+    /// one turn with a re-ask, while the clock answered it half an hour later
+    /// with a sentence about silence.
+    ///
+    /// The clock's one job is a turn that never ends, and this drives both
+    /// halves against the same aged stamp: idle decides nothing, and the very
+    /// same staleness with a turn in flight is the stop.
+    #[tokio::test]
+    async fn a_quiet_idle_session_is_not_stalled() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
+        )
+        .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        asked(&entry, 1).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(1),
+                prompt_turns_seen: Some(1),
+                all_turns_seen: Some(1),
+                // The re-ask is already out, so the horizon has nothing to say
+                // either: whatever this sweep decides, the clock decided it.
+                quiet_turns: 1,
+                pending: Some(PendingPrompt {
+                    kind: PromptKind::StillOpen { steps: (2, 2) },
+                    turns_ended_at: 1,
+                }),
+                // Aged past the deadline rather than slept through.
+                last_motion_at: Some(Instant::now() - Duration::from_secs(5)),
+                ..Default::default()
+            },
+        );
+
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            None,
+            "an idle reading has an edge, and the clock is not what judges it",
+        );
+
+        // The same staleness, now over a turn that is not ending. That is the
+        // one shape the clock exists for.
+        entry.lock().await.turn_active = true;
+        state
+            .lock()
+            .await
+            .get_mut(&demo_key(root))
+            .unwrap()
+            .last_motion_at = Some(Instant::now() - Duration::from_secs(5));
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            Some((ArcStage::Implement, "stalled".to_string())),
+            "a turn that never ends is answered by the clock or by nothing at all",
+        );
+    }
+
+    /// The re-ask goes on Tug's own record of what the wheel said, like every
+    /// other prompt the arc sends — so a reload attributes it to the wheel
+    /// rather than to the user who was not there.
+    #[tokio::test]
+    async fn the_re_ask_is_recorded_as_the_wheels_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(1),
+                prompt_turns_seen: Some(0),
+                all_turns_seen: Some(0),
+                ..Default::default()
+            },
+        );
+
+        sweep(&ctx, &state).await;
+
+        let sent = submitted(&entry).await;
+        assert_eq!(sent.len(), 1, "the quiet turn was answered with a re-ask");
         assert!(
-            submitted(&entry).await.is_empty(),
-            "the horizon is a stop with a receipt, never a re-prompt"
+            sent[0].contains("Step 2 is still open"),
+            "and it is the re-ask rather than the continue ask: {}",
+            sent[0],
+        );
+        assert_eq!(
+            ctx.session_ledger
+                .list_wheel_prompts_for_line("claude-1")
+                .unwrap(),
+            sent,
+            "what the record holds is exactly what went on the wire",
+        );
+    }
+
+    /// A stop takes the running arc's memory with it, keeping only its marks.
+    ///
+    /// Every field the runner holds describes a stage that is being asked for
+    /// turns. After a stop none of that is true, and each field left standing
+    /// is a fact that can only get wronger: `last_motion_at` ages, so the
+    /// clock's next read of it is a stall the stop already accounted for, and
+    /// `quiet_turns` is at the horizon, so anything that does let a tick
+    /// through re-stops immediately.
+    #[tokio::test]
+    async fn a_stop_evicts_every_memory_but_its_own_marks() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(1),
+                prompt_turns_seen: Some(0),
+                all_turns_seen: Some(0),
+                ..Default::default()
+            },
+        );
+
+        // Two quiet turns — the horizon, exactly as the test above drives it.
+        sweep(&ctx, &state).await;
+        asked(&entry, 2).await;
+        sweep(&ctx, &state).await;
+        assert!(
+            read_arc(root, "demo").unwrap().stopped.is_some(),
+            "the horizon stopped the arc",
+        );
+
+        let map = state.lock().await;
+        let after = &map[&demo_key(root)];
+        assert_eq!(after.last_motion_at, None, "the clock has nothing to age");
+        assert_eq!(after.quiet_turns, 0, "no turns are held against a stop");
+        assert_eq!(after.in_flight_at, None);
+        assert_eq!(after.prompt_turns_seen, None);
+        assert_eq!(after.all_turns_seen, None);
+        assert_eq!(
+            after.stop_marks,
+            Some(StopMarks {
+                wake_turns_ended: 0,
+                done_count: 1,
+            }),
+            "the stop's own baseline is the one thing kept",
+        );
+    }
+
+    /// **The incident itself, as the horizon sees it.** Six backgrounded
+    /// commands completed, each re-invoking the model and each ending a turn;
+    /// the runner counted six quiet turns against a stage that had been asked
+    /// exactly once, and stopped an arc that was working.
+    ///
+    /// The horizon counts answers. Six wake-opened turn ends are no answers at
+    /// all, so the count stands where the one ask left it, however many sweeps
+    /// read the session in between.
+    #[tokio::test]
+    async fn a_wake_opened_turn_end_is_not_a_quiet_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(1),
+                prompt_turns_seen: Some(0),
+                all_turns_seen: Some(0),
+                ..Default::default()
+            },
+        );
+
+        // The one ask, ending quietly. That is the first quiet turn, and the
+        // horizon's whole legitimate claim against this stage.
+        asked(&entry, 1).await;
+        sweep(&ctx, &state).await;
+        assert_eq!(state.lock().await[&demo_key(root)].quiet_turns, 1);
+
+        // Then the six background completions, each one a turn end and a
+        // sweep. Under the old count this reached the horizon at the second.
+        for _ in 0..6 {
+            woke(&entry).await;
+            sweep(&ctx, &state).await;
+        }
+
+        assert_eq!(
+            state.lock().await[&demo_key(root)].quiet_turns,
+            1,
+            "six wakes are no answers, so the count stands where the one ask left it",
+        );
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            None,
+            "and the arc that was working is not stopped",
+        );
+    }
+
+    /// The other half of [P02], and the reason the two counts cannot be one:
+    /// a wake-opened turn end is not an *answer*, but it is unmistakably the
+    /// arc **moving**. The clock reads every opener, so a stage whose only
+    /// visible life is its background work is never called stalled.
+    #[tokio::test]
+    async fn a_wake_opened_turn_end_is_motion_for_the_clock() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
+        )
+        .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        asked(&entry, 1).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(1),
+                prompt_turns_seen: Some(1),
+                all_turns_seen: Some(1),
+                // Aged past the deadline rather than slept through it.
+                last_motion_at: Some(Instant::now() - Duration::from_secs(5)),
+                ..Default::default()
+            },
+        );
+
+        // Nothing the stage was asked for has moved — only the harness's own
+        // turn, which is exactly the reading the clock must accept.
+        woke(&entry).await;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            None,
+            "a wake is motion, so the clock never ran out",
+        );
+        let map = state.lock().await;
+        let after = &map[&demo_key(root)];
+        assert!(
+            after
+                .last_motion_at
+                .is_some_and(|at| at.elapsed() < Duration::from_secs(1)),
+            "and the stamp moved to the wake rather than staying five seconds stale",
+        );
+    }
+
+    /// The wedge the incident sat in overnight: the clock ran over a record
+    /// that had already stopped, so the arc was re-stopped by a silence its
+    /// own stop had caused.
+    #[tokio::test]
+    async fn the_clock_is_never_read_on_a_stopped_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+        tugarc_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Stalled)
+            .unwrap();
+
+        let (ctx, _entry, _register_rx) = harness(root).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        // The entry a stop leaves behind: no clock, and marks.
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                stop_marks: Some(StopMarks::default()),
+                ..Default::default()
+            },
+        );
+
+        let stops_before = arc_stop_lines(root);
+        sweep(&ctx, &state).await;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            arc_stop_lines(root),
+            stops_before,
+            "a stopped arc is never stopped a second time",
+        );
+        assert_eq!(
+            state.lock().await[&demo_key(root)].last_motion_at,
+            None,
+            "no tick stamped motion on a record that had already ended",
+        );
+    }
+
+    /// **The incident's morning.** The arc stopped the evening before, the
+    /// clock's deadline ran out over the stopped record all night, and the
+    /// user pressed Resume. The resume must win: the staleness is a fact
+    /// about the silence the stop itself caused, and re-stopping on it is
+    /// what undid both of the user's presses within 160 ms.
+    #[tokio::test]
+    async fn a_resume_after_a_stale_clock_is_answered_and_never_re_stopped() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        std::fs::write(root.join(".tug/arcs/demo/plan.md"), LINTING_PLAN).unwrap();
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+        tugarc_core::arc::append_arc_stop(root, "demo", ArcStage::Review, ArcStopReason::Stalled)
+            .unwrap();
+        // The press. `arc-resume` clears the stop and names the stage to run
+        // again, so the tick that follows reads a live record with a stale
+        // clock behind it — the exact pairing the arm order settles.
+        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Review).unwrap();
+
+        let (ctx, _entry, _register_rx) = harness(root).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        // Overnight. Aged rather than slept through.
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_motion_at: Some(Instant::now() - Duration::from_secs(5)),
+                ..Default::default()
+            },
+        );
+
+        sweep(&ctx, &state).await;
+
+        assert!(
+            arc_log_markers(root)
+                .iter()
+                .any(|line| line == "arc-continue  review"),
+            "the resume was answered on the stage's own card: {:?}",
+            arc_log_markers(root),
+        );
+        assert!(
+            read_arc(root, "demo").unwrap().stopped.is_none(),
+            "the stale clock never got to re-stop the arc the user just resumed",
+        );
+    }
+
+    /// **A resume keeps the session the stage was working on** ([P08]).
+    ///
+    /// The incident's resume rotated, and a rotation is a fresh session: the
+    /// press cost the stage the entire working context it had built before it
+    /// was wrongly stopped. When the card is still the stage's own, there is
+    /// nothing to replace — the stage is asked again, on its own card, with
+    /// its own model put back and the fact that it is resuming in the prompt.
+    #[tokio::test]
+    async fn a_resume_on_a_live_stage_session_keeps_the_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::ImplementIdle,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+
+        assert!(
+            !arc_log_markers(root)
+                .iter()
+                .any(|line| line.starts_with("arc-dispatch")),
+            "nothing was rotated: {:?}",
+            arc_log_markers(root),
+        );
+        assert_eq!(
+            arc_log_markers(root)
+                .iter()
+                .filter(|line| *line == "arc-continue  implement")
+                .count(),
+            1,
+            "the arc says out loud that the stage was picked back up in place",
+        );
+
+        let frames = drained(&entry).await;
+        let models: Vec<&str> = frames
+            .iter()
+            .filter(|frame| frame["type"] == "model_change")
+            .filter_map(|frame| frame["model"].as_str())
+            .collect();
+        assert_eq!(
+            models,
+            vec!["default"],
+            "the stage's model went back on the card the stop had handed to the deck",
+        );
+
+        let sent: Vec<&str> = frames
+            .iter()
+            .filter(|frame| frame["type"] == "user_message")
+            .filter_map(|frame| frame["content"][0]["text"].as_str())
+            .collect();
+        assert_eq!(sent.len(), 1, "one ask, on the session it was already on");
+        let mut lines = sent[0].split("\n\n");
+        assert_eq!(
+            lines.next(),
+            Some(
+                "/tugplug:arc-implement demo implement Step 2 and end the turn; it is the arc's last step"
+            ),
+        );
+        assert!(
+            lines.next().is_some_and(|line| line.starts_with("where: ")
+                && line.ends_with("· stage implement · Step 2 in hand, through 2")),
+            "the where clause carries the step the resume is picking up: {}",
+            sent[0],
+        );
+        assert_eq!(
+            lines.next(),
+            Some("this arc was stopped in implement — implement idle; it is resuming"),
+            "and the stage is told what it is resuming from, which `stopped` no longer holds",
+        );
+    }
+
+    /// How many `arc-stop` lines the arc log holds — the record every later
+    /// reader learns a stop from, so a second one is a second stop.
+    fn arc_stop_lines(root: &Path) -> usize {
+        std::fs::read_to_string(tugtool_core::paths::arc_log_path(root))
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| line.contains("arc-stop"))
+            .count()
+    }
+
+    /// Every marker the arc log holds, in order — the record itself, which is
+    /// what a reversal has to get right rather than merely leave a receipt for.
+    ///
+    /// A line is `<iso>  <arc>  <marker>  <note>`, two spaces between fields;
+    /// this drops the timestamp and the arc, which are the same on every line
+    /// a test writes, and keeps the pair that says what happened.
+    fn arc_log_markers(root: &Path) -> Vec<String> {
+        std::fs::read_to_string(tugtool_core::paths::arc_log_path(root))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.splitn(4, "  ");
+                let _timestamp = fields.next()?;
+                let _arc = fields.next()?;
+                let marker = fields.next()?;
+                let note = fields.next().unwrap_or_default();
+                Some(format!("{marker}  {note}"))
+            })
+            .collect()
+    }
+
+    /// Drive an implementing arc to the horizon's stop, and hand back the
+    /// state map the stop left its marks in.
+    ///
+    /// The reversal reads those marks and nothing else, so a test that seeded
+    /// a stopped record by hand would be testing a shape the runner cannot
+    /// produce: a stop this process did not watch leaves no baseline, and the
+    /// reversal correctly declines it.
+    async fn stopped_at_the_horizon(
+        ctx: &ArcContext,
+        entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>,
+        root: &Path,
+    ) -> Arc<Mutex<HashMap<String, ArcState>>> {
+        set_context(entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(1),
+                prompt_turns_seen: Some(0),
+                all_turns_seen: Some(0),
+                ..Default::default()
+            },
+        );
+        asked(entry, 1).await;
+        sweep(ctx, &state).await;
+        asked(entry, 2).await;
+        sweep(ctx, &state).await;
+        assert!(
+            read_arc(root, "demo").unwrap().stopped.is_some(),
+            "the horizon stopped the arc, which is what the reversal undoes",
+        );
+        state
+    }
+
+    /// **The incident's ninety-six seconds, end to end.** The arc was stopped
+    /// as `implement idle` at 20:26:23; step 4 of 7 closed at 20:27:59, on the
+    /// stage's own session, and nothing read it. The step closing now picks the
+    /// arc back up: the record says so, the card goes back on the stage's
+    /// model, and the transcript carries a row saying which fact undid the
+    /// stop.
+    #[tokio::test]
+    async fn a_step_closing_on_a_stopped_arc_picks_it_back_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\nimplement_model = \"fable\"\n",
+        )
+        .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+        let state = stopped_at_the_horizon(&ctx, &entry, root).await;
+        let _ = receipts(&mut control_rx);
+        let _ = drained(&entry).await;
+
+        // The step the stage was working on all along closes.
+        std::fs::write(
+            root.join(".tug/arcs/demo/plan.md"),
+            plan_with_statuses("done", "done"),
+        )
+        .unwrap();
+        sweep(&ctx, &state).await;
+
+        let markers = arc_log_markers(root);
+        let tail: Vec<&str> = markers.iter().rev().take(3).rev().map(String::as_str).collect();
+        assert_eq!(
+            tail,
+            vec![
+                "arc-note  picked back up: a step closed",
+                "arc-resume  implement",
+                "arc-continue  implement",
+            ],
+            "the note says what moved, the resume clears the stop, the continue clears the resume",
+        );
+
+        let record = read_arc(root, "demo").unwrap();
+        assert_eq!(record.stopped, None, "the arc is running again");
+        assert_eq!(
+            record.resume, None,
+            "and owed no rotation: the stage is already seated",
+        );
+
+        let frames = drained(&entry).await;
+        assert_eq!(frames.len(), 1, "one model_change, got {frames:?}");
+        assert_eq!(frames[0]["type"], "model_change");
+        assert_eq!(
+            frames[0]["model"], "fable",
+            "the card goes back on the stage's model, not the deck's",
+        );
+
+        let said = receipts(&mut control_rx);
+        assert_eq!(said.len(), 1, "one receipt, got {said:?}");
+        assert_eq!(
+            said[0],
+            "arc picked back up · demo · in implement · a step closed",
+        );
+    }
+
+    /// **A picked-back-up arc walks on**, which is the whole claim the
+    /// reversal makes: the receipt says there is nothing to resume because it
+    /// already did.
+    ///
+    /// The step that undid the stop is the step the wheel owes a continue
+    /// prompt for, and the stop was the only reason nobody sent one. A
+    /// reversal that recorded the current done-count would spend that
+    /// boundary on itself, leaving an arc that is not stopped, is not clocked
+    /// (an idle session is never the clock's, [P06]), and is never asked for
+    /// anything again — a worse ending than the wrong stop it replaced,
+    /// because it leaves no receipt at all.
+    #[tokio::test]
+    async fn a_reversed_arc_walks_on_from_the_step_that_undid_the_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "pending", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_done_count: Some(0),
+                prompt_turns_seen: Some(0),
+                all_turns_seen: Some(0),
+                ..Default::default()
+            },
+        );
+        asked(&entry, 1).await;
+        sweep(&ctx, &state).await;
+        asked(&entry, 2).await;
+        sweep(&ctx, &state).await;
+        assert!(read_arc(root, "demo").unwrap().stopped.is_some(), "stopped");
+        let _ = receipts(&mut control_rx);
+        let _ = drained(&entry).await;
+
+        std::fs::write(
+            root.join(".tug/arcs/demo/plan.md"),
+            plan_with_statuses("done", "pending"),
+        )
+        .unwrap();
+        sweep(&ctx, &state).await;
+        assert_eq!(read_arc(root, "demo").unwrap().stopped, None, "reversed");
+
+        // The stage is seated, idle, and between steps. The next tick reads
+        // the close the way it would have read it had the stop never
+        // happened, and the ticks after it have nothing left to say.
+        sweep(&ctx, &state).await;
+        sweep(&ctx, &state).await;
+        let asks = submitted_asks(&entry).await;
+        assert_eq!(asks.len(), 1, "one continue ask, got {asks:?}");
+        assert!(
+            asks[0].starts_with("/tugplug:arc-implement demo implement Step 2"),
+            "for the step the reversal left open, got {asks:?}",
+        );
+    }
+
+    /// And a stage that goes quiet *after* a pick-up is still counted.
+    ///
+    /// The horizon is the only thing left watching an idle session ([P06]),
+    /// and it counts a turn ending only against a count the previous tick
+    /// already held. Clearing that count at the reversal — as a rotation
+    /// clears it, for a session that genuinely starts over — would make the
+    /// next turn end the tick that seeds it, so the first quiet turn after a
+    /// pick-up would be the one nobody counted.
+    #[tokio::test]
+    async fn a_quiet_turn_after_a_pick_up_is_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = stopped_at_the_horizon(&ctx, &entry, root).await;
+
+        woke(&entry).await;
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            None,
+            "picked back up",
+        );
+        let _ = drained(&entry).await;
+
+        // One asked turn ends, closing nothing. The horizon answers it.
+        asked(&entry, 3).await;
+        sweep(&ctx, &state).await;
+        let asks = submitted_asks(&entry).await;
+        assert_eq!(asks.len(), 1, "one re-ask, got {asks:?}");
+        assert!(
+            asks[0].contains("Step 2 is still open"),
+            "the re-ask names the open step, got {asks:?}",
+        );
+    }
+
+    /// The same reversal from the other fact: a wake ending a turn on the
+    /// stopped stage's session. The plan has not moved, so the only thing
+    /// saying the stage is alive is the harness re-invoking it — which is
+    /// precisely the signal the horizon used to read as death.
+    #[tokio::test]
+    async fn a_wake_on_a_stopped_arc_picks_it_back_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+        let state = stopped_at_the_horizon(&ctx, &entry, root).await;
+        let _ = receipts(&mut control_rx);
+
+        woke(&entry).await;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(read_arc(root, "demo").unwrap().stopped, None);
+        let said = receipts(&mut control_rx);
+        assert_eq!(
+            said,
+            vec!["arc picked back up · demo · in implement · a wake on its session".to_string()],
+        );
+    }
+
+    /// The stop's row is not erased. It happened, and a transcript that
+    /// removed it would be lying about a minute of the arc's life — the
+    /// superseding pass folds the older row, and folding needs both.
+    #[tokio::test]
+    async fn the_stop_receipt_and_the_pickup_receipt_are_two_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+        let state = stopped_at_the_horizon(&ctx, &entry, root).await;
+
+        woke(&entry).await;
+        sweep(&ctx, &state).await;
+
+        let said = receipts(&mut control_rx);
+        assert_eq!(said.len(), 2, "two rows, got {said:?}");
+        assert!(said[0].starts_with("arc stopped · demo · in implement"), "{said:?}");
+        assert!(said[1].starts_with("arc picked back up · demo · in implement"), "{said:?}");
+    }
+
+    /// **The tripwire** ([P11]). The incident's morning undid two Resume
+    /// presses within 160 ms each, because the stall clock outranked the resume
+    /// and the runner's memory outlived the stop. A resume followed by a clock
+    /// long since run out must produce no second stop — and the settle is what
+    /// makes the window this test drives a real one rather than a lucky
+    /// ordering.
+    #[tokio::test]
+    async fn a_resume_is_never_re_stopped_within_the_settle() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 5\narc_stall_secs = 1\n",
+        )
+        .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::ImplementIdle,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+        assert_eq!(arc_stop_lines(root), 1, "the stop this test starts from");
+
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+        // The overnight clock: a deadline that ran out over a silence the stop
+        // had already accounted for.
+        {
+            let mut map = state.lock().await;
+            for entry in map.values_mut() {
+                entry.last_motion_at = Some(Instant::now() - Duration::from_secs(600));
+            }
+        }
+        sweep(&ctx, &state).await;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            arc_stop_lines(root),
+            1,
+            "the arc the user just resumed is never stopped a second time",
         );
     }
 
@@ -3932,7 +5939,8 @@ Some context.
             demo_key(root),
             ArcState {
                 last_done_count: Some(1),
-                turns_seen: Some(0),
+                prompt_turns_seen: Some(0),
+                all_turns_seen: Some(0),
                 ..Default::default()
             },
         );
@@ -3946,7 +5954,7 @@ Some context.
             plan_with_statuses("done", "done"),
         )
         .unwrap();
-        entry.lock().await.turns_ended = 2;
+        asked(&entry, 2).await;
         sweep(&ctx, &state).await;
 
         assert_eq!(
@@ -4105,7 +6113,7 @@ Some context.
             let (ctx, entry, _register_rx) = harness(root).await;
             set_context(&entry, used).await;
             // The compact turn has ended: the count has moved past the mark.
-            entry.lock().await.turns_ended = 2;
+            asked(&entry, 2).await;
             let state = Arc::new(Mutex::new(HashMap::new()));
             state.lock().await.insert(
                 demo_key(root),
@@ -4162,7 +6170,7 @@ Some context.
 
         let (ctx, entry, _register_rx) = harness(root).await;
         set_context(&entry, 100_000).await;
-        entry.lock().await.turns_ended = 2;
+        asked(&entry, 2).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
         state.lock().await.insert(
             demo_key(root),
@@ -4205,6 +6213,7 @@ Some context.
         {
             let mut entry = entry.lock().await;
             entry.turns_ended = 2;
+            entry.prompt_turns_ended = 2;
             entry.turn_cancelled = true;
         }
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -4235,6 +6244,7 @@ Some context.
             entry.turn_cancelled = false;
             entry.turn_active = false;
             entry.turns_ended = 3;
+            entry.prompt_turns_ended = 3;
         }
         {
             let mut map = state.lock().await;
@@ -4249,11 +6259,10 @@ Some context.
         );
     }
 
-    /// Every tick says what it read and what it decided — including the ticks
-    /// that decided nothing. The eleven-arc silence that produced this work
-    /// was diagnosable only by reading, because no tick had ever said a word.
-    #[tokio::test]
-    async fn every_tick_logs_its_facts_and_its_decision() {
+    /// Run `body` with a subscriber of our own and hand back every line it
+    /// wrote. Several tests read the runner's own trace, and the writer is the
+    /// same fifteen lines for all of them.
+    async fn capturing_lines<F: std::future::Future<Output = ()>>(body: F) -> Vec<String> {
         use std::sync::{Arc as StdArc, Mutex as StdMutex};
         use tracing_subscriber::fmt::MakeWriter;
 
@@ -4275,6 +6284,136 @@ Some context.
             }
         }
 
+        let sink = Buffer(StdArc::new(StdMutex::new(Vec::new())));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(sink.clone())
+            .with_ansi(false)
+            .without_time()
+            .finish();
+        let captured = {
+            let _guard = tracing::subscriber::set_default(subscriber);
+            body.await;
+            String::from_utf8(sink.0.lock().unwrap().clone()).unwrap()
+        };
+        captured
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// The same capture, narrowed to the `arc.tick` lines.
+    async fn capturing_ticks<F: std::future::Future<Output = ()>>(body: F) -> Vec<String> {
+        capturing_lines(body)
+            .await
+            .into_iter()
+            .filter(|line| line.contains("event=\"arc.tick\""))
+            .collect()
+    }
+
+    /// **No act-path return is silent** ([P10]).
+    ///
+    /// Every act re-reads the record immediately before writing anything,
+    /// because a tick that raced another one decided over facts that may have
+    /// moved. Declining on that guard is right; declining *silently* is what
+    /// made the arc's wedges diagnosable only by reading the source — the tick
+    /// line said the runner was about to prompt, and then nothing happened and
+    /// nothing said why.
+    ///
+    /// The race is driven by hand rather than hoped for: the reading is taken,
+    /// the record moves, and only then is the act called with the reading it
+    /// was going to act on.
+    #[tokio::test]
+    async fn a_prompt_the_record_moved_under_is_logged_not_swallowed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, Some("claude-1")),
+            TickMemory {
+                last_done_count: Some(0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            reading.facts.ledger.step_just_done,
+            "the reading is one the runner would answer with a prompt",
+        );
+
+        // The record moves under the tick: another rotation lands between the
+        // read and the act.
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-9", None)
+            .unwrap();
+
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        let lines = capturing_lines(async {
+            deliver_prompt(
+                &ctx,
+                &state,
+                &bound(root, "demo"),
+                &demo_key(root),
+                &reading,
+                &PromptKind::Continue { steps: (2, 2) },
+                &PromptWhy::Continue,
+            )
+            .await;
+        })
+        .await;
+
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line.contains("event=\"arc.prompt_skipped\""))
+                .count(),
+            1,
+            "the guard said why it declined: {lines:#?}",
+        );
+        assert!(
+            submitted(&entry).await.is_empty(),
+            "and it did decline — the stale reading bought no prompt",
+        );
+    }
+
+    /// The stop that existed on one path and not its twin ([P10]).
+    ///
+    /// An ask that cannot be composed is an arc with no words for its own
+    /// stage. `rotate` has always stopped as `prompt unavailable` and said so
+    /// in a receipt; the prompt paths returned silently, so the arc sat with
+    /// nothing to advance it and nothing on the card to say so.
+    #[tokio::test]
+    async fn an_unavailable_ask_stops_as_prompt_unavailable_on_the_prompt_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        // No `arc-start`, so the record carries no document — and the devise
+        // ask is the one that cannot be composed without one.
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+        tugarc_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint)
+            .unwrap();
+        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Devise).unwrap();
+        assert_eq!(read_arc(root, "demo").unwrap().document, None);
+
+        let (ctx, _entry, _register_rx) = harness(root).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            Some((ArcStage::Devise, "prompt unavailable".to_string())),
+            "the arc says what it could not do rather than sitting still",
+        );
+    }
+
+    /// Every tick says what it read and what it decided — including the ticks
+    /// that decided nothing. The eleven-arc silence that produced this work
+    /// was diagnosable only by reading, because no tick had ever said a word.
+    #[tokio::test]
+    async fn every_tick_logs_its_facts_and_its_decision() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         implementing_project(root, "done", "pending");
@@ -4290,26 +6429,15 @@ Some context.
             },
         );
 
-        let sink = Buffer(StdArc::new(StdMutex::new(Vec::new())));
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(sink.clone())
-            .with_ansi(false)
-            .without_time()
-            .finish();
-        let captured = {
-            let _guard = tracing::subscriber::set_default(subscriber);
+        let ticks = capturing_ticks(async {
             // Mid-turn: the tick decides nothing, and says so.
             entry.lock().await.turn_active = true;
             sweep(&ctx, &state).await;
             entry.lock().await.turn_active = false;
             sweep(&ctx, &state).await;
-            String::from_utf8(sink.0.lock().unwrap().clone()).unwrap()
-        };
-
-        let ticks: Vec<&str> = captured
-            .lines()
-            .filter(|line| line.contains("event=\"arc.tick\""))
-            .collect();
+        })
+        .await;
+        let ticks: Vec<&str> = ticks.iter().map(String::as_str).collect();
         assert_eq!(ticks.len(), 2, "one line per tick, got {ticks:#?}");
         assert!(
             ticks[0].contains("action=none") && ticks[0].contains("idle=false"),
@@ -4324,5 +6452,333 @@ Some context.
             "{}",
             ticks[1]
         );
+        // The settle is off in this project, so a decided action is settled by
+        // definition and nothing is being held.
+        assert!(
+            ticks[0].contains("settled=false") && ticks[0].contains("quiet_for=\"-\""),
+            "{}",
+            ticks[0]
+        );
+        assert!(
+            ticks[1].contains("settled=true") && ticks[1].contains("quiet_for=\"-\""),
+            "{}",
+            ticks[1]
+        );
+        // And the fields Table T02 added are on **every** line, decided or
+        // not: a reader diagnosing a silence needs the same facts from the
+        // ticks that did nothing as from the one that acted.
+        for tick in &ticks {
+            for field in [
+                "opener=",
+                "quiet_for=",
+                "settled=",
+                "prompt_turns=",
+                "wake_turns=",
+            ] {
+                assert!(tick.contains(field), "no {field} on {tick}");
+            }
+        }
+        assert!(
+            ticks[0].contains("opener=\"-\""),
+            "a turn nothing opened says so rather than omitting the field: {}",
+            ticks[0]
+        );
+    }
+
+    /// And with a settle declared, the two lines say which side of it each
+    /// tick fell on — the one fact a reader needs to tell a runner that is
+    /// waiting from one that has stopped deciding.
+    #[tokio::test]
+    async fn the_tick_line_says_which_side_of_the_settle_it_fell_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        with_settle(root, 5);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = settling_state(root);
+
+        let ticks = capturing_ticks(async {
+            sweep(&ctx, &state).await;
+            age_the_settle(&state, Duration::from_secs(6)).await;
+            sweep(&ctx, &state).await;
+        })
+        .await;
+
+        assert_eq!(ticks.len(), 2, "one line per tick, got {ticks:#?}");
+        assert!(
+            ticks[0].contains("settled=false")
+                && ticks[0].contains("quiet_for=\"0\"")
+                && ticks[0].contains("action=none"),
+            "the held tick says it decided nothing and why: {}",
+            ticks[0]
+        );
+        assert!(
+            ticks[1].contains("settled=true")
+                && ticks[1].contains("action=prompt:")
+                && !ticks[1].contains("quiet_for=\"-\""),
+            "and the settled one says how long it waited: {}",
+            ticks[1]
+        );
+    }
+
+    /// **The incident, and the four shapes around it, as frame sequences**
+    /// (List L01).
+    ///
+    /// Every other test here drives one mechanism. These drive the *wire* —
+    /// the order frames actually arrived in on the night of 2026-09-03 and the
+    /// orders that neighbour it — because the defect was never in one
+    /// mechanism's logic. Each part was defensible alone: a turn end is an
+    /// edge, an idle reading is idle, a horizon of two is patient, a clock of
+    /// half an hour is generous. The arc stopped because they met in one
+    /// order, and only a sequence can hold that.
+    ///
+    /// No test here sleeps. The settle and the clock are aged by hand, which
+    /// is the same thing a wall clock would have said and is over in
+    /// microseconds.
+    mod frame_sequences {
+        use super::*;
+
+        /// **Sequence 1 — the gap the arc was stopped in.** An asked turn
+        /// ends; 120 ms later its wake begins. The session is genuinely idle
+        /// in between, and a tick landing there used to spend that instant on
+        /// a stop.
+        #[tokio::test]
+        async fn an_asked_turn_end_followed_by_a_wake_within_the_settle_decides_nothing() {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            implementing_project(root, "done", "pending");
+            with_settle(root, 5);
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            set_context(&entry, 100_000).await;
+            let state = settling_state(root);
+
+            // The turn ends. The reading is idle, and the window opens over
+            // it rather than being spent.
+            asked(&entry, 2).await;
+            sweep(&ctx, &state).await;
+            assert!(
+                state.lock().await[&demo_key(root)].quiet_since.is_some(),
+                "the idle reading armed a window rather than buying an act",
+            );
+            assert!(submitted(&entry).await.is_empty());
+
+            // 120 ms later the wake opens its turn. The window's facts moved,
+            // so the reading it described is gone.
+            {
+                let mut entry = entry.lock().await;
+                entry.turn_active = true;
+                entry.turn_opener = Some(TurnOpener::Wake);
+            }
+            sweep(&ctx, &state).await;
+
+            assert_eq!(
+                state.lock().await[&demo_key(root)].quiet_since,
+                None,
+                "a reading that is not idle settles nothing",
+            );
+            assert_eq!(read_arc(root, "demo").unwrap().stopped, None);
+            assert!(
+                submitted(&entry).await.is_empty(),
+                "and the gap between a turn and its wake bought nothing at all",
+            );
+        }
+
+        /// **Sequence 2 — the launch the wire never confirmed.** A
+        /// backgrounded call goes out, the turn ends, minutes pass, and only
+        /// then does the wake arrive. The session is *busy* for the whole of
+        /// it: the launch is what says so, because the `task_started` that
+        /// would confirm the job may never come.
+        #[tokio::test]
+        async fn a_launch_then_a_turn_end_then_minutes_then_a_wake_decides_nothing() {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            implementing_project(root, "done", "pending");
+            with_settle(root, 5);
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            set_context(&entry, 100_000).await;
+            let state = settling_state(root);
+            let session = TugSessionId::new("claude-1".to_string());
+
+            // The launch, as the wire writes it.
+            ctx.supervisor
+                .record_job_launch(
+                    &session,
+                    br#"{"type":"tool_use","tool_use_id":"tu-1","tool_name":"Bash","input":{"run_in_background":true}}"#,
+                )
+                .await;
+            assert_eq!(entry.lock().await.open_jobs.len(), 1);
+
+            // The turn ends with the job still running.
+            asked(&entry, 2).await;
+            sweep(&ctx, &state).await;
+            assert_eq!(
+                state.lock().await[&demo_key(root)].quiet_since,
+                None,
+                "an open job is not a quiet session, so no window opened",
+            );
+
+            // Minutes of it. Every tick reads the same busy session.
+            for _ in 0..4 {
+                sweep(&ctx, &state).await;
+            }
+            assert_eq!(read_arc(root, "demo").unwrap().stopped, None);
+            assert!(submitted(&entry).await.is_empty());
+
+            // The wake, which closes the job and opens a turn of its own.
+            let closed = ctx
+                .supervisor
+                .apply_job_edge(
+                    &session,
+                    br#"{"type":"wake_started","wake_trigger":{"task_id":"tu-1","status":"completed"}}"#,
+                )
+                .await;
+            assert!(closed, "the wake closed the launch it answered");
+            {
+                let mut entry = entry.lock().await;
+                entry.turn_active = true;
+                entry.turn_opener = Some(TurnOpener::Wake);
+            }
+            sweep(&ctx, &state).await;
+
+            assert_eq!(
+                read_arc(root, "demo").unwrap().stopped,
+                None,
+                "nothing in the whole sequence was an answer, and nothing stopped",
+            );
+        }
+
+        /// **Sequence 3 — the ninety-six seconds after the wrong stop.** The
+        /// arc stops for silence, and then the stage it was stopped over
+        /// closes its step. The stop was a claim, and this is the one session
+        /// entitled to contradict it.
+        #[tokio::test]
+        async fn a_stop_then_a_wake_reverses() {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            implementing_project(root, "done", "pending");
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            let state = stopped_at_the_horizon(&ctx, &entry, root).await;
+
+            // A wake on the stopped stage's own session.
+            woke(&entry).await;
+            sweep(&ctx, &state).await;
+
+            let markers = arc_log_markers(root);
+            assert!(
+                markers.iter().any(|line| line == "arc-continue  implement"),
+                "the stop was reversed on the stage's own session: {markers:#?}",
+            );
+            assert_eq!(
+                read_arc(root, "demo").unwrap().stopped,
+                None,
+                "and the record says the arc is running again",
+            );
+        }
+
+        /// **Sequence 4 — the incident's morning.** The arc stopped in the
+        /// evening, the clock aged over the stopped record all night, and the
+        /// user pressed Resume. Both presses were undone within 160 ms,
+        /// because the stall arm outranked the resume and the runner's memory
+        /// outlived the stop.
+        #[tokio::test]
+        async fn a_resume_then_a_tick_never_stalls() {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            implementing_project(root, "done", "pending");
+            std::fs::write(
+                root.join(".tugtool/config.toml"),
+                "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
+            )
+            .unwrap();
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            let state = stopped_at_the_horizon(&ctx, &entry, root).await;
+            let _ = drained(&entry).await;
+
+            // Overnight, aged rather than slept through. The stop left no
+            // clock to age, which is the first half of the answer.
+            assert_eq!(
+                state.lock().await[&demo_key(root)].last_motion_at,
+                None,
+                "a stop evicts the memory of a running arc",
+            );
+
+            // The press.
+            tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+            {
+                let mut map = state.lock().await;
+                let entry = map.get_mut(&demo_key(root)).unwrap();
+                entry.last_motion_at = Some(Instant::now() - Duration::from_secs(5));
+            }
+            sweep(&ctx, &state).await;
+
+            assert_eq!(
+                read_arc(root, "demo").unwrap().stopped,
+                None,
+                "the stale clock never got to re-stop the arc the user resumed",
+            );
+            assert!(
+                arc_log_markers(root)
+                    .iter()
+                    .any(|line| line == "arc-continue  implement"),
+                "and the resume was answered on the stage's own session",
+            );
+
+            // A second tick over the same staleness says the same thing.
+            sweep(&ctx, &state).await;
+            assert_eq!(read_arc(root, "demo").unwrap().stopped, None);
+        }
+
+        /// **Sequence 5 — the horizon reached the way it is meant to be.**
+        /// An asked turn ends closing nothing, the wheel re-asks, and the
+        /// re-asked turn ends closing nothing either. That is two asks, and
+        /// the stop is what the sentence says it is.
+        #[tokio::test]
+        async fn asked_quiet_then_re_ask_then_asked_quiet_stops() {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            implementing_project(root, "done", "pending");
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            set_context(&entry, 100_000).await;
+            let state = Arc::new(Mutex::new(HashMap::new()));
+            state.lock().await.insert(
+                demo_key(root),
+                ArcState {
+                    last_done_count: Some(1),
+                    prompt_turns_seen: Some(0),
+                    all_turns_seen: Some(0),
+                    ..Default::default()
+                },
+            );
+
+            sweep(&ctx, &state).await;
+            assert_eq!(
+                submitted_asks(&entry).await.len(),
+                1,
+                "the first quiet asked turn is answered, not waited out",
+            );
+            assert_eq!(read_arc(root, "demo").unwrap().stopped, None);
+
+            // The re-asked turn ends, closing nothing either.
+            asked(&entry, 2).await;
+            sweep(&ctx, &state).await;
+
+            assert_eq!(
+                read_arc(root, "demo").unwrap().stopped,
+                Some((ArcStage::Implement, "implement idle".to_string())),
+                "two asks, and the receipt's sentence is true of what happened",
+            );
+            assert_eq!(
+                submitted_asks(&entry).await.len(),
+                1,
+                "there is no third ask",
+            );
+        }
     }
 }

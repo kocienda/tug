@@ -40,6 +40,7 @@ import type {
   TaskStarted,
   TaskUpdated,
   TaskProgress,
+  BackgroundTasksChanged,
   Attachment,
   ContentBlock,
   RewindPreview,
@@ -64,6 +65,7 @@ import {
   type ReplayTelemetry,
   type SubagentTranscript,
   type SubagentTranscriptMeta,
+  extractTaskNotificationWake,
   translateJsonlSession,
   type WheelPromptLedger,
   wheelPromptLedger,
@@ -1354,6 +1356,38 @@ export function buildTaskProgressMessage(
   };
 }
 
+/**
+ * Pure factory for the {@link BackgroundTasksChanged} IPC frame from a
+ * `system/background_tasks_changed` event. Returns null for every other
+ * event.
+ *
+ * The whole event minus its `type` / `subtype` envelope rides under
+ * `payload`, unread. That is deliberate: this frame is the one place the wire
+ * states the background roster as a fact rather than as the sum of edges a
+ * consumer managed to observe, and a factory that picked fields would decide
+ * today which of them a later reader is allowed to see. tugcast logs it;
+ * nothing decides on it.
+ *
+ * It fires twice around a backgrounded call — once at the launch carrying the
+ * new task, once at the wake carrying what remains — and was dropped as an
+ * unhandled subtype until `tugcode/probes/background-bash-wake` caught it.
+ */
+export function buildBackgroundTasksChangedMessage(
+  event: Record<string, unknown>,
+  sessionId: string,
+): BackgroundTasksChanged | null {
+  if (event.type !== "system" || event.subtype !== "background_tasks_changed") {
+    return null;
+  }
+  const { type: _type, subtype: _subtype, ...payload } = event;
+  return {
+    type: "background_tasks_changed",
+    session_id: sessionId,
+    payload,
+    ipc_version: 2,
+  };
+}
+
 export interface TopLevelRoutingResult {
   messages: OutboundMessage[];
   gotResult: boolean;
@@ -1604,6 +1638,16 @@ export function routeTopLevelEvent(
           (event.session_id as string) || "",
         );
         if (frame !== null) messages.push(frame);
+      } else if (subtype === "background_tasks_changed") {
+        // The background roster, whole. Forwarded rather than noted as
+        // unhandled ([Q01]): it is the only frame that states which jobs
+        // claude thinks are running, which is what makes a disagreement with
+        // tugcast's own open-job set diagnosable after the fact.
+        const frame = buildBackgroundTasksChangedMessage(
+          event,
+          (event.session_id as string) || "",
+        );
+        if (frame !== null) messages.push(frame);
       } else if (subtype === "status") {
         // Agent activity heartbeat (NEW at 2.1.197) — `system/status`,
         // one per outbound API request (`status:"requesting"` observed).
@@ -1742,6 +1786,19 @@ export function routeTopLevelEvent(
     case "user": {
       const message = event.message as Record<string, unknown> | undefined;
       const rawContent = message?.content;
+
+      // The `<task-notification>` envelope ([P03]). A background completion
+      // is not a submission, and the anchor capture below would read it as
+      // one — plain-string content is exactly its test — moving the `/rewind`
+      // anchor off the user's last prompt onto a job's completion notice. The
+      // wake itself is opened by the inter-turn drain, the only tier that can;
+      // this arm's whole job is to decline.
+      if (
+        typeof rawContent === "string" &&
+        extractTaskNotificationWake(rawContent) !== null
+      ) {
+        break;
+      }
 
       // Goal-evaluator feedback. While a `/goal` is active, the Stop-hook
       // evaluator injects synthetic user events (`isSynthetic: true`, text
@@ -6150,6 +6207,62 @@ export class SessionManager {
   }
 
   /**
+   * Inter-turn `<task-notification>` envelope arm — the same wake as
+   * {@link handleTaskNotification}, recognised from the shape claude hands the
+   * model rather than from the typed `system` event ([P03]).
+   *
+   * `tugcode/probes/background-bash-wake/FINDINGS.md` records that on the
+   * 2.1.258 wire a backgrounded Bash completion **does** emit
+   * `system/task_notification`, so today this arm fires for nothing. It exists
+   * anyway, and that is the decision rather than an oversight: the replay path
+   * already recognises the envelope because the `system` event is not
+   * persisted, and the live path was the only tier that could meet the
+   * envelope and say nothing. A wire that stopped emitting the typed event
+   * would otherwise take the arc's busy latch down with it, silently.
+   *
+   * `isInWake` is the same nested-wake guard {@link handleTaskNotification}
+   * uses, so a wire emitting both shapes opens one bracket, not two.
+   *
+   * Returns `true` when the event was a recognised envelope — whether or not a
+   * bracket was opened for it — so the drain stops rather than falling through
+   * to arms that would read a `user` event as something else.
+   */
+  private handleUserEnvelope(event: Record<string, unknown>): boolean {
+    if (event.type !== "user") return false;
+    const message = event.message as Record<string, unknown> | undefined;
+    const content = message?.content;
+    if (typeof content !== "string") return false;
+    const wake = extractTaskNotificationWake(content);
+    if (wake === null) return false;
+    if (this.isInWake) {
+      console.log(
+        `[tugcode/wake] envelope ignored inside an open bracket ` +
+          `(task_id=${wake.taskId})`,
+      );
+      return true;
+    }
+    // The envelope names no output file, and its `<tool-use-id>` is the
+    // launch's rather than the wake's, so both ride empty — the same shape
+    // the scheduler's re-init wake sends.
+    const frame: WakeStarted = {
+      type: "wake_started",
+      session_id: this.sessionId,
+      wake_trigger: {
+        task_id: wake.taskId,
+        tool_use_id: "",
+        status: "completed",
+        summary: terseWakeSummary(wake.summary),
+        output_file: "",
+      },
+      ipc_version: 2,
+    };
+    writeLine(frame);
+    this.isInWake = true;
+    this.activeTurn = new ActiveTurn(this.nextSeq(), []);
+    return true;
+  }
+
+  /**
    * Cohort B wake bracket — the harness's built-in scheduler fired a
    * `ScheduleWakeup` / `CronCreate` timer and re-bracketed the session
    * with a fresh `system/init`. Mirrors {@link handleTaskNotification}'s
@@ -6246,6 +6359,12 @@ export class SessionManager {
    * normally as `session_init` IPC.
    */
   private handleInterTurnEvent(event: Record<string, unknown>): void {
+    // The `<task-notification>` envelope, recognised before anything else
+    // ([P03]) — it is the one `user`-role event this drain acts on, and every
+    // arm below reads a `system` event.
+    if (this.handleUserEnvelope(event)) {
+      return;
+    }
     if (event.type === "system" && event.subtype === "init") {
       const sessionId = (event.session_id as string) || "unknown";
       writeLine({ type: "session_init", session_id: sessionId, ipc_version: 2 });
@@ -6278,6 +6397,19 @@ export class SessionManager {
     // probe). Forward from both tiers, mirroring task_started/updated.
     if (event.type === "system" && event.subtype === "task_progress") {
       const frame = buildTaskProgressMessage(
+        event,
+        (event.session_id as string) || this.sessionId,
+      );
+      if (frame !== null) writeLine(frame);
+    }
+    // The roster fires at the wake as well as at the launch, and the wake's
+    // one lands in this drain — so it is forwarded from both tiers for the
+    // same reason the task frames are.
+    if (
+      event.type === "system" &&
+      event.subtype === "background_tasks_changed"
+    ) {
+      const frame = buildBackgroundTasksChangedMessage(
         event,
         (event.session_id as string) || this.sessionId,
       );

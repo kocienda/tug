@@ -42,12 +42,13 @@
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
  * @covers tugrust/crates/tugtool/src/arc.rs
  * @covers tugdeck/src/components/tugways/cards/session-arc-receipt-block.tsx
+ * @covers tugdeck/src/components/tugways/tug-inline-dialog.tsx
  * @covers tugdeck/src/lib/arc-resume-store.ts
  * @covers tugcode/src/session.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { realpathSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
@@ -59,6 +60,7 @@ import {
 import {
   createArc,
   arcBriefPath,
+  arcLogPath,
   makeArcScratchRepo,
   rmArcScratchRepo,
   rmScratchSession,
@@ -75,6 +77,14 @@ const TEST_TIMEOUT_MS = 180_000;
 const SID = "a7c0d1ea-0000-4000-8000-000000000476";
 const CARD = '[data-card-id="A"]';
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
+/**
+ * The offer's own title, as the block renders it — and the reason a *stop*
+ * receipt is counted by this rather than by the header words `arc stopped`.
+ * The block consumes that header and draws an identity strip in its place, so
+ * the words never reach the row's text; the offer is the one string a stop
+ * receipt puts on screen and nothing else does.
+ */
+const ARC_RESUME_OFFER_TITLE = "Resume this arc";
 /**
  * The Resume button inside the stop receipt's own block. Addressed through the
  * block's own class rather than the dialog primitive's slot, so a second
@@ -324,6 +334,85 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
           after.dispatched === "devise" ||
           after.stages.includes("devise");
         expect(askedForDevise).toBe(true);
+
+        // ── One press, one stop, and no second one behind it ──────────────
+        //
+        // The tripwire for the whole arc's worth of work: an arc stopped for
+        // silence used to be re-stopped within 160 ms of the press, because
+        // the stall clock outranked the resume and the runner's memory
+        // outlived the stop. Nothing about that was visible in the record's
+        // *final* state — it settled back to stopped — so what is asserted is
+        // the count of lines, after the receipt stream has been quiet long
+        // enough for a second stop to have landed if one were coming.
+        //
+        // Six seconds: the settle plus one. A re-stop is decided at a settled
+        // idle edge, so a window that has stayed quiet for longer than one has
+        // already outlived the decision.
+        //
+        // The wait is written as a wait for the row the re-stop *would* add,
+        // so the timeout is the pass and the resolution is the failure. Waiting
+        // for the count to stay put would be a condition already true, which
+        // resolves at once and waits for nothing at all.
+        const receiptCount = async () => (await shellRowText(app)).length;
+        const before = await receiptCount();
+        let grew = true;
+        await app
+          .waitForCondition<boolean>(
+            `document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}).length > ${before}`,
+            { timeoutMs: 6_000 },
+          )
+          .catch(() => {
+            grew = false;
+          });
+        expect(grew).toBe(false);
+
+        const rowsAfterResume = await shellRowText(app);
+        note("at0476 rows after the resume", JSON.stringify(rowsAfterResume));
+        expect(
+          rowsAfterResume.filter((row) => row.includes(ARC_RESUME_OFFER_TITLE))
+            .length,
+        ).toBe(1);
+
+        const logLines = readFileSync(arcLogPath(scratch?.dataRoot ?? ""), "utf8")
+          .split("\n")
+          .filter((line) => line.includes(`\t${ARC_NAME}\t`) || line.includes(ARC_NAME));
+        const resumeAt = logLines.findIndex((line) => line.includes("arc-resume"));
+        expect(resumeAt).toBeGreaterThanOrEqual(0);
+        expect(
+          logLines.filter((line) => line.includes("arc-resume")).length,
+        ).toBe(1);
+        expect(
+          logLines.slice(resumeAt + 1).some((line) => line.includes("arc-stop")),
+        ).toBe(false);
+
+        // ── And the frame the offer sits in pads evenly ───────────────────
+        //
+        // A header-only dialog — a title and an action, no description and no
+        // options — used to inherit the padding of the shape that has rows
+        // under it, so the offer sat high in its own frame. The layout the
+        // primitive derives is what says which shape this is.
+        const framing = await app.evalJS<string>(
+          `(() => {
+            const root = document.querySelector(${JSON.stringify(
+              `${CARD} .arc-receipt-resume`,
+            )});
+            if (root === null) return JSON.stringify({ layout: null });
+            const style = getComputedStyle(root);
+            return JSON.stringify({
+              layout: root.getAttribute("data-layout"),
+              top: style.paddingTop,
+              bottom: style.paddingBottom,
+            });
+          })()`,
+        );
+        const frame = JSON.parse(framing) as {
+          layout: string | null;
+          top?: string;
+          bottom?: string;
+        };
+        note("at0476 resume frame", framing);
+        expect(frame.layout).toBe("header");
+        expect(frame.bottom).toBe(frame.top);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

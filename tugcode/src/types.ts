@@ -1354,6 +1354,30 @@ export interface TaskProgress {
 }
 
 
+/**
+ * The session's background-task roster, whole — claude's
+ * `system/background_tasks_changed`, forwarded verbatim under `payload`.
+ *
+ * Fired twice around a backgrounded call: once at the launch, carrying the
+ * new task, and once at the wake, carrying whatever is left (an empty array
+ * when that was the only one). tugcode used to drop it as an unhandled
+ * subtype, which cost tugcast the one frame that states the roster as a fact
+ * rather than as the sum of edges it has managed to observe — see
+ * `tugcode/probes/background-bash-wake/FINDINGS.md`.
+ *
+ * `payload` is the raw event minus its `type` / `subtype` envelope, so a
+ * field claude adds arrives without a tugcode release. Nothing downstream
+ * decides on it today: tugcast logs it under `dev::ledger`, which is what
+ * makes a disagreement between the roster and the open-job set legible
+ * afterwards instead of only reproducible.
+ */
+export interface BackgroundTasksChanged {
+  type: "background_tasks_changed";
+  session_id: string;
+  payload: Record<string, unknown>;
+  ipc_version: number;
+}
+
 export interface ReplayStarted {
   type: "replay_started";
   ipc_version: number;
@@ -1573,6 +1597,7 @@ export type OutboundMessage =
   | TaskStarted
   | TaskUpdated
   | TaskProgress
+  | BackgroundTasksChanged
   | RewindPreviewResult
   | RewindResult
   | SkillsInventory

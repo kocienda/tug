@@ -1,0 +1,12 @@
+{
+  "sessionId": "0364308e-c6c3-4088-9ad8-d7b8066ffea2",
+  "tugcodeBin": "/Users/kocienda/Library/Developer/Xcode/DerivedData/Tug/Build/Products/Release/Tug.app/Contents/MacOS/tugcode",
+  "projectDir": "/private/tmp/background-bash-wake",
+  "prompt": "Run the command `sleep 8 && echo background-done` using the Bash tool with run_in_background set to true. Do not wait for it and do not check on it. As soon as the tool call returns, reply with exactly the single word \"launched\" and nothing else, and end your turn.",
+  "holdAfterTurnCompleteSec": 45,
+  "firstTurnCompleteAt": "2026-09-04T15:36:11.540Z",
+  "stdoutLines": 47,
+  "stderrLines": 17,
+  "rawSessionId": "ce09bfab-b697-4fc5-8d9b-9546fa012610",
+  "rawStdoutLines": 43
+}

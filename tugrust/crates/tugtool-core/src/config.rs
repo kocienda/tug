@@ -103,6 +103,24 @@ pub struct ArcConfig {
     /// against a wall clock rather than against an edge.
     #[serde(default)]
     pub arc_stall_secs: Option<u64>,
+
+    /// How long an idle reading must stay idle before the runner will spend it
+    /// on an act, in seconds. Absent means [`IDLE_SETTLE_SECS_DEFAULT`], which
+    /// [`ArcConfig::idle_settle`] applies; `0` turns the settle off.
+    ///
+    /// The runner is the one consumer that spends a reading on something
+    /// irreversible — a rotation, a prompt, a stop — and an idle reading is
+    /// only ever a claim about an instant. A turn ending and the wake that
+    /// answers it are 120 ms apart, and in that gap a session is genuinely
+    /// idle and genuinely still working; the arc that was stopped on the night
+    /// of 2026-09-03 was stopped inside exactly one of those. No order of SDK
+    /// edges produces a gap this wide, so a reading that survives it is a
+    /// reading about the session rather than about the instant it was taken.
+    ///
+    /// It gates the runner alone. `is_quiet` still answers Z2, Pulse and the
+    /// join offer unsettled, because none of them acts on the answer.
+    #[serde(default)]
+    pub idle_settle_secs: Option<u64>,
 }
 
 /// One surface of a project: the paths it claims, and what checking it means.
@@ -157,6 +175,16 @@ pub const IMPLEMENT_COMPACT_TOKENS_DEFAULT: u64 = 300_000;
 /// pacing device: it exists so an arc that has genuinely gone silent says so.
 pub const ARC_STALL_SECS_DEFAULT: u64 = 1_800;
 
+/// How long an idle reading must hold before the runner acts on it, when a
+/// project declares nothing ([P01]).
+///
+/// Five seconds, which is two orders of magnitude above the ~100 ms the
+/// harness takes to re-invoke a model after a background job completes — the
+/// gap the settle exists to outlast. It is a floor under one consumer's
+/// irreversible acts, not a pacing device, so the cost is bounded: every wheel
+/// act, including the first rotation after a door, lands this much later.
+pub const IDLE_SETTLE_SECS_DEFAULT: u64 = 5;
+
 impl ArcConfig {
     /// The compaction threshold to actually use: the declaration, or the
     /// default. The default lives at the consumer rather than in the parse so
@@ -171,6 +199,14 @@ impl ArcConfig {
     /// a project can ask for the old behaviour of waiting forever.
     pub fn stall_timeout(&self) -> Option<std::time::Duration> {
         let secs = self.arc_stall_secs.unwrap_or(ARC_STALL_SECS_DEFAULT);
+        (secs > 0).then(|| std::time::Duration::from_secs(secs))
+    }
+
+    /// The settle to actually use: the declaration, or the default. `None` is
+    /// the settle turned off — a declared `0`, which asks for the old
+    /// behaviour of acting on the instant a reading was taken.
+    pub fn idle_settle(&self) -> Option<std::time::Duration> {
+        let secs = self.idle_settle_secs.unwrap_or(IDLE_SETTLE_SECS_DEFAULT);
         (secs > 0).then(|| std::time::Duration::from_secs(secs))
     }
 }
@@ -223,6 +259,12 @@ post_create = []
 # compacted at a step boundary. A stage a compaction cannot bring back under
 # this line rotates to a fresh session instead. Declare none and it is 300000.
 # implement_compact_tokens = 300000
+
+# How long an idle reading must stay idle before the arc runner spends it on a
+# rotation, a prompt or a stop. A turn ending and the wake that answers it are
+# a fraction of a second apart, and in that gap a session reads idle while it
+# is still working. Declare none and it is 5; declare 0 to act on the instant.
+# idle_settle_secs = 5
 "#;
 
 /// Why a config file was refused. Every variant carries the offending value,
@@ -810,6 +852,37 @@ mod tests {
         );
     }
 
+    /// The settle's default is a real one and a declared `0` is the way to ask
+    /// for the old behaviour — the same two-state shape the clock's deadline
+    /// takes, and for the same reason: a project that wants the runner acting
+    /// on the instant a reading was taken has to say so.
+    #[test]
+    fn idle_settle_zero_turns_the_settle_off() {
+        assert_eq!(
+            ArcConfig::default().idle_settle(),
+            Some(std::time::Duration::from_secs(IDLE_SETTLE_SECS_DEFAULT)),
+            "declaring nothing is the default settle, not none",
+        );
+        assert_eq!(
+            ArcConfig {
+                idle_settle_secs: Some(0),
+                ..ArcConfig::default()
+            }
+            .idle_settle(),
+            None,
+            "a declared zero is the settle turned off",
+        );
+        assert_eq!(
+            ArcConfig {
+                idle_settle_secs: Some(12),
+                ..ArcConfig::default()
+            }
+            .idle_settle(),
+            Some(std::time::Duration::from_secs(12)),
+            "and anything else is taken at its word",
+        );
+    }
+
     #[test]
     fn the_default_config_template_documents_every_stage_key() {
         let config: Config =
@@ -822,6 +895,7 @@ mod tests {
             "review_model",
             "implement_model",
             "implement_compact_tokens",
+            "idle_settle_secs",
         ] {
             assert!(
                 DEFAULT_CONFIG.contains(key),

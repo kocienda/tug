@@ -142,8 +142,9 @@ pub enum ArcStopReason {
     /// was never reduced. Distinct from [`ArcStopReason::ApiError`] because
     /// the fix differs: the compaction is retried, not the work.
     CompactFailed,
-    /// The implement stage ended the quiet-turn horizon of turns without
-    /// closing a step.
+    /// The implement stage was asked twice — the wheel's original ask and the
+    /// re-ask that answers the first quiet turn — and closed no step either
+    /// time.
     ///
     /// The stage is alive, its turns are ending, and the Step Status Ledger is
     /// not moving — a wandering stage, or one that finished the work and never
@@ -152,9 +153,10 @@ pub enum ArcStopReason {
     /// run that sits with no receipt and no gesture to answer it.
     ///
     /// Resumable, and the receipt names the resume — the stop is a hand-back
-    /// with a sentence, deliberately not a re-prompt. Re-prompting a stage
-    /// that has twice declined to close a step is asking the same question
-    /// louder; handing the card back is what puts a person in front of it.
+    /// with a sentence, deliberately not a further re-prompt. The one re-ask
+    /// the horizon allows has already been spent by the time this is reached,
+    /// and asking a third time is asking the same question louder; handing the
+    /// card back is what puts a person in front of it.
     ImplementIdle,
     /// The arc's clock ran out: no turn ended, no step closed, and the runner
     /// did nothing, for the whole of the stall deadline.
@@ -270,6 +272,44 @@ impl ArcStopReason {
         }
     }
 
+    /// The inverse of [`as_str`](ArcStopReason::as_str) — the word off an
+    /// `arc-stop` line, back to the reason it names.
+    ///
+    /// The reversal needs it: a record read back says its stop as a `String`,
+    /// and whether that stop may be undone is a question about the *reason*.
+    /// Round-tripped over [`ALL`](ArcStopReason::ALL) by a test, which is what
+    /// keeps this from drifting away from `as_str` one variant at a time.
+    pub fn parse(word: &str) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|reason| reason.as_str() == word)
+    }
+
+    /// Whether this stop was the runner's own judgement about **silence**, and
+    /// so a thing life on the stopped stage may undo ([P05], Table T03).
+    ///
+    /// The five are the ones the machine inferred from a stage not speaking:
+    /// the horizon's `implement idle`, the clock's `stalled`, and the three
+    /// read off documents a stage was given a turn to write and did not. Every
+    /// one of them is a claim that nothing is happening, and a session that
+    /// then moves is that claim being wrong.
+    ///
+    /// Everything else stands. A stop recording a *person's* act — the card
+    /// taken back, a `/arc-stop`, the card closed — is not a judgement to be
+    /// corrected, and neither is `records disagree` or `needs a decision`,
+    /// which are refusals to guess: reversing one would be guessing.
+    pub fn judged_silence(&self) -> bool {
+        matches!(
+            self,
+            ArcStopReason::ImplementIdle
+                | ArcStopReason::Stalled
+                | ArcStopReason::Lint
+                | ArcStopReason::ReviewDidNotStamp
+                | ArcStopReason::AuditDidNotMark
+        )
+    }
+
     /// What the receipt says, in the second person, as the tail of
     /// "the arc stopped … because …".
     pub fn sentence(&self) -> &'static str {
@@ -298,7 +338,7 @@ impl ArcStopReason {
                 "its /compact turn ended in an API error, so the context was never reduced"
             }
             ArcStopReason::ImplementIdle => {
-                "the implement stage ended two turns without closing a step"
+                "the implement stage was asked twice and closed no step"
             }
             ArcStopReason::Stalled => {
                 "it went silent — no turn ended and no step closed before the arc's clock ran out"
@@ -374,6 +414,20 @@ pub struct ArcRecord {
     /// The stage the arc stopped in and why. Cleared by the next
     /// rotation, because resuming a stopped arc *is* rotating it again.
     pub stopped: Option<(ArcStage, String)>,
+    /// The same pair, kept for the whole generation whatever clears
+    /// [`ArcRecord::stopped`].
+    ///
+    /// `stopped` is a *state* — this arc is stopped right now — and every act
+    /// that picks the arc back up clears it, which is correct and is exactly
+    /// what makes it useless to the act doing the picking up. A stage being
+    /// resumed is owed the fact that it is resuming and what it is resuming
+    /// from, and by the time the runner composes that prompt the `arc-resume`
+    /// line has already cleared `stopped`.
+    ///
+    /// So this is the *history*: set by every `arc-stop`, cleared by nothing
+    /// short of the generation reset. A record carrying one says the arc
+    /// stopped at some point in this generation, never that it is stopped now.
+    pub last_stop: Option<(ArcStage, String)>,
     /// The stage a resume asked to rotate again. Written by
     /// `tugtool arc run` on a stopped arc, and cleared by the next
     /// `arc-stage` line — the rotation it asked for.
@@ -460,6 +514,7 @@ pub fn read_arc(repo_root: &Path, arc: &str) -> Option<ArcRecord> {
             stages: Vec::new(),
             notes: Vec::new(),
             stopped: None,
+            last_stop: None,
             resume: None,
             dispatched: None,
             owner: None,
@@ -491,13 +546,29 @@ pub fn read_arc(repo_root: &Path, arc: &str) -> Option<ArcRecord> {
             }
             "arc-stop" => {
                 if let Some((stage, reason)) = read_stop_line(note) {
-                    record.stopped = Some((stage, reason));
+                    record.stopped = Some((stage, reason.clone()));
+                    record.last_stop = Some((stage, reason));
                 }
             }
             "arc-resume" => {
                 if let Some(stage) = ArcStage::parse(note.trim()) {
                     record.stopped = None;
                     record.resume = Some(stage);
+                }
+            }
+            // The stage is already seated and already moving, so the arc is
+            // running again and nothing is owed a rotation.
+            //
+            // **Skew.** Same arm and same reasoning as `arc-dispatch` below: a
+            // reader older than this marker falls through to `_`, dating the
+            // arc from the line and declaring nothing. It keeps the `resume`
+            // the preceding line set and rotates the stage — one redundant
+            // rotation of a stage that is running, never a stop invented or a
+            // stop lost.
+            "arc-continue" => {
+                if ArcStage::parse(note.trim()).is_some() {
+                    record.stopped = None;
+                    record.resume = None;
                 }
             }
             // **Skew.** A reader older than this marker falls through the `_`
@@ -643,6 +714,19 @@ pub fn append_arc_stop(
 /// clears it in turn.
 pub fn append_arc_resume(repo_root: &Path, arc: &str, stage: ArcStage) -> Result<(), TugError> {
     append_arc_log(repo_root, arc, "arc-resume", stage.as_str())
+}
+
+/// Append `arc-continue` — a stopped or resumed stage was picked back up on
+/// its **own** session, so there is nothing to rotate ([P05], Spec S02).
+///
+/// The difference from `arc-resume` is the whole of why both exist. A resume
+/// names a stage to seat again, and the rotation that answers it clears the
+/// naming. A continue says the stage is already seated and already working:
+/// the session that was stopped is the one that moved, so seating a fresh one
+/// would replace a stage mid-thought with an empty one. Clearing `resume` is
+/// therefore the point rather than a side effect.
+pub fn append_arc_continue(repo_root: &Path, arc: &str, stage: ArcStage) -> Result<(), TugError> {
+    append_arc_log(repo_root, arc, "arc-continue", stage.as_str())
 }
 
 /// Append `arc-done` — the arc reached its terminal state.
@@ -1218,6 +1302,130 @@ mod tests {
         assert!(
             fresh.stages.is_empty(),
             "the discarded arc's stages do not carry over"
+        );
+    }
+
+    /// `parse` is `as_str` read backwards, and the round trip over the whole
+    /// vocabulary is what keeps the two from drifting apart one variant at a
+    /// time — a reason whose word `parse` cannot find would read as
+    /// unreversible whatever it is, and silently.
+    #[test]
+    fn every_stop_reason_round_trips_through_parse() {
+        for reason in ArcStopReason::ALL {
+            assert_eq!(
+                ArcStopReason::parse(reason.as_str()),
+                Some(*reason),
+                "{reason:?} does not round-trip through its own word",
+            );
+        }
+        assert_eq!(ArcStopReason::parse("a reason nobody wrote"), None);
+        assert_eq!(ArcStopReason::parse(""), None);
+    }
+
+    /// Table T03. The five the machine *inferred* from a stage not speaking
+    /// may be undone by the stage speaking; every other stop stands, and the
+    /// ones recording a person's act stand hardest.
+    #[test]
+    fn only_the_silence_judged_stops_are_reversible() {
+        let reversible: Vec<&str> = ArcStopReason::ALL
+            .iter()
+            .filter(|reason| reason.judged_silence())
+            .map(|reason| reason.as_str())
+            .collect();
+        assert_eq!(
+            reversible,
+            vec![
+                "lint",
+                "review did not stamp",
+                "audit did not mark",
+                "implement idle",
+                "stalled",
+            ],
+        );
+        for word in [
+            "card taken",
+            "stopped by user",
+            "card closed",
+            "needs a decision",
+            "records disagree",
+        ] {
+            assert!(
+                !ArcStopReason::parse(word).unwrap().judged_silence(),
+                "{word} records a decision, not a silence",
+            );
+        }
+    }
+
+    /// **`stopped` is a state and `last_stop` is a history**, and the resume
+    /// clause needs the second one. Every act that picks a stopped arc back up
+    /// clears `stopped` before anything composes a prompt, so a stage being
+    /// resumed would be told nothing about what it was resuming from.
+    #[test]
+    #[serial]
+    fn last_stop_survives_the_resume_that_clears_stopped() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
+        append_arc_stage(root, "d", ArcStage::Implement, "s1", None).unwrap();
+        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::ImplementIdle).unwrap();
+        let stopped = read_arc(root, "d").unwrap();
+        assert_eq!(
+            stopped.last_stop,
+            Some((ArcStage::Implement, "implement idle".to_string())),
+            "both fields are written by the one line",
+        );
+        assert_eq!(stopped.stopped, stopped.last_stop);
+
+        for pick_up in ["resume", "continue"] {
+            match pick_up {
+                "resume" => append_arc_resume(root, "d", ArcStage::Implement).unwrap(),
+                _ => append_arc_continue(root, "d", ArcStage::Implement).unwrap(),
+            }
+            let record = read_arc(root, "d").unwrap();
+            assert_eq!(record.stopped, None, "{pick_up} clears the state");
+            assert_eq!(
+                record.last_stop,
+                Some((ArcStage::Implement, "implement idle".to_string())),
+                "and leaves the history, which is what the resume clause reads",
+            );
+        }
+
+        // A rotation clears `stopped` too, and the history outlives it as far
+        // as the generation goes.
+        append_arc_stage(root, "d", ArcStage::Audit, "s2", None).unwrap();
+        assert_eq!(
+            read_arc(root, "d").unwrap().last_stop,
+            Some((ArcStage::Implement, "implement idle".to_string())),
+        );
+    }
+
+    /// The marker's whole job: the stage is already seated and already moving,
+    /// so the arc is running again and nobody is owed a rotation. `arc-resume`
+    /// alone would leave one standing.
+    #[test]
+    #[serial]
+    fn arc_continue_clears_the_stop_and_the_resume_and_adds_no_stage() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
+        append_arc_stage(root, "d", ArcStage::Implement, "s1", None).unwrap();
+        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::ImplementIdle).unwrap();
+        append_arc_resume(root, "d", ArcStage::Implement).unwrap();
+        let resumed = read_arc(root, "d").unwrap();
+        assert_eq!(resumed.stopped, None);
+        assert_eq!(resumed.resume, Some(ArcStage::Implement));
+
+        append_arc_continue(root, "d", ArcStage::Implement).unwrap();
+        let continued = read_arc(root, "d").unwrap();
+        assert_eq!(continued.stopped, None);
+        assert_eq!(
+            continued.resume, None,
+            "a stage already seated is owed no rotation",
+        );
+        assert_eq!(
+            continued.stages.len(),
+            resumed.stages.len(),
+            "and the marker seats nothing itself",
         );
     }
 

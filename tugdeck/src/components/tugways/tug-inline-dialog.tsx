@@ -61,7 +61,12 @@
  * Laws:
  *  - [L06] appearance via DOM attributes (`data-icon-role`) + CSS,
  *    not React state. The `iconRole` flips a CSS selector; the icon's
- *    `color` is owned by the rule, not by inline `style`.
+ *    `color` is owned by the rule, not by inline `style`. `data-layout`
+ *    is the same shape: `"header"` when the dialog is a header row and
+ *    nothing else — no description, no body, no options — and `"full"`
+ *    otherwise. The root padding rule reads it, so a header-only frame
+ *    pads evenly instead of carrying the bottom inset that exists to
+ *    separate the header from rows that are not there.
  *  - [L17] every `--tugx-idialog-*` slot resolves to a `--tug7-*` /
  *    `--tug-*` base token in one hop.
  *  - [L19] component authoring guide — file pair, module docstring,
@@ -228,6 +233,27 @@ export function shouldRenderOptions(
   return options !== undefined && options.length > 0;
 }
 
+/**
+ * Which layout shape the frame is, from the presence of the three rows that
+ * can follow the header. `"header"` when none of them render — the frame is a
+ * header bar and nothing else — and `"full"` otherwise. Pure; exported for
+ * tests.
+ *
+ * Taken as resolved booleans rather than as the props themselves so it reads
+ * the same values the rows are gated on. A `description={false}` renders no
+ * description row, and a layout derived from the raw prop would call that
+ * frame `"full"` while the markup showed a bare header.
+ */
+export function inlineDialogLayout(rows: {
+  hasDescription: boolean;
+  hasChildren: boolean;
+  hasOptions: boolean;
+}): "header" | "full" {
+  return !rows.hasDescription && !rows.hasChildren && !rows.hasOptions
+    ? "header"
+    : "full";
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -261,11 +287,19 @@ export const TugInlineDialog: React.FC<TugInlineDialogProps> = ({
   const hasChildren =
     children !== undefined && children !== null && children !== false;
   const renderOptions = shouldRenderOptions(options);
+  // Derived from the same three predicates the rows below are gated on, so
+  // the layout and the markup cannot disagree about which shape this is.
+  const layout = inlineDialogLayout({
+    hasDescription,
+    hasChildren,
+    hasOptions: renderOptions,
+  });
 
   return (
     <div
       data-slot="tug-inline-dialog"
       data-icon-role={iconRole}
+      data-layout={layout}
       className={cn("tug-inline-dialog", className)}
     >
       <div

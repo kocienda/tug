@@ -18,6 +18,9 @@
  *    roles in declaration order.
  *  - `shouldRenderOptions` — `undefined` / `[]` → false; non-empty
  *    array → true.
+ *  - `inlineDialogLayout` — `"header"` only when none of the three
+ *    rows below the header render; `"full"` for every other
+ *    combination, enumerated exhaustively.
  */
 
 import { describe, it, expect } from "bun:test";
@@ -25,6 +28,7 @@ import { describe, it, expect } from "bun:test";
 import {
   TUG_INLINE_DIALOG_ICON_ROLES,
   iconRoleSlot,
+  inlineDialogLayout,
   shouldRenderOptions,
   type TugInlineDialogIconRole,
   type TugInlineDialogOption,
@@ -87,5 +91,37 @@ describe("shouldRenderOptions", () => {
       { value: "a", label: "Allow once" },
     ];
     expect(shouldRenderOptions(opts)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inlineDialogLayout — which shape the frame is
+// ---------------------------------------------------------------------------
+
+describe("inlineDialogLayout", () => {
+  it("is header only when no row below the header renders", () => {
+    expect(
+      inlineDialogLayout({
+        hasDescription: false,
+        hasChildren: false,
+        hasOptions: false,
+      }),
+    ).toBe("header");
+  });
+
+  it("is full whenever any one of the three rows renders", () => {
+    // Exhaustive over the other seven combinations: any row below the header
+    // is what the frame's asymmetric bottom padding exists to separate, so
+    // one row is enough to earn it and the count never matters.
+    for (const hasDescription of [false, true]) {
+      for (const hasChildren of [false, true]) {
+        for (const hasOptions of [false, true]) {
+          if (!hasDescription && !hasChildren && !hasOptions) continue;
+          expect(
+            inlineDialogLayout({ hasDescription, hasChildren, hasOptions }),
+          ).toBe("full");
+        }
+      }
+    }
   });
 });

@@ -521,6 +521,14 @@ function buildCommittedLayout(
  * a join receipt for that arc, or a later arc receipt for it — and this pass
  * reads it rather than rewriting anything.
  *
+ * A **pick-up** receipt supersedes the same way and needs no arm of its own:
+ * every parsed arc receipt adds its arc to the answered set, and a pick-up is
+ * one. That is the ordinary case now rather than the rare one — the runner
+ * reverses a silence-judged stop on its own, so the stop row that a later row
+ * answers is most often answered by the machine ninety seconds later, and the
+ * fold is what keeps a red row with a live Resume button from standing over an
+ * arc that is running again.
+ *
  * One backward walk, carrying the arc names already seen as a superseder, so
  * the whole thing is O(rows) beside the ordinal pass it follows. The **last**
  * stop for an arc is never superseded, because nothing later answers it: an arc

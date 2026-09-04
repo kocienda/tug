@@ -150,6 +150,20 @@ pub fn is_task_progress(payload: &[u8]) -> bool {
         .any(|w| w == TASK_PROGRESS_NEEDLE)
 }
 
+/// Needle bytes for `background_tasks_changed` — claude's whole background
+/// roster, forwarded by tugcode since the Step 1 capture found it being
+/// dropped. Not a job edge and not a heartbeat: it states which jobs claude
+/// believes are running, which is the fact a disagreement with the supervisor's
+/// own open-job set is diagnosed against.
+const BACKGROUND_TASKS_CHANGED_NEEDLE: &[u8] = b"\"type\":\"background_tasks_changed\"";
+
+/// Check if a payload could be a `background_tasks_changed` roster frame.
+pub fn is_background_tasks_changed(payload: &[u8]) -> bool {
+    payload
+        .windows(BACKGROUND_TASKS_CHANGED_NEEDLE.len())
+        .any(|w| w == BACKGROUND_TASKS_CHANGED_NEEDLE)
+}
+
 /// Check if a payload could open or close a background job — a cheap needle
 /// gate in front of the parse that reads its task id ([P08]).
 pub fn is_task_edge(payload: &[u8]) -> bool {

@@ -42,7 +42,8 @@ use super::agent_bridge::{
 use super::code::{parse_tug_session_id, splice_tug_session_id};
 use super::session_metadata::{
     is_activity_delta, is_rate_limit_event, is_session_capabilities, is_system_metadata,
-    is_task_edge, is_task_progress, is_tool_use, is_turn_end, is_wake_started,
+    is_background_tasks_changed, is_task_edge, is_task_progress, is_tool_use, is_turn_end,
+    is_wake_started,
 };
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
@@ -269,6 +270,23 @@ pub struct PendingSegment {
     pub stage_model: Option<String>,
 }
 
+/// What opened a turn — the distinction [P02] rests on.
+///
+/// A turn the *harness* opened is not a turn the stage was asked. A
+/// backgrounded job completing re-invokes the model with a
+/// `<task-notification>`, and that re-invocation ends a turn like any other;
+/// six of them in a row are six turn ends and exactly one ask. The arc
+/// runner's quiet-turn horizon counts answers, so it counts only the turns a
+/// prompt opened, and that is the whole of what this enum is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnOpener {
+    /// A `user_message` reached the dispatcher — somebody, or the wheel,
+    /// asked.
+    Prompt,
+    /// A `wake_started` marker opened it — the harness did.
+    Wake,
+}
+
 /// Per-session ledger record, keyed by [`TugSessionId`] in the supervisor.
 ///
 /// Shape follows the supervisor ledger contract. Notably, there is no
@@ -433,6 +451,22 @@ pub struct LedgerEntry {
     /// from the ledger row on rebind. Zero is the state between a spawn and
     /// its first `turn_complete`: seated, idle, and never yet run.
     pub turns_ended: u32,
+    /// What opened the turn now in flight, or `None` between turns and for a
+    /// turn whose opener was never recorded ([P02]).
+    ///
+    /// Written `Prompt` by the dispatcher's `user_message` intercept and
+    /// `Wake` by the merger's `wake_started` fold; cleared at the same edge
+    /// that increments `turns_ended`. A turn tugcast inherited across a
+    /// restart has none, and an absent opener counts as `Prompt` at the
+    /// turn's end — today's behaviour, and the direction Risk R05 accepts.
+    pub turn_opener: Option<TurnOpener>,
+    /// How many of `turns_ended` were opened by a prompt — the count the arc
+    /// runner's horizon, its `stage_turn_ended`, and its in-flight retirement
+    /// read ([P02]). An unrecorded opener counts here.
+    pub prompt_turns_ended: u32,
+    /// How many of `turns_ended` were opened by a wake. Still motion for the
+    /// arc's clock and still an idle edge for the settle; never an answer.
+    pub wake_turns_ended: u32,
     /// The most recent turn ended in an API error (`turn_complete` with
     /// `is_api_error`) — the stage did not run. Overwritten at every turn end,
     /// reset when a `session_init` names a different claude session.
@@ -482,27 +516,29 @@ pub struct LedgerEntry {
     /// a job whose claude is gone will never report and a set that leaked
     /// would leave the session permanently un-quiet.
     ///
+    /// **Two kinds of key live here.** A confirmed job is keyed by its
+    /// `task_id`. A job that has been *launched* and not yet confirmed is
+    /// keyed `launch:<tool_use_id>` — opened by the launching `tool_use`
+    /// itself rather than by the `task_started` that follows it, because the
+    /// window this set exists to cover starts at the launch. The incident's
+    /// six background completions each opened and closed inside that window,
+    /// and a latch armed only at `task_started` is a latch the runner can
+    /// read around. A `task_started` naming the launch **re-keys** the entry
+    /// to its `task_id`, carrying the launch's own stamp across so the reaper
+    /// clocks the job from when it actually began.
+    ///
+    /// A provisional key is retired three ways: by the `task_started` that
+    /// confirms it, by any `wake_started` (the model is speaking again, so
+    /// the gap the latch covers is over), and by the reaper, which treats it
+    /// exactly like any other key. That third one is what bounds Risk R02 —
+    /// a `Monitor` call whose `task_started` never arrives holds the session
+    /// busy until its wake or the horizon, never forever.
+    ///
     /// The stamp is the guarantee layer behind those two corrections: set at
     /// the open, refreshed by `task_progress` heartbeats, and read by
     /// [`LedgerEntry::reap_stuck_jobs`] so a wire shape nothing here foresaw
     /// degrades `holders_busy` to *late*, never *forever*.
     pub open_jobs: std::collections::BTreeMap<String, std::time::Instant>,
-    /// `tool_use_id`s of launching calls this session has made that the deck
-    /// would count as background work — `run_in_background: true` inputs and
-    /// `Monitor` calls, the deck's own `isJobLaunch` gate
-    /// (`tugdeck/src/lib/code-session-store/select-jobs.ts`).
-    ///
-    /// A `task_started` opens a job only when its `tool_use_id` is in this
-    /// set, because the frame itself carries no backgrounded discriminant: a
-    /// foreground subagent's `task_started` is byte-shape identical to a
-    /// background Agent's, and a foreground Agent's job gets no `task_updated`
-    /// ever — folding it in wedges the session busy forever.
-    ///
-    /// Consulted only between the launch and its `task_started` (the match
-    /// consumes the id), and cleared at the turn edge that ends the launching
-    /// turn — a launch whose task never started is not still pending next
-    /// turn.
-    pub background_launches: std::collections::BTreeSet<String>,
     /// The last `model_change` selector a **WebSocket client** sent for this
     /// session — the deck's own choice ([P15]).
     ///
@@ -607,11 +643,13 @@ impl LedgerEntry {
             child_start_time: None,
             turn_active: false,
             turns_ended: 0,
+            turn_opener: None,
+            prompt_turns_ended: 0,
+            wake_turns_ended: 0,
             turn_api_error: false,
             turn_cancelled: false,
             step_closed_this_turn: None,
             open_jobs: std::collections::BTreeMap::new(),
-            background_launches: std::collections::BTreeSet::new(),
             input_tx: None,
             cancel: CancellationToken::new(),
             card_id: None,
@@ -629,6 +667,11 @@ impl LedgerEntry {
     /// the two disagree for exactly as long as a backgrounded test sweep takes
     /// to finish — the window in which an arc would otherwise be offered for
     /// joining while its own tests were still deciding whether it works.
+    ///
+    /// A provisional `launch:` entry counts exactly as a confirmed job does,
+    /// which is the whole of [P04]: the window opens at the launch, so the
+    /// answer here has to be *busy* from the launch and not from the
+    /// `task_started` that confirms it.
     pub fn is_quiet(&self) -> bool {
         !self.turn_active && self.open_jobs.is_empty()
     }
@@ -639,6 +682,11 @@ impl LedgerEntry {
     /// fail in. Reaping only after the turn has ended keeps a long turn's own
     /// silence off the clock, and each reaped job `warn!`s with its ids so
     /// the trace names what happened.
+    ///
+    /// A provisional `launch:` key is reaped like any other, and that is the
+    /// bound under Risk R02: a `Monitor` call whose `task_started` never
+    /// arrives holds the session busy until its wake or this horizon, and
+    /// never past it.
     ///
     /// `now` is the caller's clock, injected so tests need no real one.
     pub fn reap_stuck_jobs(&mut self, now: std::time::Instant) {
@@ -3106,6 +3154,19 @@ pub(crate) fn turn_ended_in_user_cancel(payload: &[u8]) -> bool {
         && value.get("is_recovery").and_then(|v| v.as_bool()) != Some(true)
 }
 
+/// The prefix that marks a provisional [`LedgerEntry::open_jobs`] key — one
+/// opened at a launching `tool_use` and not yet confirmed by a `task_started`.
+///
+/// A `task_id` from claude is a short opaque token (`bfxxjpakz`), so it cannot
+/// collide with this; the prefix is named here rather than spelled inline so
+/// the writer, the re-key, and the wake's sweep cannot spell it three ways.
+const LAUNCH_KEY_PREFIX: &str = "launch:";
+
+/// The provisional key for a launching call's `tool_use_id`.
+fn launch_key(tool_use_id: &str) -> String {
+    format!("{LAUNCH_KEY_PREFIX}{tool_use_id}")
+}
+
 /// What a `task_started` / `task_updated` / `wake_started` frame does to a
 /// session's set of open background jobs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3154,12 +3215,22 @@ pub(crate) fn parse_job_edge(payload: &[u8]) -> Option<JobEdge> {
             }
         }
         "wake_started" => {
-            let trigger = value.get("wake_trigger")?;
-            let task_id = nonempty_task_id(trigger)?;
-            match trigger.get("status")?.as_str()? {
-                "completed" | "failed" | "stopped" => Some(JobEdge::Closed(task_id)),
-                _ => None,
-            }
+            // Every wake closes. A wake naming a job in a terminal status
+            // closes that job by name; every other wake — the scheduler's own
+            // re-init carrying no `wake_trigger` or an empty `task_id`, and a
+            // named job reporting a status the wire has not shown us — closes
+            // with an empty name, which the `Closed` arm reads as "nothing
+            // named". That still matters, because a wake is the model
+            // speaking again, and the provisional launches the arm sweeps are
+            // exactly the entries whose gap the wake has just ended. Leaving
+            // a named job open on an unknown status is the same conservative
+            // direction the `task_updated` arm takes.
+            let named = value.get("wake_trigger").and_then(|trigger| {
+                let task_id = nonempty_task_id(trigger)?;
+                let status = trigger.get("status")?.as_str()?;
+                matches!(status, "completed" | "failed" | "stopped").then_some(task_id)
+            });
+            Some(JobEdge::Closed(named.unwrap_or_default()))
         }
         _ => None,
     }
@@ -9867,7 +9938,14 @@ impl AgentSupervisor {
                     // A turn is opening: from here until the merger sees the
                     // closing `turn_complete` / `turn_cancelled`, the activity
                     // sampler attributes this session's OS work.
-                    entry_arc.lock().await.turn_active = true;
+                    //
+                    // And it is an *asked* turn ([P02]) — the one kind the arc
+                    // runner's quiet-turn horizon may count against a stage.
+                    {
+                        let mut entry = entry_arc.lock().await;
+                        entry.turn_active = true;
+                        entry.turn_opener = Some(TurnOpener::Prompt);
+                    }
                     // A door prompt binds with the keystroke, so the card
                     // reads `ARC` before the door's first tool call rather
                     // than after its last one. Anything else is untouched.
@@ -10009,11 +10087,18 @@ impl AgentSupervisor {
         }
     }
 
-    /// Record a launching `tool_use` the deck would count as background work,
-    /// so the `task_started` it produces can pass `apply_job_edge`'s gate.
+    /// Open a **provisional** job at a launching `tool_use` the deck would
+    /// count as background work ([P04]).
+    ///
+    /// The latch arms here rather than at the `task_started` that follows,
+    /// because the window `open_jobs` exists to cover starts at the launch.
+    /// This used to only *record* the id in a side set, leaving the session
+    /// readable as quiet between the launch and its confirmation; the
+    /// incident's six background completions each lived in that gap.
+    ///
     /// Replay-guarded like the fold itself: a `replay_batch`'s historical
     /// launches describe calls whose jobs died with the session that ran them.
-    async fn record_job_launch(&self, session_id: &TugSessionId, payload: &[u8]) {
+    pub(super) async fn record_job_launch(&self, session_id: &TugSessionId, payload: &[u8]) {
         let Some(tool_use_id) = parse_background_launch(payload) else {
             return;
         };
@@ -10028,13 +10113,16 @@ impl AgentSupervisor {
         if entry.replay_brackets_open != 0 {
             return;
         }
-        tracing::trace!(
+        entry
+            .open_jobs
+            .insert(launch_key(&tool_use_id), std::time::Instant::now());
+        tracing::debug!(
             target: "dev::ledger",
-            event = "job_launch_observed",
+            event = "job_launched",
             session_id = %session_id,
             tool_use_id = %tool_use_id,
+            open_jobs = entry.open_jobs.len(),
         );
-        entry.background_launches.insert(tool_use_id);
     }
 
     /// Refresh an open job's liveness stamp from a `task_progress` heartbeat,
@@ -10082,7 +10170,7 @@ impl AgentSupervisor {
     /// Returns `false` for every frame that is not a job edge, for a session
     /// with no ledger entry, and for an edge that leaves work still running —
     /// so the caller's release path fires on exactly the transition into quiet.
-    async fn apply_job_edge(&self, session_id: &TugSessionId, payload: &[u8]) -> bool {
+    pub(super) async fn apply_job_edge(&self, session_id: &TugSessionId, payload: &[u8]) -> bool {
         let Some(edge) = parse_job_edge(payload) else {
             return false;
         };
@@ -10099,20 +10187,26 @@ impl AgentSupervisor {
         }
         match edge {
             JobEdge::Opened(task) => {
-                // Gated on the launching call ([Q01], resolved here): the
-                // frame carries no backgrounded discriminant, so membership in
-                // `background_launches` is the only honest evidence. An
-                // unmatched `task_started` opens nothing — the launch cannot
-                // have gone unobserved, because the merger consumes each
-                // session's whole stream from registration and a background
-                // job cannot outlive the claude process that launched it, so
-                // every live `task_started` follows its `tool_use` on the same
-                // stream; the replayed kind never reaches this point (the
-                // bracket guard above). What an unmatched frame actually is,
-                // is the foreground shape this gate exists to refuse.
-                let matched = parse_task_started_launch_id(payload)
-                    .is_some_and(|id| entry.background_launches.remove(&id));
-                if !matched {
+                // Gated on the launching call ([Q01], resolved by the Step 1
+                // capture): the frame carries no backgrounded discriminant, so
+                // a provisional `launch:` entry is the only honest evidence.
+                // An unmatched `task_started` opens nothing — the launch
+                // cannot have gone unobserved, because the merger consumes
+                // each session's whole stream from registration and a
+                // background job cannot outlive the claude process that
+                // launched it, so every live `task_started` follows its
+                // `tool_use` on the same stream; the replayed kind never
+                // reaches this point (the bracket guard above). What an
+                // unmatched frame actually is, is the foreground shape this
+                // gate exists to refuse.
+                //
+                // The match is a **re-key**, not an open: the provisional
+                // entry's stamp moves onto the `task_id`, so the reaper
+                // clocks the job from the launch it actually began at rather
+                // than from its confirmation.
+                let launched = parse_task_started_launch_id(payload)
+                    .and_then(|id| entry.open_jobs.remove(&launch_key(&id)));
+                let Some(stamp) = launched else {
                     tracing::debug!(
                         target: "dev::ledger",
                         event = "job_open_rejected",
@@ -10122,26 +10216,43 @@ impl AgentSupervisor {
                          foreground work, not a job to track",
                     );
                     return false;
-                }
-                tracing::trace!(
+                };
+                entry.open_jobs.insert(task.clone(), stamp);
+                tracing::debug!(
                     target: "dev::ledger",
                     event = "job_opened",
                     session_id = %session_id,
                     task_id = %task,
                     frame = frame_family(payload),
-                    open_jobs = entry.open_jobs.len() + 1,
+                    open_jobs = entry.open_jobs.len(),
                 );
-                entry.open_jobs.insert(task, std::time::Instant::now());
             }
             JobEdge::Closed(task) => {
                 let was_open = entry.open_jobs.remove(&task).is_some();
-                tracing::trace!(
+                // A wake means the model is speaking again, so the gap every
+                // provisional entry was holding open is over — including the
+                // scheduler's own re-init wake, which names no job at all.
+                // Without this a launch whose `task_started` never arrived
+                // would sit until the reaper, and the session would read busy
+                // through turns it was plainly working.
+                let mut provisional_closed = 0usize;
+                if frame_family(payload) == "wake_started" {
+                    entry.open_jobs.retain(|key, _| {
+                        let provisional = key.starts_with(LAUNCH_KEY_PREFIX);
+                        if provisional {
+                            provisional_closed += 1;
+                        }
+                        !provisional
+                    });
+                }
+                tracing::debug!(
                     target: "dev::ledger",
                     event = "job_closed",
                     session_id = %session_id,
                     task_id = %task,
                     frame = frame_family(payload),
                     was_open,
+                    provisional_closed,
                     open_jobs = entry.open_jobs.len(),
                 );
             }
@@ -10306,6 +10417,20 @@ impl AgentSupervisor {
                             entry_arc.lock().await.context_window_tokens = Some(window);
                         }
                     }
+                    // claude's whole background roster. Logged rather than
+                    // folded: the supervisor's `open_jobs` is built from
+                    // edges, and this frame is the independent statement of
+                    // the same fact — so a session stuck busy, or gone quiet
+                    // early, is answerable from one log rather than from a
+                    // reproduction.
+                    if is_background_tasks_changed(&frame.payload) {
+                        tracing::debug!(
+                            target: "dev::ledger",
+                            event = "background_tasks_changed",
+                            session_id = %id,
+                            payload_len = frame.payload.len(),
+                        );
+                    }
                     // A background job opening or closing. Tracked beside the
                     // turn flag because the two together are what "finished"
                     // means: a turn that ends with a test sweep still running
@@ -10352,9 +10477,23 @@ impl AgentSupervisor {
                             let mut entry = entry_arc.lock().await;
                             if is_wake_started(&frame.payload) {
                                 entry.turn_active = true;
+                                // The harness opened this one, not the stage's
+                                // asker ([P02]).
+                                entry.turn_opener = Some(TurnOpener::Wake);
                             } else if entry.replay_brackets_open == 0 {
                                 entry.turn_active = false;
                                 entry.turns_ended += 1;
+                                // Split the count by what opened the turn. An
+                                // unrecorded opener — a turn inherited across a
+                                // restart — counts as a prompt, which is
+                                // today's behaviour and the direction R05
+                                // accepts.
+                                if entry.turn_opener == Some(TurnOpener::Wake) {
+                                    entry.wake_turns_ended += 1;
+                                } else {
+                                    entry.prompt_turns_ended += 1;
+                                }
+                                entry.turn_opener = None;
                                 entry.turn_api_error = turn_ended_in_api_error(&frame.payload);
                                 entry.turn_cancelled = turn_ended_in_user_cancel(&frame.payload);
                                 // The turn boundary the arc demands has
@@ -10362,10 +10501,6 @@ impl AgentSupervisor {
                                 // no longer *this* turn's business, and the
                                 // gate opens again (W8).
                                 entry.step_closed_this_turn = None;
-                                // A launch whose task never started is not
-                                // still pending next turn — the set matters
-                                // only between a launch and its `task_started`.
-                                entry.background_launches.clear();
                                 drop(entry);
                                 // The session went idle: an arc parked behind it
                                 // because the gate refuses to move a branch
@@ -10932,6 +11067,12 @@ impl AgentSupervisor {
             // session_init.
             entry.claude_session_id = Some(row.session_id.clone());
             entry.turns_ended = u32::try_from(row.turn_count).unwrap_or(0);
+            // The row records turns, not their openers, so the seed reads them
+            // all as asked ([P02], Risk R05) — the same conservative direction
+            // an unrecorded opener takes at a turn's end.
+            entry.prompt_turns_ended = entry.turns_ended;
+            entry.wake_turns_ended = 0;
+            entry.turn_opener = None;
             // Carry the card binding so the live-elsewhere check fires
             // correctly on a cross-card resume request after rebind.
             entry.card_id = Some(card_id.clone());
@@ -11318,10 +11459,12 @@ mod tests {
             parse_job_edge(br#"{"type":"task_progress","task_id":"t1"}"#),
             None
         );
-        // The scheduled wake's re-init carries no job to track.
+        // The scheduled wake's re-init names no job — but it still closes,
+        // with an empty name, because a wake is the model speaking again and
+        // the `Closed` arm uses that to retire the provisional launches.
         assert_eq!(
             parse_job_edge(br#"{"type":"wake_started","task_id":""}"#),
-            None
+            Some(JobEdge::Closed(String::new()))
         );
     }
 
@@ -11342,21 +11485,23 @@ mod tests {
                 "a wake reporting {status} ends its job"
             );
         }
-        // Vocabulary the wire has not shown us leaves the job open, the same
-        // conservative direction the `task_updated` arm takes.
+        // Vocabulary the wire has not shown us leaves the *named* job open,
+        // the same conservative direction the `task_updated` arm takes — the
+        // wake still closes with an empty name, so the provisional launches
+        // it should retire are retired either way.
         assert_eq!(
             parse_job_edge(
                 br#"{"type":"wake_started","wake_trigger":{"task_id":"t1","status":"running"}}"#
             ),
-            None
+            Some(JobEdge::Closed(String::new()))
         );
         // The scheduler's re-init wake carries no job under `wake_trigger`
-        // either.
+        // either, and closes the same way.
         assert_eq!(
             parse_job_edge(
                 br#"{"type":"wake_started","wake_trigger":{"task_id":"","status":"completed"}}"#
             ),
-            None
+            Some(JobEdge::Closed(String::new()))
         );
     }
 
@@ -16912,6 +17057,157 @@ mod tests {
         );
     }
 
+    /// **[P04], and the incident's own gap.** The window `open_jobs` covers
+    /// starts at the launch, not at the `task_started` that confirms it. Six
+    /// background completions each lived in that gap: the launching turn had
+    /// ended, nothing was confirmed open, and the runner read a session that
+    /// was plainly working as idle.
+    #[tokio::test]
+    async fn a_launch_holds_the_session_busy_until_its_wake() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control("spawn_session", &spawn_payload("card-l", "sess-l"), 10)
+            .await
+            .expect_handled();
+        let id = TugSessionId::new("sess-l");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+        entry.lock().await.turn_active = true;
+
+        // The launch alone — no `task_started` at all, which is the shape
+        // Risk R02 accepts and this latch is what bounds.
+        let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_1","input":{"command":"sleep 8 && echo background-done","run_in_background":true},"ipc_version":2}"#;
+        sup.record_job_launch(&id, launch).await;
+
+        // The turn ends. This is the reading the incident got wrong.
+        entry.lock().await.turn_active = false;
+        assert!(
+            !entry.lock().await.is_quiet(),
+            "the launching turn ended, but the work it started has not reported",
+        );
+
+        // The wake — the model speaking again, which is what ends the gap.
+        let wake = br#"{"type":"wake_started","session_id":"c","wake_trigger":{"task_id":"t1","tool_use_id":"toolu_1","status":"completed","summary":"done","output_file":""},"ipc_version":2}"#;
+        sup.apply_job_edge(&id, wake).await;
+        // The wake reopens the turn on the live path; the test drives the
+        // fold directly, so it says so itself and then ends that turn.
+        entry.lock().await.turn_active = false;
+        assert!(
+            entry.lock().await.is_quiet(),
+            "the wake retired the latch, so the session is finished",
+        );
+    }
+
+    /// A `task_started` confirming a launch is a **re-key**, not a second
+    /// open: the provisional entry leaves and the `task_id` arrives carrying
+    /// the launch's own stamp, so the reaper clocks the job from when it
+    /// began rather than from when it was confirmed.
+    #[tokio::test]
+    async fn a_task_started_rekeys_the_launch_it_confirms() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control("spawn_session", &spawn_payload("card-r", "sess-r"), 10)
+            .await
+            .expect_handled();
+        let id = TugSessionId::new("sess-r");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+        entry.lock().await.turn_active = true;
+
+        let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_1","input":{"command":"just app-test","run_in_background":true},"ipc_version":2}"#;
+        sup.record_job_launch(&id, launch).await;
+        let launched_stamp = entry.lock().await.open_jobs[&launch_key("toolu_1")];
+
+        let started = br#"{"type":"task_started","session_id":"c","task_id":"t1","tool_use_id":"toolu_1","description":"just app-test","task_type":"local_bash","ipc_version":2}"#;
+        assert!(!sup.apply_job_edge(&id, started).await);
+        {
+            let entry = entry.lock().await;
+            assert_eq!(
+                entry.open_jobs.keys().collect::<Vec<_>>(),
+                vec!["t1"],
+                "one job, under its task id and no longer under the launch",
+            );
+            assert_eq!(
+                entry.open_jobs["t1"], launched_stamp,
+                "the launch's stamp carried across, so the reap clock did not restart",
+            );
+        }
+
+        let completed = br#"{"type":"task_updated","session_id":"c","task_id":"t1","status":"completed","ipc_version":2}"#;
+        entry.lock().await.turn_active = false;
+        assert!(sup.apply_job_edge(&id, completed).await);
+        assert!(entry.lock().await.is_quiet());
+    }
+
+    /// A wake retires **every** provisional launch, not only one it names.
+    /// The model is speaking again, so the gap each latch was holding open is
+    /// over — and a launch whose `task_started` never came would otherwise
+    /// sit until the reaper, reading busy through turns it was plainly
+    /// working.
+    #[tokio::test]
+    async fn a_wake_closes_every_provisional_launch() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control("spawn_session", &spawn_payload("card-w", "sess-w"), 10)
+            .await
+            .expect_handled();
+        let id = TugSessionId::new("sess-w");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+        entry.lock().await.turn_active = true;
+
+        let one = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_a","input":{"command":"a","run_in_background":true},"ipc_version":2}"#;
+        let two = br#"{"type":"tool_use","msg_id":"m1","seq":2,"tool_name":"Bash","tool_use_id":"toolu_b","input":{"command":"b","run_in_background":true},"ipc_version":2}"#;
+        sup.record_job_launch(&id, one).await;
+        sup.record_job_launch(&id, two).await;
+        assert_eq!(entry.lock().await.open_jobs.len(), 2);
+
+        // The scheduler's own re-init wake: it names no job at all, and it
+        // still ends the gap.
+        let wake = br#"{"type":"wake_started","session_id":"c","wake_trigger":{"task_id":"","tool_use_id":"","status":"completed","summary":"scheduled wake","output_file":""},"ipc_version":2}"#;
+        sup.apply_job_edge(&id, wake).await;
+        assert!(
+            entry.lock().await.open_jobs.is_empty(),
+            "a wake naming neither launch still retires both",
+        );
+    }
+
+    /// Risk R02's bound. A `Monitor` whose `task_started` never arrives holds
+    /// the session busy — that is the point — but the reaper treats its
+    /// provisional key like any other, so the hold ends at the horizon rather
+    /// than lasting forever. Degrade to *late*, never to *never*.
+    #[tokio::test]
+    async fn a_launch_whose_task_never_starts_is_reaped() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control("spawn_session", &spawn_payload("card-p", "sess-p"), 10)
+            .await
+            .expect_handled();
+        let id = TugSessionId::new("sess-p");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+        entry.lock().await.turn_active = true;
+
+        let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Monitor","tool_use_id":"toolu_m","input":{"command":"tail -f build.log"},"ipc_version":2}"#;
+        sup.record_job_launch(&id, launch).await;
+
+        let mut entry = entry.lock().await;
+        entry.turn_active = false;
+        assert!(!entry.is_quiet(), "the hold is real while the horizon runs");
+
+        let now = std::time::Instant::now();
+        entry.reap_stuck_jobs(now + JOB_REAP_HORIZON + Duration::from_secs(1));
+        assert!(
+            entry.open_jobs.is_empty(),
+            "a provisional key is reaped like any other — the hold is bounded",
+        );
+        assert!(entry.is_quiet());
+    }
+
     /// A replayed transcript's historical `task_started` frames describe jobs
     /// that died with the session that ran them. Folding them in would open
     /// jobs nothing can ever close, leaving the arc permanently unjoinable.
@@ -17200,6 +17496,155 @@ mod tests {
             entry_arc.lock().await.turn_active,
             "a bracketed (replayed) turn_complete must not end a live turn"
         );
+
+        cancel.cancel();
+        let _ = merger_handle.await;
+    }
+
+    /// **[P02]'s rule, at the two edges that write it.** A turn the dispatcher
+    /// opened from a `user_message` is an *asked* turn; a turn the merger
+    /// opened from a `wake_started` is one the harness opened. Both end turns,
+    /// and only the first is an answer — the whole of what the arc runner's
+    /// quiet-turn horizon needed and did not have on the night of the
+    /// incident.
+    #[tokio::test]
+    async fn a_wake_opened_turn_counts_as_a_wake_and_a_prompt_opened_one_as_a_prompt() {
+        let ((sup, _state_rx, _meta_rx, _control_rx), register_rx) =
+            make_supervisor_with_spawner(stall_spawner_factory());
+        let sup = Arc::new(sup);
+        let cancel = CancellationToken::new();
+        let merger_handle = tokio::spawn(Arc::clone(&sup).merger_task(register_rx, cancel.clone()));
+
+        let id = TugSessionId::new("sess-opener");
+        insert_ledger_entry(&sup, &id).await;
+        let entry_arc = sup.ledger.lock().await.get(&id).cloned().unwrap();
+
+        // The ask, through the dispatcher's own intercept.
+        sup.dispatch_one(Frame::new(
+            FeedId::CODE_INPUT,
+            serde_json::to_vec(&serde_json::json!({
+                "tug_session_id": "sess-opener",
+                "type": "user_message",
+                "text": "walk step 4",
+                "attachments": [],
+            }))
+            .unwrap(),
+        ))
+        .await;
+        {
+            let entry = entry_arc.lock().await;
+            assert!(entry.turn_active, "the ask opened a turn");
+            assert_eq!(entry.turn_opener, Some(TurnOpener::Prompt));
+        }
+
+        // Registered after the dispatch, because the spawn the dispatch
+        // attempts registers a channel of its own for this session and the
+        // last registration is the one the merger reads.
+        let (tx, rx) = mpsc::channel::<Frame>(8);
+        sup.merger_register_tx.send((id.clone(), rx)).await.unwrap();
+
+        // It ends: one asked turn, no wakes, and the opener cleared.
+        tx.send(Frame::new(
+            FeedId::CODE_OUTPUT,
+            br#"{"tug_session_id":"sess-opener","type":"turn_complete","msg_id":"m","seq":1}"#
+                .to_vec(),
+        ))
+        .await
+        .unwrap();
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move { entry_arc.lock().await.turns_ended == 1 }
+        })
+        .await;
+        {
+            let entry = entry_arc.lock().await;
+            assert_eq!((entry.prompt_turns_ended, entry.wake_turns_ended), (1, 0));
+            assert_eq!(entry.turn_opener, None, "the opener clears with the turn");
+        }
+
+        // A background completion wakes the session. Nobody asked for this
+        // turn, and the count that reads answers must not move for it.
+        tx.send(Frame::new(
+            FeedId::CODE_OUTPUT,
+            br#"{"tug_session_id":"sess-opener","type":"wake_started","session_id":"x"}"#.to_vec(),
+        ))
+        .await
+        .unwrap();
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move { entry_arc.lock().await.turn_active }
+        })
+        .await;
+        assert_eq!(
+            entry_arc.lock().await.turn_opener,
+            Some(TurnOpener::Wake),
+            "the harness opened this one",
+        );
+
+        tx.send(Frame::new(
+            FeedId::CODE_OUTPUT,
+            br#"{"tug_session_id":"sess-opener","type":"turn_complete","msg_id":"m","seq":2}"#
+                .to_vec(),
+        ))
+        .await
+        .unwrap();
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move { entry_arc.lock().await.turns_ended == 2 }
+        })
+        .await;
+        {
+            let entry = entry_arc.lock().await;
+            assert_eq!(
+                (entry.prompt_turns_ended, entry.wake_turns_ended),
+                (1, 1),
+                "two turns ended and exactly one of them was asked for",
+            );
+        }
+
+        cancel.cancel();
+        let _ = merger_handle.await;
+    }
+
+    /// Risk R05, made a test: a turn tugcast inherited across a restart has no
+    /// recorded opener, and an absent opener counts as an ask. That is today's
+    /// behaviour and the conservative direction — the horizon may hold one
+    /// inherited wake against a stage, never miss an ask it should have held.
+    #[tokio::test]
+    async fn an_unrecorded_opener_counts_as_a_prompt() {
+        let ((sup, _state_rx, _meta_rx, _control_rx), register_rx) =
+            make_supervisor_with_spawner(stall_spawner_factory());
+        let sup = Arc::new(sup);
+        let cancel = CancellationToken::new();
+        let merger_handle = tokio::spawn(Arc::clone(&sup).merger_task(register_rx, cancel.clone()));
+
+        let id = TugSessionId::new("sess-inherited");
+        insert_ledger_entry(&sup, &id).await;
+        let entry_arc = sup.ledger.lock().await.get(&id).cloned().unwrap();
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.turn_active = true;
+            entry.turn_opener = None;
+        }
+        let (tx, rx) = mpsc::channel::<Frame>(8);
+        sup.merger_register_tx.send((id.clone(), rx)).await.unwrap();
+
+        tx.send(Frame::new(
+            FeedId::CODE_OUTPUT,
+            br#"{"tug_session_id":"sess-inherited","type":"turn_complete","msg_id":"m","seq":1}"#
+                .to_vec(),
+        ))
+        .await
+        .unwrap();
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move { entry_arc.lock().await.turns_ended == 1 }
+        })
+        .await;
+        {
+            let entry = entry_arc.lock().await;
+            assert_eq!((entry.prompt_turns_ended, entry.wake_turns_ended), (1, 0));
+        }
 
         cancel.cancel();
         let _ = merger_handle.await;

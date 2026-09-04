@@ -165,6 +165,28 @@ pub fn stage_ask(
     }
 }
 
+/// The re-ask, when an asked implement turn ends with no step closed
+/// (Spec S03).
+///
+/// The horizon is two *asks*, not two turn ends: a stage that ended a turn on
+/// a question, a snag, or a report is answered in one turn, and this is the
+/// turn it is answered in. The wording names the open step rather than the
+/// range's start, because the thing that did not happen is that step closing.
+///
+/// The second asked turn ending with no close is the stop, and there is no
+/// third ask.
+pub fn still_open_ask(arc: &str, step: usize, through: usize) -> String {
+    if step == through {
+        format!(
+            "/tugplug:arc-implement {arc} Step {step} is still open: finish it, close it, and end the turn; it is the arc's last step"
+        )
+    } else {
+        format!(
+            "/tugplug:arc-implement {arc} Step {step} is still open: finish it, close it, and end the turn; Steps {step}-{through} remain on this arc"
+        )
+    }
+}
+
 /// Where a stage is, as one line it can read instead of asking.
 ///
 /// Every stage skill used to open by *probing* for its own coordinates —
@@ -212,6 +234,12 @@ pub fn where_clause(
 /// The paths clause **names what the list is** rather than telling the model
 /// what to do with it: they are the files the document cites, and where to
 /// begin is the stage's own judgement.
+///
+/// The resume clause's fact is the arc's **last stop**, not its current one:
+/// every act that picks a stopped arc back up clears `stopped` before the
+/// prompt is composed, so a caller reading that field would drop the clause on
+/// exactly the prompts it exists for. `ArcRecord::last_stop` is what keeps it
+/// for the generation, and it is what the continue act reads.
 pub fn compose(
     ask: &str,
     place: Option<&str>,
@@ -375,5 +403,21 @@ mod tests {
             let ask = stage_ask(stage, Some("arc/idea.md"), "foo", None).expect("an ask");
             assert!(!ask.contains("end the turn"), "{ask}");
         }
+    }
+
+    /// The re-ask names the step that did not close, and then says the same
+    /// thing about the remainder that the opening ask does — so a stage
+    /// reading it learns nothing new about how far the run reaches, only that
+    /// this one step is still open.
+    #[test]
+    fn the_still_open_ask_names_the_step_and_the_remainder() {
+        assert_eq!(
+            still_open_ask("foo", 2, 4),
+            "/tugplug:arc-implement foo Step 2 is still open: finish it, close it, and end the turn; Steps 2-4 remain on this arc"
+        );
+        assert_eq!(
+            still_open_ask("foo", 4, 4),
+            "/tugplug:arc-implement foo Step 4 is still open: finish it, close it, and end the turn; it is the arc's last step"
+        );
     }
 }
