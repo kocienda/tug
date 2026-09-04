@@ -31,15 +31,16 @@ import React from "react";
 
 import { TugTooltip } from "./tug-tooltip";
 import type { ArcRunState, ArcChangesetEntry, ArcStep } from "@/lib/changeset-types";
+import { PLANNED_KIND_SENTENCE } from "@/lib/arc-meta-facts";
 
 /** The phases, in lifecycle order. */
-export type ArcPhase = "brief" | "devise" | "review" | "implement" | "check" | "join";
+export type ArcPhase = "brief" | "devise" | "review" | "implement" | "audit" | "join";
 export const ARC_PHASES: readonly ArcPhase[] = [
   "brief",
   "devise",
   "review",
   "implement",
-  "check",
+  "audit",
   "join",
 ];
 
@@ -55,13 +56,13 @@ export const ARC_PHASES: readonly ArcPhase[] = [
  * as the one pill on a row of slivers. A brief cell brackets the ticks the way
  * the join does, and it is a fact rather than a spacer.
  *
- * The check cell is drawn on both routes, because both verify: what a run does
+ * The audit cell is drawn on both routes, because both verify: what a run does
  * after its last commit is the same work whoever asked for it.
  */
 const DIRECT_PHASES: readonly ArcPhase[] = [
   "brief",
   "implement",
-  "check",
+  "audit",
   "join",
 ];
 
@@ -79,11 +80,10 @@ export const ARC_PHASE_LABELS: Record<ArcPhase, string> = {
   devise: "Devise",
   review: "Review",
   implement: "Implement",
-  // The audit stage's cell. The key stays `check` — it is the code, and every
-  // `data-phase` and test that reads the strip names it — while the word is
-  // the reading, and every arc ends in an audit stage now: one word on one
-  // stage, in Z2 and on the strip.
-  check: "Audit",
+  // The audit stage's cell. Key and reading are one word, the word the stop
+  // reason, the register, the placard, and the wheel all spell it in — so the
+  // note beside the strip and the cell on it cannot say two different things.
+  audit: "Audit",
   join: "Join",
 };
 
@@ -251,21 +251,30 @@ export function arcTrackModel(input: ArcTrackInput): ArcTrackModel {
   // run. `holdersBusy` cannot cover that gap, because in it nobody is working.
   const arcRunning = arc !== null && arc.done !== true && arc.stopped === undefined;
   const arrived = (!arcRunning && stage !== null && JOIN_STAGES.has(stage)) || arc?.done === true;
-  if (arrived) {
+  // A stop is a fact about the phase it happened in, and the record names
+  // that phase. It outranks the git reading: an audit that stopped has every
+  // git fact saying joinable — the walk is committed on a clean worktree —
+  // and lighting the join cell over it says the arc arrived somewhere it did
+  // not. The stage the stop names is where the strip lights.
+  const stoppedIn =
+    stopped !== null && arc?.stopped_stage !== undefined && arc.done !== true
+      ? stoppedPhase(arc.stopped_stage)
+      : null;
+  if (stoppedIn !== null) {
+    phase = stoppedIn;
+  } else if (arrived) {
     // Arrived by its git facts, and the run that got it here is still going:
-    // the checks a run ends with are the one part of it no commit records.
-    phase = input.holdersBusy === true ? "check" : "join";
+    // the audit a run ends with is the one part of it no commit records.
+    phase = input.holdersBusy === true ? "audit" : "join";
   } else if (direct) {
     // Before the first step starts there is nothing else to read: a direct
     // arc's plan is its task list, so the plan-means-review arm below would
     // seat it in a phase it does not have.
-    phase = walked ? "check" : "implement";
-  } else if (stopped !== null && arc?.stopped_stage !== undefined) {
-    phase = arcPhase(arc.stopped_stage);
+    phase = walked ? "audit" : "implement";
   } else if (arc?.stage !== undefined) {
-    phase = walked ? "check" : arcPhase(arc.stage);
+    phase = walked ? "audit" : arcPhase(arc.stage);
   } else if (begun || stage === "implementing") {
-    phase = walked ? "check" : "implement";
+    phase = walked ? "audit" : "implement";
   } else if (documents.plan !== undefined) {
     phase = "review";
   } else {
@@ -274,12 +283,28 @@ export function arcTrackModel(input: ArcTrackInput): ArcTrackModel {
   return { direct, planned, phase, stopped, steps };
 }
 
+/**
+ * The stages an arc record can name — the arc log's own `ArcStage`, each drawn
+ * by the strip as a cell of the same word. The two readings below are the only
+ * places a stage word becomes a phase, and they share this set so they cannot
+ * come to disagree about which words the strip knows.
+ */
+const RECORD_STAGES: ReadonlySet<string> = new Set(["devise", "review", "implement", "audit"]);
+
+/**
+ * The cell a stop lights. `null` for a stage the strip does not draw, which
+ * no record can currently name; the arms below the stop answer then, as they
+ * did before the stop was read at all.
+ */
+function stoppedPhase(stage: string): ArcPhase | null {
+  return RECORD_STAGES.has(stage) ? (stage as ArcPhase) : null;
+}
+
 function arcPhase(stage: string): ArcPhase {
-  // The arc's audit stage is the check cell: what it does — read the code
-  // against the plan and fix what does not match — is the verification a
-  // direct arc does for itself in the same place on the strip.
-  if (stage === "audit") return "check";
-  return stage === "devise" || stage === "review" || stage === "implement" ? stage : "implement";
+  // The audit stage is the audit cell: what it does — read the code against
+  // the plan and fix what does not match — is the verification a direct arc
+  // does for itself in the same place on the strip.
+  return stoppedPhase(stage) ?? "implement";
 }
 
 /** {@link arcTrackModel} over a wire entry. */
@@ -315,12 +340,22 @@ export function tickState(model: ArcTrackModel, n: number): ArcTickState {
   return "pending";
 }
 
-function cellTip(model: ArcTrackModel, phase: ArcPhase, state: ArcCellState): string {
+/**
+ * One cell's hover sentence. The Devise cell of a planned arc also says what
+ * the kind means: the lifecycle line does not print the kind as a word (the
+ * cell set already draws it), so the cell that exists BECAUSE the arc is
+ * planned is where the explanation waits. The glyph's tooltip was the other
+ * candidate and it says the phase, not the kind; a reader who wonders about
+ * the extra cells hovers a cell.
+ */
+export function arcCellTip(model: ArcTrackModel, phase: ArcPhase, state: ArcCellState): string {
   const word =
     phase === "implement" && model.steps !== null
       ? `implement · ${model.steps.done} of ${model.steps.total} steps closed`
       : phase;
-  return state === "stopped" ? `${word} — stopped: ${model.stopped}` : `${word} · ${state}`;
+  const reading =
+    state === "stopped" ? `${word} — stopped: ${model.stopped}` : `${word} · ${state}`;
+  return phase === "devise" && model.planned ? `${reading}\n${PLANNED_KIND_SENTENCE}` : reading;
 }
 
 export interface TugArcTrackProps {
@@ -347,7 +382,7 @@ export function TugArcTrack({
       data-phase={model.phase}
       data-direct={model.direct ? "true" : undefined}
       data-stopped={model.stopped !== null ? "true" : undefined}
-      aria-label={ariaLabel ?? cellTip(model, model.phase, arcCellState(model, model.phase))}
+      aria-label={ariaLabel ?? arcCellTip(model, model.phase, arcCellState(model, model.phase))}
     >
       {phases.map((phase) => {
         const state = arcCellState(model, phase);
@@ -356,7 +391,7 @@ export function TugArcTrack({
             ? Array.from({ length: model.steps.total }, (_, i) => i + 1)
             : null;
         return (
-          <TugTooltip key={phase} content={cellTip(model, phase, state)}>
+          <TugTooltip key={phase} content={arcCellTip(model, phase, state)}>
             <span
               className="tug-arc-track-cell"
               data-slot="tug-arc-track-cell"

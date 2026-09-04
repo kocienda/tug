@@ -223,6 +223,10 @@ The gate sits in the runner's own two clock paths and **not** inside `stop_arc_f
 
 An arc joins by `/arc-join <name>` into its base: a preview runs on entry, the squash message is edited in the composer, and the join is the human’s act. Skills draft; humans join.
 
+**A stopped audit never arms the join.** The stop means the audit did not mark, whoever stopped it and for whatever reason, so `join_ready` stays shut over it on the server and the shade reads `unaudited` rather than ready; what the shade offers is to resume the audit or to land it unaudited, and the join stays the user's to take either way. A stop in any earlier stage releases the offer as it always did, because the join never needed a wheel.
+
+**The audit is the author of record for the join message.** The implement stage writes a provisional draft before its final step closes — the message an arc carries if it stops short of its audit — and the audit rewrites it unconditionally after reading the whole diff cold, whether or not it changed a byte, because it is the last stage to touch the tree. The join lands whatever draft stands when the user presses; the audit's is the one that describes what lands.
+
 The doctrine — the two beats, the one-slot `LandingMode`, and the five outcomes a join can reach — is held in [tracking-changes.md](tracking-changes.md#the-landing-workflow), where the capture and commit layer beneath it already lives. It is law where it stands and is deliberately not restated here.
 
 ## Naming

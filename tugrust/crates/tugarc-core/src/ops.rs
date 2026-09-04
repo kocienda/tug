@@ -1838,12 +1838,9 @@ pub fn arc_detail_entries_in(repo_root: &Path) -> Vec<ArcDetail> {
         // ([F01]) — it used to be dropped here, which is why the deck had
         // nothing to read and the track sniffed documents instead.
         let arc_kind = arc_record.as_ref().and_then(|record| record.kind);
-        // A record that exists, has not reached its terminal line, and carries
-        // no standing stop. Derived from the read this block already performs,
-        // so the gate costs the recompute's hot path nothing ([P04]).
-        let wheel_live = arc_record
-            .as_ref()
-            .is_some_and(|record| !record.done && record.stopped.is_none());
+        // Read off the record this block already holds, so the gate costs the
+        // recompute's hot path nothing ([P04]).
+        let wheel = crate::log::WheelReading::of(arc_record.as_ref());
         let arc = arc_record.map(|record| ArcRunState {
             stage: record.current_stage().map(|s| s.as_str().to_owned()),
             stopped_stage: record
@@ -1870,7 +1867,7 @@ pub fn arc_detail_entries_in(repo_root: &Path) -> Vec<ArcDetail> {
             joining,
             &declarations,
             documents.plan.is_some(),
-            wheel_live,
+            wheel,
         );
 
         entries.push(ArcDetail {
@@ -2165,15 +2162,14 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<ArcStatus, String> {
     // disagree with the feed about the same arc, and the feed derives this
     // from the record — so this path reads the record too. It is the CLI, not
     // the recompute, so one more fold of a small append-only file is free.
-    let wheel_live = crate::arc::read_arc(repo_root, name)
-        .is_some_and(|record| !record.done && record.stopped.is_none());
+    let wheel = crate::log::WheelReading::of(crate::arc::read_arc(repo_root, name).as_ref());
     let join_ready = crate::log::join_ready(
         rounds.max(0) as u32,
         crate::log::unfinished_tracked_dirt(&worktree_dirt_tracked),
         join_journal_phase.is_some(),
         &declarations,
         documents.plan.is_some(),
-        wheel_live,
+        wheel,
     );
 
     Ok(ArcStatus {
@@ -6159,7 +6155,7 @@ Some context.
             false,
             &decls,
             true,
-            false
+            crate::log::WheelReading::Off
         ));
     }
 
@@ -6465,9 +6461,9 @@ Some context.
         );
     }
 
-    /// The other half of the escape: an arc stopped mid-audit falls back to
-    /// every arm it had before the gate, so a wheel that broke cannot leave
-    /// finished work unlandable.
+    /// The other half of the escape: an arc stopped *before* its audit falls
+    /// back to every arm it had before the gate, so a wheel that broke cannot
+    /// leave finished work unlandable.
     #[serial]
     #[test]
     fn a_stopped_wheel_releases_the_offer_over_a_real_log() {
@@ -6482,7 +6478,7 @@ Some context.
         crate::arc::append_arc_stop(
             &root,
             "audit-stop-arc",
-            crate::arc::ArcStage::Audit,
+            crate::arc::ArcStage::Implement,
             crate::arc::ArcStopReason::Stalled,
         )
         .unwrap();
@@ -6490,14 +6486,61 @@ Some context.
             arc_detail_entry_in(&root, "audit-stop-arc")
                 .unwrap()
                 .join_ready,
-            "a broken audit must not hold the landing hostage"
+            "a wheel that broke before the audit must not hold the landing hostage"
+        );
+    }
+
+    /// **A stop in the audit is not the escape.** The stop means the audit
+    /// did not mark, and an offer wearing `ready` over an unaudited tree is
+    /// the thing the gate exists to refuse — whether the wheel stalled or a
+    /// person stopped it. The branch stays landable; it is never called
+    /// ready. Both readers of the record agree.
+    #[serial]
+    #[test]
+    fn a_stopped_audit_is_not_offered_over_a_real_log() {
+        let (_temp, root) = wheeled_arc("audit-unmarked-arc");
+        crate::arc::append_arc_stage(
+            &root,
+            "audit-unmarked-arc",
+            crate::arc::ArcStage::Audit,
+            "sess-2",
+            None,
+        )
+        .unwrap();
+        crate::arc::append_arc_stop(
+            &root,
+            "audit-unmarked-arc",
+            crate::arc::ArcStage::Audit,
+            crate::arc::ArcStopReason::Stalled,
+        )
+        .unwrap();
+        let feed = arc_detail_entry_in(&root, "audit-unmarked-arc").unwrap();
+        assert!(feed.run_complete, "the implement stage closed every step");
+        assert!(
+            !feed.join_ready,
+            "and the audit stopped without marking, so nothing is ready"
+        );
+        let cli = status_in(&root, "audit-unmarked-arc").unwrap();
+        assert_eq!(
+            cli.stage, feed.stage,
+            "the CLI reads the same arc the same way"
+        );
+        assert_ne!(cli.stage, "ready");
+
+        mark("audit-unmarked-arc", MarkStage::Audited, None).unwrap();
+        assert!(
+            arc_detail_entry_in(&root, "audit-unmarked-arc")
+                .unwrap()
+                .join_ready,
+            "the audit's own declaration is the one thing that arms it"
         );
     }
 
     /// **`arc status` and the feed answer the same question the same way.**
-    /// The two paths derive `wheel_live` separately — the feed from a record it
-    /// already holds, the CLI from a read it makes for this — and a divergence
-    /// would mean the card and the terminal disagree about one arc.
+    /// The two paths read the record separately — the feed from one it already
+    /// holds, the CLI from a read it makes for this — through one
+    /// `WheelReading::of`, and a divergence would mean the card and the
+    /// terminal disagree about one arc.
     ///
     /// `ArcStatus` carries no `join_ready` field, so readiness reaches a user
     /// through the derived stage word alone — which makes that word the whole
@@ -8979,7 +9022,14 @@ Some context.
             decls: &ArcDeclarations,
             has_plan: bool,
         ) -> bool {
-            join_ready(rounds, dirty, joining, decls, has_plan, false)
+            join_ready(
+                rounds,
+                dirty,
+                joining,
+                decls,
+                has_plan,
+                crate::log::WheelReading::Off,
+            )
         }
 
         // A declared selection that finished.

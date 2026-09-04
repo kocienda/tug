@@ -420,11 +420,57 @@ describe("a live arc holds the offer", () => {
   });
 
   test("a stopped wheel does not hold the surface hostage", () => {
+    // A stop before the audit: the join never needed a wheel, and the offer
+    // the wheel was holding is released as it always was.
     const stopped = reg(reconciled(), {
-      run: { stage: "audit", stopped: "stalled", stopped_stage: "audit" },
+      run: { stage: "implement", stopped: "stalled", stopped_stage: "implement" },
     });
     expect(stopped?.line).toBe("Ready to join");
     expect(stopped?.word).toBe("ready");
+  });
+
+  test("a stopped audit is unaudited, not ready", () => {
+    // The stop means the audit did not mark. The word is the caution pulse the
+    // register already uses for work waiting on a person, and the sentence
+    // names both ways out — neither of which is `Ready to join`.
+    for (const stopped of ["audit did not mark", "stalled", "stopped by user"]) {
+      const unaudited = reg(reconciled(), {
+        run: { stage: "audit", stopped, stopped_stage: "audit" },
+      });
+      expect(unaudited?.phase).toBe("awaiting");
+      expect(unaudited?.line).toBe("imposer2's audit stopped — resume it, or land it unaudited");
+      expect(unaudited?.word).toBe("unaudited");
+    }
+  });
+
+  test("a stopped audit speaks below the joinable stages, where the server now holds it", () => {
+    // `join_ready` is shut over a stopped audit, so the feed's stage reads
+    // `implementing` and there is no candidate. The early gate would answer
+    // null for that stage on any other arc; here the stop is the act, and the
+    // sentence is the point.
+    const held = reg(null, {
+      stage: "implementing",
+      run: { stage: "audit", stopped: "stopped by user", stopped_stage: "audit" },
+    });
+    expect(held?.phase).toBe("awaiting");
+    expect(held?.word).toBe("unaudited");
+    // And a stop before the audit at the same stage stays silent, as before.
+    const early = reg(null, {
+      stage: "implementing",
+      run: { stage: "implement", stopped: "stopped by user", stopped_stage: "implement" },
+    });
+    expect(early).toBeNull();
+  });
+
+  test("a stopped audit that had already signed off is still ready", () => {
+    // The derived stage is `audited` only for the declaration that arms the
+    // join, so a stop landing after the mark changes nothing about the offer.
+    const signed = reg(reconciled(), {
+      stage: "audited",
+      run: { stage: "audit", stopped: "stopped by user", stopped_stage: "audit" },
+    });
+    expect(signed?.line).toBe("Ready to join");
+    expect(signed?.word).toBe("ready");
   });
 
   test("a finished wheel reads ready, which is what the audit signing off means", () => {

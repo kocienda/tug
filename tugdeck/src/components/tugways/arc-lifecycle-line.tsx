@@ -7,12 +7,16 @@
  * strip; the glyph is {@link ArcPhaseMark}, which says outright the phase the
  * strip says by WHICH cell is lit; the fraction is the step in progress over
  * the plan's count, and only while one is; the note is the phase in one word —
- * `brief`, `devise`, `review`, `implement`, `check`, `join` — and
+ * `brief`, `devise`, `review`, `implement`, `audit`, `join` — and
  * `stopped · <why>` when the arc stopped; the facts are the tone-colored words `arcMetaFacts`
  * derives, most urgent first, each with its detail on hover — the ones about
  * the arc's own standing (conflicts, overlap, fit), never the checkout's git
  * bookkeeping. The two arc facts are dropped too: the track already says the
- * arc is running, and the note already says it stopped.
+ * arc is running, and the note already says it stopped. So is the kind: the
+ * track draws a planned arc's devise and review cells and a plain arc's
+ * neither, which is the kind said in the strip's own register, and a word
+ * for it after the note was a stray adjective on whatever the note said
+ * (`stopped · audit did not mark planned`).
  *
  * **The step's TITLE is not a run on this line.** It rode the note during
  * implement, where it was a sentence in a slot sized for a word: on every host
@@ -68,10 +72,14 @@ export function arcLifecycleNote(model: ArcTrackModel): string {
  * condition rather than the arc's state. It reaches the eye where a gesture
  * turns on it instead: the picker's `uncommitted`, the Replay item's label,
  * the discard confirmation, and the replay bulletin.
+ *
+ * The kind is the track's cell set, and its sentence is the Devise cell's
+ * hover — a planned arc has that cell and a plain one does not.
  */
 const NOT_ON_THE_LINE: ReadonlySet<string> = new Set([
   "arc",
   "arc-stopped",
+  "kind",
   "uncommitted",
   "behind",
   "replayed",

@@ -654,16 +654,20 @@ pub fn read_declarations(repo_root: &Path, arc: &str) -> ArcDeclarations {
 /// and `built` are not retired, only deferred: a run whose last step closed
 /// still records `run_complete`, it simply is not *offered* yet.
 ///
-/// `wheel_live` is the caller's reading of the arc record — a record exists,
-/// it is not `done`, and no stop stands. All three of its falses matter. No
-/// record is every hand-driven arc, untouched. `arc-done` is an arc that
-/// reached its terminal line. And a standing `arc-stop` is the escape that
-/// keeps a **broken** audit from holding the landing hostage; `arc-resume`
-/// clears it and re-arms the gate, which is correct, because the wheel is
-/// running again.
+/// `wheel` is the caller's reading of the arc record ([`WheelReading`]).
+/// [`WheelReading::Live`] is a record that exists, is not `done`, and carries
+/// no stop. [`WheelReading::Off`] is every other case but one: no record is
+/// every hand-driven arc, untouched; `arc-done` is an arc that reached its
+/// terminal line; and a standing `arc-stop` in any stage before the audit is
+/// an arc whose audit never began. The one case apart is
+/// [`WheelReading::StoppedInAudit`]: the stop *means* the audit did not mark,
+/// whoever stopped it and for whatever reason, and an arc nothing audited is
+/// not ready. It stays joinable — `arc join` lands an unaudited branch and
+/// its receipt says so — but the offer is never called ready over it.
+/// `arc-resume` clears the stop and the wheel is live again.
 ///
-/// With the wheel stopped, done, or absent, the three original ways to be
-/// armed are restored verbatim, one for each way work is asked for:
+/// With the wheel off, the three original ways to be armed are restored
+/// verbatim, one for each way work is asked for:
 ///
 /// 1. the declared selection finished — `done(m)` against the run's
 ///    `--through <m>` ([P01]);
@@ -694,22 +698,58 @@ pub fn unfinished_tracked_dirt(dirt: &[String]) -> bool {
     !dirt.is_empty()
 }
 
+/// What the arc record says about the wheel, as [`join_ready`] reads it.
+///
+/// Derived in one place from the record both callers already hold, so the
+/// feed and `arc status` cannot disagree about one arc.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WheelReading {
+    /// A record exists, is not `done`, and carries no stop: a stage is seated
+    /// or about to be, and the audit's own declaration is the only arming.
+    Live,
+    /// A standing stop whose stage is the audit. The audit did not mark, and
+    /// the stop is not a substitute for its mark.
+    StoppedInAudit,
+    /// No record, a `done` record, or a stop in a stage before the audit: no
+    /// wheel stands over the arc, and the three pre-wheel arms answer.
+    Off,
+}
+
+impl WheelReading {
+    pub fn of(record: Option<&crate::arc::ArcRecord>) -> Self {
+        match record {
+            Some(record) if record.done => Self::Off,
+            Some(record) => match &record.stopped {
+                None => Self::Live,
+                Some((crate::arc::ArcStage::Audit, _)) => Self::StoppedInAudit,
+                Some(_) => Self::Off,
+            },
+            None => Self::Off,
+        }
+    }
+}
+
 pub fn join_ready(
     rounds: u32,
     worktree_dirty_tracked: bool,
     joining: bool,
     decls: &ArcDeclarations,
     has_plan: bool,
-    wheel_live: bool,
+    wheel: WheelReading,
 ) -> bool {
     if joining || rounds < 1 || worktree_dirty_tracked {
         return false;
     }
-    if wheel_live {
+    match wheel {
         // The audit's own declaration, and nothing else. Not `run_complete`,
         // not `built` — the implement stage declares `built` itself, and the
-        // stage that may still change the code runs after it.
-        return matches!(decls.latest, Some(ArcDeclaration::Audited));
+        // stage that may still change the code runs after it. A stop in the
+        // audit is the same reading: the audit did not mark, and the stop
+        // does not make it have.
+        WheelReading::Live | WheelReading::StoppedInAudit => {
+            return matches!(decls.latest, Some(ArcDeclaration::Audited));
+        }
+        WheelReading::Off => {}
     }
     decls.run_complete
         || matches!(
@@ -1533,7 +1573,14 @@ mod tests {
     #[test]
     fn a_live_wheel_arms_the_join_only_on_audited() {
         assert!(
-            !join_ready(3, false, false, &armed_three_ways(None), true, true),
+            !join_ready(
+                3,
+                false,
+                false,
+                &armed_three_ways(None),
+                true,
+                WheelReading::Live
+            ),
             "a finished run is recorded but not yet offered"
         );
         assert!(
@@ -1543,7 +1590,7 @@ mod tests {
                 false,
                 &armed_three_ways(Some(ArcDeclaration::Built)),
                 true,
-                true
+                WheelReading::Live
             ),
             "and neither is `built`, which the implement stage declares itself"
         );
@@ -1553,15 +1600,15 @@ mod tests {
             false,
             &armed_three_ways(Some(ArcDeclaration::Audited)),
             true,
-            true
+            WheelReading::Live
         ));
     }
 
-    /// **A stopped wheel restores every arm, verbatim.** This is the escape
-    /// that keeps a broken audit from holding the landing hostage: the same
-    /// declarations the gate refuses above answer exactly as they did before
-    /// the gate existed. The plan-less arm is included because it is the one
-    /// that does not go through `latest` at all.
+    /// **A wheel that is off restores every arm, verbatim.** No record, a
+    /// done record, or a stop before the audit: the same declarations the
+    /// gate refuses above answer exactly as they did before the gate existed.
+    /// The plan-less arm is included because it is the one that does not go
+    /// through `latest` at all.
     #[test]
     fn a_stopped_wheel_restores_every_arm() {
         for latest in [
@@ -1570,7 +1617,14 @@ mod tests {
             Some(ArcDeclaration::Audited),
         ] {
             assert!(
-                join_ready(3, false, false, &armed_three_ways(latest), true, false),
+                join_ready(
+                    3,
+                    false,
+                    false,
+                    &armed_three_ways(latest),
+                    true,
+                    WheelReading::Off
+                ),
                 "{latest:?} arms with no live wheel over it"
             );
         }
@@ -1581,7 +1635,7 @@ mod tests {
             false,
             &ArcDeclarations::default(),
             false,
-            false
+            WheelReading::Off
         ));
         // And under a live wheel it is refused like everything else.
         assert!(!join_ready(
@@ -1590,12 +1644,86 @@ mod tests {
             false,
             &ArcDeclarations::default(),
             false,
-            true
+            WheelReading::Live
         ));
     }
 
+    /// **A stopped audit never arms the join.** The stop means the audit did
+    /// not mark, whoever stopped it: `run_complete` is true because the
+    /// implement stage closed every step, and that is exactly the arm a stop
+    /// used to fall back to — offering, as *ready*, a tree nothing audited.
+    /// Only the audit's own declaration answers; the stop's reason does not.
+    #[test]
+    fn a_stopped_audit_is_not_ready_until_audited() {
+        assert!(
+            !join_ready(
+                3,
+                false,
+                false,
+                &armed_three_ways(None),
+                true,
+                WheelReading::StoppedInAudit
+            ),
+            "a finished run stopped in its audit is unaudited, not ready"
+        );
+        assert!(
+            !join_ready(
+                3,
+                false,
+                false,
+                &armed_three_ways(Some(ArcDeclaration::Built)),
+                true,
+                WheelReading::StoppedInAudit
+            ),
+            "`built` is the implement stage's word and does not stand in for the audit's"
+        );
+        assert!(join_ready(
+            3,
+            false,
+            false,
+            &armed_three_ways(Some(ArcDeclaration::Audited)),
+            true,
+            WheelReading::StoppedInAudit
+        ));
+    }
+
+    /// The reading, from the record: the three cases each caller used to
+    /// derive by hand, plus the one they were missing.
+    #[test]
+    fn the_wheel_reading_is_the_records() {
+        use crate::arc::{ArcRecord, ArcStage};
+        let record = |stopped: Option<(ArcStage, &str)>, done: bool| ArcRecord {
+            arc: "x".to_owned(),
+            document: None,
+            kind: None,
+            plan: None,
+            stages: Vec::new(),
+            notes: Vec::new(),
+            stopped: stopped.map(|(stage, why)| (stage, why.to_owned())),
+            last_stop: None,
+            resume: None,
+            dispatched: None,
+            owner: None,
+            done,
+            last_activity: None,
+        };
+        assert_eq!(WheelReading::of(None), WheelReading::Off);
+        let live = record(None, false);
+        assert_eq!(WheelReading::of(Some(&live)), WheelReading::Live);
+        let done = record(None, true);
+        assert_eq!(WheelReading::of(Some(&done)), WheelReading::Off);
+        let stopped_early = record(Some((ArcStage::Implement, "stopped by user")), false);
+        assert_eq!(WheelReading::of(Some(&stopped_early)), WheelReading::Off);
+        let stopped_in_audit = record(Some((ArcStage::Audit, "stopped by user")), false);
+        assert_eq!(
+            WheelReading::of(Some(&stopped_in_audit)),
+            WheelReading::StoppedInAudit,
+            "and a person's stop reads the same: the audit did not mark"
+        );
+    }
+
     /// **A hand-driven arc is untouched.** It has no arc record, so its
-    /// callers derive `wheel_live == false` and it never meets the gate. This
+    /// callers read `WheelReading::Off` and it never meets the gate. This
     /// is the arm that would make the fix a worse regression than the defect
     /// if it ever drifted.
     #[test]
@@ -1605,10 +1733,38 @@ mod tests {
             step: Some((8, 15)),
             ..ArcDeclarations::default()
         };
-        assert!(join_ready(3, false, false, &marked, true, false));
+        assert!(join_ready(
+            3,
+            false,
+            false,
+            &marked,
+            true,
+            WheelReading::Off
+        ));
         // The three early refusals still come first, wheel or no wheel.
-        assert!(!join_ready(0, false, false, &marked, true, false));
-        assert!(!join_ready(3, true, false, &marked, true, false));
-        assert!(!join_ready(3, false, true, &marked, true, false));
+        assert!(!join_ready(
+            0,
+            false,
+            false,
+            &marked,
+            true,
+            WheelReading::Off
+        ));
+        assert!(!join_ready(
+            3,
+            true,
+            false,
+            &marked,
+            true,
+            WheelReading::Off
+        ));
+        assert!(!join_ready(
+            3,
+            false,
+            true,
+            &marked,
+            true,
+            WheelReading::Off
+        ));
     }
 }

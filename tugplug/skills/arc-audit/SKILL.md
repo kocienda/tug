@@ -115,9 +115,9 @@ tugtool arc replay <name>
 
 On **`Replayed`** / **`Recorded`** the tree moved — verify it with `tugtool arc verify <name>` from the worktree, which resolves every path the replay moved to a surface the project declared and runs what those surfaces declare. A refusal (exit 2) names paths no surface claims and runs nothing: declare a surface for them rather than working around it. Red (exit 1) is ordinary work — fix it as a round. A project that declares no surfaces says so and exits 0; check what the replay moved with the commands the arc's own checkpoints already used, never one you invent, and say so. On **`Current`** the base never moved and the checks that just passed covered these exact bytes, so run nothing and say so. On **`Conflicted`** the replay names the round it stopped at: resolve it in the worktree, commit the fix as a round, then verify.
 
-### 6. Refresh the join draft
+### 6. Write the join draft
 
-The draft is the squash message the user's join will land, and it is the only durable prose the base will ever carry about this arc. The implement stage left one; if the audit changed anything, it is now describing a tree that has moved:
+The draft is the squash message the user's join will land, and it is the only durable prose the base will ever carry about this arc. **The audit is its author of record.** The implement stage left a provisional one, and it is the starting text rather than the message: this stage has read the whole diff cold and is the last to touch the tree, so its account is the one that describes what lands — whether or not the audit changed a byte. Rewrite it, always, and do not leave it standing on the grounds that nothing moved:
 
 ```bash
 tugtool draft set --owner arc:<name> --message "<subject + durable body>"
@@ -141,7 +141,7 @@ Then report what you found and what you changed, in a few lines, and **stop. Do 
 
 ### 8. The join is the user's gesture
 
-**The shade is the door**, and this stage is the only one that speaks of it — the offer arms on the arc's own record, and this is the stage standing at the end of it. The Changes shade reveals itself on the bound card in the first quiet moment, showing the arc's row, the message the join would land, and where those words came from. Entering the landing mode and pressing the composer's ⬆ squash-lands the arc with the draft you refreshed in stage 6, narrating the beats and settling on the outcome. The user does that; you do not. Your part ended at the mark.
+**The shade is the door**, and this stage is the only one that speaks of it — the offer arms on the arc's own record, and this is the stage standing at the end of it. The Changes shade reveals itself on the bound card in the first quiet moment, showing the arc's row, the message the join would land, and where those words came from. Entering the landing mode and pressing the composer's ⬆ squash-lands the arc with the draft you wrote in stage 6, narrating the beats and settling on the outcome. The user does that; you do not. Your part ended at the mark.
 
 Closing the shade costs nothing and answers nothing — the row is still in there, and new work on the arc reveals it again. There is no "not yet" to record and nothing that can lock the offer out.
 

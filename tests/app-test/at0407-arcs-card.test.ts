@@ -552,7 +552,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
   );
 
   test(
-    "the recorded kind says `planned` on the line and picks the track's cells",
+    "the recorded kind picks the track's cells and puts no word on the line",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -605,12 +605,14 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         note("at0407 plain row", JSON.stringify(plain));
 
         // ── The word ──────────────────────────────────────────────────────
+        // There is none. The kind is the cell set, and the fact that carries
+        // the word is dropped by the line — a planned row's note used to
+        // trail `planned` with nothing between them, so a stopped audit read
+        // `stopped · audit did not mark planned`. Asserted over the whole
+        // fact list on both rows, so the kind under any spelling is caught.
         const kindFact = (row: Row) => row.facts.find((f) => f.key === "kind");
-        expect(kindFact(planned)?.label).toBe("planned");
-        expect(kindFact(planned)?.tone).toBe("muted");
-        // Plain is the unmarked kind: the row gains no word for it. Asserted
-        // over the whole fact list rather than over one absent key, so a
-        // "plain" label appearing under any other spelling is caught too.
+        expect(kindFact(planned)).toBeUndefined();
+        expect(planned.facts.map((f) => f.label)).not.toContain("planned");
         expect(plain.facts.map((f) => f.label)).not.toContain("plain");
         expect(kindFact(plain)).toBeUndefined();
 
@@ -623,13 +625,13 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
           "devise",
           "review",
           "implement",
-          "check",
+          "audit",
           "join",
         ]);
-        expect(plain.phases).toEqual(["brief", "implement", "check", "join"]);
-        // The check cell is drawn on both routes deliberately — what a run
+        expect(plain.phases).toEqual(["brief", "implement", "audit", "join"]);
+        // The audit cell is drawn on both routes deliberately — what a run
         // does after its last commit is the same work whoever asked for it.
-        expect(plain.phases).toContain("check");
+        expect(plain.phases).toContain("audit");
         note("at0407 kind rows", await app.screenshot().then((s) => s.path));
       } finally {
         await app.close();

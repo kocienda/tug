@@ -694,7 +694,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The walk is over and the audit stage is seated. The step in hand is
           // still row 1 by the ledger, and the cell no longer counts it: the
           // numerals are the implement stage's reading and no other's. The
-          // strip beneath keeps its `check` key and says the same word.
+          // strip beneath spells its `audit` key in the same word.
           appendArcLogLine(
             logPath,
             ARC_NAME,
@@ -721,7 +721,7 @@ describe.skipIf(!SHOULD_RUN)(
             await app.click(CELL);
           }
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(`${ARC_PLACARD} [data-slot="tug-arc-track"][data-phase="check"]`)}) !== null`,
+            `document.querySelector(${JSON.stringify(`${ARC_PLACARD} [data-slot="tug-arc-track"][data-phase="audit"]`)}) !== null`,
             { timeoutMs: 10000 },
           );
         } finally {

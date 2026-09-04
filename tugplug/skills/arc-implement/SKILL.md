@@ -138,7 +138,7 @@ Walk the resolved steps in dependency order. For each step:
   {"instruction":"Step N: <title>","summary":"<what landed + how verified>"}
   EOF
   ```
-- **On the final declared step — and only there — write the join draft before closing it.** Closing step `m` is the arming event: the instant its `done` lands, the server may raise the join offer, and whatever draft exists at that moment is the squash message the user lands with. A draft written afterwards is a draft racing the user's finger. Compose it per phase 3's rules — a durable commit message describing the change, never a narration of the walk — and write it now:
+- **On the final declared step — and only there — write the join draft before closing it.** The draft is **provisional**: the audit stage is the author of record for the join message and rewrites it after reading the whole diff cold, so what this stage writes is the audit's starting text, and the arming event is the audit's mark rather than this step's `done`. It is written all the same, and before the close, because an arc that stops short of its audit still needs a message on the shade, and this session is the one that knows the argument the work rests on. Compose it per phase 3's rules — a durable commit message describing the change, never a narration of the walk — and write it now:
   ```bash
   tugtool draft set --owner arc:<name> --message "<subject + durable body>"
   ```
@@ -187,9 +187,9 @@ Pragmatics:
 
 ### 3. Write the join draft, and stop
 
-**The last step closes and this stage is over.** The audit is the next stage and it is the one that speaks of the join: it reads the branch cold, verifies the fit against the live base, refreshes this draft over whatever it changed, and marks the arc. So there is no replay here, no verify, no build, and no `arc mark built` — the tree this stage hands on is the tree the audit reads, and duplicating its checks would only mean checking bytes that are about to move.
+**The last step closes and this stage is over.** The audit is the next stage and it is the one that speaks of the join: it reads the branch cold, verifies the fit against the live base, rewrites this draft as the author of record, and marks the arc. So there is no replay here, no verify, no build, and no `arc mark built` — the tree this stage hands on is the tree the audit reads, and duplicating its checks would only mean checking bytes that are about to move.
 
-**What is yours is the draft**, and it is written **before** the final declared step's `done` lands. That ordering is the whole of the requirement: closing the last step is the arming event, the server may raise the join offer the instant it lands, and a draft written afterwards is a draft racing the user's finger. The one case that reopens it here is an arc that stopped before its final declared step, where no draft was ever written:
+**What is yours is a provisional draft**, written **before** the final declared step's `done` lands. The audit is the author of record for the join message: it reads the whole diff cold, touches the tree last, and rewrites the draft whether or not it changed anything, and the join arms on the audit's mark rather than on this step's close. So this draft is the audit's starting text and the message an arc carries if it stops before its audit — which is why it is written now rather than skipped, and why it is held to the same standard as the one that lands. The one case that reopens it here is an arc that stopped before its final declared step, where no draft was ever written:
 
 ```bash
 tugtool draft set --owner arc:<name> --message "<subject + durable body>"
@@ -221,7 +221,7 @@ Loop until the user is satisfied. A follow-up "now do Steps 6-8" is just another
 
 ### 4b. The audit
 
-**This is not yours.** The arc's last step ending rotates it to its audit stage — a fresh session that reads the whole branch cold against the ledger and the brief, verifies the fit, refreshes the draft, and marks the arc. Every arc ends that way. Do nothing about it: end the turn as usual and the wheel seats it.
+**This is not yours.** The arc's last step ending rotates it to its audit stage — a fresh session that reads the whole branch cold against the ledger and the brief, verifies the fit, rewrites the draft, and marks the arc. Every arc ends that way. Do nothing about it: end the turn as usual and the wheel seats it.
 
 **Print no `/tugplug:arc-audit` chip.** The audit is the next stage of an arc that is already running, and a chip beside it teaches the user that nothing happens until they type — the belief the wheel exists to retire.
 

@@ -39,6 +39,16 @@ function pathList(paths: ReadonlyArray<string>): string {
 }
 
 /**
+ * What a planned arc's kind MEANS, in one sentence. The kind fact carries it,
+ * and so does the Devise cell of the track: the lifecycle line drops the fact
+ * (the strip already draws the kind as its cell set), so the sentence lives
+ * on the cell a reader hovers when they wonder why this arc has six cells and
+ * another has four.
+ */
+export const PLANNED_KIND_SENTENCE =
+  "Devised a plan and had it reviewed cold before the first step was walked.";
+
+/**
  * The line's tone-colored facts, most urgent first — pure, so the ordering
  * and the wording are a table test rather than a DOM one.
  *
@@ -163,8 +173,7 @@ export function arcMetaFacts(entry: ArcChangesetEntry): ArcMetaFact[] {
     facts.push({
       key: "kind",
       label: "planned",
-      tooltip:
-        "Devised a plan and had it reviewed cold before the first step was walked.",
+      tooltip: PLANNED_KIND_SENTENCE,
       tone: "muted",
     });
   }

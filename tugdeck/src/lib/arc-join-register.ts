@@ -178,6 +178,11 @@ export const BEAT_WORDS: Record<string, string> = {
  *    work is not finished. A live wheel means a stage is seated, and the audit
  *    is the one that most often is; it commits fixup rounds, so the tree the
  *    join would land is still moving.
+ * 7c. **the audit stopped** — and did not mark. A stop in any earlier stage
+ *    releases the offer, because the join was always possible without a
+ *    wheel; a stop in the audit is different in kind, because the stop *means*
+ *    nothing audited the tree. The server holds `join_ready` shut over it and
+ *    this arm says why, as a wait on a person rather than as readiness.
  * 8. **nothing** — an arc still being worked has no join yet, and `null`
  *    is how that is said. A register with nothing to report does not mount.
  */
@@ -199,13 +204,28 @@ export function arcJoinRegister(
   // join, a run in flight, a standing question or a stated refusal cannot
   // happen to an arc nobody has touched, and each of them is worth saying
   // whatever the stage reads.
+  //
+  // A stopped audit is the same kind of exception. The server holds
+  // `join_ready` shut over it, so its stage reads below joinable — and that
+  // is exactly the arc this register has a sentence for, because the stop
+  // means somebody has to choose between resuming the audit and landing
+  // without one. Silence here would be the gate hiding the one wait it was
+  // built to surface.
+  const run = input.run ?? null;
+  const auditStopped =
+    run !== null &&
+    run.done !== true &&
+    (run.stopped ?? "") !== "" &&
+    run.stopped_stage === "audit" &&
+    input.stage !== "audited";
   const acted =
     (landBeat !== null && landBeat !== undefined) ||
     (join?.run ?? null) !== null ||
     input.resolvePhase === "resolving" ||
     input.resolveAct === "resolve-base" ||
     (join?.question ?? null) !== null ||
-    (typeof join?.stuck === "string" && join.stuck !== "");
+    (typeof join?.stuck === "string" && join.stuck !== "") ||
+    auditStopped;
   if (!JOINABLE_STAGES.has(input.stage ?? "") && !acted) return null;
 
   if (!connected) {
@@ -334,7 +354,6 @@ export function arcJoinRegister(
   // land. And a record carrying no rotated stage has no seat to name: there is
   // nothing running to wait for, and the sentence below would interpolate the
   // absence into the user's face.
-  const run = input.run ?? null;
   const runStage = run?.stage ?? "";
   if (
     run !== null &&
@@ -354,6 +373,22 @@ export function arcJoinRegister(
           line: `${arc} is in ${run.stage} — the join waits for the audit`,
           word: "arc-running",
         };
+  }
+
+  // A stopped audit is not a released offer. Every other stop falls through
+  // to the candidate — the join never needed a wheel — but a stop in the
+  // audit stage, whatever its reason and whoever stopped it, is an arc whose
+  // audit did not mark, and the sentence that fits is the caution pulse the
+  // register already defines for work that has stopped for somebody. The join
+  // stays possible (`/arc-join` lands an unaudited branch, and its receipt
+  // says so); what this line never does is call it ready. A derived
+  // `audited` stage outranks it for the same reason it outranks the arm above.
+  if (auditStopped) {
+    return {
+      phase: "awaiting",
+      line: `${arc}'s audit stopped — resume it, or land it unaudited`,
+      word: "unaudited",
+    };
   }
 
   // A candidate that stands is the whole readiness fact now. Nothing is built
