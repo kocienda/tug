@@ -20,6 +20,15 @@
  *      the atom's own text and changes nothing else in it — the same run, the
  *      same sigil, the same ink as the line tier.
  *
+ *   C. **And so does the atom the composer BAKES.** The chip a copied session
+ *      pastes as is a Canvas bake inside an `<img>` ([P14]) — it can neither
+ *      subscribe nor cascade, so it is the one surface that could not compose
+ *      the arc marker in as a leaf, and it read as a session on no arc while
+ *      every other surface said otherwise. It resolves its own text at bake
+ *      time instead, and what it painted is its `alt`, which is the only
+ *      reading of a bitmap there is. Pinned against the panel's atom from B,
+ *      so the two cannot drift into two spellings of one session.
+ *
  * The loop is real throughout: `tugtool arc bind` through the card's own `$`
  * shell route, which is what stamps `TUG_SESSION_ID` on the child, against a
  * real session resumed on a scratch repository this file owns. The mark appears
@@ -28,6 +37,8 @@
  *
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
  * @covers tugdeck/src/lib/arc-session-index.ts
+ * @covers tugdeck/src/lib/arc-sigil-text.ts
+ * @covers tugdeck/src/lib/tug-atom-img.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -239,6 +250,94 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's arc mark", () => {
         // A. And the citation did not move.
         expect(bound.citation).toBe(bare.citation);
         expect(bound.citation).not.toContain(ARC_NAME);
+
+        // ── C. The composer's baked chip says the same thing ──────────────
+        //
+        // Paste a session atom for THIS session into the card's own composer
+        // and read what the bake painted. The sidecar rides the paste event's
+        // own DataTransfer rather than the system pasteboard: the pasteboard
+        // round trip is at0376's subject and it is not this file's, and going
+        // through it here would want a key window and would clobber whatever
+        // the user had copied. The atom's `label` and `value` are the ones a
+        // real copy writes — `<project>/<callsign>`, which is exactly the
+        // panel's UNBOUND atom text.
+        const sidecar = JSON.stringify({
+          version: 1,
+          text: "￼",
+          atoms: [
+            {
+              position: 0,
+              segment: {
+                kind: "atom",
+                type: "session",
+                label: bare.atom,
+                value: bare.atom,
+              },
+            },
+          ],
+        });
+        await app.focusElement(PROMPT);
+        const chipsBefore = await app.evalJS<number>(
+          `document.querySelectorAll(${JSON.stringify(PROMPT)} + ' img:not(.cm-widgetBuffer)').length`,
+        );
+        await app.evalJS<null>(`(function(){
+          var cm = document.querySelector(${JSON.stringify(PROMPT)});
+          var dt = new DataTransfer();
+          dt.setData("text/plain", "￼");
+          dt.setData("application/x-tug-atoms", ${JSON.stringify(sidecar)});
+          cm.dispatchEvent(new ClipboardEvent("paste", {
+            bubbles: true, cancelable: true, clipboardData: dt,
+          }));
+          return null;
+        })()`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PROMPT)}
+             + ' img[data-atom-type="session"]') !== null`,
+          { timeoutMs: 10_000 },
+        );
+        const pasted = await app.evalJS<{
+          chips: number;
+          alt: string;
+          value: string | null;
+          label: string | null;
+        }>(
+          `(() => {
+             const img = document.querySelector(${JSON.stringify(PROMPT)}
+               + ' img[data-atom-type="session"]');
+             return {
+               chips: document.querySelectorAll(${JSON.stringify(PROMPT)}
+                 + ' img:not(.cm-widgetBuffer)').length,
+               alt: img.getAttribute("alt") ?? "",
+               value: img.getAttribute("data-atom-value"),
+               label: img.getAttribute("data-atom-label"),
+             };
+           })()`,
+        );
+        note("at0423 pasted chip", JSON.stringify(pasted));
+        expect(pasted.chips).toBe(chipsBefore + 1);
+        // The chip DRAWS the arc — the same string the panel's atom shows, so
+        // one session reads one way in both places.
+        expect(pasted.alt).toBe(bound.atom);
+        // And the reference it carries did NOT move: the value is the wire
+        // marker and the resolution key, and a callsign with an arc glued to
+        // it would resolve to nothing.
+        expect(pasted.value).toBe(bare.atom);
+        expect(pasted.label).toBe(bare.atom);
+
+        // Leave the composer as this case found it. The unbind below types its
+        // own `/shell` line into this very editor, and a chip left resting in
+        // front of the cursor would ride along in front of the command.
+        await app.nativeClickAtElement(PROMPT);
+        await app.nativeKey("a", ["cmd"]);
+        await new Promise((r) => setTimeout(r, 150));
+        // Backspace, not `Delete` — the harness maps `Delete` to macOS forward
+        // delete, which has nothing in front of it here.
+        await app.nativeKey("Backspace");
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(PROMPT)}
+             + ' img:not(.cm-widgetBuffer)').length === 0`,
+          { timeoutMs: 10_000 },
+        );
 
         // ── Unbind, for real ──────────────────────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 1);

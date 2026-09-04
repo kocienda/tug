@@ -22,7 +22,7 @@
 
 import { useMemo, useSyncExternalStore } from "react";
 
-import { useChangesetAll } from "./changeset-all-store";
+import { getChangesetAllStore, useChangesetAll } from "./changeset-all-store";
 import {
   cardSessionBindingStore,
   seatedSegmentForSession,
@@ -192,6 +192,25 @@ export function arcForSession(
   const seated = seatedSegmentForSession(sessionId);
   if (seated === sessionId) return null;
   return index.get(seated) ?? null;
+}
+
+/**
+ * The same answer as a **snapshot, with no subscription** — for the callers
+ * that have no render to subscribe from.
+ *
+ * There is one, and it is the composer's session chip: a Canvas bake inside an
+ * `<img>`, which can neither subscribe nor cascade ([P14]), and which reaches
+ * a fresh answer through the editor's widget regeneration exactly as a rename
+ * does. Every React surface uses {@link useArcForSession} instead — this one
+ * hands back a value that will not move on its own.
+ *
+ * Null before the aggregate store is attached, which is the honest answer: no
+ * feed has said anything about any arc yet.
+ */
+export function arcForSessionNow(sessionId: string | null): ArcSessionFact | null {
+  const store = getChangesetAllStore();
+  if (store === null) return null;
+  return arcForSession(store.getSnapshot(), sessionId);
 }
 
 /**

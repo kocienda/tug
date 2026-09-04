@@ -47,6 +47,8 @@ import {
 } from "@/lib/session-identity";
 import { sessionTagStore } from "@/lib/session-tag-store";
 import { sessionLineStore } from "@/lib/session-line-store";
+import { arcForSessionNow } from "@/lib/arc-session-index";
+import { withArcSigil } from "@/lib/arc-sigil-text";
 import {
   DEFAULT_ATOM_REGISTER,
   atomEditorLineBoxFloorPx,
@@ -523,16 +525,29 @@ function paintRecessShade(
  * A session this run's tag index has never heard of keeps the stored label. An
  * unresolvable reference showing what it recorded is the honest rendering, and
  * it is what the transcript's live chip does with the same fact.
+ *
+ * **The bound arc rides the label**, because a session on an arc is never
+ * named without it — the rule the identity runs follow everywhere ([D167]),
+ * and the one this chip could not follow while its text came from
+ * `sessionDisplayTitle` alone. There the sigil is a composed-in leaf
+ * subscription; here there is nothing to subscribe with, so it is resolved at
+ * bake time beside the title and reaches a bound-since chip through the same
+ * widget regeneration a rename does.
+ *
+ * The atom's `value` is untouched by any of this. It stays
+ * `<project>/<callsign>` — the wire marker and the resolution key — so a chip
+ * showing an arc still resolves through the callsign the ledger answers on.
  */
 function sessionChipLabel(label: string, value: string): string {
   const lineId = sessionTagStore.lineWearing(sessionAtomCallsign(value));
   const sessionId = lineId === null ? null : sessionLineStore.seatOf(lineId);
   if (sessionId === null) return label;
-  return sessionDisplayTitle(
+  const title = sessionDisplayTitle(
     resolveSessionIdentity(sessionId, {
       recordedProject: sessionAtomProject(value),
     }),
   );
+  return withArcSigil(title, arcForSessionNow(sessionId)?.name ?? null);
 }
 
 function sessionDotToken(value: string): string | null {
@@ -623,6 +638,17 @@ export interface AtomChipBake {
    * text baseline lines up with the surrounding line's baseline.
    */
   baselineOffset: number;
+  /**
+   * The text the bake actually PAINTED — after the type's own display rule
+   * (a session chip resolves its own; a slash command wears its `/`) and
+   * after any truncation to `maxLabelWidth`.
+   *
+   * The chip is pixels, so this is the only reading of it a caller has: it is
+   * what `createAtomImgElement` gives the `<img>` as its `alt`, which is the
+   * chip's whole accessible name, and what a test asserts on rather than
+   * inferring the text from the bitmap's width.
+   */
+  displayLabel: string;
 }
 
 /**
@@ -704,6 +730,7 @@ export function bakeAtomChipDataUri(
       width: g.width,
       height: g.height,
       baselineOffset: g.baselineOffset,
+      displayLabel: g.displayLabel,
     };
   }
   ctx.scale(canvas.width / g.width, canvas.height / g.height);
@@ -717,6 +744,7 @@ export function bakeAtomChipDataUri(
       width: g.width,
       height: g.height,
       baselineOffset: g.baselineOffset,
+      displayLabel: g.displayLabel,
     };
   }
 
@@ -777,6 +805,7 @@ export function bakeAtomChipDataUri(
     width: g.width,
     height: g.height,
     baselineOffset: g.baselineOffset,
+    displayLabel: g.displayLabel,
   };
 }
 
@@ -787,12 +816,15 @@ export function createAtomImgElement(
   value: string,
   options?: AtomImgOptions,
 ): HTMLImageElement {
-  const { dataUri, width, height, baselineOffset } = bakeAtomChipDataUri(
-    type,
-    label,
-    value,
-    options?.maxLabelWidth !== undefined ? { maxLabelWidth: options.maxLabelWidth } : undefined,
-  );
+  const { dataUri, width, height, baselineOffset, displayLabel } =
+    bakeAtomChipDataUri(
+      type,
+      label,
+      value,
+      options?.maxLabelWidth !== undefined
+        ? { maxLabelWidth: options.maxLabelWidth }
+        : undefined,
+    );
 
   const img = document.createElement("img");
   img.src = dataUri;
@@ -804,6 +836,11 @@ export function createAtomImgElement(
   img.dataset.atomLabel = label;
   img.dataset.atomValue = value;
   img.title = value;
+  // The chip's accessible name, and the only reading of its text there is:
+  // everything else about it is pixels. It is the PAINTED label, not the
+  // stored one — a renamed session, or one on an arc, reads here as what the
+  // reader sees rather than as what the atom recorded.
+  img.alt = displayLabel;
 
   // Optional: pair this widget with its bytes-store entry. Set only
   // when the caller has an id to attach. The pending-sync ViewPlugin

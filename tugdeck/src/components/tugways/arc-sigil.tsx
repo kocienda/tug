@@ -13,6 +13,10 @@
  * markup — the run element, its sigil, and its name — which would otherwise be
  * a second thing kept in step by hand.
  *
+ * The sigil CHARACTER is a third party's too: the composer's session chip is a
+ * Canvas bake and can render no elements at all, so it appends the same `^` as
+ * text. That spelling lives in `lib/arc-sigil-text.ts` and both read it.
+ *
  * An arc's name is just a name here. The run carried a review tint once, and
  * it read as inexplicable for the reason it was: a session's identity line
  * says what the session IS, a plan's review hygiene is not that, and nothing
@@ -38,6 +42,7 @@ import {
   atomRegisterVars,
   type AtomRegister,
 } from "@/lib/atom-register";
+import { ARC_SIGIL } from "@/lib/arc-sigil-text";
 
 export interface ArcSigilProps {
   /** The arc's short name, without the `^`. */
@@ -90,7 +95,7 @@ export function ArcSigil({
       aria-label={ariaLabel}
     >
       <span className="tug-session-identity-arc-sigil" aria-hidden="true">
-        ^
+        {ARC_SIGIL}
       </span>
       <span className="tug-session-identity-arc-name">{nameContent ?? name}</span>
     </span>
