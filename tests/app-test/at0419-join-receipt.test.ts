@@ -528,7 +528,8 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         const wrap = await app.evalJS<{
           lines: number;
           indents: number[];
-          past: number;
+          overhang: number;
+          short: number;
           width: number;
         }>(
           `(() => {
@@ -545,15 +546,19 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
              // One client rect per line box the run occupies, in order.
              const rects = Array.from(run.getClientRects());
              const first = rects.length === 0 ? 0 : rects[0].left;
-             // The floated badge cluster's own left edge: the x every line
-             // used to stop at, and which every line below the first is now
-             // free to cross.
              const cluster = b.querySelector(".tool-call-header-trailing");
-             const fence = cluster.getBoundingClientRect().left;
+             const c = cluster.getBoundingClientRect();
              return {
                lines: rects.length,
                indents: rects.map((r) => Math.round(r.left - first)),
-               past: rects.filter((r) => r.right > fence).length,
+               // How far the badges reach past the FIRST line's own bottom:
+               // the number of lines they exclude, less one. Zero or below is
+               // the claim.
+               overhang: Math.round(c.bottom - rects[0].bottom),
+               // How far the first line stops short of the badges. The pair
+               // is the whole invariant: the cluster shortens the line it
+               // sits on, and reaches no line below it.
+               short: Math.round(c.left - rects[0].right),
                // The width the run had to spend, so a future failure says
                // whether the fixture stopped wrapping or the layout did.
                width: Math.round(
@@ -567,13 +572,22 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         for (const indent of wrap.indents) {
           expect(Math.abs(indent), "every line of the run begins at the event's x").toBeLessThanOrEqual(1);
         }
-        // The first line stops short of the badges; at least one line beneath
-        // it does not. Counted rather than indexed, because which line runs
-        // longest is the text's business.
+        // Measured on the BADGES rather than on where a word happened to
+        // break: which line runs longest is the text's business, and a claim
+        // read off it is a coin flip at a width nobody pinned. The layout
+        // claim is the pair below, and it holds whatever the text does.
+        //
+        // They shorten the line they sit on...
         expect(
-          wrap.past,
-          "a wrapped line runs past the badges the first line stopped at",
-        ).toBeGreaterThan(0);
+          wrap.short,
+          "the badges hold the first line short of themselves",
+        ).toBeGreaterThanOrEqual(0);
+        // ...and reach no line beneath it, which is what leaves every line
+        // below free of them and running the block's full width.
+        expect(
+          wrap.overhang,
+          "the badges reach no line below the first",
+        ).toBeLessThanOrEqual(1);
       } finally {
         await app.close();
       }
