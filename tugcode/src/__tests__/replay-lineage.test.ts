@@ -271,6 +271,37 @@ describe("runReplay — lineage", () => {
     );
   });
 
+  test("a backward page carries no lineage prefix; a recency window still does", async () => {
+    // The ancestors replay whole, so once a restore has landed they are all
+    // on screen and only the tip has anything older to fetch. A `turnRange`
+    // is that fetch, in the tip's own coordinates — re-emitting the prefix
+    // would prepend the whole arc above itself and put the transcript's turn
+    // count back over the denominator it is counted against.
+    const files = {
+      [PARENT_ID]: jsonlFor("start the arc", "here is the brief"),
+      [STAGE_ID]: [
+        jsonlFor("write the plan", "here is the plan"),
+        jsonlFor("now revise it", "revised"),
+      ].join("\n"),
+    };
+
+    const paged = await captureStdout(() =>
+      makeManager(files).runReplay({ turnRange: [0, 1] }, LINEAGE),
+    );
+    expect(shape(paged)).toEqual(["text:here is the plan"]);
+
+    // The same lineage under the restore's own window shape: the ancestors
+    // are still what the transcript is built from.
+    const restored = await captureStdout(() =>
+      makeManager(files).runReplay({ lastTurns: 1 }, LINEAGE),
+    );
+    expect(shape(restored)).toEqual([
+      "text:here is the brief",
+      "stage:devise",
+      "text:revised",
+    ]);
+  });
+
   test("leaves a prompt the record does not hold as the user's own", async () => {
     // The user interjected mid-arc. Their words are in the same file as the
     // wheel's, one turn apart, and nothing about where they sit says whose

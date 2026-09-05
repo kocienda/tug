@@ -96,6 +96,40 @@ describe("deriveLoadStatus — metadata row turns math", () => {
   });
 });
 
+describe("deriveLoadStatus — a lineage replay's several segments", () => {
+  // A rotated card replays every segment of its line into one transcript, so
+  // `claudeTurnsDisplayed` counts turns from several files and `totalTurns`
+  // arrives summed over exactly the segments that replay walked. The two are
+  // then two readings of one decision, and the fraction cannot exceed one —
+  // which is what "18 of 4 · all loaded" was.
+  test("three whole segments, nothing windowed: 18 of 18, all loaded", () => {
+    // 1 + 13 + 4 turns across the line, every one of them replayed.
+    expect(
+      deriveLoadStatus({
+        claudeTurnsDisplayed: 18,
+        firstLoadedTurnIndex: 0,
+        totalTurns: 18,
+        step: 25,
+      }),
+    ).toEqual({ displayed: 18, total: 18, hasOlder: false, loadStep: 0 });
+  });
+
+  test("whole ancestors under a windowed tip: 39 of 54, the step clamped to the tip's 15", () => {
+    // Ancestors replay whole (24 turns); the 30-turn tip is windowed to its
+    // last 15, so `firstLoadedTurnIndex` is 15 — a **tip** coordinate, which
+    // is exactly what a load-previous can fetch. Reading it in line
+    // coordinates to "match" the 54 would page the wrong turns.
+    expect(
+      deriveLoadStatus({
+        claudeTurnsDisplayed: 39,
+        firstLoadedTurnIndex: 15,
+        totalTurns: 54,
+        step: 25,
+      }),
+    ).toEqual({ displayed: 39, total: 54, hasOlder: true, loadStep: 15 });
+  });
+});
+
 describe("countClaudeTurns — shell rows are not conversation turns", () => {
   test("shell-origin rows are excluded; every other origin counts", () => {
     const transcript = [

@@ -606,6 +606,23 @@ pub struct LedgerEntry {
     /// `session_init` naming a different claude clears it, so a fresh session
     /// is never judged on the window of the one it replaced.
     pub context_window_tokens: Option<i64>,
+    /// The session ids the most recent `request_replay` carried, oldest
+    /// first, or `None` when it carried no lineage ([B02]).
+    ///
+    /// The `replay_complete` stamp sums `engine_turn_count` over exactly
+    /// these files, so the bar's denominator counts the population its
+    /// numerator was built from. Remembered rather than recomputed: what a
+    /// replay *walked* is a fact about that request, and recomputing the
+    /// chain at stamp time would usually agree without ever guaranteeing it.
+    ///
+    /// `None` on every card that is not an arc, and on any entry whose last
+    /// replay predates this field — both sum the tip alone, which is the
+    /// behaviour before this existed.
+    ///
+    /// In memory, like [`Self::context_window_tokens`]: it describes a
+    /// request this process forwarded, and a restart with no replay behind it
+    /// has nothing to remember.
+    pub replayed_lineage: Option<Vec<String>>,
 }
 
 impl LedgerEntry {
@@ -629,6 +646,7 @@ impl LedgerEntry {
             pending_segments: std::collections::VecDeque::new(),
             deck_model: None,
             context_window_tokens: None,
+            replayed_lineage: None,
             spawn_state: SpawnState::Idle,
             ever_live_here: false,
             holds_workspace_refcount: false,
@@ -8810,6 +8828,27 @@ impl AgentSupervisor {
                 .and_then(|id| replay_lineage(self.sessions_recorder.as_ref(), id, &project_dir))
         };
 
+        // Remember what this request walked, so the `replay_complete` stamp
+        // can sum the turn counts of exactly these files rather than
+        // recomputing a chain and hoping it matches ([B02]). Written before
+        // the frame is forwarded *or* queued, because the queued path is the
+        // relaunch one — the very path a rotated card restores by. A request
+        // that carries no lineage writes `None`, which is the tip-alone sum
+        // and today's behaviour exactly.
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.replayed_lineage = lineage.as_ref().map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|e| {
+                        e.get("sessionId")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_owned)
+                    })
+                    .collect()
+            });
+        }
+
         // Build the wire frame once; the body is the same regardless of
         // whether we forward immediately (Live) or queue (Spawning). The
         // optional recency `window` is forwarded verbatim — the supervisor
@@ -11220,6 +11259,75 @@ impl SessionsRecorder for NoopSessionsRecorder {
     fn engine_turn_count(&self, _session_id: &str, _project_dir: &str) -> Option<i64> {
         None
     }
+    fn record_user_prompt(&self, _session_id: &str, _prompt: &str) {}
+    fn mark_closed(&self, _session_id: &str) {}
+    fn mark_failed(&self, _session_id: &str) {}
+    fn insert_pending_turn(
+        &self,
+        _session_id: &str,
+        _journal_id: &str,
+        _user_text: &str,
+        _user_attachments: &[serde_json::Value],
+        _now: i64,
+    ) -> Result<(), crate::session_ledger::LedgerError> {
+        Ok(())
+    }
+    fn delete_oldest_pending_for_session(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError> {
+        Ok(None)
+    }
+    fn record_wheel_prompt(&self, _session_id: &str, _text: &str) {}
+    fn lineage_chain(&self, session_id: &str) -> Vec<String> {
+        vec![session_id.to_owned()]
+    }
+    fn arc_name_for(&self, _session_id: &str) -> Option<String> {
+        None
+    }
+    fn stage_provenance(&self, _session_id: &str) -> Option<(String, Option<String>)> {
+        None
+    }
+}
+
+/// A [`SessionsRecorder`] that answers `engine_turn_count` from a table and
+/// remembers every `set_turn_count`, for the tests that are about which count
+/// goes where. Everything else is the no-op's behaviour.
+#[cfg(test)]
+pub(crate) struct CountingSessionsRecorder {
+    /// `engine(file)` per session id. An id absent from the map answers
+    /// `None` — the unreadable-JSONL case.
+    pub counts: std::collections::HashMap<String, i64>,
+    /// Every `(session_id, count)` the code under test wrote, in order.
+    pub writes: std::sync::Mutex<Vec<(String, i64)>>,
+}
+
+#[cfg(test)]
+impl CountingSessionsRecorder {
+    pub(crate) fn new(counts: &[(&str, i64)]) -> Self {
+        Self {
+            counts: counts
+                .iter()
+                .map(|(id, n)| ((*id).to_owned(), *n))
+                .collect(),
+            writes: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[cfg(test)]
+impl SessionsRecorder for CountingSessionsRecorder {
+    fn set_turn_count(&self, session_id: &str, count: i64) {
+        self.writes
+            .lock()
+            .expect("writes mutex")
+            .push((session_id.to_owned(), count));
+    }
+    fn engine_turn_count(&self, session_id: &str, _project_dir: &str) -> Option<i64> {
+        self.counts.get(session_id).copied()
+    }
+    fn record(&self, _record: SessionRecord<'_>) {}
+    fn record_turn(&self, _session_id: &str) {}
     fn record_user_prompt(&self, _session_id: &str, _prompt: &str) {}
     fn mark_closed(&self, _session_id: &str) {}
     fn mark_failed(&self, _session_id: &str) {}
@@ -23006,6 +23114,92 @@ mod tests {
             frame.payload,
             b"{\"type\":\"request_replay\"}".to_vec(),
             "no window and no lineage is the legacy full-replay request, unchanged",
+        );
+    }
+
+    /// [B02]: what a replay walked is a fact about that request, so the
+    /// request writes it down. The `replay_complete` stamp reads this list
+    /// back to sum its denominator over exactly the files that produced the
+    /// transcript, rather than recomputing a chain that would usually — but
+    /// only usually — agree.
+    #[tokio::test]
+    async fn a_replay_carrying_a_lineage_remembers_the_segments_it_walked() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let root_str = root.to_string_lossy().to_string();
+        let (sup, _ledger, _rx) =
+            make_supervisor_for_ledger(seed_resume_sheet_line(root, "foo"), None);
+
+        sup.handle_control(
+            "spawn_session",
+            &resume_payload_in("card-fresh", "s-audit", &root_str),
+            10,
+        )
+        .await
+        .expect_handled();
+        sup.handle_control("request_replay", &request_replay_payload("s-audit"), 10)
+            .await
+            .expect_handled();
+
+        let entry_arc = {
+            let ledger = sup.ledger.lock().await;
+            ledger
+                .get(&TugSessionId::new("s-audit"))
+                .cloned()
+                .expect("the resume inserted an entry")
+        };
+        let entry = entry_arc.lock().await;
+        assert_eq!(
+            entry.replayed_lineage.as_deref(),
+            Some(
+                [
+                    "s-door".to_string(),
+                    "s-implement".to_string(),
+                    "s-audit".to_string()
+                ]
+                .as_slice()
+            ),
+            "the three segments the request carried, oldest first",
+        );
+    }
+
+    /// And the other half of [B02]: a card that is not an arc walks one file,
+    /// carries no lineage, and remembers none — so the stamp sums the tip
+    /// alone, which is what it did before any of this existed.
+    #[tokio::test]
+    async fn a_replay_carrying_no_lineage_remembers_none() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let root_str = root.to_string_lossy().to_string();
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        ledger
+            .record_spawn("solo", "ws", &root_str, "card-1", 0, "solo", None)
+            .expect("record_spawn");
+        let (sup, _ledger, _rx) = make_supervisor_for_ledger(ledger, None);
+
+        sup.handle_control(
+            "spawn_session",
+            &resume_payload_in("card-fresh", "solo", &root_str),
+            10,
+        )
+        .await
+        .expect_handled();
+        sup.handle_control("request_replay", &request_replay_payload("solo"), 10)
+            .await
+            .expect_handled();
+
+        let entry_arc = {
+            let ledger = sup.ledger.lock().await;
+            ledger
+                .get(&TugSessionId::new("solo"))
+                .cloned()
+                .expect("the resume inserted an entry")
+        };
+        let entry = entry_arc.lock().await;
+        assert!(
+            entry.replayed_lineage.is_none(),
+            "a single-segment card remembers no lineage",
         );
     }
 

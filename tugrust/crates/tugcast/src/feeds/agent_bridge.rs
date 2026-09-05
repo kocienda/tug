@@ -2153,17 +2153,51 @@ pub async fn relay_session_io(
                             // `totalTurns`, so the stamp/compare is skipped and the
                             // engine lookup (file missing) returns `None` —
                             // nothing is zeroed.
-                            let claude_id = {
+                            let (claude_id, lineage) = {
                                 let entry = ledger_entry.lock().await;
-                                entry.claude_session_id.clone()
+                                (
+                                    entry.claude_session_id.clone(),
+                                    entry.replayed_lineage.clone(),
+                                )
                             };
                             if let Some(id) = claude_id {
                                 if let Some(engine_total) =
                                     sessions_recorder.engine_turn_count(&id, project_dir)
                                 {
+                                    // The denominator counts the segments this
+                                    // replay actually walked ([B01]). *X* is
+                                    // every turn the transcript holds and a
+                                    // lineage replay commits several segments'
+                                    // worth, so a tip-only *Y* is a fraction
+                                    // over two populations — the `18 of 4` the
+                                    // brief is named for. An ancestor whose
+                                    // JSONL is unreadable contributes a divider
+                                    // and no turns to the deck, and `None` → 0
+                                    // here, so the two degrade together. No
+                                    // remembered lineage sums the tip alone.
+                                    let stamped_total = match &lineage {
+                                        Some(ids) => ids
+                                            .iter()
+                                            .map(|segment| {
+                                                if segment == &id {
+                                                    engine_total
+                                                } else {
+                                                    sessions_recorder
+                                                        .engine_turn_count(segment, project_dir)
+                                                        .unwrap_or(0)
+                                                }
+                                            })
+                                            .sum(),
+                                        None => engine_total,
+                                    };
                                     if let Some(wire_total) =
                                         parse_replay_complete_total_turns(&line)
                                     {
+                                        // Tip against tip ([B05]). tugcode
+                                        // windows and counts the tip's file, so
+                                        // comparing its total against a lineage
+                                        // sum would breach on every arc restore
+                                        // and mean nothing.
                                         if wire_total != engine_total {
                                             warn!(
                                                 target: "dev::turn-metric",
@@ -2176,9 +2210,14 @@ pub async fn relay_session_io(
                                             );
                                         }
                                         replay_complete_emit = Some(
-                                            stamp_replay_complete_total_turns(&line, engine_total),
+                                            stamp_replay_complete_total_turns(&line, stamped_total),
                                         );
                                     }
+                                    // The tip's row keeps the tip's own count
+                                    // ([B04]): `line_turn_count` sums these
+                                    // rows, so writing the lineage sum here
+                                    // would double-count the line and set the
+                                    // masthead climbing on every restore.
                                     sessions_recorder.set_turn_count(&id, engine_total);
                                 }
                             }
@@ -3793,6 +3832,162 @@ mod tests {
             });
         }
         out
+    }
+
+    // ---- the replay's stamped denominator ([B01]/[B04]/[B05]) --------------
+
+    /// Drive one `replay_started` / `replay_complete` bracket through the real
+    /// relay against a recorder that answers `engine_turn_count` from a table.
+    ///
+    /// The entry is seated the way a restore leaves it — the tip's claude id
+    /// filled, and `replayed_lineage` holding whatever the request walked — so
+    /// what comes back is the frame the card would actually receive, plus every
+    /// `set_turn_count` the stamp made on its way there.
+    async fn drive_replay_stamp(
+        claude_id: &str,
+        lineage: Option<&[&str]>,
+        counts: &[(&str, i64)],
+        replay_complete: &str,
+    ) -> (Vec<u8>, Vec<(String, i64)>) {
+        use crate::feeds::agent_supervisor::CountingSessionsRecorder;
+        use crate::feeds::workspace_registry::WorkspaceKey;
+
+        let tug_session_id = TugSessionId::new("tug-stamp".to_string());
+        let ledger_entry = Arc::new(Mutex::new(
+            crate::feeds::agent_supervisor::LedgerEntry::new(
+                tug_session_id.clone(),
+                WorkspaceKey::from_test_str("ws-test"),
+                PathBuf::from("/proj"),
+                SessionMode::Resume,
+                CrashBudget::new(3, Duration::from_secs(60)),
+            ),
+        ));
+        {
+            let mut entry = ledger_entry.lock().await;
+            entry.claude_session_id = Some(claude_id.to_string());
+            entry.replayed_lineage =
+                lineage.map(|ids| ids.iter().map(|id| (*id).to_string()).collect::<Vec<_>>());
+        }
+
+        let recorder = Arc::new(CountingSessionsRecorder::new(counts));
+        let (_input_tx, mut input_rx) = mpsc::channel::<Frame>(16);
+        let (merger_tx, mut merger_rx) = mpsc::channel::<Frame>(256);
+        let (state_tx, _state_rx) = broadcast::channel::<Frame>(64);
+        let cancel = CancellationToken::new();
+
+        let (relay_stdin_w, _tugcode_stdin_r) = tokio::io::duplex(64 * 1024);
+        let (relay_stdout_r, mut feed_w) = tokio::io::duplex(256 * 1024);
+        let reader: Box<dyn AsyncRead + Send + Unpin> = Box::new(relay_stdout_r);
+        let lines = BufReader::new(reader).lines();
+
+        let recorder_for_relay = Arc::clone(&recorder);
+        let relay = tokio::spawn(async move {
+            relay_session_io(
+                &tug_session_id,
+                &ledger_entry,
+                &mut input_rx,
+                &merger_tx,
+                &state_tx,
+                None,
+                Box::new(relay_stdin_w),
+                lines,
+                "/proj",
+                recorder_for_relay.as_ref(),
+                None,
+                &crate::feeds::changeset::ChangesetBumper::disconnected(),
+                &cancel,
+            )
+            .await
+        });
+
+        feed_w
+            .write_all(b"{\"type\":\"protocol_ack\"}\n")
+            .await
+            .expect("write ack");
+        for frame in [r#"{"type":"replay_started"}"#, replay_complete] {
+            feed_w.write_all(frame.as_bytes()).await.expect("write");
+            feed_w.write_all(b"\n").await.expect("write newline");
+        }
+        drop(feed_w);
+        let _ = relay.await.expect("relay task");
+
+        let mut forwarded = Vec::new();
+        while let Ok(frame) = merger_rx.try_recv() {
+            forwarded.push(frame.payload);
+        }
+        let stamped = forwarded
+            .into_iter()
+            .find(|p| {
+                std::str::from_utf8(p)
+                    .map(|s| s.contains("\"type\":\"replay_complete\""))
+                    .unwrap_or(false)
+            })
+            .expect("the replay_complete was forwarded");
+        let writes = recorder.writes.lock().expect("writes mutex").clone();
+        (stamped, writes)
+    }
+
+    /// [B01] and [B04] together, which is the whole of the fix: the frame's
+    /// denominator counts every segment the replay walked, because the
+    /// transcript it produced holds every one of their turns — while the tip's
+    /// ledger row keeps the tip's own count, since `line_turn_count` sums those
+    /// rows and a lineage sum written there would double-count the line.
+    #[tokio::test]
+    async fn a_remembered_lineage_stamps_the_sum_and_leaves_the_tip_row_alone() {
+        let (stamped, writes) = drive_replay_stamp(
+            "s-tip",
+            Some(&["s-first", "s-middle", "s-tip"]),
+            &[("s-first", 1), ("s-middle", 13), ("s-tip", 4)],
+            r#"{"type":"replay_complete","count":4,"firstLoadedTurnIndex":0,"totalTurns":4,"hasOlder":false,"ipc_version":2}"#,
+        )
+        .await;
+
+        let body: serde_json::Value = serde_json::from_slice(&stamped).unwrap();
+        assert_eq!(
+            body["totalTurns"], 18,
+            "the fraction's denominator is the population its numerator was built from",
+        );
+        assert_eq!(
+            body["firstLoadedTurnIndex"], 0,
+            "the tip-coordinate index is untouched ([B03])",
+        );
+        assert_eq!(
+            writes,
+            vec![("s-tip".to_string(), 4)],
+            "the row records the tip's own count, not the line's ([B04])",
+        );
+    }
+
+    /// An ancestor whose JSONL is unreadable contributes a divider and no turns
+    /// to the deck, so it contributes nothing to the sum either — the two
+    /// degrade together rather than leaving a fraction that cannot be reached.
+    #[tokio::test]
+    async fn an_unreadable_ancestor_contributes_no_turns_to_the_sum() {
+        let (stamped, _writes) = drive_replay_stamp(
+            "s-tip",
+            Some(&["s-gone", "s-tip"]),
+            &[("s-tip", 4)],
+            r#"{"type":"replay_complete","count":4,"firstLoadedTurnIndex":0,"totalTurns":4,"hasOlder":false,"ipc_version":2}"#,
+        )
+        .await;
+
+        let body: serde_json::Value = serde_json::from_slice(&stamped).unwrap();
+        assert_eq!(body["totalTurns"], 4);
+    }
+
+    /// The other end of [B01]: nearly every card walks one file, and its frame
+    /// must be exactly the one it was before any of this existed.
+    #[tokio::test]
+    async fn a_replay_with_no_remembered_lineage_stamps_the_tip_alone() {
+        let line = r#"{"type":"replay_complete","count":4,"firstLoadedTurnIndex":0,"totalTurns":4,"hasOlder":false,"ipc_version":2}"#;
+        let (stamped, writes) = drive_replay_stamp("s-solo", None, &[("s-solo", 4)], line).await;
+
+        assert_eq!(
+            stamped,
+            splice_tug_session_id(&stamp_replay_complete_total_turns(line, 4), "tug-stamp"),
+            "no lineage is byte-identical to the frame this path always sent",
+        );
+        assert_eq!(writes, vec![("s-solo".to_string(), 4)]);
     }
 
     // ---- every new segment joins the card's line ([P04]) -------------------

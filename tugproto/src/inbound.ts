@@ -287,7 +287,9 @@ export interface RequestReplay {
    *
    * Absent ⇒ replay this session alone, which is byte-identical to the
    * behavior before lineage existed. The `window` applies to the session
-   * being resumed; the ancestors replay whole.
+   * being resumed; the ancestors replay whole. A `turnRange` window is a
+   * backward page over a transcript the ancestors are already in, so tugcode
+   * ignores the lineage there and emits the tip's older turns alone.
    */
   lineage?: ReplayLineageEntry[];
 }

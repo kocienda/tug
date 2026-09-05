@@ -5047,8 +5047,17 @@ export class SessionManager {
     // prefix first, then the resumed session — so the wheel's prompts come
     // back under the wheel's name wherever in the work they were sent.
     const wheelPrompts = wheelPromptLedger(this.readWheelPromptsForLine());
+    // A backward page is not a restore. `turnRange` asks for turns older than
+    // the ones already on screen, in the TIP's coordinates, and the ancestors
+    // are already loaded — whole, since only the tip is ever windowed. Sending
+    // their frames again would prepend the whole arc above itself: every
+    // divider and every ancestor turn twice, and a numerator counting them
+    // twice against a denominator that counts each file once. The lineage
+    // belongs to the replay that builds the transcript, not to the one that
+    // extends it upward.
+    const backwardPage = window !== undefined && "turnRange" in window;
     const lineagePrefix: OutboundMessage[] =
-      lineage !== undefined && lineage.length > 1
+      lineage !== undefined && lineage.length > 1 && !backwardPage
         ? await this.collectLineagePrefix(
             lineage,
             canonicalProjectDir,
