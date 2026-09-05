@@ -86,7 +86,7 @@ import { ensureParsed } from "@/lib/markdown/parse-cache";
 import { recordRowParse } from "@/lib/markdown/parse-counters";
 import {
   annotateElement,
-  containerAwaitsVerdicts,
+  containerDependsOnVerdicts,
 } from "@/lib/annotator/annotate-content";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { useAnnotationScope } from "@/components/tugways/annotation-scope";
@@ -268,13 +268,13 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
 
     // Every render is an annotation pass — `renderIncremental*` marks the
     // DOM it builds — so every render has to ANNOUNCE itself. The late-arrival
-    // effect below cannot cover this: its verdict-batch re-mark is gated on
-    // the container still carrying `data-tugx-awaiting`, and a delta that
-    // re-renders after a verdict settles clears that stamp on its way past.
-    // The run is then marked with nothing listening, which is exactly the
-    // state a confirmed commit sha was found in — wrapped and underlined in
-    // the transcript, but never replaced by its `commit:<8ch>` label, because
-    // the tip portal was never told the host existed.
+    // effect below cannot cover this: its verdict-batch re-mark fires only
+    // when a batch names a key this container consulted, and a delta that
+    // re-renders after a verdict settles marks the run with nothing
+    // listening — which is exactly the state a confirmed commit sha was
+    // found in: wrapped and underlined in the transcript, but never replaced
+    // by its `commit:<8ch>` label, because the tip portal was never told the
+    // host existed.
     const announce = (): void => {
       onAnnotatedRef.current?.(el);
     };
@@ -359,10 +359,11 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
   //     binding arriving. Rare, and legitimately global: every block
   //     re-marks, which is exactly this effect re-running per instance.
   //  2. A resolver verdict batch. Frequent while answers drain, so it is
-  //     *gated*: the pass stamps `data-tugx-awaiting` on containers that
-  //     met a pending verdict, and a batch re-marks only those. A block
-  //     whose references are all settled costs nothing per batch, and a
-  //     transcript with nothing outstanding costs nothing at all.
+  //     *gated*: the pass files the verdict keys it consulted against the
+  //     container, the batch names the keys whose answer moved, and only
+  //     the containers depending on one of them re-mark. A block none of
+  //     the moved keys touch costs nothing per batch, and a batch nobody
+  //     depends on costs nothing at all.
   //
   // Runs after the render effects so the container is populated. [L06]
   // DOM-only; [L03] layout effect so the marks precede any gesture.
@@ -373,9 +374,11 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
     onAnnotatedRef.current?.(el);
     const subscribe = annotation.subscribe;
     if (subscribe === undefined) return;
-    return subscribe(() => {
+    return subscribe((changed) => {
       const target = containerRef.current;
-      if (target === null || !containerAwaitsVerdicts(target)) return;
+      if (target === null || !containerDependsOnVerdicts(target, changed)) {
+        return;
+      }
       annotateElement(target, annotation);
       onAnnotatedRef.current?.(target);
     });

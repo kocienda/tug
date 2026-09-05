@@ -34,6 +34,11 @@ import {
   parseGitCommitFilesPayload,
   type GitCommitFile,
 } from "../git-commit-files-store";
+import {
+  commitVerdictKey,
+  noteVerdictKey,
+  type VerdictKey,
+} from "./verdict-keys";
 
 /** How long one query may go unanswered before it is re-queued. */
 const QUERY_TIMEOUT_MS = 8000;
@@ -81,7 +86,7 @@ export class CommitResolutionStore {
   private readonly verdicts = new Map<string, CommitVerdict>();
   private readonly attempts = new Map<string, number>();
   private readonly queue: string[] = [];
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(keys: readonly VerdictKey[]) => void>();
   private readonly feedStore: FeedStore;
   private readonly unsubscribeFeed: () => void;
   private lastPayloadRef: unknown = undefined;
@@ -106,6 +111,9 @@ export class CommitResolutionStore {
    * annotator's DOM pass calls this for every hex run it meets.
    */
   lookup = (sha: string): CommitVerdict => {
+    // Every answer this serves is a dependency of the ink it is served to,
+    // whatever it says — see `verdict-keys.ts`.
+    noteVerdictKey(this.verdictKey(sha));
     const known = this.verdicts.get(sha);
     if (known !== undefined) return known;
     this.verdicts.set(sha, PENDING);
@@ -115,7 +123,9 @@ export class CommitResolutionStore {
   };
 
   /** Subscribe to verdict arrivals. Returns the unsubscribe. */
-  subscribe = (listener: () => void): (() => void) => {
+  subscribe = (
+    listener: (keys: readonly VerdictKey[]) => void,
+  ): (() => void) => {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
@@ -127,6 +137,12 @@ export class CommitResolutionStore {
 
   /** The root every descriptor this store confirms belongs to. */
   root = (): string => this.projectDir;
+
+  /** This store's key for `sha` — scoped by repository, since one sha can
+   * be a commit in one checkout and nothing in another. */
+  private verdictKey(sha: string): VerdictKey {
+    return commitVerdictKey(this.projectDir, sha);
+  }
 
   /** Send the next queued query, if the slot is free. */
   private pump(): void {
@@ -205,14 +221,14 @@ export class CommitResolutionStore {
               },
             },
       );
-      this.notify();
+      this.notify([this.verdictKey(pending.sha)]);
     }
     this.pump();
   }
 
-  private notify(): void {
+  private notify(keys: readonly VerdictKey[]): void {
     this.currentVersion += 1;
-    for (const listener of this.listeners) listener();
+    for (const listener of this.listeners) listener(keys);
   }
 
   /** Release the feed subscription. */

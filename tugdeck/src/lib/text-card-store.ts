@@ -54,6 +54,11 @@ import {
   type AsideRecord,
 } from "./file-aside";
 import { formatUntitledName } from "./untitled-naming";
+import {
+  frameRoot,
+  parseFilesystemFrame,
+  type FilesystemFrame,
+} from "./filesystem-feed";
 
 /**
  * Which save contract this store enforces. `automatic` is the
@@ -301,57 +306,6 @@ function baseName(path: string): string {
   const trimmed = path.replace(/\/+$/, "");
   const slash = trimmed.lastIndexOf("/");
   return slash === -1 ? trimmed : trimmed.slice(slash + 1);
-}
-
-/**
- * One FILESYSTEM event. `path` is present for Created / Modified /
- * Removed; `from`/`to` for a `Renamed` event (the Linux/Windows path —
- * macOS FSEvents delivers renames as Removed+Created pairs instead).
- */
-interface FilesystemEvent {
-  kind: string;
-  path?: string;
-  from?: string;
-  to?: string;
-}
-
-/** Shape of one FILESYSTEM frame after the workspace_key splice. */
-interface FilesystemFrame {
-  workspace_key: string;
-  events: FilesystemEvent[];
-}
-
-/** Parse a FILESYSTEM frame payload; null when malformed. */
-function parseFilesystemFrame(payload: Uint8Array): FilesystemFrame | null {
-  try {
-    const parsed = JSON.parse(new TextDecoder().decode(payload)) as unknown;
-    if (parsed === null || typeof parsed !== "object") return null;
-    const obj = parsed as Record<string, unknown>;
-    if (typeof obj.workspace_key !== "string") return null;
-    if (!Array.isArray(obj.events)) return null;
-    const events: FilesystemEvent[] = [];
-    for (const raw of obj.events) {
-      if (raw === null || typeof raw !== "object") continue;
-      const e = raw as Record<string, unknown>;
-      if (typeof e.kind !== "string") continue;
-      if (
-        typeof e.path !== "string" &&
-        typeof e.from !== "string" &&
-        typeof e.to !== "string"
-      ) {
-        continue;
-      }
-      events.push({
-        kind: e.kind,
-        path: typeof e.path === "string" ? e.path : undefined,
-        from: typeof e.from === "string" ? e.from : undefined,
-        to: typeof e.to === "string" ? e.to : undefined,
-      });
-    }
-    return { workspace_key: obj.workspace_key, events };
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -1329,7 +1283,7 @@ export class TextCardStore {
     if (snap.phase !== "ready" || snap.path === null) return;
     const frame = parseFilesystemFrame(payload);
     if (frame === null) return;
-    const root = frame.workspace_key.replace(/\/+$/, "");
+    const root = frameRoot(frame);
     const full = (p: string): string => `${root}/${p}`;
 
     // A `Removed` naming a DIRECTORY our file lives under takes our file with

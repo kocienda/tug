@@ -35,7 +35,7 @@ import React from "react";
 
 import {
   annotateElement,
-  containerAwaitsVerdicts,
+  containerDependsOnVerdicts,
 } from "@/lib/annotator/annotate-content";
 import type { AnnotationContext } from "@/lib/annotator/types";
 
@@ -82,8 +82,8 @@ export function useAnnotationScope(): AnnotationContext | null {
  * when the text changes rather than on every render of an ancestor. The
  * annotator inputs are always a dependency. A verdict arriving late does
  * not change the context's identity — it arrives through the context's
- * batched subscription, and re-marks this element only while the element
- * is still awaiting an answer (`data-tugx-awaiting`).
+ * batched subscription, and re-marks this element only when the batch names
+ * a verdict this element's last pass actually consulted.
  */
 export function useAnnotatedElement<T extends HTMLElement>(
   deps: React.DependencyList = [],
@@ -96,9 +96,11 @@ export function useAnnotatedElement<T extends HTMLElement>(
     annotateElement(element, context);
     const subscribe = context.subscribe;
     if (subscribe === undefined) return;
-    return subscribe(() => {
+    return subscribe((changed) => {
       const target = ref.current;
-      if (target === null || !containerAwaitsVerdicts(target)) return;
+      if (target === null || !containerDependsOnVerdicts(target, changed)) {
+        return;
+      }
       annotateElement(target, context);
     });
     // `deps` is the caller's declaration of what its text derives from;

@@ -52,6 +52,10 @@ import { sessionNameStore } from "@/lib/session-name-store";
 import { sessionSynopsisStore } from "@/lib/session-synopsis-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
 import {
+  sessionVerdictKey,
+  type VerdictKey,
+} from "@/lib/annotator/verdict-keys";
+import {
   identityKeyForSession,
   sessionLineStore,
 } from "@/lib/session-line-store";
@@ -91,7 +95,7 @@ class SessionCitationStore {
   /** Ids queued for the next batch — drained on a microtask. */
   private queued = new Set<string>();
   private flushScheduled = false;
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(keys: readonly VerdictKey[]) => void>();
   private disposers: (() => void)[] = [];
   private reconnectHooked = false;
 
@@ -117,7 +121,9 @@ class SessionCitationStore {
     );
   }
 
-  subscribe = (listener: () => void): (() => void) => {
+  subscribe = (
+    listener: (keys: readonly VerdictKey[]) => void,
+  ): (() => void) => {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
@@ -155,7 +161,7 @@ class SessionCitationStore {
    * seed the identity stores from the rows it carried.
    */
   applyResolved(response: ResolveSessionsOk): void {
-    let changed = false;
+    const changed: VerdictKey[] = [];
     for (const { queried, session } of response.found) {
       // The ledger's own word about this session, on the same three stores the
       // spawn ack and the listings seed — which is what lets the resolver name
@@ -180,14 +186,14 @@ class SessionCitationStore {
         state: session.state,
       });
       this.queued.delete(queried.trim());
-      changed = true;
+      changed.push(sessionVerdictKey(queried.trim()));
     }
     for (const id of response.unknown) {
       this.answers.set(id.trim(), UNKNOWN);
       this.queued.delete(id.trim());
-      changed = true;
+      changed.push(sessionVerdictKey(id.trim()));
     }
-    if (changed) this.notify();
+    if (changed.length > 0) this.notify(changed);
   }
 
   /**
@@ -197,13 +203,13 @@ class SessionCitationStore {
    * reconnect.
    */
   applyFailed(ids: readonly string[]): void {
-    let changed = false;
+    const changed: VerdictKey[] = [];
     for (const raw of ids) {
       const id = raw.trim();
-      if (this.answers.delete(id)) changed = true;
+      if (this.answers.delete(id)) changed.push(sessionVerdictKey(id));
       this.queued.delete(id);
     }
-    if (changed) this.notify();
+    if (changed.length > 0) this.notify(changed);
   }
 
   /**
@@ -218,7 +224,7 @@ class SessionCitationStore {
   forgetSession(sessionId: string): void {
     const full = sessionId.trim();
     if (full.length === 0) return;
-    let changed = false;
+    const changed: VerdictKey[] = [];
     for (const [asked, answer] of this.answers) {
       const speaks =
         (answer.status === "found" && answer.sessionId === full) ||
@@ -226,17 +232,22 @@ class SessionCitationStore {
       if (!speaks) continue;
       this.answers.delete(asked);
       this.queued.delete(asked);
-      changed = true;
+      changed.push(sessionVerdictKey(asked));
     }
-    if (changed) this.notify();
+    if (changed.length > 0) this.notify(changed);
   }
 
   /** Drop every cached answer. Called on reconnect. */
   forgetAll(): void {
     if (this.answers.size === 0 && this.queued.size === 0) return;
+    // Named before they are dropped: a listener re-marks by key, and after
+    // the clear there is nothing left to name.
+    const forgotten = [...this.answers.keys(), ...this.queued].map(
+      sessionVerdictKey,
+    );
     this.answers.clear();
     this.queued.clear();
-    this.notify();
+    this.notify(forgotten);
   }
 
   /** Release the lifecycle registration ([L27]). Test/teardown only. */
@@ -263,8 +274,8 @@ class SessionCitationStore {
     connection.send(frame.feedId, frame.payload);
   }
 
-  private notify(): void {
-    for (const listener of this.listeners) listener();
+  private notify(keys: readonly VerdictKey[]): void {
+    for (const listener of this.listeners) listener(keys);
   }
 }
 

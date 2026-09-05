@@ -18,6 +18,7 @@ import type { CommitVerdict } from "./commit-resolution";
 import type { PathReference } from "./detect-path-reference";
 import type { PathVerdict } from "./path-resolution";
 import type { SessionVerdict } from "./session-resolution";
+import type { VerdictKey } from "./verdict-keys";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
 
 /** The entity types the annotator recognizes. */
@@ -92,18 +93,18 @@ export interface AnnotationContext {
    */
   resolveSession?: (target: string) => SessionVerdict;
   /**
-   * Verdict arrivals, batched. A consumer whose container met a `pending`
-   * verdict subscribes here and re-runs the pass per batch — only over
-   * containers still awaiting an answer, which is what keeps one answer
-   * from provoking a walk of every block. The context object itself stays
-   * identity-stable across verdicts; identity changes only when a real
+   * Verdict arrivals, batched, each naming the keys whose answer moved. A
+   * consumer subscribes here and re-runs the pass per batch — only over the
+   * containers that consulted one of those keys, which is what keeps one
+   * answer from provoking a walk of every block. The context object itself
+   * stays identity-stable across verdicts; identity changes only when a real
    * input changes (catalog, cwd, project binding), which is the
-   * everything-must-re-mark case.
+   * everything-must-re-mark case. See `verdict-keys.ts`.
    *
    * Optional: a hand-built context (tests, fixtures) without one simply
    * never re-marks, which is correct for static content.
    */
-  subscribe?: (listener: () => void) => () => void;
+  subscribe?: (listener: (keys: readonly VerdictKey[]) => void) => () => void;
   /**
    * The roots a project-relative atom value is resolved against — the
    * card's project directory and the session's cwd, the two roots an `@`

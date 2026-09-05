@@ -135,9 +135,6 @@ const RUNS_JS = `(function () {
     missing: classify(${JSON.stringify(`${PROJECT}/${MISSING}`)}),
     path: classify("tugdeck/src/lib/overview-store.ts"),
     text: (body.textContent || "").replace(/\\s+/g, " ").trim(),
-    awaiting: body.querySelector("[data-tugx-awaiting]") !== null
-      || (body.firstElementChild !== null
-          && body.firstElementChild.hasAttribute("data-tugx-awaiting")),
   };
 })()`;
 
@@ -152,7 +149,6 @@ interface Runs {
   missing: Run | null;
   path: Run | null;
   text: string;
-  awaiting: boolean;
 }
 
 /* ── The narrated-citation claim's fixtures. ───────────────────────────── */

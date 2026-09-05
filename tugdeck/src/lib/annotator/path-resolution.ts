@@ -33,13 +33,39 @@
  * Cached for the app's life, either one leaves a reference permanently dead
  * on a surface that is still open, and no amount of scrolling back can
  * revive it. So a non-affirmative verdict carries the time it was asked at,
- * and a lookup past {@link RETRY_AFTER_MS} asks again. It keeps serving the
- * old answer meanwhile — the re-ask is invisible unless it changes
- * something, and {@link PathResolutionStore.applyProbeResult} notifies only
- * on change, so a still-missing path costs one silent probe a minute and a
- * newly-arrived one lights up on the next pass. `confirmed` never expires:
- * re-asking it could only ever take a live link away, and the open gesture
- * finds out for real anyway.
+ * and past {@link RETRY_AFTER_MS} it is asked again. It keeps serving the old
+ * answer meanwhile — the re-ask is invisible unless it changes something, and
+ * {@link PathResolutionStore.applyProbeResult} notifies only on change, so a
+ * still-missing path costs one silent probe a minute. `confirmed` never
+ * expires: re-asking it could only ever take a live link away, and the open
+ * gesture finds out for real anyway.
+ *
+ * **The store fires that re-ask itself.** It used to be evaluated inside
+ * `lookup`, which runs only inside an annotation pass — so the expiry could
+ * only reach a path some pass happened to ask about again, and the ink that
+ * most needed it was precisely the ink no pass was coming back to. The store
+ * now holds a timer against the soonest verdict it is due to re-ask,
+ * re-probes every expired key when it fires, and arms the next one; a lookup
+ * that meets an expired verdict still re-asks on the spot, which is the cheap
+ * path rather than the mechanism.
+ *
+ * **And the timer is a floor, not the mechanism.** A minute is far longer
+ * than a reader waits, so nothing may depend on it to be correct: it exists
+ * so that nothing is stuck forever, never so that something is right
+ * eventually. What makes the verdict follow the world in a beat is the
+ * filesystem's own word about the file.
+ *
+ * **The world drives the verdict.** The store subscribes to the `FILESYSTEM`
+ * feed the deck already receives, and an event naming a path it holds a
+ * verdict on re-probes that path at once — whatever the event's kind, since
+ * the feed collapses a create and a remove on one path into a `Modified`.
+ * A `Created`, `Removed` or `Renamed` naming a **directory** reaches the
+ * paths beneath it too; a `Modified` does not, because macOS fires one on a
+ * parent whenever anything inside changes. The re-probe changes nothing
+ * painted until it answers, and it answers in a watcher debounce plus one
+ * verdict batch, which is beneath what a reader notices. A path outside
+ * every watched workspace hears nothing and falls to the timer, which is
+ * what the timer is for.
  *
  * The endpoint rejects relative paths outright, so a relative candidate is
  * joined against the session cwd first. Until the cwd arrives — it is null
@@ -50,11 +76,31 @@
  * @module lib/annotator/path-resolution
  */
 
+import { noteVerdictKey, pathVerdictKey, type VerdictKey } from "./verdict-keys";
+import { getConnection } from "../connection-singleton";
+import { frameRoot, parseFilesystemFrame } from "../filesystem-feed";
+import { FeedId } from "../../protocol";
+
 /** Cap on paths per request, matching the endpoint's own batch cap. */
 const MAX_STAT_PATHS = 64;
 
 /** How long wants accumulate before going out as one batch. */
 const FLUSH_DELAY_MS = 16;
+
+/**
+ * The event kinds that can change whether *other* paths exist — the kinds
+ * whose subject may be a directory the store holds verdicts under.
+ *
+ * `Modified` is not one, and that asymmetry is the whole rule: macOS fires a
+ * modify on a parent directory whenever anything inside it changes, so
+ * treating one as news about the directory's contents would re-probe a
+ * transcript's worth of paths on every keystroke-save. An event naming a
+ * path *exactly* is taken whatever its kind, because the feed's own
+ * de-duplication collapses a create and a remove on one path into a single
+ * `Modified` (`tugcast/src/feeds/file_watcher.rs`) — so kind is not a
+ * reliable existence signal, and only the subject is.
+ */
+const CONTAINER_KINDS = new Set(["Created", "Removed", "Renamed"]);
 
 /**
  * How long a `missing` or `unknown` verdict is trusted before the path is
@@ -192,11 +238,18 @@ async function probePaths(paths: readonly string[]): Promise<ProbeResult | null>
 export class PathResolutionStore {
   private readonly verdicts = new Map<string, PathVerdict>();
   private readonly wanted = new Set<string>();
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(keys: readonly VerdictKey[]) => void>();
   /** When each path was last asked about — the clock a re-ask runs on. */
   private readonly askedAt = new Map<string, number>();
   private flushHandle: ReturnType<typeof setTimeout> | null = null;
+  /** The timer armed against {@link retryDueAt}, if one is. */
+  private retryHandle: ReturnType<typeof setTimeout> | null = null;
+  /** When the soonest held non-affirmative verdict comes due for a re-ask. */
+  private retryDueAt: number | null = null;
   private currentVersion = 0;
+  /** Unregisters the `FILESYSTEM` callback; null while unattached. */
+  private unsubscribeFilesystem: (() => void) | null = null;
+  private filesystemAttached = false;
 
   /**
    * The clock is injected so a test can age a verdict without waiting out a
@@ -225,6 +278,15 @@ export class PathResolutionStore {
     // arrival changes the annotation context, which re-runs the pass with
     // something to resolve against.
     if (resolved === null) return UNKNOWN;
+    // Attached on first use rather than at construction: this is a module
+    // singleton, evaluated before `main.tsx` has a connection to hand it. By
+    // the first lookup the wire exists, and a run with no wire at all (the
+    // gallery, a test) simply keeps asking and keeps getting null.
+    this.ensureFilesystemWatch();
+    // The answer about to be returned rests on this key, whatever it says.
+    // A pass records every key it consulted, so the `missing` this may serve
+    // is as much a dependency as a `confirmed` one — see `verdict-keys.ts`.
+    noteVerdictKey(pathVerdictKey(resolved));
     const known = this.verdicts.get(resolved);
     if (known !== undefined) {
       // A stale "no" is asked again, and the old answer is what this call
@@ -240,7 +302,9 @@ export class PathResolutionStore {
   }
 
   /** Subscribe to verdict arrivals. Returns the unsubscribe. */
-  subscribe = (listener: () => void): (() => void) => {
+  subscribe = (
+    listener: (keys: readonly VerdictKey[]) => void,
+  ): (() => void) => {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
@@ -261,12 +325,13 @@ export class PathResolutionStore {
    * to answer.
    */
   applyProbeResult(paths: readonly string[], result: ProbeResult | null): void {
-    let changed = false;
+    const changed: VerdictKey[] = [];
     for (const path of paths) {
       const next = verdictFor(path, result);
       const prev = this.verdicts.get(path);
       if (next === null) {
         this.verdicts.set(path, UNKNOWN);
+        this.noteRetryDue(path);
         continue;
       }
       if (
@@ -277,10 +342,15 @@ export class PathResolutionStore {
           prev.canonical !== next.canonical)
       ) {
         this.verdicts.set(path, next);
-        changed = true;
+        changed.push(pathVerdictKey(path));
+      }
+      // Whatever it settled as, a "no" comes due for a re-ask a minute out,
+      // and nothing but this store's own timer is going to ask.
+      if (this.verdicts.get(path)?.state !== "confirmed") {
+        this.noteRetryDue(path);
       }
     }
-    if (changed) this.notify();
+    if (changed.length > 0) this.notify(changed);
   }
 
   /**
@@ -323,10 +393,160 @@ export class PathResolutionStore {
     }
   }
 
-  private notify(): void {
+  private notify(keys: readonly VerdictKey[]): void {
     this.currentVersion += 1;
-    for (const listener of this.listeners) listener();
+    for (const listener of this.listeners) listener(keys);
   }
+
+  /**
+   * Listen to the `FILESYSTEM` feed, once, if there is a connection to
+   * listen over. `onFrame` handles the wire-level subscription itself and
+   * replays the last frame to a late subscriber, which at worst costs one
+   * re-probe of the paths an old batch named.
+   */
+  private ensureFilesystemWatch(): void {
+    if (this.filesystemAttached) return;
+    const connection = getConnection();
+    if (connection === null) return;
+    this.filesystemAttached = true;
+    this.unsubscribeFilesystem = connection.onFrame(
+      FeedId.FILESYSTEM,
+      (payload: Uint8Array) => this.applyFilesystemFrame(payload),
+    );
+  }
+
+  /**
+   * The world's word about a batch of paths: re-probe every verdict it
+   * contradicts, or might.
+   *
+   * A held path is re-asked when the batch names it, or names any directory
+   * it lives under — removing a directory tree is reported as the directory
+   * going away rather than as an event per file inside it, and creating one
+   * is reported the same way, so the ancestor walk is what reaches the files
+   * either way. Only {@link CONTAINER_KINDS} get that walk. The walk goes up
+   * from each held path through the batch's names rather than comparing
+   * every name against every path, so a large batch costs one hash lookup
+   * per ancestor rather than a product.
+   *
+   * Nothing is dropped and nothing is set back to `pending`: the old answer
+   * keeps being served until the probe replaces it, which is what keeps a
+   * path that lights late from flashing on its way ([D04]).
+   *
+   * Public for the same reason {@link applyProbeResult} is: it is the door
+   * an answer from outside comes in through, and a test that hands it a
+   * frame is exercising the real handler rather than a cast into a private.
+   */
+  applyFilesystemFrame(payload: Uint8Array): void {
+    const frame = parseFilesystemFrame(payload);
+    if (frame === null) return;
+    const root = frameRoot(frame);
+    const named = new Set<string>();
+    const containers = new Set<string>();
+    for (const event of frame.events) {
+      const reachesUnder = CONTAINER_KINDS.has(event.kind);
+      for (const relative of [event.path, event.from, event.to]) {
+        if (relative === undefined) continue;
+        const absolute = `${root}/${relative}`;
+        named.add(absolute);
+        if (reachesUnder) containers.add(absolute);
+      }
+    }
+    if (named.size === 0) return;
+    for (const resolved of this.verdicts.keys()) {
+      if (named.has(resolved) || namesOrContains(containers, resolved)) {
+        this.want(resolved);
+      }
+    }
+  }
+
+  /**
+   * Record that `resolved` is due for a re-ask, and bring the timer forward
+   * if it is due sooner than whatever the timer is already waiting on. A
+   * verdict recorded without ever being asked here is due immediately, which
+   * is the same reading {@link expired} takes of it.
+   */
+  private noteRetryDue(resolved: string): void {
+    const due = this.dueAt(resolved);
+    if (this.retryDueAt !== null && this.retryDueAt <= due) return;
+    this.retryDueAt = due;
+    this.armRetry();
+  }
+
+  /** When the verdict held for `resolved` should be asked about again. */
+  private dueAt(resolved: string): number {
+    const asked = this.askedAt.get(resolved);
+    return asked === undefined ? this.now() : asked + RETRY_AFTER_MS;
+  }
+
+  /** Point the one timer at {@link retryDueAt}, replacing any earlier one. */
+  private armRetry(): void {
+    if (this.retryHandle !== null) {
+      clearTimeout(this.retryHandle);
+      this.retryHandle = null;
+    }
+    if (this.retryDueAt === null) return;
+    const delay = Math.max(0, this.retryDueAt - this.now());
+    this.retryHandle = setTimeout(() => {
+      this.retryHandle = null;
+      this.sweepExpired();
+    }, delay);
+  }
+
+  /**
+   * Re-ask every held verdict that has aged out, and arm the timer against
+   * whichever is due next.
+   *
+   * This is the arm that runs with nobody watching. The probe it schedules
+   * answers into {@link applyProbeResult}, which notifies on a change, and
+   * the ink painted under the old answer re-marks by key — so a reference
+   * nothing is going to walk past again still stops being wrong.
+   */
+  private sweepExpired(): void {
+    for (const [resolved, verdict] of this.verdicts) {
+      if (this.expired(resolved, verdict)) this.want(resolved);
+    }
+    let soonest: number | null = null;
+    for (const [resolved, verdict] of this.verdicts) {
+      if (verdict.state === "confirmed") continue;
+      const due = this.dueAt(resolved);
+      if (soonest === null || due < soonest) soonest = due;
+    }
+    this.retryDueAt = soonest;
+    this.armRetry();
+  }
+
+  /**
+   * Drop the timers and the listeners. The app's singleton never does this —
+   * paths churn slowly and a reload rebuilds the world — but a store a test
+   * stood up should not outlive the test that made it.
+   */
+  dispose(): void {
+    if (this.flushHandle !== null) clearTimeout(this.flushHandle);
+    if (this.retryHandle !== null) clearTimeout(this.retryHandle);
+    this.unsubscribeFilesystem?.();
+    this.unsubscribeFilesystem = null;
+    this.filesystemAttached = false;
+    this.flushHandle = null;
+    this.retryHandle = null;
+    this.retryDueAt = null;
+    this.listeners.clear();
+  }
+}
+
+/**
+ * Whether `named` holds any directory `path` lives under.
+ *
+ * Exported for the unit test, which is the only place the ancestor rule can
+ * be stated as a claim rather than watched for.
+ */
+export function namesOrContains(
+  named: ReadonlySet<string>,
+  path: string,
+): boolean {
+  for (let cut = path.lastIndexOf("/"); cut > 0; cut = path.lastIndexOf("/", cut - 1)) {
+    if (named.has(path.slice(0, cut))) return true;
+  }
+  return false;
 }
 
 /**

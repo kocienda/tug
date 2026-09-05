@@ -11,9 +11,9 @@
  * That announcement had one hole, and it was the ordinary case rather than a
  * corner: the streaming reconciler re-renders a block on every delta and
  * re-marks the DOM it builds, but said nothing. The late-arrival effect could
- * not cover for it — its verdict-batch re-mark is gated on the container
- * still carrying `data-tugx-awaiting`, and a delta that lands *after* the
- * verdict settles clears that stamp on the way past. The run ended up marked
+ * not cover for it — its verdict-batch re-mark fires only when a batch names
+ * a verdict key the container consulted, and a delta that lands *after* the
+ * verdict settles has already met the settled answer. The run ended up marked
  * with nothing listening: underlined and clickable in the transcript, still
  * spelling the raw hash the assistant typed, for the life of the app.
  *

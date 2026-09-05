@@ -31,12 +31,15 @@
  * already painted. Re-running link detection and `normalize()` over
  * unchanged DOM is pure waste, so the re-mark path never does.
  *
- * **Verdict waits are recorded on the DOM.** A pass that met a `pending`
- * verdict stamps its container `data-tugx-awaiting`, and a pass that met
- * none clears it. That flag is how per-container invalidation works: when
- * a verdict batch arrives, only containers still awaiting one re-run the
- * pass ({@link containerAwaitsVerdicts}), so an answer about one block
- * never provokes a walk of every block.
+ * **What a pass consulted is recorded on the DOM.** A pass collects the
+ * verdict keys its resolvers answered from — every one, whatever the answer
+ * said — and files them against its container. That ledger is how
+ * per-container invalidation works: a verdict batch names the keys whose
+ * answer moved, and only the containers that consulted one of them re-run
+ * the pass ({@link containerDependsOnVerdicts}), so an answer about one
+ * block never provokes a walk of every block. It replaced a flag that
+ * recorded only `pending`, which is why a path named before the tool call
+ * that created it stayed plain forever. See `verdict-keys.ts`.
  *
  * **Two tiers.** Anchor tagging is state-free and runs for every markdown
  * consumer. Everything else needs live state (the command catalog), which
@@ -128,6 +131,11 @@ import {
 } from "./payloads";
 import { AUTOLINK_CLASS, type AnnotationContext } from "./types";
 import { hasUrlScheme } from "./url-grammar";
+import {
+  collectVerdictKeys,
+  dependsOnKeys,
+  type VerdictKey,
+} from "./verdict-keys";
 import {
   collectTextNodes,
   unwrapMatch,
@@ -400,11 +408,23 @@ function annotateAnchors(container: HTMLElement): void {
 }
 
 /**
- * The attribute a pass leaves on a container that met a `pending` verdict
- * — the DOM-held record of "this ink is waiting on an answer". Verdict
- * batches re-annotate only containers that carry it.
+ * The attribute a pass leaves on every container it annotated with a
+ * context — the marker that says "this element has a verdict ledger".
+ *
+ * The keys themselves live in {@link ledgers}, not in the attribute: a long
+ * block consults dozens of paths, and a serialized set would be an
+ * attribute value larger than the prose it describes, rewritten on every
+ * delta. The attribute is only how a container finds the ledgers of blocks
+ * beneath it, which `querySelectorAll` can do and a WeakMap cannot.
  */
-export const AWAITING_ATTRIBUTE = "data-tugx-awaiting";
+export const LEDGER_ATTRIBUTE = "data-tugx-verdict-keys";
+
+/**
+ * Which verdict keys each annotated element's last pass consulted. Weak on
+ * the element, so a block whose `innerHTML` was rewritten drops its ledger
+ * with its old nodes, exactly as it drops its marks.
+ */
+const ledgers = new WeakMap<Element, ReadonlySet<VerdictKey>>();
 
 /**
  * Where a session wrap keeps the words it used to show.
@@ -431,56 +451,24 @@ export const SESSION_TEXT_ATTRIBUTE = "data-tugx-session-text";
 export const FILE_TEXT_ATTRIBUTE = "data-tugx-file-text";
 
 /**
- * Whether `container` (or any annotated child block inside it) is still
- * waiting on a resolver verdict. This is the per-container gate a verdict
- * batch is filtered through: a container with nothing outstanding is not
- * walked again.
+ * Whether `container` — or any annotated block inside it — was painted
+ * under one of the verdicts `changed` names. This is the per-container gate
+ * a verdict batch is filtered through: a container that consulted none of
+ * the moved keys is not walked again.
+ *
+ * The descendants are consulted because a streaming delta annotates the
+ * blocks it built rather than the whole container, so a block newer than
+ * the container's own pass carries the only record of what it asked.
  */
-export function containerAwaitsVerdicts(container: HTMLElement): boolean {
-  return (
-    container.hasAttribute(AWAITING_ATTRIBUTE) ||
-    container.querySelector(`[${AWAITING_ATTRIBUTE}]`) !== null
-  );
-}
-
-/**
- * A context whose resolver calls are counted: every `pending` verdict the
- * pass meets bumps the count, which is what decides whether the container
- * gets the awaiting flag. The wrapper is context-shaped so the pass
- * functions need no second protocol.
- */
-function trackAwaits(context: AnnotationContext): {
-  context: AnnotationContext;
-  waits: () => number;
-} {
-  let count = 0;
-  const tracked: AnnotationContext = {
-    ...context,
-    resolvePath: (reference) => {
-      const verdict = context.resolvePath(reference);
-      if (verdict.state === "pending") count += 1;
-      return verdict;
-    },
-    resolveCommit: (sha) => {
-      const verdict = context.resolveCommit(sha);
-      if (verdict.state === "pending") count += 1;
-      return verdict;
-    },
-  };
-  // Without this arm the container never gets `data-tugx-awaiting`, so no
-  // verdict batch ever re-marks it — and every session in the post stays
-  // reserved-but-unmarked forever, silently. The wrapper is rebuilt rather
-  // than spread-assigned so an absent `resolveSession` stays absent (the
-  // signal that this surface does not scan for sessions).
-  const resolveSession = context.resolveSession;
-  if (resolveSession !== undefined) {
-    tracked.resolveSession = (target) => {
-      const verdict = resolveSession(target);
-      if (verdict.state === "pending") count += 1;
-      return verdict;
-    };
+export function containerDependsOnVerdicts(
+  container: HTMLElement,
+  changed: readonly VerdictKey[],
+): boolean {
+  if (dependsOnKeys(ledgers.get(container), changed)) return true;
+  for (const marked of container.querySelectorAll(`[${LEDGER_ATTRIBUTE}]`)) {
+    if (dependsOnKeys(ledgers.get(marked), changed)) return true;
   }
-  return { context: tracked, waits: () => count };
+  return false;
 }
 
 /**
@@ -547,17 +535,21 @@ export function annotateElement(
   context: AnnotationContext,
 ): void {
   const started = performance.now();
-  // This pass supersedes any narrower pass that stamped a child block
-  // (the streaming render annotates per built block); stale child flags
-  // would keep the container re-annotating after its waits resolved.
-  for (const flagged of container.querySelectorAll(`[${AWAITING_ATTRIBUTE}]`)) {
-    flagged.removeAttribute(AWAITING_ATTRIBUTE);
+  // This pass supersedes any narrower pass that stamped a child block (the
+  // streaming render annotates per built block); the container is about to
+  // consult everything those blocks did, so a surviving child ledger could
+  // only ever answer the same question twice.
+  for (const marked of container.querySelectorAll(`[${LEDGER_ATTRIBUTE}]`)) {
+    marked.removeAttribute(LEDGER_ATTRIBUTE);
+    ledgers.delete(marked);
   }
-  const tracked = trackAwaits(context);
-  dropStaleWraps(container, tracked.context);
-  annotateInlineCode(container, tracked.context);
-  const nodes = annotatePathsInText(container, tracked.context);
-  if (tracked.waits() > 0) container.setAttribute(AWAITING_ATTRIBUTE, "");
-  else container.removeAttribute(AWAITING_ATTRIBUTE);
+  let nodes = 0;
+  const keys = collectVerdictKeys(() => {
+    dropStaleWraps(container, context);
+    annotateInlineCode(container, context);
+    nodes = annotatePathsInText(container, context);
+  });
+  ledgers.set(container, keys);
+  container.setAttribute(LEDGER_ATTRIBUTE, "");
   recordElementPass(performance.now() - started, nodes);
 }

@@ -58,6 +58,7 @@ import {
 import { getConnection } from "../connection-singleton";
 import type { TugConnection } from "../../connection";
 import { RETRY_AFTER_MS, type PathVerdict } from "./path-resolution";
+import { nameVerdictKey, noteVerdictKey, type VerdictKey } from "./verdict-keys";
 
 /** How long one query may go unanswered before it is re-queued. */
 const QUERY_TIMEOUT_MS = 4000;
@@ -129,7 +130,7 @@ export class FileNameResolutionStore {
   /** When each name was last asked about — the clock a re-ask runs on. */
   private readonly askedAt = new Map<string, number>();
   private readonly queue: string[] = [];
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(keys: readonly VerdictKey[]) => void>();
   private readonly feedStore: FeedStore;
   private readonly fileTree: FileTreeStore;
   private readonly unsubscribeTree: () => void;
@@ -167,6 +168,9 @@ export class FileNameResolutionStore {
    * that marks its container as awaiting; the answer's batch re-marks it.
    */
   lookup = (name: string): PathVerdict => {
+    // Every answer this serves is a dependency of the ink it is served to,
+    // whatever it says — see `verdict-keys.ts`.
+    noteVerdictKey(this.verdictKey(name));
     const known = this.verdicts.get(name);
     if (known !== undefined) {
       // Stale "no": ask the index again, and go on serving the old answer
@@ -180,7 +184,9 @@ export class FileNameResolutionStore {
   };
 
   /** Subscribe to verdict arrivals. Returns the unsubscribe. */
-  subscribe = (listener: () => void): (() => void) => {
+  subscribe = (
+    listener: (keys: readonly VerdictKey[]) => void,
+  ): (() => void) => {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
@@ -189,6 +195,12 @@ export class FileNameResolutionStore {
 
   /** Bumped whenever verdicts change, so waiting ink re-marks. */
   version = (): number => this.currentVersion;
+
+  /** This store's key for `name` — scoped by project, since two projects
+   * can hold different files under one name. */
+  private verdictKey(name: string): VerdictKey {
+    return nameVerdictKey(this.projectDir, name);
+  }
 
   /**
    * Whether `verdict` is a "no" old enough to ask about again. A confirmed
@@ -268,13 +280,15 @@ export class FileNameResolutionStore {
     // Only a changed answer re-marks. A re-ask that comes back still missing
     // paints nothing different, and notifying anyway would run the whole
     // annotation pass once a minute for every name the index does not have.
-    if (prev === undefined || !sameVerdict(prev, next)) this.notify();
+    if (prev === undefined || !sameVerdict(prev, next)) {
+      this.notify([this.verdictKey(pendingQuery)]);
+    }
     this.pump();
   }
 
-  private notify(): void {
+  private notify(keys: readonly VerdictKey[]): void {
     this.currentVersion += 1;
-    for (const listener of this.listeners) listener();
+    for (const listener of this.listeners) listener(keys);
   }
 
   /** Release the feed subscription. */

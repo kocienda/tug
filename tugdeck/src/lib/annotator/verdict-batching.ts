@@ -15,15 +15,24 @@
  * off with the last — so an unmounted transcript costs the stores
  * nothing.
  *
+ * **A batch names what moved.** Every source names the keys its answers
+ * changed, and the batcher emits their union — so a subscriber can re-mark
+ * exactly the containers that consulted one of those keys rather than every
+ * container that happened to be waiting. Without the names the only
+ * available filter is a per-container flag, and a flag can only record one
+ * of the four states an answer can be in. See `verdict-keys.ts`.
+ *
  * @module lib/annotator/verdict-batching
  */
+
+import type { VerdictKey } from "./verdict-keys";
 
 /** How long answers accumulate before one notification goes out. */
 const BATCH_WINDOW_MS = 100;
 
 /** What the batcher needs from a resolver store. */
 export interface VerdictSource {
-  subscribe: (listener: () => void) => () => void;
+  subscribe: (listener: (keys: readonly VerdictKey[]) => void) => () => void;
 }
 
 /**
@@ -32,13 +41,17 @@ export interface VerdictSource {
  * need no new protocol.
  */
 export class VerdictBatcher {
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(keys: readonly VerdictKey[]) => void>();
   private detachers: Array<() => void> | null = null;
   private windowHandle: ReturnType<typeof setTimeout> | null = null;
+  /** The keys this window's answers have moved so far. */
+  private pendingKeys = new Set<VerdictKey>();
 
   constructor(private readonly sources: readonly VerdictSource[]) {}
 
-  subscribe = (listener: () => void): (() => void) => {
+  subscribe = (
+    listener: (keys: readonly VerdictKey[]) => void,
+  ): (() => void) => {
     this.listeners.add(listener);
     if (this.detachers === null) {
       this.detachers = this.sources.map((source) =>
@@ -53,16 +66,20 @@ export class VerdictBatcher {
       if (this.windowHandle !== null) {
         clearTimeout(this.windowHandle);
         this.windowHandle = null;
+        this.pendingKeys.clear();
       }
     };
   };
 
   /** An answer landed; open the batch window if it isn't already open. */
-  private onAnswer = (): void => {
+  private onAnswer = (keys: readonly VerdictKey[]): void => {
+    for (const key of keys) this.pendingKeys.add(key);
     if (this.windowHandle !== null) return;
     this.windowHandle = setTimeout(() => {
       this.windowHandle = null;
-      for (const listener of this.listeners) listener();
+      const moved = [...this.pendingKeys];
+      this.pendingKeys.clear();
+      for (const listener of this.listeners) listener(moved);
     }, BATCH_WINDOW_MS);
   };
 }
