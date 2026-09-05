@@ -2138,16 +2138,19 @@ model-liveness INSTANCE="debug-main":
 model-stats INSTANCE="debug-main":
     @python3 tests/model-eval/analyze.py {{INSTANCE}}
 
-# Force a fresh app-test build, then run. Use after changing Swift /
-# Rust / harness source — `just app-test` only builds when the bundle is
-# ABSENT, so it would otherwise run against a stale bundle. The build
-# goes to the app-test variant's own DerivedData and never touches a
+# Force a fresh app-test build, then run the files you name. Use after
+# changing Swift / Rust / harness source — `just app-test` only builds when
+# the bundle is ABSENT, so it would otherwise run against a stale bundle. The
+# build goes to the app-test variant's own DerivedData and never touches a
 # live `app-debug` bundle.
 #
-#   just app-test-build                       # rebuild + the core tier
+#   just app-test-build                       # rebuild, and stop
 #   just app-test-build at0003-pane-activation.test.ts  # rebuild + one file
 #
-# Force a fresh app-test build, then run the given files (core tier if none).
+# Name no files and it builds and stops. That is deliberate: this recipe's job
+# is the bundle, and a run must never launch tests nobody asked for. The core
+# tier is still exactly one sentence away — `just app-test` with no arguments.
+# Force a fresh app-test build, then run the given files (none: build only).
 app-test-build *FILES:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -2157,6 +2160,11 @@ app-test-build *FILES:
     # never clobber a bundle another worktree's gated run is executing.
     # The `just app-test` call below re-execs itself under the gate.
     just build-app
+    if [ -z "{{FILES}}" ]; then
+        echo "==> Named no files, so nothing ran. 'just app-test-changed' runs what your"
+        echo "    working diff could have broken; 'just app-test' is the core tier."
+        exit 0
+    fi
     just app-test {{FILES}}
 
 # One-time, reliable Accessibility grant for the app-test identity.

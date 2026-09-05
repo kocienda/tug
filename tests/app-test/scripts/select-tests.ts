@@ -232,6 +232,66 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     "tugdeck/src/deck-manager.ts": 21,
 };
 
+/**
+ * Subtree `@covers` declarations, with how many SOURCE files each claimed when it was
+ * recorded. A subtree form — `@covers tugdeck/src/lib/annotator/` — makes every sibling
+ * module equal, which is how a change to one verdict key selected a slash-command test.
+ *
+ * It is not banned: `@covers tugdeck/src/components/jots/` is honest for a card, where the
+ * card genuinely is the unit. But it is DEBT, and it gets the same rule the fan-out numbers
+ * get — a recorded width may fall, never climb, and a subtree pattern that is not recorded
+ * here fails the check on the commit that introduces it. Adding a key is the deliberate and
+ * visible way to accept one; a directory quietly growing under an existing declaration is
+ * the thing this catches, because that growth widens what a test claims to cover without
+ * anybody writing a line.
+ *
+ * Lower a number when the subtree shrinks. `just app-test-covers-check` prints each
+ * pattern's current width when it refuses, so the numbers never have to be guessed.
+ */
+const ACCEPTED_SUBTREES: Record<string, number> = {
+    // Nothing under `tests/app-test/` is a source, so this claims no files at all; the
+    // harness's blast radius is CORE_TIER_TRIGGERS' business, not a declaration's.
+    "tests/app-test/_harness/": 0,
+    "tugapp/Sources/TestHarness/": 9,
+
+    // The bridge. A single binary with no interior a test could name instead.
+    "tugcode/": 85,
+
+    // Cards and editors, where the directory genuinely IS the unit — the card is what the
+    // test drives, and naming one module inside it would be the narrower fiction.
+    "tugdeck/src/components/cards/cards-store/": 3,
+    "tugdeck/src/components/jots/": 4,
+    "tugdeck/src/components/tugways/hooks/": 11,
+    "tugdeck/src/components/tugways/internal/": 36,
+    "tugdeck/src/components/tugways/tug-text-card-editor/": 5,
+    "tugdeck/src/components/tugways/tug-text-editor/": 30,
+
+    // The annotator. This is the declaration [F06] was written about: a change to one
+    // verdict key selected a slash-command test, because every sibling module here is equal
+    // to every other. It is the first entry to pay down if per-symbol `@covers` is ever
+    // built, and this number is what will say whether it still needs to be.
+    "tugdeck/src/lib/annotator/": 20,
+
+    "tugdeck/src/lib/code-session-store/": 30,
+    "tugdeck/src/lib/markdown/": 19,
+
+    // The themes, which are one system: a token added to one file is answered in all six,
+    // so a test asserting contrast has the set as its honest subject.
+    "tugdeck/styles/themes/": 7,
+
+    "tugrust/crates/tugbank-core/": 10,
+    "tugrust/crates/tugbank/": 3,
+
+    // The server, and by far the widest entry here. It is recorded rather than argued
+    // sound: 694 sources is not a unit anybody exercises, and this number climbing is the
+    // alarm working rather than a nuisance — the answer is to name the feed or the module
+    // the test actually drives, which is what every newer declaration already does.
+    "tugrust/crates/tugcast/": 694,
+
+    "tugrust/crates/tugchanges-core/": 12,
+    "tugrust/crates/tuggram/": 13,
+};
+
 interface TestCoverage {
     file: string;
     covers: string[];
@@ -318,6 +378,38 @@ function matches(pattern: string, path: string): boolean {
         return path === base || path.startsWith(`${base}/`);
     }
     return false;
+}
+
+/**
+ * Whether a changed path is a SOURCE — something the app runs, whose edit could have
+ * changed what a test observes. Only a source resolves through anybody's `@covers`.
+ *
+ * Four kinds of path are not, and each is excluded for its own reason:
+ *
+ *   - `__tests__` subtrees and `*.test.ts` files — a `bun:test` unit file is not something
+ *     the app runs, so editing one cannot change app behaviour. They were selecting
+ *     app-tests only by sitting inside a subtree somebody declared with a trailing `/`.
+ *   - Anything under `tests/app-test/` — an app-test you edited still runs; it is NAMED,
+ *     not selected. Resolving one through a sibling's `@covers` is the same mistake one
+ *     level over.
+ *   - `tugdeck/src/test-surface.ts` — the harness's own surface, and nobody changes it
+ *     speculatively: an accessor is added BECAUSE a test being written needs it, and that
+ *     test is in the same diff and names itself. So the launches it provokes buy nothing
+ *     that naming the test would not have bought. The residual risk is real and stated:
+ *     changing an EXISTING accessor's semantics could break a caller now not selected.
+ *     `tsc` catches the shape, and such a change is deliberate work on the harness, where
+ *     naming the affected test is the natural gesture.
+ *
+ * This is the SELECTION side only. CORE_TIER_TRIGGERS still reads the whole changed list,
+ * so a `tests/app-test/_harness/` edit still raises CORE TIER ADVISED — that advisory
+ * exists precisely for the paths no `@covers` line can scope.
+ */
+function isSource(path: string): boolean {
+    if (path.includes("/__tests__/") || path.startsWith("__tests__/")) return false;
+    if (path.endsWith(".test.ts")) return false;
+    if (matches("tests/app-test/", path)) return false;
+    if (path === "tugdeck/src/test-surface.ts") return false;
+    return true;
 }
 
 /**
@@ -432,21 +524,21 @@ function changedPaths(): string[] {
 }
 
 /**
- * {@link ACCEPTED_FANOUT} as the committed file spells it, or `null` when that file
- * cannot be read — a detached or shallow checkout, or a `select-tests.ts` that is new
- * and has no committed side yet.
+ * A `Record<string, number>` const as the COMMITTED file spells it, or `null` when that
+ * file cannot be read — a detached or shallow checkout, or a `select-tests.ts` that is new
+ * and has no committed side yet. Both ratchets read their own table through this.
  *
  * Null is not a failure. The ratchet compares against history, so a run with no history
  * to compare against has nothing to say; it warns and stands down rather than failing a
  * checkout for the shape it arrived in.
  */
-function committedFanout(): Record<string, number> | null {
+function committedRecord(constName: string): Record<string, number> | null {
     const proc = Bun.spawnSync(["git", "show", "HEAD:tests/app-test/scripts/select-tests.ts"], {
         cwd: REPO_ROOT,
     });
     if (proc.exitCode !== 0) return null;
     const src = new TextDecoder().decode(proc.stdout);
-    const start = src.indexOf("const ACCEPTED_FANOUT");
+    const start = src.indexOf(`const ${constName}`);
     if (start < 0) return null;
     const open = src.indexOf("{", start);
     const close = src.indexOf("\n};", open);
@@ -606,6 +698,36 @@ function fanOut(path: string): number {
     return coverage.filter((c) => c.covers.some((q) => matches(q, path))).length;
 }
 
+/** Whether a `@covers` value claims a whole subtree rather than a named file. */
+function isSubtree(pattern: string): boolean {
+    return pattern.endsWith("/") || pattern.endsWith("/**");
+}
+
+/** Every tracked repo path, read once — what a subtree declaration's width counts over. */
+let trackedCache: string[] | null = null;
+function trackedFiles(): string[] {
+    if (trackedCache === null) {
+        const proc = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: REPO_ROOT });
+        trackedCache =
+            proc.exitCode !== 0
+                ? []
+                : new TextDecoder()
+                      .decode(proc.stdout)
+                      .split("\0")
+                      .filter((p) => p.length > 0);
+    }
+    return trackedCache;
+}
+
+/**
+ * How many SOURCE files a subtree declaration claims — the width recorded in
+ * {@link ACCEPTED_SUBTREES}. Counted through {@link isSource} so it measures what the
+ * declaration can actually select, not every file that happens to sit in the directory.
+ */
+function subtreeWidth(pattern: string): number {
+    return trackedFiles().filter((p) => isSource(p) && matches(pattern, p)).length;
+}
+
 /**
  * Source roots an app-test can meaningfully cover. Everything outside these is either not
  * app-test territory (Rust unit-tested crates, build scripts) or is a CORE_TIER_TRIGGER,
@@ -666,11 +788,13 @@ if (checkOnly) {
     // turns recorded debt into a rubber stamp, because the edit that widens a hub is the
     // same edit that raises its ceiling and the widening never has to be argued.
     const raised: { pattern: string; from: number; to: number }[] = [];
-    const committed = committedFanout();
+    const committed = committedRecord("ACCEPTED_FANOUT");
     if (committed === null) {
         process.stderr.write(
             "[select-tests] WARNING: the committed select-tests.ts is unreadable (detached, shallow,\n" +
-                "               or newly added) — the accepted-fan-out ratchet is not enforced this run.\n",
+                "               or newly added) — BOTH ratchets against history stand down this run: a\n" +
+                "               raised ACCEPTED_FANOUT or ACCEPTED_SUBTREES number will pass. The subtree\n" +
+                "               widths are still checked against the tree, which needs no history.\n",
         );
     } else {
         for (const [pattern, to] of Object.entries(ACCEPTED_FANOUT)) {
@@ -710,6 +834,68 @@ if (checkOnly) {
         );
     }
 
+    // The subtree ratchet, on the same rule and for the same reason: a recorded width may
+    // fall, never climb, and an unrecorded subtree declaration fails on the commit that
+    // writes it. What it catches that the fan-out ratchet cannot is a directory GROWING
+    // under a declaration nobody edited — the test's claim widens with no line to argue.
+    const subtreePatterns = [...new Set(patterns.filter(isSubtree))].sort();
+    const subtreeUnrecorded: { pattern: string; width: number }[] = [];
+    const subtreeWidened: { pattern: string; width: number; accepted: number }[] = [];
+    const subtreeRefinanced: { pattern: string; from: number; to: number }[] = [];
+    const committedSubtrees = committedRecord("ACCEPTED_SUBTREES");
+    for (const pattern of subtreePatterns) {
+        const accepted = ACCEPTED_SUBTREES[pattern];
+        if (accepted === undefined) {
+            subtreeUnrecorded.push({ pattern, width: subtreeWidth(pattern) });
+            continue;
+        }
+        const width = subtreeWidth(pattern);
+        if (width > accepted) subtreeWidened.push({ pattern, width, accepted });
+        const from = committedSubtrees?.[pattern];
+        if (from !== undefined && accepted > from) {
+            subtreeRefinanced.push({ pattern, from, to: accepted });
+        }
+    }
+
+    if (subtreeUnrecorded.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${subtreeUnrecorded.length} subtree @covers declaration(s) are not recorded.\n` +
+                "               A subtree form makes every sibling module equal, so it is debt that has\n" +
+                "               to be argued rather than assumed. Name a file instead, or add each to\n" +
+                "               ACCEPTED_SUBTREES at the width printed here:\n",
+        );
+        for (const s of subtreeUnrecorded) {
+            process.stderr.write(`  "${s.pattern}": ${s.width},\n`);
+        }
+    }
+    if (subtreeWidened.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${subtreeWidened.length} subtree @covers declaration(s) now claim MORE source\n` +
+                "               files than the width recorded for them — the directory grew, and every\n" +
+                "               test naming it silently widened with it:\n",
+        );
+        for (const s of subtreeWidened) {
+            process.stderr.write(`  ${s.pattern}  →  ${s.width} sources (recorded at ${s.accepted})\n`);
+        }
+        process.stderr.write(
+            "               Name the files the tests actually exercise, or raise the number in the\n" +
+                "               same change that argues why the whole subtree is still one unit.\n",
+        );
+    }
+    if (subtreeRefinanced.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${subtreeRefinanced.length} accepted subtree width(s) went UP. Recorded debt may be\n` +
+                "               paid down, never refinanced in place:\n",
+        );
+        for (const s of subtreeRefinanced) {
+            process.stderr.write(`  ${s.pattern}  →  ${s.from} raised to ${s.to}\n`);
+        }
+        process.stderr.write(
+            "               Delete the entry and re-add it — a new key is not subject to this rule,\n" +
+                "               and the delete-then-re-add is what puts the decision in the diff.\n",
+        );
+    }
+
     if (missing.length > 0) {
         process.stderr.write(
             `[select-tests] ${missing.length} test file(s) declare no @covers — they can never be\n` +
@@ -728,16 +914,25 @@ if (checkOnly) {
         missing.length === 0 &&
         dangling.length === 0 &&
         overBudget.length === 0 &&
-        raised.length === 0
+        raised.length === 0 &&
+        subtreeUnrecorded.length === 0 &&
+        subtreeWidened.length === 0 &&
+        subtreeRefinanced.length === 0
     ) {
         const worst = patterns
             .map((p) => ({ p, n: fanOut(representativePath(p)) }))
             .sort((a, b) => b.n - a.n)
             .slice(0, 3);
+        const widest = subtreePatterns
+            .map((p) => ({ p, n: subtreeWidth(p) }))
+            .sort((a, b) => b.n - a.n)
+            .slice(0, 2);
         process.stderr.write(
             `[select-tests] ${coverage.length} test files: @covers present, resolving, and\n` +
                 `               within the ${MAX_SELECTED}-file budget. Widest fan-out: ` +
-                `${worst.map((w) => `${w.p} (${w.n})`).join(", ")}\n`,
+                `${worst.map((w) => `${w.p} (${w.n})`).join(", ")}\n` +
+                `               ${subtreePatterns.length} subtree declaration(s) at their recorded width. ` +
+                `Widest: ${widest.map((w) => `${w.p} (${w.n} sources)`).join(", ")}\n`,
         );
         process.exit(0);
     }
@@ -753,19 +948,31 @@ if (changed.length === 0) {
 
 const tripped = changed.filter((p) => CORE_TIER_TRIGGERS.some((t) => matches(t, p)));
 
+// Only sources resolve through `@covers`; see `isSource`. `changed` itself stays whole,
+// because the core-tier advisory above is about exactly the paths excluded here.
+const sources = changed.filter(isSource);
+const setAside = changed.filter((p) => !isSource(p));
+
 const selected: { file: string; because: string[] }[] = [];
 for (const c of coverage) {
-    const because = changed.filter((p) => c.covers.some((pattern) => matches(pattern, p)));
+    const because = sources.filter((p) => c.covers.some((pattern) => matches(pattern, p)));
     if (because.length > 0) selected.push({ file: c.file, because });
 }
 
-process.stderr.write(`[select-tests] ${changed.length} changed file(s) → ${selected.length} test file(s)\n`);
+process.stderr.write(`[select-tests] ${sources.length} changed source file(s) → ${selected.length} test file(s)\n`);
 for (const s of selected) {
     process.stderr.write(`  ${s.file}  ←  ${s.because.slice(0, 3).join(", ")}${s.because.length > 3 ? ", …" : ""}\n`);
 }
 
+if (setAside.length > 0) {
+    process.stderr.write(
+        `[select-tests] ${setAside.length} changed file(s) select nothing (test files and the\n` +
+            `               harness surface are not sources): ${setAside.slice(0, 3).join(", ")}${setAside.length > 3 ? ", …" : ""}\n`,
+    );
+}
+
 const uncovered = changed.filter(
-    (p) => !p.startsWith("tests/app-test/") && !selected.some((s) => s.because.includes(p)),
+    (p) => isSource(p) && !selected.some((s) => s.because.includes(p)),
 );
 if (uncovered.length > 0) {
     process.stderr.write(`[select-tests] no app-test covers these changed files:\n`);
