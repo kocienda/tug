@@ -952,9 +952,12 @@ async fn shell_session_task(
                 .and_then(|sessions| sessions.line_of(&tug_session_id))
                 .unwrap_or_else(|| tug_session_id.to_string());
             let ink_session = tug_session_id.to_string();
-            // The turn this row follows, read from the head's transcript — the
-            // file the deck will replay. After the resolution above, never
-            // before it. `spawn_cwd` is the card's project dir, and passing it
+            // The turn this row follows, read from the line's live head — the
+            // file the deck will replay last. The ledger resolves the frozen
+            // `$TUG_SESSION_ID` to that head itself, so a `tugtool arc` verb
+            // run three rotations into an arc seats under the stage that ran
+            // it rather than under the door that spawned the shell.
+            // `spawn_cwd` is the card's project dir, and passing it
             // is what makes the stamp work before tugcode has announced the
             // session and written its ledger row; `cwd` would not do, since a
             // `cd` moves it out of the project.

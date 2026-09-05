@@ -1223,6 +1223,16 @@ async fn main() {
     // nothing. Once resolved a row never moves again — which is why the three
     // adoption passes that used to run here are gone rather than rewritten.
     ink_backfill::assign_lines(&ledger, shell_ledger.as_deref(), refs_ledger.as_deref());
+    // And give every row a rotated card wrote under its retired first
+    // segment the anchor it would have carried had the gateway read the
+    // seated segment's transcript — once, so the join receipts already on
+    // disk restore where the join happened rather than under the door.
+    ink_backfill::reanchor_rotated_lines(
+        &ledger,
+        shell_ledger.as_deref(),
+        refs_ledger.as_deref(),
+        crate::session_ledger::now_millis(),
+    );
 
     let ledger_recorder = Arc::new(
         LedgerSessionsRecorder::with_broadcast(Arc::clone(&ledger), client_action_tx.clone())

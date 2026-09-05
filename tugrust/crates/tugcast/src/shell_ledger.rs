@@ -21,7 +21,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use tracing::warn;
 
@@ -120,6 +120,17 @@ pub struct ShellExchangeRow {
     pub anchor_msg_id: Option<String>,
 }
 
+/// An anchored shell row as the re-anchoring repair reads it
+/// ([`crate::ink_backfill::reanchor_rotated_lines`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnchoredInkRow {
+    pub id: i64,
+    pub line_id: String,
+    pub tug_session_id: String,
+    pub at_ms: i64,
+    pub anchor_msg_id: String,
+}
+
 /// One session's ink holdings, as `GET /api/ink-census` reports them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct InkCensusRow {
@@ -193,6 +204,13 @@ impl ShellLedger {
             );
             CREATE INDEX IF NOT EXISTS idx_shell_exchanges_line
                 ON shell_exchanges(line_id, id);
+            -- One-time passes this ledger has been through, by name
+            -- (`ink_backfill`), so a repair that has to read transcripts
+            -- runs once and not on every boot.
+            CREATE TABLE IF NOT EXISTS backfills (
+                name       TEXT    PRIMARY KEY,
+                done_at_ms INTEGER NOT NULL
+            );
             ",
         )?;
         Ok(Self {
@@ -339,6 +357,63 @@ impl ShellLedger {
             "UPDATE shell_exchanges SET line_id = ?2
              WHERE tug_session_id = ?1 AND line_id = ''",
             params![session_id, line_id],
+        )?;
+        Ok(moved)
+    }
+
+    /// Whether the named one-time pass has already run against this ledger.
+    pub fn backfill_done(&self, name: &str) -> Result<bool, ShellLedgerError> {
+        let conn = self.db.lock().expect("shell ledger mutex");
+        let done = conn
+            .query_row(
+                "SELECT 1 FROM backfills WHERE name = ?1",
+                params![name],
+                |_| Ok(()),
+            )
+            .optional()?;
+        Ok(done.is_some())
+    }
+
+    /// Record that the named one-time pass has run.
+    pub fn mark_backfill(&self, name: &str, now_ms: i64) -> Result<(), ShellLedgerError> {
+        let conn = self.db.lock().expect("shell ledger mutex");
+        conn.execute(
+            "INSERT OR REPLACE INTO backfills (name, done_at_ms) VALUES (?1, ?2)",
+            params![name, now_ms],
+        )?;
+        Ok(())
+    }
+
+    /// Every anchored row, oldest first: the id, the line, the segment that
+    /// wrote it, when, and the anchor it carries. The repair's read.
+    pub fn anchored_rows(&self) -> Result<Vec<AnchoredInkRow>, ShellLedgerError> {
+        let conn = self.db.lock().expect("shell ledger mutex");
+        let mut stmt = conn.prepare(
+            "SELECT id, line_id, tug_session_id, started_at_ms, anchor_msg_id
+             FROM shell_exchanges
+             WHERE anchor_msg_id IS NOT NULL AND line_id != ''
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(AnchoredInkRow {
+                    id: row.get(0)?,
+                    line_id: row.get(1)?,
+                    tug_session_id: row.get(2)?,
+                    at_ms: row.get(3)?,
+                    anchor_msg_id: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Rewrite one row's anchor. Returns how many rows it touched (0 or 1).
+    pub fn set_anchor(&self, id: i64, anchor_msg_id: &str) -> Result<usize, ShellLedgerError> {
+        let conn = self.db.lock().expect("shell ledger mutex");
+        let moved = conn.execute(
+            "UPDATE shell_exchanges SET anchor_msg_id = ?2 WHERE id = ?1",
+            params![id, anchor_msg_id],
         )?;
         Ok(moved)
     }

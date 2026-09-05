@@ -51,6 +51,16 @@ pub struct NewRefsRun {
     pub anchor_msg_id: Option<String>,
 }
 
+/// An anchored run as the re-anchoring repair reads it
+/// ([`crate::ink_backfill::reanchor_rotated_lines`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnchoredRefsRun {
+    pub line_id: String,
+    pub tug_session_id: String,
+    pub at_ms: i64,
+    pub anchor_msg_id: String,
+}
+
 /// The persisted run, serialized into the `list_refs_ok` CONTROL response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RefsRunRow {
@@ -119,6 +129,13 @@ impl RefsLedger {
                 refs_json      TEXT    NOT NULL,
                 settled_at_ms  INTEGER NOT NULL,
                 anchor_msg_id  TEXT
+            );
+            -- One-time passes this ledger has been through, by name
+            -- (`ink_backfill`), so a repair that has to read transcripts
+            -- runs once and not on every boot.
+            CREATE TABLE IF NOT EXISTS backfills (
+                name       TEXT    PRIMARY KEY,
+                done_at_ms INTEGER NOT NULL
             );
             ",
         )?;
@@ -276,6 +293,62 @@ impl RefsLedger {
         }
         tx.commit()?;
         Ok(1)
+    }
+
+    /// Whether the named one-time pass has already run against this ledger.
+    pub fn backfill_done(&self, name: &str) -> Result<bool, RefsLedgerError> {
+        let conn = self.db.lock().expect("refs ledger mutex");
+        let done = conn
+            .query_row(
+                "SELECT 1 FROM backfills WHERE name = ?1",
+                params![name],
+                |_| Ok(()),
+            )
+            .optional()?;
+        Ok(done.is_some())
+    }
+
+    /// Record that the named one-time pass has run.
+    pub fn mark_backfill(&self, name: &str, now_ms: i64) -> Result<(), RefsLedgerError> {
+        let conn = self.db.lock().expect("refs ledger mutex");
+        conn.execute(
+            "INSERT OR REPLACE INTO backfills (name, done_at_ms) VALUES (?1, ?2)",
+            params![name, now_ms],
+        )?;
+        Ok(())
+    }
+
+    /// Every anchored run: the line, the segment that ran it, when, and the
+    /// anchor it carries. The repair's read.
+    pub fn anchored_runs(&self) -> Result<Vec<AnchoredRefsRun>, RefsLedgerError> {
+        let conn = self.db.lock().expect("refs ledger mutex");
+        let mut stmt = conn.prepare(
+            "SELECT line_id, tug_session_id, settled_at_ms, anchor_msg_id
+             FROM refs_runs
+             WHERE anchor_msg_id IS NOT NULL AND line_id != tug_session_id
+             ORDER BY settled_at_ms ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(AnchoredRefsRun {
+                    line_id: row.get(0)?,
+                    tug_session_id: row.get(1)?,
+                    at_ms: row.get(2)?,
+                    anchor_msg_id: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Rewrite a line's run anchor. Returns how many rows it touched (0 or 1).
+    pub fn set_anchor(&self, line_id: &str, anchor_msg_id: &str) -> Result<usize, RefsLedgerError> {
+        let conn = self.db.lock().expect("refs ledger mutex");
+        let moved = conn.execute(
+            "UPDATE refs_runs SET anchor_msg_id = ?2 WHERE line_id = ?1",
+            params![line_id, anchor_msg_id],
+        )?;
+        Ok(moved)
     }
 
     /// The line's latest run, or `None` if it has never completed one.

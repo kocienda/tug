@@ -7265,10 +7265,13 @@ impl AgentSupervisor {
             .and_then(|sessions| sessions.line_of(session_id))
             .unwrap_or_else(|| session_id.to_string());
         let session_id = session_id.to_string();
-        // The anchor reads the *segment's* transcript — the file the deck will
-        // replay — because which turn a receipt follows is a fact about the id
-        // that wrote it. `cwd` is the landing's project dir, which locates
-        // that file.
+        // The anchor is the turn this receipt follows in the transcript the
+        // deck will replay. `session_id` here is the card's own id — the
+        // line's *first* segment once the Wheel has rotated it — and the
+        // ledger resolves it to the line's live head before reading a file,
+        // so a join landed after three rotations seats after the audit's last
+        // word and not after the door's. `cwd` is the landing's project dir,
+        // which locates that file.
         let anchor_msg_id =
             sessions.and_then(|s| s.latest_assistant_msg_id(&session_id, Some(cwd)));
         let now = std::time::SystemTime::now()
@@ -14150,10 +14153,9 @@ mod tests {
 
     #[test]
     fn the_receipt_anchor_comes_from_the_segments_own_transcript() {
-        // The parent and the fork hold different transcripts. The anchor is a
-        // fact about *which turn this receipt follows*, so it reads the file
-        // the receipt was written in — the id it arrived under — while the row
-        // itself is keyed to the line the two segments share.
+        // Two lines, two transcripts: a fork the user cut into its own card
+        // is not a segment of the parent's line, so a receipt posted under the
+        // parent reads the parent's file and never the fork's.
         let shell =
             Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
         let (sessions, _dir) =
@@ -14175,6 +14177,67 @@ mod tests {
         let rows = shell.list_exchanges_since(&line, None).unwrap();
         assert_eq!(rows.len(), 1, "the receipt keyed onto the line");
         assert_eq!(rows[0].anchor_msg_id.as_deref(), Some("msg_01PARENT"));
+    }
+
+    #[test]
+    fn the_receipt_anchor_is_the_lines_live_head_not_the_id_the_card_was_spawned_as() {
+        // The shape every arc join has once the Wheel has rotated: the card's
+        // own id is the line's first segment, closed at the first rotation,
+        // and the deck posts the join under it. The receipt has to seat after
+        // the head's last turn — the audit's report — not after the door's,
+        // which is where an anchor read off the posted id's file put it, and
+        // where a relaunch then "lost" the join beneath two whole stages.
+        let shell =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
+        let (sessions, dir) = sessions_with_transcripts(&[]);
+        let (project, _) =
+            crate::session_ledger::claude_project_dir(sessions.claude_projects_root(), "/proj");
+        let transcript = |session: &str, msg_id: &str| {
+            std::fs::write(
+                project.join(format!("{session}.jsonl")),
+                format!(
+                    "{{\"type\":\"user\",\"message\":{{\"role\":\"user\"}}}}\n\
+                     {{\"type\":\"assistant\",\"message\":{{\"id\":\"{msg_id}\"}}}}\n"
+                ),
+            )
+            .expect("write jsonl");
+        };
+        sessions
+            .record_spawn("door", "ws", "/proj", "card-1", 1_000, "line-1", None)
+            .expect("spawn the door");
+        transcript("door", "msg_01DOOR");
+        sessions
+            .demote_live_to_closed()
+            .expect("the door rotates away");
+        sessions
+            .record_spawn("audit", "ws", "/proj", "card-1", 2_000, "line-1", None)
+            .expect("spawn the head");
+        sessions
+            .set_fork_provenance("audit", "door", None)
+            .expect("provenance");
+        transcript("audit", "msg_01AUDIT");
+
+        AgentSupervisor::record_landing_receipt(
+            Some(&shell),
+            Some(&sessions),
+            Some("door"),
+            "/arc-join",
+            "landed",
+            "/proj",
+        );
+
+        let rows = shell.list_exchanges_since("line-1", None).unwrap();
+        assert_eq!(rows.len(), 1, "the receipt keyed onto the line");
+        assert_eq!(
+            rows[0].tug_session_id, "door",
+            "the writer's id is still the record"
+        );
+        assert_eq!(
+            rows[0].anchor_msg_id.as_deref(),
+            Some("msg_01AUDIT"),
+            "the anchor is the live head's last turn, not the door's",
+        );
+        drop(dir);
     }
 
     #[test]

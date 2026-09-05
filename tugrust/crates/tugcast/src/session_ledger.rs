@@ -1460,7 +1460,8 @@ impl SessionLedger {
         &self.claude_projects_root
     }
 
-    /// The newest assistant `message.id` in `session_id`'s JSONL, or `None`.
+    /// The newest assistant `message.id` in the transcript the deck will replay
+    /// for `session_id`'s **line**, or `None`.
     ///
     /// This is the **ink anchor**: the transcript turn a durable row written
     /// right now follows. Ink write gateways stamp it on the ledger row so a
@@ -1478,9 +1479,19 @@ impl SessionLedger {
     /// timestamp exactly as it did before anchors existed. Placement may
     /// degrade; a receipt is never blocked or lost.
     ///
-    /// Call it with a **lineage head**: the anchor must name a turn in the
-    /// file the deck will replay, which is the head's file, not a superseded
-    /// fork's.
+    /// **The id is resolved to the line's live segment before the file is
+    /// opened** ([`Self::live_segment_of`]), and the caller need not do it.
+    /// Every ink gateway is handed the id the *writer* was spawned under — the
+    /// card's `tugSessionId`, a `$TUG_SESSION_ID` frozen into a shell — and the
+    /// Wheel rotates a card's session on purpose at every stage, so on any arc
+    /// that has rotated once that id names a segment closed hours ago. Read
+    /// naively, its file's tail is the last thing said *before the first
+    /// rotation*, and every row written after it — each round's note, the
+    /// run's receipt, the join's receipt — restores seated at that point,
+    /// above the whole implement and audit segments, which reads as lost. The
+    /// anchor must name a turn in the file the deck will replay last, which is
+    /// the head's. A line with no live segment falls back to the id it was
+    /// asked about, which is the only file it can still name.
     ///
     /// `project_dir` is the directory the session runs in, and it is what
     /// locates the transcript. Every ink gateway already holds it, so every
@@ -1494,6 +1505,17 @@ impl SessionLedger {
         session_id: &str,
         project_dir: Option<&str>,
     ) -> Option<String> {
+        // Newest live segment first, the posted id only when its line has
+        // none: a closed line still has a transcript to seat against.
+        let resolved = match self.live_segment_of(session_id) {
+            Ok(Some(head)) => head,
+            Ok(None) => session_id.to_string(),
+            Err(err) => {
+                tracing::debug!(session_id, error = %err, "ink anchor: live segment lookup failed");
+                session_id.to_string()
+            }
+        };
+        let session_id = resolved.as_str();
         let project_dir = match project_dir {
             Some(dir) if !dir.is_empty() => dir.to_string(),
             _ => match self.get(session_id) {
@@ -1517,6 +1539,24 @@ impl SessionLedger {
             );
         }
         anchor
+    }
+
+    /// The assistant `message.id` that was the newest in `session_id`'s
+    /// transcript **as of** `at_ms` — the anchor a row written at that moment
+    /// would have carried, had it read this file.
+    ///
+    /// The repair's read, not the gateway's: it takes the segment outright
+    /// rather than resolving one, and it scans the whole file rather than the
+    /// tail, because the moment asked about may be hours up the transcript.
+    /// `None` on any surprise, exactly as the live read.
+    pub fn assistant_msg_id_at(
+        &self,
+        session_id: &str,
+        project_dir: &str,
+        at_ms: i64,
+    ) -> Option<String> {
+        let (dir, _canonical) = claude_project_dir(&self.claude_projects_root, project_dir);
+        assistant_msg_id_at_in(&dir.join(format!("{session_id}.jsonl")), at_ms)
     }
 
     /// Wire the "sessions changed" signal the ledger publishes on. Called once
@@ -4236,6 +4276,29 @@ impl SessionLedger {
             |row| row.get(0),
         )?;
         Ok(total)
+    }
+
+    /// Every segment a line has worn, oldest first — the order the deck
+    /// replays them in, and the order a moment in time is matched against
+    /// when a row written under one segment's id has to be seated in another
+    /// segment's transcript ([`crate::ink_backfill::reanchor_rotated_lines`]).
+    pub fn segments_of_line(&self, line_id: &str) -> Result<Vec<LineSegment>, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut stmt = conn.prepare(
+            "SELECT session_id, created_at, project_dir FROM sessions
+             WHERE line_id = ?1
+             ORDER BY created_at ASC, rowid ASC",
+        )?;
+        let segments = stmt
+            .query_map(params![line_id], |row| {
+                Ok(LineSegment {
+                    session_id: row.get(0)?,
+                    created_at: row.get(1)?,
+                    project_dir: row.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(segments)
     }
 
     /// One line by id.
@@ -9031,6 +9094,63 @@ fn latest_assistant_msg_id_in(path: &Path) -> Option<String> {
         }
     }
     None
+}
+
+/// One segment of a line, as [`SessionLedger::segments_of_line`] lists them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineSegment {
+    pub session_id: String,
+    /// When the segment was recorded, in ms — the moment the line's seat
+    /// moved onto it.
+    pub created_at: i64,
+    pub project_dir: String,
+}
+
+/// The newest assistant `message.id` in `path` whose entry is stamped at or
+/// before `at_ms`. The whole file is read, in order, and the last qualifying
+/// line wins; entries with no parseable `timestamp` are skipped, as are the
+/// sidechain and meta lines replay drops (see
+/// [`latest_assistant_msg_id_in`] for why that exclusion is load-bearing).
+fn assistant_msg_id_at_in(path: &Path, at_ms: i64) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut found: Option<String> = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if entry.get("type").and_then(|v| v.as_str()) != Some("assistant") {
+            continue;
+        }
+        if entry.get("isSidechain").and_then(|v| v.as_bool()) == Some(true)
+            || entry.get("isMeta").and_then(|v| v.as_bool()) == Some(true)
+        {
+            continue;
+        }
+        let Some(stamp) = entry
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+            .map(|dt| dt.timestamp_millis())
+        else {
+            continue;
+        };
+        if stamp > at_ms {
+            break;
+        }
+        let id = entry
+            .get("message")
+            .and_then(|m| m.get("id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        if !id.is_empty() {
+            found = Some(id.to_string());
+        }
+    }
+    found
 }
 
 /// Move `<root>/<encoded>/<sessionId>.jsonl` to
@@ -17383,6 +17503,53 @@ mod tests {
         assert_eq!(
             fx.sessions.latest_assistant_msg_id("s1", None).as_deref(),
             Some("msg_01LAST"),
+        );
+    }
+
+    #[test]
+    fn the_anchor_reads_the_lines_live_head_when_asked_about_a_rotated_segment() {
+        // A card's id is frozen at spawn and the Wheel rotates the session
+        // beneath it, so the id every ink gateway is handed names the first
+        // segment of a line whose head is elsewhere. The anchor has to be a
+        // turn in the head's file — the last file the deck replays — or every
+        // row written after the first rotation seats under the door's last
+        // word.
+        let fx = AnchorFixture::new();
+        let (dir, _) = claude_project_dir(fx.sessions.claude_projects_root(), "/proj");
+        std::fs::create_dir_all(&dir).expect("create project dir");
+        fx.sessions
+            .record_spawn("door", "ws", "/proj", "card-1", 1_000, "line-1", None)
+            .expect("spawn the door");
+        std::fs::write(dir.join("door.jsonl"), assistant_line("msg_01DOOR")).expect("door jsonl");
+        fx.sessions.demote_live_to_closed().expect("rotate");
+        fx.sessions
+            .record_spawn("head", "ws", "/proj", "card-1", 2_000, "line-1", None)
+            .expect("spawn the head");
+        std::fs::write(dir.join("head.jsonl"), assistant_line("msg_01HEAD")).expect("head jsonl");
+
+        assert_eq!(
+            fx.sessions
+                .latest_assistant_msg_id("door", Some("/proj"))
+                .as_deref(),
+            Some("msg_01HEAD"),
+            "the retired segment's id resolves to the head's transcript",
+        );
+        assert_eq!(
+            fx.sessions
+                .latest_assistant_msg_id("head", Some("/proj"))
+                .as_deref(),
+            Some("msg_01HEAD"),
+            "and the head resolves to itself",
+        );
+
+        // A line whose every segment has closed has no live head to prefer;
+        // the id asked about is still a file, and it is the one read.
+        fx.sessions.demote_live_to_closed().expect("close the line");
+        assert_eq!(
+            fx.sessions
+                .latest_assistant_msg_id("door", Some("/proj"))
+                .as_deref(),
+            Some("msg_01DOOR"),
         );
     }
 

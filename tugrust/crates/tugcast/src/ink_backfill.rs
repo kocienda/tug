@@ -12,9 +12,18 @@
 //! every row already names the segment that wrote it, and all this does is
 //! record which line that segment belongs to. Once written it never moves
 //! again, which is the whole point of keying ink by line.
+//!
+//! The second pass here, [`reanchor_rotated_lines`], repairs the **anchor**
+//! of rows written under a rotated card. Until 2026-09-04 every ink gateway
+//! read the anchor off the transcript of the id it was handed — the card's
+//! own, which the Wheel leaves pointing at a line's *first* segment — so every
+//! row written after a card's first rotation carried the door's last turn as
+//! its anchor and restored seated there, above every later stage. The
+//! gateways read the live head now; this pass gives the rows already on disk
+//! the anchor they would have carried, and runs once.
 
 use crate::refs_ledger::RefsLedger;
-use crate::session_ledger::SessionLedger;
+use crate::session_ledger::{LineSegment, SessionLedger};
 use crate::shell_ledger::ShellLedger;
 
 /// How many rows each ledger's backfill touched.
@@ -95,6 +104,169 @@ pub fn assign_lines(
         );
     }
     counts
+}
+
+/// The name the re-anchoring pass is marked done under, in each ink ledger.
+const REANCHOR_PASS: &str = "reanchor-rotated-lines-2026-09-04";
+
+/// How many anchors the repair rewrote in each ledger.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReanchorCounts {
+    pub shell: usize,
+    pub refs: usize,
+}
+
+/// Re-anchor every ink row a rotated card wrote under a retired segment's id.
+///
+/// A row is affected when its line has more than one segment and the segment
+/// that was **seated when the row was written** — the newest one recorded
+/// before the row's own timestamp — is not the segment the row names. Such a
+/// row's anchor was read off the wrong file. The repair reads the seated
+/// segment's transcript and takes the newest assistant message stamped at or
+/// before the row's moment, which is exactly the anchor a correct gateway
+/// would have written then. A row written under the seated segment's own id
+/// was anchored correctly and is not read at all, which is what keeps this
+/// pass to the affected rows rather than to every transcript on disk.
+///
+/// An anchor that cannot be recomputed — a transcript gone, a segment with
+/// no assistant line before that moment — is left as it was: a stale seat is
+/// still a seat, and [L23] says placement degrades, never the row.
+///
+/// Runs once per ledger, marked in the ledger it repaired, because the read
+/// is over transcripts rather than rows and a boot should not pay for it
+/// twice. Idempotent within a run: a second call finds every affected anchor
+/// already equal to what it would write.
+pub fn reanchor_rotated_lines(
+    sessions: &SessionLedger,
+    shell: Option<&ShellLedger>,
+    refs: Option<&RefsLedger>,
+    now_ms: i64,
+) -> ReanchorCounts {
+    let mut counts = ReanchorCounts::default();
+    let mut segments_by_line: std::collections::HashMap<String, Vec<LineSegment>> =
+        std::collections::HashMap::new();
+    let mut segments_of = |line_id: &str| -> Vec<LineSegment> {
+        segments_by_line
+            .entry(line_id.to_owned())
+            .or_insert_with(|| {
+                sessions.segments_of_line(line_id).unwrap_or_else(|err| {
+                    tracing::warn!(line = %line_id, error = %err, "reanchor: segments read failed");
+                    Vec::new()
+                })
+            })
+            .clone()
+    };
+
+    if let Some(shell) = shell {
+        match shell.backfill_done(REANCHOR_PASS) {
+            Ok(true) => {}
+            Ok(false) => match shell.anchored_rows() {
+                Ok(rows) => {
+                    for row in rows {
+                        let segments = segments_of(&row.line_id);
+                        let Some(anchor) = corrected_anchor(
+                            sessions,
+                            &segments,
+                            &row.tug_session_id,
+                            row.at_ms,
+                            &row.anchor_msg_id,
+                        ) else {
+                            continue;
+                        };
+                        match shell.set_anchor(row.id, &anchor) {
+                            Ok(moved) => counts.shell += moved,
+                            Err(err) => tracing::warn!(
+                                id = row.id,
+                                error = %err,
+                                "reanchor: shell anchor write failed"
+                            ),
+                        }
+                    }
+                    if let Err(err) = shell.mark_backfill(REANCHOR_PASS, now_ms) {
+                        tracing::warn!(error = %err, "reanchor: shell pass mark failed");
+                    }
+                }
+                Err(err) => tracing::warn!(error = %err, "reanchor: shell rows read failed"),
+            },
+            Err(err) => tracing::warn!(error = %err, "reanchor: shell pass mark read failed"),
+        }
+    }
+
+    if let Some(refs) = refs {
+        match refs.backfill_done(REANCHOR_PASS) {
+            Ok(true) => {}
+            Ok(false) => match refs.anchored_runs() {
+                Ok(runs) => {
+                    for run in runs {
+                        let segments = segments_of(&run.line_id);
+                        let Some(anchor) = corrected_anchor(
+                            sessions,
+                            &segments,
+                            &run.tug_session_id,
+                            run.at_ms,
+                            &run.anchor_msg_id,
+                        ) else {
+                            continue;
+                        };
+                        match refs.set_anchor(&run.line_id, &anchor) {
+                            Ok(moved) => counts.refs += moved,
+                            Err(err) => tracing::warn!(
+                                line = %run.line_id,
+                                error = %err,
+                                "reanchor: refs anchor write failed"
+                            ),
+                        }
+                    }
+                    if let Err(err) = refs.mark_backfill(REANCHOR_PASS, now_ms) {
+                        tracing::warn!(error = %err, "reanchor: refs pass mark failed");
+                    }
+                }
+                Err(err) => tracing::warn!(error = %err, "reanchor: refs runs read failed"),
+            },
+            Err(err) => tracing::warn!(error = %err, "reanchor: refs pass mark read failed"),
+        }
+    }
+
+    if counts != ReanchorCounts::default() {
+        tracing::info!(
+            shell = counts.shell,
+            refs = counts.refs,
+            "durable ink re-anchored to the segment seated when it was written"
+        );
+    }
+    counts
+}
+
+/// The anchor a row written at `at_ms` under `writer` should carry, when the
+/// one it carries is not it. `None` when the row is not affected — its line
+/// has one segment, or the writer *was* the seated segment — or when the
+/// right anchor cannot be recomputed.
+fn corrected_anchor(
+    sessions: &SessionLedger,
+    segments: &[LineSegment],
+    writer: &str,
+    at_ms: i64,
+    stored: &str,
+) -> Option<String> {
+    if segments.len() < 2 {
+        return None;
+    }
+    // The segment seated at the row's moment: the newest recorded at or
+    // before it. A row older than every segment — a clock the ledger never
+    // saw — belongs to the first.
+    let seated = segments
+        .iter()
+        .rev()
+        .find(|segment| segment.created_at <= at_ms)
+        .unwrap_or(&segments[0]);
+    if seated.session_id == writer {
+        return None;
+    }
+    let anchor = sessions.assistant_msg_id_at(&seated.session_id, &seated.project_dir, at_ms)?;
+    if anchor == stored {
+        return None;
+    }
+    Some(anchor)
 }
 
 #[cfg(test)]
@@ -204,5 +376,140 @@ mod tests {
             1
         );
         assert!(shell.list_exchanges_since("", None).unwrap().is_empty());
+    }
+
+    /// A rotated line on disk: the door at 1s, the head seated at 5s, each
+    /// with its own transcript, stamped so the repair can read "as of".
+    fn rotated_line_with_transcripts() -> (SessionLedger, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sessions = SessionLedger::open_in_memory_with_root(&dir.path().join("projects"))
+            .expect("sessions ledger");
+        let (project, _) =
+            crate::session_ledger::claude_project_dir(sessions.claude_projects_root(), "/proj");
+        std::fs::create_dir_all(&project).expect("project dir");
+        let assistant = |id: &str, stamp: &str| {
+            format!(
+                "{{\"type\":\"assistant\",\"timestamp\":\"{stamp}\",\"message\":{{\"id\":\"{id}\"}}}}\n"
+            )
+        };
+        sessions
+            .record_spawn("door", "ws", "/proj", "card-1", 1_000, "line-1", None)
+            .expect("spawn the door");
+        std::fs::write(
+            project.join("door.jsonl"),
+            assistant("msg_DOOR", "1970-01-01T00:00:01.500Z"),
+        )
+        .expect("door jsonl");
+        sessions.demote_live_to_closed().expect("rotate");
+        sessions
+            .record_spawn("head", "ws", "/proj", "card-1", 5_000, "line-1", None)
+            .expect("spawn the head");
+        std::fs::write(
+            project.join("head.jsonl"),
+            format!(
+                "{}{}{}",
+                assistant("msg_HEAD_EARLY", "1970-01-01T00:00:06.000Z"),
+                // A sidechain line replay drops: never an anchor.
+                "{\"type\":\"assistant\",\"isSidechain\":true,\"timestamp\":\"1970-01-01T00:00:06.500Z\",\"message\":{\"id\":\"msg_SIDE\"}}\n",
+                assistant("msg_HEAD_LATE", "1970-01-01T00:00:09.000Z"),
+            ),
+        )
+        .expect("head jsonl");
+        (sessions, dir)
+    }
+
+    fn anchored(session: &str, at_ms: i64, anchor: &str, command: &str) -> NewShellExchange {
+        NewShellExchange {
+            anchor_msg_id: Some(anchor.to_string()),
+            started_at_ms: at_ms,
+            settled_at_ms: at_ms,
+            ..exchange(session, "line-1", command)
+        }
+    }
+
+    #[test]
+    fn the_repair_reanchors_rows_a_rotated_card_wrote_under_its_door() {
+        let (sessions, _dir) = rotated_line_with_transcripts();
+        let shell = ShellLedger::open_in_memory().unwrap();
+        // Written before the rotation, under the door: correct as it stands.
+        shell
+            .record_exchange(&anchored("door", 2_000, "msg_DOOR", "ls"))
+            .unwrap();
+        // Written after the rotation, still under the door's id — the shape
+        // every `tugtool arc` note and every join receipt had — carrying the
+        // door's last word as its anchor.
+        shell
+            .record_exchange(&anchored("door", 7_000, "msg_DOOR", "arc commit x"))
+            .unwrap();
+        shell
+            .record_exchange(&anchored("door", 10_000, "msg_DOOR", "/arc-join"))
+            .unwrap();
+        // Written under the head's own id: anchored right at the time.
+        shell
+            .record_exchange(&anchored("head", 9_500, "msg_HEAD_EARLY", "pwd"))
+            .unwrap();
+
+        let refs = RefsLedger::open_in_memory().unwrap();
+        refs.record_run(&NewRefsRun {
+            anchor_msg_id: Some("msg_DOOR".to_string()),
+            ..run("door", "line-1", 8_000)
+        })
+        .unwrap();
+
+        let counts = reanchor_rotated_lines(&sessions, Some(&shell), Some(&refs), 99_000);
+        assert_eq!(counts, ReanchorCounts { shell: 2, refs: 1 });
+
+        let rows = shell.list_exchanges_since("line-1", None).unwrap();
+        let anchor_of = |command: &str| -> String {
+            rows.iter()
+                .find(|r| r.command == command)
+                .and_then(|r| r.anchor_msg_id.clone())
+                .expect(command)
+        };
+        // Before the rotation the door was the seat; nothing to correct.
+        assert_eq!(anchor_of("ls"), "msg_DOOR");
+        // At 7s the head was seated and its newest turn by then was the early
+        // one — not the late one that came afterwards, and not the sidechain.
+        assert_eq!(anchor_of("arc commit x"), "msg_HEAD_EARLY");
+        // At 10s the late turn had been said.
+        assert_eq!(anchor_of("/arc-join"), "msg_HEAD_LATE");
+        // A row the head wrote itself is not touched.
+        assert_eq!(anchor_of("pwd"), "msg_HEAD_EARLY");
+        assert_eq!(
+            refs.list_refs("line-1")
+                .unwrap()
+                .expect("the run")
+                .anchor_msg_id
+                .as_deref(),
+            Some("msg_HEAD_EARLY"),
+        );
+
+        // Marked done: a second boot reads no transcript and rewrites nothing.
+        assert_eq!(
+            reanchor_rotated_lines(&sessions, Some(&shell), Some(&refs), 99_001),
+            ReanchorCounts::default()
+        );
+    }
+
+    #[test]
+    fn the_repair_leaves_a_row_alone_when_the_seated_transcript_cannot_answer() {
+        let (sessions, dir) = rotated_line_with_transcripts();
+        let (project, _) =
+            crate::session_ledger::claude_project_dir(sessions.claude_projects_root(), "/proj");
+        std::fs::remove_file(project.join("head.jsonl")).expect("lose the head's file");
+        let shell = ShellLedger::open_in_memory().unwrap();
+        shell
+            .record_exchange(&anchored("door", 7_000, "msg_DOOR", "/arc-join"))
+            .unwrap();
+
+        assert_eq!(
+            reanchor_rotated_lines(&sessions, Some(&shell), None, 99_000),
+            ReanchorCounts::default()
+        );
+        // A stale seat is still a seat ([L23]): the anchor stands rather than
+        // being blanked.
+        let rows = shell.list_exchanges_since("line-1", None).unwrap();
+        assert_eq!(rows[0].anchor_msg_id.as_deref(), Some("msg_DOOR"));
+        drop(dir);
     }
 }

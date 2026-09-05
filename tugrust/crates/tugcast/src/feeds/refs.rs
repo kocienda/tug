@@ -704,9 +704,10 @@ pub fn execute_run(
             .and_then(|sessions| sessions.line_of(&request.tug_session_id))
             .unwrap_or_else(|| request.tug_session_id.clone());
         let ink_session = request.tug_session_id.clone();
-        // The turn this run follows, read from the **segment's** transcript —
-        // the file the deck will replay. The anchor is a transcript fact, so
-        // it belongs to the id that wrote it rather than to the line. The
+        // The turn this run follows, read from the line's **live head** — the
+        // file the deck will replay last. The ledger resolves the card's id to
+        // that head, so a run on a rotated arc seats under the stage that is
+        // seated rather than under the segment the card was spawned as. The
         // run's root is the card's project dir, which locates that file.
         let anchor_msg_id = sessions.as_ref().and_then(|sessions| {
             sessions.latest_assistant_msg_id(
