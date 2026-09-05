@@ -172,6 +172,14 @@ export interface BlockChromeProps {
    */
   toolName?: string;
   /**
+   * Accessible name for the row when `toolName` is deliberately omitted.
+   * Forwarded verbatim to {@link BlockHeader}, where `ariaSubject` resolves
+   * `toolName ?? ariaName ?? "block"` for the copy and fold affordances. A
+   * block that seats its name inside the identity run rather than the strip's
+   * name slot (the session boundary) passes it here.
+   */
+  ariaName?: string;
+  /**
    * Leading glyph rendered in the header's leftmost slot IN PLACE of the
    * lifecycle dot (a changeset file row's commit checkbox). Forwarded to
    * {@link BlockHeader}; when absent the lifecycle dot renders as usual.
@@ -307,6 +315,7 @@ export interface BlockChromeProps {
 
 export const BlockChrome: React.FC<BlockChromeProps> = ({
   toolName,
+  ariaName,
   leading,
   argsSummary,
   identity,
@@ -469,6 +478,7 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
         altitude={altitude}
         phase={phase ?? statusToPhase(status)}
         toolName={toolName}
+        ariaName={ariaName}
         leading={leading}
         target={command ?? identity ?? argsSummary}
         summary={resultSummary}

@@ -182,6 +182,12 @@ import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
 import { TugQuietLine } from "@/components/tugways/tug-quiet-line";
 import { SessionCompactionEntry } from "@/components/tugways/cards/session-compaction-entry";
+import { SessionBoundary } from "@/components/tugways/cards/session-boundary";
+import {
+  STAGE_BOUNDARY_EVENT,
+  stageBoundaryParts,
+  type StageBoundaryFacts,
+} from "@/lib/code-session-store/stages";
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { TugTranscriptEntry } from "@/components/tugways/tug-transcript-entry";
 import {
@@ -328,40 +334,64 @@ const EMPTY_ATOMS: ReadonlyArray<AtomSegment> = [];
  * An arc's stage boundary — the server rotated this card onto a fresh
  * claude session, and the row marks where one stage ended and the next began.
  * The transcript above it is the previous stage's and stays exactly where it
- * is, which is what makes an arc one scroll. A rule across the row, then the
- * boundary itself as a bar: appearance is CSS-only ([L06]).
+ * is, which is what makes an arc one scroll.
  *
- * The bar is the compaction marker's shape, and deliberately so. Both are
- * session-meta events — a boundary the session crossed, not a message anyone
- * sent — and a card under an arc shows the two within a scroll of each other,
- * so a stage wearing a bare quiet line beside a compaction wearing a bar read
- * as two kinds of event when it is one kind. Same `BlockChrome`, same leading
- * glyph slot, same bold event name over a muted detail; only the glyph and the
- * words differ. A stage has nothing folded away behind it, so no collapse
- * wrapper and no chevron — the header is the whole of it.
+ * It is a {@link SessionBoundary}, and one of three: a rotation swaps the
+ * claude session (and usually the model) the same way a compaction swaps the
+ * context and a join swaps the base. All three are the ground moving under the
+ * transcript rather than a message anyone sent, and a card under an arc shows
+ * two of them within a scroll of each other — so they wear one anatomy and
+ * differ only in the glyph and the words. A stage has nothing folded away
+ * behind it, so it passes no fold and gets no chevron: the header is the whole
+ * of it.
+ *
+ * The words are `stageBoundaryParts`: the stage in the event, the document in
+ * the detail, the model as the trailing badge. A note that arrived without the
+ * rotation's facts falls back to the bare `Stage` event over its note text,
+ * which is what every stage row read before the facts were carried.
  *
  * Rendered from two places for the note's two positions — inside a turn's body
  * when the rotation caught a turn open, and below the turn's own footer when
  * it closes one — so the two spellings cannot drift.
  */
-function StageDivider({ text }: { text: string }): React.ReactElement {
+function StageDivider({
+  text,
+  facts,
+  inTurn,
+}: {
+  text: string;
+  /** The rotation's facts, when the note carried them. */
+  facts?: StageBoundaryFacts;
+  /**
+   * True for the in-turn seat, which renders inside the assistant's body
+   * column and is pulled back to the transcript's edge by the boundary.
+   */
+  inTurn?: boolean;
+}): React.ReactElement {
+  const parts =
+    facts === undefined
+      ? { event: STAGE_BOUNDARY_EVENT, detail: text, badge: undefined }
+      : stageBoundaryParts(facts);
   return (
-    <div
-      className="session-card-transcript-stage"
-      data-slot="stage-divider"
-      data-source="stage"
-    >
-      <BlockChrome
-        rootSlot="session-stage"
-        className="session-stage-bar"
-        leading={<Milestone size={16} aria-hidden="true" />}
-        toolName="Stage"
-        identity={text}
-        copyText={text}
-      >
-        {null}
-      </BlockChrome>
-    </div>
+    <SessionBoundary
+      kind="stage"
+      glyph={<Milestone size={16} aria-hidden="true" />}
+      event={parts.event}
+      detail={
+        parts.detail === "" ? undefined : (
+          <span className="session-boundary-detail">
+            <code>{parts.detail}</code>
+          </span>
+        )
+      }
+      summary={
+        parts.badge === undefined
+          ? undefined
+          : { kind: "text", text: parts.badge }
+      }
+      copyText={text}
+      inTurn={inTurn}
+    />
   );
 }
 
@@ -1293,22 +1323,19 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
     if (message.kind === "system_note") {
       if (message.source === "compact") {
         // The compaction point, in place: ONE collapsible session-meta bar
-        // ([SessionCompactionEntry]) marking where the session compacted, the
-        // recap one expand away. This inline path fires only for the (rare)
-        // turn that carries compaction alongside other assistant content — a
-        // compaction-only turn is hoisted out of the assistant attribution
-        // entirely by `AssistantTurnCell`.
+        // ([SessionCompactionEntry], a [SessionBoundary]) marking where the
+        // session compacted, the recap one expand away. This inline path fires
+        // only for the (rare) turn that carries compaction alongside other
+        // assistant content — a compaction-only turn is hoisted out of the
+        // assistant attribution entirely by `AssistantTurnCell`. In-turn, so
+        // the boundary pulls itself back to the transcript's edge.
         elements.push(
-          <div
+          <SessionCompactionEntry
             key={message.messageKey}
-            className="session-card-transcript-compaction"
-            data-slot="compaction-divider"
-          >
-            <SessionCompactionEntry
-              codeSessionStore={session}
-              noteText={message.text}
-            />
-          </div>,
+            codeSessionStore={session}
+            noteText={message.text}
+            inTurn
+          />,
         );
         continue;
       }
@@ -1390,7 +1417,14 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
         // inside the turn's content, so it renders in place. A stage note that
         // CLOSES a turn is hoisted out by `AssistantTurnCell` and never
         // reaches here.
-        elements.push(<StageDivider key={message.messageKey} text={message.text} />);
+        elements.push(
+          <StageDivider
+            key={message.messageKey}
+            text={message.text}
+            facts={message.stageFacts}
+            inTurn
+          />,
+        );
         continue;
       }
       // Other system_note sources (`other`) have no renderer yet —
@@ -1807,8 +1841,6 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
             ref={(el) => {
               bodyRef.current = el;
             }}
-            className="session-card-transcript-compaction"
-            data-slot="compaction-divider"
           >
             <SessionCompactionEntry
               codeSessionStore={codeSessionStore}
@@ -1962,7 +1994,10 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
         {/* Below the footer, so the boundary reads between the turns rather
             than inside the one it closes. */}
         {closingStageNote !== null ? (
-          <StageDivider text={closingStageNote.text} />
+          <StageDivider
+            text={closingStageNote.text}
+            facts={closingStageNote.stageFacts}
+          />
         ) : null}
       </div>
       {menu}

@@ -881,8 +881,22 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a counted match is a paintable match", () 
           });
         }
         await app.waitForCondition<boolean>(
-          `document.querySelector('${CARD} [data-slot="join-receipt-block"]') !== null &&
+          `document.querySelector('${CARD} [data-boundary="join"]') !== null &&
            document.querySelector('${CARD} [data-slot="commit-receipt-block"]') !== null`,
+          { timeoutMs: 10_000 },
+        );
+        // The join settles as a boundary with its receipt folded behind it, so
+        // the probe in its message body is not mounted until it is opened —
+        // and the index does not count it while it is not. Open it, so both
+        // receipt bodies are on screen and the parity below is about the
+        // painter rather than about the fold. (That the FOLDED projection
+        // omits the body is pinned in `session-boundary-projection.test.ts`,
+        // at the layer that can state it as a function over data.)
+        await app.evalJS<null>(
+          `(document.querySelector('${CARD} [data-boundary="join"] [data-slot="tool-call-header-disclosure"]').click(), null)`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${CARD} [data-slot="join-receipt-block"]') !== null`,
           { timeoutMs: 10_000 },
         );
 

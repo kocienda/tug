@@ -1,0 +1,99 @@
+/* ============================================================================
+   Session boundary — one shape for the three times the ground moves
+   ========================================================================= */
+
+/**
+ * The rhythm is the compaction marker's, which the stage divider already
+ * borrowed: 2xl above the rule, lg between the rule and the bar, xs below. A
+ * boundary therefore never hops between its three kinds or its two seats.
+ * Appearance only ([L06]); the bar carries its own chrome, so this file is
+ * layout and tone.
+ */
+.session-boundary {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin-block: var(--tug-space-2xl) var(--tug-space-xs);
+  padding-block-start: var(--tug-space-lg);
+  border-block-start: 1px solid var(--tugx-block-border);
+}
+
+/* Pin every preceding-sibling case to the same beefy gap — the clear break is
+   the point, so a block or a thinking block before it must not shrink it. */
+* + .session-boundary,
+.tool-block-chrome + .session-boundary,
+.session-thinking-block + .session-boundary {
+  margin-top: var(--tug-space-2xl);
+}
+
+/* Prose after a boundary owns the small following gap. */
+.session-boundary + .tug-markdown-block {
+  margin-top: var(--tug-space-xs);
+}
+
+/* The in-turn seat: a boundary that caught a turn open renders in document
+   order inside the assistant's body column, and pulls itself back to the
+   transcript's edge by a negative inline-start margin equal to the column's
+   own inset. Nothing on the entry chain clips, so the pull reaches the edge.
+
+   Two constraints ride with it and are load-bearing: no `z-index` and no
+   non-static `position` here, so the entry's sticky attribution pin keeps
+   winning the icon column during scroll; and the margin sits on the
+   boundary's OWN wrapper rather than being padding removed from an ancestor,
+   so no other body content moves.
+
+   `width` returns to `auto` for the length of the pull. The base rule's
+   `width: 100%` is the hoisted seat's, where the wrapper already spans the
+   transcript; here it would resolve against the body column and hold the box
+   at the column's width, so a negative start margin would SHIFT the row left
+   rather than widen it — full width at the left edge and an inset the icon
+   column's width short at the right. `auto` resolves the width from the
+   margins instead, which is how the row reaches both edges. */
+.session-boundary[data-in-turn] {
+  margin-inline-start: calc(-1 * var(--tugx-transcript-body-inset));
+  width: auto;
+}
+
+/* The bar — a session-meta marker, distinct from a tool block: a subtle
+   tinted fill and a hairline border so it reads as a boundary the eye can
+   land on when scanning, and tabular figures so a token count sits still.
+   The chrome owns its own `--tugx-block-*`; these overrides re-tone this one
+   marker ([L20] stays intact — the token scope is the chrome's). */
+.session-boundary-bar {
+  --tugx-block-surface: var(--tug-surface-sunken, transparent);
+  border: 1px solid var(--tugx-block-border);
+  border-radius: var(--tug-radius-md);
+  background: var(--tug-surface-sunken, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The header's detail column is the mono command slot by default — right for
+   a shell command, wrong for a boundary's prose detail.
+
+   It is also made to FLOW rather than sit in a one-line inline-flex box. The
+   event and its detail are one inline run, so when a long join subject wraps,
+   the second line returns to the slot's left edge — flush under the event,
+   right of the glyph — instead of hanging under wherever the detail began.
+   That flush return is the whole point of seating the event here rather than
+   in the strip's name column. */
+.session-boundary-bar .tool-call-header-detail {
+  display: block;
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
+  line-height: var(--tug-line-height-normal, 1.45);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding-block: var(--tug-space-2xs);
+}
+
+/* The event: the strip's name typography, worn inside the detail run. */
+.session-boundary-event {
+  font-size: var(--tugx-toolheader-name-size);
+  font-weight: var(--tugx-toolheader-name-weight);
+  color: var(--tugx-block-header-text-color);
+}
+
+/* A path or a sha inside the detail keeps the mono register it earns. */
+.session-boundary-detail code {
+  font-family: var(--tug-font-family-mono);
+}

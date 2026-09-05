@@ -13,6 +13,7 @@
 import type { InboundMessage } from "@/protocol";
 import type { CodeSessionEvent } from "./events";
 import type { LiveMessageUsage, TurnEntry } from "./types";
+import type { StageBoundaryFacts } from "./stages";
 
 /** Logical channel a streaming write targets ([D07]). Combined with
  *  the turn's React-key seed (`turnKey`) and the Message's stable
@@ -240,6 +241,8 @@ export interface AppendCompactNoteEffect {
 export interface AppendStageNoteEffect {
   kind: "append-stage-note";
   text: string;
+  /** The rotation's facts, carried to the boundary beside the display text. */
+  stageFacts: StageBoundaryFacts;
 }
 
 /**

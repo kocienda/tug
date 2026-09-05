@@ -151,8 +151,17 @@ export interface CommandBlockOptions {
    * Returning `null` says "this output fell through to the generic block" —
    * a receipt whose text would not parse renders as a plain exchange, and
    * projects like one.
+   *
+   * `collapsed` is the row's fold state, resolved from the same expansion
+   * store the renderer's collapse handle reads and keyed on the exchange id,
+   * with the renderer's own default applied. A renderer that folds part of
+   * what it parsed behind a chevron — the join boundary folds its whole
+   * receipt — must gate those parts on it, exactly as the generic block gates
+   * its terminal output. A part projected while its container is unmounted is
+   * a match that can be counted and never painted, which is the one failure
+   * this declaration exists to prevent.
    */
-  findParts?: (message: ShellExchangeMessage) => string[] | null;
+  findParts?: (message: ShellExchangeMessage, collapsed: boolean) => string[] | null;
 }
 
 interface CommandBlockRegistration {
@@ -161,7 +170,9 @@ interface CommandBlockRegistration {
   renderer: CommandBlockRenderer;
   attribution: CommandBlockAttribution;
   presentation: CommandBlockPresentation;
-  findParts: ((message: ShellExchangeMessage) => string[] | null) | undefined;
+  findParts:
+    | ((message: ShellExchangeMessage, collapsed: boolean) => string[] | null)
+    | undefined;
 }
 
 /**
@@ -269,16 +280,20 @@ export function resolveCommandPresentation(command: string): CommandBlockPresent
  * A claimed row with no declared projection answers with its command alone —
  * see {@link CommandBlockOptions.findParts} for why that floor is the safe
  * one.
+ *
+ * `collapsed` is the row's fold state; a renderer that folds part of what it
+ * shows reads it to project only what is mounted.
  */
 export function resolveCommandBlockSearchParts(
   message: ShellExchangeMessage,
+  collapsed: boolean,
 ): string[] | null {
   const trimmed = message.command.trim();
   for (const registration of registry()) {
     if (!registration.matcher(trimmed)) continue;
     const parts =
       registration.findParts !== undefined
-        ? registration.findParts(message)
+        ? registration.findParts(message, collapsed)
         : [message.command];
     if (parts === null) return null;
     return parts.filter((part) => part !== "");

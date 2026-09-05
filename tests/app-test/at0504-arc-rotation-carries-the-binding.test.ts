@@ -112,7 +112,7 @@ const SID_PLANNED = "a7c0d1ea-0000-4000-8000-000000000505";
 
 const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-const STAGE_DIVIDERS = `${CARD} [data-slot="stage-divider"]`;
+const STAGE_DIVIDERS = `${CARD} [data-boundary="stage"]`;
 const MASTHEAD_ARC =
   '[data-slot="session-masthead"] [data-slot="session-identity-arc"]';
 /** The Z2 ARC cell — the placard the incident blanked. */

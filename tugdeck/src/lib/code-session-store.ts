@@ -2638,6 +2638,7 @@ export class CodeSessionStore {
               createdAt: Date.now(),
               text: effect.text,
               source: "stage",
+              stageFacts: effect.stageFacts,
             };
             const nextTranscript = [...this._transcript];
             nextTranscript[lastIndex] = {

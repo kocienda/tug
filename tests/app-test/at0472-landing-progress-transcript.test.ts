@@ -85,7 +85,8 @@ const COMPOSER_REGISTER = `${COMPOSER_STATUS} [data-slot="arc-join-register"]`;
 /** Every transcript row, so the last one's box can be measured. */
 const TRANSCRIPT_ROWS = `${SCROLLER} .tug-list-view-cell[data-tug-list-cell-index]`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
-const JOIN_RECEIPT = `${CARD} [data-slot="join-receipt-block"]`;
+/** The settled join row — a boundary, with the receipt folded behind it. */
+const JOIN_RECEIPT = `${CARD} [data-boundary="join"]`;
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));

@@ -24,6 +24,8 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-boundary.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-compaction-entry.tsx
  * @covers tugdeck/src/lib/code-session-store/reducer.ts
  * @covers tugdeck/src/components/tugways/cards/session-load-control-bar.tsx
  * @covers tugdeck/src/components/tugways/cards/session-load-control-bar-state.ts
@@ -38,7 +40,7 @@ import { launchTugApp } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const DIVIDER = '[data-slot="compaction-divider"]';
+const DIVIDER = '[data-boundary="compaction"]';
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const TUG_SESSION_ID = "test-session-A"; // bindSession default
 

@@ -702,49 +702,10 @@
   opacity: 0.5;
 }
 
-/* The compaction point, in place: ONE collapsible session-meta bar
-   ([SessionCompactionEntry]) marking where claude compacted its context, the
-   recap one expand away. Not attributed to the assistant — it stands OUTSIDE a
-   turn, so a compaction-only turn drops its `Opus …` / `#a` header entirely
-   and this wrapper supplies the set-off treatment: a beefy vertical gap, then
-   a full-width horizontal rule above the bar. The margin is above the rule;
-   the border IS the rule. Uniform regardless of what precedes it, so the
-   adjacency overrides below are pinned to the same beefy gap. Appearance only
-   ([L06]); the bar carries its own chrome, so this wrapper is pure layout. */
-.session-card-transcript-compaction {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  margin-top: var(--tug-space-2xl);
-  padding-top: var(--tug-space-lg);
-  border-top: 1px solid var(--tugx-block-border);
-}
-
-/* The bar itself — a session-meta marker, distinct from a tool block: a subtle
-   tinted fill + a hairline border so it reads as a boundary the eye can land
-   on when scanning, and tabular figures so the token count sits still. The
-   chrome owns its own `--tugx-block-*`; these overrides only re-tone this one
-   marker ([L20] stays intact — the token scope is the chrome's). */
-.session-compaction-bar {
-  --tugx-block-surface: var(--tug-surface-sunken, transparent);
-  border: 1px solid var(--tugx-block-border);
-  border-radius: var(--tug-radius-md);
-  background: var(--tug-surface-sunken, transparent);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Pin every preceding-sibling case to the same beefy gap — the clear break is
-   the point, so a block or thinking block before it must not shrink it. */
-* + .session-card-transcript-compaction,
-.tool-block-chrome + .session-card-transcript-compaction,
-.session-thinking-block + .session-card-transcript-compaction {
-  margin-top: var(--tug-space-2xl);
-}
-
-/* Prose after the compaction block owns the small following gap. */
-.session-card-transcript-compaction + .tug-markdown-block {
-  margin-top: var(--tug-space-xs);
-}
+/* The compaction point is a [SessionBoundary] and carries its own seat, rule
+   and tone — see `session-boundary.css`. The wrapper, the bar's re-tone and
+   the adjacency pins that used to live here moved there with it, so that all
+   three boundaries share one rhythm rather than two copies of it. */
 
 /* Empty-run marker — an inline trace shown in place of an assistant
    run's empty body: a `plumbing` line for a hidden-tool-only run
@@ -828,39 +789,13 @@
 }
 
 
-/* Stage divider — an arc rotated the card onto a fresh claude session.
-   Unlike the notice row (a turn Tug started, marked with an accent rule down
-   its side) this marks a BOUNDARY between two stages, so the rule runs across
-   the row above the bar. Soft and unaccented: the arc's stages are the
-   ordinary shape of a run, not an intrusion worth an accent.
-
-   The rule and the space around it are the compaction marker's, deliberately:
-   both are boundaries the session crossed, and a card under an arc shows the
-   two within a scroll of each other. */
-.session-card-transcript-stage {
-  margin-block: var(--tug-space-2xl) var(--tug-space-xs);
-  padding-block-start: var(--tug-space-lg);
-  border-block-start: 1px solid var(--tugx-block-border);
-}
-
-/* The bar itself — the same session-meta marker the compaction point wears:
-   a subtle tinted fill + a hairline border so it reads as a boundary the eye
-   can land on when scanning. The chrome owns its own `--tugx-block-*`; these
-   overrides only re-tone this one marker ([L20] stays intact). */
-.session-stage-bar {
-  --tugx-block-surface: var(--tug-surface-sunken, transparent);
-  border: 1px solid var(--tugx-block-border);
-  border-radius: var(--tug-radius-md);
-  background: var(--tug-surface-sunken, transparent);
-}
-
-/* The header's detail column is the mono command slot — right for a shell
-   command, wrong for a stage's `review · opus · path` line, which is prose
-   with a path in it and belongs in the transcript's own sans register. */
-.session-stage-bar .tool-call-header-detail {
-  font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-xs);
-}
+/* The stage divider — an arc rotated the card onto a fresh claude session — is
+   a [SessionBoundary] too, and wears the one anatomy in `session-boundary.css`
+   rather than a second copy of the compaction marker's. Unlike the notice row
+   (a turn Tug started, marked with an accent rule down its side) it marks a
+   boundary between two stages, so its rule runs across the row: soft and
+   unaccented, because an arc's stages are the ordinary shape of a run rather
+   than an intrusion worth an accent. */
 
 /* Code-row body — `TugMarkdownBlock`. Width-100% so streaming text
    wraps inside the row column. The default `--tugx-md-block-padding-x`

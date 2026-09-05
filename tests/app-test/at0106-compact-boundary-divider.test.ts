@@ -21,6 +21,8 @@
  * @covers tugdeck/src/lib/compaction-progress-store.ts
  * @covers tugdeck/src/lib/compaction-request.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-boundary.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-compaction-entry.tsx
  * @covers tugcode/
  */
 
@@ -28,15 +30,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launchTugApp } from "./_harness";
+import { launchTugApp, note } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const DIVIDER = '[data-slot="compaction-divider"]';
-// The compaction point renders ONE session-meta bar (label + trailing token
-// count) inside the wrapper; assert its combined header text.
-const DIVIDER_LABEL = `${DIVIDER} [data-slot="session-compaction"]`;
+const DIVIDER = '[data-boundary="compaction"]';
+// The compaction point renders ONE session-meta bar (event + trailing token
+// count) inside the boundary; assert its combined header text.
+const DIVIDER_LABEL = `${DIVIDER} [data-slot="session-boundary-bar"]`;
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const TUG_SESSION_ID = "test-session-A"; // bindSession default
 
@@ -126,6 +128,24 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(DIVIDER)}).closest(".tug-transcript-entry") !== null`,
           );
           expect(attributed).toBe(false);
+
+          // …and it lands at the transcript's own edge, the seat every
+          // boundary takes. The comparison is against a neighbouring entry's
+          // left, which is where a speaker's row begins: a boundary belongs to
+          // the transcript rather than to a column inside one.
+          const edge = await app.evalJS<number | null>(
+            `(() => {
+               const b = document.querySelector(${JSON.stringify(DIVIDER)});
+               const entry = document.querySelector(".session-card-transcript .tug-transcript-entry");
+               if (b === null || entry === null) return null;
+               return Math.round(
+                 b.getBoundingClientRect().left - entry.getBoundingClientRect().left,
+               );
+             })()`,
+          );
+          note(`at0106 boundary edge offset: ${JSON.stringify(edge)}`);
+          expect(edge).not.toBeNull();
+          expect(Math.abs(edge ?? 99)).toBeLessThanOrEqual(1);
 
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {

@@ -1,24 +1,25 @@
-/* SessionJoinReceiptBlock — the `/arc-join` and `/dash-discard` receipt
-   headers ([P06]). Deliberately the commit receipt's skeleton: a landing is a
-   commit on the base, and a reader should not have to learn a second shape for
-   it. Appearance only ([L06]). */
+/* SessionJoinReceiptBlock — the `/arc-join` boundary and the `/dash-discard`
+   receipt ([P06]). A landing is a commit on the base, so what folds behind the
+   join's boundary is deliberately the commit receipt's skeleton: a reader
+   should not have to learn a second shape for it. Appearance only ([L06]). */
 
-/* Plain inline text in the detail column, for the reason the commit receipt's
-   header states: a flex container establishes its own vertical alignment and
-   would float the sha off the header's line box. The hanging indent lines
-   wrapped subject text under the subject's first character — 8 sha characters
-   plus a space, measured in the mono column. */
+/* The discard's identity, in the chrome's detail column. Plain inline text for
+   the reason the commit receipt's header states: a flex container establishes
+   its own vertical alignment and would float the identity off the header's
+   line box. */
 .join-receipt-header {
   display: block;
   min-width: 0;
-  padding-left: 9ch;
-  text-indent: -9ch;
 }
 
-/* A discard has no sha to hang under, so it hangs under nothing. */
-.join-receipt-header-discard {
-  padding-left: 0;
-  text-indent: 0;
+/* The join boundary's detail — the landing sha and the squash subject,
+   continuing the event's inline run. Inline, deliberately: the run is ONE
+   sentence and a block here would break the sha onto its own line. It carries
+   no hanging indent for the same reason the boundary's slot flows normally —
+   a wrapped subject returns flush under the event rather than hanging under
+   wherever the sha ended, which is the correction the boundary exists for. */
+.join-boundary-detail {
+  min-width: 0;
 }
 
 .join-receipt-summary {
@@ -28,7 +29,8 @@
 /* Override the header's `code { color: inherit }`, which would drain the
    subject to the muted command tone. The squash subject is primary content,
    not an incidental command. */
-.join-receipt-header .join-receipt-summary {
+.join-receipt-header .join-receipt-summary,
+.join-boundary-detail .join-receipt-summary {
   color: var(--tugx-block-text-color);
 }
 
@@ -58,9 +60,10 @@
   padding-block: var(--tug-space-sm);
 }
 
-/* The settled register under the receipt it answers. The gap is the only rule
-   this block adds: the register's own framing is its file's, and the receipt
-   above owns everything over it. */
-.join-receipt-register {
-  margin-block-start: var(--tug-space-xs);
+/* The receipt as the boundary's fold body — a grouping element only. Each body
+   region owns its own spacing (the identity line, the message, the file rows),
+   exactly as it did under the chrome this replaced, so nothing here reaches
+   inside them. */
+.join-receipt-body {
+  display: contents;
 }

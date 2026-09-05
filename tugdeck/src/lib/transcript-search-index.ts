@@ -86,6 +86,10 @@ import {
 import { ReadToolBlock } from "@/components/tugways/cards/blocks/read-tool-block";
 import { collapseDefaultForMessage } from "@/components/tugways/cards/blocks/tool-collapse-defaults";
 import { resolveCommandBlockSearchParts } from "@/components/tugways/cards/session-command-block-registry";
+import {
+  STAGE_BOUNDARY_EVENT,
+  stageBoundaryParts,
+} from "@/lib/code-session-store/stages";
 import type { ToolBlockExpansionState } from "@/components/tugways/blocks/expansion-state";
 import type { ToolUseMessage } from "@/lib/code-session-store/types";
 import type { PropertyStore } from "@/components/tugways/property-store";
@@ -317,10 +321,10 @@ function messageSegments(
     }
     case "system_note": {
       if (message.source === "compact") {
-        // `SessionCompactionEntry` splits the note on " · ": the label rides
-        // the block header's (marked) name span, the token count rides the
-        // trailing result summary, which is not searchable. The recap body
-        // is unmarked, so it projects nothing in either collapse state.
+        // `SessionCompactionEntry` splits the note on " · ": the label is the
+        // boundary's (marked) event span, the token count rides the trailing
+        // result summary, which is not searchable. The recap body is unmarked,
+        // so it projects nothing in either collapse state.
         const [label] = message.text.split(" · ");
         return label === undefined || label === ""
           ? []
@@ -340,8 +344,25 @@ function messageSegments(
         // span — no markdown pass, so the projection is the text itself.
         return message.text === "" ? [] : [{ kind: "dom", text: message.text }];
       }
-      // `source: "other"` (and the stage divider) has no marked container —
-      // invisible or unmarked text is not searchable.
+      if (message.source === "stage") {
+        // The stage boundary's event is a marked container, so it projects —
+        // one unit, one part. Its detail (the document) and its model badge
+        // are not marked and so are not searchable, which is why neither
+        // appears here. The event is composed from the note's own facts by
+        // the same function the renderer calls, so the two readings cannot
+        // drift; a note that arrived without facts reads the bare floor.
+        return [
+          {
+            kind: "dom",
+            text:
+              message.stageFacts === undefined
+                ? STAGE_BOUNDARY_EVENT
+                : stageBoundaryParts(message.stageFacts).event,
+          },
+        ];
+      }
+      // `source: "other"` has no marked container — invisible or unmarked
+      // text is not searchable.
       return [];
     }
     case "tool_use": {
@@ -406,7 +427,16 @@ function shellSegments(
 ): RowSegment[] {
   const message = descriptor.turn?.messages[0];
   if (message === undefined || message.kind !== "shell_exchange") return [];
-  const claimed = resolveCommandBlockSearchParts(message);
+  // A bespoke block may fold part of what it parsed (the join boundary folds
+  // its whole receipt), so it is handed the row's fold state and projects only
+  // what is mounted. The default is `true` where the generic block's is
+  // `false`, because the two disagree about what an untouched row shows: a
+  // shell exchange defaults expanded, and a boundary defaults folded. Same
+  // key, different default, so the two resolves cannot be shared.
+  const claimed = resolveCommandBlockSearchParts(
+    message,
+    expansion.resolve(message.exchangeId, true),
+  );
   if (claimed !== null) return domSegments(claimed);
   const segments: RowSegment[] = [];
   if (message.command !== "") {

@@ -37,6 +37,7 @@
  * @covers tugdeck/src/lib/code-session-store/types.ts
  * @covers tugdeck/src/lib/shell-session-store.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-boundary.tsx
  * @covers tugdeck/src/components/tugways/cards/session-arc-note-block.tsx
  */
 
@@ -44,12 +45,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launchTugApp } from "./_harness";
+import { launchTugApp, note } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const DIVIDER = '[data-slot="stage-divider"]';
+const DIVIDER = '[data-boundary="stage"]';
 const USER_ROW = '[data-testid="session-card-transcript-user-body"]';
 const WHEEL_ROW = '.tug-transcript-entry[data-participant="wheel"]';
 const STAGE_PROMPT =
@@ -213,6 +214,23 @@ describe.skipIf(!SHOULD_RUN)(
           expect(label).toContain("devise");
           expect(label).toContain("opus");
           expect(label).toContain(".tug/arcs/foo/brief.md");
+
+          // A stage boundary takes the transcript's edge, the same seat a
+          // compaction and a settled join take: all three are the ground
+          // moving under the conversation, so none of them belongs to a
+          // speaker's column.
+          const stageEdge = await app.evalJS<number | null>(
+            `(() => {
+               const b = document.querySelector(${JSON.stringify(DIVIDER)});
+               const entry = document.querySelector(".session-card-transcript .tug-transcript-entry");
+               if (b === null || entry === null) return null;
+               return Math.round(
+                 b.getBoundingClientRect().left - entry.getBoundingClientRect().left,
+               );
+             })()`,
+          );
+          expect(stageEdge).not.toBeNull();
+          expect(Math.abs(stageEdge ?? 99)).toBeLessThanOrEqual(1);
 
           await app.driveSession("A", {
             op: "ingestFrame",
@@ -431,10 +449,30 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(label).toContain("review");
           expect(label).toContain("opus");
-          // No arc opened it on anything, so the divider names nothing it
-          // was not given: the text ends at the model, with no trailing
-          // separator and no blank where a document would be.
-          expect(label.trim().endsWith("review · opus")).toBe(true);
+          // No arc opened it on anything, so the boundary names nothing it
+          // was not given: the stage is the event, the model is the trailing
+          // badge, and there is no detail element at all rather than an empty
+          // one where a document would be.
+          const bare = await app.evalJS<{
+            event: string;
+            details: number;
+            badge: string;
+          }>(
+            `(() => {
+               const b = document.querySelector(${JSON.stringify(DIVIDER)});
+               return {
+                 event: (b.querySelector(".session-boundary-event")?.textContent ?? "").trim(),
+                 details: b.querySelectorAll(".session-boundary-detail").length,
+                 badge: Array.from(
+                   b.querySelectorAll('[data-slot="tool-call-header-summary"]'),
+                 ).map((s) => (s.textContent ?? "").trim()).join(" "),
+               };
+             })()`,
+          );
+          note(`at0474 documentless stage boundary: ${JSON.stringify(bare)}`);
+          expect(bare.event).toBe("Stage · review");
+          expect(bare.details, "no detail element where a document would be").toBe(0);
+          expect(bare.badge).toBe("opus");
           expect(label).not.toContain(".tug/");
 
           await app.driveSession("A", {

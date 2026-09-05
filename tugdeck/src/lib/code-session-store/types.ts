@@ -17,6 +17,7 @@ import type { AtomSegment } from "../tug-atom-img";
 import type { CardSessionMode } from "../card-session-binding-store";
 import type { JobItem } from "./select-jobs";
 import type { GoalState } from "./select-goal";
+import type { StageBoundaryFacts } from "./stages";
 
 export type { CardSessionMode } from "../card-session-binding-store";
 
@@ -206,6 +207,15 @@ export interface SystemNote extends MessageBase {
    * letting the words read as the user's.
    */
   noticeOrigin?: string;
+  /**
+   * On a `stage`, the facts the rotation carried — which stage, which model,
+   * which document, and the step range a continued implement stage walks.
+   * The boundary fills its three slots from these rather than splitting
+   * `text` back apart, which cannot be done without guessing which ` · `
+   * segment is which. Absent on a note restored by a path that never saw the
+   * event, which reads the bare `Stage` floor.
+   */
+  stageFacts?: StageBoundaryFacts;
   /**
    * On an `arc`, the gesture's synthetic record-rendered command (`arc step
    * <name> done`) — the marker the row's bold verb and its glyph are read

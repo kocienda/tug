@@ -82,7 +82,8 @@ const ROUTE_GROUP = `${CARD} .tug-prompt-entry-toolbar .tug-prompt-entry-route-g
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 // The bespoke `/arc-join` receipt block — the generic shell fallback carries a
 // different slot, so this selector is also the assertion that it parsed.
-const JOIN_RECEIPT = `${CARD} [data-slot="join-receipt-block"]`;
+/** The settled join row — a boundary, with the receipt folded behind it. */
+const JOIN_RECEIPT = `${CARD} [data-boundary="join"]`;
 
 /** The checkout whose built binaries the fixture drives — never the project. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));

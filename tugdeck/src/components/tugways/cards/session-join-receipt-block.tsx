@@ -7,12 +7,32 @@
  * parse that string and present it as a receipt — instead of the generic
  * fenced `ShellExchangeBlock`.
  *
- * The two receipts are deliberately different shapes, because the two acts
- * are. A join lands a commit on the base, so its receipt IS the commit
- * receipt: the same sha-led header, the same badges, the same expandable file
- * rows, plus the one line a plain commit cannot carry (`arc → base`). A
- * discard lands nothing, so it keeps the bespoke shape — its identity is the
- * arc that stopped existing and its body is what went with it.
+ * The two are deliberately different shapes, because the two acts are.
+ *
+ * A join swaps the base the card sits on, so the row it settles into the
+ * transcript is a {@link SessionBoundary} — the same shape a compaction and a
+ * stage rotation wear, because all three are the ground moving underneath the
+ * conversation rather than something a participant said. The bar is the row a
+ * reader meets: `GitMerge`, the event `Joined <arc> into <base>`, the sha and
+ * the squash subject as its detail, and the file / ± / round badges trailing.
+ * The commit receipt folds behind it, the way the recap folds behind a
+ * compaction — and it is still the commit receipt, because a join IS a commit
+ * on the base and a reader should not have to learn a second shape for it:
+ * the `arc → base` identity line and its fit, the message, and the same
+ * expandable `CommitChangesList` rows. The receipt's own chrome is gone
+ * rather than nested inside the boundary's; the fold is built from its body
+ * pieces, so there is one frame on screen and not a block inside a block.
+ *
+ * A discard lands nothing — it is not a boundary, since no ground moved — so
+ * it keeps the bespoke receipt shape: its identity is the arc that stopped
+ * existing and its body is what went with it.
+ *
+ * The live `ArcJoinRegister` is untouched by all of this. It narrates the
+ * join's beats at the transcript's live edge, on the Arcs card row and on the
+ * composer's status row, and status stays a register ([D142], [D111]). What
+ * changed is only the row that SETTLES here afterwards: it used to be a second
+ * register wearing a command's outcome idiom at the body column's inset, and
+ * it is now the boundary, at the transcript's edge.
  *
  * Everything on screen is parsed from the row itself, so the live append and
  * the ledger restore render byte-identically; a parse miss falls back to the
@@ -25,13 +45,15 @@
 
 import type React from "react";
 
+import { GitMerge } from "lucide-react";
+
 import { CommitShaText } from "@/components/tugways/commit-sha-text";
 import { CommitMessage } from "@/components/tugways/commit-presentation";
 import { markdownTextParts } from "@/components/tugways/tug-markdown-text";
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { CommitChangesList } from "@/components/tugways/tug-changes-list";
-import { ArcJoinRegister } from "@/components/tugways/arc-join-register";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
+import { SessionBoundary } from "@/components/tugways/cards/session-boundary";
 import { BlockChrome } from "../blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "../blocks/collapse-context";
 import "@/components/tugways/commit-presentation.css";
@@ -174,50 +196,36 @@ export function SessionJoinReceiptBlock(props: CommandBlockProps): React.ReactEl
   const parsed = parseJoinReceipt(props.message.output);
   if (parsed === null) return <ShellExchangeBlock {...props} />;
   return (
-    <>
-      <JoinReceipt
-        parsed={parsed}
-        cwd={props.message.cwd}
-        exchangeId={props.message.exchangeId}
-      />
-      {/* The join's own register, settled — the live one departs with the
-          state that derived it, and this is what a reader finds afterwards.
-          It sits UNDER the receipt: the commit is the act and the register is
-          the outcome, so a reader meets what landed and then the word for it.
-          Above, it was an announcement standing in front of its own subject.
-          Derived rather than written down: `arc` and `base` come off the
-          receipt the ledger already carries, so the row costs no ink of its
-          own and reads identically live and on restore. It goes through
-          `ArcJoinRegister` so its sentence is the same derivation the live
-          register runs ([D111] parity, one vocabulary). */}
-      <ArcJoinRegister
-        arc={parsed.arc}
-        base={parsed.base}
-        stage="ready"
-        landBeat={{ beat: "record", status: "ok", terminal: true }}
-        className="join-receipt-register"
-      />
-    </>
+    <JoinBoundary
+      parsed={parsed}
+      cwd={props.message.cwd}
+      exchangeId={props.message.exchangeId}
+    />
   );
 }
 
 /**
- * The parsed join receipt, on the commit receipt's skeleton — a join IS a
- * commit on the base, and the reader should not have to learn a second shape
- * for the same kind of fact. So the sha and the squash subject lead the header
- * exactly as they do on a `/commit`, the file and ± badges ride the header's
- * trailing summaries, and the landed files are the same expandable
- * `CommitChangesList` rows.
+ * The settled join, as a boundary with its receipt folded behind it.
  *
- * One line is the join's own: `arc → base`, the identity a plain commit has
- * no room for. It sits above the message body rather than in the header,
- * because the header seat belongs to the subject under commit parity.
+ * The bar carries what a reader wants without opening anything: the event
+ * names the two branches, the detail carries the landing sha and the squash
+ * subject, and the trailing badges carry the files, the ± and the round count.
+ * Behind the fold is the commit receipt's own body — a join IS a commit on the
+ * base, so the reader who opens it meets the shape a `/commit` receipt has,
+ * plus the one line a plain commit has no room for (`arc → base`, with the fit
+ * beside it).
+ *
+ * The sha keeps `useCommitIdentityMenu` on the way up to the bar: a join
+ * answers with the same four copies a `/commit` receipt and a History row
+ * offer ([D142]'s one vocabulary), and the menu rides the atom alone because
+ * the subject beside it is selectable transcript text whose right-click is the
+ * standard editing block's.
  *
  * Composition, not re-implementation ([L19], [L20]): every part here is the
- * commit presentation's own component, and this block adds no rule that
- * reaches inside their slots.
+ * commit presentation's own component or the shared boundary, and this block
+ * adds no rule that reaches inside their slots.
  */
-function JoinReceipt({
+function JoinBoundary({
   parsed,
   cwd,
   exchangeId,
@@ -240,11 +248,6 @@ function JoinReceipt({
   // A receipt with no file list (legacy, or a non-squash join) falls back to
   // the identity in the header seat, so the header is never a bare sha.
   const headline = subject.length > 0 ? subject : `${arc} → ${base}`;
-  // A join IS a commit on the base, so its identity answers with the commit's
-  // own menu — the same four copies a `/commit` receipt and a History row
-  // offer, with no fold of its own to name. On the atom alone, for the reason
-  // the commit receipt claims it there: the subject beside it is selectable
-  // transcript text, and its right-click is the standard editing block's.
   const menu = useCommitIdentityMenu({
     commit: {
       sha,
@@ -254,8 +257,10 @@ function JoinReceipt({
       paths: files.map((f) => f.path),
     },
   });
-  const identity = (
-    <span className="join-receipt-header">
+  // The bar's detail: the landing sha, then the squash subject, continuing the
+  // event's inline run so a long subject's second line returns flush under it.
+  const detail = (
+    <span className="session-boundary-detail join-boundary-detail">
       <span
         className="join-receipt-sha"
         ref={menu.ref}
@@ -274,55 +279,67 @@ function JoinReceipt({
       </code>
     </span>
   );
-  return (
-    <ToolBlockHistoryCollapse toolUseId={exchangeId} defaultCollapsed={false}>
-      <BlockChrome
-        rootSlot="join-receipt-block"
-        variant="receipt"
-        identity={identity}
-        // The file and ± badges only when there is a list behind them; the
-        // round count is the join's own fact and always rides last.
-        resultSummary={[
-          ...(files.length > 0
-            ? [
-                { kind: "count" as const, count: files.length, noun: "file" },
-                { kind: "diff" as const, added, removed },
-              ]
-            : []),
-          { kind: "count" as const, count: rounds, noun: "round" },
-        ]}
-        phase="success"
-        status="ready"
-        copyText={`${sha} ${message}`.trim()}
-      >
-        {subject.length > 0 ? (
-          <div className="join-receipt-identity" data-slot="join-receipt-identity">
-            <code data-tugx-findable="">
-              {arc} → {base}
+  // The receipt, as the boundary's fold body: the commit receipt's own pieces
+  // with no chrome of their own, so the boundary's bar is the only frame.
+  const receipt = (
+    <div className="join-receipt-body" data-slot="join-receipt-block">
+      {subject.length > 0 ? (
+        <div className="join-receipt-identity" data-slot="join-receipt-identity">
+          <code data-tugx-findable="">
+            {arc} → {base}
+          </code>
+          {fit !== undefined ? (
+            <code
+              data-slot="join-receipt-fit"
+              data-verified={fit.verified}
+              data-tugx-findable=""
+            >
+              fit {fit.verified ? "verified" : "stale"} {fit.head} onto {fit.base}
             </code>
-            {fit !== undefined ? (
-              <code
-                data-slot="join-receipt-fit"
-                data-verified={fit.verified}
-                data-tugx-findable=""
-              >
-                fit {fit.verified ? "verified" : "stale"} {fit.head} onto {fit.base}
-              </code>
-            ) : null}
-          </div>
-        ) : null}
-        {body.length > 0 ? (
-          <CommitMessage body={body} dataSlot="join-receipt-detail" findable />
-        ) : null}
-        {/* The landed files as sha-backed rows, each expanding into the join
-            commit's own hunks. `cwd` is the base repo dir the join ran in,
-            persisted in the ledger by the same writer the commit receipt
-            already resolves against ([L29] — passed through verbatim). */}
-        {files.length > 0 ? (
-          <CommitChangesList root={cwd} sha={sha} files={files} />
-        ) : null}
-      </BlockChrome>
-    </ToolBlockHistoryCollapse>
+          ) : null}
+        </div>
+      ) : null}
+      {body.length > 0 ? (
+        <CommitMessage body={body} dataSlot="join-receipt-detail" findable />
+      ) : null}
+      {/* The landed files as sha-backed rows, each expanding into the join
+          commit's own hunks. `cwd` is the base repo dir the join ran in,
+          persisted in the ledger by the same writer the commit receipt
+          already resolves against ([L29] — passed through verbatim). */}
+      {files.length > 0 ? (
+        <CommitChangesList root={cwd} sha={sha} files={files} />
+      ) : null}
+    </div>
+  );
+  return (
+    <SessionBoundary
+      kind="join"
+      glyph={<GitMerge size={16} aria-hidden="true" />}
+      // The register's own terminal sentence, in the boundary's voice — the
+      // same two names `ArcJoinRegister` derives it from, off the receipt the
+      // ledger already carries, so it reads identically live and on restore.
+      event={`Joined ${arc} into ${base}`}
+      detail={detail}
+      // The file and ± badges only when there is a list behind them; the round
+      // count is the join's own fact and always rides last.
+      summary={[
+        ...(files.length > 0
+          ? [
+              { kind: "count" as const, count: files.length, noun: "file" },
+              { kind: "diff" as const, added, removed },
+            ]
+          : []),
+        { kind: "count" as const, count: rounds, noun: "round" },
+      ]}
+      fold={receipt}
+      // The receipt's own collapse key, kept across the move, so a reader who
+      // opened a join finds it open on the next replay of the transcript.
+      collapseKey={exchangeId}
+      copyText={`${sha} ${message}`.trim()}
+      // The receipt is rendered by the `$` cell, inside the entry's body
+      // column; a boundary belongs to the transcript, so it pulls to the edge.
+      inTurn
+    />
   );
 }
 
@@ -333,7 +350,7 @@ export function SessionDiscardReceiptBlock(props: CommandBlockProps): React.Reac
   // No sha: a discard lands nothing. Its identity is the arc that stopped
   // existing, and its body is what went with it.
   const identity = (
-    <span className="join-receipt-header join-receipt-header-discard">
+    <span className="join-receipt-header">
       <code className="join-receipt-summary" data-tugx-findable="">{arc}</code>
     </span>
   );
@@ -382,17 +399,25 @@ export function matchesDiscardReceipt(command: string): boolean {
 }
 
 /**
- * The join receipt's searchable text, in render order: the headline on the
- * identity line, the `arc → base` line and its fit note, then the message
- * body as the markdown styler lays it out — exactly the containers this
- * block marks `data-tugx-findable`. `null` when the output does not parse:
- * the row renders as a plain exchange then, and projects as one.
+ * The join boundary's searchable text, in render order and gated on the fold.
+ *
+ * The bar is always on screen, so the headline always projects — it is the
+ * detail run's marked `<code>`, beside the sha. Everything else is the fold
+ * body and is unmounted while the boundary is collapsed: the `arc → base`
+ * line, its fit note, and the message. Projecting those while folded would
+ * count matches no painter could reach, which is the failure the whole
+ * declare-both-halves rule exists to prevent — and the reason this function
+ * is handed the fold state rather than reading the parse alone.
+ *
+ * `null` when the output does not parse: the row renders as a plain exchange
+ * then, and projects as one.
  *
  * The landed-files list is deliberately absent, on the refs block's terms —
  * its rows are a fold state the index cannot observe.
  */
 export function joinReceiptFindParts(
   message: ShellExchangeMessage,
+  collapsed: boolean,
 ): string[] | null {
   const parsed = parseJoinReceipt(message.output);
   if (parsed === null) return null;
@@ -402,7 +427,10 @@ export function joinReceiptFindParts(
     .replace(/^\n+/, "")
     .replace(/\s+$/, "");
   const headline = subject.length > 0 ? subject : `${parsed.arc} → ${parsed.base}`;
-  const parts = [headline];
+  // The event names both branches and is a marked container in its own right,
+  // so a reader searching for either finds the row whether or not it is open.
+  const parts = [`Joined ${parsed.arc} into ${parsed.base}`, headline];
+  if (collapsed) return parts;
   // The identity line renders only when there IS a subject — otherwise the
   // headline already carries `arc → base` and the line would repeat it.
   if (subject.length > 0) {

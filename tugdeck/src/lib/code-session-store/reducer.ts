@@ -120,7 +120,7 @@ import type {
 import { isInkOrigin } from "./types";
 import { arcNoteSentence, matchesArcNote } from "../arc-note-command";
 import { compactionNoteText, isCompactionSubmission } from "./compaction";
-import { stageNoteText } from "./stages";
+import { stageNoteText, type StageBoundaryFacts } from "./stages";
 import {
   applyJobAgentStructured,
   applyJobChildResult,
@@ -4094,6 +4094,14 @@ function handleSessionStage(
   event: SessionStageEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
   const text = stageNoteText(event.stage, event.model, event.document, event.steps);
+  // The same facts the text was composed from, carried through unsplit: the
+  // boundary fills its event / detail / badge from these.
+  const stageFacts: StageBoundaryFacts = {
+    stage: event.stage,
+    model: event.model,
+    document: event.document,
+    ...(event.steps === undefined ? {} : { steps: event.steps }),
+  };
   // A rotation announced a fresh claude, which disproves a wire error raised
   // on the one it superseded — the same rule `clearedTransportError` states
   // for a recovered transport. Nothing else moves: a `session_state_errored`
@@ -4103,7 +4111,7 @@ function handleSessionStage(
   const turnKey = base.pendingTurn?.turnKey;
   const entry = turnKey === undefined ? undefined : base.scratch.get(turnKey);
   if (turnKey === undefined || entry === undefined) {
-    const divider: Effect = { kind: "append-stage-note", text };
+    const divider: Effect = { kind: "append-stage-note", text, stageFacts };
     if (event.prompt === undefined || event.turnKey === undefined) {
       return { state: base, effects: [divider] };
     }
@@ -4135,6 +4143,7 @@ function handleSessionStage(
     createdAt: Date.now(),
     text,
     source: "stage",
+    stageFacts,
   };
   const nextEntry: ScratchEntry = {
     ...entry,

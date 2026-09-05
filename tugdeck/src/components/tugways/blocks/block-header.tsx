@@ -194,6 +194,23 @@ export interface BlockHeaderProps {
    */
   toolName?: string;
   /**
+   * Accessible name for the row when the visible name slot is deliberately
+   * empty. `ariaSubject` — what the copy button and the fold cue interpolate
+   * into their `aria-label`s — resolves `toolName ?? ariaName ?? "block"`, so
+   * a block that seats its name elsewhere in the header (the session
+   * boundary puts the event at the head of the detail run, so the run wraps
+   * flush) keeps its accessible identity instead of falling back to the
+   * neutral label.
+   *
+   * Purely additive: every caller that passes `toolName` is unaffected. The
+   * two alternatives are both worse — a visually hidden span inside the run
+   * would be picked up by the transcript's find projection and count matches
+   * the painter cannot flash, and an `aria-label` on the header root would be
+   * overridden by the labels its own descendant buttons compute from
+   * `ariaSubject`.
+   */
+  ariaName?: string;
+  /**
    * Leading glyph rendered in the leftmost slot IN PLACE of the lifecycle
    * dot when provided (a changeset file row puts its commit checkbox here).
    * When absent, the lifecycle `TugProgressIndicator` dot renders as usual —
@@ -289,6 +306,7 @@ export const BlockHeader = React.forwardRef<
   {
     phase = "idle",
     toolName,
+    ariaName,
     leading,
     target,
     summary,
@@ -308,9 +326,10 @@ export const BlockHeader = React.forwardRef<
   const hasCopy =
     copyText !== undefined &&
     (typeof copyText === "function" || copyText.length > 0);
-  // The verb the aria-labels name — the tool when present, else a neutral
-  // "block" for a verb-less row (a changeset file block).
-  const ariaSubject = toolName ?? NEUTRAL_BLOCK_LABEL;
+  // The verb the aria-labels name — the tool when present, else an explicit
+  // `ariaName` from a block that seats its name outside the strip's name
+  // slot, else a neutral "block" for a verb-less row (a changeset file block).
+  const ariaSubject = toolName ?? ariaName ?? NEUTRAL_BLOCK_LABEL;
 
   // Leftmost slot: a caller-supplied `leading` glyph (a file row's commit
   // checkbox) IN PLACE of the lifecycle dot, or the dot itself. The two are

@@ -80,7 +80,7 @@ const STAGE_WAIT_MS = 300_000;
 const SID = "a7c0d1ea-0000-4000-8000-000000000480";
 const CARD = '[data-card-id="A"]';
 const NOTICE_ROWS = `${CARD} [data-slot="tug-notice"]`;
-const STAGE_DIVIDERS = `${CARD} [data-slot="stage-divider"]`;
+const STAGE_DIVIDERS = `${CARD} [data-boundary="stage"]`;
 
 const ARC_NAME = "at0480-compact";
 
@@ -271,7 +271,7 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
         // nothing — on a plan this small it usually declines.
         const honored = await app.evalJS<string>(
           `String(document.querySelectorAll(${JSON.stringify(
-            `${CARD} [data-slot="compaction-divider"]`,
+            `${CARD} [data-boundary="compaction"]`,
           )}).length)`,
         );
         note("at0480 compact_boundary dividers observed", honored);
