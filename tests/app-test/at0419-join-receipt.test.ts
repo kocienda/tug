@@ -92,13 +92,19 @@ const DISCARD_SUMMARY =
 const LEGACY_OUTPUT = "joined join-lane into main";
 /**
  * A landing whose squash subject cannot fit one line of the bar — the fixture
- * for [B03]'s flush wrap, which a short subject cannot exercise at all.
+ * for [B03]'s flush wrap, which a short subject cannot exercise at all. Long
+ * enough to wrap even though the run now has the bar's FULL width to spend:
+ * the trailing badges no longer fence a column, so the fixture that used to
+ * wrap against their left edge would fit on one line.
  */
 const LONG_SUBJECT_JOIN_SUMMARY =
   "joined abcdef0123 · wrap-lane → main · 1 round(s)\n" +
   "tugarc(wrap-lane): give the three rows where the ground moves under the " +
   "transcript one anatomy, one seat at the transcript's own edge, and one " +
-  "sentence that returns flush to its own left edge when it wraps";
+  "sentence that returns flush to its own left edge when it wraps, running " +
+  "the whole width of the bar on every line beneath the first rather than " +
+  "stopping where the badges above it happened to stop, because a receipt " +
+  "is a paragraph and not a column in a fixed-width grid";
 
 let projectDir = "";
 /**
@@ -496,29 +502,63 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         expect(fallback.boundaries).toBe(3);
         expect(fallback.raw).toContain(LEGACY_OUTPUT);
 
-        // ── A long subject wraps FLUSH under the event ────────────────────
+        // ── A long subject wraps FLUSH, and runs the bar's full width ─────
         // The correction the boundary exists for: the event and its detail are
         // one inline run, so a second line returns to the run's own left edge
         // rather than hanging under wherever the detail began. Seating the
         // event in the strip's name slot instead would look identical on every
         // one-line row above and break this silently, which is why the claim
         // is measured on a row long enough to wrap.
+        //
+        // And the right edge is the same argument. The trailing badges float
+        // INSIDE the run rather than fencing a column beside it, so they
+        // shorten the first line and nothing below it — a wrapped line that
+        // stopped at their left edge would be a tab stop nobody set, on a
+        // surface that is not a fixed-width grid.
         await receiptRow(app, "join-wrap", "/arc-join", LONG_SUBJECT_JOIN_SUMMARY);
+        // Wait for the row ITSELF, not for a count of four: the boundaries do
+        // not mount in the order they were driven in, so a count can be
+        // satisfied while this row is still absent — which is a flake under a
+        // loaded batch and a pass when run alone.
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)}).length === 4`,
+          `Array.from(document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)}))
+             .some((n) => (n.textContent || "").includes("wrap-lane"))`,
           { timeoutMs: 20000 },
         );
-        const wrap = await app.evalJS<{ lines: number; indents: number[] }>(
+        const wrap = await app.evalJS<{
+          lines: number;
+          indents: number[];
+          past: number;
+          width: number;
+        }>(
           `(() => {
              const bs = document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)});
-             const b = bs[bs.length - 1];
+             // BY NAME, not by position: a restored boundary is seated where
+             // its turn is rather than at the end, so the last node in the
+             // document is the historical join rather than the row just driven
+             // in. Indexing here measured that row for as long as it happened
+             // to wrap too.
+             const b = Array.from(bs).find(
+               (n) => (n.textContent || "").includes("wrap-lane"),
+             );
              const run = b.querySelector(".session-boundary-line");
              // One client rect per line box the run occupies, in order.
              const rects = Array.from(run.getClientRects());
              const first = rects.length === 0 ? 0 : rects[0].left;
+             // The floated badge cluster's own left edge: the x every line
+             // used to stop at, and which every line below the first is now
+             // free to cross.
+             const cluster = b.querySelector(".tool-call-header-trailing");
+             const fence = cluster.getBoundingClientRect().left;
              return {
                lines: rects.length,
                indents: rects.map((r) => Math.round(r.left - first)),
+               past: rects.filter((r) => r.right > fence).length,
+               // The width the run had to spend, so a future failure says
+               // whether the fixture stopped wrapping or the layout did.
+               width: Math.round(
+                 b.querySelector(".tool-call-header-detail").getBoundingClientRect().width,
+               ),
              };
            })()`,
         );
@@ -527,6 +567,13 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         for (const indent of wrap.indents) {
           expect(Math.abs(indent), "every line of the run begins at the event's x").toBeLessThanOrEqual(1);
         }
+        // The first line stops short of the badges; at least one line beneath
+        // it does not. Counted rather than indexed, because which line runs
+        // longest is the text's business.
+        expect(
+          wrap.past,
+          "a wrapped line runs past the badges the first line stopped at",
+        ).toBeGreaterThan(0);
       } finally {
         await app.close();
       }

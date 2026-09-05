@@ -366,6 +366,7 @@ export function SessionDiscardReceiptBlock(props: CommandBlockProps): React.Reac
         className="tugx-commit-receipt"
         variant="receipt"
         identity={identity}
+        flowTrailing
         resultSummary={[
           { kind: "count", count: rounds, noun: "round" },
           ...(files > 0 ? [{ kind: "count" as const, count: files, noun: "file" }] : []),

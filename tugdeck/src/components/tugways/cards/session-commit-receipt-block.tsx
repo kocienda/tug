@@ -221,6 +221,10 @@ function CommitReceipt({
         className="tugx-commit-receipt"
         variant="receipt"
         identity={identity}
+        // A subject is a sentence: a wrapped line returns flush at the left
+        // and runs to the block's own right edge, under the badges rather
+        // than stopping at them.
+        flowTrailing
         // The file count and diff stat as standard header result summaries —
         // the same pipe-sectioned ghost badges every tool block reports with.
         resultSummary={[

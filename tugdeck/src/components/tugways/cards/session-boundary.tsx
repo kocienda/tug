@@ -130,6 +130,11 @@ export function SessionBoundary({
       leading={glyph}
       ariaName={event}
       identity={line}
+      // The event and its detail are prose, so the trailing badges float
+      // inside the run rather than fencing a column beside it: the first
+      // line stops short of them and every line beneath runs the bar's full
+      // width. The flush left return above and this are the same argument.
+      flowTrailing
       resultSummary={summary}
       copyText={copyText ?? event}
     >

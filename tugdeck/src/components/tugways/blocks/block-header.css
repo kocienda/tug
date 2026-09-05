@@ -351,3 +351,41 @@ body {
 
 /* The Expand/Collapse control is a `BlockFoldCue` (icon+text, its own
  * ChevronsDown/Up swap) — no header-owned chevron rule needed. */
+
+/* ---- Flow mode: the trailing cluster inside the detail column ---- */
+
+/* A receipt's header is a paragraph, not a row of cells. Its detail is
+   English that wraps, and a wrapped line has no reason to stop where the
+   badges on the FIRST line stopped — a line that does reads as a tab stop
+   nobody set, in a surface that is not a fixed-width grid. So the cluster is
+   seated inside the detail column and floated: it shortens exactly the line
+   it sits on, and every line beneath runs to the block's own right edge.
+
+   A float, deliberately. It is the one primitive that shortens one line
+   without establishing a column, and it is why the detail has to be a BLOCK
+   box here — a float is ignored on a flex item, which is what the detail is
+   by default. The strip puts the cluster first in the flow for the same
+   reason: a float only excludes the lines that come after it. */
+.tool-call-header-detail[data-flow] {
+  display: block;
+}
+
+.tool-call-header-trailing {
+  float: inline-end;
+  display: flex;
+  align-items: center;
+  /* Exactly ONE line of the text beside it, so its exclusion is the first
+     line and nothing below. The badges stand a little taller than a line at
+     some altitudes and overflow this box, which paints identically and
+     excludes nothing — the alternative, letting them size the float, would
+     clip the second line's first few pixels and put back the tab stop this
+     rule exists to remove. */
+  height: 1lh;
+  /* The parent flex row's `gap` is what each pipe section's `margin-left`
+     is measured against, and inside a float there is no row gap — so the
+     cluster restates it. Its own start margin plus the first section's sum
+     to the same `sep-gap` from the text to the first rule. */
+  gap: var(--tugx-toolheader-row-gap);
+  margin-inline-start: var(--tugx-toolheader-row-gap);
+}
+

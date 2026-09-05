@@ -203,6 +203,14 @@ export interface BlockChromeProps {
    */
   altitude?: BlockAltitude;
   /**
+   * Forwarded to {@link BlockHeader} → {@link BlockStrip}: seat the trailing
+   * cluster inside the detail column, floated, so a wrapped identity line
+   * runs the block's full width rather than stopping where the badges on the
+   * first line stopped. Set by the receipt blocks, whose identity is a
+   * sentence rather than a command.
+   */
+  flowTrailing?: boolean;
+  /**
    * Args summary — typically the most-relevant single field of the
    * tool input rendered as a one-liner (e.g. the shell command, the
    * file path being read). Wrappers pass a `<code>` element for
@@ -328,6 +336,7 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
   notice,
   variant = "tool",
   altitude = "leaf",
+  flowTrailing = false,
   children,
   rootSlot = "tool-block-chrome",
   copyText,
@@ -476,6 +485,7 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
       <BlockHeader
         ref={headerRef}
         altitude={altitude}
+        flowTrailing={flowTrailing}
         phase={phase ?? statusToPhase(status)}
         toolName={toolName}
         ariaName={ariaName}

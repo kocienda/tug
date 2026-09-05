@@ -291,6 +291,13 @@ export interface BlockHeaderProps {
    * is a caller to check.
    */
   altitude?: BlockAltitude;
+  /**
+   * Forwarded to {@link BlockStrip}: seat the trailing cluster inside the
+   * detail column, floated, so a wrapped detail line runs the block's full
+   * width instead of stopping at the badges' column. For a header whose
+   * detail is prose — a receipt, a boundary — rather than a command.
+   */
+  flowTrailing?: boolean;
   /** Forwarded class name. */
   className?: string;
 }
@@ -317,6 +324,7 @@ export const BlockHeader = React.forwardRef<
     actionsTrailing,
     actionsSlotRef,
     altitude = "leaf",
+    flowTrailing = false,
     className,
   },
   ref,
@@ -474,6 +482,7 @@ export const BlockHeader = React.forwardRef<
       // The detail column — the target (chip or wrapping command); the strip's
       // flexible spacer when empty.
       detail={target}
+      flowTrailing={flowTrailing}
       trailing={trailingNode}
       actions={actionsNode}
     />

@@ -76,6 +76,21 @@ export interface BlockStripProps {
    */
   detail?: React.ReactNode;
   /**
+   * Seat the trailing cluster INSIDE the detail column, floated, instead of
+   * beside it as its own flex item.
+   *
+   * A row of cells wants the default: the detail is a column, and it ends
+   * where the badges begin. A header whose detail is a paragraph does not —
+   * a wrapped line has no reason to stop where the badges on the first line
+   * stopped, and one that does reads as a tab stop nothing set. Floated, the
+   * cluster shortens exactly the line it sits on and every line beneath runs
+   * to the block's own right edge.
+   *
+   * Off by default, so a strip that has not asked for it is laid out
+   * identically to before.
+   */
+  flowTrailing?: boolean;
+  /**
    * The trailing pipe-sections — the result summary, timing, caution —
    * pre-composed by the caller with their own `tool-call-header-summary` /
    * `tool-call-header-timing` classes so the pipe-separator CSS keeps
@@ -140,6 +155,7 @@ export const BlockStrip = React.forwardRef<HTMLDivElement, BlockStripProps>(
       detail,
       trailing,
       actions,
+      flowTrailing = false,
       className,
       dataSlot,
       dataTestid,
@@ -176,13 +192,30 @@ export const BlockStrip = React.forwardRef<HTMLDivElement, BlockStripProps>(
           </span>
         ) : null}
         {/* The detail column / flexible spacer — always present. */}
-        <span className="tool-call-header-detail">{detail}</span>
-        {/* Trailing pipe-sections (summary · timing · caution), composed
-            by the caller with their own classes. */}
-        {trailing}
-        {/* Trailing actions cluster — the strip owns the span so the pipe
-            rule + gap discipline is shared at every altitude. */}
-        <span className="tool-call-header-actions">{actions}</span>
+        {/* In flow mode the cluster is the detail's FIRST child, because a
+            float only shortens the lines that come after it in the flow. */}
+        <span
+          className="tool-call-header-detail"
+          data-flow={flowTrailing ? "" : undefined}
+        >
+          {flowTrailing ? (
+            <span className="tool-call-header-trailing">
+              {trailing}
+              <span className="tool-call-header-actions">{actions}</span>
+            </span>
+          ) : null}
+          {detail}
+        </span>
+        {flowTrailing ? null : (
+          <>
+            {/* Trailing pipe-sections (summary · timing · caution), composed
+                by the caller with their own classes. */}
+            {trailing}
+            {/* Trailing actions cluster — the strip owns the span so the pipe
+                rule + gap discipline is shared at every altitude. */}
+            <span className="tool-call-header-actions">{actions}</span>
+          </>
+        )}
       </div>
     );
   },
