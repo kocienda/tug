@@ -42,8 +42,13 @@ let painted: HTMLElement | null = null;
 /** Whether the `selectionchange` listener is installed. Installed once. */
 let listening = false;
 
-/** Whether the live selection still covers `element`. */
-function selectionCovers(element: HTMLElement): boolean {
+/**
+ * Whether the live selection covers `element`. The settle asks this after
+ * selecting an entity, because a programmatic selection can land as nothing
+ * in `user-select: none` chrome, and a mark with no selection under it would
+ * be a paint of a state the DOM is not holding.
+ */
+export function selectionCovers(element: HTMLElement): boolean {
   const sel = window.getSelection();
   if (sel === null || sel.isCollapsed || sel.rangeCount === 0) return false;
   for (let i = 0; i < sel.rangeCount; i += 1) {

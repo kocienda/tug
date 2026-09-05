@@ -37,6 +37,7 @@ import { useOptionalResponder } from "./use-responder";
 import { useResponderChain } from "./responder-chain-provider";
 import type { ActionHandlerResult } from "./responder-chain";
 import { TUG_ACTIONS } from "./action-vocabulary";
+import { useWholeEntityPress } from "@/lib/whole-entity-press";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -150,17 +151,31 @@ export function useCopyableText({
 
   // ---- Composed ref ----
 
+  // The press that opens the Copy menu selects the copyable whole and paints
+  // it — the one rule every menu about an entity is under
+  // (`lib/whole-entity-press`). The entity is the copyable itself. Most
+  // copyables are `user-select: none`, where the selection settles to nothing
+  // and the press puts no mark on; a selectable one — a commit atom in the
+  // transcript under its own Copy — lights whole, as it does under the
+  // transcript's menu. A disabled copyable names nothing: its host claims the
+  // press and names the entity itself, and so does a copyable with no
+  // responder chain under it, whose menu never opens at all.
+  const { attach: attachPress } = useWholeEntityPress(() =>
+    disabled || manager === null ? null : ref.current,
+  );
+
   const composedRef = useCallback(
     (el: HTMLElement | null) => {
       (ref as React.MutableRefObject<HTMLElement | null>).current = el;
       responderRef(el);
+      attachPress(el);
       if (typeof forwardedRef === "function") {
         forwardedRef(el);
       } else if (forwardedRef) {
         (forwardedRef as React.MutableRefObject<HTMLElement | null>).current = el;
       }
     },
-    [ref, responderRef, forwardedRef],
+    [ref, responderRef, attachPress, forwardedRef],
   );
 
   // ---- Context menu ----

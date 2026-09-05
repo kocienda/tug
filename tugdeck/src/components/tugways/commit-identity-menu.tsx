@@ -49,6 +49,7 @@ import {
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { entityMenuItems } from "@/components/tugways/entity-menu-items";
 import { annotationEntryFor } from "@/lib/annotator/registry";
+import { useWholeEntityPress } from "@/lib/whole-entity-press";
 
 /** What the menu is offered for, and what each item has to write. */
 export interface CommitIdentityMenuOptions {
@@ -68,7 +69,10 @@ export interface CommitIdentityMenuOptions {
 
 /** Wiring for the row: attach both, render the menu beside it. */
 export interface CommitIdentityMenuResult {
-  /** Attach to the row's `ref` — the responder's element. */
+  /**
+   * Attach to the row's `ref` — the responder's element, and the host the
+   * whole-entity press is bound to.
+   */
   ref: (el: HTMLElement | null) => void;
   /** Attach to the row's `onContextMenu`. */
   onContextMenu: (e: React.MouseEvent) => void;
@@ -79,6 +83,18 @@ export interface CommitIdentityMenuResult {
 /** Plain text to the clipboard, when there is any. */
 function writeText(text: string): void {
   if (text.length > 0) void navigator.clipboard.writeText(text);
+}
+
+/**
+ * The entity a press on the claim is about: the commit atom — from anywhere
+ * on the claim. A History row claims the whole row, subject and roster and
+ * stamp, and selecting a row on a right-click is wrong; the atom is the
+ * commit's visible name and the commit is what every item acts on, so a press
+ * on the subject lights the atom. The receipt and the join receipt claim the
+ * atom's own wrapper, where the same lookup finds the same pill.
+ */
+function commitAtomIn(host: HTMLElement): HTMLElement | null {
+  return host.querySelector<HTMLElement>(".tug-commit-atom");
 }
 
 export function useCommitIdentityMenu({
@@ -116,6 +132,26 @@ export function useCommitIdentityMenu({
       [TUG_ACTIONS.COPY_COMMIT_RECORD]: () => writeText(commitCopyText(commit)),
     },
   });
+
+  // The press that opens this menu selects the commit atom whole and paints
+  // it — the one rule every menu about an entity is under
+  // (`lib/whole-entity-press`). Native listeners on the claim, because the
+  // atom stops React propagation of every pointer gesture on itself. Named
+  // only where the menu will actually open: with no responder chain there is
+  // no menu, and a press that settled the selection under nothing would be
+  // the rule's own inverse — a highlight with no menu about it.
+  const { attach: attachPress } = useWholeEntityPress((event) =>
+    manager !== null && event.currentTarget instanceof HTMLElement
+      ? commitAtomIn(event.currentTarget)
+      : null,
+  );
+  const ref = React.useCallback(
+    (el: HTMLElement | null): void => {
+      responderRef(el);
+      attachPress(el);
+    },
+    [responderRef, attachPress],
+  );
 
   const onContextMenu = React.useCallback(
     (e: React.MouseEvent): void => {
@@ -165,5 +201,5 @@ export function useCommitIdentityMenu({
       </ResponderScope>
     ) : null;
 
-  return { ref: responderRef, onContextMenu, contextMenu };
+  return { ref, onContextMenu, contextMenu };
 }

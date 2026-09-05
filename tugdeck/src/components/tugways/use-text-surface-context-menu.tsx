@@ -128,9 +128,9 @@ import {
   type DictionaryLookupRequest,
 } from "@/lib/dictionary-lookup";
 import {
-  clearEntitySelected,
-  paintEntitySelected,
-} from "@/lib/entity-selection-paint";
+  createWholeEntityPress,
+  isSecondaryPress,
+} from "@/lib/whole-entity-press";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -185,7 +185,9 @@ export interface UseTextSurfaceContextMenuOptions {
    * commit sha selects the whole reference rather than the sub-word WebKit
    * picked out of it — every item the menu is about to show acts on the
    * entity, and highlighting one word inside it is a lie about what the
-   * gesture is about to do.
+   * gesture is about to do. The press itself — snapshot on mousedown,
+   * settle and paint on contextmenu — is `lib/whole-entity-press`, which
+   * every menu about an entity composes; this option only names the element.
    */
   wholeEntityTarget?: (event: MouseEvent) => HTMLElement | null;
 }
@@ -313,95 +315,6 @@ function sampleDictionaryLookup(
   return dictionaryLookupFor(range, text, fallback);
 }
 
-/**
- * The live selection as detached clones, or `null` when there is none.
- * Cloning matters: the live `Range` objects mutate as the selection moves,
- * so holding them would remember the smart-select rather than what preceded
- * it.
- */
-function snapshotSelection(): Range[] | null {
-  const sel = window.getSelection();
-  if (sel === null || sel.rangeCount === 0) return null;
-  const ranges: Range[] = [];
-  for (let i = 0; i < sel.rangeCount; i += 1) {
-    ranges.push(sel.getRangeAt(i).cloneRange());
-  }
-  return ranges;
-}
-
-/** Put a {@link snapshotSelection} result back, or clear when it was empty. */
-function restoreSelection(ranges: Range[] | null): void {
-  const sel = window.getSelection();
-  if (sel === null) return;
-  sel.removeAllRanges();
-  if (ranges === null) return;
-  for (const range of ranges) sel.addRange(range);
-}
-
-/**
- * Whether `ranges` is a selection that both touches `element` and reaches
- * beyond it — the shape only the user's own drag can have. WebKit's
- * contextual smart-select always lands wholly inside the element the click
- * hit, so this is what tells a selection worth keeping from the browser's
- * pick.
- */
-function reachesPastElement(
-  ranges: Range[] | null,
-  element: HTMLElement,
-): boolean {
-  if (ranges === null) return false;
-  return ranges.some(
-    (range) =>
-      !range.collapsed &&
-      range.intersectsNode(element) &&
-      !(
-        element.contains(range.startContainer) &&
-        element.contains(range.endContainer)
-      ),
-  );
-}
-
-/** Select the whole of `element`, its boundaries included. */
-function selectWholeElement(element: HTMLElement): void {
-  const sel = window.getSelection();
-  if (sel === null) return;
-  const range = document.createRange();
-  range.selectNode(element);
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-/**
- * Put the selection where a whole-entity menu can honestly open over it: on
- * the entire element, unless the user already had a selection of their own
- * that reaches past it, which stays theirs.
- *
- * `preClick` is the mousedown snapshot when the surface wired `onMouseDown`;
- * without one (the CM6 editor, which stops its own pointer selection) the
- * live selection stands in, and the only selection that can be live by then
- * is either the browser's smart-select — inside the element, so replaced —
- * or one the surface kept from before the click.
- *
- * The DOM selection is only half of what the reader sees. A text highlight
- * paints the runs it covers, so an entity whose mark is a BOX — a commit
- * pill, a session chip — would light its label and leave its node, padding
- * and border at rest. `paintEntitySelected` marks the element so the box can
- * wear the selection whole; see `lib/entity-selection-paint`.
- */
-function settleWholeEntitySelection(
-  element: HTMLElement,
-  preClick: Range[] | null,
-): void {
-  const prior = preClick ?? snapshotSelection();
-  if (reachesPastElement(prior, element)) {
-    restoreSelection(prior);
-    clearEntitySelected();
-    return;
-  }
-  selectWholeElement(element);
-  paintEntitySelected(element);
-}
-
 export function useTextSurfaceContextMenu(
   options: UseTextSurfaceContextMenuOptions,
 ): UseTextSurfaceContextMenuResult {
@@ -419,12 +332,23 @@ export function useTextSurfaceContextMenu(
   // belongs in React state per [L24].
   const [menuState, setMenuState] = useState<MenuState | null>(null);
 
-  // The selection as it stood before a whole-entity secondary click, parked
-  // by `onMouseDown` and consumed by `onContextMenu`. `null` means the last
-  // secondary click was not on a whole-entity target and the selection is
-  // the browser's business as usual; a set `ranges: null` means there was
-  // nothing of the user's to keep, so the entity takes the selection.
-  const preClickRangesRef = useRef<{ ranges: Range[] | null } | null>(null);
+  // The whole-entity press, composed rather than housed here: its mousedown
+  // half parks the selection as it stood before WebKit's smart-select, and
+  // its contextmenu half settles the selection over the entity. This hook's
+  // consumers attach the handlers themselves, so the press is the plain
+  // core, called from them. The resolver is read live at event time ([L07])
+  // so one press object outlives every render.
+  const wholeEntityTargetRef = useRef(wholeEntityTarget);
+  wholeEntityTargetRef.current = wholeEntityTarget;
+  const pressRef = useRef<ReturnType<typeof createWholeEntityPress> | null>(
+    null,
+  );
+  if (pressRef.current === null) {
+    pressRef.current = createWholeEntityPress(
+      (event) => wholeEntityTargetRef.current?.(event) ?? null,
+    );
+  }
+  const press = pressRef.current;
 
   const closeMenu = useCallback(() => {
     setMenuState(null);
@@ -440,23 +364,20 @@ export function useTextSurfaceContextMenu(
   const onMouseDown = useCallback(
     (event: MouseEvent) => {
       const adapter = adapterRef?.current ?? null;
-      const isSecondaryClick =
-        event.button === 2 || (event.button === 0 && event.ctrlKey);
-      if (!isSecondaryClick) return;
-      // A whole-entity target: remember the selection as it stands BEFORE
-      // WebKit's contextual smart-select gets to it, so `onContextMenu` can
-      // tell a selection the user made from the word the browser picked.
-      // `preventDefault` cannot help here — WebKit selects the closest word
-      // inside `sendContextMenuEvent` itself, ahead of the event it
-      // dispatches to us — so the fix has to come after the fact.
-      const entity = wholeEntityTarget?.(event) ?? null;
-      preClickRangesRef.current =
-        entity !== null ? { ranges: snapshotSelection() } : null;
+      if (!isSecondaryPress(event)) return;
+      // The press's first half: on a whole-entity target, remember the
+      // selection as it stands BEFORE WebKit's contextual smart-select gets
+      // to it, so the settle in `onContextMenu` can tell a selection the
+      // user made from the word the browser picked. `preventDefault` cannot
+      // help there — WebKit selects the closest word inside
+      // `sendContextMenuEvent` itself, ahead of the event it dispatches to
+      // us — so the fix has to come after the fact.
+      press.press(event);
       if (adapter?.hasRangedSelection() ?? false) {
         event.preventDefault();
       }
     },
-    [adapterRef, wholeEntityTarget],
+    [adapterRef, press],
   );
 
   // Contextmenu — suppress the system menu, sample hasSelection from the live
@@ -465,16 +386,12 @@ export function useTextSurfaceContextMenu(
   const onContextMenu = useCallback(
     (event: MouseEvent) => {
       event.preventDefault();
-      // Settle the selection over a whole-entity target: the click's job was
-      // to name the entity, so the entity is what ends up highlighted — the
-      // browser's word-select inside it is overwritten, and a selection of
-      // the user's own that reaches past it is still theirs.
-      const preClick = preClickRangesRef.current;
-      preClickRangesRef.current = null;
-      const entity = wholeEntityTarget?.(event) ?? null;
-      if (entity !== null) {
-        settleWholeEntitySelection(entity, preClick?.ranges ?? null);
-      }
+      // The press's second half: settle the selection over a whole-entity
+      // target. The click's job was to name the entity, so the entity is
+      // what ends up highlighted — the browser's word-select inside it is
+      // overwritten, and a selection of the user's own that reaches past it
+      // is still theirs.
+      press.settle(event);
       const adapter = adapterRef?.current ?? null;
       // Read the DOM AFTER the settle above, so what this sees is the
       // selection the menu is actually about to act on.
@@ -504,7 +421,7 @@ export function useTextSurfaceContextMenu(
       hasSelectionOverride,
       extraEntries,
       hideStandardItems,
-      wholeEntityTarget,
+      press,
     ],
   );
 

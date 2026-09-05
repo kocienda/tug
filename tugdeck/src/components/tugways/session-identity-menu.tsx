@@ -69,6 +69,7 @@ import {
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { entityMenuItems } from "@/components/tugways/entity-menu-items";
 import { annotationEntryFor } from "@/lib/annotator/registry";
+import { useWholeEntityPress } from "@/lib/whole-entity-press";
 import { CardIdContext } from "@/lib/card-id-context";
 import { useCardIdForSession } from "@/lib/card-session-binding-store";
 import { writeSessionAtomToClipboard } from "@/lib/session-atom";
@@ -120,7 +121,10 @@ export interface SessionIdentityMenuOptions {
 
 /** Wiring for the row: attach both, render the menu beside it. */
 export interface SessionIdentityMenuResult {
-  /** Attach to the row's `ref` — the responder's element. */
+  /**
+   * Attach to the row's `ref` — the responder's element, and the host the
+   * whole-entity press is bound to.
+   */
   ref: (el: HTMLElement | null) => void;
   /** Attach to the row's `onContextMenu`. */
   onContextMenu: (e: React.MouseEvent) => void;
@@ -131,6 +135,17 @@ export interface SessionIdentityMenuResult {
 /** Plain text to the clipboard, when there is any. */
 function writeText(text: string): void {
   if (text.length > 0) void navigator.clipboard.writeText(text);
+}
+
+/**
+ * The entity a press on the claim is about: the session identity. On a chip
+ * the claim IS the identity, so it names itself; on a row, which claims the
+ * whole row, it is the identity runs the row leads with — the session's
+ * visible name, which is what every item acts on.
+ */
+function sessionIdentityIn(host: HTMLElement): HTMLElement | null {
+  if (host.classList.contains("tug-session-identity")) return host;
+  return host.querySelector<HTMLElement>(".tug-session-identity");
 }
 
 export function useSessionIdentityMenu({
@@ -237,11 +252,23 @@ export function useSessionIdentityMenu({
     },
   });
 
+  // The press that opens this menu selects the identity whole and paints it —
+  // the one rule every menu about an entity is under
+  // (`lib/whole-entity-press`). Bound on the same element the responder is,
+  // and named only where the menu will actually open: while enabled, and
+  // under a responder chain. A press that settled the selection under no menu
+  // would be the rule's own inverse — a highlight with nothing about it.
+  const { attach: attachPress } = useWholeEntityPress((event) =>
+    enabled && manager !== null && event.currentTarget instanceof HTMLElement
+      ? sessionIdentityIn(event.currentTarget)
+      : null,
+  );
   const ref = React.useCallback(
     (el: HTMLElement | null): void => {
       responderRef(enabled ? el : null);
+      attachPress(enabled ? el : null);
     },
-    [responderRef, enabled],
+    [responderRef, attachPress, enabled],
   );
 
   const onContextMenu = React.useCallback(
