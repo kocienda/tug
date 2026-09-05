@@ -409,6 +409,40 @@ body {
   border-radius: var(--tugx-md-inline-code-radius);
 }
 
+/* An inline `<code>` whose whole content the annotator REPLACED with an atom.
+   The tone above retires on it, and only on it.
+
+   The tone says *the author formatted this as code* — markdown's own
+   emphasis, driven by the backticks exactly as `*` drives italic. That is
+   true of every other confirmed run and is why a confirmed path keeps its
+   mono: the characters the author backticked are still the characters on
+   screen. A commit is the one kind whose run does not survive the pass. The
+   annotator empties the span and `useCommitTipPortals` mounts the pill in its
+   place, so the backticks are emphasis on characters that no longer exist,
+   and what inherits the mono is a MARK — which is how a commit came out in
+   Plex Mono in an Overview post while the same pill in the trailing refs row
+   two lines down came out proportional. The atom's face is the surface's
+   (`tug-commit-atom.css`), and a `<code>` the reader can no longer read is
+   not a surface.
+
+   `inherit` rather than a named family, because the prose face is whatever
+   the card set and this sheet does not know it — the same reason the pill
+   itself names none.
+
+   `data-tugx-atom-code` is set by the portal pass rather than by the
+   annotator, because the condition is "nothing else is left in here": a sha
+   inside a command line leaves the rest of the line standing, and that line
+   is still code a reader reads. Only a `<code>` emptied down to its atom
+   takes this. */
+.tugx-md-block code[data-tugx-atom-code="true"] {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
 /* An inline `<code>` span the annotator confirmed — a *known* slash
    command, a project shell command, or a path that points at something
    real. A click runs the draft or opens the file; a right-click offers

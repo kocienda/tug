@@ -282,11 +282,15 @@ function mountJs(selector: string): string {
     if (pill === null) return { found: false };
     var hash = pill.querySelector(".tug-commit-atom-hash");
     var host = pill.parentElement;
+    // The sentence the mark stands in, above any inline <code> the mention
+    // was backticked into — the face a prose mount must actually come out in.
+    var prose = pill.closest("p, li") || pill.closest(".tugx-md-block");
     return {
       found: true,
       label: (pill.textContent || "").trim(),
       face: hash === null ? "" : getComputedStyle(hash).fontFamily,
       hostFace: host === null ? "" : getComputedStyle(host).fontFamily,
+      proseFace: prose === null ? "" : getComputedStyle(prose).fontFamily,
       node: pill.querySelector(".tug-commit-atom-node") !== null,
       tier: pill.getAttribute("data-tier"),
     };
@@ -298,6 +302,7 @@ interface Mount {
   label?: string;
   face?: string;
   hostFace?: string;
+  proseFace?: string;
   node?: boolean;
   tier?: string | null;
 }
@@ -480,6 +485,26 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
           expect(
             faces.some((f) => !/mono/i.test(f)),
             "a proportional surface renders the pill proportionally",
+          ).toBe(true);
+
+          // The mention is the one mount whose host is not the surface. The
+          // agents write a sha bare in backticks, so the wrapper lands inside
+          // an inline `<code>` — and inheriting THAT is how the pill came out
+          // in Plex Mono in a transcript paragraph and an Overview post while
+          // the same pill in a refs row came out proportional. The pin is the
+          // outcome rather than the mechanism: the mark reads as the sentence
+          // around it does.
+          expect(
+            mention.face,
+            "a backticked mention takes the sentence's face, not the code's",
+          ).toBe(mention.proseFace as string);
+          expect(
+            /mono/i.test(mention.face ?? ""),
+            "a mention in prose is never mono",
+          ).toBe(false);
+          expect(
+            /mono/i.test(history.face ?? ""),
+            "a History row's mono rows keep the mark mono",
           ).toBe(true);
 
           process.stdout.write("VERDICT: PASS\n");

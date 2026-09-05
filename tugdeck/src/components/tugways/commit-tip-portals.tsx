@@ -80,6 +80,42 @@ const COMMIT_SPANS = '[data-tug-annotation="commit-sha"]';
  */
 export const COMMIT_TEXT_ATTRIBUTE = "data-tugx-commit-text";
 
+/**
+ * Stamped on an inline `<code>` the pill has taken over completely, so
+ * `tug-markdown-view.css` can retire the code tone on it.
+ *
+ * The agents are told to write a sha bare in backticks, so the ordinary
+ * spelling of a commit mention puts the wrapper INSIDE a `<code>` element —
+ * and the pill, whose face is deliberately the surface's, came out in Plex
+ * Mono there while the same pill in an Overview refs row came out
+ * proportional. The backticks are emphasis on characters this pass has
+ * already removed; the emphasis goes with them.
+ */
+export const ATOM_CODE_ATTRIBUTE = "data-tugx-atom-code";
+
+/**
+ * Mark, or unmark, the inline `<code>` a host sits directly inside.
+ *
+ * The test is what is LEFT: the hosts are emptied before this runs, so a
+ * `<code>` with no text remaining held nothing but commits, and a `<code>`
+ * with text remaining is a line a reader still reads — ``git show <sha>``
+ * keeps its face, and only the pill inside it stays mono, which is the
+ * honest reading of that run. Written as an unconditional set-or-remove so a
+ * later pass over the same DOM cannot leave a stale mark behind.
+ */
+function markAtomCode(host: HTMLElement): void {
+  const code = host.parentElement;
+  if (code === null || code.tagName !== "CODE") return;
+  // Fenced code is content being shown, not prose: the annotator never
+  // reaches inside it, but the guard costs nothing and says so.
+  if (code.parentElement?.tagName === "PRE") return;
+  if ((code.textContent ?? "").trim() === "") {
+    code.setAttribute(ATOM_CODE_ATTRIBUTE, "true");
+  } else {
+    code.removeAttribute(ATOM_CODE_ATTRIBUTE);
+  }
+}
+
 /** One mounted tip: the emptied span, the sha it names, and its words. */
 interface CommitTipMount {
   host: HTMLElement;
@@ -159,6 +195,9 @@ export function useCommitTipPortals(
         host.setAttribute(COMMIT_TEXT_ATTRIBUTE, text);
         host.textContent = "";
       }
+      // After the host is emptied, so the `<code>` test below reads what is
+      // left rather than what was there.
+      markAtomCode(host);
       next.push({ host, sha, text, worded: wordedByProse(host) });
     }
     // Rebuild rather than merge, and only publish a change: a pass that finds
