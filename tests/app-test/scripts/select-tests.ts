@@ -230,6 +230,18 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // pins is the commit — four panes appended in one state change, in the
     // z-order that settles which member a stack draws — and that lives here.
     "tugdeck/src/deck-manager.ts": 21,
+
+    // The Session card. Every session surface the app has — picker, transcript
+    // host, composer wiring, the card's own close policy — hangs off this one
+    // module, so a test that drives a session names it or names nothing. It sat
+    // at exactly 20, which was the budget holding by luck rather than by design.
+    //
+    // Recorded at 21 when at0522 (an empty Session card waives its close
+    // confirm) arrived. The pane asks a live waiver at close time and this file
+    // is what answers — "has this card ever attached, and has it ever been sent
+    // a message" is knowledge only the session card holds — so naming a
+    // narrower module would be a fiction.
+    "tugdeck/src/components/tugways/cards/session-card.tsx": 21,
 };
 
 /**

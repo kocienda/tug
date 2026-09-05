@@ -127,6 +127,11 @@ import {
   getCardCloseGuard,
   type CardCloseDecision,
 } from "@/lib/card-close-guard";
+import {
+  cardWaivesCloseConfirm,
+  readCardCloseAdvice,
+  type CardCloseAdvice,
+} from "@/lib/card-close-advice";
 import * as paneContentRegistry from "@/components/chrome/pane-content-registry";
 import * as paneFrameRegistry from "@/components/chrome/pane-frame-registry";
 import * as paneRootRegistry from "@/components/chrome/pane-root-registry";
@@ -273,6 +278,17 @@ export interface CardTitleBarProps {
    */
   confirmClose?: boolean;
   /**
+   * What the pane's card says about a close, asked live at close time and
+   * consulted only when {@link confirmClose} is `true`. A `waive` closes
+   * the pane immediately despite the type's opt-in (an empty Session card
+   * has no transcript to protect); a `message` words the popover in the
+   * card's own terms when the confirm does stand (an unsent draft).
+   *
+   * Wired only for a single-card pane: a multi-card pane's guard is about
+   * discarding N tabs at once, which no card's emptiness answers.
+   */
+  resolveCloseAdvice?: () => CardCloseAdvice | null;
+  /**
    * The pane's active card id. Used only to look up any title-bar items the
    * active card has contributed via `paneTitleBarItemsStore` — its standing
    * buttons and its `…` rows. Omitted → the card contributes nothing.
@@ -415,6 +431,7 @@ function CardTitleBar({
   resolveCloseGuard,
   resolveModalHold,
   confirmClose = false,
+  resolveCloseAdvice,
   activeCardId,
   slotStack = EMPTY_SLOT_STACK,
   onRevealPane,
@@ -683,14 +700,19 @@ function CardTitleBar({
   const isMultiTab = cardCount > 1;
 
   // The pane-close intent (X button / single-tab Cmd-W): closes the whole
-  // pane via `onClose`, with multi-tab vs single-tab copy.
+  // pane via `onClose`, with multi-tab vs single-tab copy. A single card
+  // that has something specific to say about what the close would take
+  // (a Session card holding an unsent message) words the popover itself
+  // ([L31]); everything else gets the pane's own question.
   const paneCloseIntent = useCallback(
     (): CloseIntent => ({
-      message: isMultiTab ? `Close ${cardCount} Tabs?` : "Close Card?",
+      message: isMultiTab
+        ? `Close ${cardCount} Tabs?`
+        : (resolveCloseAdvice?.()?.message ?? "Close Card?"),
       confirmLabel: isMultiTab ? "Close All" : "Close",
       onConfirm: () => onClose?.(),
     }),
-    [isMultiTab, cardCount, onClose],
+    [isMultiTab, cardCount, onClose, resolveCloseAdvice],
   );
 
   const openCloseConfirm = useCallback((intent: CloseIntent) => {
@@ -745,6 +767,15 @@ function CardTitleBar({
     [resolveCloseGuard, resolveModalHold],
   );
 
+  // The confirm policy, resolved at the moment of the gesture rather than
+  // at render: a card that opts into the guard by type may be holding
+  // nothing right now, and only it can say so. Read from handlers only
+  // ([L02]) — the advice is a live call, not React state.
+  const confirmsClose = useCallback(
+    (): boolean => confirmClose && resolveCloseAdvice?.()?.waive !== true,
+    [confirmClose, resolveCloseAdvice],
+  );
+
   const handleClosePointerUp = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
       event.stopPropagation();
@@ -773,13 +804,13 @@ function CardTitleBar({
       // close immediately. The X kills the whole pane, so every hosted
       // card's guard runs, not just the active one.
       if (withCloseDecision(() => onClose?.(), "pane")) return;
-      if (!confirmClose) {
+      if (!confirmsClose()) {
         onClose?.();
       } else {
         openCloseConfirm(paneCloseIntent());
       }
     },
-    [closeOpen, onClose, confirmClose, openCloseConfirm, paneCloseIntent, withCloseDecision],
+    [closeOpen, onClose, confirmsClose, openCloseConfirm, paneCloseIntent, withCloseDecision],
   );
 
   const handleCloseClick = useCallback(
@@ -801,13 +832,13 @@ function CardTitleBar({
         return;
       }
       if (withCloseDecision(() => onClose?.(), "pane")) return;
-      if (!confirmClose) {
+      if (!confirmsClose()) {
         onClose?.();
         return;
       }
       openCloseConfirm(paneCloseIntent());
     },
-    [closeOpen, onClose, confirmClose, openCloseConfirm, paneCloseIntent, withCloseDecision],
+    [closeOpen, onClose, confirmsClose, openCloseConfirm, paneCloseIntent, withCloseDecision],
   );
 
   // Confirm / cancel callbacks for the shared `TugConfirmPopover`. Confirm closes
@@ -830,7 +861,7 @@ function CardTitleBar({
   React.useImperativeHandle(ref, () => ({
     requestClose: () => {
       const proceed = () => {
-        if (confirmClose) openCloseConfirm(paneCloseIntent());
+        if (confirmsClose()) openCloseConfirm(paneCloseIntent());
         else onClose?.();
       };
       // ⌘W has no Option-bypass; the guard always gets first say. This
@@ -863,7 +894,7 @@ function CardTitleBar({
       // pointer callers, where "again" ought to dismiss.
       setStackMenuOpen((prev) => !prev);
     },
-  }), [confirmClose, onClose, openCloseConfirm, paneCloseIntent, withCloseDecision, slotStack.length]);
+  }), [confirmsClose, onClose, openCloseConfirm, paneCloseIntent, withCloseDecision, slotStack.length]);
 
   const IconComponent =
     icon && icons[icon as keyof typeof icons]
@@ -2198,10 +2229,15 @@ export function TugPane({
       // single-tab close Cmd-W performs here.)
       const activeCard = currentCards.find((c) => c.id === currentActiveId);
       const reg = activeCard ? getRegistration(activeCard.componentId) : undefined;
-      const needsConfirm = reg?.defaultMeta.confirmClose === true;
+      // The card's own word on the close, live: it may be holding nothing
+      // (waive the guard) or holding something it can name (word the
+      // popover with it).
+      const advice = readCardCloseAdvice(currentActiveId);
+      const needsConfirm =
+        reg?.defaultMeta.confirmClose === true && advice?.waive !== true;
       titleBarRef.current?.requestCloseWith({
         needsConfirm,
-        message: "Close Card?",
+        message: advice?.message ?? "Close Card?",
         confirmLabel: "Close",
         onConfirm: () => store.removeCard(stackId, currentActiveId),
       });
@@ -2231,7 +2267,9 @@ export function TugPane({
     const currentCards = cardsRef.current;
     const count = currentCards?.length ?? 1;
     const anyConfirms = !!currentCards?.some(
-      (c) => getRegistration(c.componentId)?.defaultMeta.confirmClose === true,
+      (c) =>
+        getRegistration(c.componentId)?.defaultMeta.confirmClose === true &&
+        !cardWaivesCloseConfirm(c.id),
     );
     titleBarRef.current?.requestCloseWith({
       needsConfirm: anyConfirms,
@@ -4184,6 +4222,17 @@ export function TugPane({
   const paneConfirmClose =
     (cards?.length ?? 1) > 1 || effectiveMeta.confirmClose === true;
 
+  // …unless the one card in a single-card pane says it is holding nothing
+  // (an empty Session card). Resolved at close time, not here: the card
+  // fills up without the pane re-rendering. A multi-card pane keeps its
+  // guard unconditionally — that one is about discarding N tabs at once.
+  const soleCardId = (cards?.length ?? 1) > 1 ? null : (cards?.[0]?.id ?? activeCardId);
+  const resolveCloseAdvice = useCallback(
+    (): CardCloseAdvice | null =>
+      soleCardId === null ? null : readCardCloseAdvice(soleCardId),
+    [soleCardId],
+  );
+
   const rootRefCallback = useCallback(
     (el: HTMLDivElement | null) => {
       setCardEl(el);
@@ -4383,6 +4432,7 @@ export function TugPane({
             resolveCloseGuard={resolveCloseGuard}
             resolveModalHold={resolveModalHold}
             confirmClose={paneConfirmClose}
+            resolveCloseAdvice={resolveCloseAdvice}
             activeCardId={activeCardId}
             slotStack={slotStack}
             onRevealPane={onRevealPane}

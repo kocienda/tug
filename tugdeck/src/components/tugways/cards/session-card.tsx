@@ -257,6 +257,8 @@ import {
   type CardServices,
 } from "@/lib/card-services-store";
 import { cardTitleStore } from "@/lib/card-title-store";
+import { registerCardCloseAdvice } from "@/lib/card-close-advice";
+import { readSessionCardCloseAdvice } from "@/lib/session-card-close-advice";
 import {
   sessionIdentityLine,
   useSessionIdentity,
@@ -599,6 +601,28 @@ export function SessionCardContent({
   const restorePassSettled = useSyncExternalStore(
     restorePassGate.subscribe,
     restorePassGate.getSnapshot,
+  );
+  // Answer the pane's close question in this card's own terms — waive the
+  // type's confirm while the card holds nothing, keep it (and word it) over
+  // an unsent draft ([L27] release on unmount). Registered in a layout
+  // effect for the reason the File card's guard is ([L03]): a close gesture
+  // can land before a passive effect commits. The composer's delegate is
+  // read through a ref rather than closed over — the services bag is
+  // rebuilt on every rebind, and the advisor must answer for whatever is
+  // mounted at the moment it is asked.
+  const servicesRef = useRef(services);
+  useLayoutEffect(() => {
+    servicesRef.current = services;
+  });
+  useLayoutEffect(
+    () =>
+      registerCardCloseAdvice(cardId, () =>
+        readSessionCardCloseAdvice(
+          cardId,
+          servicesRef.current?.entryDelegateRef.current ?? null,
+        ),
+      ),
+    [cardId],
   );
   if (services !== null) {
     return (
