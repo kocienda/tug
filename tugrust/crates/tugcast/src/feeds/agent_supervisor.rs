@@ -8795,7 +8795,17 @@ impl AgentSupervisor {
                 let entry = entry_arc.lock().await;
                 (entry.claude_session_id.clone(), entry.project_dir.clone())
             };
+            // Seed the lookup with the id the spawn actually resumes. A resume
+            // onto a card the ledger has never seen inserts a fresh entry whose
+            // `claude_session_id` is still `None` — tugcode's `session_init`
+            // fills it, and the replay is queued during the spawning window,
+            // before that. The tug id is the right seed there for the same
+            // reason the spawner and the `line_id` derivation already take it:
+            // for an un-forked session the two ids are equal, and a resume names
+            // the segment it wants by its tug id. Ownership does not move — this
+            // is a read, and `session_init` stays the one writer.
             claude_session_id
+                .or_else(|| Some(tug_session_id.to_string()))
                 .as_deref()
                 .and_then(|id| replay_lineage(self.sessions_recorder.as_ref(), id, &project_dir))
         };
@@ -12753,11 +12763,15 @@ mod tests {
     }
 
     fn resume_payload(card_id: &str, tug_session_id: &str) -> Vec<u8> {
+        resume_payload_in(card_id, tug_session_id, test_project_dir())
+    }
+
+    fn resume_payload_in(card_id: &str, tug_session_id: &str, project_dir: &str) -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({
             "action": "spawn_session",
             "card_id": card_id,
             "tug_session_id": tug_session_id,
-            "project_dir": test_project_dir(),
+            "project_dir": project_dir,
             "session_mode": "resume",
         }))
         .unwrap()
@@ -22856,6 +22870,143 @@ mod tests {
             .expect("record_spawn");
         let recorder = LedgerSessionsRecorder::new(ledger);
         assert!(replay_lineage(&recorder, "solo", root).is_none());
+    }
+
+    /// The line [F01] describes: a door that ran no stage, then implement,
+    /// then audit, each forked from the last. Three segments, and only the
+    /// door's row carries the arc binding — the stages are fresh spawns.
+    fn seed_resume_sheet_line(root: &Path, arc: &str) -> Arc<crate::session_ledger::SessionLedger> {
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        let ids = ["s-door", "s-implement", "s-audit"];
+        for id in ids {
+            ledger
+                .record_spawn(id, "ws", &root.to_string_lossy(), "card-1", 0, id, None)
+                .expect("record_spawn");
+        }
+        ledger
+            .set_arc_binding("s-door", Some(("arc-id", arc)))
+            .expect("arc binding");
+        for pair in ids.windows(2) {
+            ledger
+                .set_fork_provenance(pair[1], pair[0], None)
+                .expect("provenance");
+        }
+        tugarc_core::arc::append_arc_start(root, arc, "arc/foo-brief.md").expect("arc-start");
+        for (stage, id) in [
+            (tugarc_core::arc::ArcStage::Implement, "s-implement"),
+            (tugarc_core::arc::ArcStage::Audit, "s-audit"),
+        ] {
+            tugarc_core::arc::append_arc_stage(root, arc, stage, id, Some("opus"))
+                .expect("arc-stage");
+        }
+        ledger
+    }
+
+    /// The resume sheet restores a rotated line onto a card the ledger has
+    /// never seen, so the entry it inserts carries no `claude_session_id` — and
+    /// the replay is queued during the spawning window, before tugcode's
+    /// `session_init` fills it. A lookup reading that field alone finds no
+    /// lineage there and the card replays the tip segment by itself, which is
+    /// how the arc's durable ink came to stand above a transcript that never
+    /// held the turns it names. Seeded from the id the spawn resumes, the whole
+    /// line comes back.
+    #[tokio::test]
+    async fn a_resume_onto_a_card_the_ledger_has_never_seen_replays_the_whole_line() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let root_str = root.to_string_lossy().to_string();
+        let (sup, _ledger, _rx) =
+            make_supervisor_for_ledger(seed_resume_sheet_line(root, "foo"), None);
+
+        sup.handle_control(
+            "spawn_session",
+            &resume_payload_in("card-fresh", "s-audit", &root_str),
+            10,
+        )
+        .await
+        .expect_handled();
+
+        let entry_arc = {
+            let ledger = sup.ledger.lock().await;
+            ledger
+                .get(&TugSessionId::new("s-audit"))
+                .cloned()
+                .expect("the resume inserted an entry")
+        };
+        assert!(
+            entry_arc.lock().await.claude_session_id.is_none(),
+            "precondition: the fresh entry has no claude id when the replay is queued",
+        );
+
+        sup.handle_control("request_replay", &request_replay_payload("s-audit"), 10)
+            .await
+            .expect_handled();
+
+        let frame = {
+            let mut entry = entry_arc.lock().await;
+            entry.queue.pop().expect("request_replay queued")
+        };
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(body["type"], "request_replay");
+        let lineage = body["lineage"].as_array().expect("a lineage");
+        let ids: Vec<&str> = lineage
+            .iter()
+            .map(|e| e["sessionId"].as_str().expect("sessionId"))
+            .collect();
+        assert_eq!(ids, vec!["s-door", "s-implement", "s-audit"]);
+        let stages: Vec<Option<&str>> = lineage
+            .iter()
+            .map(|e| e.get("stage").and_then(|s| s.as_str()))
+            .collect();
+        assert_eq!(
+            stages,
+            vec![None, Some("implement"), Some("audit")],
+            "the door ran no stage; the two after it are named in the order they ran",
+        );
+    }
+
+    /// The seed is a fallback and nothing more. A resume of a card that is one
+    /// stage-less session finds no lineage under its own id either, so its
+    /// request stays the bare verb it has always been — byte for byte, which is
+    /// the whole of what the overwhelming majority of cards send.
+    #[tokio::test]
+    async fn a_resume_of_a_single_stageless_segment_still_sends_the_bare_verb() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let root_str = root.to_string_lossy().to_string();
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        ledger
+            .record_spawn("solo", "ws", &root_str, "card-1", 0, "solo", None)
+            .expect("record_spawn");
+        let (sup, _ledger, _rx) = make_supervisor_for_ledger(ledger, None);
+
+        sup.handle_control(
+            "spawn_session",
+            &resume_payload_in("card-fresh", "solo", &root_str),
+            10,
+        )
+        .await
+        .expect_handled();
+        sup.handle_control("request_replay", &request_replay_payload("solo"), 10)
+            .await
+            .expect_handled();
+
+        let entry_arc = {
+            let ledger = sup.ledger.lock().await;
+            ledger
+                .get(&TugSessionId::new("solo"))
+                .cloned()
+                .expect("the resume inserted an entry")
+        };
+        let mut entry = entry_arc.lock().await;
+        let frame = entry.queue.pop().expect("request_replay queued");
+        assert_eq!(
+            frame.payload,
+            b"{\"type\":\"request_replay\"}".to_vec(),
+            "no window and no lineage is the legacy full-replay request, unchanged",
+        );
     }
 
     #[test]

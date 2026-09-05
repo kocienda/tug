@@ -780,6 +780,9 @@ export function spawnSessionResume(
  *  - `arcNote` — deliver a live arc gesture's quiet line ([P12]); the
  *    reducer seats it inside the open turn when one is streaming, or as
  *    its own quiet ink row when none is.
+ *  - `restoreShellExchanges` — apply a `list_shell_exchanges_ok` answer
+ *    ([P07]) with the ledger rows verbatim, so a test can seat restored ink
+ *    at the anchor and clock it was written at.
  */
 export type SessionDriveAction =
   | { op: "send"; text: string; atoms?: unknown[]; suppress?: boolean }
@@ -806,7 +809,8 @@ export type SessionDriveAction =
       text: string;
       cwd: string;
       timestamp?: number;
-    };
+    }
+  | { op: "restoreShellExchanges"; rows: ReadonlyArray<Record<string, unknown>> };
 
 /**
  * Drive a bound session card's `CodeSessionStore` one step through the

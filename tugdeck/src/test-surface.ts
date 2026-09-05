@@ -76,6 +76,7 @@ import { cardServicesStore } from "./lib/card-services-store";
 import { getConnection } from "./lib/connection-singleton";
 import { sendSpawnSession } from "./lib/session-lifecycle";
 import { sessionLineStore } from "./lib/session-line-store";
+import { applyRestoredShellExchanges } from "./lib/shell-session-store";
 import type { AtomSegment } from "./lib/tug-atom-img";
 import { dispatchAction, getResponderChainManager } from "./action-dispatch";
 import { writeSessionAtomToClipboard } from "./lib/session-atom";
@@ -501,6 +502,11 @@ export interface SeedDeckStateArgs {
  *    verb store, which a harness test has no server to feed, so this is the
  *    one way to observe the reducer's seating: inside the open turn when one
  *    is streaming, its own quiet ink row otherwise.
+ *  - `restoreShellExchanges` — apply a `list_shell_exchanges_ok` answer
+ *    (`applyRestoredShellExchanges`, [P07]). `rows` are the ledger rows
+ *    verbatim, `anchor_msg_id` and `started_at_ms` included, so a test can
+ *    seat restored ink at the position it was written at rather than at the
+ *    fallback clock seat a live row takes.
  */
 export type SessionDriveAction =
   | { op: "send"; text: string; atoms?: AtomSegment[]; suppress?: boolean }
@@ -525,7 +531,8 @@ export type SessionDriveAction =
       text: string;
       cwd: string;
       timestamp?: number;
-    };
+    }
+  | { op: "restoreShellExchanges"; rows: ReadonlyArray<Record<string, unknown>> };
 
 /**
  * Viewport-relative DOMRect shape returned by
@@ -2766,6 +2773,12 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
             cwd: action.cwd,
             timestamp: action.timestamp ?? Date.now(),
           });
+          return;
+        case "restoreShellExchanges":
+          // The restore path ([P07]), driven with the ledger rows themselves
+          // so the anchor and the clock reach the reducer exactly as the
+          // server's answer delivers them.
+          applyRestoredShellExchanges(store, action.rows);
           return;
         default: {
           const exhaustive: never = action;

@@ -35,7 +35,9 @@
  * @covers tugdeck/src/lib/code-session-store/reducer.ts
  * @covers tugdeck/src/lib/code-session-store.ts
  * @covers tugdeck/src/lib/code-session-store/types.ts
+ * @covers tugdeck/src/lib/shell-session-store.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-arc-note-block.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -66,6 +68,10 @@ const CONTINUE_PROMPT =
 const CONTINUE_PROMPT_ARGS = "implement Step 4 and end your turn; Steps 4-13 remain on this run";
 /** The quiet-line row a nameless subsystem's notice gets. The wheel has a name. */
 const NOTICE_ROW = '[data-slot="tug-notice"]';
+/** An arc gesture's quiet line, absorbed into the turn it narrated ([P12]). */
+const ARC_NOTE_IN_TURN = '[data-slot="arc-note"]';
+/** The same line stranded between turns — the seat a row with no turn takes. */
+const ARC_NOTE_BETWEEN_TURNS = '[data-slot="session-arc-note-line"]';
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const TUG_SESSION_ID = "test-session-A"; // bindSession default
 const PROMPT = "write the brief";
@@ -539,6 +545,193 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Exactly one divider — a boundary replayed twice would double it.
           expect(order.filter((r) => r === "divider").length).toBe(1);
+
+          process.stdout.write("VERDICT: PASS\n");
+        } catch (err) {
+          process.stdout.write("VERDICT: FAIL\n");
+          const tail = app.tailLog(200);
+          if (tail !== "") process.stderr.write(`\n[at0474] log tail:\n${tail}\n`);
+          throw err;
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    test(
+      "restored arc-note ink seats inside the turns it narrated across a whole-line replay",
+      async () => {
+        // The report this pins: an arc line restored through the resume sheet
+        // showed every one of its quiet lines stacked at the top of the card,
+        // above a transcript that began hours after they were written. The ink
+        // was anchored correctly the whole time — the card had simply replayed
+        // one segment of a three-segment line, so the turns those anchors name
+        // were not loaded, and every row took the clock-order fallback seat
+        // that a missing anchor is supposed to get.
+        //
+        // With the lineage replayed the anchors resolve, and this is the DOM
+        // reading of "seated exactly where they appeared": each line inside the
+        // turn whose span holds its clock, in message order, and nothing quiet
+        // standing above the first turn. The frames are injected the way the
+        // restore leg above already injects them; the ledger rows arrive in the
+        // `list_shell_exchanges_ok` shape the server answers with.
+        const app = await launchTugApp({ testName: "at0474-arc-note-seating" });
+        try {
+          await app.enableDeckTrace(true);
+          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+            { timeoutMs: 30_000 },
+          );
+          await app.bindSession("A", { projectDir });
+          await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+
+          const ingest = (decoded: Record<string, unknown>) =>
+            app.driveSession("A", {
+              op: "ingestFrame",
+              feedId: CODE_OUTPUT_FEED,
+              decoded: { tug_session_id: TUG_SESSION_ID, ipc_version: 2, ...decoded },
+            });
+
+          // A turn with a span the test states, so a row's clock can be placed
+          // inside it or outside it deliberately rather than by luck.
+          const replaySpan = async (
+            msgId: string,
+            text: string,
+            openedAt: number,
+            endedAt: number,
+          ): Promise<void> => {
+            await ingest({
+              type: "add_user_message",
+              content: [{ type: "text", text }],
+              timestamp: openedAt,
+            });
+            await ingest({
+              type: "assistant_text",
+              msg_id: msgId,
+              block_index: 0,
+              text: `re: ${text}`,
+              is_partial: false,
+            });
+            await ingest({ type: "turn_complete", msg_id: msgId, result: "success", timestamp: endedAt });
+          };
+
+          // Round numbers an hour back, so the clocks read as history rather
+          // than as this second and a stray `Date.now()` default cannot pass
+          // for one of them.
+          const T = Math.floor((Date.now() - 3_600_000) / 1000) * 1000;
+
+          await ingest({ type: "replay_started" });
+          // The door: one turn, no stage of its own.
+          await replaySpan("m-door", PROMPT, T, T + 1_000);
+          await ingest({
+            type: "replay_stage",
+            stage: "implement",
+            model: "opus",
+            document: ".tug/arcs/foo/tasks.md",
+            arc: "foo",
+          });
+          await replaySpan("m-impl-1", "implement Step 1", T + 10_000, T + 20_000);
+          await replaySpan("m-impl-2", "implement Step 2", T + 30_000, T + 40_000);
+          await ingest({
+            type: "replay_stage",
+            stage: "audit",
+            model: "opus",
+            arc: "foo",
+          });
+          await replaySpan("m-audit", "audit the branch", T + 50_000, T + 60_000);
+          await ingest({ type: "replay_complete", count: 4 });
+
+          await app.waitForCondition<boolean>(
+            `document.querySelectorAll(${JSON.stringify(USER_ROW)}).length === 4`,
+            { timeoutMs: 8000 },
+          );
+
+          // The ledger's answer: every row anchored into the implement segment,
+          // every clock inside the span of the turn its anchor names. Delivered
+          // after the replay, which is the order the restore actually takes —
+          // the card asks for its shell ledger once the session is up.
+          await app.driveSession("A", {
+            op: "restoreShellExchanges",
+            rows: [
+              {
+                id: 2125,
+                command: "arc step foo start",
+                output: "foo: step 1/2 started — Seed the lineage from the id the spawn resumes",
+                exit_code: 0,
+                cwd: projectDir,
+                started_at_ms: T + 12_000,
+                settled_at_ms: T + 12_000,
+                anchor_msg_id: "m-impl-1",
+              },
+              {
+                id: 2126,
+                command: "arc step foo done",
+                output: "foo: step 1/2 closed (59117f62f)",
+                exit_code: 0,
+                cwd: projectDir,
+                started_at_ms: T + 19_000,
+                settled_at_ms: T + 19_000,
+                anchor_msg_id: "m-impl-1",
+              },
+              {
+                id: 2127,
+                command: "arc step foo done",
+                output: "foo: step 2/2 closed (a1b2c3d4e)",
+                exit_code: 0,
+                cwd: projectDir,
+                started_at_ms: T + 39_000,
+                settled_at_ms: T + 39_000,
+                anchor_msg_id: "m-impl-2",
+              },
+            ],
+          });
+
+          await app.waitForCondition<boolean>(
+            `document.querySelectorAll(${JSON.stringify(ARC_NOTE_IN_TURN)}).length === 3`,
+            { timeoutMs: 8000 },
+          );
+
+          // Nothing stranded: a row that found its turn is absorbed into it, and
+          // the between-turns row is the seat a row with no turn takes.
+          const stranded = await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(ARC_NOTE_BETWEEN_TURNS)}).length`,
+          );
+          expect(stranded, "every row found the turn its anchor names").toBe(0);
+
+          // Each line's seat, named by the durable badge address of the entry it
+          // renders inside. The seat is read off the row rather than from the
+          // whole document in order, because the transcript is a windowed list:
+          // three more rows is enough to carry the opening turn out of the
+          // mounted range, and a document-order reading would then be measuring
+          // the scroll position as much as the seating.
+          const seated = JSON.parse(
+            await app.evalJS<string>(
+              `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
+                ARC_NOTE_IN_TURN,
+              )})).map((el) => [(el.closest('[data-slot="tug-transcript-entry"]')?.querySelector('[data-slot="tug-transcript-entry-sequence"]')?.textContent || "").trim(), (el.textContent || "").trim()]))`,
+            ),
+          ) as Array<[string, string]>;
+
+          // The implement segment's two turns, in the order the lines were
+          // written — which is the whole of "seated exactly where they
+          // appeared", now that nothing is stranded above the scroll.
+          expect(
+            seated.map(([address]) => address),
+            "each line sits inside the turn whose span holds its clock, in message order",
+          ).toEqual(["#a2", "#a2", "#a3"]);
+
+          // And they are the right lines, in the order they were written.
+          const notes = seated.map(([, text]) => text);
+          expect(notes[0]).toContain("Step 1/2");
+          expect(notes[1]).toContain("Step 1/2 closed");
+          expect(notes[1]).toContain("59117f62f");
+          expect(notes[2]).toContain("Step 2/2 closed");
+          expect(notes[2]).toContain("a1b2c3d4e");
+          // Every row names its arc, which is what a reader landing mid-scroll
+          // has to have.
+          for (const note of notes) expect(note).toContain("foo");
 
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {
