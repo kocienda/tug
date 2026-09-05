@@ -28,9 +28,6 @@
  *  - key:    `slotWindow`
  *  - value:  `{ kind: "i64", value: 3 | 5 }`
  *
- * Legacy address (read-only): `dev.tugapp.lens` / `slotWindow`, where the
- * preference lived before it had a domain. See {@link LEGACY_SLOT_WINDOW_DOMAIN}.
- *
  * Laws: [L02] the tugbank cache enters React through `useTugbankValue`.
  *
  * @module lib/slot-window-pref
@@ -43,19 +40,6 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 
 export const SLOT_WINDOW_DOMAIN = "dev.tugapp.slot-window";
 export const SLOT_WINDOW_KEY = "slotWindow";
-
-/**
- * Where the preference was stored before it had a domain of its own — the
- * retired rail card's, which it shared for no better reason than that the
- * slot picker was first drawn on a rail row.
- *
- * Read, never written. A reader who chose a width before the move keeps it:
- * the new address answers when it holds anything, this one answers when it
- * does not, and the first ordinary write lands on the new address and settles
- * the question for good. No row is deleted, so a downgrade still reads its
- * own value.
- */
-export const LEGACY_SLOT_WINDOW_DOMAIN = "dev.tugapp.lens";
 
 /** The widths a window may take. Odd, because the held slot is the middle. */
 export const SLOT_WINDOW_SIZES = [3, 5] as const;
@@ -83,24 +67,17 @@ export function parseSlotWindow(
 }
 
 /**
- * Resolve a width from the two addresses, newest first. Pure, so the
- * precedence is testable without a renderer.
+ * The stored width, or the default when nothing is stored. Pure, so what an
+ * unset reader gets is testable without a renderer.
  */
 export function resolveSlotWindow(
   stored: SlotWindowSize | null,
-  legacy: SlotWindowSize | null,
 ): SlotWindowSize {
-  return stored ?? legacy ?? DEFAULT_SLOT_WINDOW;
+  return stored ?? DEFAULT_SLOT_WINDOW;
 }
 
 /**
  * The reader's window width. [L02]
- *
- * Two subscriptions rather than one read and one imperative `get`:
- * `useTugbankValue` subscribes to a single `(domain, key)` pair, and an
- * imperative read beside it would be state entering React outside
- * `useSyncExternalStore` — and would not redraw when the legacy row arrives in
- * the boot frame.
  */
 export function useSlotWindow(): SlotWindowSize {
   const stored = useTugbankValue<SlotWindowSize | null>(
@@ -109,13 +86,7 @@ export function useSlotWindow(): SlotWindowSize {
     parseSlotWindow,
     null,
   );
-  const legacy = useTugbankValue<SlotWindowSize | null>(
-    LEGACY_SLOT_WINDOW_DOMAIN,
-    SLOT_WINDOW_KEY,
-    parseSlotWindow,
-    null,
-  );
-  return resolveSlotWindow(stored, legacy);
+  return resolveSlotWindow(stored);
 }
 
 /**

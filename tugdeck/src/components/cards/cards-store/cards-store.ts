@@ -5,20 +5,16 @@
  *
  * The store is constructed lazily on first read so tests that never touch the
  * Cards card pay zero cost. It:
- *   1. Hydrates from tugbank (`dev.tugapp.cards`, falling back to the legacy
- *      `dev.tugapp.lens` per key) once the cache is available.
- *   2. Listens for live tugbank pushes on either domain so external writes
- *      take effect immediately.
- *   3. Persists every mutation back to tugbank via PUT — to the new domain
- *      only.
+ *   1. Hydrates from tugbank (`dev.tugapp.cards`) once the cache is available.
+ *   2. Listens for live tugbank pushes on that domain so external writes take
+ *      effect immediately.
+ *   3. Persists every mutation back to tugbank via PUT.
  *   4. Notifies subscribers ([L02]) — React reads via `useSyncExternalStore`.
  *
  * None of the card's geometry is here. Whether the rail stands and how wide it
  * is live in the deck layout blob; the width it REOPENS at lives in
- * `sidebarWidthStore`, on this same domain and key, which owns every read and
- * write of it. The one thing this store does with that key is seed it once
- * from the legacy domain, so a width the user chose by hand is not silently
- * replaced by the registration's default.
+ * `sidebarWidthStore`, on this same domain, which owns every read and write of
+ * it.
  *
  * Conformance:
  *   - [L02] `useSyncExternalStore`-compatible `subscribe` + `getSnapshot`;
@@ -44,8 +40,6 @@ import { GROUP_ORDER } from "@/components/cards/cards-groups";
 import {
   CARDS_DOMAIN,
   CARDS_KEYS,
-  LEGACY_CARDS_DOMAIN,
-  WIDTH_PX_KEY,
   type CardsRowOrder,
   type CardsSnapshot,
 } from "./types";
@@ -55,7 +49,6 @@ class CardsStore {
   private readonly _listeners = new Set<() => void>();
   private _tugbankUnsub: (() => void) | null = null;
   private _initialized = false;
-  private _widthSeeded = false;
 
   private _ensureInitialized(): void {
     if (this._initialized) return;
@@ -64,62 +57,20 @@ class CardsStore {
     const client = getTugbankClient();
     if (!client) return;
 
-    this._seedLegacyWidth();
     this._hydrateFromTugbank();
 
     this._tugbankUnsub = client.onDomainChanged((domain) => {
-      if (domain === CARDS_DOMAIN || domain === LEGACY_CARDS_DOMAIN) {
-        this._seedLegacyWidth();
+      if (domain === CARDS_DOMAIN) {
         this._hydrateFromTugbank();
       }
     });
   }
 
-  /**
-   * Carry a hand-chosen reopen width across the domain move, once.
-   *
-   * `sidebarWidthStore` reads `dev.tugapp.cards` / `widthPx` and knows
-   * nothing about the legacy address; a user whose width lives only at the old
-   * one would find their rail silently back at the registration's default. So
-   * the value is copied — a write rather than a read fallback, because the
-   * reader is another module and a second fallback there would be a second
-   * answer to one question.
-   *
-   * Guarded on the new address being empty, so it can never overwrite a width
-   * the user has since chosen, and latched so a domain push cannot re-run it.
-   */
-  private _seedLegacyWidth(): void {
-    if (this._widthSeeded) return;
-    const client = getTugbankClient();
-    if (!client) return;
-    if (client.get(CARDS_DOMAIN, WIDTH_PX_KEY) !== undefined) {
-      this._widthSeeded = true;
-      return;
-    }
-    const legacy = client.get(LEGACY_CARDS_DOMAIN, WIDTH_PX_KEY);
-    if (legacy === undefined) return;
-    const width = readNumber(legacy);
-    if (width === undefined) {
-      this._widthSeeded = true;
-      return;
-    }
-    this._widthSeeded = true;
-    putRaw(WIDTH_PX_KEY, { kind: "i64", value: Math.round(width) });
-  }
-
-  /**
-   * Read a key from the new domain, falling back to the legacy one.
-   *
-   * The fallback is per key rather than per domain: a user may have written
-   * one of the three since the move and none of the others, and a whole-record
-   * fallback would drop the two that had not moved yet.
-   */
+  /** Read a key from the store's domain. */
   private _read(key: string): TaggedValue | undefined {
     const client = getTugbankClient();
     if (!client) return undefined;
-    return (
-      client.get(CARDS_DOMAIN, key) ?? client.get(LEGACY_CARDS_DOMAIN, key)
-    );
+    return client.get(CARDS_DOMAIN, key);
   }
 
   private _hydrateFromTugbank(): void {
@@ -235,7 +186,6 @@ class CardsStore {
     this._listeners.clear();
     this._state = createInitialState();
     this._initialized = false;
-    this._widthSeeded = false;
   }
 }
 
@@ -244,18 +194,6 @@ export const cardsStore = new CardsStore();
 // ---------------------------------------------------------------------------
 // Internal — tugbank value helpers
 // ---------------------------------------------------------------------------
-
-function readNumber(entry: TaggedValue | undefined): number | undefined {
-  if (!entry) return undefined;
-  if (
-    (entry.kind === "i64" || entry.kind === "f64") &&
-    typeof entry.value === "number" &&
-    Number.isFinite(entry.value)
-  ) {
-    return entry.value;
-  }
-  return undefined;
-}
 
 /**
  * Read a persisted `string[]`. A malformed entry (wrong kind, non-array,

@@ -28,33 +28,12 @@ export type CardsRowOrder = Readonly<Record<CardsGroup, readonly string[]>>;
 /** Tugbank domain owning the Cards card's persisted presentation state. */
 export const CARDS_DOMAIN = "dev.tugapp.cards";
 
-/**
- * Where this state was stored before the Cards card owned it — the retired
- * rail card's domain, which held it because the rows were first drawn as a
- * section of the rail.
- *
- * Read, never written. A key absent from {@link CARDS_DOMAIN} is looked for
- * here, so a user's arrangement survives the move; the first ordinary write
- * lands on the new domain and the legacy address is never consulted for that
- * key again. No row is deleted.
- */
-export const LEGACY_CARDS_DOMAIN = "dev.tugapp.lens";
-
 /** Individual key names within the domain. */
 export const CARDS_KEYS = {
   CARDS_ROW_ORDER: "cardsRowOrder",
   CARDS_GROUP_ORDER: "cardsGroupOrder",
   CARDS_COLLAPSED_GROUPS: "cardsCollapsedGroups",
 } as const;
-
-/**
- * The reopen width's key, which this store does not own and does not write.
- * It is named here for the one thing this store does with it: seeding the new
- * domain from the legacy one, so a width the user chose by hand is not
- * silently replaced by the registration's default. See
- * `lib/sidebar-width-store.ts`, which owns every read and write of it.
- */
-export const WIDTH_PX_KEY = "widthPx";
 
 /**
  * Public snapshot returned by `CardsStore.getSnapshot()`. Stable reference
