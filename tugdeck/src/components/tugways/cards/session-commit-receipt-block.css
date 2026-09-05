@@ -13,12 +13,22 @@
 .commit-receipt-header {
   display: block;
   min-width: 0;
-  /* Wrapped subject lines hang under the subject's first character, the same
-     `<sha> <subject>` skeleton the History shade's rows use — the flex layout
-     used to give this implicitly by making the sha a fixed-width sibling. The
-     column is mono, so the 8-char sha + its single space measure exactly 9ch. */
-  padding-left: 9ch;
-  text-indent: -9ch;
+  /* The receipt's face, read from the scope class the block root wears: a
+     receipt is prose, so the identity line takes the proportional family and
+     the commit atom inside it inherits ([`tuglaws/entity-presentation.md`]).
+     The header's detail column publishes the mono command face, which is
+     right for a Bash command and wrong for this; the fallback keeps the old
+     face for a header standing outside the scope. */
+  font-family: var(--tugx-commit-subject-font, var(--tugx-block-code-font));
+  /* NO hanging indent. A wrapped subject returns flush to the block's left
+     edge and the line runs the full width — the same correction the join
+     boundary's detail already argues for itself. The hang measured a mono
+     column of 9ch against an 8-char sha and its separating space, and neither
+     half of that premise holds here: the column is proportional now, where a
+     `ch` is the width of a `0` and of nothing in particular, and the sha has
+     not been bare text since it became a pill with a box, a border and a
+     glyph. The History shade's rows keep the hang, where both halves are
+     still true. */
 }
 
 /* The commit subject. It is a `<code>` inside `.tool-call-header-detail`, so it
@@ -35,6 +45,10 @@
    two-class selector outranks `.tool-call-header-detail code`. */
 .commit-receipt-header .commit-receipt-summary {
   color: var(--tugx-block-text-color);
+  /* The subject is a `<code>`, and `.tool-call-header-detail code` hands it
+     the column's own family. It is the commit's own sentence rather than a
+     code run, so it takes the identity line's face instead. */
+  font-family: inherit;
 }
 
 /* The disclosed message body. The chrome's body region carries no padding of

@@ -68,6 +68,7 @@ import {
 import { sessionTagStore } from "./lib/session-tag-store";
 import { sessionPrivateStore } from "./lib/session-private-store";
 import { sessionSynopsisStore } from "./lib/session-synopsis-store";
+import { sessionUsageStore } from "./lib/session-usage-store";
 import { sessionCitationStore } from "./lib/session-citation-store";
 import { applyAuthResultPayload, applyInstallResultPayload, applyLogoutResultPayload } from "./lib/auth-store";
 import {
@@ -1394,6 +1395,9 @@ export function initActionDispatch(
       sessionCitationStore.forgetSession(decoded.session_id);
       sessionPrivateStore.forget(decoded.session_id);
       sessionLineStore.forgetSession(decoded.session_id);
+      // Usage is the segment's own fact, so it is forgotten by segment: the
+      // ledger no longer holds the row, and neither does this.
+      sessionUsageStore.forget(decoded.session_id);
     }
     if (decoded.fields !== undefined) {
       // Every identity field on the row is the **line's** ([P02]), so it is
@@ -1432,6 +1436,14 @@ export function initActionDispatch(
         decoded.session_id,
         decoded.fields.private === true,
       );
+    }
+    // Usage rides the push beside the row and is keyed by SEGMENT, not by
+    // line: a stage of an arc is a segment, and the whole point of the figure
+    // is that two stages of one conversation differ. Authoritative on every
+    // push, including the one the turn-telemetry write now sends, which is
+    // what moves a live stage's number as its turns commit.
+    if (decoded.removed !== true) {
+      sessionUsageStore.set(decoded.session_id, decoded.usage);
     }
     publishSessionUpdated(decoded);
   });

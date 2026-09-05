@@ -1988,10 +1988,11 @@ async fn run_synopsis(job: SynopsisJob) -> SynopsisOutcome {
             );
             if let (Some(tx), Ok(Some(row))) = (control_tx, ledger.get(&row_id)) {
                 // Every push carries the scan pair, this one included — see
-                // `build_session_updated_frame`.
+                // `build_session_updated_frame`, and the usage beside it.
                 let metrics = ledger.scan_metrics_for(&row_id).unwrap_or(None);
+                let usage = ledger.usage_for(&row_id).unwrap_or(None);
                 let _ = tx.send(crate::feeds::agent_supervisor::build_session_updated_frame(
-                    &row, metrics,
+                    &row, metrics, usage,
                 ));
             }
         }

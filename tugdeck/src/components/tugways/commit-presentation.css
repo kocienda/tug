@@ -8,7 +8,16 @@
    markup and the gestures.
 
    The scope class `.tugx-commit` carries the tokens, so a surface opts into the
-   scale by wearing the class — nothing leaks to unrelated rows. */
+   scale by wearing the class — nothing leaks to unrelated rows.
+
+   The FACE is split from the scale. Two surfaces wear this scale and want
+   opposite faces: the History shade is a dense mono scanning grid, and a
+   receipt in the transcript is prose, which is what the entity-presentation
+   law already says a receipt header is. So `.tugx-commit` publishes the mono
+   face and `.tugx-commit-receipt` publishes the proportional one, and a
+   surface takes its face by wearing the second class — never by overriding a
+   family per site, which is what let an edit to the shade silently re-break
+   the receipt beside it. */
 
 .tugx-commit {
   /* The one-line box shared by an entry's first line, its stamp, and its
@@ -27,11 +36,17 @@
      what makes the tighter continuation leading above read as one entry. */
 
   /* The hanging indent for a wrapped subject: the content column is mono, so
-     the 8-char sha + its single separating space measure exactly 9ch. */
+     the 8-char sha + its single separating space measure exactly 9ch. The
+     History shade is the only surface this holds for, and the only one that
+     hangs: there the column really is mono and the sha really is bare text,
+     and the hang is what makes a wrapped subject read as one entry rather
+     than two. The receipts carry none — see `session-commit-receipt-block.css`
+     for why the same premise is false on a receipt. */
   --tugx-commit-hang: 9ch;
 
   /* The subject reads at the compact mono list row's own scale — the size the
-     History shade's rows already use, unchanged. */
+     History shade's rows already use, unchanged. The face is the mono one:
+     this scope dresses the shade; `.tugx-commit-receipt` overrides it. */
   --tugx-commit-subject-font: var(--tug-font-family-mono);
   --tugx-commit-subject-size: var(--tug-font-size-xs);
   --tugx-commit-subject-color: var(--tugx-block-text-color);
@@ -43,8 +58,26 @@
   --tugx-commit-stamp-color: var(--tug7-element-global-text-normal-muted-rest);
 
   /* The expanded message body. */
+  --tugx-commit-message-font: var(--tug-font-family-mono);
   --tugx-commit-message-size: var(--tug-font-size-xs);
   --tugx-commit-message-leading: 1.45;
+}
+
+/* ---- The receipt face ----
+ *
+ * A receipt is prose, not terminal output: the subject and the message body
+ * read in the proportional face, and the commit atom inside the subject line
+ * inherits it (`tuglaws/entity-presentation.md` — the pill reads as the ink
+ * around it does). Three things on the same surfaces are legitimately mono
+ * and are NOT touched here: the stamp, which carries `tabular-nums` so stamps
+ * stack into a column; a `code` run the author's own backticks made; and the
+ * file rows beneath the message, which are the file-row grammar's.
+ *
+ * A receipt surface wears this class on the root that contains BOTH its
+ * subject and its message body, so the two faces cannot drift apart. */
+.tugx-commit-receipt {
+  --tugx-commit-subject-font: var(--tug-font-family-sans);
+  --tugx-commit-message-font: var(--tug-font-family-sans);
 }
 
 /* ---- The list ---- */
@@ -109,7 +142,10 @@
    height, the list hanging indent) and the syntax runs carry their own tones.
    Self-contained type values: the well is used inside hosts that do NOT wear
    the `.tugx-commit` scope class (the transcript's `/commit` receipt), so it
-   restates the two it needs rather than inheriting them. */
+   restates the two it needs rather than inheriting them. The FACE is
+   deliberately NOT restated: it is the one value a receipt scope above the
+   well has to be able to reach, so the rule reads it with a mono fallback for
+   a well standing under no scope at all. */
 .tugx-commit-message {
   --tugx-commit-message-size: var(--tug-font-size-xs);
   --tugx-commit-message-leading: 1.45;
@@ -125,10 +161,19 @@
   padding-inline-end: calc(
     var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
   );
-  font-family: var(--tug-font-family-mono);
+  font-family: var(--tugx-commit-message-font, var(--tug-font-family-mono));
   font-size: var(--tugx-commit-message-size);
   line-height: var(--tugx-commit-message-leading);
   color: var(--tugx-block-text-color);
+}
+
+/* A `code` run inside the message body — the author's own backticks, which
+   mean code tone ([`tuglaws/entity-presentation.md`]). It keeps the mono face
+   whatever face the body took, so a path in a receipt's message still reads as
+   a path once the prose around it is proportional. In the History shade the
+   body is already mono and this changes nothing. */
+.tugx-commit-message code {
+  font-family: var(--tug-font-family-mono);
 }
 
 /* Committer identity + complete timestamp, closing the expanded area. */

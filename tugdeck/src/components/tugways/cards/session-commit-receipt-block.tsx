@@ -215,6 +215,10 @@ function CommitReceipt({
     <ToolBlockHistoryCollapse toolUseId={exchangeId} defaultCollapsed={false}>
       <BlockChrome
         rootSlot="commit-receipt-block"
+        // The receipt face: the subject in the header and the message body in
+        // the chrome's body both read as prose, from the one scope class worn
+        // on the root that contains them.
+        className="tugx-commit-receipt"
         variant="receipt"
         identity={identity}
         // The file count and diff stat as standard header result summaries —

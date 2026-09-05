@@ -59,6 +59,7 @@ import {
   identityKeyForSession,
   sessionLineStore,
 } from "@/lib/session-line-store";
+import { sessionUsageStore } from "@/lib/session-usage-store";
 import {
   encodeResolveSessions,
   type ResolveSessionsOk,
@@ -162,7 +163,7 @@ class SessionCitationStore {
    */
   applyResolved(response: ResolveSessionsOk): void {
     const changed: VerdictKey[] = [];
-    for (const { queried, session } of response.found) {
+    for (const { queried, session, usage } of response.found) {
       // The ledger's own word about this session, on the same three stores the
       // spawn ack and the listings seed — which is what lets the resolver name
       // a session no card is bound to. Filed under the row's **line** ([P12]),
@@ -179,6 +180,10 @@ class SessionCitationStore {
       );
       sessionTagStore.seedTag(lineId, session.tag);
       sessionSynopsisStore.seedSynopsis(lineId, session.synopsis);
+      // And the segment's own usage, filed under the segment rather than the
+      // line ([P12] the other way round): what a stage cost is not the
+      // conversation's fact, and two stages of one line have to differ.
+      sessionUsageStore.set(session.session_id, usage);
       this.answers.set(queried.trim(), {
         status: "found",
         sessionId: session.session_id,
@@ -239,6 +244,10 @@ class SessionCitationStore {
 
   /** Drop every cached answer. Called on reconnect. */
   forgetAll(): void {
+    // The usage the answers seeded goes with them. A bounce may have crossed a
+    // trash, and usage is not re-derived from anything the deck holds — kept,
+    // it would keep printing a figure for a segment the ledger no longer has.
+    sessionUsageStore.forgetAll();
     if (this.answers.size === 0 && this.queued.size === 0) return;
     // Named before they are dropped: a listener re-marks by key, and after
     // the clear there is nothing left to name.

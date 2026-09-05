@@ -1331,6 +1331,44 @@ export interface ListSessionStateChangesErr {
 }
 
 /**
+ * What one segment cost, summed over its committed turns — the ledger's
+ * `SessionUsage`, keep in lockstep with the Rust struct.
+ *
+ * `tokens` is every token the model consumed (input, output and both cache
+ * columns), which is what the app's other token figures mean. `activeMs` is
+ * the agent's working time rather than wall clock — the number the agent
+ * footer prints. Cost is deliberately not carried: it is populated for some
+ * models and zero for others.
+ */
+export interface SessionUsage {
+  turns: number;
+  tokens: number;
+  activeMs: number;
+}
+
+/**
+ * Decode a wire `usage` object, from either frame that carries one. Undefined
+ * for an absent or malformed value — a segment with no telemetry says nothing
+ * rather than zero, and a surface reading this is expected to render the two
+ * the same way.
+ */
+export function decodeSessionUsage(raw: unknown): SessionUsage | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const turns = obj.turns;
+  const tokens = obj.tokens;
+  const activeMs = obj.active_ms;
+  if (
+    typeof turns !== "number" ||
+    typeof tokens !== "number" ||
+    typeof activeMs !== "number"
+  ) {
+    return undefined;
+  }
+  return { turns, tokens, activeMs };
+}
+
+/**
  * Decoded `session_updated` push payload. The supervisor emits these on
  * every successful ledger write. `removed: true` means the row was
  * deleted; otherwise `fields` holds the post-write row state.
@@ -1339,6 +1377,14 @@ export interface SessionUpdatedPush {
   session_id: string;
   fields?: SessionRow;
   removed?: boolean;
+  /**
+   * What the segment cost, summed over its committed turns — carried BESIDE
+   * the row because it is a `SUM` over another ledger table rather than a
+   * `sessions` column. Absent for a segment that recorded no telemetry, which
+   * is a real state and not a zero. Every push carries it, so a client that
+   * replaces its cached entry wholesale never downgrades the figure.
+   */
+  usage?: SessionUsage;
 }
 
 /**
@@ -1358,7 +1404,9 @@ export function decodeSessionUpdated(payload: unknown): SessionUpdatedPush | nul
     | Parameters<typeof normalizeSessionRow>[0]
     | undefined;
   const fields = rawFields === undefined ? undefined : normalizeSessionRow(rawFields);
-  return removed ? { session_id: sessionId, removed: true } : { session_id: sessionId, fields };
+  return removed
+    ? { session_id: sessionId, removed: true }
+    : { session_id: sessionId, fields, usage: decodeSessionUsage(obj.usage) };
 }
 
 /**
@@ -1371,7 +1419,7 @@ export function decodeSessionUpdated(payload: unknown): SessionUpdatedPush | nul
  * is what stops the client asking again forever.
  */
 export interface ResolveSessionsOk {
-  found: readonly { queried: string; session: SessionRow }[];
+  found: readonly { queried: string; session: SessionRow; usage?: SessionUsage }[];
   unknown: readonly string[];
 }
 
@@ -1385,7 +1433,7 @@ export function decodeResolveSessionsOk(payload: unknown): ResolveSessionsOk | n
   if (typeof payload !== "object" || payload === null) return null;
   const obj = payload as Record<string, unknown>;
   if (obj.action !== "resolve_sessions_ok") return null;
-  const found: { queried: string; session: SessionRow }[] = [];
+  const found: { queried: string; session: SessionRow; usage?: SessionUsage }[] = [];
   if (Array.isArray(obj.sessions)) {
     for (const entry of obj.sessions) {
       if (typeof entry !== "object" || entry === null) continue;
@@ -1398,6 +1446,7 @@ export function decodeResolveSessionsOk(payload: unknown): ResolveSessionsOk | n
         session: normalizeSessionRow(
           e.session as Parameters<typeof normalizeSessionRow>[0],
         ),
+        usage: decodeSessionUsage(e.usage),
       });
     }
   }

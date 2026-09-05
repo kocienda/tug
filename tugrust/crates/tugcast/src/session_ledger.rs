@@ -24,9 +24,19 @@
 //!
 //! # Eviction
 //!
-//! One policy, and it is age. **Age expiry** — `DEV_LEDGER_MAX_AGE_DAYS`
-//! (90). Tugcast startup sweeps any non-live row whose `last_used_at` is
-//! older than that.
+//! There is no automatic eviction, and that is the policy. A `sessions` row
+//! — and the `turn_telemetry` under it — lives until the user trashes the
+//! session. `trash` and `trash_for_project_dir` are the only paths that
+//! remove one, and both are the user's own gesture.
+//!
+//! An age sweep lived here (`DEV_LEDGER_MAX_AGE_DAYS`, 90) and was removed
+//! rather than retuned. It defended nothing measurable: these tables are a
+//! rounding error beside `facts`, which no `sessions` delete cascades into,
+//! and the number was a dev-card default nobody ever argued for. What it
+//! cost was real — durable ink outlives ninety days, and an arc receipt that
+//! names a segment needs the segment's telemetry to still be there to read.
+//! `prompt_history.db` already holds this position for a ledger of the same
+//! kind: the user's own history, small, and cited by things that last.
 //!
 //! There is deliberately **no per-workspace cap**. One lived here for four
 //! months, written when a session row was throwaway picker telemetry, and it
@@ -34,17 +44,17 @@
 //! had named by hand. A bounded row count is not a resource this ledger
 //! needs to defend, and no number is small enough to be worth a name.
 //!
-//! And the sweep cannot take a name either. Every *automatic* delete over
-//! `sessions` goes through the `sparing_named_lines!` guard, which refuses to
-//! remove the last surviving segment of a line whose name the user typed. The
-//! guard sits beside the `DELETE` rather than in each caller, because the
-//! caller is where this went wrong once already. `trash` — the user's own
-//! explicit gesture — is deliberately not guarded: deleting a session on
-//! purpose is the one act that may cost a name, and when it takes a line's
-//! last segment the name goes with it rather than being left to strand.
+//! And a name is guarded besides. `trash_for_project_dir` — a delete the user
+//! asked for by evicting a project rather than by naming a session — goes
+//! through the `sparing_named_lines!` guard, which refuses to remove the last
+//! surviving segment of a line whose name the user typed. The guard sits
+//! beside the `DELETE` rather than in each caller, because the caller is where
+//! this went wrong once already. `trash` — a session named outright — is
+//! deliberately not guarded: deleting a session on purpose is the one act that
+//! may cost a name, and when it takes a line's last segment the name goes with
+//! it rather than being left to strand.
 //!
-//! Live rows are never evicted. A long-pinned card keeps its ledger row
-//! regardless of age.
+//! Live rows are never removed by either path.
 //!
 //! # Schema
 //!
@@ -213,10 +223,6 @@ macro_rules! sparing_named_lines {
         )
     };
 }
-
-/// Days since `last_used_at` after which a non-live row is age-evicted on
-/// startup sweep.
-pub const DEV_LEDGER_MAX_AGE_DAYS: i64 = 90;
 
 /// Days a `.tug-trash/<deletedAt>/` directory survives before the startup
 /// trash sweep removes it. Wired in step 8.
@@ -837,6 +843,25 @@ pub struct LineOwnership {
 pub struct SessionScanMetrics {
     pub file_size: i64,
     pub turn_count: i64,
+}
+
+/// What one segment cost, summed over its committed turns — the pair a
+/// finished unit of agent work is described by everywhere else in the app.
+/// Read by [`SessionLedger::usage_for`] and carried beside the session row on
+/// `session_updated` and `resolve_sessions_ok`.
+///
+/// `tokens` is every token the model consumed: input, output, and both cache
+/// columns, which is what the app's other token figures mean. `active_ms` is
+/// the agent's own working time rather than wall clock — the number the agent
+/// footer prints, and the only one that says anything about the work when a
+/// turn sat waiting on a permission prompt. Cost is deliberately absent: it is
+/// populated for some models and zero for others, and a money figure wrong on
+/// half the rows is worse than none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionUsage {
+    pub turns: i64,
+    pub tokens: i64,
+    pub active_ms: i64,
 }
 
 /// One row of the `file_events` table — an authoritative record that a
@@ -5783,42 +5808,6 @@ impl SessionLedger {
         Ok(count)
     }
 
-    /// Remove every non-live row whose `last_used_at` is older than
-    /// `now - max_age_ms`. Returns the session ids of the swept rows so
-    /// the caller can broadcast `session_updated { removed: true }` pushes.
-    ///
-    /// Their `minted_tags` rows stay — the arbiter is append-only (Spec S08).
-    ///
-    /// **A name the user typed is never swept.** The selection runs through
-    /// `sparing_named_lines!`, so the last surviving segment of a user-named
-    /// line outlives any age, however long the line has sat untouched. That
-    /// is the whole point: age is a fair reason to forget an anonymous row
-    /// and never a reason to forget a name.
-    pub fn sweep_expired(&self, max_age_ms: i64, now: i64) -> Result<Vec<String>, LedgerError> {
-        let cutoff = now - max_age_ms;
-        let forwarding = self.forwarding();
-        let mut conn = self.db.lock().expect("ledger mutex");
-        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let doomed: Vec<String> = {
-            let mut stmt = tx.prepare(sparing_named_lines!(
-                "state != 'live' AND last_used_at < ?1"
-            ))?;
-            stmt.query_map(params![cutoff], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        for id in &doomed {
-            tx.execute("DELETE FROM sessions WHERE session_id = ?1", params![id])?;
-            self.delete_session_events(&tx, id, forwarding)?;
-        }
-        tx.commit()?;
-        drop(conn);
-        self.settle_session_deletes(doomed.iter().map(String::as_str));
-        if !doomed.is_empty() {
-            self.notify_sessions_changed();
-        }
-        Ok(doomed)
-    }
-
     /// All distinct workspace keys currently represented in the ledger.
     /// Used by the trash sweep in step 8 to enumerate workspace dirs.
     pub fn distinct_workspaces(&self) -> Result<Vec<String>, LedgerError> {
@@ -5881,6 +5870,42 @@ impl SessionLedger {
             )
             .optional()?;
         Ok(metrics)
+    }
+
+    /// What this segment cost, summed over its committed turns ([`SessionUsage`]).
+    ///
+    /// One `SUM` over `turn_telemetry`, which is keyed by segment — so a stage
+    /// of an arc, which IS a segment, is answered by its own id with no join.
+    /// `None` when the segment has no telemetry at all, which is a real state
+    /// rather than a zero: a session that recorded no turn has nothing to say,
+    /// and a receipt showing `0 tokens` for it would be saying something false.
+    ///
+    /// Sits beside [`scan_metrics_for`](Self::scan_metrics_for) and is looked
+    /// up on the same terms: every builder of a session-row frame reads it,
+    /// because the client replaces its cached row wholesale and a push that
+    /// omits a fact downgrades it.
+    pub fn usage_for(&self, session_id: &str) -> Result<Option<SessionUsage>, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let usage = conn.query_row(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(input_tokens + output_tokens
+                                 + cache_creation_input_tokens
+                                 + cache_read_input_tokens), 0),
+                    COALESCE(SUM(active_ms), 0)
+             FROM turn_telemetry
+             WHERE session_id = ?1",
+            params![session_id],
+            |r| {
+                Ok(SessionUsage {
+                    turns: r.get(0)?,
+                    tokens: r.get(1)?,
+                    active_ms: r.get(2)?,
+                })
+            },
+        )?;
+        // `COUNT(*)` over an empty set is a row of zeroes, not no row at all,
+        // so the emptiness is read off the count rather than off the cursor.
+        Ok(if usage.turns == 0 { None } else { Some(usage) })
     }
 
     /// Look up the cached scan result for `session_id`. Validity
@@ -9410,9 +9435,11 @@ mod tests {
         )
         .unwrap();
         l.mark_closed("s1").unwrap();
-        // The age sweep is one of the paths that hard-DELETEs the row.
-        let swept = l.sweep_expired(86_400_000, millis(0)).unwrap();
-        assert_eq!(swept, vec!["s1".to_string()]);
+        // Trash is the path that hard-DELETEs the row, and the cascade goes
+        // with it. It is the only one: nothing removes a `sessions` row on its
+        // own any more.
+        l.trash("s1").unwrap();
+        assert!(l.get("s1").unwrap().is_none());
 
         l.record_spawn(
             "s2",
@@ -13307,56 +13334,6 @@ mod tests {
         assert!(session_dir.join(".tug-trash").exists());
     }
 
-    // ── sweep_expired ────────────────────────────────────────────────────────
-
-    #[test]
-    fn sweep_expired_removes_stale_non_live_rows() {
-        let l = fresh();
-        let now = millis(0);
-        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
-
-        // 91-day-old closed row — should be swept.
-        seed_live(&l, "old", WS_A, "c", millis(91));
-        l.mark_closed("old").unwrap();
-        // 89-day-old closed row — survives.
-        seed_live(&l, "fresh", WS_A, "c", millis(89));
-        l.mark_closed("fresh").unwrap();
-
-        let swept = l.sweep_expired(max_age_ms, now).unwrap();
-        assert_eq!(swept, vec!["old".to_owned()]);
-        assert!(l.get("old").unwrap().is_none());
-        assert!(l.get("fresh").unwrap().is_some());
-    }
-
-    #[test]
-    fn sweep_expired_leaves_live_rows_untouched() {
-        let l = fresh();
-        let now = millis(0);
-        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
-
-        // Live row with a stale `last_used_at` (e.g., a card pinned open for
-        // months). Sweep must not touch it.
-        seed_live(&l, "pinned", WS_A, "card-pin", millis(200));
-        let swept = l.sweep_expired(max_age_ms, now).unwrap();
-        assert!(swept.is_empty());
-        let r = l.get("pinned").unwrap().unwrap();
-        assert_eq!(r.state, SessionState::Live);
-    }
-
-    #[test]
-    fn sweep_expired_removes_failed_rows_too() {
-        let l = fresh();
-        let now = millis(0);
-        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
-
-        seed_live(&l, "stale", WS_A, "c", millis(120));
-        l.mark_failed("stale").unwrap();
-
-        let swept = l.sweep_expired(max_age_ms, now).unwrap();
-        assert_eq!(swept, vec!["stale".to_owned()]);
-        assert!(l.get("stale").unwrap().is_none());
-    }
-
     // ── the named-line guard ────────────────────────────────────────────────
     //
     // A `/rename` is the user's own word, and no automatic delete may cost
@@ -13372,100 +13349,6 @@ mod tests {
 
     fn name_the_line(ledger: &SessionLedger, line_id: &str, name: &str) {
         ledger.rename(line_id, Some(name)).expect("rename");
-    }
-
-    #[test]
-    fn sweep_spares_the_last_segment_of_a_named_line() {
-        let l = fresh();
-        let now = millis(0);
-        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
-
-        // Long past the age cutoff, and the only segment its line has.
-        seed_live(&l, "lens-xp-seg", WS_A, "c", millis(200));
-        l.mark_closed("lens-xp-seg").unwrap();
-        name_the_line(&l, "lens-xp-seg", "lens-xp");
-
-        let swept = l.sweep_expired(max_age_ms, now).unwrap();
-        assert!(swept.is_empty(), "a named line's last segment is not age");
-        assert!(l.get("lens-xp-seg").unwrap().is_some());
-    }
-
-    #[test]
-    fn sweep_takes_the_last_segment_of_an_unnamed_line() {
-        let l = fresh();
-        let now = millis(0);
-        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
-
-        // Same age, same last-segment shape — the only difference is that
-        // nobody typed a name for it. This is the control the guard needs:
-        // without it the guard would read as "the sweep stopped working".
-        seed_live(&l, "anon", WS_A, "c", millis(200));
-        l.mark_closed("anon").unwrap();
-
-        let swept = l.sweep_expired(max_age_ms, now).unwrap();
-        assert_eq!(swept, vec!["anon".to_owned()]);
-        assert!(l.get("anon").unwrap().is_none());
-    }
-
-    #[test]
-    fn sweep_takes_the_older_segment_of_a_named_line() {
-        let l = fresh();
-        let now = millis(0);
-        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
-
-        // Two segments of one named line; only the older one is expired, so
-        // the guard has nothing to do and the sweep does its ordinary work.
-        seed_live(&l, "old-seg", WS_A, "c", millis(200));
-        l.mark_closed("old-seg").unwrap();
-        seed_segment(&l, "new-seg", "old-seg", millis(5));
-        l.mark_closed("new-seg").unwrap();
-        name_the_line(&l, "old-seg", "arc-compact");
-
-        let swept = l.sweep_expired(max_age_ms, now).unwrap();
-        assert_eq!(swept, vec!["old-seg".to_owned()]);
-        assert!(l.get("old-seg").unwrap().is_none());
-        assert!(l.get("new-seg").unwrap().is_some());
-    }
-
-    #[test]
-    fn sweep_keeps_the_newest_when_every_segment_of_a_named_line_expires() {
-        let l = fresh();
-        let now = millis(0);
-        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
-
-        // The shape a row-at-a-time predicate gets wrong: asked on its own,
-        // each of these two rows can point at the other as a survivor, and
-        // both get deleted. The guard is set-aware, so the newest stands.
-        seed_live(&l, "seg-older", WS_A, "c", millis(200));
-        l.mark_closed("seg-older").unwrap();
-        seed_segment(&l, "seg-newer", "seg-older", millis(150));
-        l.mark_closed("seg-newer").unwrap();
-        name_the_line(&l, "seg-older", "tripwire-xp");
-
-        let swept = l.sweep_expired(max_age_ms, now).unwrap();
-        assert_eq!(swept, vec!["seg-older".to_owned()]);
-        assert!(l.get("seg-older").unwrap().is_none());
-        assert!(
-            l.get("seg-newer").unwrap().is_some(),
-            "one segment survives so the name stays reachable"
-        );
-    }
-
-    #[test]
-    fn sweep_spares_a_named_line_whose_only_surviving_segment_is_live() {
-        let l = fresh();
-        let now = millis(0);
-        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
-
-        // A live segment counts as a survivor, so the expired one goes.
-        seed_live(&l, "seg-closed", WS_A, "c", millis(200));
-        l.mark_closed("seg-closed").unwrap();
-        seed_segment(&l, "seg-live", "seg-closed", millis(0));
-        name_the_line(&l, "seg-closed", "layout-xp");
-
-        let swept = l.sweep_expired(max_age_ms, now).unwrap();
-        assert_eq!(swept, vec!["seg-closed".to_owned()]);
-        assert!(l.get("seg-live").unwrap().is_some());
     }
 
     #[test]
@@ -14867,11 +14750,11 @@ mod tests {
     /// Regression: an eviction on a forwarding ledger whose owner has
     /// died takes the writer claim over during the post-commit settle.
     /// The settle routes through `write_change` → takeover → `db.lock()`,
-    /// so the eviction path must have released the ledger mutex before
+    /// so the delete path must have released the ledger mutex before
     /// settling — holding it across the settle self-deadlocked this exact
     /// scenario (lock order: `changes_access` strictly before `db`).
     #[test]
-    fn eviction_on_a_forwarding_ledger_takes_over_without_self_deadlock() {
+    fn a_delete_on_a_forwarding_ledger_takes_over_without_self_deadlock() {
         let dir = tempfile::tempdir().expect("tempdir");
         let changes = dir.path().join("changes.db");
         let root = PathBuf::from("/tmp/tugcast-tests-no-trash");
@@ -14889,13 +14772,11 @@ mod tests {
         assert!(!follower.owns_changes_writer());
         drop(owner);
 
-        let now = millis(0);
-        let max_age_ms = DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
         seed_live(&follower, "old", WS_A, "c", millis(91));
         follower.mark_closed("old").unwrap();
 
-        let swept = follower.sweep_expired(max_age_ms, now).unwrap();
-        assert_eq!(swept, vec!["old".to_owned()]);
+        follower.trash("old").unwrap();
+        assert!(follower.get("old").unwrap().is_none());
         assert!(
             follower.owns_changes_writer(),
             "the settle took the abandoned claim over"
@@ -15727,6 +15608,81 @@ mod tests {
             0,
             "cascade trigger must purge turn_telemetry rows when the parent session row is deleted",
         );
+    }
+
+    #[test]
+    fn usage_for_sums_every_turn_of_a_segment() {
+        let l = fresh();
+        seed_live(&l, "s1", "ws", "card-1", millis(0));
+        // A neighbour segment's rows must not reach this sum: usage is the
+        // segment's own fact, which is what makes a stage of an arc answerable
+        // by its own id.
+        seed_live(&l, "s2", "ws", "card-2", millis(0));
+        l.record_turn_telemetry(&sample_telemetry("s1", "msg-A", 1_000))
+            .unwrap();
+        l.record_turn_telemetry(&sample_telemetry("s1", "msg-B", 2_000))
+            .unwrap();
+        l.record_turn_telemetry(&sample_telemetry("s2", "msg-A", 1_000))
+            .unwrap();
+
+        let usage = l.usage_for("s1").unwrap().expect("two turns recorded");
+        assert_eq!(usage.turns, 2);
+        // Every token column, which is what the app's other token figures mean.
+        assert_eq!(usage.tokens, 2 * (100 + 50 + 10 + 20));
+        assert_eq!(usage.active_ms, 2 * 3_700);
+    }
+
+    #[test]
+    fn usage_for_is_none_when_the_segment_recorded_nothing() {
+        // Not a zero: a session with no telemetry has nothing to say, and a
+        // receipt printing `0 tokens` for it would be saying something false.
+        let l = fresh();
+        seed_live(&l, "s1", "ws", "card-1", millis(0));
+        assert!(l.usage_for("s1").unwrap().is_none());
+        assert!(l.usage_for("never-existed").unwrap().is_none());
+    }
+
+    #[test]
+    fn usage_for_is_none_rather_than_stale_after_a_trash() {
+        // The cascade takes the telemetry with the row, so the sum goes back
+        // to nothing rather than standing as a total for a segment that is no
+        // longer there.
+        let l = fresh();
+        seed_live(&l, "s1", "ws", "card-1", millis(0));
+        l.mark_closed("s1").unwrap();
+        l.record_turn_telemetry(&sample_telemetry("s1", "msg-A", 1_000))
+            .unwrap();
+        assert!(l.usage_for("s1").unwrap().is_some());
+
+        l.trash("s1").unwrap();
+
+        assert!(l.usage_for("s1").unwrap().is_none());
+    }
+
+    #[test]
+    fn no_automatic_path_removes_a_sessions_row() {
+        // The pin on [B13]: a segment and its telemetry live until the user
+        // trashes the session. There is no age sweep and no cap, so a row that
+        // has sat closed since forever is still here, and so is what it cost.
+        // A `SessionLedger` opened fresh over an existing file runs every
+        // startup path there is — migrations, integrity, the lot — and this
+        // asserts the row survives all of it.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let root = PathBuf::from("/tmp/tugcast-tests-no-trash");
+        {
+            let l = SessionLedger::open_with_claude_root(&path, root.clone()).unwrap();
+            seed_live(&l, "ancient", WS_A, "c", millis(4_000));
+            l.mark_closed("ancient").unwrap();
+            l.record_turn_telemetry(&sample_telemetry("ancient", "msg-A", 1_000))
+                .unwrap();
+        }
+        let l = SessionLedger::open_with_claude_root(&path, root).unwrap();
+        assert!(
+            l.get("ancient").unwrap().is_some(),
+            "a closed row is never removed by anything but the user's own trash",
+        );
+        assert!(l.usage_for("ancient").unwrap().is_some());
     }
 
     // ---- file_events table ---------------------------------------------

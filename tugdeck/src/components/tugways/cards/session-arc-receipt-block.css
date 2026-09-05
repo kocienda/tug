@@ -55,14 +55,14 @@
 }
 
 .arc-receipt-doc code {
-  font-family: var(--tug-font-mono);
+  font-family: var(--tug-font-family-mono);
   font-size: inherit;
   background: transparent;
   padding: 0;
   color: inherit;
 }
 
-/* One grid for every stage, so the models and the session atoms line up in
+/* One grid for every stage, so the models and the usage figures line up in
    columns rather than each row packing on its own. `display: contents` on the
    row is what puts the three cells on the parent's tracks. */
 .arc-receipt-stages {
@@ -92,6 +92,14 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .arc-receipt-stage-session {
   justify-self: end;
+  /* The size its two siblings declare. The cell used to hold an atom whose
+     own rule is `font-size: inherit`, so it took the block's base size and
+     read larger than the stage and the model beside it. */
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }

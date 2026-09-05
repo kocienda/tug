@@ -314,6 +314,11 @@ function JoinBoundary({
   return (
     <SessionBoundary
       kind="join"
+      // The receipt face: a receipt reads as prose, so the boundary's whole
+      // subtree — the bar's subject and the fold's message body alike — takes
+      // the proportional family the scope publishes. Worn on the root that
+      // contains both, so the two can't part.
+      className="tugx-commit-receipt"
       glyph={<GitMerge size={16} aria-hidden="true" />}
       // The register's own terminal sentence, in the boundary's voice — the
       // same two names `ArcJoinRegister` derives it from, off the receipt the
@@ -358,6 +363,7 @@ export function SessionDiscardReceiptBlock(props: CommandBlockProps): React.Reac
     <ToolBlockHistoryCollapse toolUseId={props.message.exchangeId} defaultCollapsed={false}>
       <BlockChrome
         rootSlot="discard-receipt-block"
+        className="tugx-commit-receipt"
         variant="receipt"
         identity={identity}
         resultSummary={[

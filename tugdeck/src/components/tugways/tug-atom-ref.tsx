@@ -3,7 +3,7 @@
  *
  * An **atom** is the rendering of a value somebody *placed*: an `@`-mention,
  * a tool call's `file_path` field, an entry in a Overview post's `refs`
- * array, the session id in an arc receipt's stage row. An atom has exactly
+ * array. An atom has exactly
  * two skins and never a third. The **editable skin** is the boxed chip
  * (`TugAtomChip`), and the box means one thing: *this object can be
  * selected, deleted, or dragged where it sits*. This is the other one —
@@ -16,12 +16,17 @@
  * structural — recorded in the data before anything renders — so which form
  * applies is never a judgment call.
  *
- * **The label is a name, not the value.** A file atom shows its basename; a
- * session atom shows `session:227a8eb9`. An atom stands with no sentence
- * around it, so the word a sentence would have supplied belongs in the
- * label — eight bare hex characters name nothing a reader can act on, and a
- * small glyph does not rescue them. A mention needs no such word, because
- * its sentence already said it.
+ * **The label is a name, not the value.** A file atom shows its basename;
+ * an arc atom shows the arc's own name. An atom stands with no sentence around
+ * it, so the word a sentence would have supplied belongs in the label. A
+ * mention needs no such word, because its sentence already said it.
+ *
+ * **There is no session arm, deliberately.** One existed, labelled
+ * `session:<8 hex>`, for a single call site — the arc receipt's stage row —
+ * and it was a duplicate identity rendering of a record the app already draws
+ * as a pill everywhere a session is named. What survives here are `file` and
+ * `arc`: read-only refs with no identity record behind them, which is what
+ * this skin is for.
  *
  * **Two stamping modes, because two hosts already own the contract.** In
  * `annotate` mode (the default for a file) the skin stamps the annotator's
@@ -31,7 +36,7 @@
  * reference rather than a parallel implementation. In presentational mode
  * it stamps nothing, for hosts that already carry the full contract: the
  * Overview's `annotationProps` wrapper span, which also owns the pending and
- * unresolvable tooltip states. A session or arc skin never stamps its own —
+ * unresolvable tooltip states. An arc skin never stamps its own —
  * where that click goes is the host's business rather than the skin's, so
  * `annotate` is offered on the file arm alone rather than as a prop that
  * would be silently ignored.
@@ -72,14 +77,13 @@
 import "./tug-atom-ref.css";
 
 import React from "react";
-import { FileText, GitBranch, MessageSquare } from "lucide-react";
+import { FileText, GitBranch } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { ANNOTATION_CLASS } from "@/lib/annotator/types";
 import { datasetForPayload } from "@/lib/annotator/payloads";
-import { COMMIT_LABEL_LENGTH } from "@/lib/commit-format";
 import { basename } from "@/lib/display-path";
 
 /** What was placed. The kind decides the glyph and the default label. */
@@ -114,15 +118,6 @@ export type TugAtomRefEntity =
       annotate?: boolean;
     }
   /**
-   * A claude session, by the id that is its only durable name.
-   *
-   * Presentational, and short: the whole UUID names nothing a reader can
-   * hold, and the leading run is enough to tell one stage of an arc from
-   * the next. The label carries the word because eight bare hex characters
-   * carry none.
-   */
-  | { kind: "session"; id: string }
-  /**
    * An arc, by the name that is its address everywhere else in the app.
    * Presentational: the host owns the gesture, because where an arc click
    * goes is the host's business rather than the skin's.
@@ -132,24 +127,18 @@ export type TugAtomRefEntity =
 export interface TugAtomRefProps {
   entity: TugAtomRefEntity;
   /**
-   * Override the default label (the basename, or `session:<8>`). What is
+   * Override the default label (the basename, or the arc's name). What is
    * rendered MUST read as the same characters — this is for decorating
    * them, as a filter match decorates a sha with `<mark>`s, never for
    * substituting different ones.
    */
   label?: React.ReactNode;
   /**
-   * Leading glyph. Defaults to `FileText` / `GitBranch` / `MessageSquare`
-   * by kind.
+   * Leading glyph. Defaults to `FileText` / `GitBranch` by kind.
    */
   icon?: React.ReactNode;
   "data-slot"?: string;
   className?: string;
-}
-
-/** The label a session atom carries when nothing overrides it. */
-export function sessionAtomLabel(id: string): string {
-  return `session:${id.slice(0, COMMIT_LABEL_LENGTH)}`;
 }
 
 /**
@@ -208,11 +197,7 @@ export function TugAtomRef({
     ? fileAnnotationAttributes(entity as Extract<TugAtomRefEntity, { kind: "file" }>)
     : {};
   const defaultLabel =
-    entity.kind === "file"
-      ? basename(entity.path)
-      : entity.kind === "arc"
-        ? entity.name
-        : sessionAtomLabel(entity.id);
+    entity.kind === "file" ? basename(entity.path) : entity.name;
 
   const skin = (
     <span
@@ -222,13 +207,7 @@ export function TugAtomRef({
     >
       <span className="tug-atom-ref-icon" aria-hidden="true">
         {icon ??
-          (entity.kind === "file" ? (
-            <FileText />
-          ) : entity.kind === "arc" ? (
-            <GitBranch />
-          ) : (
-            <MessageSquare />
-          ))}
+          (entity.kind === "file" ? <FileText /> : <GitBranch />)}
       </span>
       {/* The name, in an element of its own so the annotation rule can land
           on it. A decoration set on the skin would paint across every inline

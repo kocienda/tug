@@ -1239,19 +1239,11 @@ async fn main() {
             .with_changeset_bump(registry.changeset_all_bump()),
     );
 
-    // Age sweep: drop every non-live row whose `last_used_at` is older
-    // than the configured cap. Runs after `demote_live_to_closed` so the
-    // demoted rows have a chance to be swept too if they're already old.
-    // Broadcasts go nowhere yet — there are no clients connected — but
-    // the recorder's broadcast call is harmless against an empty
-    // subscriber set.
-    let max_age_ms = crate::session_ledger::DEV_LEDGER_MAX_AGE_DAYS * 86_400_000;
-    ledger_recorder.sweep_expired_with_broadcast(max_age_ms, crate::session_ledger::now_millis());
-
     // Trash sweep: walk every workspace's `.tug-trash/<deletedAt>/`
     // under `~/.claude/projects/` and remove any deletedAt subdir older
-    // than 7 days. Runs after the age sweep so freshly-trashed JSONLs
-    // (recoverable for 7 days) aren't immediately lost.
+    // than 7 days. This is the only sweep at startup: a `sessions` row is
+    // never removed on its own, so the only JSONLs here are ones the user
+    // trashed by hand.
     let trash_max_age_ms = crate::session_ledger::DEV_TRASH_SWEEP_AGE_DAYS * 86_400_000;
     let trash_swept = ledger.sweep_trash(trash_max_age_ms, crate::session_ledger::now_millis());
     if trash_swept > 0 {

@@ -19,7 +19,6 @@ import {
   trackModelFor,
 } from "@/components/tugways/cards/session-arc-receipt-block";
 import { resolveCommandAttribution } from "@/components/tugways/cards/session-command-block-registry";
-import { sessionAtomLabel } from "@/components/tugways/tug-atom-ref";
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 
 const COMPLETE = [
@@ -339,14 +338,6 @@ describe("the row the transcript builds around it", () => {
     expect(parts).toContain("foo");
     expect(parts).toContain("implement");
     expect(parts).not.toContain("claude-a");
-  });
-});
-
-describe("the session atom's label", () => {
-  it("carries the word, because eight hex characters carry none", () => {
-    expect(sessionAtomLabel("d0a7daa1-fe05-4ad9-bbce-5f261d222d41")).toBe(
-      "session:d0a7daa1",
-    );
   });
 });
 

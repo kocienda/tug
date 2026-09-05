@@ -39,14 +39,17 @@ import { Play } from "lucide-react";
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "@/components/tugways/blocks/collapse-context";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
-import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
 import { arcTrackModel } from "@/components/tugways/tug-arc-track";
+import { formatDurationMs } from "@/components/tugways/cards/session-card-telemetry-renderers";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { arcResumeStore } from "@/lib/arc-resume-store";
 import { CardIdContext } from "@/lib/card-id-context";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import { formatTokensApprox } from "@/lib/code-session-store/compaction";
 import { getConnection } from "@/lib/connection-singleton";
+import { useCitedSession } from "@/lib/session-citation-store";
+import { useSessionUsage } from "@/lib/session-usage-store";
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import {
   registerCommandBlock,
@@ -298,6 +301,49 @@ export function shouldOfferResume(
 }
 
 /**
+ * A stage's trailing cell: what the stage cost, as tokens and active time.
+ *
+ * The cell used to print the stage's claude session id. That id is a join key
+ * — nobody's name for anything — and even resolved it would read the same on
+ * every row of an arc, naming the card the reader is already looking at. So it
+ * stays exactly where it was in the record, in the log and in the receipt's
+ * own text, and becomes the *lookup* instead of the ink: `sessions` is keyed by
+ * segment, a stage IS a segment, and the two facts that differ per stage are
+ * how much the model consumed and how long the agent worked. The pair is the
+ * app's own idiom for a finished unit of agent work — the agent footer prints
+ * it, and both figures are formatted by the same functions it uses.
+ *
+ * The ask goes through the citation store, which batches the receipt's several
+ * ids into one `resolve_sessions` and never re-asks an answered one; the answer
+ * lands in `sessionUsageStore`, which the live telemetry push keeps current
+ * while a stage is still running.
+ *
+ * **A missing figure is a state, not a gap.** Until the ledger answers, and for
+ * a segment that genuinely recorded no telemetry, the cell is empty — the stage
+ * and the model stand as they always did. A `0 tokens` here would be a claim
+ * the app cannot make.
+ *
+ * Its own component because of the hooks, the same reason `ArcResumeOffer` is.
+ */
+function ArcReceiptStageUsage({ sessionId }: { sessionId: string }): React.ReactElement {
+  // Asking is the citation store's job. The answer also hands back the FULL id
+  // for an ask that was short — the receipt writes full ones, but reading the
+  // resolved id rather than the asked one is what keeps that a fact about the
+  // record rather than an assumption.
+  const cited = useCitedSession(sessionId);
+  const usage = useSessionUsage(
+    cited.status === "found" ? cited.sessionId : sessionId,
+  );
+  return (
+    <span className="arc-receipt-stage-session" data-slot="arc-receipt-stage-usage">
+      {usage === undefined
+        ? null
+        : `${formatTokensApprox(usage.tokens)} · ${formatDurationMs(usage.activeMs)}`}
+    </span>
+  );
+}
+
+/**
  * The offer's title. Exported so it can be pinned without rendering — the
  * deck's tests are pure-logic `bun:test` with no fake DOM, so a string only
  * the JSX holds is a string nothing can assert.
@@ -437,9 +483,7 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
               <li className="arc-receipt-stage" key={stage.sessionId}>
                 <span className="arc-receipt-stage-word">{stage.stage}</span>
                 <span className="arc-receipt-stage-model">{stage.model}</span>
-                <span className="arc-receipt-stage-session">
-                  <TugAtomRef entity={{ kind: "session", id: stage.sessionId }} />
-                </span>
+                <ArcReceiptStageUsage sessionId={stage.sessionId} />
               </li>
             ))}
           </ul>

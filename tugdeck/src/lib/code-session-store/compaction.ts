@@ -11,8 +11,12 @@
  * own UI (and tugcode's replay translator) hide.
  */
 
-/** Round a token count to a compact `~Nk tokens` / `N tokens` label. */
-function formatTokensApprox(tokens: number): string {
+/**
+ * Round a token count to a compact `~Nk tokens` / `N tokens` label. Exported
+ * because it is the app's one spelling of a token total, and the arc receipt's
+ * stage row prints the same figure for a finished stage.
+ */
+export function formatTokensApprox(tokens: number): string {
   if (tokens >= 1000) return `~${Math.round(tokens / 1000)}k tokens`;
   return `${tokens} tokens`;
 }

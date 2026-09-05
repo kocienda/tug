@@ -1019,6 +1019,7 @@ impl LedgerSessionsRecorder {
                 let _ = tx.send(build_session_updated_frame(
                     &row,
                     self.scan_metrics(session_id),
+                    self.usage(session_id),
                 ));
             }
             Ok(None) => {}
@@ -1039,30 +1040,16 @@ impl LedgerSessionsRecorder {
         }
     }
 
-    fn broadcast_removed(&self, session_id: &str) {
-        let Some(tx) = self.control_tx.as_ref() else {
-            return;
-        };
-        let _ = tx.send(build_session_removed_frame(session_id));
-    }
-
-    /// Age-sweep the ledger, dropping every non-live row whose
-    /// `last_used_at` is older than `max_age_ms`. Broadcasts
-    /// `session_updated { removed: true }` for each dropped id.
-    /// Called from `main.rs` at tugcast startup.
-    pub fn sweep_expired_with_broadcast(&self, max_age_ms: i64, now: i64) {
-        match self.ledger.sweep_expired(max_age_ms, now) {
-            Ok(swept) => {
-                for id in &swept {
-                    self.broadcast_removed(id);
-                    tracing::info!(
-                        target: "dev::session-lifecycle",
-                        event = "ledger.evict_age",
-                        session_id = id.as_str(),
-                    );
-                }
+    /// The segment's usage for a push, on the same best-effort terms as
+    /// [`Self::scan_metrics`]: a read failure degrades to `None` — the same
+    /// value a segment with no telemetry carries — rather than to no push.
+    fn usage(&self, session_id: &str) -> Option<crate::session_ledger::SessionUsage> {
+        match self.ledger.usage_for(session_id) {
+            Ok(usage) => usage,
+            Err(err) => {
+                warn!(error = %err, session_id, "ledger usage_for for broadcast failed");
+                None
             }
-            Err(err) => warn!(error = %err, "ledger sweep_expired failed"),
         }
     }
 
@@ -1496,6 +1483,7 @@ fn replay_lineage(
 pub fn build_session_updated_frame(
     row: &crate::session_ledger::SessionRow,
     metrics: Option<crate::session_ledger::SessionScanMetrics>,
+    usage: Option<crate::session_ledger::SessionUsage>,
 ) -> Frame {
     let body = serde_json::json!({
         "action": "session_updated",
@@ -1525,6 +1513,13 @@ pub fn build_session_updated_frame(
             // ([P05]).
             "private": row.private,
         },
+        // What the segment cost, beside the row rather than on it: `usage` is
+        // a `SUM` over another table, not a `sessions` column, and the arc
+        // receipt's stage row is the surface that reads it. Looked up by every
+        // caller for the same reason `metrics` is — the client replaces its
+        // cached entry wholesale, so a push that omitted it would blank a
+        // figure the reader is looking at.
+        "usage": usage,
     });
     Frame::new(
         FeedId::CONTROL,
@@ -8562,12 +8557,18 @@ impl AgentSupervisor {
             Some(ledger) => match ledger.resolve_session_ids(ids) {
                 Ok(resolved) => {
                     for (queried, row) in &resolved {
+                        // The segment's usage rides the answer, so a surface
+                        // that resolves a cited id gets the numbers in the same
+                        // round trip rather than asking a second time. `None`
+                        // for a segment that recorded no telemetry.
+                        let usage = ledger.usage_for(&row.session_id).unwrap_or(None);
                         sessions.push(serde_json::json!({
                             // Keyed by what was asked, so the client can match
                             // an answer back to the citation it read — a short
                             // id and the row's full id are different strings.
                             "queried": queried,
                             "session": row,
+                            "usage": usage,
                         }));
                     }
                     for id in ids {
@@ -9046,6 +9047,20 @@ impl AgentSupervisor {
                 msg_id = %row.msg_id,
                 "record_turn_telemetry ledger write failed",
             );
+            return;
+        }
+        // Every ledger write pushes the row it changed, and this is the write
+        // that was exempt. It is also the one whose fact a receipt reads: the
+        // deck records telemetry after the turn commits, one round trip past
+        // the after-turn push, so without this the stage that just finished
+        // would carry a total missing its last turn until something else moved.
+        // The push is built after the write, so it carries the row it made.
+        if let Ok(Some(session_row)) = ledger.get(&row.session_id) {
+            let metrics = ledger.scan_metrics_for(&row.session_id).unwrap_or(None);
+            let usage = ledger.usage_for(&row.session_id).unwrap_or(None);
+            let _ = self
+                .control_tx
+                .send(build_session_updated_frame(&session_row, metrics, usage));
         }
     }
 
@@ -9651,11 +9666,12 @@ impl AgentSupervisor {
                         // The scan-cache lookup rides the rename push too — see
                         // `build_session_updated_frame` for why omitting it
                         // would blank a known size and zero a scan-derived turn
-                        // count.
+                        // count. The usage lookup rides it for the same reason.
                         let metrics = ledger.scan_metrics_for(&segment.session_id).unwrap_or(None);
+                        let usage = ledger.usage_for(&segment.session_id).unwrap_or(None);
                         let _ = self
                             .control_tx
-                            .send(build_session_updated_frame(&row, metrics));
+                            .send(build_session_updated_frame(&row, metrics, usage));
                     }
                 }
                 // Every line the name was taken from is un-taught the same way
@@ -9687,9 +9703,10 @@ impl AgentSupervisor {
                     }
                     if let Ok(Some(row)) = ledger.get(&segment.session_id) {
                         let metrics = ledger.scan_metrics_for(&segment.session_id).unwrap_or(None);
+                        let usage = ledger.usage_for(&segment.session_id).unwrap_or(None);
                         let _ = self
                             .control_tx
-                            .send(build_session_updated_frame(&row, metrics));
+                            .send(build_session_updated_frame(&row, metrics, usage));
                     }
                 }
                 let body = serde_json::json!({
@@ -9750,9 +9767,10 @@ impl AgentSupervisor {
             Ok(()) => {
                 if let Ok(Some(row)) = ledger.get(session_id) {
                     let metrics = ledger.scan_metrics_for(session_id).unwrap_or(None);
+                    let usage = ledger.usage_for(session_id).unwrap_or(None);
                     let _ = self
                         .control_tx
-                        .send(build_session_updated_frame(&row, metrics));
+                        .send(build_session_updated_frame(&row, metrics, usage));
                 }
                 let body = serde_json::json!({
                     "action": "set_session_private_ok",
@@ -10884,7 +10902,8 @@ impl AgentSupervisor {
             let Ok(Some(row)) = ledger.get(&claude_session_id) else {
                 return;
             };
-            let _ = control_tx.send(build_session_updated_frame(&row, Some(metrics)));
+            let usage = ledger.usage_for(&claude_session_id).unwrap_or(None);
+            let _ = control_tx.send(build_session_updated_frame(&row, Some(metrics), usage));
         });
     }
 
@@ -12671,7 +12690,7 @@ mod tests {
             arc_name: None,
             line_id: String::new(),
         };
-        let frame = build_session_updated_frame(&row, None);
+        let frame = build_session_updated_frame(&row, None, None);
         let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
         assert_eq!(body["fields"]["tag"], "azure-heron");
         // The description rides the same push as the callsign, so a written
@@ -12708,7 +12727,8 @@ mod tests {
 
         // No scan-cache row: a null size, and the ledger's own count stands.
         let body: serde_json::Value =
-            serde_json::from_slice(&build_session_updated_frame(&row, None).payload).expect("json");
+            serde_json::from_slice(&build_session_updated_frame(&row, None, None).payload)
+                .expect("json");
         assert!(body["fields"]["file_size"].is_null());
         assert_eq!(body["fields"]["turn_count"], 0);
 
@@ -12719,10 +12739,52 @@ mod tests {
             turn_count: 7,
         };
         let body: serde_json::Value =
-            serde_json::from_slice(&build_session_updated_frame(&row, Some(metrics)).payload)
+            serde_json::from_slice(&build_session_updated_frame(&row, Some(metrics), None).payload)
                 .expect("json");
         assert_eq!(body["fields"]["file_size"], 48_192);
         assert_eq!(body["fields"]["turn_count"], 7);
+    }
+
+    #[test]
+    fn session_updated_frame_carries_usage_beside_the_row() {
+        let row = crate::session_ledger::SessionRow {
+            session_id: "s1".to_owned(),
+            workspace_key: "ws".to_owned(),
+            project_dir: "/p".to_owned(),
+            created_at: 0,
+            last_used_at: 0,
+            turn_count: 0,
+            last_user_prompt: None,
+            state: crate::session_ledger::SessionState::Live,
+            card_id: Some("c1".to_owned()),
+            name: None,
+            name_user_set: false,
+            tag: None,
+            synopsis: None,
+            private: false,
+            arc_id: None,
+            arc_name: None,
+            line_id: String::new(),
+        };
+
+        // A segment with no telemetry says nothing rather than zero — the
+        // difference the receipt's empty right-hand state is read off.
+        let body: serde_json::Value =
+            serde_json::from_slice(&build_session_updated_frame(&row, None, None).payload)
+                .expect("json");
+        assert!(body["usage"].is_null());
+
+        let usage = crate::session_ledger::SessionUsage {
+            turns: 10,
+            tokens: 1_885_093,
+            active_ms: 1_391_000,
+        };
+        let body: serde_json::Value =
+            serde_json::from_slice(&build_session_updated_frame(&row, None, Some(usage)).payload)
+                .expect("json");
+        assert_eq!(body["usage"]["turns"], 10);
+        assert_eq!(body["usage"]["tokens"], 1_885_093);
+        assert_eq!(body["usage"]["active_ms"], 1_391_000);
     }
 
     // ---- Test-only ChildSpawner fakes ----
@@ -22228,6 +22290,103 @@ mod tests {
         assert_eq!(rows[0].wall_clock_ms, 4_000);
         assert_eq!(rows[0].active_ms, 3_700);
         assert_eq!(rows[0].ttft_ms, Some(150));
+    }
+
+    #[tokio::test]
+    async fn record_turn_telemetry_pushes_the_row_with_the_usage_it_just_wrote() {
+        // The one ledger write that used to push nothing. The receipt's stage
+        // row reads the sum, and the deck records telemetry a round trip after
+        // the turn commits — so without this push the stage that just finished
+        // would carry a total missing its last turn.
+        let (sup, ledger, mut control_rx) = make_supervisor_with_ledger();
+        let tug_id = TugSessionId::new("sess-tel-push");
+        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.claude_session_id = Some("claude-P".to_string());
+        }
+        ledger
+            .record_spawn(
+                "claude-P", "ws-1", "/proj/x", "card-1", 1_000, "claude-P", None,
+            )
+            .unwrap();
+        while control_rx.try_recv().is_ok() {}
+
+        sup.handle_control(
+            "record_turn_telemetry",
+            &record_turn_telemetry_payload("sess-tel-push", "msg-A", 0.0123),
+            10,
+        )
+        .await;
+
+        let body = next_action(&mut control_rx, "session_updated").await;
+        assert_eq!(body["session_id"], "claude-P");
+        // Post-write, not pre-write: the turn just recorded is in the sum.
+        assert_eq!(body["usage"]["turns"], 1);
+        assert_eq!(body["usage"]["tokens"], 180);
+        assert_eq!(body["usage"]["active_ms"], 3_700);
+    }
+
+    #[tokio::test]
+    async fn resolve_sessions_ok_carries_each_segments_usage() {
+        // The restore path: a receipt mounting on relaunch asks for the ids it
+        // parsed, and the numbers come back with the rows rather than needing a
+        // second verb ([D132]'s batch, one fact further).
+        let (sup, ledger, mut control_rx) = make_supervisor_with_ledger();
+        // Full uuids: the resolver answers a uuid, an 8-hex short id or a
+        // callsign, and a stage line in an arc receipt carries the first.
+        let with_turns = "557d7058-8076-4c1d-9f7e-2b3a4c5d6e7f";
+        let without = "0431f0dd-cb36-4a2b-8c1d-9e0f1a2b3c4d";
+        ledger
+            .record_spawn(
+                with_turns, "ws-1", "/proj/x", "card-1", 1_000, with_turns, None,
+            )
+            .unwrap();
+        ledger
+            .record_spawn(without, "ws-1", "/proj/x", "card-2", 1_000, without, None)
+            .unwrap();
+        ledger
+            .record_turn_telemetry(&crate::session_ledger::TurnTelemetryRow {
+                session_id: with_turns.to_owned(),
+                msg_id: "msg-A".to_owned(),
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_creation_input_tokens: 10,
+                cache_read_input_tokens: 20,
+                total_cost_usd: 0.0,
+                wall_clock_ms: 4_000,
+                awaiting_approval_ms: 0,
+                transport_downtime_ms: 0,
+                active_ms: 3_700,
+                ttft_ms: None,
+                ttftc_ms: None,
+                reconnect_count: 0,
+                max_stream_gap_ms: 0,
+                ended_at: 1_000,
+                session_init_tokens: None,
+            })
+            .unwrap();
+        while control_rx.try_recv().is_ok() {}
+
+        sup.do_resolve_sessions(&[with_turns.to_owned(), without.to_owned()])
+            .await;
+
+        let body = next_action(&mut control_rx, "resolve_sessions_ok").await;
+        let entries = body["sessions"].as_array().expect("sessions array");
+        let answer = |id: &str| {
+            entries
+                .iter()
+                .find(|e| e["queried"] == id)
+                .expect("an answer for the id")
+                .clone()
+        };
+        assert_eq!(answer(with_turns)["usage"]["turns"], 1);
+        assert_eq!(answer(with_turns)["usage"]["tokens"], 180);
+        assert_eq!(answer(with_turns)["usage"]["active_ms"], 3_700);
+        // A segment that recorded nothing answers with no usage at all, which
+        // is what leaves the receipt's right-hand cell standing empty rather
+        // than printing a zero.
+        assert!(answer(without)["usage"].is_null());
     }
 
     #[tokio::test]

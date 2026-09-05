@@ -10,6 +10,11 @@
 .join-receipt-header {
   display: block;
   min-width: 0;
+  /* The receipt's face, read from the scope class the block root wears — a
+     receipt is prose, and the chrome's detail column publishes the mono
+     command face. The fallback is the column's own, for a header outside the
+     scope. */
+  font-family: var(--tugx-commit-subject-font, var(--tugx-block-code-font));
 }
 
 /* The join boundary's detail — the landing sha and the squash subject,
@@ -20,6 +25,11 @@
    wherever the sha ended, which is the correction the boundary exists for. */
 .join-boundary-detail {
   min-width: 0;
+  /* Same face as the commit receipt's identity line, from the same scope: the
+     boundary bar is already sans, but a `code` inside its detail is pinned to
+     mono by `.session-boundary-detail code`, and the squash subject beside the
+     sha is a sentence rather than a code run. */
+  font-family: var(--tugx-commit-subject-font, var(--tug-font-family-sans));
 }
 
 .join-receipt-summary {
@@ -32,6 +42,9 @@
 .join-receipt-header .join-receipt-summary,
 .join-boundary-detail .join-receipt-summary {
   color: var(--tugx-block-text-color);
+  /* And the face of the line it sits on rather than the code face its element
+     would otherwise take — see the identity rules above. */
+  font-family: inherit;
 }
 
 /* The join's own line — `arc → base`, the identity a plain commit receipt has
@@ -49,8 +62,18 @@
     var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
   );
   color: var(--tugx-block-text-color-muted);
-  font-family: var(--tug-font-family-mono);
+  /* The receipt's own face: this line is the join's provenance, set in the
+     same prose the message below it reads in. It carried a second mono pin of
+     its own, which is exactly the per-site override the scope class replaces. */
+  font-family: var(--tugx-commit-subject-font, var(--tug-font-family-sans));
   font-size: var(--tug-font-size-xs);
+}
+
+/* The `arc → base` names and the fit line are `<code>` elements for their
+   entity tone, not for an author's backticks, so they read in the line's own
+   face rather than the browser's default mono. */
+.join-receipt-identity code {
+  font-family: inherit;
 }
 
 /* The chrome's body region carries no padding of its own — each body kind owns
