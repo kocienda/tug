@@ -267,7 +267,9 @@ describe.skipIf(!SHOULD_RUN)("AT0478: the fit an arc was verified at", () => {
            })()`,
         );
         note(`lane fact: ${mark.text} (${mark.tone})`);
-        expect(mark.text).toBe("fit verified");
+        // On the line, `verified` is the whole of what a reader needs;
+        // "fit" is `tugtool arc verify`'s word and stays in the hover ([B07]).
+        expect(mark.text).toBe("verified");
         // A quiet receipt, not a warning — the fit says; it never gates.
         expect(mark.tone).toBe("subtle");
       } finally {

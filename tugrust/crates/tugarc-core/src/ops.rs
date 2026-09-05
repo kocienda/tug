@@ -1552,6 +1552,14 @@ pub struct ArcRunState {
     /// The stage it stopped *in*, which is not necessarily [`Self::stage`]: a
     /// refused rotation stops in the stage it was trying to leave.
     pub stopped_stage: Option<String>,
+    /// The stop's own sentence — [`ArcStopReason::sentence`] for the word in
+    /// [`Self::stopped`], as the tail of "the arc stopped … because …".
+    ///
+    /// Composed here so a face never keeps a second table of a vocabulary the
+    /// compiler already closes ([B06]): the wire carries the log's word *and*
+    /// the English for it, and a display picks whichever register it speaks
+    /// in. `None` for a word an older record wrote that no variant claims.
+    pub stopped_why: Option<String>,
     /// Whether the arc reached its terminal line.
     pub done: bool,
     /// The arc's most recent note — what it last did, in its own words.
@@ -1848,6 +1856,9 @@ pub fn arc_detail_entries_in(repo_root: &Path) -> Vec<ArcDetail> {
                 .as_ref()
                 .map(|(stage, _)| stage.as_str().to_owned()),
             stopped: record.stopped.as_ref().map(|(_, reason)| reason.clone()),
+            stopped_why: record.stopped.as_ref().and_then(|(_, reason)| {
+                crate::arc::ArcStopReason::parse(reason).map(|r| r.sentence().to_owned())
+            }),
             done: record.done,
             note: record.notes.last().cloned(),
         });
@@ -7419,6 +7430,16 @@ Some context.
         let arc = entry.arc.as_ref().expect("a stopped arc still composes");
         assert_eq!(arc.stopped.as_deref(), Some("lint"));
         assert_eq!(arc.stopped_stage.as_deref(), Some("review"));
+        // The log's word and the English for it, both on the wire ([B06]): a
+        // face reads whichever register it speaks in and keeps no table of
+        // its own.
+        assert_eq!(
+            arc.stopped_why.as_deref(),
+            Some(crate::arc::ArcStopReason::Lint.sentence())
+        );
+        let wire = serde_json::to_value(arc).expect("the arc serializes");
+        assert_eq!(wire["stopped"], "lint");
+        assert_eq!(wire["stopped_why"], "the plan does not lint");
         assert_eq!(
             entry.stage, "created",
             "the git stage is untouched by the arc's — both readings stand"

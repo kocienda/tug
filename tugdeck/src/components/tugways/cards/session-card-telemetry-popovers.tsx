@@ -131,7 +131,6 @@ import {
 } from "@/lib/code-session-store/select-goal";
 import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
-import { arcLifecycleNote } from "@/components/tugways/arc-lifecycle-line";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
 import { arcMetaFacts } from "@/lib/arc-meta-facts";
 import type { ArcSessionFact } from "@/lib/arc-session-index";
@@ -1426,7 +1425,6 @@ export function ArcPopoverContent({
             name={fact.name}
             workers={fact.entry.bound_sessions ?? []}
             model={model}
-            note={arcLifecycleNote(model)}
             stepTitle={fact.stepTitle}
             facts={arcMetaFacts(fact.entry)}
           />

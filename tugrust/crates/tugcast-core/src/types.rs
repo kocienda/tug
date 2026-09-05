@@ -689,6 +689,12 @@ pub struct ArcRunState {
     /// rotation stops in the stage it was trying to leave.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stopped_stage: Option<String>,
+    /// The stop's own sentence, as the tail of "the arc stopped … because …"
+    /// — the English for `stopped`'s log word, composed server-side so no
+    /// face keeps a second table of a closed vocabulary. Absent from an older
+    /// server, and for a word no stop reason claims.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_why: Option<String>,
     /// Whether the arc reached its terminal line.
     #[serde(default, skip_serializing_if = "is_false")]
     pub done: bool,

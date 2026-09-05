@@ -55,6 +55,7 @@
    the glyph is the one child of the reading that must NOT join them. */
 .tug-arc-lifecycle-reading > .tug-step-fraction,
 .tug-arc-lifecycle-reading > .tug-arc-lifecycle-note,
+.tug-arc-lifecycle-reading > .tug-arc-lifecycle-sep,
 .tug-arc-lifecycle-reading > .tug-arc-lifecycle-fact {
   align-self: baseline;
 }
@@ -71,6 +72,14 @@
 
 .tug-arc-lifecycle-line[data-stopped="true"] .tug-arc-lifecycle-note {
   color: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+/* The mark between the two clauses, in the quietest ink either of them can
+   wear: it belongs to neither, and a separator that took the trouble
+   clause's tone would read as part of the trouble. */
+.tug-arc-lifecycle-sep {
+  flex: 0 0 auto;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
 .tug-arc-lifecycle-fact {

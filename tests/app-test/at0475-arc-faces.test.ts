@@ -21,7 +21,7 @@
  *
  * And it gets **no third face**. `derive_stage` still answers what the arc is
  * doing in git, untouched — the arc is reported beside it and never folded in,
- * which is what lets a card say `implementing` and `arc stopped in review` at
+ * which is what lets a card say `implementing` and `stopped in review` at
  * once. That is not a nicety: a stopped arc has usually walked several steps,
  * so a face that let the arc overwrite the git stage would erase the progress
  * at the exact moment somebody needs to see it.
@@ -199,13 +199,13 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         appendArcLine("arc-stage", "devise claude-at0475-a opus");
         await app.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(ARC_VALUE)})
-              ?.getAttribute("aria-label") ?? "").includes("arc in devise")`,
+              ?.getAttribute("aria-label") ?? "").includes(", in devise")`,
           { timeoutMs: 40_000 },
         );
         // …and quietly: a stage in flight is the ordinary case, so nothing is
         // tinted for it. The cell reads the lifecycle phase, and both dots
         // hold the arc's ordinary pose rather than the stopped one.
-        expect(await arcReading(app)).toBe("Devise");
+        expect(await arcReading(app)).toBe("Devising");
         expect(await dotStates(app)).not.toContain("aborted");
 
         // ── The stop ──────────────────────────────────────────────────────
@@ -235,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         // The note leads with the stop and then says why, in the arc receipt's
         // own words — which is more than the retired fact's `arc stopped ·
         // review` said, and in the one place there is room to say it.
-        expect(stopNote.startsWith("stopped · ")).toBe(true);
+        expect(stopNote.startsWith("Stopped · ")).toBe(true);
         expect(stopNote).toContain("the plan did not lint");
 
         // And the footer says nothing the block above it already said. It
@@ -253,7 +253,7 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         // both halves — the stage and the reason.
         const stoppedLabel = await arcLabel(app);
         note("at0475 arc cell label", stoppedLabel);
-        expect(stoppedLabel).toContain("arc stopped in review");
+        expect(stoppedLabel).toContain("stopped in review");
         expect(stoppedLabel).toContain("the plan did not lint");
 
         process.stdout.write("VERDICT: PASS\n");

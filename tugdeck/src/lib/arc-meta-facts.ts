@@ -1,11 +1,13 @@
 /**
  * arc-meta-facts — what an arc's wire entry says about itself, as data.
  *
- * The pure derivations behind every arc surface's metadata reading: the
- * tone-colored divergence facts, the step fraction the row shows, whether the
- * declared walk is complete, and the note's lead. No JSX and no CSS, so a
- * surface that needs only the numbers — the masthead, the footer's accessible
- * label — reads them without pulling a component's stylesheet in behind them.
+ * The pure derivations behind every arc surface's metadata reading: the four
+ * tone-colored clauses saying what is in the arc's way, the step fraction the
+ * row shows, and whether the declared walk is complete. What the arc is
+ * *doing* is not here — that is `arcReading`, one clause derived once, and
+ * these are what follows it. No JSX and no CSS, so a surface that needs only
+ * the numbers — the masthead, the footer's accessible label — reads them
+ * without pulling a component's stylesheet in behind them.
  *
  * @module lib/arc-meta-facts
  */
@@ -39,142 +41,84 @@ function pathList(paths: ReadonlyArray<string>): string {
 }
 
 /**
- * What a planned arc's kind MEANS, in one sentence. The kind fact carries it,
- * and so does the Devise cell of the track: the lifecycle line drops the fact
- * (the strip already draws the kind as its cell set), so the sentence lives
- * on the cell a reader hovers when they wonder why this arc has six cells and
- * another has four.
+ * `1 file` / `3 files` — the head of every clause that counts paths.
+ *
+ * One helper because a clause is a sentence: `base overlap (1)` could get
+ * away with a parenthesised count, and `1 file also edited on main` cannot.
+ */
+function fileCount(n: number): string {
+  return n === 1 ? "1 file" : `${n} files`;
+}
+
+/**
+ * What a planned arc's kind MEANS, in one sentence.
+ *
+ * The Devise cell of the track is the one place it is said: the strip already
+ * draws the kind as its cell set, so the word is not a clause on the line,
+ * and the sentence lives on the cell a reader hovers when they wonder why
+ * this arc has six cells and another has four.
  */
 export const PLANNED_KIND_SENTENCE =
   "Devised a plan and had it reviewed cold before the first step was walked.";
 
 /**
- * The line's tone-colored facts, most urgent first — pure, so the ordering
- * and the wording are a table test rather than a DOM one.
+ * What is in the arc's way, loudest first — one clause each, in words a
+ * person would say aloud ([B07]). Pure, so the ordering and the wording are a
+ * table test rather than a DOM one.
  *
- * A stopped arc leads: it is the one fact on the line that means *nothing is
- * advancing this arc and nobody has been told* — the arc rotates on a server
- * tick, so unlike every other fact here there is no gesture whose absence
- * explains the stillness. A running arc says so quietly at the other end,
- * because a stage in flight is the ordinary case and needs no urgency; the
- * arc's terminal `done` says nothing at all, since the join offer is what
- * speaks then ([P12]).
+ * Four survive of the ten this used to derive, and the other six were deleted
+ * rather than filtered, because no surface read them. The arc's own state is
+ * not here at all: what the arc is doing is the phase clause's subject
+ * (`arcReading`), where it stopped is the red cell on the strip, and the kind
+ * is the cell set the strip draws. What is left is the *checkout's* standing
+ * against the base, which is the one thing none of those say.
  *
- * A conflicted replay is a state somebody has to resolve; base dirt
- * overlapping the arc's own files is a warning about work that is not the
- * machine's to touch; uncommitted worktree bytes are ordinary mid-run and
- * worth a quiet word; being behind is usually transient (the engine is
- * probably replaying as you read); a settled replay is the quiet receipt that
- * history moved under this arc and nothing asked you about it.
+ * A conflicted replay is a state somebody has to resolve, so it leads in
+ * danger; base dirt overlapping the arc's own files is a warning about work
+ * that is not the machine's to touch; a stale fit is a caution because the
+ * tree a join would land is no longer the tree anybody verified; a current
+ * fit is the quiet receipt that somebody did.
  *
- * The recorded kind comes last, quietest of all: it is a standing property of
- * the arc rather than anything about its present state, so it yields to every
- * fact that describes what is happening now. Only `planned` is said. Plain is
- * the unmarked kind, in prose and here alike, and an absent kind means the
- * record does not say — never that it is plain.
+ * The label is the whole clause and the tooltip is the evidence behind it —
+ * the paths, or the two shas. `main` is `entry.base`, spelled as it is; "fit"
+ * is `tugtool arc verify`'s word and stays in the hover, because on the line
+ * `verified` / `unverified` is the whole of what a reader needs.
  */
 export function arcMetaFacts(entry: ArcChangesetEntry): ArcMetaFact[] {
   const facts: ArcMetaFact[] = [];
   const conflicts = entry.replay_conflict_paths ?? [];
   const overlap = entry.base_overlap ?? [];
-  const ahead = entry.base_ahead ?? 0;
-  const settled = entry.last_replay;
   const fit = entry.fit;
-  const arc = entry.arc;
-  if (arc !== undefined && arc.stopped !== undefined) {
-    const stage = arc.stopped_stage ?? arc.stage;
-    facts.push({
-      key: "arc-stopped",
-      label: stage !== undefined ? `arc stopped · ${stage}` : "arc stopped",
-      // The fact, and only the fact. It used to end by naming the CLI verb,
-      // which is implementation leaking into something the user reads — the
-      // resume is the **Resume** button on the stop's own receipt ([B09]).
-      tooltip: `The arc stopped${stage !== undefined ? ` in its ${stage} stage` : ""}: ${arc.stopped}`,
-      tone: "danger",
-    });
-  }
   if (conflicts.length > 0) {
     facts.push({
       key: "conflicts",
-      label: `replay conflicts (${conflicts.length})`,
-      tooltip: `Replaying this arc onto ${entry.base} conflicts in:\n${pathList(conflicts)}`,
+      label: `${fileCount(conflicts.length)} ${conflicts.length === 1 ? "conflicts" : "conflict"} with ${entry.base}`,
+      tooltip: `Replaying onto ${entry.base} stops on:\n${pathList(conflicts)}`,
       tone: "danger",
     });
   }
   if (overlap.length > 0) {
     facts.push({
       key: "overlap",
-      label: `base overlap (${overlap.length})`,
-      tooltip: `Uncommitted work on ${entry.base} touches files this arc also changes:\n${pathList(overlap)}`,
+      label: `${fileCount(overlap.length)} also edited on ${entry.base}`,
+      tooltip: `Uncommitted work on ${entry.base} touches files this arc changes:\n${pathList(overlap)}`,
       tone: "caution",
     });
   }
   if (fit !== undefined && !fit.current) {
     facts.push({
       key: "fit",
-      label: "fit unverified",
-      tooltip: `The fit was verified at ${short(fit.head)} onto ${short(fit.base)}; one of those has moved since.\nVerify it again with \`tugtool arc verify ${entry.display_name}\`.`,
+      label: "unverified",
+      tooltip: `Verified at ${short(fit.head)} onto ${short(fit.base)}; one of those has moved since.`,
       tone: "caution",
-    });
-  }
-  if (entry.worktree_dirty) {
-    facts.push({
-      key: "uncommitted",
-      label: "uncommitted",
-      tooltip: "The arc worktree has uncommitted changes.",
-      tone: "muted",
-    });
-  }
-  if (ahead > 0) {
-    facts.push({
-      key: "behind",
-      label: `base +${ahead}`,
-      tooltip: `${entry.base} has gained ${ahead === 1 ? "1 commit" : `${ahead} commits`} this arc does not have yet.`,
-      tone: "muted",
-    });
-  }
-  if (
-    ahead === 0 &&
-    conflicts.length === 0 &&
-    settled !== undefined &&
-    settled !== ""
-  ) {
-    facts.push({
-      key: "replayed",
-      label: "replayed",
-      tooltip: `Replayed ${settled}`,
-      tone: "subtle",
     });
   }
   if (fit !== undefined && fit.current) {
     facts.push({
       key: "fit",
-      label: "fit verified",
+      label: "verified",
       tooltip: `The tree a join would land was verified at ${short(fit.head)} onto ${short(fit.base)}.`,
       tone: "subtle",
-    });
-  }
-  if (
-    arc !== undefined &&
-    arc.stopped === undefined &&
-    arc.done !== true &&
-    arc.stage !== undefined
-  ) {
-    facts.push({
-      key: "arc",
-      label: `arc · ${arc.stage}`,
-      tooltip:
-        `This arc is running; its ${arc.stage} stage is in flight.` +
-        (arc.note !== undefined ? `\nLatest: ${arc.note}` : ""),
-      tone: "subtle",
-    });
-  }
-  if (entry.arc_kind === "planned") {
-    facts.push({
-      key: "kind",
-      label: "planned",
-      tooltip: PLANNED_KIND_SENTENCE,
-      tone: "muted",
     });
   }
   return facts;
@@ -303,12 +247,3 @@ export function arcStepsComplete(entry: ArcChangesetEntry): boolean {
   return arcWalkComplete(entry.stage, glance?.current, glance?.total);
 }
 
-/** The note's lead: the current step's title, else the join draft's subject.
- *  Null means the line says nothing there (the no-plan case says so aloud). */
-export function arcMetaNote(entry: ArcChangesetEntry): string | null {
-  if (entry.step_title !== undefined && entry.step_title.length > 0) {
-    return entry.step_title;
-  }
-  const subject = entry.draft?.message.split("\n", 1)[0]?.trim() ?? "";
-  return subject.length > 0 ? subject : null;
-}

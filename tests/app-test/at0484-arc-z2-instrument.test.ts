@@ -11,13 +11,14 @@
  * What it reads is a precedence, walked here in the order the code states it:
  *
  *  - **A zero numerator is a word, never `0/N`.** A reviewed plan nobody has
- *    started reads `Review` — where the arc actually is — because a pair
- *    with nothing in hand counts work that has not begun ([B03]).
+ *    started reads `Awaiting review` — where the arc actually is, in the
+ *    line's own words — because a pair with nothing in hand counts work that
+ *    has not begun ([B03]).
  *  - **The declared run wins** once a step is in hand: `1/2` on that same
  *    four-row plan ([D148]).
- *  - **The word is the lifecycle PHASE**, Title Case: `Brief` for an arc whose
- *    git stage is `created`, which is the half of an arc's life this cell used
- *    to draw a fallback glyph for.
+ *  - **The word is the lifecycle PHASE**, in the grammar the line reads in:
+ *    `Briefed` for an arc whose git stage is `created`, which is the half of
+ *    an arc's life this cell used to draw a fallback glyph for.
  *  - **A cut says `Cut`**, not `Implement`: it has no plan and never will,
  *    so a phase word would name a stage of a lifecycle it does not have.
  *
@@ -279,7 +280,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         // pair would read `0/4` — the zero numerator Z2 never shows. The
         // track model places an unstarted plan at review, and that is the
         // word.
-        await awaitReading(app, "Review");
+        await awaitReading(app, "Awaiting review");
 
         // The instrument's SHAPE, taken once — it does not change with the
         // reading, and asserting it four times would say nothing new.
@@ -414,14 +415,14 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
 
         // ── An arc with only a brief says the PHASE, not the git stage ────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_ARC}`, 1);
-        await awaitReading(app, "Brief");
+        await awaitReading(app, "Briefed");
 
-        // ── An arc with no documents at all says Working ──────────────────
+        // ── An arc with no documents at all says Cut ──────────────────────
         // The word is the last resort: a direct arc that wrote a task list
         // has a fraction to show, so only an arc with nothing to count — this
         // one, freshly created — ever reaches it.
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${LISTLESS_ARC}`, 2);
-        await awaitReading(app, "Working");
+        await awaitReading(app, "Cut");
         note("at0484 z2 at the listless reading", (await app.screenshot()).path);
 
         // ── Unbinding gives the width back ───────────────────────────────

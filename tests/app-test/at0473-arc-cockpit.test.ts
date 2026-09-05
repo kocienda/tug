@@ -506,7 +506,7 @@ describe.skipIf(!SHOULD_RUN)(
             env: projectA!.cli.env,
           });
           await app.waitForCondition<boolean>(
-            `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "Working"`,
+            `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "Cut"`,
             { timeoutMs: 60000 },
           );
           const bare = await app.evalJS<ArcCellProbe>(PROBE_ARC_CELL);
@@ -515,7 +515,7 @@ describe.skipIf(!SHOULD_RUN)(
           // No strip in this box: the cell is an instrument, and the whole
           // track lives on its placard ([D168]).
           expect(bare.tracks).toBe(0);
-          expect(bare.text).toBe("Working");
+          expect(bare.text).toBe("Cut");
           expect(bare.fractions).toBe(0);
           // TWO dots, one pinned to each edge of the reading — STATE's own
           // construction — and both quiet: an arc nobody has worked yet is not
@@ -550,7 +550,7 @@ describe.skipIf(!SHOULD_RUN)(
             "implement " + SID_A + " -",
           );
           await app.waitForCondition<boolean>(
-            `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "Implement"`,
+            `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "Implementing"`,
             { timeoutMs: 60000 },
           );
           const seated = await app.evalJS<ArcCellProbe>(PROBE_ARC_CELL);
@@ -558,7 +558,7 @@ describe.skipIf(!SHOULD_RUN)(
             "at0473 Z2 as ARC, seated before step 1",
             JSON.stringify(seated),
           );
-          expect(seated.text).toBe("Implement");
+          expect(seated.text).toBe("Implementing");
           expect(seated.aria).toBe(`arc ${ARC_NAME}, in implement`);
           expect(seated.dots).toEqual(["running", "running"]);
 
@@ -763,12 +763,12 @@ describe.skipIf(!SHOULD_RUN)(
             "audit " + SID_A + " -",
           );
           await app.waitForCondition<boolean>(
-            `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "Audit"`,
+            `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "Auditing"`,
             { timeoutMs: 60000 },
           );
           const audited = await app.evalJS<ArcCellProbe>(PROBE_ARC_CELL);
           note("at0473 Z2 as ARC, under audit", JSON.stringify(audited));
-          expect(audited.text).toBe("Audit");
+          expect(audited.text).toBe("Auditing");
           expect(audited.aria).toBe(`arc ${ARC_NAME}, in audit`);
           expect(audited.dots).toEqual(["running", "running"]);
           expect(audited.scrollWidth).toBeLessThanOrEqual(audited.clientWidth);

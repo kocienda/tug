@@ -239,7 +239,35 @@ There are no alias spellings. `join` is not registered at all: the registry carr
 
 An arc wears one grammar in two registers. Where the arc is the **subject** — the Arcs card, the Changes shade's arc lane, the ARC placard — it draws as the constant-width lifecycle track inside `ArcLifecycleLine` / `ArcLifecycleBlock`; where it is one **fact about a session** — the card's masthead title run and the Cards card's session rows, both `SessionIdentityRow` — it draws as `ArcLifecycleMark`: one pill, the phase glyph, and the count of the declared run. The Z2 ARC cell is neither: it is an instrument wearing STATE's construction, two dots around a reading that gives numbers whenever there are numbers and the lifecycle phase in a word otherwise, and it takes STATE's width while JOBS gives exactly that back, so the row never moves.
 
-**The block's eyebrow says WHO, its line says WHAT.** Line one is the arc atom, the hairline, and the workers — identities, nothing else, no verbs and no state. Line two carries the whole reading: track, phase glyph, fraction, the phase in a word, the divergence facts. The step's **title** is not a run anywhere: it rode the note during implement, where it was a sentence in a slot sized for a word, and it is the fraction's hover sentence now — the placard's step list is where a reader reads titles. The phase every face keys on is the **lifecycle** phase, never the git stage above — an arc has no stage until `arc create`, which is most of the life this document describes, and the same rule now governs the Z2 dots: an arc under way pulses whether or not a branch has been cut. [D168] holds the rules.
+**The block's eyebrow says WHO, its line says WHAT.** Line one is the arc atom, the hairline, and the workers — identities, nothing else, no verbs and no state. Line two carries the whole reading, in one order: `[track] [glyph] <Doing> [i/N] · <what is in the way>`. The step's **title** is not a run anywhere: it rode the note during implement, where it was a sentence in a slot sized for a word, and it is the fraction's hover sentence now — the placard's step list is where a reader reads titles. The phase every face keys on is the **lifecycle** phase, never the git stage above — an arc has no stage until `arc create`, which is most of the life this document describes, and the same rule now governs the Z2 dots: an arc under way pulses whether or not a branch has been cut. [D168] holds the rules.
+
+**The line is a sentence, and one derivation writes it.** `arcReading(model)` in `tug-arc-track.tsx` returns the word and the fraction, and every face reads it rather than spelling its own — the mark, the Z2 cell and the strip cannot disagree about an arc because there is nothing left for them to disagree with. The word is a **verb in the reader's tense**: what is happening, or what is being waited for. The fraction follows the verb, where it reads as the verb's object, and only while a step is actually in hand — so a walked ledger under audit reads `Auditing`, never `Auditing 6/6`.
+
+| Phase | While somebody is working it | At rest |
+|---|---|---|
+| `brief` | Briefed | Briefed |
+| `devise` | Devising | Devising |
+| `review` | Reviewing | Awaiting review |
+| `implement` | Implementing | Implementing |
+| `audit` | Auditing | Awaiting audit |
+| `join` | Finished | Finished |
+
+The two phases that read differently at rest are the two done *to* an arc rather than *by* it: a plan nobody is reading is awaiting a review, not being reviewed. What tells the columns apart is one bit — `live`, true when a stage is in flight or a holder is mid-turn — and it is derived once, beside the phase, from facts the feed already carries.
+
+**A stop outranks every phase word.** The line reads `Stopped · <reason>`, where the reason is the log's own word from the closed vocabulary above, left exactly as written. Its **sentence** rides the wire beside it as `stopped_why`, composed server-side from `ArcStopReason::sentence`, so no face keeps a second table of a vocabulary the compiler already owns — the hovers say the sentence, the line says the word.
+
+**One clause of trouble, never a run of them.** The divergence facts are ranked and only the loudest is painted; every applicable sentence stacks into that clause's hover. Four survive — conflicts with the base, files also edited on the base, a stale fit, a current one — and a face that showed all of them showed a reader four things to rank for themselves.
+
+**The cells hover in three forms**, so a reader learns the pattern once and reads every cell with it: `Not yet <past participle>` · `<present participle>` · `<past participle>`.
+
+| Cell | Reading |
+|---|---|
+| pending | `Not yet implemented` |
+| active | `Implementing · 3 of 6 steps closed` |
+| done | `Implemented · 6 steps` |
+| stopped | `Reviewing — stopped: the plan does not lint` |
+
+**The other registers say the same words in the room they have.** The compact mark's one tooltip reads `<arc> · Implementing step 3 of 6`, and a stop there names the phase the glyph gave up when it became the stop's octagon: `<arc> · Stopped in review · needs a decision`. The Z2 cell has 18ch and no room for a clause, so it says the word alone — `Awaiting review`, `Briefed`, `Stopped`, or `Cut` for an arc with a branch and no ledger — and leaves the reason to the placard one press away. The arc receipt's row is the one face with an override, because a receipt is a frozen record with no live model to ask: `Finished · 3 stages`, `Picked back up`, `Stopped · <why>`.
 
 ## See also
 

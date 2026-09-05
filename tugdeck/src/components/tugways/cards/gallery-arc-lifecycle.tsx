@@ -13,7 +13,9 @@
  *   - `ArcLifecycleMark` — the COMPACT register: one pill · glyph · fraction.
  *     For the two surfaces where a session is the subject and the arc is one
  *     fact about it.
- *   - `ArcLifecycleLine` — track · glyph · fraction · note · facts. No age.
+ *   - `ArcLifecycleLine` — track · glyph · <Doing> [i/N] · <in the way>. One
+ *     clause saying what the arc is doing, then one saying what is in its
+ *     way, and no age.
  *   - `ArcLifecycleBlock` — eyebrow (atom · rule · workers) over the line:
  *     the rail row, the shade row and the receipt's header, at one scale.
  *     The eyebrow says WHO, the line says WHAT — every reading of the arc's
@@ -25,7 +27,7 @@
  * The sixth, Z2's ARC cell, is an instrument readout and takes the shape its
  * four neighbours already take: two dots and a word. The rules are [D168].
  *
- * **Every moment below is ONE wire entry.** The track model, the note, the
+ * **Every moment below is ONE wire entry.** The track model, the reading, the
  * facts, and the masthead's binding are all projections of that single object,
  * so no two panels on a row can disagree.
  *
@@ -55,7 +57,6 @@ import React from "react";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import {
   ArcLifecycleLine,
-  arcLifecycleNote,
 } from "@/components/tugways/arc-lifecycle-line";
 import {
   ArcLifecycleMark,
@@ -72,7 +73,7 @@ import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
 
 import {
   TugArcTrack,
-  ARC_PHASE_LABELS,
+  arcCellWord,
   arcTrackModel,
   arcTrackModelFromEntry,
   type ArcTrackModel,
@@ -707,7 +708,6 @@ export function GalleryArcLifecycle(): React.ReactElement {
                 <ArcLifecycleLine
                   key={m.key}
                   model={model}
-                  note={arcLifecycleNote(model)}
                 />
               );
             })}
@@ -765,8 +765,8 @@ export function GalleryArcLifecycle(): React.ReactElement {
           second mark drawing the same step count in another geometry would be
           free to disagree whenever one of them lagged, so the track has the
           subject alone. A stop is the one fact that outranks it: the cell
-          paints danger, it stops breathing, and the note says why, in the arc
-          receipt's words.
+          paints danger, it stops breathing, and the line reads
+          <code>Stopped · &lt;why&gt;</code>, in the log's own words.
         </p>
       </section>
 
@@ -818,11 +818,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
               const reading =
                 pair !== null
                   ? `${pair.current}/${pair.total}`
-                  : model.stopped !== null
-                    ? "Stopped"
-                    : model.direct
-                      ? "Working"
-                      : ARC_PHASE_LABELS[model.phase];
+                  : arcCellWord(model);
               const state = model.stopped !== null ? "aborted" : "running";
               return (
                 <TugStatusCell key={m.key} priority="tasks" label="ARC">
@@ -864,7 +860,6 @@ export function GalleryArcLifecycle(): React.ReactElement {
         </TugLabel>
         {MOMENTS.map((m) => {
           const model = arcTrackModelFromEntry(m.entry);
-          const note = arcLifecycleNote(model);
           const stepTitle = m.entry.step_title ?? null;
           const facts = arcMetaFacts(m.entry);
           const name = m.entry.display_name;
@@ -879,7 +874,6 @@ export function GalleryArcLifecycle(): React.ReactElement {
                     name={name}
                     workers={m.workers}
                     model={model}
-                    note={note}
                     stepTitle={stepTitle}
                     facts={facts}
                   />
@@ -993,11 +987,6 @@ export function GalleryArcLifecycle(): React.ReactElement {
                 workers={[SOLO]}
                 model={arcTrackModelFromEntry(
                   blockedEntry(BLOCKED_CASES[1]!.blocker),
-                )}
-                note={arcLifecycleNote(
-                  arcTrackModelFromEntry(
-                    blockedEntry(BLOCKED_CASES[1]!.blocker),
-                  ),
                 )}
                 facts={arcMetaFacts(blockedEntry(BLOCKED_CASES[1]!.blocker))}
               />

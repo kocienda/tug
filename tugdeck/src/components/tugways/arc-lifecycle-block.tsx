@@ -120,7 +120,7 @@ export function ArcLifecycleBlock({
       </span>
       <ArcLifecycleLine
         model={model}
-        note={note}
+        {...(note !== undefined ? { note } : {})}
         {...(stepTitle !== undefined ? { stepTitle } : {})}
         {...(facts !== undefined ? { facts } : {})}
       />

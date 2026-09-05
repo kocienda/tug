@@ -1526,6 +1526,9 @@ fn document_arc_entries_in(
                         .stopped
                         .as_ref()
                         .map(|(stage, _)| stage.as_str().to_owned()),
+                    stopped_why: record.stopped.as_ref().and_then(|(_, why)| {
+                        tugarc_core::arc::ArcStopReason::parse(why).map(|r| r.sentence().to_owned())
+                    }),
                     done: record.done,
                     note: record.notes.last().cloned(),
                 }),
@@ -1739,6 +1742,7 @@ async fn arc_entries(
                     stage: arc.stage,
                     stopped: arc.stopped,
                     stopped_stage: arc.stopped_stage,
+                    stopped_why: arc.stopped_why,
                     done: arc.done,
                     note: arc.note,
                 }),

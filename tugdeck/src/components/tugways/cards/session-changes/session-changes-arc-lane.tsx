@@ -92,7 +92,6 @@ import { SessionChangesArcDocuments } from "./session-changes-arc-documents";
 import { SessionChangesArcBrief } from "./session-changes-arc-brief";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
-import { arcLifecycleNote } from "@/components/tugways/arc-lifecycle-line";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
 import { arcMetaFacts } from "@/lib/arc-meta-facts";
 import { compareArcEntries } from "@/lib/arc-order";
@@ -473,7 +472,6 @@ function ArcRow({
           name={entry.display_name}
           workers={entry.bound_sessions ?? []}
           model={model}
-          note={arcLifecycleNote(model)}
           stepTitle={entry.step_title ?? null}
           facts={arcMetaFacts(entry)}
           trailing={
@@ -642,7 +640,6 @@ function DocumentArcRow({
           name={entry.display_name}
           workers={entry.bound_sessions ?? []}
           model={model}
-          note={arcLifecycleNote(model)}
           facts={arcMetaFacts(asEntry)}
           trailing={
             binding !== null ? (

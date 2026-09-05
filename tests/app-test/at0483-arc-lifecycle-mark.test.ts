@@ -311,7 +311,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
           expect(reading.pillState).toBe("stopped");
         }
         // The whole reading, in words, for a reader who cannot see the marks.
-        expect(stopped.label.startsWith(`arc ${BRIEF_ARC} — stopped ·`)).toBe(true);
+        expect(stopped.label.startsWith(`${BRIEF_ARC} · Stopped in devise ·`)).toBe(true);
         note("at0483 masthead at the stopped reading", (await app.screenshot()).path);
 
         // ── Unbind takes both marks away ──────────────────────────────────

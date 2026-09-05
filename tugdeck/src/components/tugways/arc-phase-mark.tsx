@@ -11,10 +11,13 @@
  * The phase comes off {@link ArcTrackModel}, which is derived from what the
  * feed already carries, so the mark and the track beside it cannot disagree.
  *
- * The word is not lost: it rides the tooltip and the `aria-label`.
+ * **No tooltip.** The word is beside the glyph on every surface that draws
+ * one, and a bubble repeating it is the second copy the line's own doc
+ * forbids ([B10]). The word is not lost: it rides the `aria-label`, and the
+ * compact mark keeps its one tooltip over all three of its marks.
  *
  * Laws: [L06] phase and stop are `data-*` the CSS paints; [L19] `.tsx`/`.css`
- * pair, `data-slot`; [L20] composes `TugTooltip`.
+ * pair, `data-slot`.
  *
  * @module components/tugways/arc-phase-mark
  */
@@ -33,8 +36,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { TugTooltip } from "./tug-tooltip";
-import type { ArcPhase, ArcTrackModel } from "./tug-arc-track";
+import { arcReading, type ArcPhase, type ArcTrackModel } from "./tug-arc-track";
 
 /** One glyph per phase, in lifecycle order. */
 export const ARC_PHASE_ICONS: Record<ArcPhase, LucideIcon> = {
@@ -46,28 +48,36 @@ export const ARC_PHASE_ICONS: Record<ArcPhase, LucideIcon> = {
   join: GitMerge,
 };
 
-/** The sentence the mark carries — the phase, or why the arc stopped. */
+/**
+ * The sentence the mark carries — what the arc is doing, or why it stopped.
+ *
+ * The line's own word, from {@link arcReading}, so the compact register and
+ * the full one cannot say two different things about one arc. A stop names
+ * its phase, which the line never has to: the line's track lights the cell it
+ * stopped in, and here the glyph has become the stop's own octagon, so the
+ * phase would otherwise be lost.
+ */
 export function arcPhaseWord(model: ArcTrackModel): string {
-  return model.stopped !== null ? `stopped · ${model.stopped}` : model.phase;
+  if (model.stopped !== null) {
+    return `Stopped in ${model.phase} · ${model.stopped}`;
+  }
+  return arcReading(model).word;
 }
 
 export interface ArcPhaseMarkProps {
   model: ArcTrackModel;
   /** The glyph's box, in px. */
   size?: number;
-  /** Suppress the hover sentence where the host already carries one. */
-  tooltip?: boolean;
 }
 
 export function ArcPhaseMark({
   model,
   size = 12,
-  tooltip = true,
 }: ArcPhaseMarkProps): React.ReactElement {
   const stopped = model.stopped !== null;
   const Glyph: LucideIcon = stopped ? OctagonX : ARC_PHASE_ICONS[model.phase];
   const word = arcPhaseWord(model);
-  const mark = (
+  return (
     <span
       className="tug-arc-phase-mark"
       data-slot="tug-arc-phase-mark"
@@ -78,5 +88,4 @@ export function ArcPhaseMark({
       <Glyph size={size} />
     </span>
   );
-  return tooltip ? <TugTooltip content={word}>{mark}</TugTooltip> : mark;
 }

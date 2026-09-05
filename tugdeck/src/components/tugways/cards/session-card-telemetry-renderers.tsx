@@ -96,7 +96,7 @@ import {
 import { arcGlanceFraction } from "@/lib/arc-meta-facts";
 import { arcMarkFraction } from "@/components/tugways/arc-lifecycle-mark";
 import {
-  ARC_PHASE_LABELS,
+  arcCellWord,
   arcTrackModelFromEntry,
 } from "@/components/tugways/tug-arc-track";
 import { useArcForSession } from "@/lib/arc-session-index";
@@ -1028,24 +1028,17 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // the seated stage is no longer doing ([B03]).
   //
   // The word is the lifecycle PHASE, the same vocabulary the track's cells
-  // and the placard's note use, Title Case like every other named state in
-  // this row. Not the git stage: an arc devising or reviewing a plan has no
+  // and the line use — one derivation, read here rather than re-spelled
+  // ([B08]). Not the git stage: an arc devising or reviewing a plan has no
   // stage at all, which is how this cell came to show a fallback glyph for the
-  // whole first half of an arc's life. A direct arc with no task list at all
-  // says `Working` rather than `Implement`: nothing is driving it through a
-  // lifecycle, so a phase word would be naming a stage it does not have. A
-  // direct arc that wrote one has a fraction while it walks it, and the phase
-  // word — `Audit`, at the end — once it stops walking.
+  // whole first half of an arc's life. A direct arc that wrote a task list has
+  // a fraction while it walks it, and the phase word once it stops walking.
   const arcReading =
     arcModel === null
       ? ""
       : arcFraction !== null
         ? `${arcFraction.current}/${arcFraction.total}`
-        : arcModel.stopped !== null
-          ? "Stopped"
-          : arcModel.direct
-            ? "Working"
-            : ARC_PHASE_LABELS[arcModel.phase];
+        : arcCellWord(arcModel);
 
   const jobsRecent = jobsRecentlyDone(jobsLedger, nowMs, WORK_LINGER_MS);
   const jobsActiveCount = jobsCellActiveCount(jobCounts, goal);

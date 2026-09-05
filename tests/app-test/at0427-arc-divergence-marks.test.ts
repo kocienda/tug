@@ -196,8 +196,10 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the arc lane's divergence marks", () => {
            })()`,
         );
         // The count is the point — a warning that does not say how much is
-        // overlapping is not actionable.
-        expect(mark.text).toBe("base overlap (1)");
+        // overlapping is not actionable — and it is a clause now, with its
+        // number agreeing with its verb and the base spelled as the entry
+        // spells it ([B07]).
+        expect(mark.text).toBe("1 file also edited on main");
 
         // The conflicted and behind marks are absent: this arc is current
         // with its base, its own worktree is clean, and nothing has attempted

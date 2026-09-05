@@ -178,6 +178,10 @@ export interface ArcRunState {
   /** The stage it stopped *in* — not necessarily `stage`, since a refused
    *  rotation stops in the stage it was trying to leave. */
   stopped_stage?: string;
+  /** The stop's own sentence, as the tail of "the arc stopped … because …" —
+   *  the English for `stopped`'s log word, composed server-side so no face
+   *  keeps a second table of a closed vocabulary. */
+  stopped_why?: string;
   /** Whether the arc reached its terminal line. */
   done?: boolean;
   /** The arc's most recent note — what it last did, in its own words
@@ -627,6 +631,8 @@ function isOptionalArcRunState(
   ) {
     return false;
   }
+  if (value.stopped_why !== undefined && typeof value.stopped_why !== "string")
+    return false;
   if (value.done !== undefined && typeof value.done !== "boolean") return false;
   return true;
 }

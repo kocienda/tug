@@ -220,11 +220,13 @@ describe.skipIf(!SHOULD_RUN)("AT0513: a stopped audit on the Arcs card", () => {
 
         // ── The word is `audit`, everywhere the row says the stage ──────────
         // The strip lights the cell the stop names, not the join cell git's
-        // joinable facts would light; the note says the stop and nothing after it.
+        // joinable facts would light; the line says the stop and nothing after it.
         expect(row.phase).toBe("audit");
         expect(row.stopped).toBe("true");
         expect(row.litCell).toBe("audit");
-        expect(row.note).toBe("stopped · audit did not mark");
+        // `Stopped` capitalised, then the reason word off the record
+        // unchanged — the log's own vocabulary, explained on hover ([B05]).
+        expect(row.note).toBe("Stopped · audit did not mark");
         expect(row.text).not.toContain("check");
 
         // ── The kind is the cell set, and no word repeats it ──────────────

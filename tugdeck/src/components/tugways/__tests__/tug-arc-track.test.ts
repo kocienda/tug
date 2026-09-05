@@ -7,12 +7,18 @@ import { describe, expect, test } from "bun:test";
 
 import {
   arcCellState,
+  arcCellWord,
+  arcCellTip,
+  arcReading,
   arcTrackModel,
   arcTrackSteps,
   tickState,
   type ArcPhase,
   type ArcTrackInput,
+  type ArcTrackModel,
 } from "../tug-arc-track";
+import { arcPhaseWord } from "@/components/tugways/arc-phase-mark";
+import { PLANNED_KIND_SENTENCE } from "@/lib/arc-meta-facts";
 
 const PLAN = { brief: "/b", plan: "/p" };
 const steps = (done: number, current: number | null, total: number) =>
@@ -198,5 +204,340 @@ describe("a step closed out of order", () => {
     expect(tickState(model, 4)).toBe("active");
     expect(tickState(model, 5)).toBe("done");
     expect(tickState(model, 6)).toBe("pending");
+  });
+});
+
+/**
+ * The one derivation every face that speaks the phase reads. Pure over the
+ * model, so the words are a table and the `live` bit is read off inputs
+ * separately — the two questions are "which word for this phase and state"
+ * and "which state is this arc in", and conflating them was the old line's
+ * whole fault.
+ */
+describe("arcReading", () => {
+  const model = (over: Partial<ArcTrackModel>): ArcTrackModel => ({
+    direct: false,
+    planned: true,
+    phase: "implement",
+    stopped: null,
+    stoppedWhy: null,
+    live: false,
+    steps: null,
+    ...over,
+  });
+
+  // Every phase, both ways. The four that read the same either way say so by
+  // repeating themselves, which is the fact rather than an omission.
+  const words: Array<[ArcPhase, string, string]> = [
+    ["brief", "Briefed", "Briefed"],
+    ["devise", "Devising", "Devising"],
+    ["review", "Reviewing", "Awaiting review"],
+    ["implement", "Implementing", "Implementing"],
+    ["audit", "Auditing", "Awaiting audit"],
+    ["join", "Finished", "Finished"],
+  ];
+  for (const [phase, alive, resting] of words) {
+    test(`${phase} reads ${alive} live and ${resting} at rest`, () => {
+      expect(arcReading(model({ phase, live: true })).word).toBe(alive);
+      expect(arcReading(model({ phase, live: false })).word).toBe(resting);
+    });
+  }
+
+  test("the fraction follows the verb while a step is in hand", () => {
+    const reading = arcReading(
+      model({ phase: "implement", live: true, steps: arcTrackSteps(steps(2, 3, 6)) }),
+    );
+    expect(reading.word).toBe("Implementing");
+    expect(reading.fraction).toBe("3/6");
+  });
+
+  // The case the fraction rule exists for: the ledger is walked, no step is
+  // in hand, and a count after the verb would read as progress through an
+  // audit that has no steps.
+  test("a walked ledger under audit reads Auditing, not Auditing 6/6", () => {
+    const walked = arcTrackModel({
+      documents: PLAN,
+      steps: steps(6, null, 6),
+      stage: "ready",
+      holdersBusy: true,
+    });
+    expect(walked.phase).toBe("audit");
+    expect(walked.live).toBe(true);
+    expect(arcReading(walked)).toEqual({ word: "Auditing", fraction: null });
+  });
+
+  // A stop outranks the phase entirely: the word is `Stopped`, the reason is
+  // the log's own word left as written, and where it stopped is the red cell
+  // on the strip rather than anything on the line.
+  test("a stop reads Stopped and the reason word off the record", () => {
+    const stopped = arcTrackModel({
+      documents: PLAN,
+      arc: {
+        stage: "implement",
+        stopped: "needs a decision",
+        stopped_stage: "implement",
+        stopped_why: "it met a decision that is yours to make, so it stopped rather than asking",
+      },
+      steps: steps(2, 3, 6),
+      stage: "working",
+    });
+    expect(arcReading(stopped)).toEqual({ word: "Stopped · needs a decision", fraction: null });
+    // The sentence rides on the model for the hover to say, and is never the
+    // line's own words.
+    expect(stopped.stoppedWhy).toBe(
+      "it met a decision that is yours to make, so it stopped rather than asking",
+    );
+    expect(stopped.live).toBe(false);
+  });
+
+  test("an older server's stop carries no sentence, and that is not an error", () => {
+    const stopped = arcTrackModel({
+      documents: PLAN,
+      arc: { stage: "review", stopped: "lint", stopped_stage: "review" },
+      steps: steps(0, null, 4),
+      stage: "working",
+    });
+    expect(arcReading(stopped).word).toBe("Stopped · lint");
+    expect(stopped.stoppedWhy).toBeNull();
+  });
+});
+
+/**
+ * `live` is the bit the two done-*to*-an-arc phases read, and it is derived
+ * from the same two facts `arrived` is: a run in flight, or a holder mid-turn.
+ */
+describe("the live bit", () => {
+  test("a run in flight is live", () => {
+    expect(arcTrackModel({ documents: PLAN, arc: { stage: "review" } }).live).toBe(true);
+  });
+
+  test("a plan nobody is reading is not, and says Awaiting review", () => {
+    const resting = arcTrackModel({ documents: PLAN, steps: steps(0, null, 4) });
+    expect(resting.phase).toBe("review");
+    expect(resting.live).toBe(false);
+    expect(arcReading(resting).word).toBe("Awaiting review");
+  });
+
+  test("a busy holder with no run is live", () => {
+    expect(
+      arcTrackModel({ documents: PLAN, steps: steps(0, null, 4), holdersBusy: true }).live,
+    ).toBe(true);
+  });
+
+  test("a stopped run is not live, and neither is a finished one", () => {
+    expect(
+      arcTrackModel({
+        documents: PLAN,
+        arc: { stage: "review", stopped: "lint", stopped_stage: "review" },
+      }).live,
+    ).toBe(false);
+    expect(
+      arcTrackModel({ documents: PLAN, arc: { stage: "audit", done: true }, stage: "audited" }).live,
+    ).toBe(false);
+  });
+
+  // Implement is not one of the two: a hand-worked arc between turns is still
+  // in its implementing phase, and nobody is waiting on anything.
+  test("implement reads the same at rest as in flight", () => {
+    const resting = arcTrackModel({
+      documents: PLAN,
+      steps: steps(1, 2, 4),
+      stage: "working",
+    });
+    expect(resting.live).toBe(false);
+    expect(arcReading(resting)).toEqual({ word: "Implementing", fraction: "2/4" });
+  });
+});
+
+/**
+ * The cells' three-form grammar ([B09]): `Not yet <past participle>` before,
+ * the verb in progress during, the participle after. Held as a table so a
+ * reader learns the pattern once, and tested as one for the same reason.
+ */
+describe("arcCellTip", () => {
+  const model = (over: Partial<ArcTrackModel>): ArcTrackModel => ({
+    direct: false,
+    planned: false,
+    phase: "implement",
+    stopped: null,
+    stoppedWhy: null,
+    live: false,
+    steps: null,
+    ...over,
+  });
+
+  const forms: Array<[ArcPhase, string, string, string]> = [
+    ["brief", "Not yet briefed", "Briefed", "Briefed"],
+    ["devise", "Not yet devised", "Devising", "Devised"],
+    ["review", "Not yet reviewed", "Reviewing", "Reviewed"],
+    ["implement", "Not yet implemented", "Implementing", "Implemented"],
+    ["audit", "Not yet audited", "Auditing", "Audited"],
+    // The join cell says what is LEFT: `Finished` alone on a cell reads as
+    // though the arc were over, and the arc is over when it has joined.
+    ["join", "Not yet joined", "Finished — the join is next", "Joined"],
+  ];
+  for (const [phase, pending, active, done] of forms) {
+    test(`${phase}: ${pending} · ${active} · ${done}`, () => {
+      const live = model({ phase, live: true });
+      expect(arcCellTip(live, phase, "pending")).toBe(pending);
+      expect(arcCellTip(live, phase, "active")).toBe(active);
+      expect(arcCellTip(live, phase, "done")).toBe(done);
+    });
+  }
+
+  test("the two phases that rest say so on their cells too", () => {
+    const resting = model({ live: false });
+    expect(arcCellTip(resting, "review", "active")).toBe("Awaiting review");
+    expect(arcCellTip(resting, "audit", "active")).toBe("Awaiting audit");
+  });
+
+  // The one cell with ticks under it is the one that counts them.
+  test("the implement cell counts, in the participle's own grammar", () => {
+    const walking = model({ live: true, steps: arcTrackSteps(steps(3, 4, 6)) });
+    expect(arcCellTip(walking, "implement", "active")).toBe(
+      "Implementing · 3 of 6 steps closed",
+    );
+    expect(arcCellTip(walking, "implement", "done")).toBe("Implemented · 6 steps");
+    const one = model({ steps: arcTrackSteps(steps(1, null, 1)) });
+    expect(arcCellTip(one, "implement", "done")).toBe("Implemented · 1 step");
+    // A plan the entry carries no ledger for keeps the bare participles.
+    expect(arcCellTip(model({ live: true }), "implement", "active")).toBe("Implementing");
+    expect(arcCellTip(model({}), "implement", "done")).toBe("Implemented");
+  });
+
+  /**
+   * A stop happened while somebody was at it, so a stopped cell takes the
+   * LIVE word whatever the model's `live` bit reads — `Reviewing — stopped: …`
+   * and never `Awaiting review — stopped: …`, which would say nobody was
+   * there when the thing that stopped was the person who was.
+   */
+  test("a stopped cell says what was being done, and the stop's own sentence", () => {
+    const stopped = arcTrackModel({
+      documents: PLAN,
+      arc: {
+        stage: "review",
+        stopped: "lint",
+        stopped_stage: "review",
+        stopped_why: "the plan does not lint",
+      },
+      steps: steps(0, null, 4),
+      stage: "working",
+    });
+    expect(stopped.live).toBe(false);
+    expect(arcCellState(stopped, "review")).toBe("stopped");
+    expect(arcCellTip(stopped, "review", "stopped")).toBe(
+      "Reviewing — stopped: the plan does not lint",
+    );
+  });
+
+  test("an older server's stop falls back to the log's word", () => {
+    const stopped = arcTrackModel({
+      documents: PLAN,
+      arc: { stage: "review", stopped: "lint", stopped_stage: "review" },
+      steps: steps(0, null, 4),
+      stage: "working",
+    });
+    expect(arcCellTip(stopped, "review", "stopped")).toBe("Reviewing — stopped: lint");
+  });
+
+  test("the Devise cell of a planned arc says what the kind means, on a second line", () => {
+    const planned = model({ planned: true });
+    expect(arcCellTip(planned, "devise", "done")).toBe(`Devised\n${PLANNED_KIND_SENTENCE}`);
+    expect(arcCellTip(planned, "review", "done")).toBe("Reviewed");
+    expect(arcCellTip(model({ planned: false }), "devise", "pending")).toBe("Not yet devised");
+  });
+});
+
+/**
+ * The Z2 ARC cell, which shows a word only when it has no numbers — the same
+ * vocabulary as the line, cut to what 18ch will hold.
+ */
+describe("the Z2 cell's word", () => {
+  const face = (over: Partial<ArcTrackModel>): ArcTrackModel => ({
+    direct: false,
+    planned: true,
+    phase: "implement",
+    stopped: null,
+    stoppedWhy: null,
+    live: false,
+    steps: null,
+    ...over,
+  });
+
+  test("it is the line's own word for a phase", () => {
+    expect(arcCellWord(face({ phase: "review", live: false }))).toBe("Awaiting review");
+    expect(arcCellWord(face({ phase: "review", live: true }))).toBe("Reviewing");
+    expect(arcCellWord(face({ phase: "join" }))).toBe("Finished");
+  });
+
+  // The longest word the cell can be asked to hold, against the box it holds
+  // it in. A reading that elides is a reading that is not true.
+  test("the longest reading fits the cell's 18ch", () => {
+    expect("Awaiting review".length).toBeLessThanOrEqual(18);
+  });
+
+  // The clause the cell cannot hold: the reason is on the placard one press
+  // away, and the cell says only that there is one.
+  test("a stop is one word here, not the line's whole clause", () => {
+    const stopped = arcTrackModel({
+      documents: PLAN,
+      arc: { stage: "implement", stopped: "needs a decision", stopped_stage: "implement" },
+      steps: steps(2, 3, 6),
+      stage: "working",
+    });
+    expect(arcReading(stopped).word).toBe("Stopped · needs a decision");
+    expect(arcCellWord(stopped)).toBe("Stopped");
+  });
+
+  test("an arc with no ledger at all reads Cut", () => {
+    const direct = arcTrackModel({ documents: {}, stage: "working" });
+    expect(direct.direct).toBe(true);
+    expect(arcCellWord(direct)).toBe("Cut");
+  });
+
+  // `Cut` is the branch and nothing else. A hand-worked arc that wrote itself
+  // a task list has a ledger, so the cell owes it the phase word — it shows a
+  // fraction while it walks one, and this once it stops.
+  test("a hand-worked arc that wrote a task list is not a cut", () => {
+    const walked = arcTrackModel({
+      documents: { plan: "/tasks" },
+      taskList: true,
+      steps: steps(4, null, 4),
+      stage: "working",
+    });
+    expect(walked.direct).toBe(true);
+    expect(walked.phase).toBe("audit");
+    expect(arcCellWord(walked)).toBe("Awaiting audit");
+  });
+});
+
+/**
+ * The compact register — the masthead's mark and the Arcs card's rows — reads
+ * the same word, with the stop naming the phase its glyph gave up.
+ */
+describe("the mark's word", () => {
+  test("it is the line's word while the arc runs", () => {
+    const walking = arcTrackModel({
+      documents: PLAN,
+      arc: { stage: "implement" },
+      steps: steps(1, 2, 4),
+      stage: "implementing",
+    });
+    expect(arcPhaseWord(walking)).toBe("Implementing");
+    expect(
+      arcPhaseWord(arcTrackModel({ documents: PLAN, steps: steps(4, null, 4), stage: "working" })),
+    ).toBe("Awaiting audit");
+  });
+
+  // The glyph is the stop's octagon by then, so the phase is nowhere else in
+  // the reading — unlike the line, whose track lights the cell it stopped in.
+  test("a stop names the phase the glyph stopped showing", () => {
+    const stopped = arcTrackModel({
+      documents: PLAN,
+      arc: { stage: "review", stopped: "needs a decision", stopped_stage: "review" },
+      steps: steps(0, null, 4),
+      stage: "working",
+    });
+    expect(arcPhaseWord(stopped)).toBe("Stopped in review · needs a decision");
   });
 });

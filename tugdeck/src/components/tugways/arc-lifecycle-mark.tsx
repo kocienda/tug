@@ -84,10 +84,16 @@ export function ArcLifecycleMark({
   const fraction =
     fractionOverride !== undefined ? fractionOverride : arcMarkFraction(model);
   const word = arcPhaseWord(model);
+  // `Implementing step 3 of 6` — the fraction reads as the verb's object, the
+  // same order the line puts it in ([B02]). A stop's clause already ends in a
+  // reason, so the number that follows it needs its own separator or the two
+  // run together into one phrase.
   const sentence =
-    (name !== undefined ? `arc ${name} — ` : "") +
+    (name !== undefined ? `${name} · ` : "") +
     word +
-    (fraction !== null ? ` · step ${fraction.current} of ${fraction.total}` : "");
+    (fraction !== null
+      ? `${model.stopped !== null ? " · " : " "}step ${fraction.current} of ${fraction.total}`
+      : "");
   return (
     // ONE tooltip, over the whole reading. The glyph is the part a reader is
     // most likely to point at and the least likely to decode unaided, so a
@@ -111,7 +117,7 @@ export function ArcLifecycleMark({
         />
         {/* One pixel proud of the pill's own band, the same relation the
             full register's glyph keeps to the track. */}
-        <ArcPhaseMark model={model} size={size === "read" ? 11 : 9} tooltip={false} />
+        <ArcPhaseMark model={model} size={size === "read" ? 11 : 9} />
         {fraction !== null ? (
           <TugStepFraction current={fraction.current} total={fraction.total} />
         ) : null}

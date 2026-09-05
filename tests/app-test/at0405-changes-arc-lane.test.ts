@@ -492,11 +492,11 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // with no declared selection to finish, a landed round is the whole of
         // the intent, and the server arms the join from it ([D147]) — so the
         // track stands at `join`, the phase every arming stage reads as. With
-        // no step open the note is that phase word and nothing more.
+        // no step open the line is that phase's clause and nothing more.
         expect(row.phase).toBe("join");
-        // The note IS the phase word — spelled out rather than compared to the
-        // field above, which is `string | null` and so cannot be an expected.
-        expect(row.note).toBe("join");
+        // The join phase reads `Finished`: the work is over and the join is
+        // what is left, which the register one line below is what says ([B01]).
+        expect(row.note).toBe("Finished");
         expect(row.popOuts).toBe(1);
         // The lane is read-only by construction: no claim grammar reaches it.
         expect(row.claimish).toBe(0);

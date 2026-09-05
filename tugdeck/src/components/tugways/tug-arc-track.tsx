@@ -66,27 +66,6 @@ const DIRECT_PHASES: readonly ArcPhase[] = [
   "join",
 ];
 
-/**
- * Each phase as a reading — Title Case, the register every named state in the
- * Z2 status row is set in (`Working`, `Disconnected`, `Waiting`). A cell that
- * spelled its state in lowercase beside four that do not would read as a
- * different kind of instrument.
- *
- * `stopped` is not a phase and has no entry: a stop is a fact ABOUT a phase,
- * and the surfaces that need the word have {@link ArcTrackModel.stopped}.
- */
-export const ARC_PHASE_LABELS: Record<ArcPhase, string> = {
-  brief: "Brief",
-  devise: "Devise",
-  review: "Review",
-  implement: "Implement",
-  // The audit stage's cell. Key and reading are one word, the word the stop
-  // reason, the register, the placard, and the wheel all spell it in — so the
-  // note beside the strip and the cell on it cannot say two different things.
-  audit: "Audit",
-  join: "Join",
-};
-
 export type ArcCellState = "pending" | "active" | "done" | "stopped";
 
 /**
@@ -181,6 +160,25 @@ export interface ArcTrackModel {
   phase: ArcPhase;
   /** Why the arc stopped, when it did. */
   stopped: string | null;
+  /**
+   * The stop's own sentence — the English for {@link stopped}'s log word,
+   * composed server-side so no face keeps a second table of a vocabulary the
+   * compiler already closes ([B06]). The line says the word; a hover says
+   * this. `null` when the arc has not stopped, and for a word an older
+   * server sent without its sentence.
+   */
+  stoppedWhy: string | null;
+  /**
+   * Whether anybody is working this arc right now — a run in flight, or a
+   * holder mid-turn.
+   *
+   * Read by the two phases that are things done *to* an arc rather than by
+   * it ([B04]): review and audit can sit for days with nobody reading the
+   * plan, and without this bit the line said `Reviewing` over exactly that.
+   * Every other phase reads the same live or at rest — implement between
+   * turns is still implementing.
+   */
+  live: boolean;
   steps: ArcTrackSteps | null;
 }
 
@@ -240,6 +238,7 @@ export function arcTrackModel(input: ArcTrackInput): ArcTrackModel {
   const steps = arcTrackSteps(input.steps);
   const stage = input.stage ?? null;
   const stopped = arc?.stopped ?? null;
+  const stoppedWhy = arc?.stopped_why ?? null;
   const begun = steps !== null && (steps.done > 0 || steps.current !== null);
   const walked = steps !== null && steps.done === steps.total;
 
@@ -251,6 +250,9 @@ export function arcTrackModel(input: ArcTrackInput): ArcTrackModel {
   // run. `holdersBusy` cannot cover that gap, because in it nobody is working.
   const arcRunning = arc !== null && arc.done !== true && arc.stopped === undefined;
   const arrived = (!arcRunning && stage !== null && JOIN_STAGES.has(stage)) || arc?.done === true;
+  // The same two facts `arrived` is told from, read the other way round: one
+  // says the arc has got where it is going, this says somebody is moving it.
+  const live = arcRunning || input.holdersBusy === true;
   // A stop is a fact about the phase it happened in, and the record names
   // that phase. It outranks the git reading: an audit that stopped has every
   // git fact saying joinable — the walk is committed on a clean worktree —
@@ -280,7 +282,7 @@ export function arcTrackModel(input: ArcTrackInput): ArcTrackModel {
   } else {
     phase = "brief";
   }
-  return { direct, planned, phase, stopped, steps };
+  return { direct, planned, phase, stopped, stoppedWhy, live, steps };
 }
 
 /**
@@ -305,6 +307,83 @@ function arcPhase(stage: string): ArcPhase {
   // the plan and fix what does not match — is the verification a direct arc
   // does for itself in the same place on the strip.
   return stoppedPhase(stage) ?? "implement";
+}
+
+/**
+ * What the arc is doing, in words a person would say aloud — the one
+ * derivation every face that speaks the phase reads ([B08]).
+ *
+ * The word is the stage's own name inflected as a verb in progress, in the
+ * Title Case the cells and the Z2 instrument are already set in, never the
+ * enum key the line used to print. Two phases read differently at rest
+ * ([B04]); see {@link ArcTrackModel.live}. A stop outranks all of it: the
+ * line reads `Stopped · <word>`, with the reason word off the record
+ * unchanged ([B05]) and its sentence waiting in {@link
+ * ArcTrackModel.stoppedWhy}.
+ *
+ * The fraction rides **after** the verb, where it reads as the verb's object
+ * ([B02]), and only while a step is actually in hand — so a walked ledger
+ * under audit reads `Auditing` rather than `Auditing 6/6`.
+ */
+export interface ArcReading {
+  /** The clause: `Implementing`, `Awaiting review`, `Stopped · stalled`. */
+  word: string;
+  /** `3/6` while a step is in hand, `null` otherwise. */
+  fraction: string | null;
+}
+
+/**
+ * The phase words, live and at rest.
+ *
+ * A table rather than a chain of conditions, so the four phases that read the
+ * same either way say so by having the same word twice — which is the fact,
+ * not an omission. `devise` never rests without stopping, and a stopped arc
+ * never reaches this table at all.
+ */
+const ARC_PHASE_READINGS: Record<ArcPhase, { live: string; rest: string }> = {
+  brief: { live: "Briefed", rest: "Briefed" },
+  devise: { live: "Devising", rest: "Devising" },
+  review: { live: "Reviewing", rest: "Awaiting review" },
+  implement: { live: "Implementing", rest: "Implementing" },
+  audit: { live: "Auditing", rest: "Awaiting audit" },
+  // The work is over and the join is what is left. The register one line
+  // below says what the join is doing, and the line must not say it twice
+  // ([B01]).
+  join: { live: "Finished", rest: "Finished" },
+};
+
+/** {@link ArcReading} for a model. Pure. */
+export function arcReading(model: ArcTrackModel): ArcReading {
+  if (model.stopped !== null) {
+    return { word: `Stopped · ${model.stopped}`, fraction: null };
+  }
+  const reading = ARC_PHASE_READINGS[model.phase];
+  const current = model.steps?.current ?? null;
+  return {
+    word: model.live ? reading.live : reading.rest,
+    fraction: current !== null ? `${current}/${model.steps!.total}` : null,
+  };
+}
+
+/**
+ * The Z2 ARC cell's word, for the arc that has no numbers to show.
+ *
+ * The same vocabulary as the line, in the one register that cannot hold a
+ * clause: the cell is 18ch and its reading is centred between two dots, so a
+ * stop says `Stopped` and leaves its reason to the placard one press away.
+ *
+ * An arc with a branch and no ledger at all reads `Cut` — nothing else has
+ * been declared, which is a past participle like every other resting word
+ * here. It used to say `Working`, an -ing word for a phase the arc does not
+ * have, which read as a claim somebody was at it. A hand-worked arc that
+ * wrote itself a task list is not that arc: it has a ledger, so it shows a
+ * fraction while it walks one and this cell's own phase word — `Awaiting
+ * audit` — once it stops walking.
+ */
+export function arcCellWord(model: ArcTrackModel): string {
+  if (model.stopped !== null) return "Stopped";
+  if (model.direct && model.steps === null) return "Cut";
+  return arcReading(model).word;
 }
 
 /** {@link arcTrackModel} over a wire entry. */
@@ -341,20 +420,79 @@ export function tickState(model: ArcTrackModel, n: number): ArcTickState {
 }
 
 /**
- * One cell's hover sentence. The Devise cell of a planned arc also says what
- * the kind means: the lifecycle line does not print the kind as a word (the
- * cell set already draws it), so the cell that exists BECAUSE the arc is
- * planned is where the explanation waits. The glyph's tooltip was the other
- * candidate and it says the phase, not the kind; a reader who wonders about
- * the extra cells hovers a cell.
+ * The past participle of each cell's own verb, for the two states that are
+ * not the arc's present tense ([B09]).
+ *
+ * Held as a table rather than composed, so a reader learns the three forms
+ * once — `Not yet <past participle>` before, the verb in progress during,
+ * the participle after — and every cell says its own state in the same
+ * grammar. The active form is not here: it is {@link ARC_PHASE_READINGS},
+ * the same table the line's own clause reads, so a cell and the line beside
+ * it cannot come to disagree about what the arc is doing.
+ *
+ * Two entries the strip never draws are spelled anyway rather than left as a
+ * hole: brief is the first cell so nothing precedes it, and join is the last
+ * so nothing follows it.
+ */
+const ARC_CELL_PARTICIPLES: Record<ArcPhase, { pending: string; done: string }> = {
+  brief: { pending: "Not yet briefed", done: "Briefed" },
+  devise: { pending: "Not yet devised", done: "Devised" },
+  review: { pending: "Not yet reviewed", done: "Reviewed" },
+  implement: { pending: "Not yet implemented", done: "Implemented" },
+  audit: { pending: "Not yet audited", done: "Audited" },
+  join: { pending: "Not yet joined", done: "Joined" },
+};
+
+/**
+ * A cell's present tense — the line's own phase word, with the two
+ * decorations a cell earns that the line does not.
+ *
+ * Implement counts what is behind it, because a cell whose ticks a reader is
+ * squinting at is exactly where the count belongs; join says what is left,
+ * because `Finished` alone on a cell reads as though the arc were over.
+ *
+ * `live` is a parameter rather than read off the model so the stopped form
+ * can force it: a stop happened while somebody was at it, so a stopped
+ * review cell reads `Reviewing — stopped: …` rather than `Awaiting review`.
+ */
+function arcCellActive(model: ArcTrackModel, phase: ArcPhase, live: boolean): string {
+  const word = ARC_PHASE_READINGS[phase][live ? "live" : "rest"];
+  if (phase === "join") return `${word} — the join is next`;
+  if (phase === "implement" && model.steps !== null) {
+    return `${word} · ${model.steps.done} of ${model.steps.total} steps closed`;
+  }
+  return word;
+}
+
+/**
+ * One cell's hover sentence, in the three-form grammar of [B09].
+ *
+ * A stopped cell says what was being done and why it stopped, in the stop's
+ * own **sentence** — the English the wire now carries beside the log's word,
+ * which is what makes `lint` and `no stdin` readable at all ([B05]). An older
+ * server sending the word alone falls back to it.
+ *
+ * The Devise cell of a planned arc also says what the kind means: the line
+ * does not print the kind as a word (the cell set already draws it), so the
+ * cell that exists BECAUSE the arc is planned is where the explanation
+ * waits. A reader who wonders about the extra cells hovers a cell.
  */
 export function arcCellTip(model: ArcTrackModel, phase: ArcPhase, state: ArcCellState): string {
-  const word =
-    phase === "implement" && model.steps !== null
-      ? `implement · ${model.steps.done} of ${model.steps.total} steps closed`
-      : phase;
-  const reading =
-    state === "stopped" ? `${word} — stopped: ${model.stopped}` : `${word} · ${state}`;
+  const participles = ARC_CELL_PARTICIPLES[phase];
+  const steps = model.steps;
+  let reading: string;
+  if (state === "stopped") {
+    const why = model.stoppedWhy ?? model.stopped ?? "";
+    reading = `${arcCellActive(model, phase, true)} — stopped: ${why}`;
+  } else if (state === "active") {
+    reading = arcCellActive(model, phase, model.live);
+  } else if (state === "pending") {
+    reading = participles.pending;
+  } else if (phase === "implement" && steps !== null) {
+    reading = `${participles.done} · ${steps.total} ${steps.total === 1 ? "step" : "steps"}`;
+  } else {
+    reading = participles.done;
+  }
   return phase === "devise" && model.planned ? `${reading}\n${PLANNED_KIND_SENTENCE}` : reading;
 }
 

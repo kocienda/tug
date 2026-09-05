@@ -382,15 +382,21 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
   // record of that moment, so what changes is how loudly it is offered —
   // `error` says *do something about this*, and there is nothing left to do.
   const demoted = props.superseded === true && parsed.outcome === "stopped";
-  // The row's note, one arm per outcome. A pick-up's `stop` is `null`, so the
-  // stopped arm's `?? "stopped"` would label a row saying the arc is running
-  // again with the word *stopped* — the fall-through this arm exists to stop.
+  // The row's note, one arm per outcome, in the line's own grammar — the same
+  // vocabulary the strip beside it reads in ([B08]). It is an override rather
+  // than the line's own derivation because a receipt is a frozen record: its
+  // three outcomes are parsed from the text the server wrote, and no live
+  // model can be asked what an arc was doing weeks ago.
+  //
+  // A pick-up's `stop` is `null`, so the stopped arm's `?? "stopped"` would
+  // label a row saying the arc is running again with the word *stopped* —
+  // the fall-through this arm exists to stop.
   const note =
     parsed.outcome === "complete"
-      ? `${parsed.stages.length} ${parsed.stages.length === 1 ? "stage" : "stages"}`
+      ? `Finished · ${parsed.stages.length} ${parsed.stages.length === 1 ? "stage" : "stages"}`
       : parsed.outcome === "resumed"
-        ? "picked back up"
-        : (parsed.stop?.reason ?? "stopped");
+        ? "Picked back up"
+        : `Stopped · ${parsed.stop?.reason ?? "stopped"}`;
   const identity = (
     <span className="arc-receipt-identity">
       <ArcLifecycleBlock

@@ -299,12 +299,13 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         expect(unbound.bound).toBeNull();
         // A freshly created arc has no documents and no arc, so the track
         // reads it as direct: nothing has happened to it yet but the work
-        // itself. With no step open the note is the phase word and nothing
+        // itself. With no step open the line is the phase clause and nothing
         // more — the line has no empty state.
         expect(unbound.phase).toBe("implement");
-        // The note IS the phase word — spelled out rather than compared to the
-        // field above, which is `string | null` and so cannot be an expected.
-        expect(unbound.note).toBe("implement");
+        // The clause is the phase said as a verb in progress, never the enum
+        // key the field above carries — spelled out rather than derived from
+        // it, which is the whole point of the two being different words.
+        expect(unbound.note).toBe("Implementing");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
@@ -375,10 +376,10 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // the two readings cannot disagree.
         expect(meta.fraction).toBe("1/3");
         expect(meta.ticks).toEqual(["active", "pending", "pending"]);
-        // The note is the PHASE, not the step's title: the title rode this
+        // The clause is the PHASE, not the step's title: the title rode this
         // slot until it elided mid-word in every host that was not the
         // placard, and it is the fraction's hover sentence now ([D168]).
-        expect(meta.noteText).toBe("implement");
+        expect(meta.noteText).toBe("Implementing");
         note("at0407 meta line", await app.screenshot().then((s) => s.path));
 
         // ── A withdrawn step paints its own tick, and the count agrees ────
@@ -548,8 +549,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         note("at0407 withdrawn tip", closedTip);
         // Eight ticks and eight closed, agreeing on screen — a reader is never
         // told 7 of 8 beside eight filled ticks. This is [P03]'s whole promise
-        // and the one thing no pure test can see.
-        expect(closedTip).toContain("8 of 8 steps closed");
+        // and the one thing no pure test can see. A closed cell says its
+        // count as the participle's object — `Implemented · 8 steps` ([B09]).
+        expect(closedTip).toContain("Implemented · 8 steps");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

@@ -1,37 +1,46 @@
 /**
  * ArcLifecycleLine — what an arc is DOING, as one line with no clock on it.
  *
- *   track · glyph · fraction · note · facts
+ *   track · glyph · <Doing> [i/N] · <what is in the way>
  *
  * The track is {@link TugArcTrack}, the arc's whole life in a cap-height
  * strip; the glyph is {@link ArcPhaseMark}, which says outright the phase the
- * strip says by WHICH cell is lit; the fraction is the step in progress over
- * the plan's count, and only while one is; the note is the phase in one word —
- * `brief`, `devise`, `review`, `implement`, `audit`, `join` — and
- * `stopped · <why>` when the arc stopped; the facts are the tone-colored words `arcMetaFacts`
- * derives, most urgent first, each with its detail on hover — the ones about
- * the arc's own standing (conflicts, overlap, fit), never the checkout's git
- * bookkeeping. The two arc facts are dropped too: the track already says the
- * arc is running, and the note already says it stopped. So is the kind: the
- * track draws a planned arc's devise and review cells and a plain arc's
- * neither, which is the kind said in the strip's own register, and a word
- * for it after the note was a stray adjective on whatever the note said
- * (`stopped · audit did not mark planned`).
+ * strip says by WHICH cell is lit.
  *
- * **The step's TITLE is not a run on this line.** It rode the note during
+ * **The line is one clause: what the arc is doing, then what is in its way**
+ * ([B00]). Both halves are derived once and nowhere else. The first is
+ * {@link arcReading} — a verb in progress (`Implementing`, `Awaiting
+ * review`), or `Stopped · <why>` — with the fraction *after* the verb, where
+ * it reads as the verb's object ([B02]). The second is the loudest of
+ * `arcMetaFacts`' clauses, with a `·` between them, the same mark the join
+ * register one line below uses.
+ *
+ * **One trouble clause, never two** ([B03]). Two of these at rail width
+ * pushed the row off its edge, and a reader who sees red hovers it — so
+ * every applicable clause's sentence is stacked into the one clause's hover,
+ * and nothing is lost by painting one.
+ *
+ * The line used to append three mechanisms in source order with no
+ * connective: the phase's enum key, `arcMetaFacts`' tooltip-column labels,
+ * and the kind as a bare adjective. The kind is the strip's own cell set, the
+ * stop is its red cell, and the phase is the clause's subject — so none of
+ * the three is a word after the note any more.
+ *
+ * **The step's TITLE is not a run on this line.** It rode the reading during
  * implement, where it was a sentence in a slot sized for a word: on every host
  * but the placard it elided mid-word, and on the placard it restated the row
- * the list below already lights. It is the fraction's hover sentence instead —
- * the mark that counts the steps is the mark that names the one in hand.
+ * the list below already lights. It is the fraction's hover sentence instead
+ * — `Step 3 of 6 — <title>`, and `Step 3 of 6` where the host has no title.
+ * The mark that counts the steps is the mark that names the one in hand.
  *
  * There is no age: the ring, the track, and the phase dot say whether
- * anything is moving. And the line never leaves its box: the note elides
+ * anything is moving. And the line never leaves its box: the reading elides
  * first, and what still does not fit is clipped rather than overflowing.
  *
  * **The whole run is CENTRED — track, then reading, as one unit.** The line
  * used to pack everything against its left edge, which was the right shape
- * when the note carried a step's title and ran most of the width; it does not
- * any more, and a left-packed line left a long empty tail under an eyebrow
+ * when the reading carried a step's title and ran most of the width; it does
+ * not any more, and a left-packed line left a long empty tail under an eyebrow
  * whose own two identities are anchored to the two edges. Centring the track
  * alone and setting the reading flush right pinned the graphic, but read as
  * two things obeying two different rules. So the graphic and the words travel
@@ -50,45 +59,37 @@ import React from "react";
 
 import type { ArcMetaFact } from "@/lib/arc-meta-facts";
 import { ArcPhaseMark } from "./arc-phase-mark";
-import { TugArcTrack, type ArcTrackModel } from "./tug-arc-track";
+import { arcReading, TugArcTrack, type ArcTrackModel } from "./tug-arc-track";
 import { TugStepFraction } from "./tug-step-fraction";
 import { TugTooltip } from "./tug-tooltip";
 
-/** The note under the model — the phase in a word, or why the arc stopped. Pure. */
-export function arcLifecycleNote(model: ArcTrackModel): string {
-  if (model.stopped !== null) return `stopped · ${model.stopped}`;
-  return model.phase;
-}
-
 /**
- * The facts the line drops.
+ * The loudest clause, wearing every applicable clause's sentence ([B03]).
  *
- * The arc's two are already the track's own subject — the strip draws the
- * stage and the note says when it stopped. The git bookkeeping — a dirty
- * worktree, a base that has moved, a replay that settled — is the checkout's
- * condition rather than the arc's state. It reaches the eye where a gesture
- * turns on it instead: the picker's `uncommitted`, the Replay item's label,
- * the discard confirmation, and the replay bulletin.
- *
- * The kind is the track's cell set, and its sentence is the Devise cell's
- * hover — a planned arc has that cell and a plain one does not.
+ * `arcMetaFacts` already ranks them, so the first is the one to paint. The
+ * rest are not dropped — their sentences stack into its hover, separated by a
+ * blank line because each one may itself be a heading over a list of paths.
+ * Pure, so the stacking is a table test.
  */
-const NOT_ON_THE_LINE: ReadonlySet<string> = new Set([
-  "arc",
-  "arc-stopped",
-  "kind",
-  "uncommitted",
-  "behind",
-  "replayed",
-]);
-
-export function arcLifecycleFacts(facts: readonly ArcMetaFact[]): ArcMetaFact[] {
-  return facts.filter((fact) => !NOT_ON_THE_LINE.has(fact.key));
+export function arcTroubleClause(facts: readonly ArcMetaFact[]): ArcMetaFact | null {
+  const loudest = facts[0];
+  if (loudest === undefined) return null;
+  if (facts.length === 1) return loudest;
+  return { ...loudest, tooltip: facts.map((fact) => fact.tooltip).join("\n\n") };
 }
 
 export interface ArcLifecycleLineProps {
   model: ArcTrackModel;
-  note: string;
+  /**
+   * What the line says instead of {@link arcReading}'s word — the receipt
+   * row's three outcomes and nothing else ([B08]).
+   *
+   * A receipt is a frozen record of a moment rather than a reading of the
+   * arc now, so `Finished · 3 stages` and `Picked back up` are things only
+   * that row can know. Every other host reads the model, which is why this is
+   * an override rather than a prop each of them threads.
+   */
+  note?: string;
   /**
    * The step in hand, when the host holds one — the fraction's hover sentence,
    * never a run of its own ([D168]).
@@ -104,6 +105,9 @@ export function ArcLifecycleLine({
   facts = [],
 }: ArcLifecycleLineProps): React.ReactElement {
   const steps = model.steps;
+  const reading = arcReading(model);
+  const word = note ?? reading.word;
+  const trouble = arcTroubleClause(facts);
   return (
     <span
       className="tug-arc-lifecycle-line"
@@ -116,36 +120,51 @@ export function ArcLifecycleLine({
           reads as the strip's neighbour rather than as a taller mark set
           beside it. */}
         <ArcPhaseMark model={model} size={11} />
-        {steps !== null && steps.current !== null ? (
-          stepTitle !== null && stepTitle.length > 0 ? (
-            <TugTooltip content={`step ${steps.current} of ${steps.total} · ${stepTitle}`}>
-              <TugStepFraction current={steps.current} total={steps.total} />
-            </TugTooltip>
-          ) : (
-            <TugStepFraction current={steps.current} total={steps.total} />
-          )
-        ) : null}
         {/* A tooltip is never a second copy of the word under the cursor. The
-          note elides first when the line runs out of room, so the bubble is
-          for the reading the ellipsis took away — `truncated` measures the
-          span at the open edge and stays shut when the whole note fits. */}
-        <TugTooltip content={note} truncated>
+          reading elides first when the line runs out of room, so the bubble is
+          for the words the ellipsis took away — `truncated` measures the
+          span at the open edge and stays shut when the whole word fits. */}
+        <TugTooltip content={word} truncated>
           <span className="tug-arc-lifecycle-note" data-slot="tug-arc-lifecycle-note">
-            {note}
+            {word}
           </span>
         </TugTooltip>
-        {arcLifecycleFacts(facts).map((fact) => (
-          <TugTooltip key={fact.key} content={fact.tooltip}>
-            <span
-              className="tug-arc-lifecycle-fact"
-              data-slot="tug-arc-lifecycle-fact"
-              data-fact={fact.key}
-              data-tone={fact.tone}
-            >
-              {fact.label}
-            </span>
+        {/* After the verb, where the count reads as its object ([B02]) — and
+          only while a step is in hand, which is what keeps a walked ledger
+          under audit reading `Auditing` rather than `Auditing 6/6`. */}
+        {reading.fraction !== null && steps !== null && steps.current !== null ? (
+          <TugTooltip
+            content={
+              `Step ${steps.current} of ${steps.total}` +
+              (stepTitle !== null && stepTitle.length > 0 ? ` — ${stepTitle}` : "")
+            }
+          >
+            <TugStepFraction current={steps.current} total={steps.total} />
           </TugTooltip>
-        ))}
+        ) : null}
+        {trouble !== null ? (
+          <>
+            {/* The mark the join register one line below uses, between the
+              two clauses and nowhere else. */}
+            <span
+              className="tug-arc-lifecycle-sep"
+              data-slot="tug-arc-lifecycle-sep"
+              aria-hidden="true"
+            >
+              ·
+            </span>
+            <TugTooltip content={trouble.tooltip}>
+              <span
+                className="tug-arc-lifecycle-fact"
+                data-slot="tug-arc-lifecycle-fact"
+                data-fact={trouble.key}
+                data-tone={trouble.tone}
+              >
+                {trouble.label}
+              </span>
+            </TugTooltip>
+          </>
+        ) : null}
       </span>
     </span>
   );

@@ -341,6 +341,18 @@ describe("aggregate changeset wire contract", () => {
         withArc({ stage: "review", stopped: "lint failed", stopped_stage: "review" }),
       ),
     ).toBe(true);
+    // The stop's sentence rides beside its word, and an older server sending
+    // the word alone still reads.
+    expect(
+      isChangesetEntry(
+        withArc({
+          stage: "review",
+          stopped: "lint",
+          stopped_stage: "review",
+          stopped_why: "the plan does not lint",
+        }),
+      ),
+    ).toBe(true);
     expect(isChangesetEntry(withArc({ stage: "implement", done: true }))).toBe(true);
 
     // Drift is rejected rather than passed through, so a surface reading
@@ -348,6 +360,7 @@ describe("aggregate changeset wire contract", () => {
     expect(isChangesetEntry(withArc({ stage: 3 }))).toBe(false);
     expect(isChangesetEntry(withArc({ stopped: true }))).toBe(false);
     expect(isChangesetEntry(withArc({ stopped_stage: 1 }))).toBe(false);
+    expect(isChangesetEntry(withArc({ stopped_why: 1 }))).toBe(false);
     expect(isChangesetEntry(withArc({ done: "yes" }))).toBe(false);
     expect(isChangesetEntry(withArc("devise"))).toBe(false);
   });

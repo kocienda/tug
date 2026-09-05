@@ -100,7 +100,6 @@ import React, {
 
 import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentation";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
-import { arcLifecycleNote } from "@/components/tugways/arc-lifecycle-line";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
 import { arcMetaFacts } from "@/lib/arc-meta-facts";
@@ -676,7 +675,6 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           name={entry.display_name}
           workers={workers}
           model={model}
-          note={arcLifecycleNote(model)}
           stepTitle={entry.step_title ?? null}
           facts={arcMetaFacts(entry)}
           trailing={
@@ -790,7 +788,6 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           name={entry.display_name}
           workers={entry.bound_sessions ?? []}
           model={model}
-          note={arcLifecycleNote(model)}
           facts={arcMetaFacts(documentArcAsEntry(entry))}
         />
       </span>
