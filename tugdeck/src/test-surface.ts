@@ -67,10 +67,6 @@ import { textMeasurer, whenFaceLoaded } from "./lib/font-metrics";
 import type { SparklineTapeDebugState } from "./lib/sparkline-tape";
 import { nodeToPath, selectionGuard } from "./components/tugways/selection-guard";
 import {
-  auditPathFaces,
-  type FaceConflict,
-} from "./lib/annotator/path-face-audit";
-import {
   cardSessionBindingStore,
   cardLine,
   cardSeatedSegment,
@@ -766,12 +762,6 @@ export interface TugTestSurface {
   getCaretState(cardId: string): CaretState | null;
   getFormControlValue(cardId: string, componentStatePreservationKey: string): string | null;
   assertHostRootRegistered(cardId: string): boolean;
-  /**
-   * The spellings `selector`'s subtree currently draws two ways — a path
-   * marked in one sentence and plain in another. Empty is the invariant
-   * holding; see `lib/annotator/path-face-audit`.
-   */
-  auditPathFaces(selector: string): FaceConflict[];
 
   // ---- Trace access ----
   getDeckTrace(opts?: { since?: number }): readonly DeckTraceEvent[];
@@ -1982,12 +1972,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
 
     assertHostRootRegistered(cardId: string): boolean {
       return deck.peekCardHostRoot(cardId) !== null;
-    },
-
-    auditPathFaces(selector: string): FaceConflict[] {
-      const root = document.querySelector(selector);
-      if (!(root instanceof HTMLElement)) return [];
-      return auditPathFaces(root);
     },
 
     // ---- trace access ----

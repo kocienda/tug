@@ -112,7 +112,6 @@ const CORE_TIER = [
     "at0126-keyboard-ring-cold-boot.test.ts", // focus axis survives relaunch
     "at0145-permission-dialog-keyboard.test.ts", // card-modal dialog keyboard model
     "at0165-activation-first-responder.test.ts", // responder-chain accelerators
-    "at0168-menu-structure.test.ts", // menu bar structure contract
     "at0191-turns-end-to-end.test.ts", // canonical turns through the transcript
     "at0201-session-card-activation-click-focus.test.ts", // session card activation focus
     "at0209-text-card-live-autosave.test.ts", // Text card core loop on real files
