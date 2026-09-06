@@ -270,6 +270,10 @@ pub enum Commands {
     #[command(subcommand)]
     Plan(PlanCommands),
 
+    /// Briefs — the working paper a conversation settles into.
+    #[command(subcommand)]
+    Brief(BriefCommands),
+
     /// Instance discovery, the build gate, project state, and the tell bridge.
     #[command(subcommand)]
     Host(HostCommands),
@@ -374,6 +378,19 @@ impl From<CliStrategy> for JoinStrategy {
             CliStrategy::Rebase => JoinStrategy::Rebase,
         }
     }
+}
+
+#[derive(Subcommand)]
+pub enum BriefCommands {
+    /// Print the directory a brief is written to.
+    ///
+    /// The project's own `briefs/` unless the Briefs Directory setting names
+    /// another; a setting that cannot be read is a default, never a refusal.
+    Dir {
+        /// Create the directory if it does not exist.
+        #[arg(long)]
+        ensure: bool,
+    },
 }
 
 #[derive(Subcommand)]

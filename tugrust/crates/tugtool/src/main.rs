@@ -3,6 +3,7 @@
 mod apptest;
 mod arc;
 mod arc_turn;
+mod brief;
 mod changes;
 mod cli;
 mod commands;
@@ -115,6 +116,7 @@ fn main() -> ExitCode {
         Some(Commands::Arc(cmd)) => arc::dispatch(cmd, json, quiet),
         Some(Commands::Tripwire(cmd)) => tripwire::dispatch(cmd, json, quiet),
         Some(Commands::Plan(cmd)) => plan::dispatch(cmd, json),
+        Some(Commands::Brief(cmd)) => brief::dispatch(cmd, json),
         Some(Commands::Host(cmd)) => host::dispatch(cmd, json, quiet),
 
         // The wheel's door: rotate this card at the turn's end.

@@ -25,7 +25,7 @@ What this door buys is two cold readers rather than one: a devise stage that tur
 
 **`/arc-plan` itself never creates a worktree, never commits, and never joins.** The arc's implement stage *is* `arc-implement`, run by a session the server started, under that skill's own guardrails — including its rounds through `tugtool arc commit` and the seat fallback it alone may run. The shared discipline is [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrine.md), and the stop-before-join obligation is unchanged: landing is the user's act. Handing work to the wheel does not hand over the join.
 
-**When the project has no `tuglaws/`,** the doctrine and the skeletons are absent — including the brief skeleton this skill writes against. There is no brief format there and no linter standing in for one, so write the six beats [Hand off](#4-hand-off) names and say plainly that the format document is missing. The delegated skills carry the rest inline — one working root, verify before every commit, never commit red, rounds through `tugtool arc commit`, stop before the join. Say so once, at the start, so the user knows which fidelity they are getting; do not reconstruct the missing documents from memory.
+**When the project has no `tuglaws/`,** the doctrine and the devise skeleton are absent. The delegated skills carry the rest inline — one working root, verify before every commit, never commit red, rounds through `tugtool arc commit`, stop before the join. Say so once, at the start, so the user knows which fidelity they are getting; do not reconstruct the missing documents from memory.
 
 ## Input
 
@@ -101,7 +101,7 @@ tugtool arc documents <name> --ensure --bind --json
 
 `--bind` binds this session to the arc in the same act that makes its directory, so the Session card reads `ARC` from the door's first command rather than from its last. It is not optional here: an arc the card cannot see is an arc nobody is watching.
 
-Write the brief to the `brief` path it prints, against [`tuglaws/brief-skeleton.md`](../../../tuglaws/brief-skeleton.md). Its six beats: the **purpose** in the user's own terms, the **evidence** actually observed, the **decisions** already settled, what is **out of scope**, the **open questions** that remain, and the **shape** the work is expected to take. Read the skeleton before writing; it is the format contract, and it says which sections may be omitted when they have nothing to say.
+Write the brief to the `brief` path it prints, against [the brief skeleton](../brief/brief-skeleton.md). Its six beats: the **purpose** in the user's own terms, the **evidence** actually observed, the **decisions** already settled, what is **out of scope**, the **open questions** that remain, and the **shape** the work is expected to take. Read the skeleton before writing; it is the format contract, and it says which sections may be omitted when they have nothing to say.
 
 **Carry this conversation's settled calls into it** — the decisions as `[B##]`, the observations as `[F##]`. This is the whole reason the door writes a document at all: the devise session reads it cold and must lose nothing this conversation settled. A brief that merely restates the user's opening sentence has thrown the sharpening away.
 

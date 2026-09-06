@@ -23,7 +23,7 @@
  * base is anybody's guess. The asymmetry with rule 1 is intended: `../` inside a
  * markdown link has a defined base, inside a backtick span it does not.
  *
- * `notes/` is outside the scan set. A note is a historical record and its dead
+ * `briefs/` is outside the scan set. A brief is a historical record and its dead
  * pointers are part of the history it records.
  *
  * The allowlist beside this file records the dangles that existed the day the check

@@ -24,7 +24,7 @@ Everything downstream of the ledger is identical in the two: one step per turn, 
 
 **You are the orchestrator, in-thread.** Do not spawn sub-agents (`Task`).
 
-**Read [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrine.md)** for the discipline the arc works under. This skill states the door; the doctrine states the rules. **When the project has no `tuglaws/`,** those documents are absent and cannot be read — there is no brief format and no linter standing in for one. Write the six beats below and say plainly that the judgment half of the format is missing; do not reconstruct it from memory.
+**Read [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrine.md)** for the discipline the arc works under. This skill states the door; the doctrine states the rules. **When the project has no `tuglaws/`,** those documents are absent and cannot be read; the discipline that survives is the one the stage skills carry inline, and say so once.
 
 ## Input grammar
 
@@ -72,11 +72,9 @@ tugtool arc documents <name> --ensure --bind --json
 
 `--bind` binds this session to the arc in the same act that makes its directory, so the Session card reads `ARC` from the door's first command rather than from its last. It is not optional here: an arc the card cannot see is an arc nobody is watching.
 
-Write the brief to the `brief` path it prints, against [`tuglaws/brief-skeleton.md`](../../../tuglaws/brief-skeleton.md). Its six beats: the **purpose** in the user's own terms, the **evidence** actually observed, the **decisions** already settled, what is **out of scope**, the **open questions** that remain, and the **shape** the work is expected to take. A brief opens at `#` and carries no execution steps.
+Write the brief to the `brief` path it prints, against [the brief skeleton](../brief/brief-skeleton.md). Its six beats: the **purpose** in the user's own terms, the **evidence** actually observed, the **decisions** already settled, what is **out of scope**, the **open questions** that remain, and the **shape** the work is expected to take. A brief opens at `#` and carries no execution steps.
 
 **Carry the sharpening conversation's settled calls into it** — the decisions as `[B##]`, the observations as `[F##]`. This is the whole reason the door writes a document at all: the fresh session that reads it cold must lose nothing this conversation decided.
-
-**When the project has no `tuglaws/`**, write those six beats from this description and say the format document is absent.
 
 `tugtool plan lint` exits 2 on a brief — "not a plan document" — and that is correct rather than a failure. A brief is detected as a non-plan by having no `{#execution-steps}` section, which is the same mechanism that routes it.
 

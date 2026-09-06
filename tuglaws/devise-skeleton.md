@@ -21,7 +21,8 @@
   **`{#execution-steps}` is also what makes this document a plan.** Detection is
   positive: `tugtool plan lint` treats a file as a plan only if it declares that
   anchor, and exits 2 with "not a plan document" otherwise. A brief therefore lints
-  as a non-plan by construction — its format is `tuglaws/brief-skeleton.md`.
+  as a non-plan by construction — its format is the brief skeleton the plugin ships,
+  at `tugplug/skills/brief/brief-skeleton.md`.
 
   **Implementing a plan never stales its review.** The content stamp is computed over
   a canonical extract, not the file: it drops the Review Record entirely (the stamp

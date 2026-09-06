@@ -22,7 +22,7 @@ Work descends from thought to document in a fixed order. Each rung has one defin
 
 - An **idea** is the seed: a concept for an investigation, feature, change, or fix, written by the user as a prompt. It has no required form.
 - A **sketch** is the converged shape of the conversation the idea starts — what the user and the model arrive at by going back and forth. A sketch lives **in the transcript only and is never written to a file**; that is its defining property, and the informality is the point. (An idea can skip this rung and go straight to a brief.)
-- A **brief** is the first document: a formal statement of what was found and what was decided, conforming to [tuglaws/brief-skeleton.md](brief-skeleton.md). It is not directly actionable — the test of a brief is whether a devise round can be run from it, not whether an implementer can work from it.
+- A **brief** is the first document: a formal statement of what was found and what was decided, conforming to the brief skeleton the plugin ships ([brief-skeleton.md](brief-skeleton.md) points at it). It is not directly actionable — the test of a brief is whether a devise round can be run from it, not whether an implementer can work from it.
 - A **plan** is the implementable document, conforming to [tuglaws/devise-skeleton.md](devise-skeleton.md), written by the wheel's devise stage and read cold by its review stage.
 
 **The word "plan" means only the document.** It names no route, no skill, no kind of work. That restriction is what un-jams the rest of the vocabulary.
@@ -68,7 +68,7 @@ Which door the user typed **is** the routing decision. The stage skills are inte
 
 ## Where documents live
 
-- **`notes/`** is the top-level home for working papers: briefs, audits, surveys, investigation write-ups — the documents produced *in the course of* the work that are not the work's product. Its charter is **inertness**: no tool reads it, no tool writes it, no skill resolves paths into it by convention, and nothing in `tugrust/` or `tugplug/` may ever mention it. Documents are handed to arcs by explicit path. This charter is the lesson of the old `roadmap/` directory, which went bad the moment machinery entangled itself with it. Disposition of a note after its work lands is the user's exercise — nothing automates it. What proves durable graduates into `tuglaws/`; `notes/` is an anteroom, not an archive.
+- **`briefs/`** is the top-level home for working papers — briefs first, and the audits, surveys and sketches-that-became-files beside them: the documents produced *in the course of* the work that are not the work's product. **Its address is a setting**, the Briefs Directory in Settings ▸ General, default `briefs/` inside the project. **The `brief` skill is the one writer, and it writes only briefs**, through `tugtool brief dir`. Otherwise the charter holds as before: no tool reads the directory, nothing indexes it, nothing resolves any other document kind into it, and documents are handed to arcs by explicit path. Disposition after the work lands is the user's exercise — nothing automates it. What proves durable graduates into `tuglaws/`; this is an anteroom, not an archive. The old `roadmap/` directory is the lesson the charter is drawn from: machinery entangling itself with a document directory is what went bad, and one skill writing one document kind to a user-set path is the narrowest entanglement that makes the directory usable at all — the setting is what keeps the path the user's.
 - **`.tug/arcs/<name>/`** is the machinery's document home for one arc — the brief, the plan when one exists, the ledger. Never tracked.
 - **`tuglaws/`** is the curated durable surface: laws, doctrine, skeletons, design decisions.
 
@@ -87,7 +87,8 @@ Per the retirement doctrine, the designs go and the spellings stay findable — 
 - **`dash-log`** — the old per-project record file. Now: **the arc log** (`arc-log.md`), renamed once on first read.
 - **`/dash-discard`** — the discard receipt's old spelling. Now: **`/arc-discard`**, with the old one read for life below.
 - **proposal** — once the name for the in-conversation converged shape; retired for its formality inversion (a proposal outranks a brief in common usage, but this artifact ranks below one). Now: **a sketch**, and a sketch is never a file.
-- **roadmap/** — the old document directory, deleted; its successor is `notes/` under the inertness charter above.
+- **roadmap/** — the old document directory, deleted; its successor is `briefs/` under the charter above.
+- **notes/** — the working-papers directory under the inertness charter; now **`briefs/`**, with the charter revised above (2026-09).
 - **arc** (old sense) — briefly named the stage sequence in the machinery (`TUG_DASH_ARC`, `ArcStage`). The word is promoted, not retired: it now names the work unit whole, which is what its value (the unit's name) always pointed at anyway.
 
 **A spelling that ever reached a durable ledger stays a *read* spelling for life.** The list above is about prose; this is about the two places a rename touches code that reads the past. Replay re-derives a designed transcript block by matching the ledger row's recorded `command` string, so a row written under the old verb renders as the designed receipt only for as long as something still claims that string. Drop it and every act already recorded reverts to a raw shell row — retroactively, on the next card reload, for work the user did months ago.

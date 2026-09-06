@@ -516,6 +516,70 @@ export async function putDefaultProjectPath(
   return canonical;
 }
 
+/** tugbank domain/key holding the app-wide briefs directory. */
+export const BRIEFS_PATH_DOMAIN = "dev.tugapp.app";
+export const BRIEFS_PATH_KEY = "briefs-path";
+
+/**
+ * The briefs directory when the key is unset — a **template**, not a path.
+ *
+ * `{project_dir}` stands for the project a brief is being written in, so one
+ * stored string answers for every project. `tugtool brief dir` is what
+ * resolves it, and the binary holds this same default: an unset key means
+ * "the project's own `briefs/`", stated once on each side rather than written
+ * into the store as if the user had chosen it.
+ */
+export const DEFAULT_BRIEFS_TEMPLATE = "{project_dir}/briefs";
+
+/**
+ * Persist the briefs-directory template under `dev.tugapp.app` / `briefs-path`
+ * and resolve with the string now stored, or **null** when nothing was stored
+ * at all. Like {@link putDefaultProjectPath} it resolves with the value rather
+ * than a boolean, because the field displays what the write resolved with.
+ *
+ * **The template is stored verbatim — deliberately not canonicalized, and
+ * [L29] does not reach it.** That law is about a persisted path being compared
+ * against another spelling of the same directory; nothing compares this key
+ * against anything, so its failure mode cannot arise. The exemption is forced
+ * as well as correct: `canonicalizeDirPath` resolves a path that does not
+ * exist to null, and `{project_dir}/briefs` never exists, so a template could
+ * not be stored at all.
+ */
+export async function putBriefsPath(
+  template: string,
+): Promise<string | null> {
+  const value = template.trim();
+  try {
+    const response = await fetch(
+      `/api/defaults/${BRIEFS_PATH_DOMAIN}/${BRIEFS_PATH_KEY}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "string", value }),
+      },
+    );
+    if (!response.ok) {
+      tugDevLogStore.warn("settings", "PUT briefs-path rejected", {
+        status: response.status,
+      });
+      return null;
+    }
+  } catch (err) {
+    tugDevLogStore.warn("settings", "PUT briefs-path failed", {
+      error: String(err),
+    });
+    return null;
+  }
+  // Reflect it locally now that the server holds it, for the same reason the
+  // neighbour above does: the local cache is what the field reads back, and
+  // the server's DEFAULTS frame arrives a beat later.
+  getTugbankClient()?.setLocalValue(BRIEFS_PATH_DOMAIN, BRIEFS_PATH_KEY, {
+    kind: "string",
+    value,
+  });
+  return value;
+}
+
 /**
  * Resolve the default project directory: the explicit value when set, else
  * `<home>/tug`. Returns null only when nothing is set and the host's home

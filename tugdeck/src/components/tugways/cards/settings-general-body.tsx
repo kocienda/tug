@@ -2,17 +2,17 @@
  * settings-general-body.tsx — the General settings panel.
  *
  * App-wide preferences that belong to the app itself rather than to a card
- * type. Two today. The **default project directory** — where Tug looks when
- * nothing else says otherwise (Open Quickly with no bound card, and the
- * session picker's path seed when there are no recents). And **what ⌘R does
- * to a slot's stack of panes**: cycle to the buried-longest one without
- * putting anything on screen, or open the title-bar picker to read the stack
- * first. Both commands stay in the Window menu either way; the setting moves
- * only the chord.
+ * type. Two rows today, both directories. The **default project directory** —
+ * where Tug looks when nothing else says otherwise (Open Quickly with no
+ * bound card, and the session picker's path seed when there are no recents).
+ * And the **briefs directory** — where a brief is written when the user asks
+ * for one. That second value is a *template* rather than a path: it may carry
+ * `{project_dir}`, and `tugtool brief dir` is what resolves it per project.
  *
- * The stored value is optional: unset reads through to `<home>/tug`, shown
- * in the field as a placeholder so the user sees what they will get without
- * the resolved path being written back as if they had chosen it.
+ * Both stored values are optional: unset reads through to `<home>/tug` and to
+ * `{project_dir}/briefs` respectively, each shown in its field as a
+ * placeholder so the user sees what they will get without the fallback being
+ * written back as if they had chosen it.
  *
  * **The field never comes to rest on a value tugbank doesn't hold.** A path
  * shown in a settled field is a claim about what Tug will do — Open Quickly
@@ -28,7 +28,9 @@
  * ([L02] via `useSyncExternalStore`); only the in-flight edit is component
  * `useState`; the stored path is canonicalized server-side before it is
  * written ([L29] — it is a persisted key, matched against project bindings and
- * recents); layout lives in settings-general-body.css [L06].
+ * recents — while the briefs template is stored verbatim, since nothing
+ * compares it and a template names no directory that exists); layout lives in
+ * settings-general-body.css [L06].
  *
  * @module components/tugways/cards/settings-general-body
  */
@@ -51,6 +53,10 @@ import {
   DEFAULT_PROJECT_PATH_KEY,
   DEFAULT_PROJECT_DIR_LEAF,
   putDefaultProjectPath,
+  BRIEFS_PATH_DOMAIN,
+  BRIEFS_PATH_KEY,
+  DEFAULT_BRIEFS_TEMPLATE,
+  putBriefsPath,
 } from "@/settings-api";
 import type { TaggedValue } from "@/lib/tugbank-client";
 import "./settings-general-body.css";
@@ -125,6 +131,33 @@ export function SettingsGeneralBody() {
     [stored],
   );
 
+  // The briefs directory, the same shape one row down: stored template, an
+  // in-flight draft, a settle guarded against a later one. No existence probe
+  // — a template is not a directory, so "does it exist" has no answer.
+  const briefsStored = useTugbankValue(
+    BRIEFS_PATH_DOMAIN,
+    BRIEFS_PATH_KEY,
+    parseStoredPath,
+    "",
+  );
+  const [briefsDraft, setBriefsDraft] = useState<string | null>(null);
+  const briefsValue = briefsDraft ?? briefsStored;
+  const briefsSettleSeq = useRef(0);
+  const settleBriefs = useCallback(
+    (next: string) => {
+      const trimmed = next.trim();
+      const seq = (briefsSettleSeq.current += 1);
+      if (trimmed === briefsStored) {
+        setBriefsDraft(null);
+        return;
+      }
+      void putBriefsPath(trimmed).then(() => {
+        if (seq === briefsSettleSeq.current) setBriefsDraft(null);
+      });
+    },
+    [briefsStored],
+  );
+
   const { ResponderScope, responderRef } = useResponderForm({});
 
   return (
@@ -158,6 +191,32 @@ export function SettingsGeneralBody() {
             {missing
               ? "This folder doesn't exist yet — it will be created the first time Tug needs it."
               : "Where Tug looks when no session card says otherwise: Open Quickly with nothing open, and the new-session path when there are no recent projects."}
+          </TugLabel>
+        </TugBox>
+
+        <TugBox
+          label="Briefs Directory"
+          labelPosition="legend"
+          variant="bordered"
+          className="settings-general-group"
+        >
+          <div
+            className="settings-general-field"
+            data-testid="settings-briefs-dir-field"
+          >
+            <TugFileChooser
+              value={briefsValue}
+              onChange={setBriefsDraft}
+              base={home ?? "/"}
+              kind="directory"
+              onSettle={settleBriefs}
+              placeholder={DEFAULT_BRIEFS_TEMPLATE}
+              aria-label="Briefs directory"
+            />
+          </div>
+          <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
+            Where a brief is written when you ask for one. Unset means briefs/
+            inside the project; {"{project_dir}"} stands for the project.
           </TugLabel>
         </TugBox>
 

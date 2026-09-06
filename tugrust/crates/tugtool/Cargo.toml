@@ -36,6 +36,7 @@ tugtool-core.workspace = true
 tugarc-core.workspace = true
 tugchanges-core.workspace = true
 tugedit-core.workspace = true
+tugbank-core.workspace = true
 rusqlite.workspace = true
 sha2.workspace = true
 uuid.workspace = true
@@ -49,3 +50,6 @@ serial_test = "3"
 # and the worktree a verb acts on rather than a substitute for either.
 tugtool-core.workspace = true
 tugarc-core.workspace = true
+# The app-wide settings store, so a CLI test can seed the briefs-path key the
+# way the app would rather than a substitute for it.
+tugbank-core.workspace = true

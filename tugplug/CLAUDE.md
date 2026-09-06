@@ -4,6 +4,8 @@
 
 The plugin ships **agentless, main-loop-driven** skills — there are no sub-agents.
 
+Every skill but one carries `disable-model-invocation: true`: they are gestures the user makes, and a model that reached for `/arc` on its own would be starting work nobody asked for. **`brief` is the exception, deliberately** — the user asks for a brief in prose ("write a brief", "brief this") far more often than by typing a command, and a document written where the user said to write one is the narrowest thing a model can be trusted to reach for.
+
 An **arc** is work that leaves the base on a worktree and comes back to it through a join, and it has two doors. **Both run under the wheel** — the server-driven sequence that rotates the card's session through stages, each on the model the project declared for it — and **both open on a brief**. A **plain arc** is the short one and a **planned arc** the long one; they differ by **settling time**, and by nothing else: `/arc` writes the brief and a **task list** at the door and opens straight at `implement`, then `audit`; `/arc-plan` writes the brief and runs `devise` → `review` → `implement` → `audit`. The discrimination is the **recorded kind**: `tugtool arc run <name> [--plan]` writes it when the arc opens, plain without the flag, and the runner reads it rather than guessing from which documents are on disk. (An arc opened before the kind was recorded has none, and the old document sniff answers for it — a `plan.md` outranking a `tasks.md`.) Which verb the user typed *is* the routing decision, and neither skill asks it again.
 
 **The four stage skills are not doors.** Each refuses to run outside an arc, on the same grounds `arc-devise` always did: the discipline a stage works under — one step per turn, no dialogs, a stamp or a mark as its whole product — is only safe when something is reading the result and pacing the next one. There is no one-stage arc, and none is built. A user may dig in and invoke one by hand; nothing prevents that, and nothing goes out of its way to support it.
@@ -22,6 +24,7 @@ Both doors open the same kind of thing. They ride the same `tugtool arc` verbs, 
 **Drafting and authoring:**
 
 - **`draft`** — analyze the working changes, decide per-file dispositions, and author the session's landing draft via `tugtool draft set`. **Never commits** — the user lands the draft with `/commit` in the Session card.
+- **`brief`** — write the conversation's settled findings and decisions as a brief, against the skeleton beside it, to the Briefs Directory (`tugtool brief dir`) or an explicit path. The plugin's one model-invocable skill, so the model reaches it when the user says *brief* in prose. Sharpens nothing, opens nothing, and asks once — only when the directory does not exist.
 - **`tripwire`** — lay, revise, and shake down a **tripwire**: a standing watch that fires when a landing gesture commits onto the branch it names, answers a brief through a read-only diagnosing session, and raises its hand only when it has something a person should see. Rides `tugtool tripwire` and authors nothing else. **Never joins** — a tripwire may author work on an arc and say so, and landing it is the user's act.
 `spike-card` — scaffold a design spike onto the deck — is **not** a plugin skill: it is about `tugdeck/src/spikes/` and nothing else, so it lives with this repository at `.claude/skills/spike-card/` and never ships.
 
@@ -50,4 +53,4 @@ The old multi-agent orchestration — a swarm of clarifier/author/critic/conform
 
 ## Plan Mode Policy
 
-**DO NOT automatically enter Plan mode.** Never use `EnterPlanMode` unless the user explicitly asks for it. Just do the work directly.
+The policy now ships in `work-grammar.md` beside this file, which tugcode appends to every session's system prompt — so it is enforced on every project the bundle opens rather than only where this file happens to be read.

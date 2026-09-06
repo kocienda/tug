@@ -60,6 +60,15 @@ const RULES: Rule[] = [
 const TUGLAWS_LINK = /tuglaws\//;
 const ABSENCE_CLAUSE = /(has no|without|absent)[^\n]{0,40}`tuglaws\/|`tuglaws\/`[^\n]{0,60}\babsent\b/i;
 
+/**
+ * A format the bundle ships is read on projects that have no tuglaws/ at all,
+ * so it may not point there even with an absence clause: the pointer would be
+ * dead on every one of them. This is the stronger rule, and it stands in for
+ * the absence-clause rule above: a file that may not name tuglaws/ at all has
+ * nothing an absence clause could excuse.
+ */
+const SHIPPED_FORMAT = new Set(["work-grammar.md", "skills/brief/brief-skeleton.md"]);
+
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const p = join(dir, entry);
@@ -97,6 +106,11 @@ export function lintPlugin(pluginDir = PLUGIN): string[] {
     if (rel.startsWith("skills/") && TUGLAWS_LINK.test(text) && !ABSENCE_CLAUSE.test(text)) {
       failures.push(
         `${rel}: [tuglaws-without-absence-clause] cites tuglaws/ but never says what survives on a project that has none`,
+      );
+    }
+    if (SHIPPED_FORMAT.has(rel) && TUGLAWS_LINK.test(text)) {
+      failures.push(
+        `${rel}: [tuglaws-in-shipped-format] a format the bundle ships is read on projects with no tuglaws/; it may not point there`,
       );
     }
   }

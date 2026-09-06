@@ -12,7 +12,7 @@
  * build rather than passing vacuously.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -137,6 +137,11 @@ describe("the hook script, from the bundle alone", () => {
     expect(decision?.hookSpecificOutput?.permissionDecision).toBe("allow");
   });
 
+  test("allows the model-invocable brief skill", () => {
+    const decision = hook({ tool_name: "Skill", tool_input: { skill: "tugplug:brief" } });
+    expect(decision?.hookSpecificOutput?.permissionDecision).toBe("allow");
+  });
+
   test("finds tugtool through TUG_BUNDLE_PATH when the plugin root is elsewhere", () => {
     const elsewhere = join(lab, "elsewhere-plugin");
     if (!existsSync(elsewhere)) cpSync(pluginRoot, elsewhere, { recursive: true });
@@ -214,10 +219,39 @@ describe("the arc verbs on a project that declares nothing", () => {
   test("the ledgers landed under the scratch data dir, not the author's", () => {
     expect(readdirSync(dataDir).length).toBeGreaterThan(0);
   });
+
+  test("brief dir answers with the project's own briefs/ and no setting", () => {
+    const dir = tugtool(["brief", "dir"]);
+    expect(dir.code, dir.err).toBe(0);
+    // The verb resolves the project from its own cwd, which macOS reports
+    // through /private/var; the scratch project's path is the /var symlink.
+    expect(dir.out.trim()).toBe(join(realpathSync(project), "briefs"));
+
+    const json = tugtool(["--json", "brief", "dir"]);
+    expect(json.code, json.err).toBe(0);
+    expect(JSON.parse(json.out).data.source).toBe("default");
+  });
+});
+
+describe("brief is the one skill a model may reach for", () => {
+  test("only skills/brief carries no disable-model-invocation", () => {
+    const skills = join(pluginRoot, "skills");
+    const invocable: string[] = [];
+    for (const skill of readdirSync(skills).filter((s) => statSync(join(skills, s)).isDirectory())) {
+      const skillMd = join(skills, skill, "SKILL.md");
+      if (!existsSync(skillMd)) continue;
+      const front = readFileSync(skillMd, "utf8").split("---")[1] ?? "";
+      if (!/^disable-model-invocation:\s*true$/m.test(front)) invocable.push(skill);
+    }
+    // The exception is singular and deliberate: a model reaching for a door
+    // would start work nobody asked for, while a brief is a document written
+    // where the user said to write one.
+    expect(invocable).toEqual(["brief"]);
+  });
 });
 
 describe("every verb a skill names is one the shipped binary has", () => {
-  const namespaces = ["arc", "plan", "draft", "file", "host", "hook", "changes", "session"] as const;
+  const namespaces = ["arc", "plan", "brief", "draft", "file", "host", "hook", "changes", "session"] as const;
 
   test("tugtool <namespace> <verb> mentions resolve against --help", () => {
     const help = new Map<string, string>();
@@ -228,7 +262,11 @@ describe("every verb a skill names is one the shipped binary has", () => {
     const missing: string[] = [];
     const skills = join(pluginRoot, "skills");
     for (const skill of readdirSync(skills).filter((s) => statSync(join(skills, s)).isDirectory())) {
-      const text = readFileSync(join(skills, skill, "SKILL.md"), "utf8");
+      // A directory under skills/ that carries no SKILL.md is a resource the
+      // skills ship beside them, not a skill.
+      const skillMd = join(skills, skill, "SKILL.md");
+      if (!existsSync(skillMd)) continue;
+      const text = readFileSync(skillMd, "utf8");
       for (const m of text.matchAll(/`tugtool ([a-z-]+)(?: ([a-z-]+))?/g)) {
         const [, ns, verb] = m;
         if (!top.includes(`  ${ns}`)) {

@@ -2685,6 +2685,7 @@ dependencies = [
  "thiserror 2.0.18",
  "toml",
  "tugarc-core",
+ "tugbank-core",
  "tugchanges-core",
  "tugcore",
  "tugedit-core",

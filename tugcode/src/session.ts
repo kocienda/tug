@@ -61,7 +61,7 @@ import type {
 } from "./types.ts";
 import { join, dirname, resolve } from "node:path";
 import { realpath, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { Database } from "bun:sqlite";
 import { logSessionLifecycle } from "./session-lifecycle-log.ts";
@@ -882,10 +882,42 @@ export interface ClaudeSpawnConfig {
    * re-applied on every (re)spawn, like {@link effort}.
    */
   additionalDirectories?: readonly string[];
+  /**
+   * The work grammar's text, appended to the system prompt after the nudge.
+   * Read from the plugin at every (re)spawn; null when the file is absent,
+   * which leaves the appended prompt byte-identical to what it was before the
+   * grammar shipped.
+   */
+  workGrammar?: string | null;
   sessionId: string | null;
   continue?: boolean;
   forkSession?: boolean;
   sessionIdOverride?: string;
+}
+
+/** The plugin-root markdown carrying the work grammar. */
+export const WORK_GRAMMAR_FILE = "work-grammar.md";
+
+/**
+ * Read the work grammar shipped beside the plugin, or null when it is not
+ * there.
+ *
+ * The grammar is prose the bundle carries — the four words the user and the
+ * model share for a unit of work — and the system prompt is the one channel
+ * that reaches every project the app opens, including those with no
+ * documentation of ours in them at all. Its absence is a state rather than an
+ * error: a session spawns with the nudge alone and says so once.
+ */
+export function readWorkGrammar(pluginDir: string): string | null {
+  const path = join(pluginDir, WORK_GRAMMAR_FILE);
+  try {
+    return readFileSync(path, "utf8").trim();
+  } catch (err) {
+    console.log(
+      `Work grammar: ${path} not readable (${err}); spawning with the nudge alone`,
+    );
+    return null;
+  }
 }
 
 /**
@@ -963,6 +995,14 @@ export function buildClaudeArgs(config: ClaudeSpawnConfig): string[] {
     throw new Error("forkSession requires either sessionId or continue to be set");
   }
 
+  // One flag, one value. The CLI option is a string and a repeated
+  // `--append-system-prompt` is not documented to concatenate, so joining is
+  // the only spelling that reliably carries both texts. With no grammar the
+  // value is the nudge alone, byte for byte what it was before.
+  const systemPromptAppend = config.workGrammar
+    ? `${SESSION_SYSTEM_PROMPT_NUDGE}\n\n${config.workGrammar}`
+    : SESSION_SYSTEM_PROMPT_NUDGE;
+
   const args: string[] = [
     "--output-format", "stream-json",
     "--input-format", "stream-json",
@@ -972,7 +1012,7 @@ export function buildClaudeArgs(config: ClaudeSpawnConfig): string[] {
     "--replay-user-messages",
     "--plugin-dir", config.pluginDir,
     "--permission-mode", config.permissionMode,
-    "--append-system-prompt", SESSION_SYSTEM_PROMPT_NUDGE,
+    "--append-system-prompt", systemPromptAppend,
     // Grant frictionless reads of out-of-repo Tug runtime state (arc-log,
     // code-sign sentinel, side-command output) for every session.
     "--add-dir", tugDataRoot(),
@@ -3822,7 +3862,12 @@ export class SessionManager {
    */
   private liveSpawnConfig(): Pick<
     ClaudeSpawnConfig,
-    "pluginDir" | "permissionMode" | "effort" | "model" | "additionalDirectories"
+    | "pluginDir"
+    | "permissionMode"
+    | "effort"
+    | "model"
+    | "additionalDirectories"
+    | "workGrammar"
   > {
     return {
       pluginDir: this.getPluginDir(),
@@ -3830,6 +3875,9 @@ export class SessionManager {
       effort: this.currentEffort,
       model: this.currentModel,
       additionalDirectories: this.additionalDirectories,
+      // Read per spawn rather than per session, so an edit to the shipped
+      // grammar takes effect on the next respawn.
+      workGrammar: readWorkGrammar(this.getPluginDir()),
     };
   }
 

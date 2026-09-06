@@ -174,6 +174,24 @@ describe("buildClaudeArgs", () => {
     expect(args[idx + 1].endsWith("/Tug")).toBe(true);
   });
 
+  test("carries the work grammar in the one --append-system-prompt", () => {
+    const args = buildClaudeArgs({ ...defaultConfig, workGrammar: "GRAMMAR" });
+    // One flag, not two: the option is a string and repeating it is not
+    // documented to concatenate, so both texts ride one value.
+    expect(args.filter((a) => a === "--append-system-prompt").length).toBe(1);
+    const value = args[args.indexOf("--append-system-prompt") + 1];
+    expect(value.startsWith("The user is reading this conversation in Dev")).toBe(true);
+    expect(value.endsWith("GRAMMAR")).toBe(true);
+  });
+
+  test("with no work grammar the appended prompt is the nudge alone", () => {
+    const args = buildClaudeArgs(defaultConfig);
+    expect(args.filter((a) => a === "--append-system-prompt").length).toBe(1);
+    const value = args[args.indexOf("--append-system-prompt") + 1];
+    expect(value.startsWith("The user is reading this conversation in Dev")).toBe(true);
+    expect(value.endsWith("the next step you're about to take).")).toBe(true);
+  });
+
   test("with sessionId includes --resume", () => {
     const args = buildClaudeArgs({ ...defaultConfig, sessionId: "abc" });
     const idx = args.indexOf("--resume");
