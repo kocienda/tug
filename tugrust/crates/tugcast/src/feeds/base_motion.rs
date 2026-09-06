@@ -87,8 +87,8 @@ pub struct ArcInputs {
     /// The arc is part-way through a plan run, so an agent's context describes
     /// a tree a replay would move under it.
     pub mid_plan: bool,
-    /// Live sessions bound to this arc, most recently used first.
-    pub sessions: Vec<BoundSession>,
+    /// The live session bound to this arc — one arc, one card.
+    pub session: Option<BoundSession>,
     /// A replay for this arc is already running.
     pub in_flight: bool,
     /// The last replay attempt at the current base tip stopped on a conflict.
@@ -145,7 +145,7 @@ pub fn decide_for_arc(inputs: &ArcInputs) -> Decision {
     if inputs.worktree_dirty {
         return Decision::Skip("dirty-worktree");
     }
-    if inputs.sessions.iter().any(|s| s.busy) {
+    if inputs.session.as_ref().is_some_and(|s| s.busy) {
         return Decision::Skip("session-busy");
     }
 
@@ -153,13 +153,13 @@ pub fn decide_for_arc(inputs: &ArcInputs) -> Decision {
         if inputs.notified {
             return Decision::MarkOnly;
         }
-        return match inputs.sessions.first() {
+        return match &inputs.session {
             Some(session) => Decision::InjectConflict(session.id.clone()),
             None => Decision::MarkOnly,
         };
     }
 
-    match (inputs.mid_plan, inputs.sessions.first()) {
+    match (inputs.mid_plan, &inputs.session) {
         (true, Some(session)) => Decision::ReplayThenNotify(session.id.clone()),
         _ => Decision::Replay,
     }
@@ -507,7 +507,7 @@ async fn evaluate_workspace(
     let bound_by_arc = ctx
         .session_ledger
         .as_ref()
-        .and_then(|l| l.bound_sessions_by_arc().ok())
+        .and_then(|l| l.bound_session_by_arc().ok())
         .unwrap_or_default();
 
     // The whole enumeration is synchronous git, so it goes to the blocking pool
@@ -534,7 +534,7 @@ async fn evaluate_workspace(
     for reading in arcs {
         let detail = &reading.detail;
         let owner_key = detail.owner_key.clone();
-        let sessions = bound_sessions(&ctx.supervisor_ledger, &bound_by_arc, &owner_key).await;
+        let session = bound_session(&ctx.supervisor_ledger, &bound_by_arc, &owner_key).await;
 
         let (in_flight, conflicted, notified) = {
             let map = state.lock().expect("base-motion state mutex");
@@ -558,7 +558,7 @@ async fn evaluate_workspace(
             worktree_dirty: detail.worktree_dirty,
             join_journal: reading.join_journal,
             mid_plan: detail.stage == "implementing",
-            sessions,
+            session,
             in_flight,
             conflicted,
             notified,
@@ -595,7 +595,7 @@ async fn evaluate_workspace(
                     Decision::ReplayThenNotify(id) | Decision::InjectConflict(id) => {
                         Some(id.clone())
                     }
-                    _ => inputs.sessions.first().map(|s| s.id.clone()),
+                    _ => inputs.session.as_ref().map(|s| s.id.clone()),
                 };
                 spawn_replay(
                     ctx,
@@ -947,36 +947,30 @@ fn clear_arc(
     board.set(owner_key, Vec::new());
 }
 
-/// The live bound sessions of one arc, each carrying whether it is mid-turn.
+/// The live bound session of one arc, carrying whether it is mid-turn.
 ///
-/// The binding comes from the persisted ledger (already ordered most-recently-
-/// used first); busyness comes from the supervisor's in-memory ledger,
+/// The binding comes from the persisted ledger, which names one holder per arc
+/// and no more; busyness comes from the supervisor's in-memory ledger,
 /// where a session the supervisor is not running simply has no entry and reads
 /// as idle.
-async fn bound_sessions(
+async fn bound_session(
     supervisor: &Ledger,
-    bound_by_arc: &HashMap<String, Vec<String>>,
+    bound_by_arc: &HashMap<String, String>,
     owner_key: &str,
-) -> Vec<BoundSession> {
-    let Some(ids) = bound_by_arc.get(owner_key) else {
-        return Vec::new();
+) -> Option<BoundSession> {
+    let id = bound_by_arc.get(owner_key)?;
+    let entry = {
+        let ledger = supervisor.lock().await;
+        ledger.get(&TugSessionId::new(id.clone())).cloned()
     };
-    let mut out = Vec::with_capacity(ids.len());
-    for id in ids {
-        let entry = {
-            let ledger = supervisor.lock().await;
-            ledger.get(&TugSessionId::new(id.clone())).cloned()
-        };
-        let busy = match entry {
-            Some(entry) => !entry.lock().await.is_quiet(),
-            None => false,
-        };
-        out.push(BoundSession {
-            id: id.clone(),
-            busy,
-        });
-    }
-    out
+    let busy = match entry {
+        Some(entry) => !entry.lock().await.is_quiet(),
+        None => false,
+    };
+    Some(BoundSession {
+        id: id.clone(),
+        busy,
+    })
 }
 
 /// `git config --bool branch.tugarc/<name>.tugautoreplay` for one arc,
@@ -1039,7 +1033,7 @@ mod tests {
             worktree_dirty: false,
             join_journal: false,
             mid_plan: false,
-            sessions: Vec::new(),
+            session: None,
             in_flight: false,
             conflicted: false,
             notified: false,
@@ -1055,7 +1049,7 @@ mod tests {
     fn a_mid_plan_arc_with_a_session_is_told_its_context_moved() {
         let inputs = ArcInputs {
             mid_plan: true,
-            sessions: vec![idle("sess-1")],
+            session: Some(idle("sess-1")),
             ..behind()
         };
         assert_eq!(
@@ -1074,19 +1068,6 @@ mod tests {
     }
 
     #[test]
-    fn the_most_recently_used_session_is_the_one_told() {
-        let inputs = ArcInputs {
-            mid_plan: true,
-            sessions: vec![idle("newest"), idle("older")],
-            ..behind()
-        };
-        assert_eq!(
-            decide_for_arc(&inputs),
-            Decision::ReplayThenNotify("newest".to_string())
-        );
-    }
-
-    #[test]
     fn a_arc_that_opted_out_is_left_alone_however_far_behind_it_is() {
         // Every condition below would otherwise argue for acting: the arc is
         // behind, clean, idle, and mid-plan with a session to tell.
@@ -1094,7 +1075,7 @@ mod tests {
             arc_autoreplay: false,
             base_ahead: 40,
             mid_plan: true,
-            sessions: vec![idle("sess-1")],
+            session: Some(idle("sess-1")),
             ..behind()
         };
         assert_eq!(
@@ -1108,7 +1089,7 @@ mod tests {
         let inputs = ArcInputs {
             arc_autoreplay: false,
             conflicted: true,
-            sessions: vec![idle("sess-1")],
+            session: Some(idle("sess-1")),
             ..behind()
         };
         assert_eq!(
@@ -1129,7 +1110,7 @@ mod tests {
     #[test]
     fn a_session_still_working_parks_the_whole_arc() {
         let inputs = ArcInputs {
-            sessions: vec![idle("a"), busy("b")],
+            session: Some(busy("b")),
             ..behind()
         };
         // "Working" is mid-turn *or* holding a background job: a test sweep
@@ -1160,7 +1141,7 @@ mod tests {
     fn a_conflicted_arc_with_an_idle_session_becomes_a_turn() {
         let inputs = ArcInputs {
             conflicted: true,
-            sessions: vec![idle("sess-1")],
+            session: Some(idle("sess-1")),
             ..behind()
         };
         assert_eq!(
@@ -1174,7 +1155,7 @@ mod tests {
         let inputs = ArcInputs {
             conflicted: true,
             notified: true,
-            sessions: vec![idle("sess-1")],
+            session: Some(idle("sess-1")),
             ..behind()
         };
         assert_eq!(decide_for_arc(&inputs), Decision::MarkOnly);
@@ -1203,7 +1184,7 @@ mod tests {
         let inputs = ArcInputs {
             autoreplay: false,
             conflicted: true,
-            sessions: vec![idle("sess-1")],
+            session: Some(idle("sess-1")),
             ..behind()
         };
         assert_eq!(decide_for_arc(&inputs), Decision::Skip("autoreplay-off"));

@@ -43,7 +43,7 @@ import { arcTrackModel } from "@/components/tugways/tug-arc-track";
 import { formatDurationMs } from "@/components/tugways/cards/session-card-telemetry-renderers";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { arcResumeStore } from "@/lib/arc-resume-store";
+import { arcPressStore } from "@/lib/arc-press-store";
 import { CardIdContext } from "@/lib/card-id-context";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { formatTokensApprox } from "@/lib/code-session-store/compaction";
@@ -372,12 +372,12 @@ export const ARC_RESUME_OFFER_TITLE = "Resume this arc";
  */
 function ArcResumeOffer({ arc }: { arc: string }): React.ReactElement {
   const cardId = useContext(CardIdContext);
-  // The press, and nothing else — see `arcResumeStore`'s own header on why a
+  // The press, and nothing else — see `arcPressStore`'s own header on why a
   // receipt may subscribe to this and to nothing that would tell it whether
   // the arc is still stopped.
   const pending = useSyncExternalStore(
-    arcResumeStore.subscribe,
-    () => arcResumeStore.isPending(arc),
+    arcPressStore.subscribe,
+    () => arcPressStore.isPending(arc, "resume"),
     () => false,
   );
   const resume = useCallback((): void => {
@@ -391,7 +391,7 @@ function ArcResumeOffer({ arc }: { arc: string }): React.ReactElement {
     // offer exists to avoid.
     const connection = getConnection();
     if (connection === null) return;
-    arcResumeStore.press(arc);
+    arcPressStore.press(arc, "resume");
     connection.sendControlFrame("arc_resume", {
       tug_session_id: binding.tugSessionId,
       project_dir: binding.projectDir,
@@ -447,7 +447,7 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
     <span className="arc-receipt-identity">
       <ArcLifecycleBlock
         name={parsed.arc}
-        workers={[]}
+        worker={null}
         model={trackModelFor(parsed)}
         note={note}
         layout="row"

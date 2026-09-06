@@ -8,7 +8,7 @@
  * the child — and POSTs `/api/arc` to the instance whose ledger owns that
  * session, so the session is seeded into this instance's ledger first
  * (`seedLedger`) or the command exits with `no session`. The run that appears
- * is driven by the arc's `bound_sessions` moving in the account-global
+ * is driven by the arc's `bound_session` moving in the account-global
  * changeset aggregate, with no reload and no card involvement; `arc unbind`
  * takes it away the same way.
  *

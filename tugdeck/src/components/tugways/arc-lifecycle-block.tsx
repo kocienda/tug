@@ -2,8 +2,10 @@
  * ArcLifecycleBlock — an arc as a two-line block: who, then what.
  *
  * Line one is the identities and nothing else: the arc atom, a hairline, and
- * one worker atom per bound session (none is how *unbound* reads — it is the
- * absence of workers, not a stage). Line two is {@link ArcLifecycleLine},
+ * the worker atom of the one card holding the arc, when one does (none is how
+ * *unbound* reads — it is the absence of a worker, not a stage). An arc is
+ * bound to at most one live card, so there is never a second atom to draw.
+ * Line two is {@link ArcLifecycleLine},
  * which carries every reading of what the arc is DOING — the track, the phase
  * glyph, the fraction, the word, the facts. The Arcs card, the
  * Changes shade's collapsed arc row and the masthead's arc placard are this
@@ -23,12 +25,14 @@
  * sits where the rest of the state lives, between the track and the word it
  * names.
  *
- * The trailing slot is the surface's own — a row menu, a fold cue — and rides
- * the eyebrow's end.
+ * The trailing slot is the surface's own — a transport control, a fold cue —
+ * and rides the eyebrow's end.
  *
- * The Arcs card is the first surface to fill it: an arc row whose entry carries
- * a ledger wears the tool-call header's fold cue there, and folds open to the
- * plan's own steps ([D176]).
+ * The Arcs card is the first surface to fill it, and it puts two things there
+ * in one order: the `ArcTransportControl` — Start, Resume or Stop, whichever
+ * the arc's own state names ([D178]) — and then, on a live arc's row, the
+ * tool-call header's fold cue, which folds open to the plan's own steps
+ * ([D176]). The act on the arc leads the view of it.
  *
  * **Two layouts, one block.** `stack` is the default and the shape everything
  * above describes: two lines, for a surface whose subject IS the arc. `row`
@@ -58,7 +62,7 @@ import { useSessionIdentity } from "@/lib/session-identity";
 
 export interface ArcLifecycleBlockProps extends ArcLifecycleLineProps {
   name: string;
-  workers?: readonly string[];
+  worker?: string | null;
   trailing?: React.ReactNode;
   /**
    * `stack` — two lines, for a surface whose subject is the arc (default).
@@ -93,7 +97,7 @@ export function ArcWorkerAtom({ sessionId }: { sessionId: string }): React.React
 
 export function ArcLifecycleBlock({
   name,
-  workers = [],
+  worker = null,
   trailing,
   model,
   note,
@@ -113,9 +117,7 @@ export function ArcLifecycleBlock({
         {layout === "stack" ? (
           <span className="tug-arc-lifecycle-rule" aria-hidden="true" />
         ) : null}
-        {workers.map((sessionId) => (
-          <ArcWorkerAtom key={sessionId} sessionId={sessionId} />
-        ))}
+        {worker ? <ArcWorkerAtom sessionId={worker} /> : null}
         {trailing}
       </span>
       <ArcLifecycleLine

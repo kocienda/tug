@@ -447,6 +447,102 @@ pub fn tasks_file(repo: &Path, name: &str) -> PathBuf {
     documents_dir(repo, name).join("tasks.md")
 }
 
+/// What [`open_arc`] did: which of the two acts it performed, and the record
+/// that stands afterwards.
+///
+/// Both flags false is the third answer and the common one — an arc that was
+/// already open and carried no stop is left exactly as it was.
+#[derive(Debug, Clone)]
+pub struct OpenOutcome {
+    /// The arc had no record and one was written.
+    pub started: bool,
+    /// The arc carried a stop and an `arc-resume` cleared it.
+    pub resumed: bool,
+    /// The record as it reads after whichever act ran.
+    pub record: crate::arc::ArcRecord,
+}
+
+/// Open an arc on its own documents, or resume one that stopped.
+///
+/// The document is the arc's brief, or its plan when only that exists — the
+/// arc has no address to be given, because an arc's documents live at one
+/// place. An arc that already exists is resumed whatever its document, since
+/// the record is the arc's identity and a second `arc-start` would make one arc
+/// read as two.
+///
+/// `kind` is the arc kind to record ([B08]) and is written only on the
+/// opening. A resume ignores it for the same reason a second `arc-start` is
+/// refused: the arc's kind is part of what the record *is*, and a resume that
+/// could change it would let one arc run two progressions.
+///
+/// Separated from the verb so the decision is testable over a synthesized log
+/// with no session and no instance — and it lives here, in the engine, rather
+/// than in the `tugtool` binary crate, because the server opens arcs too
+/// ([P05]) and cannot depend on a binary.
+pub fn open_arc(root: &Path, arc: &str, kind: crate::arc::ArcKind) -> Result<OpenOutcome, String> {
+    validate_arc_name(arc).map_err(|e| e.to_string())?;
+    if let Some(record) = crate::arc::read_arc(root, arc) {
+        return resume_arc(root, arc, record);
+    }
+
+    let file = if brief_file(root, arc).is_file() {
+        "brief.md"
+    } else if plan_file(root, arc).is_file() {
+        "plan.md"
+    } else if tasks_file(root, arc).is_file() {
+        // A task list with no brief beside it: unusual, since the `/arc`
+        // door writes both, but it is a document the wheel can open on and
+        // refusing it would be a rule with no reason behind it.
+        "tasks.md"
+    } else {
+        return Err(format!(
+            "arc '{arc}' has no brief, plan, or task list at {} — write one first",
+            documents_dir(root, arc).display()
+        ));
+    };
+    // Repo-relative in the record, which is what the stage divider shows and
+    // what the runner resolves against the main root.
+    let relative = format!(".tug/arcs/{arc}/{file}");
+
+    crate::arc::append_arc_start(root, arc, &relative).map_err(|e| e.to_string())?;
+    // Written after `arc-start`, so a reader that stops at the first marker
+    // still finds the document. Both lines are this opening's.
+    crate::arc::append_arc_kind(root, arc, kind).map_err(|e| e.to_string())?;
+    let record = crate::arc::read_arc(root, arc)
+        .ok_or_else(|| format!("wrote the arc for '{arc}' but could not read it back"))?;
+    Ok(OpenOutcome {
+        started: true,
+        resumed: false,
+        record,
+    })
+}
+
+/// Pick a stopped arc back up: write `arc-resume` naming the stage it stopped
+/// in, which clears the stop and tells the runner which stage to rotate again
+/// on the calling session's next idle ([P11]). An arc that is not stopped is
+/// left as it is — its record is already what the runner reads.
+fn resume_arc(
+    root: &Path,
+    name: &str,
+    record: crate::arc::ArcRecord,
+) -> Result<OpenOutcome, String> {
+    let Some((stage, _)) = record.stopped else {
+        return Ok(OpenOutcome {
+            started: false,
+            resumed: false,
+            record,
+        });
+    };
+    crate::arc::append_arc_resume(root, name, stage).map_err(|e| e.to_string())?;
+    let record = crate::arc::read_arc(root, name)
+        .ok_or_else(|| format!("resumed the arc for '{name}' but could not read it back"))?;
+    Ok(OpenOutcome {
+        started: false,
+        resumed: true,
+        record,
+    })
+}
+
 /// The document whose Step Status Ledger this arc's steps are walked from.
 ///
 /// **`plan.md` outranks `tasks.md`.** An arc with both is a planned arc
@@ -1979,10 +2075,10 @@ pub struct ArcStatus {
     pub draft: bool,
     /// The teardown phase an interrupted join reached, from its open record.
     pub join_journal_phase: Option<String>,
-    /// Live sessions mated to this arc ([P08]); empty when unresolvable, when
-    /// the binding column has not migrated in yet, or when every bound card
-    /// has closed — an empty list is how *unbound* reads.
-    pub bound_sessions: Vec<String>,
+    /// The live session mated to this arc ([P08]) — one arc, one card. Absent
+    /// when unresolvable, when the binding column has not migrated in yet, or
+    /// when the bound card has closed, which is how *unbound* reads.
+    pub bound_session: Option<String>,
     /// How far a stepped run has got, from the latest step declaration.
     pub step_current: Option<i64>,
     pub step_total: Option<i64>,
@@ -2102,32 +2198,30 @@ pub fn derive_stage(
     }
 }
 
-/// Live sessions bound to `owner_key`, read read-only from the per-instance
+/// The live session bound to `owner_key`, read read-only from the per-instance
 /// `sessions.db` ([P08], [Q02] — this instance's view only).
 ///
 /// **Live sessions only**, under the same predicate the tugcast-side query
 /// uses: bound-ness is defined over live sessions, so a row that outlived its
 /// card is never reported and an arc whose cards have all closed reads as
 /// unbound. Best-effort throughout — no db, no table, no `arc_id` column (an
-/// unmigrated ledger) all read as an empty list.
-pub(crate) fn bound_sessions_for(owner_key: &str) -> Vec<String> {
-    let Some(db) = sessions_db_file() else {
-        return Vec::new();
-    };
+/// unmigrated ledger) all read as absent.
+pub(crate) fn bound_session_for(owner_key: &str) -> Option<String> {
+    let db = sessions_db_file()?;
     let Ok(conn) =
         rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
     else {
-        return Vec::new();
+        return None;
     };
     let Ok(mut stmt) = conn.prepare(
         "SELECT session_id FROM sessions \
-         WHERE arc_id = ?1 AND state = 'live' ORDER BY last_used_at DESC",
+         WHERE arc_id = ?1 AND state = 'live' ORDER BY last_used_at DESC LIMIT 1",
     ) else {
-        return Vec::new();
+        return None;
     };
     stmt.query_map(rusqlite::params![owner_key], |row| row.get::<_, String>(0))
-        .map(|rows| rows.filter_map(Result::ok).collect())
-        .unwrap_or_default()
+        .ok()
+        .and_then(|mut rows| rows.next().and_then(Result::ok))
 }
 
 /// One arc's lifecycle readout against `repo_root` (Spec S05).
@@ -2165,7 +2259,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<ArcStatus, String> {
     let join_journal_phase = crate::oplog::join_in_flight(repo_root, name)
         .and_then(|op| op.join)
         .map(|progress| format!("{:?}", progress.phase));
-    let bound_sessions = bound_sessions_for(&id);
+    let bound_session = bound_session_for(&id);
     let declarations = read_declarations(repo_root, name);
     let run_span = crate::log::run_fraction(&declarations);
     let fit = fit_fact(repo_root, &branch, &base_branch, &declarations);
@@ -2202,7 +2296,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<ArcStatus, String> {
         worktree_dirty,
         draft,
         join_journal_phase,
-        bound_sessions,
+        bound_session,
         step_current: declarations.step.map(|(current, _)| current as i64),
         step_total: declarations.step.map(|(_, total)| total as i64),
         run_position: run_span.map(|(position, _)| position as i64),
@@ -9249,7 +9343,7 @@ Some context.
         );
 
         // No sessions.db with a binding, so the arc reads as unbound ([P08]).
-        assert!(joining.bound_sessions.is_empty());
+        assert!(joining.bound_session.is_none());
 
         assert!(status("no-such-arc").is_err());
 
@@ -9259,12 +9353,12 @@ Some context.
         }
     }
 
-    /// `bound_sessions` counts **live** sessions only, so an arc whose only
-    /// bound card has closed reads as unbound ([P08]) — the CLI-side face of
-    /// the [L27] pin.
+    /// `bound_session` names a **live** session only, so an arc whose bound
+    /// card has closed reads as unbound ([P08]) — the CLI-side face of the
+    /// [L27] pin.
     #[serial]
     #[test]
-    fn test_arc_status_bound_sessions_are_live_only() {
+    fn test_arc_status_bound_session_is_live_only() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
@@ -9304,8 +9398,8 @@ Some context.
         }
 
         assert_eq!(
-            status("unbound-arc").unwrap().bound_sessions,
-            vec!["sess-live".to_string()],
+            status("unbound-arc").unwrap().bound_session.as_deref(),
+            Some("sess-live"),
             "a closed session's row is never reported as a mating"
         );
 
@@ -9315,7 +9409,7 @@ Some context.
             conn.execute("UPDATE sessions SET state = 'closed'", [])
                 .unwrap();
         }
-        assert!(status("unbound-arc").unwrap().bound_sessions.is_empty());
+        assert!(status("unbound-arc").unwrap().bound_session.is_none());
 
         // SAFETY: serial test; see redirect_state_dir.
         unsafe {
@@ -13594,6 +13688,107 @@ Some context.
         assert_eq!(
             probe.arc_sha,
             git_stdout(repo, &["rev-parse", "tugarc/probe"]).unwrap()
+        );
+    }
+
+    /// A temp home for the arc log and a temp repo to open arcs in, with no
+    /// git and no instance — `open_arc` reads documents off disk and writes
+    /// log lines, and neither needs a checkout.
+    fn open_arc_fixture() -> (TempDir, TempDir) {
+        let home = tempfile::tempdir().expect("tempdir");
+        redirect_state_dir(home.path());
+        (home, tempfile::tempdir().expect("tempdir"))
+    }
+
+    /// Write one of an arc's documents into its own documents home.
+    fn write_arc_document(root: &Path, arc: &str, file: &str) {
+        let dir = root.join(".tug").join("arcs").join(arc);
+        fs::create_dir_all(&dir).expect("documents dir");
+        fs::write(dir.join(file), "# Fixture\n").expect("write document");
+    }
+
+    /// The document is the arc's own, and the brief comes first — an arc that
+    /// has reached devise opens on what it was briefed with, not on its output.
+    #[test]
+    #[serial]
+    fn open_arc_opens_on_the_brief_then_the_plan() {
+        let (_home, repo) = open_arc_fixture();
+        write_arc_document(repo.path(), "plan-only", "plan.md");
+        let opened =
+            open_arc(repo.path(), "plan-only", crate::arc::ArcKind::Planned).expect("opened");
+        assert_eq!(
+            opened.record.document.as_deref(),
+            Some(".tug/arcs/plan-only/plan.md")
+        );
+
+        let (_home, repo) = open_arc_fixture();
+        write_arc_document(repo.path(), "both", "brief.md");
+        write_arc_document(repo.path(), "both", "plan.md");
+        let opened = open_arc(repo.path(), "both", crate::arc::ArcKind::Planned).expect("opened");
+        assert_eq!(
+            opened.record.document.as_deref(),
+            Some(".tug/arcs/both/brief.md")
+        );
+    }
+
+    /// The bare door writes a brief and a task list, and the arc opens on the
+    /// brief — the task list is the ledger, not the document the stages read
+    /// for intent.
+    #[test]
+    #[serial]
+    fn a_plain_arc_opens_on_the_brief() {
+        let (_home, repo) = open_arc_fixture();
+        write_arc_document(repo.path(), "both-docs", "brief.md");
+        write_arc_document(repo.path(), "both-docs", "tasks.md");
+        let opened = open_arc(repo.path(), "both-docs", crate::arc::ArcKind::Plain).unwrap();
+        assert_eq!(
+            opened.record.document.as_deref(),
+            Some(".tug/arcs/both-docs/brief.md")
+        );
+    }
+
+    /// **The opening records the kind ([B08]).** `--plan` is absent by
+    /// default, so an ordinary `arc run` writes the shorter progression;
+    /// passing the flag writes the settled one.
+    #[test]
+    #[serial]
+    fn opening_an_arc_records_the_kind_it_was_asked_for() {
+        let (_home, repo) = open_arc_fixture();
+        write_arc_document(repo.path(), "shortcut", "brief.md");
+        let opened = open_arc(repo.path(), "shortcut", crate::arc::ArcKind::Plain).unwrap();
+        assert_eq!(opened.record.kind, Some(crate::arc::ArcKind::Plain));
+
+        let (_home, repo) = open_arc_fixture();
+        write_arc_document(repo.path(), "settled", "brief.md");
+        let opened = open_arc(repo.path(), "settled", crate::arc::ArcKind::Planned).unwrap();
+        assert_eq!(opened.record.kind, Some(crate::arc::ArcKind::Planned));
+    }
+
+    /// **A resume cannot change the kind.** The record is the arc's identity,
+    /// and a bare `arc run` over an arc opened with `--plan` is a resume of
+    /// that arc, not a second one wearing a different progression.
+    #[test]
+    #[serial]
+    fn a_resume_keeps_the_kind_the_opening_recorded() {
+        let (_home, repo) = open_arc_fixture();
+        write_arc_document(repo.path(), "settled", "brief.md");
+        open_arc(repo.path(), "settled", crate::arc::ArcKind::Planned).unwrap();
+        let reopened = open_arc(repo.path(), "settled", crate::arc::ArcKind::Plain).unwrap();
+        assert!(!reopened.started);
+        assert_eq!(reopened.record.kind, Some(crate::arc::ArcKind::Planned));
+    }
+
+    /// A task list alone still opens an arc: the wheel has a document to read
+    /// and a ledger to walk, which is all opening requires.
+    #[test]
+    #[serial]
+    fn a_task_list_alone_opens_an_arc() {
+        let (_home, repo) = open_arc_fixture();
+        write_arc_document(repo.path(), "tasks-only", "tasks.md");
+        let opened = open_arc(repo.path(), "tasks-only", crate::arc::ArcKind::Planned).unwrap();
+        assert_eq!(
+            opened.record.document.as_deref(),
+            Some(".tug/arcs/tasks-only/tasks.md")
         );
     }
 }

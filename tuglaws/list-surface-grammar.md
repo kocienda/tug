@@ -50,7 +50,7 @@ The fade needs no measured overflow gate the way `TugClamp` does. It covers the 
 
 Proportional in a pill means somebody is on this. Monospace means nobody is. A reader can sort a list on that before a word is read, which is the whole point: the register carries the fact, so the surface does not have to spend a word on it.
 
-`bound_sessions` is a **list**, and two cards on one arc is doctrine rather than a race. Every bound session gets an atom. Nothing invents a "+1 more".
+`bound_session` is **one session or none**: an arc is bound to at most one live card, so the register shows one atom or the caret run. Nothing invents a second.
 
 **The pill is never authored at the call site.** `ArcSigil atom` and `TugSessionIdentity` both wear the settled session-atom skin, so radius, hairline, padding and size scale live in `tug-session-identity.css` and change with it. An arc atom and a session atom are siblings by construction, not by two sets of numbers kept equal by hand. Copying those values into a new surface — even as a design proposal — is the specific mistake this paragraph exists to prevent.
 

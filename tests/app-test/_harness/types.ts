@@ -439,7 +439,7 @@ export interface LedgerSeedSession {
    * same `set_arc_binding` a real `bind_arc` uses.
    *
    * Seed it to stand up "another live session is holding this arc", which is
-   * what the shade's release-reach rule refuses on. `bound_sessions` is
+   * what the shade's release-reach rule refuses on. `bound_session` is
    * computed from these rows, so a client-side `bind_arc_ok` cannot fake it.
    */
   arc_id?: string;

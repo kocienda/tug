@@ -1905,6 +1905,9 @@ async fn main() {
     // first turn of this process can end, and settled the ordinary way.
     wheel_state.attach_ledger(Arc::clone(&ledger));
     feed_router.wheel = Some(Arc::clone(&wheel_state));
+    // The supervisor holds it too: the stoppers reachable from a CONTROL
+    // frame live there, and `stop_arc_for_session` takes the state ([P03]).
+    let _ = supervisor.wheel.set(Arc::clone(&wheel_state));
 
     let (arc_tick_tx, arc_tick_rx) = mpsc::channel::<String>(64);
     let _ = supervisor.arc_tick_tx.set(arc_tick_tx);

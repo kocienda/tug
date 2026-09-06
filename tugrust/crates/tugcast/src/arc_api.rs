@@ -146,6 +146,29 @@ fn calling_segment(ledger: &SessionLedger, posted: &str) -> Result<String, ArcAp
     }
 }
 
+/// The *other* live card holding `arc_id`, named as the user would know it.
+///
+/// **One arc, one card.** Two cards on one arc is not a shape any surface can
+/// draw honestly: the transport control on each row would read the other's
+/// state, a stop from either would end work the other is doing, and the arc's
+/// own record has one stage, not two. So a second holder is refused at the
+/// door rather than described afterwards.
+///
+/// `this_session` is the caller's **live segment**, because that is what
+/// [`SessionLedger::bound_session_by_arc`] is keyed by. A caller that passed
+/// its posted id would be told its own callsign holds its own arc.
+fn other_holder(ledger: &SessionLedger, arc_id: &str, this_session: &str) -> Option<String> {
+    let holder = ledger.bound_session_by_arc().ok()?.get(arc_id)?.clone();
+    if holder == this_session {
+        return None;
+    }
+    let row = ledger.get(&holder).ok().flatten();
+    Some(
+        row.and_then(|row| row.name.clone().or_else(|| row.tag.clone()))
+            .unwrap_or(holder),
+    )
+}
+
 /// Bind a session to an arc.
 ///
 /// `project_dir` must already be resolved through the [L29] gateway. Minting
@@ -202,6 +225,11 @@ pub(crate) fn bind(
         Ok(id) => id,
         Err(e) => return ArcApiOutcome::Error(e),
     };
+    // One arc, one card: a second holder is refused by name, so the user is
+    // told which card to go and stop rather than left with two rows arguing.
+    if let Some(holder) = other_holder(ledger, &arc_id, tug_session_id) {
+        return ArcApiOutcome::Error(format!("{holder} is running {arc}"));
+    }
     match ledger.set_arc_binding(tug_session_id, Some((&arc_id, arc))) {
         Ok(true) => ArcApiOutcome::Bound {
             session_id: tug_session_id.to_string(),
@@ -216,6 +244,50 @@ pub(crate) fn bind(
         )),
         Err(e) => ArcApiOutcome::Error(e.to_string()),
     }
+}
+
+/// Start an arc on the calling card: open it if it has never run, then bind.
+///
+/// **The open happens only when there is no record** ([P04]). `tugtool arc
+/// run` opens client-side and reaches the server with a record already
+/// written, so this is a no-op for the CLI and the CLI is unchanged; the
+/// button on the Arcs card is the caller that arrives with documents and
+/// nothing else, and it is the one this open is for.
+///
+/// A record that already exists is bound and otherwise left exactly as it is —
+/// **a stopped one stays stopped**, because clearing a stop is
+/// [`arc_resume`]'s act and no other ([B04]). Two verbs, two facts: Start
+/// opens, Resume picks back up.
+///
+/// `kind` is what the opening records ([B08]) and is required only by the
+/// opening — a request that names none over an arc with no record is refused
+/// before anything is written, since an arc's kind is part of what its record
+/// *is* and there is no default worth guessing.
+pub(crate) fn arc_run(
+    ledger: &SessionLedger,
+    project_dir: &std::path::Path,
+    tug_session_id: &str,
+    arc: &str,
+    kind: Option<tugarc_core::ArcKind>,
+) -> ArcApiOutcome {
+    // The live segment, resolved before anything is written: an open that
+    // landed and then failed to bind would leave the arc reading live with
+    // nothing seated on it.
+    let tug_session_id = match calling_segment(ledger, tug_session_id) {
+        Ok(live) => live,
+        Err(outcome) => return outcome,
+    };
+    if tugarc_core::arc::read_arc(project_dir, arc).is_none() {
+        let Some(kind) = kind else {
+            return ArcApiOutcome::Error(format!(
+                "{arc} has no arc yet and the request named no kind"
+            ));
+        };
+        if let Err(e) = tugarc_core::ops::open_arc(project_dir, arc, kind) {
+            return ArcApiOutcome::Error(e);
+        }
+    }
+    bind(ledger, project_dir, tug_session_id.as_str(), arc)
 }
 
 /// Pick a stopped arc back up on the calling card: the same two acts
@@ -243,18 +315,32 @@ pub(crate) fn arc_resume(
     tug_session_id: &str,
     arc: &str,
 ) -> ArcApiOutcome {
-    if let Err(outcome) = calling_segment(ledger, tug_session_id) {
-        return outcome;
-    }
+    // The line's live segment, kept rather than thrown away: `other_holder`
+    // compares against the ids `bound_session_by_arc` is keyed by, which are
+    // live segments, and a card posting a frozen id (which the door does)
+    // would otherwise be told its own callsign holds its own arc.
+    let tug_session_id = match calling_segment(ledger, tug_session_id) {
+        Ok(live) => live,
+        Err(outcome) => return outcome,
+    };
     let Some(record) = tugarc_core::arc::read_arc(project_dir, arc) else {
         return ArcApiOutcome::Error(format!("{arc} has no arc to resume"));
     };
+    // Refused *before* the resume line is written: an arc another card holds
+    // must not have its stop cleared by a card that will not be seated on it.
+    let arc_id = match tugarc_core::ops::ensure_arc_id(project_dir, arc) {
+        Ok(id) => id,
+        Err(e) => return ArcApiOutcome::Error(e),
+    };
+    if let Some(holder) = other_holder(ledger, &arc_id, tug_session_id.as_str()) {
+        return ArcApiOutcome::Error(format!("{holder} is running {arc}"));
+    }
     if let Some((stage, _)) = record.stopped {
         if let Err(e) = tugarc_core::arc::append_arc_resume(project_dir, arc, stage) {
             return ArcApiOutcome::Error(e.to_string());
         }
     }
-    bind(ledger, project_dir, tug_session_id, arc)
+    bind(ledger, project_dir, tug_session_id.as_str(), arc)
 }
 
 /// Clear one session's binding.
@@ -481,35 +567,35 @@ pub(crate) fn arc_gone(
 /// neither done nor stopped. A card merely bound to the arc is not one an
 /// ending needs to tell anything about a stage.
 fn seated_stages(ledger: &SessionLedger, arc_id: &str) -> Vec<SeatedArcStage> {
-    let Ok(by_arc) = ledger.bound_sessions_by_arc() else {
+    let Ok(by_arc) = ledger.bound_session_by_arc() else {
         return Vec::new();
     };
-    let Some(sessions) = by_arc.get(arc_id) else {
+    let Some(session_id) = by_arc.get(arc_id) else {
         return Vec::new();
     };
     let mut out = Vec::new();
-    for session_id in sessions {
+    {
         let Ok(Some(row)) = ledger.get(session_id) else {
-            continue;
+            return out;
         };
         let Some(arc_name) = row.arc_name.clone() else {
-            continue;
+            return out;
         };
         // The sessions table is keyed by the same id `stage_provenance` reads,
-        // which is the id `bound_sessions_by_arc` handed back.
+        // which is the id `bound_session_by_arc` handed back.
         if ledger.stage_provenance(session_id).is_none() {
-            continue;
+            return out;
         }
         let Some(record) =
             tugarc_core::arc::read_arc(std::path::Path::new(&row.project_dir), &arc_name)
         else {
-            continue;
+            return out;
         };
         if record.done || record.stopped.is_some() {
-            continue;
+            return out;
         }
         let Some(stage) = record.current_stage() else {
-            continue;
+            return out;
         };
         out.push(SeatedArcStage {
             session_id: session_id.clone(),
@@ -605,6 +691,126 @@ mod tests {
             .ok()
             .flatten()
             .and_then(|r| r.arc_name)
+    }
+
+    /// The same real project and live card, with the binding cleared: the
+    /// shape a Start press arrives on, where the card runs nothing yet.
+    fn idle_card(root: &std::path::Path) -> SessionLedger {
+        let ledger = on_arc_card(root);
+        ledger
+            .set_arc_binding("claude-1", None::<(&str, &str)>)
+            .unwrap();
+        ledger
+    }
+
+    /// Write an arc's brief at its own address, which is the whole of what an
+    /// arc needs on disk before it can be opened.
+    fn write_brief(root: &std::path::Path, arc: &str) {
+        let dir = root.join(".tug").join("arcs").join(arc);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("brief.md"), "# Brief\n").unwrap();
+    }
+
+    /// A temp `TUG_DATA_DIR` and a temp repo, in the order every arc test
+    /// here needs them: the environment first, so the arc log lands under the
+    /// fixture rather than the developer's own data dir.
+    fn arc_run_fixture() -> (tempfile::TempDir, tempfile::TempDir) {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        (home, tempdir().unwrap())
+    }
+
+    /// **Start opens.** An arc with a brief and no record is the shape the
+    /// Arcs card's Start button acts on, and the kind the press derived from
+    /// the documents is what the opening records ([B08]).
+    #[test]
+    #[serial_test::serial]
+    fn arc_run_opens_a_document_only_arc_with_the_kind_it_was_sent() {
+        let (_home, dir) = arc_run_fixture();
+        let root = dir.path();
+        let ledger = idle_card(root);
+        write_brief(root, "beta");
+
+        assert!(matches!(
+            arc_run(
+                &ledger,
+                root,
+                "claude-1",
+                "beta",
+                Some(tugarc_core::ArcKind::Planned)
+            ),
+            ArcApiOutcome::Bound { .. }
+        ));
+        let record = tugarc_core::arc::read_arc(root, "beta").expect("the arc was opened");
+        assert_eq!(record.kind, Some(tugarc_core::ArcKind::Planned));
+        assert_eq!(record.document.as_deref(), Some(".tug/arcs/beta/brief.md"));
+        assert_eq!(bound_arc(&ledger).as_deref(), Some("beta"));
+    }
+
+    /// **And an opening with no kind is refused before it writes.** The kind
+    /// is part of what a record *is*, so there is no default to fall back on
+    /// — and a refusal that has already written half an arc is worse than the
+    /// refusal alone.
+    #[test]
+    #[serial_test::serial]
+    fn arc_run_with_no_record_and_no_kind_is_refused_before_it_writes() {
+        let (_home, dir) = arc_run_fixture();
+        let root = dir.path();
+        let ledger = idle_card(root);
+        write_brief(root, "beta");
+
+        match arc_run(&ledger, root, "claude-1", "beta", None) {
+            ArcApiOutcome::Error(message) => {
+                assert!(message.contains("named no kind"), "{message}");
+            }
+            other => panic!("expected a refusal, got {}", outcome_name(&other)),
+        }
+        assert!(
+            tugarc_core::arc::read_arc(root, "beta").is_none(),
+            "nothing was written",
+        );
+        assert!(bound_arc(&ledger).is_none(), "and nothing was bound");
+    }
+
+    /// **Start is not Resume.** An arc that already has a record is bound and
+    /// otherwise left exactly as it is — a stopped one stays stopped, because
+    /// clearing a stop is `arc_resume`'s act and no other ([B04]).
+    #[test]
+    #[serial_test::serial]
+    fn arc_run_on_an_existing_record_binds_and_writes_nothing() {
+        let (_home, dir) = arc_run_fixture();
+        let root = dir.path();
+        let ledger = idle_card(root);
+        write_brief(root, "beta");
+        tugarc_core::arc::append_arc_start(root, "beta", ".tug/arcs/beta/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "beta",
+            tugarc_core::ArcStage::Devise,
+            tugarc_core::arc::ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            arc_run(
+                &ledger,
+                root,
+                "claude-1",
+                "beta",
+                Some(tugarc_core::ArcKind::Plain)
+            ),
+            ArcApiOutcome::Bound { .. }
+        ));
+        let record = tugarc_core::arc::read_arc(root, "beta").expect("the record stands");
+        assert!(
+            record.stopped.is_some(),
+            "the stop is the resume's to clear, not the start's",
+        );
+        assert_eq!(record.kind, None, "and no kind line was written over it");
+        assert_eq!(bound_arc(&ledger).as_deref(), Some("beta"));
     }
 
     /// Rotate `on_arc_card`'s card the way the Wheel does: a fresh segment
@@ -1159,6 +1365,155 @@ mod tests {
                 _ => panic!("an arc with no arc has none to stop"),
             }
         }
+    }
+
+    /// The variant an outcome is, for a panic message — `ArcApiOutcome` is a
+    /// wire-shaped enum and carries no `Debug`.
+    fn outcome_name(outcome: &ArcApiOutcome) -> String {
+        match outcome {
+            ArcApiOutcome::Bound { .. } => "Bound".to_string(),
+            ArcApiOutcome::Error(message) => format!("Error({message})"),
+            _ => "another outcome".to_string(),
+        }
+    }
+
+    /// A second live card in the same project, on its own line.
+    fn second_card(ledger: &SessionLedger, root: &std::path::Path) {
+        ledger
+            .record_spawn(
+                "claude-2",
+                "ws-test",
+                &root.to_string_lossy(),
+                "card-2",
+                2_000,
+                "claude-2",
+                None,
+            )
+            .unwrap();
+    }
+
+    /// Seat `demo` on `claude-1` under the id every other reader keys by —
+    /// the one `ensure_arc_id` mints — and give the arc a record to run.
+    fn demo_on_the_first_card(ledger: &SessionLedger, root: &std::path::Path) -> String {
+        let arc_id = tugarc_core::ops::ensure_arc_id(root, "demo").unwrap();
+        ledger
+            .set_arc_binding("claude-1", Some((&arc_id, "demo")))
+            .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", "arc/demo-brief.md").unwrap();
+        arc_id
+    }
+
+    /// One arc, one card: a bind naming an arc another live card holds is
+    /// refused, and the refusal names the holder so the user knows which card
+    /// to go and stop.
+    #[test]
+    #[serial_test::serial]
+    fn a_bind_naming_an_arc_another_live_card_holds_is_refused_by_name() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+        demo_on_the_first_card(&ledger, root);
+        ledger.rename("claude-1", Some("Wheelhouse")).unwrap();
+        second_card(&ledger, root);
+
+        match bind(&ledger, root, "claude-2", "demo") {
+            ArcApiOutcome::Error(message) => {
+                assert!(
+                    message.contains("Wheelhouse") && message.contains("is running demo"),
+                    "the refusal names the holder: {message}",
+                );
+            }
+            other => panic!("a second holder is refused, not {}", outcome_name(&other)),
+        }
+        assert!(
+            ledger.get("claude-2").unwrap().unwrap().arc_name.is_none(),
+            "and the refused card is left holding nothing",
+        );
+    }
+
+    /// The refusal comes *before* the resume line: an arc another card holds
+    /// must not have its stop cleared by a card that will not be seated on it.
+    #[test]
+    #[serial_test::serial]
+    fn a_resume_of_an_arc_another_card_holds_writes_no_line() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+        demo_on_the_first_card(&ledger, root);
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            tugarc_core::arc::ArcStage::Implement,
+            tugarc_core::arc::ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        second_card(&ledger, root);
+        let before = resume_lines(root);
+
+        match arc_resume(&ledger, root, "claude-2", "demo") {
+            ArcApiOutcome::Error(message) => {
+                assert!(message.contains("is running demo"), "{message}");
+            }
+            other => panic!("a second holder is refused, not {}", outcome_name(&other)),
+        }
+        assert_eq!(resume_lines(root), before, "and the stop still stands");
+        assert!(
+            tugarc_core::arc::read_arc(root, "demo")
+                .unwrap()
+                .stopped
+                .is_some()
+        );
+    }
+
+    /// The frozen-id case the holder check is keyed to survive: a card posts
+    /// the id it was spawned under, which a rotation later names a closed
+    /// segment. Compared raw, the live segment its own line was seated on
+    /// would read as a foreign holder, and the card would be refused its own
+    /// arc in a sentence naming its own callsign.
+    #[test]
+    #[serial_test::serial]
+    fn a_resume_posted_under_a_frozen_id_is_not_refused_as_a_foreign_holder() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+        demo_on_the_first_card(&ledger, root);
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            tugarc_core::arc::ArcStage::Implement,
+            tugarc_core::arc::ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        // The Wheel rotates the card: the binding moves onto the fresh
+        // segment, and `$TUG_SESSION_ID` still says `claude-1`.
+        rotate_the_card(&ledger, root);
+
+        assert!(
+            matches!(
+                arc_resume(&ledger, root, "claude-1", "demo"),
+                ArcApiOutcome::Bound { .. }
+            ),
+            "a card's own line is never a foreign holder",
+        );
+        assert_eq!(
+            ledger.get("claude-2").unwrap().unwrap().arc_name.as_deref(),
+            Some("demo"),
+        );
     }
 
     #[test]

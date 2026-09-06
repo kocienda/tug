@@ -47,7 +47,7 @@ describe("changeset wire contract", () => {
       expect(arc.owner_id).toBe("tugarc/fix-join");
       expect(arc.branch).toBeUndefined();
       expect(arc.stage).toBeUndefined();
-      expect(arc.bound_sessions).toBeUndefined();
+      expect(arc.bound_session).toBeUndefined();
     }
   });
 
@@ -60,9 +60,7 @@ describe("changeset wire contract", () => {
     expect(arc.owner_id).toBe("tugarc/fix-join#1723500000000-a1b2c3");
     expect(arc.branch).toBe("tugarc/fix-join");
     expect(arc.stage).toBe("draft-ready");
-    expect(arc.bound_sessions).toEqual([
-      "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901",
-    ]);
+    expect(arc.bound_session).toBe("sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901");
     // Phase 3's slots are declared but not yet sent.
     expect(arc.step_current).toBeUndefined();
     expect(arc.step_total).toBeUndefined();
@@ -82,8 +80,14 @@ describe("changeset wire contract", () => {
     expect(isChangesetEntry(base)).toBe(true);
     expect(isChangesetEntry({ ...base, branch: 7 })).toBe(false);
     expect(isChangesetEntry({ ...base, stage: {} })).toBe(false);
-    expect(isChangesetEntry({ ...base, bound_sessions: "sess-1" })).toBe(false);
-    expect(isChangesetEntry({ ...base, bound_sessions: [1] })).toBe(false);
+    expect(isChangesetEntry({ ...base, bound_session: 7 })).toBe(false);
+    // An entry still carrying the retired array is rejected outright rather
+    // than read as unbound — a silent "nobody holds this arc" is the failure
+    // the scalar exists to make impossible.
+    expect(isChangesetEntry({ ...base, bound_sessions: ["x"] })).toBe(false);
+    expect(isChangesetEntry({ ...base, bound_session: "sess-1" })).toBe(true);
+    // Unbound is a legal shape: the field is simply absent.
+    expect(isChangesetEntry(base)).toBe(true);
     expect(isChangesetEntry({ ...base, step_total: "3" })).toBe(false);
     // The run's counters are optional both ways: absent from every arc-log
     // written before runs were declared, a number once one is.
@@ -260,6 +264,10 @@ describe("aggregate changeset wire contract", () => {
     // `review` is optional: an arc with a brief and no plan has none.
     const { review: _review, ...unreviewed } = first;
     expect(isDocumentArcEntry(unreviewed)).toBe(true);
+    // The same retired-array refusal, on the document row's guard.
+    expect(isDocumentArcEntry({ ...first, bound_sessions: ["x"] })).toBe(false);
+    expect(isDocumentArcEntry({ ...first, bound_session: "x" })).toBe(true);
+    expect(isDocumentArcEntry({ ...first, bound_session: 7 })).toBe(false);
   });
 
   test("aggregate guards reject shape drift", () => {

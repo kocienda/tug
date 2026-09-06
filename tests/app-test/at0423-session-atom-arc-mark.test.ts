@@ -32,7 +32,7 @@
  * The loop is real throughout: `tugtool arc bind` through the card's own `$`
  * shell route, which is what stamps `TUG_SESSION_ID` on the child, against a
  * real session resumed on a scratch repository this file owns. The mark appears
- * because the arc's `bound_sessions` moved in the account-global changeset
+ * because the arc's `bound_session` moved in the account-global changeset
  * aggregate and the atom reads it session-first — no card, no reload, no prop.
  *
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx

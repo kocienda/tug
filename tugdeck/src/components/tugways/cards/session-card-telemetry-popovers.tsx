@@ -76,6 +76,7 @@ import {
 } from "@/components/tugways/tug-transcript-entry";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
+import { ArcTransportControl } from "@/components/tugways/arc-transport-control";
 import {
   TugProgressIndicator,
   type TugProgressIndicatorState,
@@ -1360,9 +1361,14 @@ function useRevealActiveRow(
  * that have just said what the arc is doing. `None` answered a question the
  * reader had not asked and denied the reading directly above it.
  *
- * The one exit is `Show in Changes`, which reveals this card's own Changes
- * shade. That is where every decision about an arc lives, and a placard is a
- * reading rather than a room.
+ * The footer carries the transport and then `Show in Changes`: the act on the
+ * arc, then the exit to the room where every other decision about it lives.
+ * The transport is the reason a placard that is otherwise a reading carries a
+ * verb at all — this is the card holding the arc, so it is the one surface
+ * from which stopping it is a local act rather than a search ([D178]). It
+ * reads `Stop` while the arc runs and `Resume` after somebody stopped it, in
+ * the word form the footer's cluster is set in; Start never appears here,
+ * because the placard exists only for the arc the card is already bound to.
  *
  * `/tasks` still opens the TASKS placard while this one is reachable by click.
  * Two readings from one cell is intended: the click asks what the arc is
@@ -1401,6 +1407,17 @@ export function ArcPopoverContent({
         // already says the phase, and the git stage under it was the same
         // reading spelled as a gerund.
         <TugPopupListFooter>
+          <ArcTransportControl
+            arc={fact.name}
+            projectDir={fact.projectDir}
+            run={fact.arc}
+            documents={fact.entry.documents}
+            boundSession={fact.entry.bound_session ?? null}
+            surface="popover"
+            followed={null}
+            size="2xs"
+            form="word"
+          />
           <TugPushButton
             size="2xs"
             emphasis="ghost"
@@ -1423,7 +1440,7 @@ export function ArcPopoverContent({
         <div className="session-arc-popover-head">
           <ArcLifecycleBlock
             name={fact.name}
-            workers={fact.entry.bound_sessions ?? []}
+            worker={fact.entry.bound_session ?? null}
             model={model}
             stepTitle={fact.stepTitle}
             facts={arcMetaFacts(fact.entry)}

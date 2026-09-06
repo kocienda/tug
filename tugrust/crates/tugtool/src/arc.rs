@@ -532,10 +532,10 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
         if let Some(phase) = &data.join_journal_phase {
             println!("Landing interrupted at: {}", phase);
         }
-        if data.bound_sessions.is_empty() {
-            println!("Sessions: none (unbound)");
+        if let Some(session) = &data.bound_session {
+            println!("Session: {}", session);
         } else {
-            println!("Sessions: {}", data.bound_sessions.join(", "));
+            println!("Session: none (unbound)");
         }
         // Last, and unmissable. A status that answered from one side of a
         // disagreement is how a desync goes unnoticed for a whole run.
@@ -1233,59 +1233,6 @@ fn arc_project_root(project: Option<std::path::PathBuf>) -> Result<std::path::Pa
     }
 }
 
-/// Open an arc on its own documents, or resume one that stopped.
-///
-/// The document is the arc's brief, or its plan when only that exists — the
-/// arc has no address to be given, because an arc's documents live at one
-/// place. An arc that already exists is resumed whatever its document, since
-/// the record is the arc's identity and a second `arc-start` would make one arc
-/// read as two.
-///
-/// `kind` is the arc kind to record ([B08]) and is written only on the
-/// opening. A resume ignores it for the same reason a second `arc-start` is
-/// refused: the arc's kind is part of what the record *is*, and a resume that
-/// could change it would let one arc run two progressions.
-///
-/// Separated from the verb so the decision is testable over a synthesized log
-/// with no session and no instance.
-fn open_arc(
-    root: &std::path::Path,
-    arc: &str,
-    kind: ArcKind,
-) -> Result<(bool, bool, ArcRecord), String> {
-    tugarc_core::validate_arc_name(arc).map_err(|e| e.to_string())?;
-    if let Some(record) = tugarc_core::read_arc(root, arc) {
-        return resume_arc(root, arc, record);
-    }
-
-    let file = if tugarc_core::brief_file(root, arc).is_file() {
-        "brief.md"
-    } else if tugarc_core::plan_file(root, arc).is_file() {
-        "plan.md"
-    } else if tugarc_core::tasks_file(root, arc).is_file() {
-        // A task list with no brief beside it: unusual, since the `/arc`
-        // door writes both, but it is a document the wheel can open on and
-        // refusing it would be a rule with no reason behind it.
-        "tasks.md"
-    } else {
-        return Err(format!(
-            "arc '{arc}' has no brief, plan, or task list at {} — write one first",
-            tugarc_core::documents_dir(root, arc).display()
-        ));
-    };
-    // Repo-relative in the record, which is what the stage divider shows and
-    // what the runner resolves against the main root.
-    let relative = format!(".tug/arcs/{arc}/{file}");
-
-    tugarc_core::append_arc_start(root, arc, &relative).map_err(|e| e.to_string())?;
-    // Written after `arc-start`, so a reader that stops at the first marker
-    // still finds the document. Both lines are this opening's.
-    tugarc_core::append_arc_kind(root, arc, kind).map_err(|e| e.to_string())?;
-    let arc = tugarc_core::read_arc(root, arc)
-        .ok_or_else(|| format!("wrote the arc for '{arc}' but could not read it back"))?;
-    Ok((true, false, arc))
-}
-
 /// Report where an arc's documents live and which of them exist ([P01]).
 ///
 /// An arc with no directory is a state rather than an error: exit 0, both
@@ -1381,24 +1328,6 @@ struct DocumentsPayload {
     bound_session: Option<String>,
 }
 
-/// Pick a stopped arc back up: write `arc-resume` naming the stage it stopped
-/// in, which clears the stop and tells the runner which stage to rotate again
-/// on the calling session's next idle ([P11]). An arc that is not stopped is
-/// left as it is — its record is already what the runner reads.
-fn resume_arc(
-    root: &std::path::Path,
-    name: &str,
-    arc: ArcRecord,
-) -> Result<(bool, bool, ArcRecord), String> {
-    let Some((stage, _)) = arc.stopped else {
-        return Ok((false, false, arc));
-    };
-    tugarc_core::append_arc_resume(root, name, stage).map_err(|e| e.to_string())?;
-    let arc = tugarc_core::read_arc(root, name)
-        .ok_or_else(|| format!("resumed the arc for '{name}' but could not read it back"))?;
-    Ok((false, true, arc))
-}
-
 /// Hand a document to the arc (Spec S06).
 ///
 /// Writes the record, then tells the instance that owns the calling session
@@ -1425,7 +1354,11 @@ fn run_arc_run(
     } else {
         ArcKind::Plain
     };
-    let (started, resumed, arc) = open_arc(&root, name, kind)?;
+    let tugarc_core::OpenOutcome {
+        started,
+        resumed,
+        record: arc,
+    } = tugarc_core::ops::open_arc(&root, name, kind)?;
 
     // The record is written before the kick, so a tugcast that never hears
     // about the arc still has one to find on its next pass.
@@ -2464,11 +2397,6 @@ mod tests {
             self.write_document(arc, "brief.md");
         }
 
-        /// Write a plan there.
-        fn write_plan(&self, arc: &str) {
-            self.write_document(arc, "plan.md");
-        }
-
         fn write_document(&self, arc: &str, file: &str) {
             let dir = self.root().join(".tug").join("arcs").join(arc);
             std::fs::create_dir_all(&dir).expect("documents dir");
@@ -2500,11 +2428,14 @@ mod tests {
     fn opening_an_arc_writes_one_start_line() {
         let fixture = arc_fixture();
         fixture.write_brief("demo");
-        let (started, resumed, arc) =
-            open_arc(fixture.root(), "demo", ArcKind::Planned).expect("opened");
-        assert!(started);
-        assert!(!resumed);
-        assert_eq!(arc.document.as_deref(), Some(".tug/arcs/demo/brief.md"));
+        let opened =
+            tugarc_core::ops::open_arc(fixture.root(), "demo", ArcKind::Planned).expect("opened");
+        assert!(opened.started);
+        assert!(!opened.resumed);
+        assert_eq!(
+            opened.record.document.as_deref(),
+            Some(".tug/arcs/demo/brief.md")
+        );
         let starts = fixture
             .log_lines()
             .iter()
@@ -2518,9 +2449,13 @@ mod tests {
     fn opening_the_same_arc_twice_is_one_arc() {
         let fixture = arc_fixture();
         fixture.write_brief("demo");
-        open_arc(fixture.root(), "demo", ArcKind::Planned).expect("opened");
-        let (started, _, _) = open_arc(fixture.root(), "demo", ArcKind::Planned).expect("reopened");
-        assert!(!started, "a second run on the same arc opens nothing");
+        tugarc_core::ops::open_arc(fixture.root(), "demo", ArcKind::Planned).expect("opened");
+        let reopened =
+            tugarc_core::ops::open_arc(fixture.root(), "demo", ArcKind::Planned).expect("reopened");
+        assert!(
+            !reopened.started,
+            "a second run on the same arc opens nothing"
+        );
         let starts = fixture
             .log_lines()
             .iter()
@@ -2529,89 +2464,12 @@ mod tests {
         assert_eq!(starts, 1);
     }
 
-    /// The document is the arc's own, and the brief comes first — an arc that
-    /// has reached devise opens on what it was briefed with, not on its output.
-    #[test]
-    #[serial_test::serial]
-    fn open_arc_opens_on_the_brief_then_the_plan() {
-        let fixture = arc_fixture();
-        fixture.write_plan("plan-only");
-        let (_, _, arc) = open_arc(fixture.root(), "plan-only", ArcKind::Planned).expect("opened");
-        assert_eq!(arc.document.as_deref(), Some(".tug/arcs/plan-only/plan.md"));
-
-        let fixture = arc_fixture();
-        fixture.write_brief("both");
-        fixture.write_plan("both");
-        let (_, _, arc) = open_arc(fixture.root(), "both", ArcKind::Planned).expect("opened");
-        assert_eq!(arc.document.as_deref(), Some(".tug/arcs/both/brief.md"));
-    }
-
-    /// The bare door writes a brief and a task list, and the arc opens on the
-    /// brief — the task list is the ledger, not the document the stages read
-    /// for intent.
-    #[test]
-    #[serial_test::serial]
-    fn a_plain_arc_opens_on_the_brief() {
-        let fixture = arc_fixture();
-        fixture.write_document("both-docs", "brief.md");
-        fixture.write_document("both-docs", "tasks.md");
-        let (_, _, arc) = open_arc(fixture.root(), "both-docs", ArcKind::Plain).unwrap();
-        assert_eq!(
-            arc.document.as_deref(),
-            Some(".tug/arcs/both-docs/brief.md")
-        );
-    }
-
-    /// **The opening records the kind ([B08]).** `--plan` is absent by
-    /// default, so an ordinary `arc run` writes the shorter progression;
-    /// passing the flag writes the settled one.
-    #[test]
-    #[serial_test::serial]
-    fn opening_an_arc_records_the_kind_it_was_asked_for() {
-        let fixture = arc_fixture();
-        fixture.write_document("shortcut", "brief.md");
-        let (_, _, arc) = open_arc(fixture.root(), "shortcut", ArcKind::Plain).unwrap();
-        assert_eq!(arc.kind, Some(ArcKind::Plain));
-
-        let fixture = arc_fixture();
-        fixture.write_document("settled", "brief.md");
-        let (_, _, arc) = open_arc(fixture.root(), "settled", ArcKind::Planned).unwrap();
-        assert_eq!(arc.kind, Some(ArcKind::Planned));
-    }
-
-    /// **A resume cannot change the kind.** The record is the arc's identity,
-    /// and a bare `arc run` over an arc opened with `--plan` is a resume of
-    /// that arc, not a second one wearing a different progression.
-    #[test]
-    #[serial_test::serial]
-    fn a_resume_keeps_the_kind_the_opening_recorded() {
-        let fixture = arc_fixture();
-        fixture.write_document("settled", "brief.md");
-        open_arc(fixture.root(), "settled", ArcKind::Planned).unwrap();
-        let (started, _, arc) = open_arc(fixture.root(), "settled", ArcKind::Plain).unwrap();
-        assert!(!started);
-        assert_eq!(arc.kind, Some(ArcKind::Planned));
-    }
-
-    /// A task list alone still opens an arc: the wheel has a document to read
-    /// and a ledger to walk, which is all opening requires.
-    #[test]
-    #[serial_test::serial]
-    fn a_task_list_alone_opens_an_arc() {
-        let fixture = arc_fixture();
-        fixture.write_document("tasks-only", "tasks.md");
-        let (_, _, arc) = open_arc(fixture.root(), "tasks-only", ArcKind::Planned).unwrap();
-        assert_eq!(
-            arc.document.as_deref(),
-            Some(".tug/arcs/tasks-only/tasks.md")
-        );
-    }
-
     #[test]
     #[serial_test::serial]
     fn a_arc_with_no_documents_says_to_write_one() {
         let fixture = arc_fixture();
-        let err = open_arc(fixture.root(), "empty", ArcKind::Planned).unwrap_err();
+        let err =
+            tugarc_core::ops::open_arc(fixture.root(), "empty", ArcKind::Planned).unwrap_err();
         assert!(
             err.contains("has no brief, plan, or task list") && err.contains(".tug/arcs/empty"),
             "the refusal must name the address to write to: {err}"
@@ -2628,13 +2486,13 @@ mod tests {
             "2026-08-24T10:05:00Z  demo  arc-stop  review lint failed\n"
         ));
         let before = fixture.log_lines().len();
-        let (started, resumed, arc) =
-            open_arc(fixture.root(), "demo", ArcKind::Planned).expect("resumed");
-        assert!(!started);
-        assert!(resumed);
-        assert_eq!(arc.stopped, None, "the stop is cleared");
+        let opened =
+            tugarc_core::ops::open_arc(fixture.root(), "demo", ArcKind::Planned).expect("resumed");
+        assert!(!opened.started);
+        assert!(opened.resumed);
+        assert_eq!(opened.record.stopped, None, "the stop is cleared");
         assert_eq!(
-            arc.resume,
+            opened.record.resume,
             Some(tugarc_core::ArcStage::Review),
             "and the stage it stopped in is the one to rotate again"
         );
@@ -2647,9 +2505,9 @@ mod tests {
         // An arc that is not stopped has nothing to resume, and a second run
         // on it writes nothing.
         let after = fixture.log_lines().len();
-        let (_, resumed, _) =
-            open_arc(fixture.root(), "demo", ArcKind::Planned).expect("still open");
-        assert!(!resumed);
+        let again = tugarc_core::ops::open_arc(fixture.root(), "demo", ArcKind::Planned)
+            .expect("still open");
+        assert!(!again.resumed);
         assert_eq!(fixture.log_lines().len(), after);
     }
 
@@ -2745,15 +2603,15 @@ mod tests {
         )
         .unwrap();
 
-        let (opened, resumed, arc) = open_arc(root, "demo", ArcKind::Planned).expect("resume");
-        assert!(!opened, "the arc is the same one, not a second");
+        let opened = tugarc_core::ops::open_arc(root, "demo", ArcKind::Planned).expect("resume");
+        assert!(!opened.started, "the arc is the same one, not a second");
         assert!(
-            resumed,
+            opened.resumed,
             "and it resumes rather than reporting nothing to do"
         );
-        assert_eq!(arc.stopped, None, "the resume clears the stop");
+        assert_eq!(opened.record.stopped, None, "the resume clears the stop");
         assert_eq!(
-            arc.resume,
+            opened.record.resume,
             Some(tugarc_core::ArcStage::Review),
             "and names the stage to rotate again",
         );

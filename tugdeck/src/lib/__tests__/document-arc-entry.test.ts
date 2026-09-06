@@ -54,20 +54,20 @@ describe("documentArcAsEntry", () => {
     expect("review" in entry).toBe(false);
     expect("arc_kind" in entry).toBe(false);
     expect("arc" in entry).toBe(false);
-    expect("bound_sessions" in entry).toBe(false);
+    expect("bound_session" in entry).toBe(false);
     expect(entry.steps).toBeUndefined();
     expect(entry.stage).toBeUndefined();
     expect(entry.last_activity).toBeUndefined();
   });
 
-  test("review, arc, and bound sessions pass through when the wire carried them", () => {
+  test("review, arc, and the bound session pass through when the wire carried them", () => {
     const run: ArcRunState = { stage: "devise" };
     const entry = documentArcAsEntry(
-      arc({ review: "stale", arc: run, bound_sessions: ["sess-a"] }),
+      arc({ review: "stale", arc: run, bound_session: "sess-a" }),
     );
     expect(entry.review).toBe("stale");
     expect(entry.arc).toEqual(run);
-    expect(entry.bound_sessions).toEqual(["sess-a"]);
+    expect(entry.bound_session).toBe("sess-a");
   });
 
   test("the recorded kind passes through, so the line can say `planned`", () => {

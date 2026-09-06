@@ -539,10 +539,11 @@ pub enum ChangesetEntry {
         /// `draft-ready` | `landing`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stage: Option<String>,
-        /// Live sessions mated to this arc ([P08]) — this instance's view
-        /// ([Q02]). Empty is how *unbound* reads.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        bound_sessions: Vec<String>,
+        /// The live session mated to this arc ([P08]) — this instance's view
+        /// ([Q02]). Absent is how *unbound* reads, and there is at most one:
+        /// one arc, one card.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bound_session: Option<String>,
         /// Whether any session holding this arc is still working — mid-turn,
         /// or waiting on a background job it launched (a test sweep, an agent).
         ///
@@ -1126,9 +1127,9 @@ pub struct DocumentArcEntry {
     /// The run driving this arc, when one is open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arc: Option<ArcRunState>,
-    /// Sessions bound to this arc.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub bound_sessions: Vec<String>,
+    /// The session bound to this arc — at most one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_session: Option<String>,
 }
 
 /// One project's slice of the account-global aggregate changeset snapshot.
@@ -1924,7 +1925,7 @@ mod tests {
             arc_kind: None,
             stage: Some("working".to_string()),
             task_list: false,
-            bound_sessions: vec!["sess-1".to_string()],
+            bound_session: Some("sess-1".to_string()),
             holders_busy: false,
             step_current: None,
             step_total: None,
@@ -1969,7 +1970,7 @@ mod tests {
         assert!(json.contains(r#""owner_id":"tugarc/x#1723500000000-a1b2c3""#));
         assert!(json.contains(r#""branch":"tugarc/x""#));
         assert!(json.contains(r#""stage":"working""#));
-        assert!(json.contains(r#""bound_sessions":["sess-1"]"#));
+        assert!(json.contains(r#""bound_session":"sess-1""#));
         // Phase 3's slots stay off the wire while they are empty — the run's
         // counters with them, so an undeclared run costs nothing to say.
         assert!(!json.contains("step_current"));
@@ -2017,12 +2018,12 @@ mod tests {
                 owner_id,
                 branch,
                 stage,
-                bound_sessions,
+                bound_session,
                 ..
             } => {
                 assert_eq!(owner_id, "tugarc/y");
                 assert!(branch.is_none() && stage.is_none());
-                assert!(bound_sessions.is_empty());
+                assert!(bound_session.is_none());
             }
             _ => panic!("expected an arc entry"),
         }

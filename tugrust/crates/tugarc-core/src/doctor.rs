@@ -402,7 +402,7 @@ fn check_arc(
     // is *supposed* to be sitting there with nothing running.
     if arc.stopped.is_none()
         && arc.current_stage().is_some()
-        && ops::bound_sessions_for(&ops::arc_owner_key(repo_root, name)).is_empty()
+        && ops::bound_session_for(&ops::arc_owner_key(repo_root, name)).is_none()
     {
         findings.push(ArcFinding {
             code: "arc-unbound".into(),

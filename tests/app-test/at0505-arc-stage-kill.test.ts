@@ -294,7 +294,7 @@ function killTheStage(): number[] {
  *
  * `arc bind --dry-run` is the reading W1's chokepoint exposes: it resolves the
  * posted id through the line and reports the segment's `state`. Noted around
- * the kill because the arc's sweep is **live-row-only** — `bound_sessions_by_arc`
+ * the kill because the arc's sweep is **live-row-only** — `bound_session_by_arc`
  * filters to live rows — so a row that stopped reading `live` would take the
  * arc out of the sweep entirely, and "the arc decided nothing" would mean
  * something quite different from "the arc decided to wait".
@@ -354,7 +354,7 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
           "a rotation seated a real subprocess tree to kill",
         ).toBeGreaterThan(0);
         // The row stays `live` through all of it, which is what keeps the arc
-        // in the sweep: `bound_sessions_by_arc` is live-only, so a row that
+        // in the sweep: `bound_session_by_arc` is live-only, so a row that
         // had gone non-live would take the arc out of the sweep entirely and
         // "the arc decided nothing" would mean something else again.
         expect(

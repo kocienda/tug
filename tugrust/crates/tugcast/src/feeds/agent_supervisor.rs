@@ -1926,6 +1926,16 @@ pub struct AgentSupervisor {
     /// consumer, and a rotation asked for mid-turn must land at *that* turn's
     /// end — the edge computed here and nowhere else.
     pub wheel_tick_tx: std::sync::OnceLock<mpsc::Sender<String>>,
+    /// The wheel itself, for the stoppers that live here rather than in the
+    /// arc engine ([P03]).
+    ///
+    /// `stop_arc_for_session` takes the wheel state — a stop either sends the
+    /// hand-back or arms it, and both are the wheel's registries — so a
+    /// supervisor method that performs a stop needs the state and not just
+    /// the tick channel. Set in `main.rs` where `wheel_state` is built;
+    /// unset is the one way [`AgentSupervisor::stop_arc_now`] can decline,
+    /// and it says so rather than reporting a stop that did not happen.
+    pub wheel: std::sync::OnceLock<Arc<crate::wheel::WheelState>>,
 }
 
 /// Registration sent through [`AgentSupervisor::merger_register_tx`] so the
@@ -3128,6 +3138,27 @@ fn parse_bind_arc_payload(payload: &[u8]) -> Result<BindArcPayload, ControlError
     })
 }
 
+/// The terms of a stop the blocking half already decided on — everything
+/// [`AgentSupervisor::stop_arc_now`] needs beyond *which arc, on which card*.
+///
+/// One struct rather than four more positional arguments, because the caller
+/// already holds them as a group: they are the fields of the
+/// `ArcApiOutcome::ArcStopped` the blocking half returned, and a bare `bool`
+/// at the end of a long positional list is exactly the argument a reader has
+/// to count their way to.
+pub(crate) struct StopTerms<'a> {
+    /// The stage the arc is stopped *in*.
+    pub stage: tugarc_core::ArcStage,
+    /// Why, in the closed stop vocabulary.
+    pub reason: tugarc_core::arc::ArcStopReason,
+    /// The question an `arc_ask` stopped over, written as an `arc-note` before
+    /// the stop so the receipt the stop composes can speak it.
+    pub question: Option<&'a str>,
+    /// Whether a running turn on the bound session is interrupted first. True
+    /// for a user's Stop ([B06]), false for a stage's own `arc ask` ([P03]).
+    pub halt: bool,
+}
+
 /// Build a CODE_INPUT frame from a payload the caller composed.
 pub(crate) fn code_input_frame(payload: &serde_json::Value) -> Frame {
     Frame::new(
@@ -3965,6 +3996,7 @@ impl AgentSupervisor {
             turn_complete_tx: std::sync::OnceLock::new(),
             arc_tick_tx: std::sync::OnceLock::new(),
             wheel_tick_tx: std::sync::OnceLock::new(),
+            wheel: std::sync::OnceLock::new(),
         };
         // Published for the readers that need to know whether a session is
         // finished but have no path to the supervisor — the changeset
@@ -4025,6 +4057,16 @@ impl AgentSupervisor {
     ///   `{"type":"request_replay"}` to the live tugcode subprocess so
     ///   a freshly-mounted `CodeSessionStore` rehydrates from JSONL.
     ///   No-op if the entry is not Live. Payload: `{tug_session_id}`.
+    ///
+    /// The arc verbs (Spec S02), which all carry `{tug_session_id,
+    /// project_dir, arc}` and answer with an `_ok` / `_err` pair the
+    /// transport control settles a press on:
+    /// * `bind_arc` / `unbind_arc` — the mating alone.
+    /// * `arc_run` — start: open the arc when it has no record, then bind.
+    ///   Carries an optional `kind` the opening records ([B08]).
+    /// * `arc_resume` — pick a stopped arc back up on this card.
+    /// * `arc_stop` — stop the arc this card runs, interrupting a running
+    ///   turn first ([P03]).
     ///
     /// Returns [`ControlOutcome::PassThrough`] for any action not
     /// matched above so the router can fall through to its legacy
@@ -4133,6 +4175,34 @@ impl AgentSupervisor {
             "arc_resume" => match parse_bind_arc_payload(payload) {
                 Ok(parsed) => {
                     self.do_arc_resume(&parsed).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            // The same payload again, with one optional field beside it: the
+            // kind to record if the arc has never run ([B08]). A frame that
+            // names none can still start an arc that already has a record,
+            // which is every start but the first.
+            "arc_run" => match parse_bind_arc_payload(payload) {
+                Ok(parsed) => {
+                    let kind = serde_json::from_slice::<serde_json::Value>(payload)
+                        .ok()
+                        .and_then(|value| {
+                            value
+                                .get("kind")
+                                .and_then(|v| v.as_str())
+                                .and_then(tugarc_core::ArcKind::parse)
+                        });
+                    self.do_arc_run(&parsed, kind).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            // And once more for the stop, which names no kind: the arc it
+            // stops is the one the card is already running.
+            "arc_stop" => match parse_bind_arc_payload(payload) {
+                Ok(parsed) => {
+                    self.do_arc_stop(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -6242,6 +6312,322 @@ impl AgentSupervisor {
         }
     }
 
+    /// Perform a stop the blocking half already decided on: the interrupt,
+    /// the hand-back, the receipt, and the record, in that order.
+    ///
+    /// Lifted here from `server.rs`'s `ArcStopped` arm so both doors — the
+    /// HTTP route the CLI posts to and the CONTROL frame the transport
+    /// control sends — take one path ([P03]).
+    ///
+    /// **`halt` is what makes Stop a button rather than a request.** With a
+    /// turn running on the bound session, `arc_stop` dispatches the deck's own
+    /// `interrupt` frame first, so the work ends now rather than at the end of
+    /// a turn that may have minutes left in it ([B06]). `arc_ask` passes
+    /// `false`: a stage ending its own turn over a question is mid-sentence,
+    /// and interrupting it would truncate the very thing the receipt exists to
+    /// carry.
+    ///
+    /// `question` is written as an `arc-note` **before** the stop, because the
+    /// receipt is composed from the record the stop path re-reads — a note
+    /// written after would arrive too late to be spoken. Best-effort like
+    /// every other append: a note that does not land costs the receipt its
+    /// question, never the stop.
+    ///
+    /// Returns `Err("no_wheel")` when the wheel was never set, having stopped
+    /// nothing. That is not a formality: the caller has an answer frame to
+    /// send, and a `_ok` over a stop that did not happen would settle the
+    /// button green over an arc still running — the [L31] fault this control
+    /// exists to remove.
+    pub(crate) async fn stop_arc_now(
+        &self,
+        session: &str,
+        project: &std::path::Path,
+        arc: &str,
+        terms: StopTerms<'_>,
+    ) -> Result<(), &'static str> {
+        let Some(wheel) = self.wheel.get() else {
+            warn!(
+                arc = %arc,
+                "no wheel is attached, so the stop was not performed",
+            );
+            return Err("no_wheel");
+        };
+        if let Some(question) = terms.question {
+            if let Err(e) = tugarc_core::arc::append_arc_note(project, arc, question) {
+                warn!(
+                    arc = %arc,
+                    error = %e,
+                    "could not record the question a stage stopped over",
+                );
+            }
+        }
+
+        let session_id = TugSessionId::new(session.to_string());
+        if terms.halt {
+            let turn_active = {
+                let entry = {
+                    let ledger = self.ledger.lock().await;
+                    ledger.get(&session_id).cloned()
+                };
+                match entry {
+                    Some(entry) => entry.lock().await.turn_active,
+                    None => false,
+                }
+            };
+            if turn_active {
+                tracing::info!(arc = %arc, "stop halts a running turn");
+                self.dispatch_one(code_input_frame(&serde_json::json!({
+                    "type": "interrupt",
+                    "tug_session_id": session,
+                })))
+                .await;
+            }
+        }
+
+        super::arc_runner::stop_arc_for_session(
+            self,
+            wheel,
+            &session_id,
+            project,
+            arc,
+            terms.stage,
+            terms.reason,
+            super::arc_runner::StopDelivery {
+                hand_back: super::arc_runner::HandBack::Send,
+                record: true,
+            },
+        )
+        .await;
+        self.registry.changeset_all_bump().notify_one();
+        Ok(())
+    }
+
+    /// Handle an `arc_run` CONTROL request (Spec S02): start an arc on the
+    /// calling card, opening it first when it has never run.
+    ///
+    /// The mating is announced with the same `bind_arc_ok` a bind broadcasts,
+    /// because it *is* one — the `arc_run_ok` beside it is the press's own
+    /// answer, which the transport control settles on.
+    async fn do_arc_run(&self, request: &BindArcPayload, kind: Option<tugarc_core::ArcKind>) {
+        let Some(ledger) = self.session_ledger.clone() else {
+            Self::send_arc_run_err(
+                &self.control_tx,
+                &request.tug_session_id,
+                &request.arc,
+                "no_ledger",
+            );
+            return;
+        };
+        // The gateway ([L29]) — the same resolution `bind_arc` and `/api/arc`
+        // apply, so all three open the same repo for one spelling.
+        let project = crate::path_resolver::resolve_to_claude_form(std::path::Path::new(
+            &request.project_dir,
+        ));
+        let session = request.tug_session_id.clone();
+        let arc = request.arc.clone();
+        let outcome = tokio::task::spawn_blocking(move || {
+            crate::arc_api::arc_run(&ledger, &project, &session, &arc, kind)
+        })
+        .await;
+
+        match outcome {
+            Ok(crate::arc_api::ArcApiOutcome::Bound {
+                session_id,
+                arc_id,
+                arc_name,
+            }) => {
+                self.registry.changeset_all_bump().notify_one();
+                broadcast_bind_arc_ok(
+                    &self.control_tx,
+                    &session_id,
+                    &arc_id,
+                    &arc_name,
+                    None,
+                    None,
+                );
+                Self::send_arc_run_ok(&self.control_tx, &session_id, &arc_name);
+            }
+            Ok(crate::arc_api::ArcApiOutcome::UnknownSession) => {
+                Self::send_arc_run_err(
+                    &self.control_tx,
+                    &request.tug_session_id,
+                    &request.arc,
+                    "unknown_session",
+                );
+            }
+            Ok(crate::arc_api::ArcApiOutcome::Error(detail)) => {
+                Self::send_arc_run_err(
+                    &self.control_tx,
+                    &request.tug_session_id,
+                    &request.arc,
+                    &detail,
+                );
+            }
+            Ok(_) => {}
+            Err(join_err) => {
+                Self::send_arc_run_err(
+                    &self.control_tx,
+                    &request.tug_session_id,
+                    &request.arc,
+                    &format!("run task failed: {join_err}"),
+                );
+            }
+        }
+    }
+
+    /// Handle an `arc_stop` CONTROL request (Spec S02): stop the arc this
+    /// card is running, and keep the arc.
+    ///
+    /// **The answer follows the stop, not the decision to stop.** The blocking
+    /// half names the stage; the async half performs it; and `arc_stop_ok` is
+    /// sent only when [`Self::stop_arc_now`] reports the stop landed. The HTTP
+    /// route cannot reach the other case — it refuses with 503 when the wheel
+    /// is absent — but the CONTROL route can, and a green button over a
+    /// running arc is exactly the [L31] fault this control exists to remove.
+    async fn do_arc_stop(&self, request: &BindArcPayload) {
+        let Some(ledger) = self.session_ledger.clone() else {
+            Self::send_arc_stop_err(
+                &self.control_tx,
+                &request.tug_session_id,
+                &request.arc,
+                "no_ledger",
+            );
+            return;
+        };
+        let project = crate::path_resolver::resolve_to_claude_form(std::path::Path::new(
+            &request.project_dir,
+        ));
+        let session = request.tug_session_id.clone();
+        let arc = request.arc.clone();
+        let outcome = tokio::task::spawn_blocking(move || {
+            crate::arc_api::arc_stop(&ledger, &project, &session, &arc)
+        })
+        .await;
+
+        match outcome {
+            Ok(crate::arc_api::ArcApiOutcome::ArcStopped {
+                arc,
+                stage,
+                session_id,
+                project_dir,
+                reason,
+                question,
+            }) => {
+                match self
+                    .stop_arc_now(
+                        &session_id,
+                        std::path::Path::new(&project_dir),
+                        &arc,
+                        StopTerms {
+                            stage,
+                            reason,
+                            question: question.as_deref(),
+                            halt: true,
+                        },
+                    )
+                    .await
+                {
+                    Ok(()) => Self::send_arc_stop_ok(&self.control_tx, &session_id, &arc),
+                    Err(reason) => {
+                        Self::send_arc_stop_err(&self.control_tx, &session_id, &arc, reason)
+                    }
+                }
+            }
+            Ok(crate::arc_api::ArcApiOutcome::UnknownSession) => {
+                Self::send_arc_stop_err(
+                    &self.control_tx,
+                    &request.tug_session_id,
+                    &request.arc,
+                    "unknown_session",
+                );
+            }
+            Ok(crate::arc_api::ArcApiOutcome::Error(detail)) => {
+                Self::send_arc_stop_err(
+                    &self.control_tx,
+                    &request.tug_session_id,
+                    &request.arc,
+                    &detail,
+                );
+            }
+            Ok(_) => {}
+            Err(join_err) => {
+                Self::send_arc_stop_err(
+                    &self.control_tx,
+                    &request.tug_session_id,
+                    &request.arc,
+                    &format!("stop task failed: {join_err}"),
+                );
+            }
+        }
+    }
+
+    /// The Start press was answered. Named from the outcome's session for the
+    /// reason [`Self::send_arc_resume_ok`] is.
+    fn send_arc_run_ok(control_tx: &broadcast::Sender<Frame>, tug_session_id: &str, arc: &str) {
+        let body = serde_json::json!({
+            "action": "arc_run_ok",
+            "tug_session_id": tug_session_id,
+            "arc": arc,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("arc_run_ok serializes"),
+        ));
+    }
+
+    /// The Start press was refused, and `reason` is what the deck speaks
+    /// through the pane bulletin ([L31]).
+    fn send_arc_run_err(
+        control_tx: &broadcast::Sender<Frame>,
+        tug_session_id: &str,
+        arc: &str,
+        reason: &str,
+    ) {
+        let body = serde_json::json!({
+            "action": "arc_run_err",
+            "tug_session_id": tug_session_id,
+            "arc": arc,
+            "reason": reason,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("arc_run_err serializes"),
+        ));
+    }
+
+    /// The Stop press was answered, and the stop really landed.
+    fn send_arc_stop_ok(control_tx: &broadcast::Sender<Frame>, tug_session_id: &str, arc: &str) {
+        let body = serde_json::json!({
+            "action": "arc_stop_ok",
+            "tug_session_id": tug_session_id,
+            "arc": arc,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("arc_stop_ok serializes"),
+        ));
+    }
+
+    /// The Stop press was refused — or was decided on and could not be
+    /// performed, which is the same fact to the user and must read as one.
+    fn send_arc_stop_err(
+        control_tx: &broadcast::Sender<Frame>,
+        tug_session_id: &str,
+        arc: &str,
+        reason: &str,
+    ) {
+        let body = serde_json::json!({
+            "action": "arc_stop_err",
+            "tug_session_id": tug_session_id,
+            "arc": arc,
+            "reason": reason,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("arc_stop_err serializes"),
+        ));
+    }
+
     /// Handle an `unbind_arc` CONTROL request (Spec S03): drop the calling
     /// session's binding. Broadcasts `unbind_arc_ok {tug_session_id}`.
     async fn do_unbind_arc(&self, tug_session_id: &str) {
@@ -7127,10 +7513,11 @@ impl AgentSupervisor {
                         // what a join landing knows about who did the work
                         // (Spec S01), and the very next statement clears them.
                         let lineage = ledger
-                            .bound_sessions_by_arc()
+                            .bound_session_by_arc()
                             .ok()
                             .and_then(|by_arc| by_arc.get(&owner_key).cloned())
-                            .unwrap_or_default();
+                            .into_iter()
+                            .collect();
                         crate::feeds::tripwire::landed(crate::feeds::tripwire::LandingEvent {
                             repo_root: project_dir.to_string(),
                             branch: outcome.base_branch.clone(),
@@ -11409,11 +11796,40 @@ pub(crate) fn test_minimal_supervisor_with_ledger() -> (
     (sup, ledger, rx)
 }
 
+/// [`test_minimal_supervisor_with_ledger`] with the supervisor *reading* that
+/// same ledger — the shape the arc CONTROL handlers need, since every one of
+/// them short-circuits on `no_ledger` without the read handle.
+#[cfg(test)]
+pub(crate) fn test_minimal_supervisor_reading_its_ledger() -> (
+    Arc<AgentSupervisor>,
+    Arc<crate::session_ledger::SessionLedger>,
+    mpsc::Receiver<MergerRegistration>,
+) {
+    let ledger = Arc::new(
+        crate::session_ledger::SessionLedger::open_in_memory().expect("open in-memory ledger"),
+    );
+    let (sup, rx) = test_minimal_supervisor_with_recorder_reading(
+        Arc::new(LedgerSessionsRecorder::new(Arc::clone(&ledger))),
+        Some(Arc::clone(&ledger)),
+    );
+    (sup, ledger, rx)
+}
+
 /// [`test_minimal_supervisor`] over a recorder the caller chose — for a
 /// harness that already holds the ledger the supervisor should write to.
 #[cfg(test)]
 pub(crate) fn test_minimal_supervisor_with_recorder(
     recorder: Arc<dyn SessionsRecorder>,
+) -> (Arc<AgentSupervisor>, mpsc::Receiver<MergerRegistration>) {
+    test_minimal_supervisor_with_recorder_reading(recorder, None)
+}
+
+/// [`test_minimal_supervisor_with_recorder`] with the read handle wired too,
+/// for the CONTROL handlers that read the ledger rather than only writing it.
+#[cfg(test)]
+pub(crate) fn test_minimal_supervisor_with_recorder_reading(
+    recorder: Arc<dyn SessionsRecorder>,
+    session_ledger: Option<Arc<crate::session_ledger::SessionLedger>>,
 ) -> (Arc<AgentSupervisor>, mpsc::Receiver<MergerRegistration>) {
     let (state_tx, _) = broadcast::channel(16);
     let (meta_tx, _) = broadcast::channel(16);
@@ -11443,13 +11859,14 @@ pub(crate) fn test_minimal_supervisor_with_recorder(
         Arc::new(|| Arc::new(MinimalStallSpawner) as Arc<dyn ChildSpawner>);
     let registry = Arc::new(WorkspaceRegistry::new_for_test());
     let cancel = CancellationToken::new();
-    let (sup, register_rx) = AgentSupervisor::new(
+    let (sup, register_rx) = AgentSupervisor::new_with_ledger(
         SessionScopedFeed::from_sender(FeedId::SESSION_STATE, state_tx, LagPolicy::Warn),
         SessionScopedFeed::from_sender(FeedId::SESSION_SIDEBAND, meta_tx, LagPolicy::Warn),
         SessionScopedFeed::from_sender(FeedId::CODE_OUTPUT, code_tx, LagPolicy::Warn),
         SessionScopedFeed::new(FeedId::ACTIVITY, 64, LagPolicy::Warn),
         control_tx,
         recorder,
+        session_ledger,
         factory,
         AgentSupervisorConfig::default(),
         registry,
@@ -12018,7 +12435,7 @@ mod tests {
     }
 
     /// A card seated by a stage takes its arc out of the sweep when it closes
-    /// (`bound_sessions_by_arc` is live-rows-only), so the close writes the
+    /// (`bound_session_by_arc` is live-rows-only), so the close writes the
     /// stop while the binding still names the arc. Without it the record says
     /// `review` forever with nothing running.
     #[tokio::test]
@@ -23381,5 +23798,249 @@ mod tests {
             .expect("provenance");
         let recorder = LedgerSessionsRecorder::new(ledger);
         assert!(replay_lineage(&recorder, "fork", root).is_none());
+    }
+
+    /// A live card seated on a running arc, with the frames it is sent
+    /// observable: the shape every stop test below asks a question of.
+    ///
+    /// Returns the supervisor, the arc log's project root, the entry, the
+    /// session's `input_rx`, and the merger registration the caller must hold
+    /// — dropping it would close a channel under a live supervisor, which is
+    /// not the state any of these tests is about.
+    async fn stop_harness(
+        root: &std::path::Path,
+        attach_wheel: bool,
+    ) -> (
+        Arc<AgentSupervisor>,
+        Arc<Mutex<LedgerEntry>>,
+        mpsc::Receiver<Frame>,
+        mpsc::Receiver<MergerRegistration>,
+    ) {
+        std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
+        std::fs::write(root.join(".tug/arcs/demo/brief.md"), "# A brief\n").unwrap();
+        std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\n",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(
+            root,
+            "demo",
+            tugarc_core::ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+
+        let (sup, ledger, register_rx) = test_minimal_supervisor_reading_its_ledger();
+        ledger
+            .record_spawn(
+                "claude-1",
+                "ws-test",
+                &root.to_string_lossy(),
+                "card-1",
+                1_000,
+                "claude-1",
+                None,
+            )
+            .unwrap();
+        ledger
+            .set_arc_binding("claude-1", Some(("tugarc/demo#1", "demo")))
+            .unwrap();
+        if attach_wheel {
+            let _ = sup.wheel.set(Arc::new(crate::wheel::WheelState::default()));
+        }
+
+        let id = TugSessionId::new("claude-1".to_string());
+        let input_rx = install_live_session_for_tests(
+            &sup,
+            &id,
+            WorkspaceKey::from_test_str("ws-test"),
+            root.to_path_buf(),
+        )
+        .await;
+        let entry = sup.ledger.lock().await.get(&id).cloned().expect("entry");
+        (sup, entry, input_rx, register_rx)
+    }
+
+    /// The frames a session was sent, by `type`, drained without blocking.
+    fn frame_types(input_rx: &mut mpsc::Receiver<Frame>) -> Vec<String> {
+        let mut out = Vec::new();
+        while let Ok(frame) = input_rx.try_recv() {
+            let parsed: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            out.push(parsed["type"].as_str().unwrap_or("?").to_string());
+        }
+        out
+    }
+
+    /// **Stop is a button, not a request** ([B06]). A stop over a running turn
+    /// interrupts it first, so the work ends now rather than at the end of a
+    /// turn that may have minutes left in it — and the hand-back follows on
+    /// the same ordered channel.
+    #[tokio::test]
+    async fn a_stop_on_a_busy_session_interrupts_then_hands_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
+        entry.lock().await.turn_active = true;
+
+        sup.stop_arc_now(
+            "claude-1",
+            root,
+            "demo",
+            StopTerms {
+                stage: tugarc_core::ArcStage::Implement,
+                reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
+                question: None,
+                halt: true,
+            },
+        )
+        .await
+        .expect("the stop lands");
+
+        assert_eq!(
+            frame_types(&mut input_rx),
+            vec!["interrupt".to_string(), "model_change".to_string()],
+            "the interrupt goes first, and the hand-back follows it",
+        );
+        assert_eq!(
+            tugarc_core::arc::read_arc(root, "demo").unwrap().stopped,
+            Some((
+                tugarc_core::ArcStage::Implement,
+                "stopped by user".to_string()
+            )),
+        );
+    }
+
+    /// And an idle session is interrupted by nothing: there is no turn to end,
+    /// and a frame sent to say so would be one the card has to answer.
+    #[tokio::test]
+    async fn a_stop_on_an_idle_session_sends_no_interrupt() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
+        entry.lock().await.turn_active = false;
+
+        sup.stop_arc_now(
+            "claude-1",
+            root,
+            "demo",
+            StopTerms {
+                stage: tugarc_core::ArcStage::Implement,
+                reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
+                question: None,
+                halt: true,
+            },
+        )
+        .await
+        .expect("the stop lands");
+
+        assert_eq!(frame_types(&mut input_rx), vec!["model_change".to_string()]);
+    }
+
+    /// **An `arc ask` never interrupts** ([P03]). A stage stopping over a
+    /// question is mid-sentence, and the sentence is the whole of what the
+    /// receipt has to carry.
+    #[tokio::test]
+    async fn an_ask_never_interrupts() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
+        entry.lock().await.turn_active = true;
+
+        sup.stop_arc_now(
+            "claude-1",
+            root,
+            "demo",
+            StopTerms {
+                stage: tugarc_core::ArcStage::Implement,
+                reason: tugarc_core::arc::ArcStopReason::NeedsDecision,
+                question: Some("which of the two?"),
+                halt: false,
+            },
+        )
+        .await
+        .expect("the stop lands");
+
+        assert_eq!(
+            frame_types(&mut input_rx),
+            vec!["model_change".to_string()],
+            "a turn ending on its own question is not cut short",
+        );
+        let record = tugarc_core::arc::read_arc(root, "demo").unwrap();
+        assert!(
+            record
+                .notes
+                .iter()
+                .any(|note| note.contains("which of the two?")),
+            "and the question is on the record before the stop: {:?}",
+            record.notes,
+        );
+    }
+
+    /// **A stop that did not happen answers `_err`** ([L31]). With no wheel
+    /// there is nowhere for the hand-back or the receipt to go, so nothing is
+    /// stopped and nothing is recorded — and a green button over an arc still
+    /// running is the exact fault this control exists to remove.
+    #[tokio::test]
+    async fn a_stop_with_no_wheel_answers_err_not_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, _entry, mut input_rx, _register_rx) = stop_harness(root, false).await;
+        let mut control_rx = sup.control_tx.subscribe();
+
+        assert_eq!(
+            sup.stop_arc_now(
+                "claude-1",
+                root,
+                "demo",
+                StopTerms {
+                    stage: tugarc_core::ArcStage::Implement,
+                    reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
+                    question: None,
+                    halt: true,
+                },
+            )
+            .await,
+            Err("no_wheel"),
+        );
+        assert!(frame_types(&mut input_rx).is_empty());
+        assert!(
+            tugarc_core::arc::read_arc(root, "demo")
+                .unwrap()
+                .stopped
+                .is_none(),
+            "no `arc-stop` line was appended",
+        );
+
+        sup.do_arc_stop(&BindArcPayload {
+            tug_session_id: "claude-1".to_string(),
+            project_dir: root.to_string_lossy().to_string(),
+            arc: "demo".to_string(),
+        })
+        .await;
+        let mut answers = Vec::new();
+        while let Ok(frame) = control_rx.try_recv() {
+            let parsed: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            if let Some(action) = parsed["action"].as_str() {
+                answers.push((
+                    action.to_string(),
+                    parsed["reason"].as_str().map(str::to_owned),
+                ));
+            }
+        }
+        assert!(
+            answers
+                .iter()
+                .any(|(action, reason)| action == "arc_stop_err"
+                    && reason.as_deref() == Some("no_wheel")),
+            "the press is answered with the refusal, never a green `_ok`: {answers:?}",
+        );
+        assert!(
+            !answers.iter().any(|(action, _)| action == "arc_stop_ok"),
+            "{answers:?}",
+        );
     }
 }

@@ -18,7 +18,7 @@
  * session's own Cards row grows its title cluster; unbind, and the atom
  * leaves. Then Bind is pressed for real, out of the menu: it sends the same
  * `bind_arc` frame the Changes shade sends, and the register flips because
- * `bound_sessions`
+ * `bound_session`
  * moved in the account-global aggregate, not because the click did anything
  * local.
  *
@@ -74,9 +74,10 @@ const ARC_NAME = "at0438-unbound";
 const SECTION = '.arcs-section';
 const ROW = `${SECTION} [data-slot="arcs-row"][data-arc="${ARC_NAME}"]`;
 const ROW_ATOM = `${ROW} [data-slot="tug-arc-lifecycle-name"]`;
-/* The eyebrow's own children — the identities, and nothing else. An arc
-   row carries no opener: its verbs answer the row's right-click. */
-const EYEBROW_VERBS = `${ROW} [data-slot="tug-arc-lifecycle-eyebrow"] button`;
+/* The eyebrow's own children — the identities, the steps fold, and nothing
+   else. An arc row carries no verb opener: its verbs answer the row's
+   right-click, and the one button in the eyebrow is [D176]'s fold cue. */
+const EYEBROW_VERBS = `${ROW} [data-slot="tug-arc-lifecycle-eyebrow"] button:not([data-slot="arcs-steps-fold"])`;
 const WORKER = `${ROW} [data-slot="tug-arc-lifecycle-worker"]`;
 
 const CARDS = '.cards-card';
@@ -253,7 +254,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
           workerDots: number;
           workerArcRuns: number;
           pillInset: number;
-          workerInset: number;
+          trailingInset: number;
         }>(
           `(() => {
              const worker = document.querySelector(${JSON.stringify(WORKER)});
@@ -274,9 +275,20 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
                pillInset:
                  row.querySelector('[data-slot="tug-arc-atom"]').getBoundingClientRect().left -
                  row.getBoundingClientRect().left,
-               workerInset:
-                 row.getBoundingClientRect().right -
-                 worker.getBoundingClientRect().right,
+               // Measured against the eyebrow's LAST child, which is the
+               // steps fold ([D176]) on a row whose arc carries a ledger and
+               // the worker atom otherwise — the worker sits inboard of the
+               // cue and is not the trailing edge to weigh.
+               trailingInset: (() => {
+                 const eyebrow = row.querySelector(
+                   '[data-slot="tug-arc-lifecycle-eyebrow"]',
+                 );
+                 const last = eyebrow.lastElementChild;
+                 return (
+                   row.getBoundingClientRect().right -
+                   last.getBoundingClientRect().right
+                 );
+               })(),
              };
            })()`,
         );
@@ -295,8 +307,8 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
         expect(bound.workerDots).toBe(1);
         expect(bound.workerArcRuns).toBe(0);
         expect(
-          Math.abs(bound.pillInset - bound.workerInset),
-          "the arc pill and the worker atom sit the same distance in",
+          Math.abs(bound.pillInset - bound.trailingInset),
+          "the eyebrow's first and last children sit the same distance in",
         ).toBeLessThanOrEqual(1);
         // The band did not move: always on is the whole point.
         expect(await count(app, SECTION)).toBe(1);
@@ -318,7 +330,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
 
         // ── Bind again, through the row's own menu ────────────────────────
         // The press sends `bind_arc`; the register flips because
-        // `bound_sessions` moved in the aggregate, not because the click did
+        // `bound_session` moved in the aggregate, not because the click did
         // anything local.
         await pressUntil(app, ROW, WORKER);
         expect(await count(app, SECTION)).toBe(1);

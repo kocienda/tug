@@ -415,7 +415,7 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
         // ── 4. The binding rode the seat, on the card ────────────────────
         //
         // The masthead's sigil reads the account-global aggregate's
-        // `bound_sessions`, which only a live row actually carrying the
+        // `bound_session`, which only a live row actually carrying the
         // binding reaches; the Z2 cell reads the same arc through the card's
         // own binding store, which is what `bind_arc_ok` writes. The
         // incident blanked both.

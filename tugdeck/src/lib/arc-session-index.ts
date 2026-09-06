@@ -3,13 +3,13 @@
  *
  * Two reads answered an arc question before this one and neither fits an
  * identity surface. `cardSessionBindingStore.getBinding(cardId)?.arc` is
- * keyed by *card*; `ArcChangesetEntry.bound_sessions` is keyed by *arc*. A
+ * keyed by *card*; `ArcChangesetEntry.bound_session` is keyed by *arc*. A
  * session atom, a Overview citation, or a Cards card row holds a session id and
  * nothing else, so it needs the inverse: session → arc.
  *
  * The inverse is derived, never stored ([D138]). The account-global
- * `CHANGESET_ALL` aggregate already carries every arc and its bound
- * sessions, so this module projects that snapshot into a map on read and
+ * `CHANGESET_ALL` aggregate already carries every arc and the session bound
+ * to it, so this module projects that snapshot into a map on read and
  * memoizes the result on snapshot identity — one build per snapshot, shared
  * by every reader. A bind or unbind moves the aggregate, the map rebuilds,
  * and every surface repaints at once.
@@ -90,8 +90,8 @@ export function buildArcSessionIndex(
   for (const project of snapshot.projects) {
     for (const entry of project.changesets) {
       if (entry.kind !== "arc") continue;
-      const sessions = entry.bound_sessions ?? [];
-      if (sessions.length === 0) continue;
+      const boundSession = entry.bound_session;
+      if (boundSession === undefined) continue;
       const fact: ArcSessionFact = {
         ownerId: entry.owner_id,
         name: entry.display_name,
@@ -107,10 +107,7 @@ export function buildArcSessionIndex(
         hasPlan: entry.documents?.plan !== undefined,
         entry,
       };
-      for (const sessionId of sessions) {
-        if (index.has(sessionId)) continue;
-        index.set(sessionId, fact);
-      }
+      if (!index.has(boundSession)) index.set(boundSession, fact);
     }
     // The documents-only arcs of the same project, after its live entries so
     // the first-claim rule keeps the live reading for a session that somehow
@@ -118,8 +115,8 @@ export function buildArcSessionIndex(
     // has; the run counters are positions within a declared run, which it has
     // none of.
     for (const arc of project.document_arcs ?? []) {
-      const sessions = arc.bound_sessions ?? [];
-      if (sessions.length === 0) continue;
+      const boundSession = arc.bound_session;
+      if (boundSession === undefined) continue;
       const fact: ArcSessionFact = {
         ownerId: arc.owner_id,
         name: arc.display_name,
@@ -135,10 +132,7 @@ export function buildArcSessionIndex(
         hasPlan: arc.documents.plan !== undefined,
         entry: documentArcAsEntry(arc),
       };
-      for (const sessionId of sessions) {
-        if (index.has(sessionId)) continue;
-        index.set(sessionId, fact);
-      }
+      if (!index.has(boundSession)) index.set(boundSession, fact);
     }
   }
   return index;
@@ -168,7 +162,7 @@ export function arcSessionIndex(
  * The arc a session is working on, or null.
  *
  * **Asked of the segment, answered for the line** ([P01]/[P02]). The
- * aggregate's `bound_sessions` names whichever segment holds the binding right
+ * aggregate's `bound_session` names whichever segment holds the binding right
  * now, and the Wheel moves that forward every time it rotates a stage
  * (`seat_line_binding`) — while the caller is holding whatever segment id it
  * was minted with: a card's spawn address, a citation's cited id, a telemetry

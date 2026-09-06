@@ -40,7 +40,7 @@
  * this shade at all: every act it could offer is withheld or wrong from here,
  * and the Arcs card — which lists every arc, always — is where it is seen and
  * where its room is one click away. The holding session is seeded into the
- * ledger with an `arc_id`, since `bound_sessions` is computed from those rows
+ * ledger with an `arc_id`, since `bound_session` is computed from those rows
  * and a client-side `bind_arc_ok` cannot fake it; the Arcs card row's worker
  * atom is the positive signal that the binding reached the aggregate, and the
  * lane's absence is asserted only after it.
@@ -59,7 +59,7 @@
  *
  * What the masthead says about the binding is NOT asserted here, and that is
  * deliberate. The arc rides the title's own grammar now, derived from the
- * arc's `bound_sessions` in the account-global aggregate — so it answers to
+ * arc's `bound_session` in the account-global aggregate — so it answers to
  * server state, and the initial bind in this file is a synthesized
  * `bind_arc_ok` rather than a real one. at0406 drives that whole loop through
  * the real CLI and pins the run against it; asserting it here would have meant
@@ -288,7 +288,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         );
 
         // A second live session in this instance's ledger, and the arc is
-        // mated to IT rather than to this card's. `bound_sessions` is computed
+        // mated to IT rather than to this card's. `bound_session` is computed
         // from these rows, so this is the real condition rather than a
         // client-side pretence — a `bind_arc_ok` broadcast could not produce
         // it. After launch, not before: tugcast demotes every `live` row to

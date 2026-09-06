@@ -36,10 +36,10 @@
  * An arc with no branch yet — a brief being written, a plan being devised or
  * reviewed — is the SAME block, over `documentArcAsEntry`, with its track
  * model from `documentArcTrackModel` so a plan already under way reads
- * `implement` with the ledger's own counts. It carries no trailing control at
- * all — neither the menu, which is a live arc's, nor the fold, which reads a
- * ledger a waiting document's entry does not carry — because a plan is
- * paperwork to read.
+ * `implement` with the ledger's own counts. It carries neither the menu, which
+ * is a live arc's, nor the fold, which reads a ledger a waiting document's
+ * entry does not carry — only the transport, which is how paperwork becomes an
+ * arc.
  *
  * `ChangesetAllStore` is the account-global snapshot, so this card is a
  * projection of it and nothing more. Rows key on the arc's **owner key**, which makes two
@@ -70,12 +70,14 @@
  * while the front half was a file only `ls` could find. A plan row is the same
  * two-line block one tone quieter, and that is the whole of it.
  *
- * **A plan row carries no button.** It wore its next gesture for a while —
- * Devise, Review, Implement — a control that composed a `/tugplug:…` line and
- * submitted it into the followed card. It read as a label rather than as a
- * control, it made a row about the followed card when the card is about
- * every project, and the gesture it offered is one sentence to type. The row
- * reports; the arc is run from the composer.
+ * **A plan row carries one control: the transport.** It is not the button
+ * that was removed. That one wore a word — Devise, Review, Implement — and
+ * composed a `/tugplug:…` line into the followed card: a label where a control
+ * should be, offering a gesture that is one sentence to type. This one is an
+ * icon, it performs a server verb rather than writing a prompt, and where the
+ * old button silently made the row about the followed card, this one says so
+ * before it is pressed — a Start that has nowhere to land wears its reason and
+ * speaks it ([D178], [L31]).
  *
  * Live work outranks waiting paperwork, so arcs come first and plans follow;
  * plans are listed for every open project, exactly as arcs are.
@@ -83,8 +85,8 @@
  * Laws: [L02] the aggregate enters React through `useSyncExternalStore`;
  * [L06] tones are CSS on DOM attributes, never React state; [L19] rows compose
  * `TugListView` / `TugListRow` rather than hand-rolling list focus; [L20] the
- * blocks compose `ArcLifecycleBlock`, which owns the atom, the workers, and
- * the line.
+ * blocks compose `ArcLifecycleBlock`, which owns the atom, the bound worker as
+ * a mini atom when there is one, and the line.
  *
  * @module components/arcs/arcs-card
  */
@@ -109,6 +111,7 @@ import {
   documentArcTrackModel,
 } from "@/lib/document-arc-entry";
 import { ArcJoinRegister } from "@/components/tugways/arc-join-register";
+import { ArcTransportControl } from "@/components/tugways/arc-transport-control";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { useChangesetJoinLand } from "@/lib/changeset-join-store";
 import { TugListRow } from "@/components/tugways/tug-list-row";
@@ -133,6 +136,9 @@ import { dispatchCommand } from "@/command-dispatch";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { useChangesetAll } from "@/lib/changeset-all-store";
+import { arcSessionIndex } from "@/lib/arc-session-index";
+import { isLiveRun, type FollowedCardFacts } from "@/lib/arc-transport";
+import { sessionDisplayTitle, useSessionIdentity } from "@/lib/session-identity";
 import { useChangesetDiscard, useChangesetReplay } from "@/lib/changeset-verb-store";
 import {
   replayDisabledReason,
@@ -255,6 +261,8 @@ export function arcRowsFromSnapshot(
 export interface DocumentArcRow {
   /** Project dir plus arc name — unique across every open project. */
   key: string;
+  /** The owning project's directory — what a Start has to name. */
+  projectDir: string;
   /** The wire entry: the row reads it directly. */
   entry: DocumentArcEntry;
 }
@@ -320,6 +328,7 @@ export function documentArcRowsFromSnapshot(
     .flatMap((project) =>
       (project.document_arcs ?? []).map((entry) => ({
         key: `${project.project_dir}:${entry.display_name}`,
+        projectDir: project.project_dir,
         entry,
       })),
     )
@@ -430,12 +439,10 @@ export function resolveBindTarget(input: {
  * The open card working this arc, or null — the destination a row activation
  * routes to.
  *
- * Pure, so its whole truth table is a unit test rather than a DOM one. First
- * match wins: `bound_sessions` is live sessions mated to the arc, and a card
- * bound to one of them is a card whose Changes shade shows this arc's lane. In
- * the ordinary case there is exactly one; where there are several, any of them
- * is a correct room to open, and picking the first keeps the answer stable
- * across renders rather than depending on iteration luck.
+ * Pure, so its whole truth table is a unit test rather than a DOM one.
+ * `bound_session` is the one live session mated to the arc — an arc is bound
+ * to at most one live card — and the card bound to it is the card whose
+ * Changes shade shows this arc's lane.
  *
  * Null is the common case, not an error: the Arcs card lists every arc in every
  * open project, so an arc nobody holds — or one whose worker's card is closed —
@@ -443,13 +450,13 @@ export function resolveBindTarget(input: {
  * row's own affordance has to advertise.
  */
 export function resolveWorkerCard(
-  boundSessions: readonly string[],
+  boundSession: string | null,
   bindings: ReadonlyMap<string, { tugSessionId: string }>,
 ): string | null {
-  if (boundSessions.length === 0) return null;
-  const held = new Set(boundSessions);
   for (const [cardId, binding] of bindings) {
-    if (held.has(binding.tugSessionId)) return cardId;
+    if (boundSession !== null && binding.tugSessionId === boundSession) {
+      return cardId;
+    }
   }
   return null;
 }
@@ -460,7 +467,7 @@ function useWorkerCard(entry: ArcChangesetEntry): string | null {
     cardSessionBindingStore.subscribe,
     cardSessionBindingStore.getSnapshot,
   );
-  return resolveWorkerCard(entry.bound_sessions ?? [], bindings);
+  return resolveWorkerCard(entry.bound_session ?? null, bindings);
 }
 
 /**
@@ -496,6 +503,40 @@ function useBindTarget(row: ArcRow): BindTarget {
     projectDir: row.projectDir,
     projectLabel: row.projectLabel,
   });
+}
+
+/**
+ * The card the Arcs card is following, as the transport control reads it —
+ * or null when there is no followed card, or it holds no session.
+ *
+ * The control's own resolution is pure ({@link resolveTransportActor}, Table
+ * T02), so everything live is gathered here: which card is followed, the
+ * session and project its binding names, the name a refusal would call it by,
+ * and the arc it is already running. `runningArc` is a **live** reading — an
+ * arc that is done, or one somebody stopped, is not work this card is doing,
+ * and the server's own `bind` would bind over either — so a card sitting on a
+ * stopped arc still accepts a Start.
+ */
+function useFollowedCardFacts(): FollowedCardFacts | null {
+  const followedCardId = useFollowedCard();
+  const bindings = useSyncExternalStore(
+    cardSessionBindingStore.subscribe,
+    cardSessionBindingStore.getSnapshot,
+  );
+  const binding =
+    followedCardId !== null ? bindings.get(followedCardId) : undefined;
+  const identity = useSessionIdentity(binding?.tugSessionId ?? null);
+  const index = arcSessionIndex(useChangesetAll());
+  if (followedCardId === null || binding === undefined) return null;
+  const fact = index.get(binding.tugSessionId) ?? null;
+  return {
+    cardId: followedCardId,
+    tugSessionId: binding.tugSessionId,
+    projectDir: binding.projectDir,
+    cardName:
+      identity !== null ? sessionDisplayTitle(identity) : binding.tugSessionId,
+    runningArc: fact !== null && isLiveRun(fact.arc) ? fact.name : null,
+  };
 }
 
 /** What a row may ask of the section around it. */
@@ -540,7 +581,7 @@ function useArcRowVerbsMenu(row: ArcRow): {
   const followedSessionId = useFollowedSessionId();
   const entry = row.entry;
   const name = entry.display_name;
-  const bound = (entry.bound_sessions ?? []).length > 0;
+  const bound = entry.bound_session !== undefined;
   const rowRef = React.useRef<HTMLElement | null>(null);
 
   const rowMenu = useArcRowMenu({
@@ -632,7 +673,7 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   const row = dataSource.rows[index];
   if (row === undefined) return null;
   const entry = row.entry;
-  const workers = entry.bound_sessions ?? [];
+  const worker = entry.bound_session ?? null;
   // What a click on this row would do — and therefore what the row is allowed
   // to look like. A row with no open worker card has no room to open, and a
   // dead click on something that presented as live is the failure this
@@ -650,6 +691,8 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   // Bind / Discard / Replay, on the row's second button — the eyebrow carries
   // no opener of its own any more.
   const verbsMenu = useArcRowVerbsMenu(row);
+  // And the one control that acts on the arc rather than navigating to it.
+  const followed = useFollowedCardFacts();
   return (
     <TugListRow
       className="arcs-row"
@@ -657,7 +700,7 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       density="compact"
       data-slot="arcs-row"
       data-arc={entry.display_name}
-      data-bound={workers.length > 0 ? "true" : undefined}
+      data-bound={worker !== null ? "true" : undefined}
       data-activatable={activatable ? "true" : undefined}
       onContextMenu={verbsMenu.onContextMenu}
     >
@@ -673,29 +716,45 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
             miniature. */}
         <ArcLifecycleBlock
           name={entry.display_name}
-          workers={workers}
+          worker={worker}
           model={model}
           stepTitle={entry.step_title ?? null}
           facts={arcMetaFacts(entry)}
           trailing={
-            // The tool-call header's own cue, in the slot the block reserved
-            // for it: same icon pair, same `xs` icon-only shape, and the
-            // default scroll stabilization, because this list scrolls exactly
-            // as the transcript does. No `stopPropagation` and no selection
-            // guard — the list excuses any descendant that refuses focus, so
-            // a press here never picks the row.
-            <BlockFoldCue
-              collapsed={!expanded}
-              onToggle={() => dataSource.toggle(row.ownerId)}
-              collapsedLabel="Expand"
-              expandedLabel="Collapse"
-              ariaLabelExpand={`Expand steps for arc ${entry.display_name}`}
-              ariaLabelCollapse={`Collapse steps for arc ${entry.display_name}`}
-              size="xs"
-              subtype="icon"
-              disabled={steps.length === 0}
-              data-slot="arcs-steps-fold"
-            />
+            <>
+              {/* The transport, before the cue: the act on the arc leads the
+                  view of it. It draws nothing at all on an arc there is no
+                  verb for ([D178]). */}
+              <ArcTransportControl
+                arc={entry.display_name}
+                projectDir={row.projectDir}
+                run={entry.arc ?? null}
+                documents={entry.documents}
+                boundSession={worker}
+                surface="arcs"
+                followed={followed}
+                size="xs"
+                form="icon"
+              />
+              {/* The tool-call header's own cue, in the slot the block
+                  reserved for it: same icon pair, same `xs` icon-only shape,
+                  and the default scroll stabilization, because this list
+                  scrolls exactly as the transcript does. No `stopPropagation`
+                  and no selection guard — the list excuses any descendant that
+                  refuses focus, so a press here never picks the row. */}
+              <BlockFoldCue
+                collapsed={!expanded}
+                onToggle={() => dataSource.toggle(row.ownerId)}
+                collapsedLabel="Expand"
+                expandedLabel="Collapse"
+                ariaLabelExpand={`Expand steps for arc ${entry.display_name}`}
+                ariaLabelCollapse={`Collapse steps for arc ${entry.display_name}`}
+                size="xs"
+                subtype="icon"
+                disabled={steps.length === 0}
+                data-slot="arcs-steps-fold"
+              />
+            </>
           }
         />
         {verbsMenu.menu}
@@ -739,7 +798,7 @@ function ArcJoinRow({ row }: { row: ArcRow }): React.ReactElement | null {
         landBeat={landBeat}
         // The Arcs card is the one surface that renders arcs nobody is holding,
         // so it is the one that has to hand the register that fact ([D147]).
-        bound={(entry.bound_sessions ?? []).length > 0}
+        bound={entry.bound_session !== undefined}
         // A live wheel outranks the offer: the section shows the stage that is
         // running rather than a readiness the audit has not signed off on.
         run={entry.arc ?? null}
@@ -754,18 +813,24 @@ function ArcJoinRow({ row }: { row: ArcRow }): React.ReactElement | null {
  * naming the document and carrying its one affordance, over a meta line saying
  * what it is and how far it goes.
  *
- * The affordance is an explicit control, never row activation ([D142]): a plan
- * row has no room to open, and pressing anywhere on it must not submit a
- * prompt. Its label is the next gesture — Resume for a plan with work already
- * on its ledger, Review for a plan nothing vouches for, Implement for one a
- * review covers — and a press that cannot land is disabled wearing the
- * ladder's own sentence ([L31]).
+ * The affordance is the transport control, never row activation ([D142]): a
+ * plan row has no room to open, and pressing anywhere on it must not start
+ * anything. The control is a Start — an arc that exists only as documents has
+ * no run to stop or resume — and pressing it opens the arc on the followed
+ * card through the server's own `arc_run`, with the kind the documents name
+ * ([D178], Spec S01). A press that cannot land is not disabled: it stays
+ * pressable and speaks its reason ([L31], [P07]).
+ *
+ * No fold cue beside it: [D176] left the plan rows out of the fold, because
+ * the ledger a fold opens is one a waiting document's entry does not carry.
+ * The transport is the one trailing thing these rows have.
  */
 const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   index,
   dataSource,
 }: TugListViewCellProps<CockpitRowsDataSource>) => {
   const row = dataSource.planAt(index);
+  const followed = useFollowedCardFacts();
   if (row === undefined) return null;
   const entry = row.entry;
   const begun = documentArcIsBegun(entry);
@@ -786,9 +851,22 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       <span className="arcs-block">
         <ArcLifecycleBlock
           name={entry.display_name}
-          workers={entry.bound_sessions ?? []}
+          worker={entry.bound_session ?? null}
           model={model}
           facts={arcMetaFacts(documentArcAsEntry(entry))}
+          trailing={
+            <ArcTransportControl
+              arc={entry.display_name}
+              projectDir={row.projectDir}
+              run={entry.arc ?? null}
+              documents={entry.documents}
+              boundSession={entry.bound_session ?? null}
+              surface="arcs"
+              followed={followed}
+              size="xs"
+              form="icon"
+            />
+          }
         />
       </span>
     </TugListRow>
@@ -883,7 +961,7 @@ function ArcsBody(): React.ReactElement {
       // is following nothing falls back to the session working the arc,
       // which is the other card this outcome is about.
       requestReplay: (row, tugSessionId) => {
-        const voice = tugSessionId ?? (row.entry.bound_sessions ?? [])[0] ?? null;
+        const voice = tugSessionId ?? row.entry.bound_session ?? null;
         replayVerb.replay(
           row.workspaceKey,
           row.entry.display_name,
@@ -918,7 +996,7 @@ function ArcsBody(): React.ReactElement {
       const row = dataSource.rows[index];
       if (row === undefined) return;
       const cardId = resolveWorkerCard(
-        row.entry.bound_sessions ?? [],
+        row.entry.bound_session ?? null,
         cardSessionBindingStore.getSnapshot(),
       );
       if (cardId === null) return;

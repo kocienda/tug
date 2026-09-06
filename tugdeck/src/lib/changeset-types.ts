@@ -222,8 +222,16 @@ export interface ArcChangesetEntry {
   stage?: string;
   /** The run driving this arc, when one is — see {@link ArcRunState}. */
   arc?: ArcRunState;
-  /** Live sessions mated to this arc. Empty is how *unbound* reads. */
-  bound_sessions?: string[];
+  /**
+   * The live session mated to this arc — one arc, one card. Absent is how
+   * *unbound* reads.
+   *
+   * The guard below rejects an entry still carrying the old `bound_sessions`
+   * array, and that conjunct is load-bearing: an entry with the array and no
+   * scalar would otherwise pass and read as unbound, which is the silent
+   * version of the bug this rename exists to make impossible.
+   */
+  bound_session?: string;
   /**
    * Whether any session holding this arc is still working — mid-turn, or
    * waiting on a background job it launched (a test sweep, an agent).
@@ -835,7 +843,9 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       (value.branch === undefined || typeof value.branch === "string") &&
       (value.stage === undefined || typeof value.stage === "string") &&
       isOptionalArcRunState(value.arc) &&
-      isOptionalStringArray(value.bound_sessions) &&
+      (value.bound_session === undefined ||
+        typeof value.bound_session === "string") &&
+      value.bound_sessions === undefined &&
       (value.holders_busy === undefined ||
         typeof value.holders_busy === "boolean") &&
       (value.step_current === undefined ||
@@ -987,8 +997,8 @@ export interface DocumentArcEntry {
   arc_kind?: "plain" | "planned";
   /** The run driving this arc, when one is open. */
   arc?: ArcRunState;
-  /** Sessions bound to this arc. */
-  bound_sessions?: string[];
+  /** The session bound to this arc — at most one. */
+  bound_session?: string;
 }
 
 export function isDocumentArcEntry(
@@ -1003,7 +1013,9 @@ export function isDocumentArcEntry(
     typeof value.step_total === "number" &&
     typeof value.steps_done === "number" &&
     typeof value.steps_begun === "number" &&
-    isOptionalStringArray(value.bound_sessions)
+    (value.bound_session === undefined ||
+      typeof value.bound_session === "string") &&
+    value.bound_sessions === undefined
   );
 }
 

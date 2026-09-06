@@ -1005,9 +1005,9 @@ describe("summarizeGroup", () => {
 describe("a session's arc", () => {
   const SESSION_GROUPS = { session: "sessions" as const, tripwires: "none" as const };
 
-  /** A snapshot whose one arc binds `sessions`. */
+  /** A snapshot whose one arc binds `session`. */
   function snapshotWith(
-    sessions: string[],
+    session: string,
     extra: Partial<{
       name: string;
       ownerId: string;
@@ -1039,7 +1039,7 @@ describe("a session's arc", () => {
               review: extra.review,
               step_current: extra.stepCurrent,
               step_total: extra.stepTotal,
-              bound_sessions: sessions,
+              bound_session: session,
               base: "main",
               rounds: 0,
               worktree: "/tmp/wt",
@@ -1064,7 +1064,7 @@ describe("a session's arc", () => {
     const rows = buildCardsRows(
       inputs(oneSession, {
         bindings: new Map([["s1", binding("sess-1")]]),
-        changesets: snapshotWith(["sess-1"]),
+        changesets: snapshotWith("sess-1"),
       }),
       resolvers({ groups: SESSION_GROUPS }),
     );
@@ -1086,8 +1086,8 @@ describe("a session's arc", () => {
         }),
         resolvers({ groups: SESSION_GROUPS }),
       );
-    const bound = project(snapshotWith(["sess-1"]));
-    const unbound = project(snapshotWith(["someone-else"]));
+    const bound = project(snapshotWith("sess-1"));
+    const unbound = project(snapshotWith("someone-else"));
     expect(bound.map(idOfRow)).toEqual(unbound.map(idOfRow));
     expect(bound.map(kindOfRow)).toEqual(unbound.map(kindOfRow));
   });
@@ -1098,7 +1098,7 @@ describe("a session's arc", () => {
     const rows = buildCardsRows(
       inputs(oneSession, {
         bindings: new Map([["s1", binding("sess-1")]]),
-        changesets: snapshotWith(["sess-1"], { name: "marmalade" }),
+        changesets: snapshotWith("sess-1", { name: "marmalade" }),
         filterQuery: "marmal",
       }),
       resolvers({ groups: SESSION_GROUPS }),
@@ -1113,7 +1113,7 @@ describe("a session's arc", () => {
     const rows = buildCardsRows(
       inputs(oneSession, {
         bindings: new Map([["s1", binding("sess-1")]]),
-        changesets: snapshotWith(["sess-1"]),
+        changesets: snapshotWith("sess-1"),
         filterQuery: "nothing-matches-this",
       }),
       resolvers({ groups: SESSION_GROUPS }),
@@ -1125,7 +1125,7 @@ describe("a session's arc", () => {
     const source = new CardsDataSource(
       inputs(oneSession, {
         bindings: new Map([["s1", binding("sess-1")]]),
-        changesets: snapshotWith(["sess-1"]),
+        changesets: snapshotWith("sess-1"),
       }),
       resolvers({ groups: SESSION_GROUPS }),
     );

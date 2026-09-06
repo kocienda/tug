@@ -22,7 +22,7 @@
  *      own `tugcast --seed-ledger`;
  *   3. a full process relaunch resuming the stage, and the card's masthead
  *      read for the `^<arc>` sigil — the identity surface that reads the
- *      account-global aggregate's `bound_sessions`, which only a live row
+ *      account-global aggregate's `bound_session`, which only a live row
  *      carrying the binding can reach.
  *
  * @covers tugrust/crates/tugcast/src/session_ledger.rs

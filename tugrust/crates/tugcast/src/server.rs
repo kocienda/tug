@@ -499,6 +499,10 @@ fn apply_draft_request(
 /// Request payload for POST /api/arc — the CLI's session↔arc binding
 /// write path (`tugtool arc bind|unbind`, and the `arc_gone` broadcast a
 /// terminal join fires). Spec S04, [P04].
+///
+/// `arc_run` also reaches this shape from the deck's transport control, which
+/// is the one caller that can arrive with documents and no record — hence
+/// `kind`, which the opening records and every other op ignores.
 #[derive(serde::Deserialize)]
 struct ArcApiRequest {
     /// `bind` | `arc_run` | `arc_resume` | `unbind` | `arc_stop` | `arc_ask` |
@@ -514,6 +518,11 @@ struct ArcApiRequest {
     /// The arc name, for `bind`.
     #[serde(default)]
     arc: Option<String>,
+    /// For `arc_run`: the kind to record if the arc has never run ([B08]).
+    /// Absent is legal and means "do not open" — the CLI opens client-side
+    /// and arrives with a record, so it never sends one.
+    #[serde(default)]
+    kind: Option<String>,
     /// For `arc_gone`: the owner key captured **before** the teardown that
     /// deleted the arc's branch ([P05]).
     #[serde(default)]
@@ -673,44 +682,29 @@ async fn arc_handler(
             reason,
             question,
         } => {
-            let Some(wheel) = router.wheel.as_ref() else {
-                return err(StatusCode::SERVICE_UNAVAILABLE, "no wheel");
-            };
-            // The question first, and as its own `arc-note`: the stop
-            // vocabulary is closed and cannot carry a payload, and the receipt
-            // is composed from the record the stop path re-reads — so a note
-            // written after the stop would arrive too late to be spoken, and a
-            // reason carrying prose would be a reason the formatter could not
-            // match on. Best-effort like every other append: a note that does
-            // not land costs the receipt its question, never the stop.
-            if let Some(question) = question.as_deref() {
-                if let Err(e) = tugarc_core::arc::append_arc_note(
+            // The whole of the stop — the question's note, the interrupt, the
+            // hand-back, the receipt, the record — is the supervisor's one
+            // method, so this route and the CONTROL frame the transport
+            // control sends take the same path ([P03]). **Only a user's stop
+            // halts a running turn**: an `arc_ask` is a stage ending its own
+            // turn over a question, and interrupting it would truncate the
+            // sentence the receipt exists to carry.
+            if let Err(reason) = supervisor
+                .stop_arc_now(
+                    &session_id,
                     std::path::Path::new(&project_dir),
                     &arc,
-                    question,
-                ) {
-                    tracing::warn!(
-                        arc = %arc,
-                        error = %e,
-                        "could not record the question a stage stopped over",
-                    );
-                }
+                    crate::feeds::agent_supervisor::StopTerms {
+                        stage,
+                        reason,
+                        question: question.as_deref(),
+                        halt: reason == tugarc_core::arc::ArcStopReason::StoppedByUser,
+                    },
+                )
+                .await
+            {
+                return err(StatusCode::SERVICE_UNAVAILABLE, reason);
             }
-            crate::feeds::arc_runner::stop_arc_for_session(
-                supervisor,
-                wheel,
-                &tugcast_core::protocol::TugSessionId::new(session_id),
-                std::path::Path::new(&project_dir),
-                &arc,
-                stage,
-                reason,
-                crate::feeds::arc_runner::StopDelivery {
-                    hand_back: crate::feeds::arc_runner::HandBack::Send,
-                    record: true,
-                },
-            )
-            .await;
-            registry.changeset_all_bump().notify_one();
             (
                 StatusCode::OK,
                 axum::Json(serde_json::json!({
@@ -774,6 +768,11 @@ fn apply_arc_request(
         // rotating on receipt would kill claude in the middle of the turn that
         // asked for the arc. The first rotation is that session's own idle
         // transition ([P05]).
+        //
+        // It also *opens* the arc when there is no record and the request
+        // named a kind ([P04]) — the deck's Start button is the caller that
+        // arrives with documents and nothing else. The CLI opens client-side
+        // and arrives with a record, so the open is a no-op for it.
         "arc_run" => {
             let (Some(session), Some(project), Some(arc)) = (
                 req.tug_session_id.as_deref(),
@@ -784,7 +783,13 @@ fn apply_arc_request(
                     "arc_run needs tug_session_id, project_dir, and arc".to_string(),
                 );
             };
-            crate::arc_api::bind(ledger, &project, session, arc)
+            crate::arc_api::arc_run(
+                ledger,
+                &project,
+                session,
+                arc,
+                req.kind.as_deref().and_then(tugarc_core::ArcKind::parse),
+            )
         }
         // Pick a stopped arc back up: clear the stop by naming the stage it
         // stopped in, then bind — `arc_run`'s pair of acts made reachable

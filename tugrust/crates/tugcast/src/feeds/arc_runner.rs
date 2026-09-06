@@ -333,7 +333,7 @@ async fn sweep(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>>) 
 ///
 /// Bound-ness is the arc binding and nothing else: the arc record
 /// names no session, so "whose card is this arc on" is answered by the ledger
-/// the Bind control already writes. `bound_sessions_by_arc` filters to live
+/// the Bind control already writes. `bound_session_by_arc` filters to live
 /// rows, so a card that closed takes its arc out of the sweep.
 ///
 /// **The session it hands back is the card's, not the row's**, and that
@@ -347,24 +347,22 @@ async fn sweep(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>>) 
 /// seconds and read as a consequence of the kill; the kill had nothing to do
 /// with it.
 async fn bound_arcs(ctx: &ArcContext) -> Vec<BoundArc> {
-    let Ok(by_arc) = ctx.session_ledger.bound_sessions_by_arc() else {
+    let Ok(by_arc) = ctx.session_ledger.bound_session_by_arc() else {
         return Vec::new();
     };
     let mut out = Vec::new();
-    for sessions in by_arc.values() {
-        for session in sessions {
-            let Ok(Some(row)) = ctx.session_ledger.get(session) else {
-                continue;
-            };
-            let Some(name) = row.arc_name.clone() else {
-                continue;
-            };
-            out.push(BoundArc {
-                project: PathBuf::from(&row.project_dir),
-                name,
-                session: card_session_for_segment(ctx, session).await,
-            });
-        }
+    for session in by_arc.values() {
+        let Ok(Some(row)) = ctx.session_ledger.get(session) else {
+            continue;
+        };
+        let Some(name) = row.arc_name.clone() else {
+            continue;
+        };
+        out.push(BoundArc {
+            project: PathBuf::from(&row.project_dir),
+            name,
+            session: card_session_for_segment(ctx, session).await,
+        });
     }
     out
 }

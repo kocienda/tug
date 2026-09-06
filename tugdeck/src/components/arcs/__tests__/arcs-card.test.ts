@@ -39,13 +39,13 @@ const GOLDEN_ARC = DATA.projects
   .find((entry): entry is ArcChangesetEntry => entry.kind === "arc")!;
 
 /** The golden arc with nobody on it. */
-const UNBOUND: ArcChangesetEntry = { ...GOLDEN_ARC, bound_sessions: [] };
+const UNBOUND: ArcChangesetEntry = { ...GOLDEN_ARC, bound_session: undefined };
 
 describe("arcRowsFromSnapshot — the membership law", () => {
   test("a worked arc is a row — bound-ness is a register, not membership", () => {
     // The golden arc carries a bound session, and it is here anyway: the
     // section holds every arc in every state.
-    expect(GOLDEN_ARC.bound_sessions?.length).toBeGreaterThan(0);
+    expect(GOLDEN_ARC.bound_session).toBeDefined();
     const rows = arcRowsFromSnapshot(DATA);
     expect(rows.map((r) => r.ownerId)).toContain(GOLDEN_ARC.owner_id);
   });
@@ -353,32 +353,23 @@ describe("resolveWorkerCard", () => {
     new Map(entries.map(([cardId, tugSessionId]) => [cardId, { tugSessionId }]));
 
   test("an arc nobody holds has no room to open", () => {
-    expect(resolveWorkerCard([], bindings([["A", "sess-1"]]))).toBeNull();
+    expect(resolveWorkerCard(null, bindings([["A", "sess-1"]]))).toBeNull();
   });
 
   test("a held arc whose worker has no card open here is inert too", () => {
     // The session is live on the server; this instance simply has no card on
     // it. The row is still worth showing — it is just not a door.
-    expect(resolveWorkerCard(["sess-9"], bindings([["A", "sess-1"]]))).toBeNull();
+    expect(resolveWorkerCard("sess-9", bindings([["A", "sess-1"]]))).toBeNull();
   });
 
   test("the card bound to the holding session is the destination", () => {
     expect(
-      resolveWorkerCard(["sess-2"], bindings([["A", "sess-1"], ["B", "sess-2"]])),
+      resolveWorkerCard("sess-2", bindings([["A", "sess-1"], ["B", "sess-2"]])),
     ).toBe("B");
   });
 
-  test("with several holders, the first match is the answer and stays the answer", () => {
-    // Any of them is a correct room; what matters is that two renders of the
-    // same snapshot agree, so activation does not front a different card each
-    // time.
-    const map = bindings([["A", "sess-1"], ["B", "sess-2"]]);
-    expect(resolveWorkerCard(["sess-1", "sess-2"], map)).toBe("A");
-    expect(resolveWorkerCard(["sess-2", "sess-1"], map)).toBe("A");
-  });
-
   test("no bindings at all is null, not a throw", () => {
-    expect(resolveWorkerCard(["sess-1"], bindings([]))).toBeNull();
+    expect(resolveWorkerCard("sess-1", bindings([]))).toBeNull();
   });
 });
 
@@ -453,6 +444,7 @@ describe("compareDocumentArcRows — nearest to starting work first", () => {
     progress?: { done: number; begun: number },
   ): DocumentArcRow => ({
     key: `/p:${name}`,
+    projectDir: "/p",
     entry: {
       owner_id: `tugarc/${name}`,
       display_name: name,

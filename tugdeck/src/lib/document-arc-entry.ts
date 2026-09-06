@@ -46,8 +46,8 @@ export function documentArcAsEntry(
     ...(entry.review !== undefined ? { review: entry.review } : {}),
     ...(entry.arc_kind !== undefined ? { arc_kind: entry.arc_kind } : {}),
     ...(entry.arc !== undefined ? { arc: entry.arc } : {}),
-    ...(entry.bound_sessions !== undefined
-      ? { bound_sessions: entry.bound_sessions }
+    ...(entry.bound_session !== undefined
+      ? { bound_session: entry.bound_session }
       : {}),
     base: "",
     rounds: 0,

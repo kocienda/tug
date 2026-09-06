@@ -31,7 +31,7 @@
  *
  * Everything is real. `tugtool arc bind` runs through the card's own `$`
  * shell route (the route that stamps `TUG_SESSION_ID`), and the marks appear
- * because `bound_sessions` moved in the account-global aggregate the row's
+ * because `bound_session` moved in the account-global aggregate the row's
  * own subscription reads. `arc unbind` takes them away the same way.
  *
  * @covers tugdeck/src/components/cards/cards-data-source.ts

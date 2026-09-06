@@ -1378,6 +1378,25 @@ mod tests {
         assert_eq!(arc_action(&record(&[ArcStage::Devise]), &facts), None);
     }
 
+    /// **A user's stop is never undone by its own echo.** The interrupt a
+    /// Stop press dispatches ends the turn, and tugcode reports that as a
+    /// `turn_cancelled` — the cancel this record already accounts for. The
+    /// reversal arm reads only the reasons the machine *inferred*, so a
+    /// record stopped by a person decides nothing on the tick that follows.
+    #[test]
+    fn a_stopped_by_user_record_ignores_a_cancelled_turn() {
+        let mut record = record(&[ArcStage::Devise]);
+        record.stopped = Some((
+            ArcStage::Devise,
+            ArcStopReason::StoppedByUser.as_str().to_string(),
+        ));
+        let mut facts = facts();
+        facts.stage_turn_cancelled = true;
+        facts.stopped_stage_moved = true;
+        facts.stage_session_current = true;
+        assert_eq!(arc_action(&record, &facts), None);
+    }
+
     #[test]
     fn a_stage_whose_turn_ended_in_an_api_error_stops_in_that_stage() {
         for stage in [ArcStage::Devise, ArcStage::Review, ArcStage::Implement] {

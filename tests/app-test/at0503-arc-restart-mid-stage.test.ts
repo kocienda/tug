@@ -318,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)("AT0503: an arc across a tugcast restart", () => {
             expect(facts.lineId, "on the line the bind names").toBe(LINE);
 
             // The binding rode the restart: the masthead's sigil reads the
-            // account-global aggregate's `bound_sessions`, which only a live
+            // account-global aggregate's `bound_session`, which only a live
             // row actually carrying the binding can reach.
             await app.waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(MASTHEAD_ARC)}) !== null`,

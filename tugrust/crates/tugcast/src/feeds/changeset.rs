@@ -1385,11 +1385,11 @@ fn ledger_document(documents: &tugarc_core::ArcDocuments) -> Option<&str> {
 /// code `tugtool arc list|status` reads — so the CLI and the Changes card can
 /// no longer disagree about an arc's base, worktree, or round count. This maps
 /// that shared detail onto the wire type and adds the one thing only tugcast
-/// knows: which live sessions are mated to each arc ([P08]).
+/// knows: which live session is mated to each arc ([P08]).
 ///
 /// tugarc-core is synchronous (git subprocesses), so the whole walk runs on
 /// the blocking pool in one hop — the same discipline `do_changeset_join`
-/// uses. `bound_sessions` comes from **one** ledger query for the repo, fanned
+/// uses. `bound_session` comes from **one** ledger query for the repo, fanned
 /// out across entries; never a query per arc.
 /// Whether this compose must hide `repo_root`'s arcs: an app-test instance
 /// composing the checkout under test.
@@ -1463,7 +1463,7 @@ pub(crate) async fn document_arc_entries(
         return Vec::new();
     }
     let bound_by_arc = ledger
-        .and_then(|l| l.bound_sessions_by_arc().ok())
+        .and_then(|l| l.bound_session_by_arc().ok())
         .unwrap_or_default();
 
     tokio::task::spawn_blocking(move || document_arc_entries_in(&root, &bound_by_arc))
@@ -1475,7 +1475,7 @@ pub(crate) async fn document_arc_entries(
 /// testable without a runtime hop.
 fn document_arc_entries_in(
     root: &Path,
-    bound_by_arc: &std::collections::HashMap<String, Vec<String>>,
+    bound_by_arc: &std::collections::HashMap<String, String>,
 ) -> Vec<DocumentArcEntry> {
     // Every arc-named directory, not only the ones holding a document: the
     // door's first act binds the session to a directory it has just made and
@@ -1489,8 +1489,8 @@ fn document_arc_entries_in(
         .filter_map(|name| {
             let documents = tugarc_core::ArcDocuments::read(root, &name);
             let owner_id = tugarc_core::ops::arc_owner_key(root, &name);
-            let bound_sessions = bound_by_arc.get(&owner_id).cloned().unwrap_or_default();
-            if documents.is_empty() && bound_sessions.is_empty() {
+            let bound_session = bound_by_arc.get(&owner_id).cloned();
+            if documents.is_empty() && bound_session.is_none() {
                 return None;
             }
             let (review, steps, task_list) = ledger_document(&documents)
@@ -1502,7 +1502,7 @@ fn document_arc_entries_in(
             // missing, and it is the row every plain arc starts on.
             let record = tugarc_core::read_arc(root, &name);
             Some(DocumentArcEntry {
-                bound_sessions,
+                bound_session,
                 owner_id,
                 task_list,
                 step_total: steps.len() as u32,
@@ -1572,10 +1572,9 @@ pub(crate) async fn live_base_dirt_for(
             _ => None,
         })
         .unwrap_or_default();
-    let bound: Vec<String> = ledger
-        .and_then(|l| l.bound_sessions_by_arc().ok())
-        .and_then(|m| m.get(&owner_key).cloned())
-        .unwrap_or_default();
+    let bound: Option<String> = ledger
+        .and_then(|l| l.bound_session_by_arc().ok())
+        .and_then(|m| m.get(&owner_key).cloned());
     snapshot
         .changesets
         .iter()
@@ -1586,7 +1585,7 @@ pub(crate) async fn live_base_dirt_for(
                 live: true,
                 files,
                 ..
-            } if !bound.contains(owner_id) => {
+            } if bound.as_ref() != Some(owner_id) => {
                 Some((owner_id.clone(), display_name.clone(), files.clone()))
             }
             _ => None,
@@ -1603,10 +1602,10 @@ pub(crate) async fn live_base_dirt_for(
 ///
 /// An unbound arc — nobody holding it — is never busy: there is no turn that
 /// could still be running, and an arc whose card was closed must stay
-/// joinable. That is why this takes the bound list rather than the arc's own
+/// joinable. That is why this takes the bound holder rather than the arc's own
 /// facts; absence is the answer, not a missing input.
-fn holders_busy(busy: &std::collections::HashSet<String>, bound: Option<&Vec<String>>) -> bool {
-    bound.is_some_and(|sessions| sessions.iter().any(|id| busy.contains(id)))
+fn holders_busy(busy: &std::collections::HashSet<String>, bound: Option<&String>) -> bool {
+    bound.is_some_and(|session| busy.contains(session))
 }
 
 async fn arc_entries(
@@ -1618,7 +1617,7 @@ async fn arc_entries(
         return Vec::new();
     }
     let bound_by_arc = ledger
-        .and_then(|l| l.bound_sessions_by_arc().ok())
+        .and_then(|l| l.bound_session_by_arc().ok())
         .unwrap_or_default();
     // Who is still working. Read once for the whole recompute, from the
     // supervisor's in-memory ledger — the only place a session's turn and its
@@ -1657,13 +1656,10 @@ async fn arc_entries(
                 // Whose dirt a path is, scoped to *this* arc: a session mated
                 // to it is no stranger to its files, so its edits read as the
                 // user's own and stay resolvable ([D147]).
-                let bound = bound_for_scoping
-                    .get(&detail.owner_key)
-                    .cloned()
-                    .unwrap_or_default();
+                let bound = bound_for_scoping.get(&detail.owner_key).cloned();
                 let held_by_others: BTreeMap<String, String> = dirt
                     .iter()
-                    .filter(|(_, (id, _))| !bound.contains(id))
+                    .filter(|(_, (id, _))| bound.as_ref() != Some(id))
                     .map(|(path, (_, name))| (path.clone(), name.clone()))
                     .collect();
                 let join = crate::feeds::join_board::join_state_for(
@@ -1690,9 +1686,7 @@ async fn arc_entries(
     // the async side for the same reason the frame is: a ladder that runs for
     // minutes must never hold a recompute (Spec S06).
     for (detail, _, _, _, join) in &details {
-        let bound = bound_by_arc
-            .get(&detail.owner_key)
-            .is_some_and(|sessions| !sessions.is_empty());
+        let bound = bound_by_arc.contains_key(&detail.owner_key);
         // An arc whose holder is still working is not finished, whatever its
         // git facts say, so the pilot does not start reconciling it. The
         // reconcile rewrites the arc's branch, and doing that while the
@@ -1715,10 +1709,7 @@ async fn arc_entries(
                 join: Some(join),
                 task_list,
                 holders_busy: holders_busy(&busy_sessions, bound_by_arc.get(&detail.owner_key)),
-                bound_sessions: bound_by_arc
-                    .get(&detail.owner_key)
-                    .cloned()
-                    .unwrap_or_default(),
+                bound_session: bound_by_arc.get(&detail.owner_key).cloned(),
                 // Whether an *attempt* to replay conflicted is knowledge only the
                 // engine that attempted it has; the library composes everything
                 // else. Empty when no engine is running, which is the truth then.
@@ -3377,7 +3368,7 @@ Some context.
         let mut bound = std::collections::HashMap::new();
         bound.insert(
             tugarc_core::ops::arc_owner_key(&root, "opening"),
-            vec!["sess-1".to_string()],
+            "sess-1".to_string(),
         );
 
         let entries = document_arc_entries_in(&root, &bound);
@@ -3389,7 +3380,7 @@ Some context.
             vec!["opening"]
         );
         let opening = &entries[0];
-        assert_eq!(opening.bound_sessions, vec!["sess-1".to_string()]);
+        assert_eq!(opening.bound_session.as_deref(), Some("sess-1"));
         assert!(opening.documents.brief.is_none());
         assert!(opening.documents.plan.is_none());
         assert!(opening.documents.tasks.is_none());
@@ -3773,7 +3764,7 @@ Some context.
             display_name,
             branch,
             stage,
-            bound_sessions,
+            bound_session,
             base,
             rounds,
             worktree,
@@ -3791,7 +3782,7 @@ Some context.
         // A plan-less arc with a landed round and nothing uncommitted is
         // offerable, and says so ([P02]).
         assert_eq!(stage.as_deref(), Some("ready"));
-        assert_eq!(bound_sessions, &vec!["sess-1".to_string()]);
+        assert_eq!(bound_session.as_deref(), Some("sess-1"));
         assert_eq!(display_name, "demo");
         assert_eq!(base, "main");
         assert_eq!(*rounds, 1);
@@ -3876,7 +3867,7 @@ Some context.
             arc_kind: None,
             stage: None,
             task_list: false,
-            bound_sessions: Vec::new(),
+            bound_session: None,
             holders_busy: false,
             step_current: None,
             step_total: None,
@@ -3966,7 +3957,7 @@ Some context.
                     arc_kind: None,
                     stage: Some("working".to_owned()),
                     task_list: false,
-                    bound_sessions: Vec::new(),
+                    bound_session: None,
                     holders_busy: false,
                     step_current: None,
                     step_total: None,

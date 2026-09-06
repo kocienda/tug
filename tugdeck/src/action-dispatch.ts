@@ -59,7 +59,7 @@ import {
   cardSessionBindingStore,
 } from "./lib/card-session-binding-store";
 import { arcBindErrorStore } from "./lib/arc-bind-error-store";
-import { arcResumeStore } from "./lib/arc-resume-store";
+import { arcPressStore } from "./lib/arc-press-store";
 import { sessionNameStore } from "./lib/session-name-store";
 import {
   identityKeyForSession,
@@ -1321,38 +1321,50 @@ export function initActionDispatch(
     );
   });
 
-  // arc_resume_ok / arc_resume_err: the answer to a **Resume** press in a stop
-  // receipt's own block. The mating itself rides `bind_arc_ok`, which the
-  // server sends beside this one — a bind is one fact whichever door it came
-  // through — so all these two do is release the button and, on a refusal,
-  // park the reason for the card's `ArcResumeNoticeController`. Success needs
-  // no voice: the wheel opening the stopped stage is the answer.
-  registerAction("arc_resume_ok", (payload) => {
-    const arc = payload.arc;
-    if (typeof arc !== "string" || arc.length === 0) return;
-    arcResumeStore.settle(arc);
-    const sessionId = payload.tug_session_id;
-    // A resume that landed is not still a failure.
-    if (typeof sessionId === "string" && sessionId.length > 0) {
-      arcResumeStore.clearRefusal(sessionId);
-    }
-  });
+  // The three transport verbs' answers, one pair each. The mating itself rides
+  // `bind_arc_ok`, which the server sends beside a start's or a resume's `_ok`
+  // — a bind is one fact whichever door it came through — so all any of these
+  // do is release the button and, on a refusal, park the reason for the card's
+  // `ArcPressNoticeController`. Success needs no voice: the wheel opening or
+  // ending the stage is the answer.
+  //
+  // Registered from one table rather than six hand-written handlers, because
+  // the three verbs differ in exactly one word and a copy of the pair is a
+  // place for them to drift apart.
+  for (const [action, verb] of [
+    ["arc_run", "start"],
+    ["arc_resume", "resume"],
+    ["arc_stop", "stop"],
+  ] as const) {
+    registerAction(`${action}_ok`, (payload) => {
+      const arc = payload.arc;
+      if (typeof arc !== "string" || arc.length === 0) return;
+      arcPressStore.settle(arc, verb);
+      const sessionId = payload.tug_session_id;
+      // A press that landed is not still a failure.
+      if (typeof sessionId === "string" && sessionId.length > 0) {
+        arcPressStore.clearRefusal(sessionId);
+      }
+    });
 
-  registerAction("arc_resume_err", (payload) => {
-    console.warn("arc_resume failed", payload);
-    const sessionId = payload.tug_session_id;
-    const arc = payload.arc;
-    if (typeof arc !== "string" || arc.length === 0) return;
-    // Released whether or not the refusal can be routed to a card: a button
-    // left waiting on a frame nobody can speak is worse than a silent refusal.
-    arcResumeStore.settle(arc);
-    if (typeof sessionId !== "string" || sessionId.length === 0) return;
-    arcResumeStore.refuse(
-      sessionId,
-      arc,
-      typeof payload.reason === "string" ? payload.reason : "unknown",
-    );
-  });
+    registerAction(`${action}_err`, (payload) => {
+      console.warn(`${action} failed`, payload);
+      const sessionId = payload.tug_session_id;
+      const arc = payload.arc;
+      if (typeof arc !== "string" || arc.length === 0) return;
+      // Released whether or not the refusal can be routed to a card: a button
+      // left waiting on a frame nobody can speak is worse than a silent
+      // refusal.
+      arcPressStore.settle(arc, verb);
+      if (typeof sessionId !== "string" || sessionId.length === 0) return;
+      arcPressStore.refuse(
+        sessionId,
+        arc,
+        verb,
+        typeof payload.reason === "string" ? payload.reason : "unknown",
+      );
+    });
+  }
 
   registerAction("unbind_arc_ok", (payload) => {
     const sessionId = payload.tug_session_id;

@@ -55,9 +55,7 @@
           "display_name": "fix-join",
           "branch": "tugarc/fix-join",
           "stage": "draft-ready",
-          "bound_sessions": [
-            "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901"
-          ],
+          "bound_session": "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901",
           "base": "main",
           "rounds": 3,
           "worktree": "/Users/dev/src/tugtool/.tug/worktrees/tugarc__fix-join",

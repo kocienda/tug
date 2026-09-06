@@ -1,0 +1,28 @@
+/* arc-transport-control.css — one button, two forms.
+
+   The icon form sits in a row's trailing column beside the fold cue, so it
+   takes that cue's footprint exactly: the column has one edge, and a control
+   half a pixel wider would bend it. The word form is a footer's button and
+   sizes itself.
+
+   Refused and pending are `data-*` and `aria-disabled` alone ([L06]) — the
+   refusal must stay pressable, because a press on it is what speaks the
+   reason ([P07]). */
+
+.tug-arc-transport[data-form="icon"] {
+  flex: 0 0 auto;
+}
+
+/* Muted, never hidden. A refused control that vanished would leave the reader
+   with no way to find out why the act is unavailable — which is the whole of
+   what the refusal exists to say. */
+.tug-arc-transport[data-refused="true"] {
+  opacity: 0.55;
+}
+
+/* The frame is out and a second press would be a second act. Distinct from
+   refused, and deliberately fainter than it: this one clears itself. */
+.tug-arc-transport[data-pending="true"] {
+  opacity: 0.4;
+  cursor: progress;
+}

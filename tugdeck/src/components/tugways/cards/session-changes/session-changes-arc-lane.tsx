@@ -27,7 +27,7 @@
  * row is real and this card's to take, so those rows stay and are ordered
  * the way the Arcs card orders them ({@link compareArcEntries}).
  *
- * The predicate reads `bound_sessions`, the one definition of bound-ness the
+ * The predicate reads `bound_session`, the one definition of bound-ness the
  * shade already has: the server computes it from live sessions only, so an
  * arc whose holder closed reads unbound — the arc analogue of the shade's
  * orphaned file bucket. The filter is the rest group's alone. A fronted arc
@@ -175,8 +175,8 @@ export function orderArcLane(
 /**
  * Whether a live session other than this card's holds the arc.
  *
- * `bound_sessions` is live sessions only — a closed holder's row is never
- * reported — and an older sender that omits the field reads as unbound, the
+ * `bound_session` is the one live holder, if any — a closed holder's row is
+ * never reported — and a sender that omits the field reads as unbound, the
  * same safe direction {@link canDiscardFromHere} takes. A card with no session
  * id of its own is nobody, so any holder at all is somebody else.
  */
@@ -184,9 +184,9 @@ function heldElsewhere(
   entry: ArcChangesetEntry,
   ownTugSessionId: string | undefined,
 ): boolean {
-  const bound = entry.bound_sessions ?? [];
-  if (bound.length === 0) return false;
-  return ownTugSessionId === undefined || !bound.includes(ownTugSessionId);
+  const bound = entry.bound_session;
+  if (bound === undefined) return false;
+  return ownTugSessionId === undefined || bound !== ownTugSessionId;
 }
 
 /** The arc's git ref — `branch`, falling back to the older sender's spelling. */
@@ -270,10 +270,10 @@ export interface ArcLaneBinding {
  * arc bound to *another* live session is that session's to discard, and this
  * one renders no control for it at all.
  *
- * `bound_sessions` already means exactly "live sessions mated to this arc" —
+ * `bound_session` already means exactly "the live session mated to this arc" —
  * the server computes it that way and a test pins that a closed session's row
  * is never reported — so this introduces no second definition of bound-ness.
- * An older sender that omits the field entirely reads as unbound, which is the
+ * A sender that omits the field entirely reads as unbound, which is the
  * safe direction: the popover still names the stake, and the server still
  * refuses the one destructive case it can see.
  *
@@ -287,11 +287,12 @@ export function canDiscardFromHere(
   boundArcId: string | null,
 ): boolean {
   if (entry.owner_id === boundArcId) return true;
-  const bound = entry.bound_sessions ?? [];
-  if (bound.length === 0) return true;
-  // Not redundant with the first arm: a card can be mated to arc A while arc
-  // B also lists this session. The predicate answers by fact, not by fronting.
-  return ownTugSessionId !== undefined && bound.includes(ownTugSessionId);
+  const bound = entry.bound_session;
+  if (bound === undefined) return true;
+  // Not redundant with the first arm: a card can be fronting arc A while it
+  // is the session named on arc B. The predicate answers by fact, not by
+  // fronting.
+  return ownTugSessionId !== undefined && bound === ownTugSessionId;
 }
 
 /**
@@ -470,7 +471,7 @@ function ArcRow({
             put a fact the row was built from behind a feed arriving. */}
         <ArcLifecycleBlock
           name={entry.display_name}
-          workers={entry.bound_sessions ?? []}
+          worker={entry.bound_session ?? null}
           model={model}
           stepTitle={entry.step_title ?? null}
           facts={arcMetaFacts(entry)}
@@ -537,7 +538,7 @@ function ArcRow({
           // The lane shows unfronted, unheld arcs too, and the pilot never
           // works one ([D147]) — so this is the difference between "the check
           // is a beat away" and a promise nothing will ever keep.
-          bound={(entry.bound_sessions ?? []).length > 0}
+          bound={entry.bound_session !== undefined}
           // The shade is where the offer is actually pressed, so a stage the
           // wheel still has seated is named here rather than read around.
           run={entry.arc ?? null}
@@ -638,7 +639,7 @@ function DocumentArcRow({
             `review` for a plan already half walked. */}
         <ArcLifecycleBlock
           name={entry.display_name}
-          workers={entry.bound_sessions ?? []}
+          worker={entry.bound_session ?? null}
           model={model}
           facts={arcMetaFacts(asEntry)}
           trailing={

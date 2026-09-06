@@ -5366,7 +5366,7 @@ impl SessionLedger {
     /// checkout each one works.
     ///
     /// Keyed on `arc_name` rather than on `arc_id`, which is what
-    /// [`Self::bound_sessions_by_arc`] groups by, because the caller is
+    /// [`Self::bound_session_by_arc`] keys on, because the caller is
     /// reading a record that only knows names: an arc log line names its arc
     /// and nothing else. The owner key is the authority for *binding*; the
     /// name is what the record speaks, and a consumer of the record has to
@@ -5395,7 +5395,7 @@ impl SessionLedger {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
-    /// Every **live** session bound to an arc, grouped by the arc's owner
+    /// The **live** session bound to each arc, keyed by the arc's owner
     /// key — the one query every consumer of bound-ness uses ([P08]).
     ///
     /// One query rather than a per-arc accessor: `arc status` looks its arc
@@ -5403,14 +5403,20 @@ impl SessionLedger {
     /// entries, so neither pays a query per arc and neither can drift from
     /// the other on what "bound" means.
     ///
+    /// One session per arc, because that is the law: an arc is held by at
+    /// most one live card. The rows arrive most-recently-used first and the
+    /// first one wins, so a second holder that reached the ledger anyway is
+    /// warned about rather than silently carried — the map's shape is what
+    /// makes the invariant unspellable downstream.
+    ///
     /// The `state = 'live'` filter is where bound-ness is *defined*. The
     /// release on close ([L27]) is the primary mechanism; this is the guard
     /// that makes a row which escaped it harmless rather than wrong — and it
     /// is what makes *unbound* (rounds on file, no live session) reachable at
     /// all.
-    pub fn bound_sessions_by_arc(
+    pub fn bound_session_by_arc(
         &self,
-    ) -> Result<std::collections::HashMap<String, Vec<String>>, LedgerError> {
+    ) -> Result<std::collections::HashMap<String, String>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         let mut stmt = conn.prepare(
             "SELECT arc_id, session_id
@@ -5423,10 +5429,22 @@ impl SessionLedger {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
-        let mut by_arc: std::collections::HashMap<String, Vec<String>> =
+        let mut by_arc: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         for (arc_id, session_id) in rows {
-            by_arc.entry(arc_id).or_default().push(session_id);
+            match by_arc.entry(arc_id) {
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(session_id);
+                }
+                std::collections::hash_map::Entry::Occupied(held) => {
+                    tracing::warn!(
+                        arc_id = %held.key(),
+                        first = %held.get(),
+                        second = %session_id,
+                        "two live sessions carry one arc binding — the invariant is one",
+                    );
+                }
+            }
         }
         Ok(by_arc)
     }
@@ -5490,7 +5508,7 @@ impl SessionLedger {
     /// The Wheel rotates a card's session on purpose, and the binding is
     /// written against the id that was the card's when it was written. The
     /// fresh segment carries none, and every reader of bound-ness is
-    /// live-only ([`Self::bound_sessions_by_arc`]) — so the instant the old
+    /// live-only ([`Self::bound_session_by_arc`]) — so the instant the old
     /// segment closes, a card mid-arc reads *unbound* while its arc record
     /// still names it mid-stage. Moving the binding forward is what keeps the
     /// rotation invisible to the work, which is the Wheel's whole promise.
@@ -13751,8 +13769,8 @@ mod tests {
         l.set_arc_binding("stage-1", Some(("tugarc/demo#1", "demo")))
             .unwrap();
         assert_eq!(
-            l.bound_sessions_by_arc().unwrap().get("tugarc/demo#1"),
-            Some(&vec!["stage-1".to_string()]),
+            l.bound_session_by_arc().unwrap().get("tugarc/demo#1"),
+            Some(&"stage-1".to_string()),
         );
 
         // The Wheel seats the next stage: a fresh segment on the same line.
@@ -13768,7 +13786,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            l.bound_sessions_by_arc().unwrap().get("tugarc/demo#1"),
+            l.bound_session_by_arc().unwrap().get("tugarc/demo#1"),
             None,
             "before the carry, a card mid-arc reads unbound the moment it rotates",
         );
@@ -13779,8 +13797,8 @@ mod tests {
             "and the carry is what the caller announces to the card",
         );
         assert_eq!(
-            l.bound_sessions_by_arc().unwrap().get("tugarc/demo#1"),
-            Some(&vec!["stage-2".to_string()]),
+            l.bound_session_by_arc().unwrap().get("tugarc/demo#1"),
+            Some(&"stage-2".to_string()),
         );
         assert!(
             l.get("stage-1").unwrap().unwrap().arc_id.is_none(),
@@ -13790,6 +13808,28 @@ mod tests {
             l.seat_line_binding("stage-2").unwrap(),
             None,
             "seated once, nothing to move"
+        );
+    }
+
+    /// One arc, one card: the map names a single holder even when two live
+    /// rows carry the binding, and the holder it names is the one most
+    /// recently used — the card actually working the arc.
+    #[test]
+    fn bound_session_by_arc_keeps_one_session_per_arc() {
+        let l = fresh();
+        l.record_spawn("older", WS_A, "/proj", "card-1", millis(2), "line-1", None)
+            .unwrap();
+        l.record_spawn("newer", WS_A, "/proj", "card-2", millis(1), "line-2", None)
+            .unwrap();
+        l.set_arc_binding("older", Some(("tugarc/demo#1", "demo")))
+            .unwrap();
+        l.set_arc_binding("newer", Some(("tugarc/demo#1", "demo")))
+            .unwrap();
+
+        assert_eq!(
+            l.bound_session_by_arc().unwrap().get("tugarc/demo#1"),
+            Some(&"newer".to_string()),
+            "the second holder is warned about, never carried",
         );
     }
 

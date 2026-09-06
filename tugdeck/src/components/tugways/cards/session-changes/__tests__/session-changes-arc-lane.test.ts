@@ -34,7 +34,7 @@ const ARCS: ArcChangesetEntry[] = DATA.projects
   .filter((entry): entry is ArcChangesetEntry => entry.kind === "arc");
 
 /** The session the golden arc is bound to — this card, when a test says so. */
-const HOLDER = ARCS[0]!.bound_sessions![0]!;
+const HOLDER = ARCS[0]!.bound_session!;
 
 describe("orderArcLane", () => {
   test("the golden snapshot carries an arc to order", () => {
@@ -105,25 +105,20 @@ describe("orderArcLane", () => {
       ...ARCS[0]!,
       owner_id: `tugarc/${name}#1`,
       display_name: name,
-      bound_sessions: [],
+      bound_session: undefined,
       ...over,
     });
 
     test("an arc another live session holds is absent", () => {
-      const theirs = arc("theirs", { bound_sessions: ["some-other-session"] });
+      const theirs = arc("theirs", { bound_session: "some-other-session" });
       const order = orderArcLane([theirs], null, OWN_SESSION);
       expect(order.rest).toEqual([]);
     });
 
-    test("an arc held by several sessions, none of them this one, is absent", () => {
-      const theirs = arc("theirs", { bound_sessions: ["a", "b", "c"] });
-      expect(orderArcLane([theirs], null, OWN_SESSION).rest).toEqual([]);
-    });
-
     test("an arc this session holds without fronting stays", () => {
-      // A card can be mated to arc A while arc B also lists this session.
-      const mine = arc("mine", { bound_sessions: [OWN_SESSION] });
-      const other = arc("other", { bound_sessions: [OWN_SESSION, "a"] });
+      // A card can be fronting arc A while it is the session named on arc B.
+      const mine = arc("mine", { bound_session: OWN_SESSION });
+      const other = arc("other", { bound_session: OWN_SESSION });
       const order = orderArcLane([mine, other], "tugarc/a#1", OWN_SESSION);
       expect(order.fronted).toBeNull();
       expect(order.rest).toContain(mine);
@@ -131,25 +126,25 @@ describe("orderArcLane", () => {
     });
 
     test("an unbound arc stays", () => {
-      const unbound = arc("unbound", { bound_sessions: [] });
+      const unbound = arc("unbound", { bound_session: undefined });
       expect(orderArcLane([unbound], null, OWN_SESSION).rest).toEqual([unbound]);
     });
 
-    test("an older sender that omits bound_sessions reads as unbound", () => {
+    test("a sender that omits bound_session reads as unbound", () => {
       // The same safe direction canDiscardFromHere takes: absence is not
       // evidence of a holder.
-      const legacy = arc("legacy", { bound_sessions: undefined });
+      const legacy = arc("legacy", { bound_session: undefined });
       expect(orderArcLane([legacy], null, OWN_SESSION).rest).toEqual([legacy]);
     });
 
     test("a card with no session id keeps only the unbound arcs", () => {
-      const theirs = arc("theirs", { bound_sessions: ["some-other-session"] });
+      const theirs = arc("theirs", { bound_session: "some-other-session" });
       const unbound = arc("unbound");
       expect(orderArcLane([theirs, unbound], null, undefined).rest).toEqual([unbound]);
     });
 
     test("the aimed-join case still fronts a held arc", () => {
-      const theirs = arc("theirs", { bound_sessions: ["some-other-session"] });
+      const theirs = arc("theirs", { bound_session: "some-other-session" });
       const order = orderArcLane([theirs], theirs.owner_id, OWN_SESSION);
       expect(order.fronted).toBe(theirs);
       expect(order.rest).toEqual([]);
@@ -187,45 +182,40 @@ describe("canDiscardFromHere", () => {
   const arc = (over: Partial<ArcChangesetEntry> = {}): ArcChangesetEntry => ({
     ...ARCS[0]!,
     owner_id: "tugarc/theirs#2",
-    bound_sessions: [],
+    bound_session: undefined,
     ...over,
   });
 
   test("this card's own arc is always releasable from here", () => {
     // Even while this very session holds it — it is the session doing the
     // releasing, so there is nobody to take it away from.
-    const own = arc({ owner_id: OWN_ARC, bound_sessions: [OWN_SESSION] });
+    const own = arc({ owner_id: OWN_ARC, bound_session: OWN_SESSION });
     expect(canDiscardFromHere(own, OWN_SESSION, OWN_ARC)).toBe(true);
   });
 
   test("an arc no live session holds is releasable", () => {
     // Unbound or orphaned — exactly the mess a shade should be able to clear.
-    const unbound = arc({ bound_sessions: [] });
+    const unbound = arc({ bound_session: undefined });
     expect(canDiscardFromHere(unbound, OWN_SESSION, OWN_ARC)).toBe(true);
   });
 
   test("an arc this session holds without fronting is releasable", () => {
-    // A card can be mated to arc A while arc B also lists this session. The
-    // predicate answers by fact rather than by which row happens to be fronted.
-    const other = arc({ bound_sessions: [OWN_SESSION] });
+    // A card can be fronting arc A while it is the session named on arc B.
+    // The predicate answers by fact rather than by which row is fronted.
+    const other = arc({ bound_session: OWN_SESSION });
     expect(canDiscardFromHere(other, OWN_SESSION, OWN_ARC)).toBe(true);
   });
 
   test("an arc another live session holds is NOT releasable from here", () => {
-    const theirs = arc({ bound_sessions: ["some-other-session"] });
+    const theirs = arc({ bound_session: "some-other-session" });
     expect(canDiscardFromHere(theirs, OWN_SESSION, OWN_ARC)).toBe(false);
   });
 
-  test("an arc held by several sessions, none of them this one, is theirs", () => {
-    const theirs = arc({ bound_sessions: ["a", "b", "c"] });
-    expect(canDiscardFromHere(theirs, OWN_SESSION, OWN_ARC)).toBe(false);
-  });
-
-  test("an older sender that omits bound_sessions reads as unbound", () => {
+  test("a sender that omits bound_session reads as unbound", () => {
     // Absence is not evidence of a holder, and the safe direction is to offer
     // the gesture: the popover still names the stake, and the destructive
     // overlap case is refused server-side regardless.
-    const legacy = arc({ bound_sessions: undefined });
+    const legacy = arc({ bound_session: undefined });
     expect(canDiscardFromHere(legacy, OWN_SESSION, OWN_ARC)).toBe(true);
   });
 
@@ -234,7 +224,7 @@ describe("canDiscardFromHere", () => {
   });
 
   test("a card with no session id cannot claim another session's arc", () => {
-    const theirs = arc({ bound_sessions: ["some-other-session"] });
+    const theirs = arc({ bound_session: "some-other-session" });
     expect(canDiscardFromHere(theirs, undefined, null)).toBe(false);
   });
 });

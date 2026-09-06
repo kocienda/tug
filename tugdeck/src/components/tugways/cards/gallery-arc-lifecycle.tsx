@@ -16,7 +16,7 @@
  *   - `ArcLifecycleLine` — track · glyph · <Doing> [i/N] · <in the way>. One
  *     clause saying what the arc is doing, then one saying what is in its
  *     way, and no age.
- *   - `ArcLifecycleBlock` — eyebrow (atom · rule · workers) over the line:
+ *   - `ArcLifecycleBlock` — eyebrow (atom · rule · worker) over the line:
  *     the rail row, the shade row and the receipt's header, at one scale.
  *     The eyebrow says WHO, the line says WHAT — every reading of the arc's
  *     state, the phase glyph included, is on the second line.
@@ -156,7 +156,7 @@ const BRANCH_FILES = [
 interface Moment {
   key: string;
   caption: string;
-  workers: readonly string[];
+  worker: string | null;
   entry: ArcChangesetEntry;
   /** What the masthead's description line carries — this card's last prompt. */
   prompt: string;
@@ -175,7 +175,7 @@ const MOMENTS: readonly Moment[] = [
   {
     key: "brief",
     caption: "The brief is written; the wheel has not turned yet",
-    workers: [WORKER],
+    worker: WORKER,
     prompt: "/tugplug:arc tugedit — the edit-program language and its gate",
     branched: false,
     entry: entry(ARC, { documents: { brief: BRIEF } }),
@@ -184,7 +184,7 @@ const MOMENTS: readonly Moment[] = [
     key: "devise",
     caption:
       "Devise is on the card — the point every surface but the rail shows nothing for today",
-    workers: [WORKER],
+    worker: WORKER,
     prompt: "/tugplug:arc-devise tugedit-bringup",
     branched: false,
     entry: entry(ARC, {
@@ -195,7 +195,7 @@ const MOMENTS: readonly Moment[] = [
   {
     key: "review",
     caption: "Review is on the card; the plan exists and has ten steps",
-    workers: [WORKER],
+    worker: WORKER,
     prompt: "/tugplug:arc-review tugedit-bringup",
     branched: false,
     entry: entry(ARC, {
@@ -210,12 +210,12 @@ const MOMENTS: readonly Moment[] = [
     key: "implement",
     caption:
       "Implement, step 4 of 10 — the one point the app draws on every surface today",
-    workers: [WORKER],
+    worker: WORKER,
     prompt: "/tugplug:arc-implement tugedit-bringup",
     branched: true,
     entry: entry(ARC, {
       branch: `tugarc/${ARC}`,
-      bound_sessions: [WORKER],
+      bound_session: WORKER,
       stage: "implementing",
       arc: { stage: "implement" },
       step_current: 4,
@@ -235,7 +235,7 @@ const MOMENTS: readonly Moment[] = [
   {
     key: "stopped",
     caption: "The arc stopped in implement — the stop outranks the track",
-    workers: [],
+    worker: null,
     prompt: "/tugplug:arc-implement tugedit-bringup",
     branched: true,
     entry: entry(ARC, {
@@ -261,12 +261,12 @@ const MOMENTS: readonly Moment[] = [
   {
     key: "ready",
     caption: "Every step done; the draft is written and the join is offered",
-    workers: [WORKER],
+    worker: WORKER,
     prompt: "/tugplug:arc-implement tugedit-bringup",
     branched: true,
     entry: entry(ARC, {
       branch: `tugarc/${ARC}`,
-      bound_sessions: [WORKER],
+      bound_session: WORKER,
       stage: "draft-ready",
       arc: { stage: "implement", done: true },
       step_current: 10,
@@ -289,12 +289,12 @@ const MOMENTS: readonly Moment[] = [
     key: "direct-listed",
     caption:
       "A DIRECT arc — no wheel driving it — the moment its task list is written and before any round lands. TWO cells, because devise and review were never skipped: a plain arc never has them, and a five-cell strip with two struck out would say otherwise. The fraction is real from the first frame: the task list is an ordinary plan document, so `0/3` is counted rather than stood in for",
-    workers: [SOLO],
+    worker: SOLO,
     prompt: `/arc ${SOLO_ARC} ${SOLO_SUBJECT}`,
     branched: true,
     entry: entry(SOLO_ARC, {
       branch: `tugarc/${SOLO_ARC}`,
-      bound_sessions: [SOLO],
+      bound_session: SOLO,
       stage: "working",
       steps: steps(0, null, 3),
       step_total: 3,
@@ -307,12 +307,12 @@ const MOMENTS: readonly Moment[] = [
     key: "direct-working",
     caption:
       "The same arc mid-walk, step 2 of 3. Its implement cell holds the same three-cell width a planned arc's does and its ticks divide it, so the two read as one instrument at two plan lengths — nothing about the strip says which session is driving. Who is on it is the atom beside it",
-    workers: [SOLO],
+    worker: SOLO,
     prompt: `/arc ${SOLO_ARC} ${SOLO_SUBJECT}`,
     branched: true,
     entry: entry(SOLO_ARC, {
       branch: `tugarc/${SOLO_ARC}`,
-      bound_sessions: [SOLO],
+      bound_session: SOLO,
       stage: "implementing",
       step_current: 2,
       step_total: 3,
@@ -331,12 +331,12 @@ const MOMENTS: readonly Moment[] = [
     key: "direct-ready",
     caption:
       "Every task closed and the draft written — the join, offered on the same terms a planned arc's is. The join cell fills and the phase glyph turns over; nothing here distinguishes the two kinds, because at the join there is nothing left to distinguish",
-    workers: [SOLO],
+    worker: SOLO,
     prompt: `/arc ${SOLO_ARC} ${SOLO_SUBJECT}`,
     branched: true,
     entry: entry(SOLO_ARC, {
       branch: `tugarc/${SOLO_ARC}`,
-      bound_sessions: [SOLO],
+      bound_session: SOLO,
       stage: "draft-ready",
       step_current: 3,
       step_total: 3,
@@ -358,12 +358,12 @@ const MOMENTS: readonly Moment[] = [
     key: "direct-listless",
     caption:
       "An arc with no documents at all — every plain arc cut before task lists existed, and any run that skipped writing one. The strip is the same three cells and the implement cell is bare, because there is nothing to divide it into. This is the one case that still reads a WORD where the others read numbers",
-    workers: [SOLO],
+    worker: SOLO,
     prompt: `/arc ${SOLO_ARC} ${SOLO_SUBJECT}`,
     branched: true,
     entry: entry(SOLO_ARC, {
       branch: `tugarc/${SOLO_ARC}`,
-      bound_sessions: [SOLO],
+      bound_session: SOLO,
       stage: "working",
       rounds: 2,
       files: BRANCH_FILES,
@@ -521,7 +521,7 @@ const BRIEF_ROUNDS = [
 function briefEntry(message: string, source: string): ArcChangesetEntry {
   return entry(BRIEF_ARC, {
     branch: `tugarc/${BRIEF_ARC}`,
-    bound_sessions: [SOLO],
+    bound_session: SOLO,
     stage: "ready",
     steps: steps(4, null, 4),
     step_total: 4,
@@ -549,7 +549,7 @@ function blockedEntry(blocker: ArcJoinBlockerWire): ArcChangesetEntry {
   const blockers = blocker.detail === "" ? [] : [blocker];
   return entry(BLOCKED_ARC, {
     branch: `tugarc/${BLOCKED_ARC}`,
-    bound_sessions: [SOLO],
+    bound_session: SOLO,
     stage: "ready",
     steps: steps(6, null, 6),
     step_total: 6,
@@ -872,7 +872,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
                   </span>
                   <ArcLifecycleBlock
                     name={name}
-                    workers={m.workers}
+                    worker={m.worker}
                     model={model}
                     stepTitle={stepTitle}
                     facts={facts}
@@ -885,7 +885,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
                   </span>
                   <SessionIdentityRow
                     className="cg-arc-masthead-row"
-                    sessionId={m.workers[0] ?? WORKER}
+                    sessionId={m.worker ?? WORKER}
                     projectDir={ROOT}
                     arc={factFor(m)}
                     dotSize={TUG_SESSION_ROW_STACK_DOT_SIZE}
@@ -984,7 +984,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
               </span>
               <ArcLifecycleBlock
                 name={BLOCKED_ARC}
-                workers={[SOLO]}
+                worker={SOLO}
                 model={arcTrackModelFromEntry(
                   blockedEntry(BLOCKED_CASES[1]!.blocker),
                 )}

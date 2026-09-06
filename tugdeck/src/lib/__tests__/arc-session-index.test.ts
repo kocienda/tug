@@ -1,8 +1,8 @@
 /**
  * The session → arc projection, over the shared golden snapshot.
  *
- * What is worth pinning is the inversion itself (an arc lists its sessions;
- * every one of them must find its way back), the tie rule when a malformed
+ * What is worth pinning is the inversion itself (an arc names the session
+ * holding it; that session must find its way back), the tie rule when a malformed
  * snapshot claims a session twice, and the memo's observable contract — same
  * snapshot, same map, so an aggregate beat costs one build rather than one
  * per reader.
@@ -43,24 +43,14 @@ describe("buildArcSessionIndex", () => {
   });
 
   test("the golden arc's bound session finds its way back", () => {
-    const bound = GOLDEN_ARC.bound_sessions!;
-    expect(bound.length).toBeGreaterThan(0);
+    const bound = GOLDEN_ARC.bound_session!;
+    expect(bound).toBeDefined();
     const index = buildArcSessionIndex(DATA);
-    const fact = index.get(bound[0]!)!;
+    const fact = index.get(bound)!;
     expect(fact.ownerId).toBe(GOLDEN_ARC.owner_id);
     expect(fact.name).toBe(GOLDEN_ARC.display_name);
     expect(fact.stage).toBe(GOLDEN_ARC.stage ?? null);
     expect(fact.projectDir).toBe(GOLDEN_PROJECT.project_dir);
-  });
-
-  test("two sessions on one arc share one fact object", () => {
-    const shared: ArcChangesetEntry = {
-      ...GOLDEN_ARC,
-      bound_sessions: ["sess-a", "sess-b"],
-    };
-    const index = buildArcSessionIndex({ projects: [projectWith([shared])] });
-    expect(index.size).toBe(2);
-    expect(index.get("sess-a")).toBe(index.get("sess-b")!);
   });
 
   test("a session claimed by two arcs takes the first in snapshot order", () => {
@@ -68,13 +58,13 @@ describe("buildArcSessionIndex", () => {
       ...GOLDEN_ARC,
       owner_id: "tugarc/first#1",
       display_name: "first",
-      bound_sessions: ["sess-a"],
+      bound_session: "sess-a",
     };
     const second: ArcChangesetEntry = {
       ...GOLDEN_ARC,
       owner_id: "tugarc/second#2",
       display_name: "second",
-      bound_sessions: ["sess-a"],
+      bound_session: "sess-a",
     };
     const index = buildArcSessionIndex({
       projects: [projectWith([first, second])],
@@ -82,12 +72,15 @@ describe("buildArcSessionIndex", () => {
     expect(index.get("sess-a")!.name).toBe("first");
   });
 
-  test("an entry with no bound_sessions contributes nothing", () => {
-    const unbound: ArcChangesetEntry = { ...GOLDEN_ARC, bound_sessions: [] };
+  test("an entry with no bound_session contributes nothing", () => {
+    const unbound: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
+      bound_session: undefined,
+    };
     const older: ArcChangesetEntry = {
       ...GOLDEN_ARC,
       owner_id: "tugarc/older#2",
-      bound_sessions: undefined,
+      bound_session: undefined,
     };
     expect(
       buildArcSessionIndex({ projects: [projectWith([unbound, older])] }).size,
@@ -105,7 +98,7 @@ describe("buildArcSessionIndex", () => {
   test("the counters ride as raw numbers, each half independently", () => {
     const half: ArcChangesetEntry = {
       ...GOLDEN_ARC,
-      bound_sessions: ["sess-a"],
+      bound_session: "sess-a",
       step_current: 2,
     };
     delete half.step_total;
@@ -128,7 +121,7 @@ describe("buildArcSessionIndex", () => {
     // reach the fact: the numerals will count the run, the ring the plan.
     const stepped: ArcChangesetEntry = {
       ...GOLDEN_ARC,
-      bound_sessions: ["sess-a"],
+      bound_session: "sess-a",
       step_current: 6,
       step_total: 10,
       run_position: 2,
@@ -158,7 +151,7 @@ describe("buildArcSessionIndex", () => {
   test("plan presence rides the fact — it is what makes a missing step loud", () => {
     const planless: ArcChangesetEntry = {
       ...GOLDEN_ARC,
-      bound_sessions: ["sess-a"],
+      bound_session: "sess-a",
     };
     delete planless.documents;
     expect(
@@ -181,7 +174,7 @@ describe("buildArcSessionIndex", () => {
   test("the step's title rides the fact, and absence reads as null", () => {
     const bare: ArcChangesetEntry = {
       ...GOLDEN_ARC,
-      bound_sessions: ["sess-a"],
+      bound_session: "sess-a",
     };
     delete bare.step_title;
     expect(
@@ -216,7 +209,7 @@ describe("arcForSession", () => {
   });
 
   test("answers the arc for a bound session", () => {
-    const bound = GOLDEN_ARC.bound_sessions![0]!;
+    const bound = GOLDEN_ARC.bound_session!;
     expect(arcForSession(DATA, bound)!.name).toBe(GOLDEN_ARC.display_name);
   });
 });
@@ -233,7 +226,7 @@ describe("the documents-only half of an arc's life", () => {
       step_total: 0,
       steps_done: 0,
       steps_begun: 0,
-      bound_sessions: ["sess-d"],
+      bound_session: "sess-d",
       ...over,
     };
   }
@@ -291,7 +284,7 @@ describe("the documents-only half of an arc's life", () => {
       projects: [
         {
           ...projectWith([]),
-          document_arcs: [documentArc({ bound_sessions: [] })],
+          document_arcs: [documentArc({ bound_session: undefined })],
         },
       ],
     });
@@ -303,7 +296,7 @@ describe("the documents-only half of an arc's life", () => {
       ...GOLDEN_ARC,
       display_name: "live-one",
       stage: "working",
-      bound_sessions: ["sess-d"],
+      bound_session: "sess-d",
     };
     const index = buildArcSessionIndex({
       projects: [
@@ -338,11 +331,11 @@ describe("arcForSession – over a rotation", () => {
   const LINE = "dsi-line";
   const CARD = "dsi-card";
 
-  function snapshotBinding(bound: string[]): WorkspacesChangesetSnapshot {
+  function snapshotBinding(bound: string): WorkspacesChangesetSnapshot {
     return {
       projects: [
         projectWith([
-          { ...GOLDEN_ARC, display_name: "rotating", bound_sessions: bound },
+          { ...GOLDEN_ARC, display_name: "rotating", bound_session: bound },
         ]),
       ],
     };
@@ -364,7 +357,7 @@ describe("arcForSession – over a rotation", () => {
     sessionLineStore.seat(STAGE, LINE);
     cardSessionBindingStore.setSeatedSegment(CARD, STAGE, LINE);
 
-    const snapshot = snapshotBinding([STAGE]);
+    const snapshot = snapshotBinding(STAGE);
     expect(arcForSession(snapshot, STAGE)!.name).toBe("rotating");
     expect(arcForSession(snapshot, ROOT)!.name).toBe("rotating");
     expect(arcForSession(snapshot, ROOT)).toBe(arcForSession(snapshot, STAGE)!);
@@ -375,7 +368,7 @@ describe("arcForSession – over a rotation", () => {
   test("a segment no card holds, and a card on no arc, both answer null", () => {
     sessionLineStore.forgetSession(ROOT);
     sessionLineStore.forgetSession(STAGE);
-    const snapshot = snapshotBinding([STAGE]);
+    const snapshot = snapshotBinding(STAGE);
     expect(arcForSession(snapshot, "dsi-stranger")).toBeNull();
 
     sessionLineStore.seat("dsi-other", "dsi-other-line");
