@@ -10,14 +10,54 @@
  * Mirrors the Rust model in `tugcast/src/jots.rs` (Spec S01/S02).
  */
 
+import type { AtomSegment } from "./tug-atom-img";
+
 /** The only document version this build reads and writes. */
 export const JOTS_VERSION = 1;
+
+/**
+ * One atom standing in a jot's text: its identity plus the index of the
+ * `U+FFFC` it occupies. The same shape `prompt-history-store.ts` already
+ * serialises an atom in, minus the `path` field that is a prompt-history
+ * concern — a jot has no bytes store and no asset base, so an image atom
+ * travels as metadata and its chip draws pending ([B09]).
+ *
+ * Mirrors `JotAtom` in `tugcast/src/jots.rs`; the two must agree, or the
+ * field is dropped on the next save.
+ */
+export interface JotAtom {
+  /** Index of the `U+FFFC` this atom stands at, in the jot's `text`. */
+  position: number;
+  type: string;
+  label: string;
+  value: string;
+  /** Bytes-store key for an image atom. A jot stores no bytes, so this is a
+   *  link that will usually resolve to nothing — kept because it is the atom's
+   *  identity, and because a jot moved back into a card whose store still
+   *  holds the row resolves it. */
+  id?: string;
+}
 
 /** One reusable jot: an opaque id and its (possibly multi-line) text. The
  *  row's handle is the *incipit* (opening line of `text`), not a stored title. */
 export interface Jot {
   id: string;
   text: string;
+  /**
+   * The atoms standing in `text` — one per `U+FFFC` in it, in document order.
+   *
+   * A jot is where a chip goes to be kept: a file mention, a commit, a session
+   * citation pasted out of a transcript. Before this field the text was saved
+   * and the chips were not, so a reopened jot showed a placeholder character
+   * with nothing behind it and no way to say what had been there. Additive and
+   * optional, exactly as `origins` was: absent on every jot written before this
+   * existed and on every jot of plain prose.
+   *
+   * Mirrors `Jot.atoms` in `tugcast/src/jots.rs` — and, like `origins`, it must
+   * be named on the READ side below or every round trip through this build
+   * silently drops it.
+   */
+  atoms?: JotAtom[];
   /**
    * Absolute project roots this jot's text was written against — the
    * provenance of whatever was pasted in, mirroring `Jot.origins` in
@@ -111,6 +151,17 @@ export function parseJotsFrame(payload: Uint8Array): JotsFrame | null {
       }
       if (origins.length > 0) jot.origins = origins;
     }
+    // Same reason, same shape: named here or lost. An entry that is not a
+    // well-formed atom is skipped rather than half-trusted — a chip claiming
+    // an identity nothing wrote is worse than the placeholder it replaces.
+    if (Array.isArray(s.atoms)) {
+      const atoms: JotAtom[] = [];
+      for (const raw of s.atoms as unknown[]) {
+        const atom = parseJotAtom(raw);
+        if (atom !== null) atoms.push(atom);
+      }
+      if (atoms.length > 0) jot.atoms = atoms;
+    }
     jots.push(jot);
   }
   return {
@@ -118,6 +169,51 @@ export function parseJotsFrame(payload: Uint8Array): JotsFrame | null {
     hash: typeof obj.hash === "string" ? obj.hash : null,
     error: typeof obj.error === "string" ? obj.error : null,
   };
+}
+
+/**
+ * Read one atom out of a parsed `jots.json` entry, or `null` when it is not
+ * one. Exported for the document tests; the parser above is the only caller.
+ */
+export function parseJotAtom(raw: unknown): JotAtom | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const a = raw as Record<string, unknown>;
+  if (typeof a.position !== "number" || !Number.isInteger(a.position)) return null;
+  if (a.position < 0) return null;
+  if (typeof a.type !== "string" || a.type === "") return null;
+  if (typeof a.label !== "string") return null;
+  if (typeof a.value !== "string") return null;
+  const atom: JotAtom = {
+    position: a.position,
+    type: a.type,
+    label: a.label,
+    value: a.value,
+  };
+  if (typeof a.id === "string" && a.id !== "") atom.id = a.id;
+  return atom;
+}
+
+/**
+ * The jot's atoms as the positionless segments every atom consumer takes —
+ * document order, which is the order the `U+FFFC` characters appear in the
+ * text, so the pair zips.
+ *
+ * The record stores a position per atom because that is what makes the file
+ * self-describing; every door out of a jot (the copy's sidecar, the drag, the
+ * insert) wants the segment instead.
+ *
+ * Spelled out here rather than borrowed from `atom-text`'s
+ * `substrateSegments`: this module is pure document logic with no IO, and
+ * `atom-text` reaches the clipboard.
+ */
+export function jotAtomSegments(jot: Jot): AtomSegment[] {
+  return (jot.atoms ?? []).map((atom) => ({
+    kind: "atom" as const,
+    type: atom.type,
+    label: atom.label,
+    value: atom.value,
+    ...(atom.id !== undefined ? { id: atom.id } : {}),
+  }));
 }
 
 // ── Immutable document transforms ──────────────────────────────────────────
@@ -139,9 +235,27 @@ export function applyCreate(
   return { doc: { ...doc, jots }, id };
 }
 
-/** Set a jot's text. No-op if `id` is absent. */
-export function applyUpdate(doc: JotsDoc, id: string, text: string): JotsDoc {
-  const jots = doc.jots.map((s) => (s.id === id ? { ...s, text } : s));
+/**
+ * Set a jot's text and the atoms standing in it. No-op if `id` is absent.
+ *
+ * The two move together because they are one document: a text written without
+ * its atoms is a text with anonymous placeholders in it. An empty `atoms`
+ * clears the field rather than leaving a stale list behind — deleting the last
+ * chip in a jot has to be recorded as the chip being gone.
+ */
+export function applyUpdate(
+  doc: JotsDoc,
+  id: string,
+  text: string,
+  atoms: readonly JotAtom[] = [],
+): JotsDoc {
+  const jots = doc.jots.map((s) => {
+    if (s.id !== id) return s;
+    const next: Jot = { ...s, text };
+    if (atoms.length > 0) next.atoms = atoms.map((atom) => ({ ...atom }));
+    else delete next.atoms;
+    return next;
+  });
   return { ...doc, jots };
 }
 

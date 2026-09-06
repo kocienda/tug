@@ -15,10 +15,19 @@
  *   Copy Full Hash              the complete 40 characters, bare, for a git verb
  *   Copy Commit Header          `commit:<8>` and the subject, one line
  *   Copy Commit Record          the whole record — the row's Copy button's text
+ *   Copy as Atom                the commit itself, so a paste is a pill again
  *
  * **The fold item says which way it goes.** `Show Detail` on a collapsed row,
  * `Hide Detail` on an expanded one — the same act the row's click performs,
  * spelled so the menu never asks the reader to recall the row's state.
+ *
+ * **Every item writes through `writeCopyClipboard`.** The four text forms used
+ * to call `navigator.clipboard.writeText` directly, which carried no atom
+ * sidecar, stamped no project root, and — outside the native bridge — asked
+ * Safari for permission. `Copy as Atom` is the item that made the difference
+ * visible: it writes the same one-atom sidecar the annotation menu's item
+ * writes, off the same {@link atomSegmentFor} rule, so a commit copied from a
+ * receipt header and a commit copied from a prose mention are the same bytes.
  *
  * `TugEditorContextMenu` rather than the Radix-backed `TugContextMenu`, for the
  * reason {@link useSessionIdentityMenu} uses it: its items write to the
@@ -48,7 +57,11 @@ import {
 } from "@/components/tugways/tug-editor-context-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { entityMenuItems } from "@/components/tugways/entity-menu-items";
+import { atomPlainTextFor, atomSegmentFor } from "@/lib/annotator/atom-segment";
 import { annotationEntryFor } from "@/lib/annotator/registry";
+import { clipboardOriginFor } from "@/lib/clipboard-origin";
+import { writeCopyClipboard } from "@/lib/copy-clipboard";
+import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
 import { useWholeEntityPress } from "@/lib/whole-entity-press";
 
 /** What the menu is offered for, and what each item has to write. */
@@ -80,11 +93,6 @@ export interface CommitIdentityMenuResult {
   contextMenu: React.ReactNode;
 }
 
-/** Plain text to the clipboard, when there is any. */
-function writeText(text: string): void {
-  if (text.length > 0) void navigator.clipboard.writeText(text);
-}
-
 /**
  * The entity a press on the claim is about: the commit atom — from anywhere
  * on the claim. A History row claims the whole row, subject and roster and
@@ -114,6 +122,40 @@ export function useCommitIdentityMenu({
   const shortRef = `commit:${commit.sha.slice(0, SHA_DISPLAY_LEN)}`;
   const folds = expanded !== undefined && onToggleDetail !== undefined;
 
+  // The row itself, kept so every copy can stamp the project it was read
+  // against, which is the same provenance a transcript selection carries.
+  const hostRef = React.useRef<HTMLElement | null>(null);
+  const copy = React.useCallback((text: string): void => {
+    if (text.length === 0) return;
+    writeCopyClipboard(text, null, clipboardOriginFor(hostRef.current), null);
+  }, []);
+
+  // The commit as an OBJECT: the one-atom substrate, written exactly as the
+  // annotation menu writes it. One rule, two menus, so a pill pasted back is a
+  // pill whether it was copied from a receipt or from a sentence.
+  //
+  // The paths ride a ref rather than a dependency: the array is rebuilt every
+  // render, and the joined-string key it was reconstructed from could not
+  // survive a path with a space in it.
+  const pathsRef = React.useRef<readonly string[]>(paths);
+  pathsRef.current = paths;
+  const copyAtom = React.useCallback((): void => {
+    const payload = {
+      kind: "commit-sha" as const,
+      sha: commit.sha,
+      root: "",
+      paths: [...pathsRef.current],
+    };
+    const segment = atomSegmentFor(payload);
+    if (segment === null) return;
+    writeCopyClipboard(
+      atomPlainTextFor(payload, segment),
+      null,
+      clipboardOriginFor(hostRef.current),
+      { version: 1, text: TUG_ATOM_CHAR, atoms: [{ position: 0, segment }] },
+    );
+  }, [commit.sha]);
+
   const responderId = React.useId();
   const { responderRef, ResponderScope } = useOptionalResponder({
     id: responderId,
@@ -123,13 +165,14 @@ export function useCommitIdentityMenu({
     // away from the surface underneath.
     actions: {
       [TUG_ACTIONS.TOGGLE_COMMIT_DETAIL]: () => onToggleDetail?.(),
-      [TUG_ACTIONS.COPY_COMMIT_HASH]: () => writeText(commit.sha),
-      [TUG_ACTIONS.COPY_COMMIT_SHORT_HASH]: () => writeText(shortRef),
+      [TUG_ACTIONS.COPY_COMMIT_HASH]: () => copy(commit.sha),
+      [TUG_ACTIONS.COPY_COMMIT_SHORT_HASH]: () => copy(shortRef),
       [TUG_ACTIONS.COPY_COMMIT_HEADER]: () =>
-        writeText(`${shortRef} ${commit.subject}`),
+        copy(`${shortRef} ${commit.subject}`),
       // The row's Copy button's exact text, through the one formatter, so the
       // button and the menu item can never write two different records.
-      [TUG_ACTIONS.COPY_COMMIT_RECORD]: () => writeText(commitCopyText(commit)),
+      [TUG_ACTIONS.COPY_COMMIT_RECORD]: () => copy(commitCopyText(commit)),
+      [TUG_ACTIONS.COPY_ANNOTATION_ATOM]: copyAtom,
     },
   });
 
@@ -147,6 +190,7 @@ export function useCommitIdentityMenu({
   );
   const ref = React.useCallback(
     (el: HTMLElement | null): void => {
+      hostRef.current = el;
       responderRef(el);
       attachPress(el);
     },

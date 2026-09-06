@@ -1141,6 +1141,9 @@ export interface CodeSessionSnapshot {
    */
   pendingJotInsert: {
     text: string;
+    /** The atoms standing in `text`, in document order — a chip dragged out of
+     *  a jot arrives as the chip it is. */
+    atoms: AtomSegment[];
     at: { x: number; y: number } | null;
   } | null;
 

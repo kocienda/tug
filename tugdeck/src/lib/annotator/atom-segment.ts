@@ -19,6 +19,7 @@
 import type { AnnotationPayload } from "./payloads";
 import { formatAtomLabel, type AtomSegment } from "@/lib/tug-atom-img";
 import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
+import { atomPlainText } from "@/lib/atom-plain-text";
 import { commitAtomLabel } from "@/lib/commit-format";
 import {
   sessionAtomPlainTextFor,
@@ -115,20 +116,20 @@ export function atomSegmentFor(payload: AnnotationPayload): AtomSegment | null {
 /**
  * The `text/plain` flavor to write beside `segment` on the clipboard.
  *
- * For a path, a directory and a URL the atom's own value IS the plain form —
- * which is where the atom copy differs from `Copy Path` on a cited file:
- * `foo.ts:14` copies as written there, and an atom names a file.
+ * The spelling for every kind is {@link atomPlainText}'s, which is the one
+ * table the substrate copy and the editor's own copy also read. This function
+ * is the arm above it that a payload — rather than a segment — can answer:
+ * where the atom copy differs from `Copy Path` on a cited file, `foo.ts:14`
+ * copies as written there, and an atom names a file.
  *
- * A session is the exception, and the rule stays here rather than in the menu
+ * The session IS that arm, and the rule stays here rather than in the menu
  * handler so both surfaces that offer `Copy as Atom` write one string. Its
  * plain form is the CITATION: plain text is what leaves Tug, and a bare
  * callsign is a name nothing outside the app can resolve back to a session.
- *
- * A commit is the other, for the mirror reason: its atom's VALUE is a bare
- * sha, and a bare sha pasted outside Tug names nothing a reader can place. Its
- * plain form is the LABEL — `commit:<8>` — which is the spelling every commit
- * surface already shows and every commit copy path already writes, so what the
- * eye read and what the clipboard carries are one string.
+ * The citation needs the identity record and so the session id, which the
+ * payload carries and the segment does not — which is exactly why this arm
+ * cannot move down into the table, and why a copy that starts from a segment
+ * writes the identity line instead.
  */
 export function atomPlainTextFor(
   payload: AnnotationPayload,
@@ -137,6 +138,5 @@ export function atomPlainTextFor(
   if (payload.kind === "session") {
     return sessionAtomPlainTextFor(payload.target) ?? segment.value;
   }
-  if (payload.kind === "commit-sha") return commitAtomLabel(payload.sha);
-  return segment.value;
+  return atomPlainText(segment);
 }

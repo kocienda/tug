@@ -16,7 +16,9 @@ import { describe, expect, test } from "bun:test";
 
 import {
   atomTextClipboardPayload,
+  formatAtomTextAsValues,
   formatAtomTextForCopy,
+  substrateSegments,
   walkAtomText,
   type AtomTextSegment,
 } from "../atom-text";
@@ -272,5 +274,81 @@ describe("atomTextClipboardPayload", () => {
     const payload = atomTextClipboardPayload(text, [ATOM_FILE]);
     expect(payload?.text).toBe(text);
     expect(payload?.atoms).toEqual([{ position: 0, segment: ATOM_FILE }]);
+  });
+});
+
+describe("formatAtomTextAsValues — the exit spelling for a consumer that wants the value", () => {
+  // The second of exactly two spellings ([B05]). `atomPlainText` writes what a
+  // READER recognises; this writes what a MACHINE resolves — the commit message
+  // handed to git being the one consumer that needs it, since `commit:64747b8c`
+  // is a label and git wants the hash.
+
+  test("a commit atom becomes its sha, not its label", () => {
+    const commit: AtomSegment = {
+      kind: "atom",
+      type: "commit",
+      label: "commit:64747b8c",
+      value: "64747b8c9a1d3f0e5b2c7a8d9e0f1a2b3c4d5e6f",
+    };
+    expect(formatAtomTextAsValues(`land ${TUG_ATOM_CHAR}`, [commit])).toBe(
+      "land 64747b8c9a1d3f0e5b2c7a8d9e0f1a2b3c4d5e6f",
+    );
+    // And the reader's spelling really is different, which is the whole point
+    // of there being two.
+    expect(formatAtomTextForCopy(`land ${TUG_ATOM_CHAR}`, [commit])).toBe(
+      "land commit:64747b8c",
+    );
+  });
+
+  test("a file atom becomes its path, not a markdown link", () => {
+    expect(formatAtomTextAsValues(TUG_ATOM_CHAR, [ATOM_README])).toBe(
+      ATOM_README.value,
+    );
+  });
+
+  test("text with no atoms is itself", () => {
+    expect(formatAtomTextAsValues("fix the parser", [])).toBe("fix the parser");
+  });
+
+  test("a stray U+FFFC passes through rather than vanishing", () => {
+    // The same defensive posture the other formatters take: a visible
+    // regression beats a silent drop ([Spec S03]).
+    const text = `${TUG_ATOM_CHAR}${TUG_ATOM_CHAR}`;
+    expect(formatAtomTextAsValues(text, [ATOM_README])).toBe(
+      `${ATOM_README.value}${TUG_ATOM_CHAR}`,
+    );
+  });
+});
+
+describe("substrateSegments — positions dropped, order kept", () => {
+  test("a positioned list becomes the segments the formatters take", () => {
+    expect(
+      substrateSegments([
+        { position: 4, type: "file", label: "a.ts", value: "src/a.ts" },
+        {
+          position: 9,
+          type: "image",
+          label: "shot.png",
+          value: "shot.png",
+          id: "atom-id-1",
+        },
+      ]),
+    ).toEqual([
+      { kind: "atom", type: "file", label: "a.ts", value: "src/a.ts" },
+      {
+        kind: "atom",
+        type: "image",
+        label: "shot.png",
+        value: "shot.png",
+        id: "atom-id-1",
+      },
+    ]);
+  });
+
+  test("an absent id is not written as an undefined key", () => {
+    const [segment] = substrateSegments([
+      { position: 0, type: "file", label: "a.ts", value: "src/a.ts" },
+    ]);
+    expect("id" in segment!).toBe(false);
   });
 });

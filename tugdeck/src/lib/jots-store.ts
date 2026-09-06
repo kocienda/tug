@@ -18,6 +18,7 @@ import type { TugConnection } from "../connection";
 import { getConnection } from "./connection-singleton";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import {
+  type JotAtom,
   type JotsDoc,
   type UndoStack,
   applyCreate,
@@ -167,14 +168,22 @@ export class JotsStore {
     return result.id;
   }
 
-  /** Set a jot's text. Debounced save; coalesced undo while editing. */
-  updateJot(id: string, text: string): void {
+  /**
+   * Set a jot's text and the atoms standing in it. Debounced save; coalesced
+   * undo while editing.
+   *
+   * Both halves of the substrate the editor reports, because a text saved
+   * without its atoms is a text with anonymous placeholders in it — the jot
+   * would reopen showing a `U+FFFC` where a chip had been, with nothing left
+   * to say what it was.
+   */
+  updateJot(id: string, text: string, atoms: readonly JotAtom[] = []): void {
     // When not inside a begin/commit bracket, each update is its own undo
     // entry; while bracketed, a typing burst coalesces to one entry at commit.
     if (this.editBaseline === null) {
       this.undoStack = pushUndo(this.undoStack, this.doc);
     }
-    this.doc = applyUpdate(this.doc, id, text);
+    this.doc = applyUpdate(this.doc, id, text, atoms);
     this.commit();
     this.save(false);
   }

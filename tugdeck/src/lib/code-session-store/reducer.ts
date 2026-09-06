@@ -448,6 +448,7 @@ export interface CodeSessionState {
    */
   pendingJotInsert: {
     text: string;
+    atoms: AtomSegment[];
     at: { x: number; y: number } | null;
   } | null;
   /**
@@ -1435,7 +1436,11 @@ function handleInsertJot(
   return {
     state: {
       ...state,
-      pendingJotInsert: { text: event.text, at: event.at },
+      pendingJotInsert: {
+        text: event.text,
+        atoms: event.atoms,
+        at: event.at,
+      },
     },
     effects: [],
   };

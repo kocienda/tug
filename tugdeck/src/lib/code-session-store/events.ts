@@ -522,6 +522,8 @@ export interface ConsumeCommandInsertActionEvent {
 export interface InsertJotActionEvent {
   type: "insert_jot";
   text: string;
+  /** The atoms standing in `text`, in document order. */
+  atoms: AtomSegment[];
   at: { x: number; y: number } | null;
 }
 

@@ -39,7 +39,7 @@
 import { formatAtomTextForCopy } from "@/lib/atom-text";
 import { TUG_ATOM_CHAR, type AtomSegment } from "@/lib/tug-atom-img";
 
-interface Marks {
+export interface Marks {
   bold?: boolean;
   italic?: boolean;
   strike?: boolean;
@@ -47,7 +47,7 @@ interface Marks {
   href?: string;
 }
 
-interface BlockInfo {
+export interface BlockInfo {
   /** The block element — runs sharing it group into one block. */
   el: Element;
   /** "heading" | "li" | "pre" | "p" (default). */
@@ -58,7 +58,7 @@ interface BlockInfo {
   inQuote: boolean;
 }
 
-interface Run {
+export interface Run {
   text: string;
   block: BlockInfo;
   marks: Marks;
@@ -104,16 +104,28 @@ function isBlockBoundary(el: Element): boolean {
  * The atom a chip element stands for, or `null` when the element is not one.
  *
  * Every chip — the transcript's `<svg>`, the editor's `<img>`, a session
- * citation — carries its identity in the same three `data-atom-*` attributes,
+ * citation — carries its identity in the same `data-atom-*` attributes,
  * which is what lets one serializer read every surface's chips without knowing
- * which component drew them.
+ * which component drew them. `atomIdentityAttrs` is where they are authored.
+ *
+ * The id is read back where a chip has one, because an atom's bytes are found
+ * by it: a sidecar entry written without an id can carry no payload, so an
+ * image chip copied out of a transcript pasted as a chip with nothing behind
+ * it while the same row's COPY button carried the bytes.
  */
 function atomOf(el: Element): AtomSegment | null {
   const type = el.getAttribute("data-atom-type");
   const label = el.getAttribute("data-atom-label");
   const value = el.getAttribute("data-atom-value");
   if (type === null || label === null || value === null) return null;
-  return { kind: "atom", type, label, value };
+  const id = el.getAttribute("data-atom-id");
+  return {
+    kind: "atom",
+    type,
+    label,
+    value,
+    ...(id !== null && id !== "" ? { id } : {}),
+  };
 }
 
 /** The chip element at or above `node`, or `null` when there is none. */
@@ -302,6 +314,62 @@ function collectRuns(range: Range): Run[] {
   return runs;
 }
 
+/** Whether two runs carry the same inline marks, field for field. */
+function sameMarks(a: Marks, b: Marks): boolean {
+  return (
+    a.bold === b.bold &&
+    a.italic === b.italic &&
+    a.strike === b.strike &&
+    a.code === b.code &&
+    a.href === b.href
+  );
+}
+
+/**
+ * Join runs that a marked element split, before any marker is written.
+ *
+ * A run is one DOM text node, and {@link applyMarks} wraps each one on its
+ * own. So a `<code>` holding two text nodes earned two pairs of backticks —
+ * which is what a confirmed commit mention produced, its pill's word and its
+ * hash being separate text nodes inside the mention's own `<code>`. The
+ * mention no longer splits that way, but the defect was never the commit's:
+ * any inline element the annotator, a portal, or a future inline component
+ * divides into several text nodes hits it, and a reader who selects across one
+ * gets markup with the marks stuttering through it.
+ *
+ * So the join happens here, once, on the runs — where "the same styled span"
+ * is exactly what the predicate says: the same block element, the same marks.
+ * A `raw` run is never merged and never absorbs one, because raw is what
+ * carries an atom's `U+FFFC` and KaTeX's verbatim TeX: an atom must stay its
+ * own run or its `atom` would have nowhere to ride, and pre-formatted text
+ * that gained a neighbour's characters would no longer be verbatim.
+ *
+ * The one-text-node case is byte-identical: with nothing to merge, every run
+ * comes out as it went in.
+ */
+export function mergeAdjacentRuns(runs: readonly Run[]): Run[] {
+  const merged: Run[] = [];
+  for (const run of runs) {
+    const prev = merged[merged.length - 1];
+    if (
+      prev !== undefined &&
+      !prev.raw &&
+      !run.raw &&
+      prev.atom === undefined &&
+      run.atom === undefined &&
+      prev.block.el === run.block.el &&
+      sameMarks(prev.marks, run.marks)
+    ) {
+      // A copy rather than a mutation: `collectRuns`' objects are the caller's,
+      // and a merge that wrote through them would be a side effect on an input.
+      merged[merged.length - 1] = { ...prev, text: prev.text + run.text };
+      continue;
+    }
+    merged.push(run);
+  }
+  return merged;
+}
+
 /** Wrap a run's text in its inline markers, keeping whitespace outside. */
 function applyMarks(text: string, marks: Marks): string {
   const lead = /^\s*/.exec(text)?.[0] ?? "";
@@ -353,7 +421,7 @@ export function selectionToTranscriptSubstrate(
   _bodyEl: HTMLElement,
 ): SelectionSubstrate | null {
   if (selection.rangeCount === 0 || selection.isCollapsed) return null;
-  const runs = collectRuns(selection.getRangeAt(0));
+  const runs = mergeAdjacentRuns(collectRuns(selection.getRangeAt(0)));
   if (runs.length === 0) return null;
 
   // Group consecutive runs by their block element.

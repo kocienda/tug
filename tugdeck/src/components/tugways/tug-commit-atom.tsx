@@ -61,7 +61,9 @@ import "./tug-commit-atom.css";
 
 import React from "react";
 
-import { COMMIT_LABEL_LENGTH } from "@/lib/commit-format";
+import { atomIdentityAttrs } from "@/lib/atom-identity-attrs";
+import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
+import { COMMIT_LABEL_LENGTH, commitAtomLabel } from "@/lib/commit-format";
 
 /** The `data-slot` every surface's copy answers to. One selector, everywhere. */
 export const COMMIT_ATOM_SLOT = "tug-commit-atom";
@@ -160,6 +162,20 @@ export const TugCommitAtom = React.forwardRef<
       data-tier="chip"
       data-interactive={interactive ? "true" : undefined}
       data-missing={missing ? "true" : undefined}
+      // The pill's identity, authored here rather than spread by whoever
+      // mounted it. A selection that crosses a commit reads these four and
+      // nothing else, and the mount that forgot them — the portal a confirmed
+      // mention wears — is why a commit used to paste as two prose runs. It
+      // comes after `{...rest}` so a caller's leftover spread cannot relabel
+      // the pill as something it is not.
+      //
+      // `word` does not appear here on purpose: what the pill PRINTS is that
+      // flag's business, and what it IS does not change with it.
+      {...atomIdentityAttrs({
+        type: COMMIT_ATOM_TYPE,
+        label: commitAtomLabel(sha),
+        value: sha,
+      })}
       // No register vars: the borrowed skin reads them as its stylesheet's
       // fallbacks, and a pill that published them on itself would overrule the
       // host it stands in rather than read it.

@@ -350,14 +350,12 @@ export const TugAtomMarkdownBody = React.forwardRef<
             // box wearing the FILE glyph — the drawing the pill was built to
             // replace. The host span already carries the annotation
             // `tagAtomHosts` stamped, so the cursor is all the pill has to
-            // say about the gesture, and the `data-atom-*` trio is what the
-            // selection serializer reads a chip through whatever drew it.
+            // say about the gesture. The `data-atom-*` identity the selection
+            // serializer reads a chip through is the pill's own now, so there
+            // is nothing here to spread.
             <TugCommitAtom
               sha={atom.value}
               interactive={payloadForAtom(atom, atomPathRoots) !== null}
-              data-atom-type={atom.type}
-              data-atom-label={atom.label}
-              data-atom-value={atom.value}
             />
           ) : (
             <TugAtomChip
@@ -365,6 +363,7 @@ export const TugAtomMarkdownBody = React.forwardRef<
               type={atom.type}
               label={decorateChipLabel(atom, address)}
               value={atom.value}
+              {...(atom.id !== undefined ? { id: atom.id } : {})}
             />
           ),
           host,

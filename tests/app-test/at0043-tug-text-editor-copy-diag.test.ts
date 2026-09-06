@@ -51,6 +51,7 @@
  * @covers tugdeck/src/components/tugways/tug-text-editor/
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
  * @covers tugdeck/src/lib/tug-native-clipboard.ts
+ * @covers tugdeck/src/lib/atom-plain-text.ts
  * @covers tugdeck/src/lib/copy-as-plain-text.ts
  * @covers tugdeck/src/lib/tug-atom-chip.tsx
  * @covers tugdeck/src/components/tugways/tug-push-button.tsx
@@ -87,6 +88,17 @@ const GALLERY_FILE_ATOM_BUTTON_SELECTOR =
 
 /** Label of the "file" sample atom in `gallery-text-editor.tsx`. */
 const FILE_ATOM_LABEL = "main.ts";
+
+/**
+ * The `text/plain` spelling of that atom — its {@link atomPlainText} form.
+ *
+ * The bridge's text payload substitutes each `U+FFFC` with the one string
+ * every writer of the flavor now writes, so the editor's own ⌘C says the same
+ * thing about a file that a transcript copy and the annotation menu do. A
+ * file's path is real information a plain paste keeps, hence the link shape
+ * rather than the bare name the editor used to write alone.
+ */
+const FILE_ATOM_PLAIN = "[main.ts](</project/src/main.ts>)";
 
 // ---------------------------------------------------------------------------
 // Deck shape
@@ -309,12 +321,12 @@ describe.skipIf(!SHOULD_RUN)(
             const mixedClip = await readClipboard(app);
             expect(
               mixedClip.text,
-              "mixed ⌘C: bridge text payload (label substituted for U+FFFC)",
-            ).toBe(`x${FILE_ATOM_LABEL}`);
+              "mixed ⌘C: bridge text payload (plain spelling substituted for U+FFFC)",
+            ).toBe(`x${FILE_ATOM_PLAIN}`);
 
             // ---- Scenario 3: atom-only ----
             // Reset, insert "file" atom, shift-arrow-left to select it,
-            // ⌘C. Bridge text should be just the label.
+            // ⌘C. Bridge text should be just the atom's plain spelling.
             await clearEditor(app);
             await app.nativeClickAtElement(GALLERY_FILE_ATOM_BUTTON_SELECTOR);
             await app.nativeClickAtElement(`[data-card-id="A"] ${TUG_EDIT_CONTENT_SELECTOR}`);
@@ -334,8 +346,8 @@ describe.skipIf(!SHOULD_RUN)(
             const atomOnlyClip = await readClipboard(app);
             expect(
               atomOnlyClip.text,
-              "atom-only ⌘C: bridge text payload (label only)",
-            ).toBe(FILE_ATOM_LABEL);
+              "atom-only ⌘C: bridge text payload (the atom's plain spelling)",
+            ).toBe(FILE_ATOM_PLAIN);
 
             // ---- Atom sidecar payload assertions ----
             //

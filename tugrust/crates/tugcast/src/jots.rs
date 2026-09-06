@@ -31,6 +31,31 @@ pub const MAX_JOTS_DOC_BYTES: usize = 1024 * 1024;
 
 // ── Document model (Spec S01) ──────────────────────────────────────────────
 
+/// One atom standing in a jot's text: its identity plus the byte-agnostic
+/// index of the `U+FFFC` it occupies in that text.
+///
+/// A jot has no bytes store and no asset base, and its file is a text
+/// document, so an image atom's payload does not go in here — the atom travels
+/// as metadata and its chip draws in the pending state the composer already
+/// uses for an image whose bytes were evicted. Nothing is dropped; what cannot
+/// be carried is shown as not carried.
+///
+/// Mirrors `JotAtom` in `tugdeck/src/lib/jots-doc.ts`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JotAtom {
+    /// Index of the `U+FFFC` this atom stands at, in the jot's `text`.
+    pub position: u32,
+    #[serde(rename = "type")]
+    pub atom_type: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub value: String,
+    /// Bytes-store key for an image atom, absent for every self-contained one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
 /// One reusable jot: an opaque, client-generated `id` (stable across edits,
 /// unique within the document) and its `text`. There is no title — a row's
 /// handle is the *incipit*, the opening line of `text`, derived in the UI.
@@ -58,6 +83,21 @@ pub struct Jot {
     /// the file when it is.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub origins: Vec<String>,
+    /// The atoms standing in `text` — one per `U+FFFC` in it, in document
+    /// order.
+    ///
+    /// A jot is where a chip goes to be kept: a file mention, a commit, a
+    /// session citation pasted out of a transcript. The text alone records
+    /// only the placeholder character each chip stands at, so a jot saved
+    /// without this field reopens showing an anonymous `U+FFFC` and no way to
+    /// say what had been there.
+    ///
+    /// Additive and optional the way `origins` is, and named on BOTH sides for
+    /// the same reason: a reader that does not name the field drops it on the
+    /// next save, and "additive and optional" is free on the write side and
+    /// never free on the read side.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub atoms: Vec<JotAtom>,
 }
 
 /// The whole jots document. Array position is display order.
@@ -429,6 +469,7 @@ mod tests {
                     id: (*id).to_owned(),
                     text: format!("body of {id}"),
                     origins: Vec::new(),
+                    atoms: Vec::new(),
                 })
                 .collect(),
         }
@@ -450,6 +491,7 @@ mod tests {
                 id: "jt_a".into(),
                 text: "see lib/a.ts".into(),
                 origins: vec!["/alpha".into(), "/beta".into()],
+                atoms: Vec::new(),
             }],
         };
         let bytes = serialize_doc(&doc);
@@ -467,6 +509,102 @@ mod tests {
         assert!(parsed.jots[0].origins.is_empty());
         let text = String::from_utf8(serialize_doc(&parsed)).unwrap();
         assert!(!text.contains("origins"), "got: {text}");
+    }
+
+    /// The atoms standing in a jot's text survive the file, for exactly the
+    /// reason `origins` does and with exactly the same failure if they do not:
+    /// `serialize_doc` writes a TYPED struct, so a field the model does not
+    /// name is dropped on the next save. The frontend would record the chips,
+    /// the next write would erase them, and nothing would report a thing —
+    /// the jot would simply reopen one day with a bare `U+FFFC` where a file
+    /// mention had been.
+    #[test]
+    fn atoms_round_trip_through_the_file() {
+        let doc = JotsDoc {
+            version: JOTS_VERSION,
+            jots: vec![Jot {
+                id: "jt_a".into(),
+                text: "see \u{fffc} and \u{fffc}".into(),
+                origins: Vec::new(),
+                atoms: vec![
+                    JotAtom {
+                        position: 4,
+                        atom_type: "file".into(),
+                        label: "atom-text.ts".into(),
+                        value: "tugdeck/src/lib/atom-text.ts".into(),
+                        id: None,
+                    },
+                    JotAtom {
+                        position: 10,
+                        atom_type: "image".into(),
+                        label: "shot.png".into(),
+                        value: "shot.png".into(),
+                        id: Some("1f8c2e04-7b3a-4d51-9c60-2a8e5f7b1d33".into()),
+                    },
+                ],
+            }],
+        };
+        let bytes = serialize_doc(&doc);
+        let parsed: JotsDoc = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(parsed, doc);
+        // A second save is the one that used to lose it: read, write, read.
+        let again: JotsDoc = serde_json::from_slice(&serialize_doc(&parsed)).unwrap();
+        assert_eq!(again, doc);
+        // The image atom's bytes are NOT in the file — the jot has no bytes
+        // store, so the atom travels as metadata and its chip draws pending.
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(!text.contains("bytes"), "got: {text}");
+        assert!(!text.contains("data:"), "got: {text}");
+    }
+
+    /// The wire spelling is the frontend's: `type`, not `atom_type`. A rename
+    /// on either side is a silent drop of every atom in the file, which is the
+    /// same failure the field exists to stop.
+    #[test]
+    fn an_atom_reads_the_shape_the_frontend_writes() {
+        let parsed: JotsDoc = serde_json::from_str(
+            r#"{"version":1,"jots":[{"id":"jt_a","text":"￼","atoms":[
+                 {"position":0,"type":"commit","label":"commit:64747b8c","value":"64747b8c9a"}]}]}"#,
+        )
+        .unwrap();
+        let atom = &parsed.jots[0].atoms[0];
+        assert_eq!(atom.atom_type, "commit");
+        assert_eq!(atom.label, "commit:64747b8c");
+        assert_eq!(atom.value, "64747b8c9a");
+        assert_eq!(atom.id, None);
+        let text = String::from_utf8(serialize_doc(&parsed)).unwrap();
+        assert!(text.contains(r#""type": "commit""#), "got: {text}");
+        assert!(!text.contains("atom_type"), "got: {text}");
+    }
+
+    /// Absent on every jot written before this existed, and omitted again on
+    /// the way out — so adding the field does not rewrite a file nobody
+    /// changed, and a jot of plain prose stays plain in the file.
+    #[test]
+    fn a_jot_without_atoms_reads_and_writes_without_the_field() {
+        let parsed: JotsDoc = serde_json::from_str(
+            r#"{"version":1,"jots":[{"id":"jt_a","text":"plain prose","origins":["/alpha"]}]}"#,
+        )
+        .unwrap();
+        assert!(parsed.jots[0].atoms.is_empty());
+        let text = String::from_utf8(serialize_doc(&parsed)).unwrap();
+        assert!(!text.contains("atoms"), "got: {text}");
+        // The neighbouring optional field is untouched by the new one.
+        assert!(text.contains("origins"), "got: {text}");
+    }
+
+    /// Degradation is graceful where it is unavoidable: a jot whose atoms were
+    /// lost keeps the chip's plain form in its text rather than a bare
+    /// placeholder, and the document still reads.
+    #[test]
+    fn a_jot_whose_atoms_were_lost_still_reads() {
+        let parsed: JotsDoc = serde_json::from_str(
+            r#"{"version":1,"jots":[{"id":"jt_a","text":"see [a.ts](<lib/a.ts>)"}]}"#,
+        )
+        .unwrap();
+        assert!(parsed.jots[0].atoms.is_empty());
+        assert_eq!(parsed.jots[0].text, "see [a.ts](<lib/a.ts>)");
+        assert!(validate(&parsed).is_ok());
     }
 
     #[test]

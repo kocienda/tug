@@ -93,6 +93,41 @@ export interface HistoryProvider {
 // ---------------------------------------------------------------------------
 
 /**
+ * One atom occurrence in a serializable substrate: its identity plus the
+ * index of the `TUG_ATOM_CHAR` it stands at.
+ *
+ * `id` is the optional bytes-store key: image atoms keep their payload
+ * (bytes/thumbnail) out-of-band in the per-card `AtomBytesStore` keyed by this
+ * id, so a restore that drops it severs the image from its bytes — the chip
+ * renders as a placeholder and a re-submit ships no image. Self-contained
+ * atoms (text/file/command/doc, whose `value` IS the payload) leave it
+ * `undefined`.
+ */
+export interface TugSubstrateAtom {
+  /** Position of the `TUG_ATOM_CHAR` this atom stands at. */
+  position: number;
+  type: string;
+  label: string;
+  value: string;
+  id?: string;
+}
+
+/**
+ * The `(text, atoms)` substrate itself, without the editing state's caret and
+ * scroll: text with a `TUG_ATOM_CHAR` at each atom position, and the parallel
+ * positioned list naming what stands there.
+ *
+ * This is what an editing surface REPORTS. A field that mirrors out
+ * `doc.toString()` alone has already dropped every chip in it to a placeholder
+ * character, so the pair travels together wherever a document leaves the
+ * editor and is held for as long as the field lives.
+ */
+export interface TugTextSubstrate {
+  text: string;
+  atoms: readonly TugSubstrateAtom[];
+}
+
+/**
  * Serializable snapshot of editing state.
  *
  * Used for persistence via tugbank (survives reload, app quit) [L23].
@@ -102,21 +137,9 @@ export interface TugTextEditingState {
   /** Plain text with TUG_ATOM_CHAR at atom positions. */
   text: string;
   /**
-   * Atom identity and position. Position is the index of TUG_ATOM_CHAR in
-   * text. `id` is the optional bytes-store key: image atoms keep their
-   * payload (bytes/thumbnail) out-of-band in the per-card `AtomBytesStore`
-   * keyed by this id, so a restore that drops it severs the image from its
-   * bytes — the chip renders as a placeholder and a re-submit ships no
-   * image. Self-contained atoms (text/file/command/doc, whose `value` IS
-   * the payload) leave it `undefined`.
+   * Atom identity and position — see {@link TugSubstrateAtom}.
    */
-  atoms: {
-    position: number;
-    type: string;
-    label: string;
-    value: string;
-    id?: string;
-  }[];
+  atoms: TugSubstrateAtom[];
   /** Cursor/selection as flat offsets. Null if editor was not focused. */
   selection: { start: number; end: number } | null;
   /**

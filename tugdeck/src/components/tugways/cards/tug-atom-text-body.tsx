@@ -207,9 +207,6 @@ export const TugAtomTextBody = React.forwardRef<
               key={`a-${i}`}
               sha={seg.atom.value}
               interactive={payload !== null}
-              data-atom-type={seg.atom.type}
-              data-atom-label={seg.atom.label}
-              data-atom-value={seg.atom.value}
             />
           ) : (
             <TugAtomChip
@@ -218,6 +215,7 @@ export const TugAtomTextBody = React.forwardRef<
               type={seg.atom.type}
               label={displayLabel}
               value={seg.atom.value}
+              {...(seg.atom.id !== undefined ? { id: seg.atom.id } : {})}
             />
           );
         if (payload === null) return chip;

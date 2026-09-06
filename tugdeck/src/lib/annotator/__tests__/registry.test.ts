@@ -369,6 +369,10 @@ describe("a commit's menu grows with what the surface holds", () => {
       "Copy Full Hash",
       "Copy Commit Header",
       "Copy Commit Record",
+      // The record does not displace the object. A pill in a receipt or a
+      // History row is the same commit a prose mention is, so it offers the
+      // same way of carrying it away as one.
+      "Copy as Atom",
     ]);
   });
 

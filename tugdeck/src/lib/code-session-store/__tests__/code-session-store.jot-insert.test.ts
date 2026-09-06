@@ -1,8 +1,8 @@
 /**
  * `pendingJotInsert` slot — the store side of dragging a Jots card jot
- * into the prompt entry. A drag/drop parks `{ text, at }` here for the entry
- * to insert (at the drop point when `at` is present, else appended); the entry
- * clears it once inserted.
+ * into the prompt entry. A drag/drop parks the jot's `(text, atoms)` substrate
+ * plus `at` here for the entry to insert (at the drop point when `at` is
+ * present, else appended); the entry clears it once inserted.
  *
  * Driven through the real `CodeSessionStore` facade (no mock store) so the
  * snapshot-reference stability the seeding `useLayoutEffect` relies on is
@@ -35,25 +35,45 @@ describe("CodeSessionStore — pendingJotInsert slot", () => {
 
   it("insertJot parks text with a drop point", () => {
     const store = constructStore();
-    store.insertJot("reusable text", { x: 120, y: 340 });
+    store.insertJot("reusable text", [], { x: 120, y: 340 });
     expect(store.getSnapshot().pendingJotInsert).toEqual({
       text: "reusable text",
+      atoms: [],
       at: { x: 120, y: 340 },
     });
   });
 
   it("insertJot parks text with a null point (append semantics)", () => {
     const store = constructStore();
-    store.insertJot("appended text", null);
+    store.insertJot("appended text", [], null);
     expect(store.getSnapshot().pendingJotInsert).toEqual({
       text: "appended text",
+      atoms: [],
+      at: null,
+    });
+  });
+
+  it("insertJot parks the atoms standing in the text", () => {
+    // The whole point of the slot carrying more than a string: a chip dragged
+    // out of a jot has to arrive in the prompt as that chip.
+    const store = constructStore();
+    const atom = {
+      kind: "atom" as const,
+      type: "file",
+      label: "atom-text.ts",
+      value: "tugdeck/src/lib/atom-text.ts",
+    };
+    store.insertJot("see \u{fffc}", [atom], null);
+    expect(store.getSnapshot().pendingJotInsert).toEqual({
+      text: "see \u{fffc}",
+      atoms: [atom],
       at: null,
     });
   });
 
   it("consumePendingJotInsert clears the slot back to null", () => {
     const store = constructStore();
-    store.insertJot("x", { x: 1, y: 2 });
+    store.insertJot("x", [], { x: 1, y: 2 });
     store.consumePendingJotInsert();
     expect(store.getSnapshot().pendingJotInsert).toBeNull();
   });

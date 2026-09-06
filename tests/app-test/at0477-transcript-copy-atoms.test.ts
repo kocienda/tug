@@ -44,6 +44,7 @@
  * @foreground
  *
  * @covers tugdeck/src/lib/atom-text.ts
+ * @covers tugdeck/src/lib/atom-plain-text.ts
  * @covers tugdeck/src/components/tugways/cards/tug-atom-text-body.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-z1b.tsx

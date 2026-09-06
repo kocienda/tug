@@ -153,6 +153,7 @@ mod tests {
                 id: "sn_a".into(),
                 text: "body".into(),
                 origins: Vec::new(),
+                atoms: Vec::new(),
             }],
         }
     }

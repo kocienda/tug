@@ -228,15 +228,25 @@ describe("a commit", () => {
 });
 
 describe("the plain-text flavor beside the atom", () => {
-  test("a path, a directory and a URL are their own plain form", () => {
+  test("a path, a directory and a URL take the table's link form", () => {
+    // The one spelling `atomPlainText` gives every writer: the name a reader
+    // sees over the path a paste can act on. The atom copy still differs from
+    // `Copy Path` on a cited file — `foo.ts:14` copies as written there, and
+    // an atom names a file, so the line is gone from the path below.
     const plain = (payload: AnnotationPayload): string =>
       atomPlainTextFor(payload, atomSegmentFor(payload)!);
     expect(plain({ kind: "file-path", path: "/repo/a.ts", line: 14 })).toBe(
-      "/repo/a.ts",
+      "[a.ts](</repo/a.ts>)",
     );
-    expect(plain({ kind: "directory", path: "/repo/src/" })).toBe("/repo/src");
+    // The label of a directory written with a trailing separator is the whole
+    // path — `formatAtomLabel`'s filename mode has no last segment to take
+    // when the last character IS the separator. That is the segment builder's
+    // own behavior, unchanged here, and the table spells whatever it is given.
+    expect(plain({ kind: "directory", path: "/repo/src/" })).toBe(
+      "[/repo/src/](</repo/src>)",
+    );
     expect(plain({ kind: "url", url: "https://anthropic.com/x" })).toBe(
-      "https://anthropic.com/x",
+      "[anthropic.com/x](<https://anthropic.com/x>)",
     );
   });
 

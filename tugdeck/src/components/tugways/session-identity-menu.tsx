@@ -69,6 +69,8 @@ import {
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { entityMenuItems } from "@/components/tugways/entity-menu-items";
 import { annotationEntryFor } from "@/lib/annotator/registry";
+import { clipboardOriginFor } from "@/lib/clipboard-origin";
+import { writeCopyClipboard } from "@/lib/copy-clipboard";
 import { useWholeEntityPress } from "@/lib/whole-entity-press";
 import { CardIdContext } from "@/lib/card-id-context";
 import { useCardIdForSession } from "@/lib/card-session-binding-store";
@@ -130,11 +132,6 @@ export interface SessionIdentityMenuResult {
   onContextMenu: (e: React.MouseEvent) => void;
   /** Render alongside the row; holds the menu portal. Null when disabled. */
   contextMenu: React.ReactNode;
-}
-
-/** Plain text to the clipboard, when there is any. */
-function writeText(text: string): void {
-  if (text.length > 0) void navigator.clipboard.writeText(text);
 }
 
 /**
@@ -222,6 +219,17 @@ export function useSessionIdentityMenu({
     });
   }, [cited, identity.id, projectDir, heldElsewhere, hostCard]);
 
+  // The row itself, kept so every copy can stamp the project it was read
+  // against. Copy Citation already wrote through the shared path; the other
+  // four called `navigator.clipboard.writeText` directly, which carried no
+  // origin and, outside the native bridge, asked Safari for permission. One
+  // menu, one clipboard door.
+  const hostRef = React.useRef<HTMLElement | null>(null);
+  const copy = React.useCallback((text: string): void => {
+    if (text.length === 0) return;
+    writeCopyClipboard(text, null, clipboardOriginFor(hostRef.current), null);
+  }, []);
+
   // The atom, with the flat citation as its fallback. `writeSessionAtomToClipboard`
   // answers false in a browser-mode run, where the native pasteboard bridge that
   // carries the private sidecar is not installed — there the citation IS the
@@ -230,8 +238,8 @@ export function useSessionIdentityMenu({
   // what it can say honestly: its own text.
   const copyAtom = React.useCallback((): void => {
     if (identity.resolved && writeSessionAtomToClipboard(identity)) return;
-    writeText(citation);
-  }, [identity, citation]);
+    copy(citation);
+  }, [identity, citation, copy]);
 
   const responderId = React.useId();
   const { responderRef, ResponderScope } = useOptionalResponder({
@@ -245,10 +253,10 @@ export function useSessionIdentityMenu({
       [TUG_ACTIONS.SHOW_SESSION]: showSession,
       [TUG_ACTIONS.RESUME_SESSION]: resumeSession,
       [TUG_ACTIONS.COPY_SESSION_ATOM]: copyAtom,
-      [TUG_ACTIONS.COPY_SESSION_CITATION]: () => writeText(citation),
-      [TUG_ACTIONS.COPY_SESSION_ID]: () => writeText(identity.id),
-      [TUG_ACTIONS.COPY_SESSION_DESCRIPTION]: () => writeText(descriptionText),
-      [TUG_ACTIONS.COPY_SESSION_ACTIVITY]: () => writeText(activityText),
+      [TUG_ACTIONS.COPY_SESSION_CITATION]: () => copy(citation),
+      [TUG_ACTIONS.COPY_SESSION_ID]: () => copy(identity.id),
+      [TUG_ACTIONS.COPY_SESSION_DESCRIPTION]: () => copy(descriptionText),
+      [TUG_ACTIONS.COPY_SESSION_ACTIVITY]: () => copy(activityText),
     },
   });
 
@@ -265,6 +273,7 @@ export function useSessionIdentityMenu({
   );
   const ref = React.useCallback(
     (el: HTMLElement | null): void => {
+      hostRef.current = enabled ? el : null;
       responderRef(enabled ? el : null);
       attachPress(enabled ? el : null);
     },

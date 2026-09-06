@@ -35,12 +35,13 @@ import {
 
 import type { AtomBytesEntry } from "./atom-bytes-store";
 import { clipboardOriginFor } from "./clipboard-origin";
-import { chipDisplayLabel } from "./command-atom";
+import { atomPlainText } from "./atom-plain-text";
 import {
   hasNativeClipboardBridge,
   writeClipboardViaNative,
 } from "./tug-native-clipboard";
 import { TUG_ATOM_CHAR, type AtomSegment } from "./tug-atom-img";
+import type { TugSubstrateAtom } from "./tug-text-types";
 
 // ---------------------------------------------------------------------------
 // Walking the substrate
@@ -109,21 +110,15 @@ export function walkAtomText(
 /**
  * Format an atom-bearing substrate as plain text suitable for the
  * clipboard. Walks the same `(text, atoms)` pair the renderer walks,
- * substituting each atom occurrence with either a CommonMark inline
- * link `[label](value)` (when `value` is a meaningful URL distinct
- * from the label — e.g., an `@`-completed workspace path) or just
- * the bare label (when `value === label`, meaning the substrate has
- * no extra info to encode — e.g., a dropped file, since browsers
- * don't expose absolute paths for drag-and-drop files for security).
+ * substituting each atom occurrence with its {@link atomPlainText}
+ * spelling — the one table every writer of the `text/plain` flavor
+ * reads, so a commit copied from here and a commit copied from the
+ * editor are the same string.
  *
  * A stray `U+FFFC` (atom missing or wrong-shape in the parallel
  * array) is passed through verbatim — visible regression rather
  * than a silent drop, mirroring `buildWirePayload`'s defensive
  * posture ([Spec S03]).
- *
- * The label is the chip's own displayed label ({@link chipDisplayLabel}),
- * so a slash command copies with the leading `/` it is drawn with — the
- * text a user pastes back is the text they submitted.
  *
  * Every copy of an atom-bearing surface reads this output for its
  * `text/plain` flavor, so the copied text carries an honest representation
@@ -142,19 +137,56 @@ export function formatAtomTextForCopy(
       out += seg.text;
     } else if (seg.kind === "stray-ffc") {
       out += TUG_ATOM_CHAR;
-    } else if (seg.atom.value === seg.atom.label) {
-      // No extra info to encode — drop the markdown-link wrapping
-      // and emit the bare label. Avoids the redundant
-      // `[raphael.jpeg](raphael.jpeg)` shape for browser-dropped
-      // files where `f.name` is all the platform exposes.
-      out += chipDisplayLabel(seg.atom.type, seg.atom.label, seg.atom.value);
     } else {
-      // Use angle brackets so spaces, parens, and other non-URL-safe
-      // chars in the path don't break CommonMark's link parsing.
-      out += `[${chipDisplayLabel(seg.atom.type, seg.atom.label, seg.atom.value)}](<${seg.atom.value}>)`;
+      out += atomPlainText(seg.atom);
     }
   }
   return out;
+}
+
+/**
+ * Format an atom-bearing substrate for a consumer that wants each atom's
+ * VALUE rather than its display spelling — the commit message handed to git
+ * is the one such consumer.
+ *
+ * `commit:64747b8c` is a label a reader recognises; git wants `64747b8c9a`.
+ * `[atom-text.ts](<tugdeck/src/lib/atom-text.ts>)` is a link a markdown reader
+ * follows; a commit message wants the path. So the exit spelling is the
+ * consumer's, not the copy's ([B05]) — this is the second spelling, beside
+ * {@link atomPlainText}'s, and there are exactly two.
+ *
+ * A stray `U+FFFC` passes through verbatim, as everywhere else.
+ */
+export function formatAtomTextAsValues(
+  text: string,
+  atoms: ReadonlyArray<AtomSegment>,
+): string {
+  let out = "";
+  for (const seg of walkAtomText(text, atoms)) {
+    if (seg.kind === "text") out += seg.text;
+    else if (seg.kind === "stray-ffc") out += TUG_ATOM_CHAR;
+    else out += seg.atom.value;
+  }
+  return out;
+}
+
+/**
+ * The positionless segments {@link walkAtomText} and its formatters take, out
+ * of the positioned list a stored or mirrored substrate carries.
+ *
+ * Document order is the order the placeholders appear in the text, so dropping
+ * the positions loses nothing the text does not already say.
+ */
+export function substrateSegments(
+  atoms: ReadonlyArray<TugSubstrateAtom>,
+): AtomSegment[] {
+  return atoms.map((atom) => ({
+    kind: "atom" as const,
+    type: atom.type,
+    label: atom.label,
+    value: atom.value,
+    ...(atom.id !== undefined ? { id: atom.id } : {}),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -215,11 +247,40 @@ export function copyAtomTextFrom(
   plain: string,
   getBytes?: (id: string) => AtomBytesEntry | null,
 ): Promise<boolean> {
+  return copyAtomText(text, atoms, plain, clipboardOriginFor(node), getBytes);
+}
+
+/**
+ * Copy an atom-bearing substrate stamped with roots the caller already holds
+ * rather than with one read off the DOM — the {@link copyTextWithOrigins}
+ * shape, for a surface whose provenance is data.
+ *
+ * The Jots card is the one such surface: a jot carries the roots of every
+ * passage pasted into it, so it has more than one root to pass on and no DOM
+ * node that knows them.
+ */
+export function copyAtomTextWithOrigins(
+  text: string,
+  atoms: ReadonlyArray<AtomSegment>,
+  plain: string,
+  origins: readonly string[],
+  getBytes?: (id: string) => AtomBytesEntry | null,
+): Promise<boolean> {
+  return copyAtomText(text, atoms, plain, origins, getBytes);
+}
+
+function copyAtomText(
+  text: string,
+  atoms: ReadonlyArray<AtomSegment>,
+  plain: string,
+  origins: readonly string[] | string | null,
+  getBytes?: (id: string) => AtomBytesEntry | null,
+): Promise<boolean> {
   if (hasNativeClipboardBridge()) {
     const sidecar = withClipboardOrigins(
       atomTextClipboardPayload(text, atoms, getBytes),
       text,
-      clipboardOriginFor(node),
+      origins,
     );
     const wrote = writeClipboardViaNative(
       plain,

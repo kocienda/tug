@@ -30,6 +30,9 @@ function encodeFrame(frame: JotsFrame): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(frame));
 }
 
+/** The object-replacement character an atom stands at. */
+const A = "￼";
+
 describe("document transforms", () => {
   test("applyCreate inserts after the given id", () => {
     const { doc: next, id } = applyCreate(doc("a", "b"), "a", "jt_new");
@@ -227,5 +230,111 @@ describe("origins — a jot remembers which projects its text came from", () => 
   test("a jot written before origins existed still parses", () => {
     const parsed = parseJotsFrame(encodeFrame({ doc: doc("a"), hash: null, error: null }));
     expect(parsed!.doc.jots[0].origins).toBeUndefined();
+  });
+});
+
+describe("atoms — a jot keeps the chips standing in its text", () => {
+  const FILE_ATOM = {
+    position: 4,
+    type: "file",
+    label: "atom-text.ts",
+    value: "tugdeck/src/lib/atom-text.ts",
+  };
+
+  test("applyUpdate writes the text and its atoms together", () => {
+    // One document: a text saved without its atoms is a text with anonymous
+    // placeholders in it, which is what a reopened jot used to show.
+    const next = applyUpdate(doc("a"), "a", `see ${A}`, [FILE_ATOM]);
+    expect(next.jots[0]).toEqual({ id: "a", text: `see ${A}`, atoms: [FILE_ATOM] });
+    expect(next.jots[0].text.charAt(FILE_ATOM.position)).toBe(A);
+  });
+
+  test("deleting the last chip clears the field rather than leaving it stale", () => {
+    const withAtom = applyUpdate(doc("a"), "a", `see ${A}`, [FILE_ATOM]);
+    const cleared = applyUpdate(withAtom, "a", "see");
+    expect(cleared.jots[0]).toEqual({ id: "a", text: "see" });
+    expect("atoms" in cleared.jots[0]).toBe(false);
+  });
+
+  test("the atoms are copied, not aliased into the document", () => {
+    const source = [{ ...FILE_ATOM }];
+    const next = applyUpdate(doc("a"), "a", `see ${A}`, source);
+    source[0]!.value = "somewhere/else.ts";
+    expect(next.jots[0].atoms![0]!.value).toBe(FILE_ATOM.value);
+  });
+
+  test("parseJotsFrame reads atoms back — the field is named on BOTH sides", () => {
+    // The same failure `origins` names: unnamed on the read side, the chips are
+    // dropped on every round trip through the frame and the jot reopens with a
+    // bare placeholder where a file mention was.
+    const frame: JotsFrame = {
+      doc: {
+        version: 1,
+        jots: [
+          {
+            id: "a",
+            text: `see ${A} and ${A}`,
+            atoms: [
+              FILE_ATOM,
+              {
+                position: 10,
+                type: "image",
+                label: "shot.png",
+                value: "shot.png",
+                id: "1f8c2e04-7b3a-4d51-9c60-2a8e5f7b1d33",
+              },
+            ],
+          },
+        ],
+      },
+      hash: "h",
+      error: null,
+    };
+    const parsed = parseJotsFrame(encodeFrame(frame));
+    expect(parsed!.doc.jots[0].atoms).toEqual(frame.doc.jots[0]!.atoms!);
+  });
+
+  test("a malformed atom is skipped rather than half-trusted", () => {
+    // A chip claiming an identity nothing wrote is worse than the placeholder
+    // it would replace, so only well-formed entries survive the read.
+    const frame: JotsFrame = {
+      doc: {
+        version: 1,
+        jots: [
+          {
+            id: "a",
+            text: A,
+            atoms: [
+              { position: "0", type: "file", label: "a", value: "a" },
+              { position: -1, type: "file", label: "a", value: "a" },
+              { position: 0, type: "", label: "a", value: "a" },
+              FILE_ATOM,
+            ] as never,
+          },
+        ],
+      },
+      hash: null,
+      error: null,
+    };
+    const parsed = parseJotsFrame(encodeFrame(frame));
+    expect(parsed!.doc.jots[0].atoms).toEqual([FILE_ATOM]);
+  });
+
+  test("an empty id is dropped — it would name a bytes-store row that is not there", () => {
+    const frame: JotsFrame = {
+      doc: {
+        version: 1,
+        jots: [{ id: "a", text: A, atoms: [{ ...FILE_ATOM, position: 0, id: "" }] }],
+      },
+      hash: null,
+      error: null,
+    };
+    const parsed = parseJotsFrame(encodeFrame(frame));
+    expect("id" in parsed!.doc.jots[0].atoms![0]!).toBe(false);
+  });
+
+  test("a jot written before atoms existed still parses", () => {
+    const parsed = parseJotsFrame(encodeFrame({ doc: doc("a"), hash: null, error: null }));
+    expect(parsed!.doc.jots[0].atoms).toBeUndefined();
   });
 });

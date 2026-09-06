@@ -62,10 +62,11 @@ import { makeMultiRootReferenceResolver } from "@/lib/annotator/resolve-referenc
 import { VerdictBatcher } from "@/lib/annotator/verdict-batching";
 import { useFrontmostProjectBinding } from "@/lib/frontmost-project";
 import { getJotsStore } from "@/lib/jots-store";
-import { jotIncipit, type Jot } from "@/lib/jots-doc";
+import { jotAtomSegments, jotIncipit, type Jot } from "@/lib/jots-doc";
 import { jotDragStart } from "@/lib/jot-drag";
 import { renderPulseLine } from "@/lib/pulse-line/render-pulse-line";
-import { copyTextWithOrigins } from "@/lib/copy-text";
+import { copyAtomTextWithOrigins, formatAtomTextForCopy } from "@/lib/atom-text";
+import type { TugTextSubstrate } from "@/lib/tug-text-types";
 import { animate } from "@/components/tugways/tug-animator";
 import { annotationLinkExtension } from "@/components/tugways/tug-text-editor/annotation-links";
 import { TugListView } from "@/components/tugways/tug-list-view";
@@ -144,10 +145,21 @@ function inlineMarkdownHtml(html: string): string {
  *  The jot's own origins ride along, so provenance survives another hop: a
  *  passage copied out of a transcript into a jot and on into a prompt is still
  *  about the project it started in. This is the one surface whose roots are
- *  DATA rather than a DOM stamp — and the one that can carry more than one. */
+ *  DATA rather than a DOM stamp — and the one that can carry more than one.
+ *
+ *  The atoms ride with them, as the clipboard's sidecar: a chip copied out of
+ *  a jot pastes back into a Tug editor as that chip. What an app outside Tug
+ *  reads is the [B03] plain form, which is the one place the flattening
+ *  happens. */
 function copyJotText(jot: Jot): void {
   if (jot.text === "") return;
-  void copyTextWithOrigins(jot.text, jot.origins ?? []);
+  const atoms = jotAtomSegments(jot);
+  void copyAtomTextWithOrigins(
+    jot.text,
+    atoms,
+    formatAtomTextForCopy(jot.text, atoms),
+    jot.origins ?? [],
+  );
 }
 
 /**
@@ -366,7 +378,7 @@ function JotDisplayRow({
         }
         // An empty jot has nothing to carry, so it isn't a drag source.
         draggable={!empty}
-        onDragStart={(e) => jotDragStart(e, jot.text)}
+        onDragStart={(e) => jotDragStart(e, jot.text, jotAtomSegments(jot))}
       >
         {empty ? (
           "New jot"
@@ -744,8 +756,10 @@ function JotEditorRow({
   // schedules on CM6's measure cycle and clears the card's pinned header. This
   // is why the edit can never scroll off, even when the content dwarfs the card.
   const onChange = useCallback(
-    (text: string): void => {
-      store.updateJot(jot.id, text);
+    ({ text, atoms }: TugTextSubstrate): void => {
+      // Both halves, straight onto the record: a jot is where a chip goes to be
+      // kept, and the text alone would keep only the placeholder it stands at.
+      store.updateJot(jot.id, text, atoms);
       editorRef.current?.revealCaret();
     },
     [store, jot.id],
@@ -857,6 +871,9 @@ function JotEditorRow({
         <TugMessageEditor
           ref={editorRef}
           value={jot.text}
+          // Reopening the jot puts its chips back where they were — the atoms
+          // were saved with the text, so there is something to put back.
+          atoms={jot.atoms}
           placeholder="Type a jot…"
           // A transient, in-list editor — NOT the card's primary text surface.
           // Registering the card's engine hooks as it mounts / unmounts churns

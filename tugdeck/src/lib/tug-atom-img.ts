@@ -23,6 +23,7 @@
  */
 
 import { getTokenValue } from "@/theme-tokens";
+import { applyAtomIdentityAttrs } from "@/lib/atom-identity-attrs";
 import {
   chipStyle,
   chipDisplayLabel,
@@ -828,9 +829,16 @@ export function createAtomImgElement(
   img.height = height;
   img.style.verticalAlign = `${baselineOffset}px`;
   img.style.margin = "0 2px";
-  img.dataset.atomType = type;
-  img.dataset.atomLabel = label;
-  img.dataset.atomValue = value;
+  // The same four attributes the three React renderers spread, from the one
+  // function that authors them — set rather than spread, because this chip is
+  // built as DOM. The id below is folded in here too, so the `<img>` and the
+  // components cannot drift in spelling.
+  applyAtomIdentityAttrs(img, {
+    type,
+    label,
+    value,
+    ...(options?.id !== undefined ? { id: options.id } : {}),
+  });
   img.title = value;
   // The chip's accessible name, and the only reading of its text there is:
   // everything else about it is pixels. It is the PAINTED label, not the
@@ -838,13 +846,10 @@ export function createAtomImgElement(
   // reader sees rather than as what the atom recorded.
   img.alt = displayLabel;
 
-  // Optional: pair this widget with its bytes-store entry. Set only
-  // when the caller has an id to attach. The pending-sync ViewPlugin
-  // queries `[data-atom-id]` to toggle `data-pending` after bytes
-  // arrive (skeleton → ready transition).
-  if (options?.id !== undefined) {
-    img.dataset.atomId = options.id;
-  }
+  // `data-atom-id` was written above with the rest of the identity. The
+  // pending-sync ViewPlugin queries `[data-atom-id]` to toggle `data-pending`
+  // once bytes arrive (skeleton → ready transition), and reads the same
+  // attribute either way.
   if (options?.pending === true) {
     img.dataset.pending = "true";
   }

@@ -14,6 +14,19 @@
  * come for free through `TugTextEditor`'s own `useOptionalResponder`
  * registration ([L11], [P26]); the field wires none of its own.
  *
+ * ## The mirror reports the substrate, not a string
+ *
+ * `onChange` hands out the whole `(text, atoms)` pair ([B04]). A field that
+ * mirrored `doc.toString()` alone reported a `U+FFFC` where every chip stood
+ * and nothing at all about what it was, so a host could not have held its
+ * atoms even if it wanted to — a chip pasted into a Jot, a question answer or
+ * a commit message was already lost by the time the host saw the edit. Every
+ * host therefore keeps the pair for as long as its field lives, and the seam
+ * that puts a document back (`value` + `atoms`, {@link
+ * TugMessageEditorHandle.restoreState}) takes the pair too. Flattening to a
+ * string is an exit-time act, in the spelling the thing outside Tug reads —
+ * never an edit-time one.
+ *
  * ## onChange fires for USER edits only
  *
  * The mirror `updateListener` fires `onChange` only for user-originated
@@ -46,6 +59,11 @@ import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 
 import { cn } from "@/lib/utils";
+import type {
+  TugSubstrateAtom,
+  TugTextSubstrate,
+} from "@/lib/tug-text-types";
+import { captureSubstrate } from "@/components/tugways/tug-text-editor/keymap";
 import {
   TugTextEditor,
   type TugTextEditorDelegate,
@@ -68,8 +86,12 @@ const DEFAULT_MAX_ROWS = 12;
  * pinning contract).
  */
 export interface TugMessageEditorHandle {
-  /** Replace the field's text without claiming focus or firing `onChange`. */
-  restoreState(text: string): void;
+  /**
+   * Replace the field's document — text AND atoms — without claiming focus or
+   * firing `onChange`. Handing back only the text would drop every chip in it
+   * to a bare placeholder, which is exactly the demotion [B04] forbids.
+   */
+  restoreState(substrate: TugTextSubstrate): void;
   /** Empty the field without firing `onChange`. */
   clear(): void;
   /** Move keyboard focus into the field. */
@@ -91,11 +113,17 @@ export interface TugMessageEditorProps {
    */
   value?: string;
   /**
-   * Fired with the mirrored document text on every USER edit (typing, paste,
-   * delete, undo/redo). NOT fired for the programmatic `restoreState` / `clear`
-   * seams — see the module docstring.
+   * Atoms standing at the `U+FFFC` positions in {@link value}, seeded with it
+   * once at mount. Omit for a plain-text seed; a seed whose text carries
+   * placeholders but whose atoms are missing renders them as bare characters.
    */
-  onChange?: (text: string) => void;
+  atoms?: readonly TugSubstrateAtom[];
+  /**
+   * Fired with the mirrored `(text, atoms)` substrate on every USER edit
+   * (typing, paste, delete, undo/redo). NOT fired for the programmatic
+   * `restoreState` / `clear` seams — see the module docstring.
+   */
+  onChange?: (substrate: TugTextSubstrate) => void;
   /** Fired on Cmd-Enter (regardless of `returnAction`). */
   onSubmit?: () => void;
   /**
@@ -193,6 +221,7 @@ export const TugMessageEditor = React.forwardRef<
 >(function TugMessageEditor(
   {
     value,
+    atoms,
     onChange,
     onSubmit,
     onPastedOrigins,
@@ -251,14 +280,20 @@ export const TugMessageEditor = React.forwardRef<
           !t.isUserEvent("delete.tug-clear"),
       );
       if (!userEdit) return;
-      onChangeRef.current?.(update.state.doc.toString());
+      // The whole substrate, not `doc.toString()`: what the host receives is
+      // what the field holds, chips included ([B04]).
+      onChangeRef.current?.(captureSubstrate(update.state));
     });
     const host = hostExtensionsRef.current;
     return host === undefined ? mirror : [mirror, host];
   }, []);
 
-  const seed = (text: string): void => {
-    substrateRef.current?.restoreState({ text, atoms: [], selection: null });
+  const seed = (substrate: TugTextSubstrate): void => {
+    substrateRef.current?.restoreState({
+      text: substrate.text,
+      atoms: [...substrate.atoms],
+      selection: null,
+    });
   };
 
   // Seed `value` once, from a layout effect — NOT from the substrate ref
@@ -272,11 +307,15 @@ export const TugMessageEditor = React.forwardRef<
   // delegate reads `viewRef.current` at call time, so the restore lands.
   const valueRef = useRef(value);
   valueRef.current = value;
+  const seedAtomsRef = useRef(atoms);
+  seedAtomsRef.current = atoms;
   React.useLayoutEffect(() => {
     if (seededRef.current) return;
     seededRef.current = true;
     const initial = valueRef.current;
-    if (initial !== undefined && initial !== "") seed(initial);
+    if (initial !== undefined && initial !== "") {
+      seed({ text: initial, atoms: seedAtomsRef.current ?? [] });
+    }
     // Mount-only seed; later `value` changes go through `restoreState`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -284,7 +323,7 @@ export const TugMessageEditor = React.forwardRef<
   React.useImperativeHandle(
     ref,
     (): TugMessageEditorHandle => ({
-      restoreState: (text) => seed(text),
+      restoreState: (substrate) => seed(substrate),
       clear: () => substrateRef.current?.clear(),
       focus: () => substrateRef.current?.focus(),
       revealCaret: () => substrateRef.current?.revealCaret(),

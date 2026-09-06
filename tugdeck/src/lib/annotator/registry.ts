@@ -425,6 +425,12 @@ function commitMenuEntries(
       { action: TUG_ACTIONS.COPY_COMMIT_HEADER, label: "Copy Commit Header" },
       { action: TUG_ACTIONS.COPY_COMMIT_RECORD, label: "Copy Commit Record" },
     );
+    // Copy as Atom belongs to the commit, not to the surface that drew it.
+    // This branch used to return here, which is why a pill in a receipt or a
+    // History row offered every form of a commit EXCEPT the one that pastes
+    // back as a pill — the only way to put a commit atom on the pasteboard was
+    // to right-click a prose mention of it.
+    entries.push(...atomCopyEntries(payload));
     return entries;
   }
   entries.push(...atomCopyEntries(payload));

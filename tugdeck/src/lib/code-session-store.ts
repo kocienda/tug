@@ -1512,16 +1512,24 @@ export class CodeSessionStore {
   }
 
   /**
-   * Park a jot's text on `pendingJotInsert` for the prompt entry to
-   * insert. `at` is the drop point in client coordinates (resolved to a
+   * Park a jot's `(text, atoms)` substrate on `pendingJotInsert` for the
+   * prompt entry to insert — the atoms travel with the text, so a chip moved
+   * from a jot to the prompt is still a chip rather than the placeholder
+   * character it stands at.
+   *
+   * `at` is the drop point in client coordinates (resolved to a
    * document offset), or `null` for append semantics (a click / no point).
    * The entry observes the slot, inserts, and calls
    * {@link consumePendingJotInsert}. Public because the dispatch source is
    * a UI surface (a Cards card drag / double-click), not the reducer.
    */
-  insertJot(text: string, at: { x: number; y: number } | null): void {
+  insertJot(
+    text: string,
+    atoms: ReadonlyArray<AtomSegment>,
+    at: { x: number; y: number } | null,
+  ): void {
     if (this._disposed) return;
-    this.dispatch({ type: "insert_jot", text, at });
+    this.dispatch({ type: "insert_jot", text, atoms: [...atoms], at });
   }
 
   /**

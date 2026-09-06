@@ -26,6 +26,8 @@
 
 import { describe, it, expect } from "bun:test";
 
+import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
+
 import {
   QUESTION_DIALOG_PRESERVATION_KEY_PREFIX,
   applyQuestionSelection,
@@ -286,6 +288,66 @@ describe("buildQuestionAnswers", () => {
       ),
     ).toEqual({ "Q?": "typed answer", "R?": "X,Y" });
   });
+
+  it("flattens a chip in the answer to its plain form ([B05])", () => {
+    // The exit. The answer leaves Tug here, and the reader on the other side
+    // is Claude Code, which reads prose — so the chip becomes the [B03] plain
+    // form rather than the placeholder character it stands at. Held as a chip
+    // for the life of the field, flattened once, on the way out.
+    expect(
+      buildQuestionAnswers(
+        [parsed("Which file?", false, ["A"])],
+        [[]],
+        [`start with ${TUG_ATOM_CHAR}`],
+        [
+          [
+            {
+              position: 11,
+              type: "file",
+              label: "atom-text.ts",
+              value: "tugdeck/src/lib/atom-text.ts",
+            },
+          ],
+        ],
+      ),
+    ).toEqual({
+      "Which file?": "start with [atom-text.ts](<tugdeck/src/lib/atom-text.ts>)",
+    });
+  });
+
+  it("leaves an answer with no atoms exactly as typed", () => {
+    expect(
+      buildQuestionAnswers(
+        [parsed("Q?", false, ["A"])],
+        [[]],
+        ["just words"],
+        [[]],
+      ),
+    ).toEqual({ "Q?": "just words" });
+  });
+
+  it("a commit chip in an answer reads as its label, not its sha", () => {
+    // The answer's spelling is the READER's — `commit:<8>` is what a person
+    // recognises. The commit message's spelling is the machine's, and the two
+    // are deliberately different ([B05]).
+    expect(
+      buildQuestionAnswers(
+        [parsed("Which?", false, ["A"])],
+        [[]],
+        [TUG_ATOM_CHAR],
+        [
+          [
+            {
+              position: 0,
+              type: "commit",
+              label: "commit:64747b8c",
+              value: "64747b8c9a1d3f0e5b2c7a8d9e0f1a2b3c4d5e6f",
+            },
+          ],
+        ],
+      ),
+    ).toEqual({ "Which?": "commit:64747b8c" });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -508,8 +570,10 @@ describe("seedQuestionDialogState", () => {
       visited: [true, false],
       currentIndex: 1,
       freeTexts: ["", ""],
+      freeTextAtoms: [[], []],
       declineMode: false,
       declineText: "",
+      declineAtoms: [],
     };
     const seeded = seedQuestionDialogState(saved, twoQuestions);
     expect(seeded).toEqual(saved);
@@ -659,8 +723,10 @@ describe("seedQuestionDialogState", () => {
       visited: [true, true],
       currentIndex: 2,
       freeTexts: ["", ""],
+      freeTextAtoms: [[], []],
       declineMode: false,
       declineText: "",
+      declineAtoms: [],
     };
     // JSON.stringify/parse models the bag's serialization boundary —
     // the payload must survive structural-clone-equivalent storage.
@@ -669,5 +735,106 @@ describe("seedQuestionDialogState", () => {
     ) as unknown;
     const seeded = seedQuestionDialogState(roundTripped, twoQuestions);
     expect(seeded).toEqual(captured);
+  });
+
+  // ── The atoms an answer holds ([B04]) ──────────────────────────────────
+  //
+  // A chip pasted into a free-text answer or a decline reply is a chip for as
+  // long as the dialog is up. The field reports the whole `(text, atoms)`
+  // substrate on every edit and the wizard keeps both halves, so the bag has
+  // both to save and both to hand back — the text alone would put the answer
+  // back with a bare `U+FFFC` where the chip stood and nothing to say what it
+  // had been.
+
+  const FILE_ATOM = {
+    position: 4,
+    type: "file",
+    label: "atom-text.ts",
+    value: "tugdeck/src/lib/atom-text.ts",
+  };
+
+  it("rehydrates and realigns the atoms standing in a free-text answer", () => {
+    const saved: QuestionDialogPreservedState = {
+      selections: [[], ["X"]],
+      visited: [true, false],
+      currentIndex: 0,
+      freeTexts: [`see ${TUG_ATOM_CHAR}`],
+      freeTextAtoms: [[FILE_ATOM]],
+    };
+    const seeded = seedQuestionDialogState(saved, twoQuestions);
+    // Row 0 keeps its atom; row 1 (absent in the short array) takes the empty
+    // default, exactly as its text does.
+    expect(seeded.freeTextAtoms).toEqual([[FILE_ATOM], []]);
+    expect(seeded.freeTexts).toEqual([`see ${TUG_ATOM_CHAR}`, ""]);
+    // The position the atom claims is where the placeholder actually is.
+    expect(seeded.freeTexts![0]!.charAt(FILE_ATOM.position)).toBe(TUG_ATOM_CHAR);
+  });
+
+  it("rehydrates the atoms standing in a decline reply, id and all", () => {
+    const imageAtom = {
+      position: 0,
+      type: "image",
+      label: "shot.png",
+      value: "shot.png",
+      id: "1f8c2e04-7b3a-4d51-9c60-2a8e5f7b1d33",
+    };
+    const saved: QuestionDialogPreservedState = {
+      selections: [["A"], ["X"]],
+      visited: [false, false],
+      currentIndex: 0,
+      declineMode: true,
+      declineText: TUG_ATOM_CHAR,
+      declineAtoms: [imageAtom],
+    };
+    const seeded = seedQuestionDialogState(saved, twoQuestions);
+    // The bytes-store id is the join key to the image's payload: a restore
+    // that drops it hands back a chip with nothing behind it.
+    expect(seeded.declineAtoms).toEqual([imageAtom]);
+  });
+
+  it("defaults both atom fields to empty when the envelope omits them", () => {
+    // The older envelope — written before an answer could hold a chip at all.
+    const saved = {
+      selections: [["A"], ["X"]],
+      visited: [false, false],
+      currentIndex: 0,
+      freeTexts: ["plain prose", ""],
+    } as QuestionDialogPreservedState;
+    const seeded = seedQuestionDialogState(saved, twoQuestions);
+    expect(seeded.freeTextAtoms).toEqual([[], []]);
+    expect(seeded.declineAtoms).toEqual([]);
+    expect(seeded.freeTexts).toEqual(["plain prose", ""]);
+  });
+
+  it("rejects a saved envelope whose atoms are malformed", () => {
+    // Same posture as every other field read back out of JSON storage: a
+    // half-trusted atom would put a chip on screen claiming an identity
+    // nothing wrote.
+    const bad = {
+      selections: [["A"], ["X"]],
+      visited: [true, false],
+      currentIndex: 1,
+      freeTexts: [TUG_ATOM_CHAR, ""],
+      freeTextAtoms: [[{ position: "4", type: "file", label: "a", value: "a" }], []],
+    };
+    const seeded = seedQuestionDialogState(bad, twoQuestions);
+    expect(seeded.selections).toEqual([["A"], ["X"]]);
+    expect(seeded.freeTexts).toEqual(["", ""]);
+    expect(seeded.freeTextAtoms).toEqual([[], []]);
+  });
+
+  it("rejects a decline-atom entry whose id is not a string", () => {
+    const bad = {
+      selections: [["A"], ["X"]],
+      visited: [false, false],
+      currentIndex: 0,
+      declineText: TUG_ATOM_CHAR,
+      declineAtoms: [
+        { position: 0, type: "image", label: "s.png", value: "s.png", id: 7 },
+      ],
+    };
+    const seeded = seedQuestionDialogState(bad, twoQuestions);
+    expect(seeded.declineAtoms).toEqual([]);
+    expect(seeded.declineText).toBe("");
   });
 });

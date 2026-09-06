@@ -45,6 +45,44 @@ describe("buildCommitModeState", () => {
     expect(state.text).toBe("");
     expect(state.atoms).toEqual([]);
   });
+
+  it("carries the chips standing in the message ([B04])", () => {
+    // The mode restores through this on entry, on the auto-message revert and
+    // on a cancel. Handed the text alone it would put the message back with a
+    // bare `U+FFFC` where a pasted file or commit chip had been — a demotion
+    // performed on a field the user is still editing.
+    const state = buildCommitModeState(`land ${TUG_ATOM_CHAR} on main`, [
+      {
+        kind: "atom",
+        type: "commit",
+        label: "commit:64747b8c",
+        value: "64747b8c9a",
+      },
+    ]);
+    expect(state.text).toBe(`land ${TUG_ATOM_CHAR} on main`);
+    expect(state.atoms).toHaveLength(1);
+    expect(state.atoms[0]).toMatchObject({
+      position: 5,
+      type: "commit",
+      label: "commit:64747b8c",
+      value: "64747b8c9a",
+    });
+    // The position it claims is where the placeholder actually is.
+    expect(state.text.charAt(state.atoms[0]!.position)).toBe(TUG_ATOM_CHAR);
+  });
+
+  it("an image chip keeps its bytes-store id through the restore", () => {
+    const state = buildCommitModeState(TUG_ATOM_CHAR, [
+      {
+        kind: "atom",
+        type: "image",
+        label: "shot.png",
+        value: "shot.png",
+        id: "1f8c2e04-7b3a-4d51-9c60-2a8e5f7b1d33",
+      },
+    ]);
+    expect(state.atoms[0]!.id).toBe("1f8c2e04-7b3a-4d51-9c60-2a8e5f7b1d33");
+  });
 });
 
 // ---------------------------------------------------------------------------

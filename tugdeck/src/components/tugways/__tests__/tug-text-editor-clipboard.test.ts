@@ -63,14 +63,19 @@ describe("serializeClipboard — text + fallback", () => {
     ]);
   });
 
-  it("expands U+FFFC into atom labels in the fallback string", () => {
+  it("expands U+FFFC into each atom's plain-text spelling in the fallback", () => {
+    // The editor's own copy reads `atomPlainText`, the same table the
+    // substrate copy and the annotation menu read — so a file keeps its path
+    // here exactly as it does through every other door.
     const text = `pre ${TUG_ATOM_CHAR} mid ${TUG_ATOM_CHAR} end`;
     const atoms = [
       { ...SAMPLE_FILE, position: 4 },
       { ...SAMPLE_LINK, position: 10 },
     ];
     const out = serializeClipboard(text, atoms, 0);
-    expect(out.fallback).toBe("pre main.ts mid ant end");
+    expect(out.fallback).toBe(
+      "pre [main.ts](</main.ts>) mid [ant](<https://anthropic.com>) end",
+    );
   });
 
   it("processes labels back-to-front so earlier replacements don't disturb later positions", () => {
@@ -96,7 +101,7 @@ describe("serializeClipboard — text + fallback", () => {
       },
     ];
     const out = serializeClipboard(text, atoms, 0);
-    expect(out.fallback).toBe("a-very-long-filename.tsx_x");
+    expect(out.fallback).toBe("[a-very-long-filename.tsx](<v>)_[x](<v>)");
   });
 });
 

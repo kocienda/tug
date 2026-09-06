@@ -98,6 +98,7 @@ import {
 import { sessionTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useSessionIdentityMenu } from "@/components/tugways/session-identity-menu";
+import { atomIdentityAttrs } from "@/lib/atom-identity-attrs";
 import { useCardIdForSession } from "@/lib/card-session-binding-store";
 import { arcReviewPaints, arcReviewTooltip } from "@/lib/arc-review";
 import { useArcForSession } from "@/lib/arc-session-index";
@@ -593,9 +594,14 @@ export function TugSessionCitation({
           ? () => dispatchCommand("focus-session-card", { cardId })
           : undefined
       }
-      data-atom-type={atom?.type}
-      data-atom-label={atom?.label}
-      data-atom-value={atom?.value}
+      // The citation's identity when it IS an atom, from the one function that
+      // authors the contract — including the id, so an atom with bytes behind
+      // it keeps them across a copy. A citation rendered from a session
+      // reference rather than from an atom emits none of them, which is the
+      // right answer rather than a gap: a session atom cannot be built from an
+      // id alone, and `sessionAtomSegmentFor` answering `null` for an
+      // unresolved session is the same rule stated one layer up.
+      {...(atom !== undefined ? atomIdentityAttrs(atom) : {})}
       className={className}
     />
   );

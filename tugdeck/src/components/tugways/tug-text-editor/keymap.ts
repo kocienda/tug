@@ -69,7 +69,7 @@
  */
 
 import { EditorSelection, Prec, Transaction } from "@codemirror/state";
-import type { Extension, TransactionSpec } from "@codemirror/state";
+import type { EditorState, Extension, TransactionSpec } from "@codemirror/state";
 import { EditorView, ViewPlugin, keymap } from "@codemirror/view";
 import type { WidgetType } from "@codemirror/view";
 import {
@@ -90,7 +90,9 @@ import type { PositionedAtom } from "./atom-decoration";
 import type {
   HistoryProvider,
   InputAction,
+  TugSubstrateAtom,
   TugTextEditingState,
+  TugTextSubstrate,
 } from "@/lib/tug-text-types";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import { DEFAULT_BUTTON_PRESS_MS } from "@/components/tugways/responder-chain";
@@ -158,6 +160,39 @@ export interface TugTextEditorKeymapConfig {
 // ---------------------------------------------------------------------------
 
 /**
+ * Read the `(text, atoms)` substrate off an editor state: the document text
+ * with a `U+FFFC` at each atom's spot, and the parallel positioned list of
+ * what stands there.
+ *
+ * Pure over the state — no view, no DOM, no scroll — which is what lets an
+ * `updateListener` mirror the substrate out on every edit ([B04]: a field
+ * reports what it holds, and a document that leaves an editor as
+ * `doc.toString()` alone has already dropped every chip in it). {@link
+ * captureEditState} is this plus the caret and the two scroll axes.
+ */
+export function captureSubstrate(state: EditorState): TugTextSubstrate {
+  const atoms: TugSubstrateAtom[] = [];
+  const cursor = state.field(atomDecorationField).iter();
+  while (cursor.value !== null) {
+    const widget = (cursor.value.spec as { widget?: WidgetType }).widget;
+    if (widget instanceof AtomWidget) {
+      atoms.push({
+        position: cursor.from,
+        type: widget.segment.type,
+        label: widget.segment.label,
+        value: widget.segment.value,
+        // Preserve the bytes-store key so a capture→restore round-trip
+        // (fast-refresh / remount) keeps an in-progress image atom linked
+        // to its bytes. Undefined for self-contained atoms.
+        ...(widget.segment.id !== undefined ? { id: widget.segment.id } : {}),
+      });
+    }
+    cursor.next();
+  }
+  return { text: state.doc.toString(), atoms };
+}
+
+/**
  * Snapshot the editor's text + atoms + selection + scroll position
  * (both axes) into the serializable shape the existing
  * `HistoryProvider` and state-preservation APIs both consume. The
@@ -175,25 +210,7 @@ export interface TugTextEditorKeymapConfig {
  * position must survive reload.
  */
 export function captureEditState(view: EditorView): TugTextEditingState {
-  const text = view.state.doc.toString();
-  const atoms: TugTextEditingState["atoms"] = [];
-  const cursor = view.state.field(atomDecorationField).iter();
-  while (cursor.value !== null) {
-    const widget = (cursor.value.spec as { widget?: WidgetType }).widget;
-    if (widget instanceof AtomWidget) {
-      atoms.push({
-        position: cursor.from,
-        type: widget.segment.type,
-        label: widget.segment.label,
-        value: widget.segment.value,
-        // Preserve the bytes-store key so a capture→restore round-trip
-        // (fast-refresh / remount) keeps an in-progress image atom linked
-        // to its bytes. Undefined for self-contained atoms.
-        ...(widget.segment.id !== undefined ? { id: widget.segment.id } : {}),
-      });
-    }
-    cursor.next();
-  }
+  const { text, atoms } = captureSubstrate(view.state);
   const sel = view.state.selection.main;
   // Layout-invariant scroll anchor: doc position of the line at the
   // top of the viewport plus the sub-line pixel offset. Computed from
@@ -218,7 +235,7 @@ export function captureEditState(view: EditorView): TugTextEditingState {
   }
   return {
     text,
-    atoms,
+    atoms: [...atoms],
     selection: { start: sel.from, end: sel.to },
     scrollTop,
     scrollLeft: view.scrollDOM.scrollLeft,

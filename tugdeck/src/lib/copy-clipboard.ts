@@ -14,6 +14,7 @@
 
 import {
   withClipboardOrigins,
+  TUG_ATOMS_MIME,
   type TugAtomsClipboardPayload,
 } from "@/components/tugways/tug-text-editor/clipboard-filters";
 import {
@@ -29,6 +30,14 @@ import {
  * still holds. Degrades to `writeText` when `ClipboardItem` / async
  * `clipboard.write` is unavailable or the dual-format write rejects, so
  * copy never silently produces nothing ([P07]).
+ *
+ * **The sidecar rides the `ClipboardItem` write too**, under the same
+ * `application/x-tug-atoms` type a browser-mode paste reads back. It used to
+ * be the one door that dropped it on purpose, which meant browser-mode
+ * development never exercised the round trip the app depends on — and a copy
+ * carrying atoms but no HTML did not reach that write at all. Both are fixed
+ * here: the dual-format path is taken whenever there is a second flavor to
+ * carry, whether that is the HTML or the atoms.
  */
 export function writeCopyClipboard(
   plain: string,
@@ -36,12 +45,15 @@ export function writeCopyClipboard(
   origin: string | null,
   atoms: TugAtomsClipboardPayload | null,
 ): void {
+  // Built once, for both writes: the native bridge and the `ClipboardItem`
+  // fallback carry the same JSON, so a paste cannot tell which door it came
+  // through.
+  const sidecar = withClipboardOrigins(atoms, plain, origin);
   // Inside Tug.app the native bridge is the only write that can carry the
   // sidecar — WebKit's pasteboard normalization swallows custom types, which
   // is the whole reason the bridge exists — so a copy with atoms or provenance
   // goes that way, carrying its html flavor along rather than losing it.
   if (hasNativeClipboardBridge()) {
-    const sidecar = withClipboardOrigins(atoms, plain, origin);
     if (
       sidecar !== null &&
       writeClipboardViaNative(plain, JSON.stringify(sidecar), html ?? undefined)
@@ -52,15 +64,23 @@ export function writeCopyClipboard(
   const clip = navigator.clipboard;
   if (clip === undefined || clip === null) return;
   if (
-    html !== null &&
+    (html !== null || sidecar !== null) &&
     typeof ClipboardItem !== "undefined" &&
     typeof clip.write === "function"
   ) {
     try {
-      const item = new ClipboardItem({
+      const parts: Record<string, Blob> = {
         "text/plain": new Blob([plain], { type: "text/plain" }),
-        "text/html": new Blob([html], { type: "text/html" }),
-      });
+      };
+      if (html !== null) {
+        parts["text/html"] = new Blob([html], { type: "text/html" });
+      }
+      if (sidecar !== null) {
+        parts[TUG_ATOMS_MIME] = new Blob([JSON.stringify(sidecar)], {
+          type: TUG_ATOMS_MIME,
+        });
+      }
+      const item = new ClipboardItem(parts);
       void clip.write([item]).catch(() => {
         void clip.writeText?.(plain);
       });

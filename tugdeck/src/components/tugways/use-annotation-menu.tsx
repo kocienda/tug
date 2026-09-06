@@ -217,7 +217,7 @@ export function useAnnotationMenu({
     if (value === null) return;
     return () => {
       raise();
-      codeSessionStore.insertJot(value, null);
+      codeSessionStore.insertJot(value, [], null);
     };
   }, [cardId, codeSessionStore, deck]);
 

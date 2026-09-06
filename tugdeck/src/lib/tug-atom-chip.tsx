@@ -52,6 +52,8 @@ import "./tug-atom-chip.css";
 
 import * as React from "react";
 
+import { atomIdentityAttrs } from "@/lib/atom-identity-attrs";
+
 import {
   computeAtomChipGeometry,
   ATOM_RECESS,
@@ -95,6 +97,15 @@ export interface TugAtomChipProps {
   label: string;
   /** Raw atom value — surfaced as the native hover tooltip via SVG `<title>`. */
   value: string;
+  /**
+   * The atom's id, when it has one — the join key to its bytes-store entry.
+   *
+   * An image chip in a transcript row is the case: without it a copy across the
+   * chip wrote a sidecar entry with no id, so the paste came back as a chip
+   * with nothing behind it, while the same row's COPY button carried the bytes.
+   * One row, two doors, two results.
+   */
+  id?: string;
   /** Optional max width in px — labels longer than this truncate with `…`. */
   maxLabelWidth?: number;
   className?: string;
@@ -112,6 +123,7 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
       type,
       label,
       value,
+      id,
       maxLabelWidth,
       className,
       "data-slot": dataSlot,
@@ -151,13 +163,12 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
         style={{ verticalAlign: `${geom.baselineOffset}px` }}
         data-slot={dataSlot}
         data-testid={dataTestid}
-        // The atom's identity, in the same three attributes the editor's
-        // `<img>` chips carry. A copy that crosses this chip reads them to put
-        // the atom on the clipboard, so a paste back into Tug gets the chip
-        // rather than the label it drew ([L06] — attributes, not state).
-        data-atom-type={type}
-        data-atom-label={label}
-        data-atom-value={value}
+        // The atom's identity, in the same attributes every other renderer
+        // carries, from the one function that authors them. A copy that crosses
+        // this chip reads them to put the atom on the clipboard, so a paste back
+        // into Tug gets the chip rather than the label it drew ([L06] —
+        // attributes, not state).
+        {...atomIdentityAttrs({ type, label, value, ...(id !== undefined ? { id } : {}) })}
         aria-label={displayLabel}
         role="img"
       >

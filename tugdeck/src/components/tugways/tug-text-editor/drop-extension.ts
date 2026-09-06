@@ -589,6 +589,48 @@ export function insertAtomsAt(
 }
 
 /**
+ * Insert a `(text, atoms)` substrate at `pos`, verbatim.
+ *
+ * The sibling {@link insertMixedAt} joins its items with a single space,
+ * which is right for a multi-file drop (several chips, no text of their own)
+ * and wrong for a substrate: the text already says where everything goes, and
+ * a separator would rewrite the document being carried. So this one writes the
+ * text as it stands and hangs each atom on the `U+FFFC` it was recorded at.
+ *
+ * The pair is zipped by ORDER, not by a recorded index: an `AtomSegment` is
+ * the positionless form, and document order is the order the placeholders
+ * appear in — which is the same correspondence `walkAtomText` and the
+ * clipboard sidecar already read the pair under. So the placeholders in `text`
+ * are what decide, and the two ends of a disagreement are both safe: a
+ * placeholder past the end of `atoms` stays a bare character rather than
+ * taking a chip that belongs to another spot, and an atom past the last
+ * placeholder is dropped rather than hung where nothing stands.
+ */
+export function insertSubstrateAt(
+  view: EditorView,
+  pos: number,
+  text: string,
+  atoms: ReadonlyArray<AtomSegment>,
+): void {
+  if (text.length === 0) return;
+  const positioned: Array<{ position: number; segment: AtomSegment }> = [];
+  let index = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text.charAt(i) !== TUG_ATOM_CHAR) continue;
+    const segment = atoms[index];
+    index += 1;
+    if (segment === undefined) continue;
+    positioned.push({ position: pos + i, segment });
+  }
+  view.dispatch({
+    changes: { from: pos, insert: text },
+    effects: [addAtomsEffect.of(positioned), setTugDropCaretPos.of(null)],
+    selection: { anchor: pos + text.length },
+    userEvent: "input.tug-atom-drop",
+  });
+}
+
+/**
  * Dispatch a single transaction inserting a mix of atom + text items
  * at `pos`. Items are joined with a single space; each atom takes
  * one `U+FFFC` placeholder paired with an `addAtomsEffect` entry at
@@ -1089,15 +1131,14 @@ export function tugDropExtension(
        * granted focus legitimately.
        */
       const onDropCapture = (event: DragEvent): void => {
-        const text = readJotDrag(event.dataTransfer);
-        if (text === null) return;
+        const jot = readJotDrag(event.dataTransfer);
+        if (jot === null) return;
         event.preventDefault();
         event.stopPropagation();
         setDropActive(host, null);
         const at = dropOffsetAtCoords(view, event.clientX, event.clientY);
-        insertMixedAt(view, at ?? view.state.doc.length, [
-          { kind: "text", text },
-        ]);
+        // The substrate verbatim: the chips a jot holds arrive as chips.
+        insertSubstrateAt(view, at ?? view.state.doc.length, jot.text, jot.atoms);
       };
       const onDrop = (event: DragEvent): void => {
         const files = event.dataTransfer?.files;

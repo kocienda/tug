@@ -86,11 +86,13 @@ import { lineBoxMetric } from "./tug-text-editor/line-box-metric";
 import {
   clearDropCaret,
   dropOffsetAtCoords,
+  insertSubstrateAt,
   markEditorDropActive,
   paintDropCaret,
   processAttachmentFiles,
 } from "./tug-text-editor/drop-extension";
 import type { InlineCommandMatcher } from "@/lib/inline-command-ghost";
+import { formatAtomTextAsValues } from "@/lib/atom-text";
 import {
   addAtomsEffect,
   getAtomsInState,
@@ -687,10 +689,19 @@ export function computeCommandChipInsert(
 /**
  * Build the editor state for commit mode ([P03]): the message text, nothing
  * else — the mode lives in the entry's chrome (Z4A commit chip, Z5 rail),
- * never as a token inside the document. Pure; exported for unit tests.
+ * never as a token inside the document.
+ *
+ * `atoms` are the chips standing in `message` — a commit message composed over
+ * a pasted file or commit chip is put back with those chips, not with the bare
+ * `U+FFFC` its text carries ([B04]). Every restore inside the mode (entry, the
+ * auto-message revert, the cancel) goes through here, so the pair travels or
+ * nothing does. Pure; exported for unit tests.
  */
-export function buildCommitModeState(message: string): TugTextEditingState {
-  return buildEditingStateFromDraftRestore(message, []);
+export function buildCommitModeState(
+  message: string,
+  atoms: ReadonlyArray<AtomSegment> = [],
+): TugTextEditingState {
+  return buildEditingStateFromDraftRestore(message, atoms);
 }
 
 /**
@@ -1456,19 +1467,19 @@ export const TugPromptEntry = React.forwardRef<
   const handleEntryDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>): void => {
       if (event.defaultPrevented) return;
-      const jotText = readJotDrag(event.dataTransfer);
+      const jot = readJotDrag(event.dataTransfer);
       const files = Array.from(event.dataTransfer.files);
-      if (jotText === null && files.length === 0) return;
+      if (jot === null && files.length === 0) return;
       const view = textEditorRef.current?.view();
       if (view === null || view === undefined) return;
       event.preventDefault();
-      if (jotText !== null) {
-        // Park the text on the store's slot; the `pendingJotInsert`
+      if (jot !== null) {
+        // Park the substrate on the store's slot; the `pendingJotInsert`
         // effect below owns the insertion (drop offset, else the
         // `applyAppendInsertion` append) for both this drag and the
         // double-click-a-jot path.
         clearEntryDropState();
-        codeSessionStore.insertJot(jotText, {
+        codeSessionStore.insertJot(jot.text, jot.atoms, {
           x: event.clientX,
           y: event.clientY,
         });
@@ -1675,12 +1686,35 @@ export const TugPromptEntry = React.forwardRef<
   // it. The sentence it asks comes from the landing snapshot; only whether it
   // is up lives here.
 
-  // Read the live commit message — the document verbatim.
-  const readCommitMessage = useCallback((): string => {
+  // Read the live commit message as the substrate it is — the document
+  // verbatim plus the chips standing in it. Every restore the mode performs
+  // goes back through `buildCommitModeState` with both halves, so a chip
+  // pasted into a message survives the auto-message round trip rather than
+  // reverting to a bare placeholder ([B04]).
+  const readCommitSubstrate = useCallback((): {
+    text: string;
+    atoms: AtomSegment[];
+  } => {
     const view = textEditorRef.current?.view() ?? null;
-    if (view === null) return "";
-    return view.state.doc.toString();
+    if (view === null) return { text: "", atoms: [] };
+    return {
+      text: view.state.doc.toString(),
+      atoms: getAtomsInState(view.state).map((a) => a.segment),
+    };
   }, []);
+
+  // The message as the thing outside the editor reads it — the durable draft
+  // write and the controller's provider, both of which end at git.
+  //
+  // This is the exit ([B05]), so this is where the atoms are flattened, and
+  // the spelling is the consumer's: git wants each atom's VALUE — a bare sha, a
+  // path — not the `commit:<8>` label a reader recognises and not the `U+FFFC`
+  // the document carries. Inside the mode the substrate is intact; it becomes
+  // a string exactly once, here.
+  const readCommitMessage = useCallback((): string => {
+    const { text, atoms } = readCommitSubstrate();
+    return formatAtomTextAsValues(text, atoms);
+  }, [readCommitSubstrate]);
 
   // Debounced durable save of the in-progress message ([P05]): every genuine
   // user edit schedules a `persistMessage` write, so uncommitted edits survive
@@ -1774,7 +1808,10 @@ export const TugPromptEntry = React.forwardRef<
   const prevLandingDraftPhaseRef = useRef(landingSnap?.draftPhase ?? "idle");
   // The message being replaced, captured at drafting start so the whole
   // generation collapses to one undo step ([P06]).
-  const preDraftMessageRef = useRef("");
+  const preDraftMessageRef = useRef<{
+    text: string;
+    atoms: AtomSegment[];
+  }>({ text: "", atoms: [] });
   useLayoutEffect(() => {
     const phase = landingSnap?.draftPhase ?? "idle";
     const prevPhase = prevLandingDraftPhaseRef.current;
@@ -1788,7 +1825,7 @@ export const TugPromptEntry = React.forwardRef<
       // whole generation into one. On the first delta, remember what we're
       // replacing and light the wave caret.
       if (prevPhase !== "drafting") {
-        preDraftMessageRef.current = readCommitMessage();
+        preDraftMessageRef.current = readCommitSubstrate();
         cancelLandingTopReveal();
         editor.restoreState(buildCommitModeState(draftText), {
           addToHistory: false,
@@ -1818,7 +1855,8 @@ export const TugPromptEntry = React.forwardRef<
         // One undo for the whole thing: revert to the pre-draft message with no
         // history event, then apply the final message as the single recorded
         // edit — so ⌘Z removes the generated message and ⌘⇧Z restores it.
-        editor.restoreState(buildCommitModeState(preDraftMessageRef.current), {
+        const pre = preDraftMessageRef.current;
+        editor.restoreState(buildCommitModeState(pre.text, pre.atoms), {
           addToHistory: false,
         });
         editor.restoreState(buildCommitModeState(landingSnap?.draftText ?? ""));
@@ -1840,7 +1878,7 @@ export const TugPromptEntry = React.forwardRef<
     landingSnap?.draftPhase,
     landingSnap?.draftText,
     landingSnap?.persistedMessage,
-    readCommitMessage,
+    readCommitSubstrate,
     cancelLandingTopReveal,
     scheduleLandingTopReveal,
   ]);
@@ -1975,7 +2013,7 @@ export const TugPromptEntry = React.forwardRef<
     const editor = textEditorRef.current;
     const view = editor?.view() ?? null;
     if (editor === null || view === null) return;
-    const { text, at } = pendingJotInsert;
+    const { text, atoms, at } = pendingJotInsert;
     const offset = at !== null ? dropOffsetAtCoords(view, at.x, at.y) : null;
     let from: number;
     let insert: string;
@@ -1990,11 +2028,11 @@ export const TugPromptEntry = React.forwardRef<
       from = appended.from;
       insert = appended.insert;
     }
-    view.dispatch({
-      changes: { from, insert },
-      selection: { anchor: from + insert.length },
-      scrollIntoView: true,
-    });
+    // The substrate, not the string: a chip carried out of a jot arrives as
+    // that chip. `insert` may lead with the append rule's newline, so the
+    // atoms hang off the placeholders in `insert` rather than in `text`.
+    insertSubstrateAt(view, from, insert, atoms);
+    view.dispatch({ scrollIntoView: true });
     codeSessionStore.consumePendingJotInsert();
   }, [pendingJotInsert, codeSessionStore]);
 

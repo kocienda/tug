@@ -165,7 +165,15 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import type {
+  TugSubstrateAtom,
+  TugTextSubstrate,
+} from "@/lib/tug-text-types";
 import { TugMessageEditor } from "@/components/tugways/tug-message-editor";
+import {
+  formatAtomTextForCopy,
+  substrateSegments,
+} from "@/lib/atom-text";
 import {
   TugConfirmPopover,
   type TugConfirmPopoverHandle,
@@ -415,10 +423,15 @@ export function buildQuestionAnswers(
   questions: ReadonlyArray<ParsedQuestion>,
   selections: ReadonlyArray<ReadonlyArray<string>>,
   freeTexts?: ReadonlyArray<string>,
+  freeTextAtoms?: ReadonlyArray<ReadonlyArray<TugSubstrateAtom>>,
 ): Record<string, string> {
   const answers: Record<string, string> = {};
   questions.forEach((question, index) => {
-    const free = freeTexts?.[index] ?? "";
+    // The exit ([B05]): the answer leaves Tug here, so this is where its atoms
+    // are flattened, in the spelling the reader on the other side takes. That
+    // reader is Claude Code, which reads prose — so each chip becomes its
+    // [B03] plain form rather than the `U+FFFC` it stands at.
+    const free = flattenAnswer(freeTexts?.[index] ?? "", freeTextAtoms?.[index]);
     if (free.trim() !== "") {
       // Free text is the answer verbatim — not joined, not a label.
       answers[question.question] = free;
@@ -428,6 +441,21 @@ export function buildQuestionAnswers(
     answers[question.question] = picked.join(",");
   });
   return answers;
+}
+
+/**
+ * Flatten an answer's substrate for a reader outside Tug — the [B03] plain
+ * form per atom, which is what a prompt submit already puts on the wire.
+ *
+ * An answer with no atoms is its own text, untouched, which is every answer
+ * anybody has typed rather than pasted.
+ */
+function flattenAnswer(
+  text: string,
+  atoms: ReadonlyArray<TugSubstrateAtom> | undefined,
+): string {
+  if (atoms === undefined || atoms.length === 0) return text;
+  return formatAtomTextForCopy(text, substrateSegments(atoms));
 }
 
 /**
@@ -563,12 +591,19 @@ export interface QuestionDialogPreservedState {
    *  question instead). Optional in the wire shape so an older saved
    *  envelope (pre-free-text) still validates and realigns ([F4]). */
   freeTexts?: string[];
+  /** Atoms standing in each question's free text, parallel to
+   *  {@link freeTexts} — a chip pasted into an answer is held for the life of
+   *  the dialog rather than demoted to the bare `U+FFFC` its text carries
+   *  ([B04]). Optional for the same forward-compat reason. */
+  freeTextAtoms?: TugSubstrateAtom[][];
   /** `Chat about this` decline mode ([P02]) — whether the dialog is
    *  showing the freeform reply field instead of the wizard. Optional
    *  for the same forward-compat reason as `freeTexts`. */
   declineMode?: boolean;
   /** In-progress decline reply text ([P02]). */
   declineText?: string;
+  /** Atoms standing in {@link declineText}, held the same way. */
+  declineAtoms?: TugSubstrateAtom[];
 }
 
 /** Stable preservation-key prefix for the dialog's per-request slot.
@@ -583,6 +618,25 @@ export const QUESTION_DIALOG_PRESERVATION_KEY_PREFIX = "question-dialog/";
  */
 export function questionDialogPreservationKey(requestId: string): string {
   return `${QUESTION_DIALOG_PRESERVATION_KEY_PREFIX}${requestId}`;
+}
+
+/** Whether `value` is a well-formed positioned-atom list. Shape-checked the
+ *  same way as everything else read back out of JSON storage: a malformed
+ *  entry rejects the whole envelope rather than being half-trusted. */
+function isSubstrateAtomArray(value: unknown): value is TugSubstrateAtom[] {
+  if (!Array.isArray(value)) return false;
+  for (const atom of value) {
+    if (atom === null || typeof atom !== "object") return false;
+    const a = atom as Record<string, unknown>;
+    if (typeof a.position !== "number" || !Number.isFinite(a.position)) {
+      return false;
+    }
+    if (typeof a.type !== "string") return false;
+    if (typeof a.label !== "string") return false;
+    if (typeof a.value !== "string") return false;
+    if (a.id !== undefined && typeof a.id !== "string") return false;
+  }
+  return true;
 }
 
 /** Type guard for the saved-state envelope read from the bag. JSON
@@ -616,6 +670,17 @@ function isPreservedQuestionState(
       if (typeof text !== "string") return false;
     }
   }
+  // `freeTextAtoms` rides beside it on the same terms: absent is an older
+  // envelope, present must be one well-formed row per question.
+  if (v.freeTextAtoms !== undefined) {
+    if (!Array.isArray(v.freeTextAtoms)) return false;
+    for (const row of v.freeTextAtoms) {
+      if (!isSubstrateAtomArray(row)) return false;
+    }
+  }
+  if (v.declineAtoms !== undefined && !isSubstrateAtomArray(v.declineAtoms)) {
+    return false;
+  }
   // Decline mode/text are optional ([P02]); when present they must be the
   // right primitive type or the whole envelope is rejected.
   if (v.declineMode !== undefined && typeof v.declineMode !== "boolean") {
@@ -647,8 +712,10 @@ export function seedQuestionDialogState(
     visited: new Array(questions.length).fill(false) as boolean[],
     currentIndex: 0,
     freeTexts: new Array(questions.length).fill("") as string[],
+    freeTextAtoms: questions.map(() => []),
     declineMode: false,
     declineText: "",
+    declineAtoms: [],
   };
   if (!isPreservedQuestionState(saved)) return defaults;
 
@@ -669,6 +736,15 @@ export function seedQuestionDialogState(
     const text = saved.freeTexts?.[index];
     return typeof text === "string" ? text : seed;
   });
+  // The atoms realign with the text they stand in — a row the saved envelope
+  // has no entry for keeps the empty default, which is what an answer of plain
+  // prose carries anyway.
+  const freeTextAtoms: TugSubstrateAtom[][] = (defaults.freeTextAtoms ?? []).map(
+    (seed, index) => {
+      const row = saved.freeTextAtoms?.[index];
+      return Array.isArray(row) ? row.map((atom) => ({ ...atom })) : seed;
+    },
+  );
   const clampedIndex = Math.max(
     0,
     Math.min(saved.currentIndex, questions.length),
@@ -678,8 +754,10 @@ export function seedQuestionDialogState(
     visited,
     currentIndex: clampedIndex,
     freeTexts,
+    freeTextAtoms,
     declineMode: saved.declineMode ?? false,
     declineText: saved.declineText ?? "",
+    declineAtoms: (saved.declineAtoms ?? []).map((atom) => ({ ...atom })),
   };
 }
 
@@ -980,8 +1058,10 @@ const FREE_TEXT_MAX_ROWS = 8;
 interface QuestionFreeTextProps {
   /** The question's free text, seeded into the field at mount. */
   value: string;
+  /** The atoms standing in it, seeded with the text ([B04]). */
+  atoms: readonly TugSubstrateAtom[];
   /** Typed input — sets the row's free text and releases its labels ([P01]). */
-  onChange: (value: string) => void;
+  onChange: (substrate: TugTextSubstrate) => void;
   /** Shift/⌘-Return = advance the wizard ([K3]); plain Return = newline. */
   onSubmit: () => void;
   /** Focus group + order — the field is one stop in the dialog's trap. */
@@ -1006,6 +1086,7 @@ interface QuestionFreeTextProps {
  */
 const QuestionFreeText: React.FC<QuestionFreeTextProps> = ({
   value,
+  atoms,
   onChange,
   onSubmit,
   focusGroup,
@@ -1022,14 +1103,15 @@ const QuestionFreeText: React.FC<QuestionFreeTextProps> = ({
       <TugMessageEditor
         className="session-question-dialog-freetext-field"
         value={value}
+        atoms={atoms}
         placeholder={FREE_TEXT_PLACEHOLDER}
         // A notch under the editor default, so the field reads as a quiet
         // input surface. Handed to the substrate (not set as CSS on the host)
         // because only the substrate's own token reaches `.cm-content`.
         fontSize="var(--tugx-question-field-size)"
-        onChange={(text) => {
-          setEmpty(text === "");
-          onChange(text);
+        onChange={(substrate) => {
+          setEmpty(substrate.text === "");
+          onChange(substrate);
         }}
         onSubmit={onSubmit}
         // The field's submit is the wizard's advance, not the dialog's send.
@@ -1178,6 +1260,15 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
   const [freeTexts, setFreeTexts] = React.useState<string[]>(
     () => seed.freeTexts ?? new Array(questions.length).fill(""),
   );
+  // The atoms standing in those answers, parallel to `freeTexts` ([B04]). A
+  // chip pasted into an answer is a chip for as long as the dialog is up: the
+  // field reports the whole `(text, atoms)` substrate on every edit and this is
+  // where the second half of it is kept, so nothing is demoted mid-edit and a
+  // reload comes back with the chips it had. What the answer becomes on its way
+  // to Claude is the exit's business, not the field's.
+  const [freeTextAtoms, setFreeTextAtoms] = React.useState<TugSubstrateAtom[][]>(
+    () => seed.freeTextAtoms ?? questions.map(() => []),
+  );
 
   // [P02] `Chat about this` — whether the dialog is in decline mode (the
   // freeform reply field replaces the wizard) and the in-progress reply
@@ -1190,6 +1281,9 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
   );
   const [declineText, setDeclineText] = React.useState<string>(
     () => seed.declineText ?? "",
+  );
+  const [declineAtoms, setDeclineAtoms] = React.useState<TugSubstrateAtom[]>(
+    () => seed.declineAtoms ?? [],
   );
 
   // A bump-only counter that re-runs the flash-then-advance effect even when the
@@ -1210,8 +1304,10 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
       visited,
       currentIndex,
       freeTexts,
+      freeTextAtoms,
       declineMode,
       declineText,
+      declineAtoms,
     }),
   });
 
@@ -1234,6 +1330,12 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
       if ((prev[index] ?? "") === "") return prev;
       const next = prev.slice();
       next[index] = "";
+      return next;
+    });
+    setFreeTextAtoms((prev) => {
+      if ((prev[index]?.length ?? 0) === 0) return prev;
+      const next = prev.slice();
+      next[index] = [];
       return next;
     });
   }, []);
@@ -1398,11 +1500,17 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
   // The document lives in the field's CM6 substrate ([L02]); this mirrors it
   // into `freeTexts`, which the [A9] bag preserves across reload.
   const handleFreeTextChange = React.useCallback(
-    (questionIndex: number, value: string) => {
+    (questionIndex: number, substrate: TugTextSubstrate) => {
+      const value = substrate.text;
       setFreeTexts((prev) => {
         if ((prev[questionIndex] ?? "") === value) return prev;
         const next = prev.slice();
         next[questionIndex] = value;
+        return next;
+      });
+      setFreeTextAtoms((prev) => {
+        const next = prev.slice();
+        next[questionIndex] = substrate.atoms.map((atom) => ({ ...atom }));
         return next;
       });
       if (value !== "") {
@@ -1490,8 +1598,10 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
   }, []);
 
   const handleSubmit = React.useCallback(() => {
-    respond(buildQuestionAnswers(questions, selections, freeTexts));
-  }, [respond, questions, selections, freeTexts]);
+    respond(
+      buildQuestionAnswers(questions, selections, freeTexts, freeTextAtoms),
+    );
+  }, [respond, questions, selections, freeTexts, freeTextAtoms]);
 
   // [P02] `Chat about this` — the decline-and-reply path. Entering decline
   // mode swaps the wizard body for the reply field and lands focus in it
@@ -1521,8 +1631,9 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
   // or a stale (no-longer-pending) request.
   const respondDecline = React.useCallback(() => {
     if (declineText.trim() === "") return;
-    onDeclineRef.current(declineText);
-  }, [declineText]);
+    // Same exit, same spelling: the reply is prose on its way to Claude.
+    onDeclineRef.current(flattenAnswer(declineText, declineAtoms));
+  }, [declineText, declineAtoms]);
 
   // [P06]/[P09] The reply field's submit semantics come from the substrate's
   // `returnAction="newline"` contract: plain Return inserts a newline,
@@ -2137,7 +2248,11 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
       <TugMessageEditor
         className="session-question-dialog-decline-field"
         value={declineText}
-        onChange={setDeclineText}
+        atoms={declineAtoms}
+        onChange={(substrate) => {
+          setDeclineText(substrate.text);
+          setDeclineAtoms(substrate.atoms.map((atom) => ({ ...atom })));
+        }}
         onSubmit={respondDecline}
         placeholder="Type your reply to Claude…"
         fontSize="var(--tugx-question-field-size)"
@@ -2292,8 +2407,9 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
                     // against that question's own text.
                     key={`freetext:${currentIndex}`}
                     value={freeTexts[currentIndex] ?? ""}
-                    onChange={(value) =>
-                      handleFreeTextChange(currentIndex, value)
+                    atoms={freeTextAtoms[currentIndex] ?? []}
+                    onChange={(substrate) =>
+                      handleFreeTextChange(currentIndex, substrate)
                     }
                     onSubmit={() => handleFreeTextSubmit(currentIndex)}
                     focusGroup={focusGroup}
