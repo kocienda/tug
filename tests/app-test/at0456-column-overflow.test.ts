@@ -8,7 +8,7 @@
  * and they stack down a virtual strip that slides up behind the run on a
  * per-slot offset. Two whole members and half of a third stand in the run, and
  * the half-visible card IS the affordance, the vertical twin of flow's card
- * clipped at the band edge.
+ * half-hidden at the band edge.
  *
  * The fixture crosses the boundary in both directions rather than starting past
  * it, because the interesting claims are all about the crossing. A column of

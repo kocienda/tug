@@ -43,7 +43,6 @@ import {
   allocateSidebarWidths,
   clampFlowOffset,
   firstVisibleFlowSlot,
-  FLOW_CLIP_SLACK_PX,
   flowCenterOffset,
   flowRevealOffset,
   stripCenterOffset,
@@ -918,69 +917,26 @@ describe("the CSS expression", () => {
     expect(left).toContain("100%");
   });
 
-  test("flow clips the pane to the band, and fit does not clip at all", () => {
-    // The band's edge is real ink: a flow pane's clip-path carries both band
-    // edges as live var() expressions, phrased against the viewport because
-    // inset() percentages resolve against the pane's own box. Fit keeps no
-    // clip — its travel fractions hold every card inside the band already.
-    const flow = imposeStyle(
-      { slot: 1, count: 3, flow: { stripLeft: 805 } },
-      800,
-    );
-    const clip = String(flow.clipPath);
-    expect(clip.startsWith(`inset(${-FLOW_CLIP_SLACK_PX}px `)).toBe(true);
-    expect(clip).toContain(FLOW_OFFSET_PROPERTY);
-    expect(clip).toContain(FLOW_STRIP_PROPERTY);
-    expect(clip).toContain("100vw");
-    // The left clip is the clamped offset less the pane's strip position; the
-    // right clip is the pane's far edge less the band's. Both rest at the
-    // shadow slack rather than 0 so an uncut card keeps its shadow.
-    expect(clip).toContain(`max(${-FLOW_CLIP_SLACK_PX}px, calc(`);
-    expect(clip).toContain("- 805px)");
-    expect(clip).toContain("calc(1605px - ");
-
+  test("neither mode clips the pane at all", () => {
+    // The band used to stop a flow pane's ink by cutting it — a `clip-path`
+    // built from both band edges, phrased against the viewport because
+    // inset() percentages resolve against the pane's own box. It stops by
+    // OCCLUSION now: the rail is opaque, it outranks every free card, and the
+    // five pixels of margin no rail can stand in are covered by the margin
+    // caps. So the flow branch emits no clip, exactly as fit never did, and
+    // this is the pin against one coming back. [B01]
+    expect(
+      imposeStyle({ slot: 1, count: 3, flow: { stripLeft: 805 } }, 800)
+        .clipPath,
+    ).toBeUndefined();
     expect(imposeStyle({ slot: 1, count: 3 }, 800).clipPath).toBeUndefined();
-  });
-
-  test("the band clip spends its slack all at once, or not at all", () => {
-    // The defect this pins was silent and permanent. `max(-SLACK, overhang)`
-    // reads as "hold the clip off the card until it crosses a band edge" and
-    // does not do it: it starts spending the slack as soon as the card comes
-    // within SLACK of the edge and has spent every pixel at FLUSH — which is
-    // where the first slot rests whenever the strip is home and where the
-    // last rests at the far end the clamp pins it to. Those two cards had
-    // their drop shadow and the whole of their flash ring sheared off on that
-    // side, and ⌃⌘1 lands on one of them.
-    //
-    // CSS has no conditional, so the crossing is a gain-and-clamp step. What
-    // is asserted is that the step is THERE on both edges — a rewrite back to
-    // the plain `max()` would keep every other assertion in the file passing.
-    const clip = String(
-      imposeStyle({ slot: 0, count: 3, flow: { stripLeft: 0 } }, 800).clipPath,
-    );
-    const steps = clip.match(/clamp\(0px, calc\(/g) ?? [];
-    expect(steps.length, "both band edges carry the step").toBe(2);
-    expect(clip, "and the step saturates at the slack").toContain(
-      `, ${FLOW_CLIP_SLACK_PX}px)`,
-    );
-    // The slack is subtracted before the step adds it back, which is what
-    // makes the inside-the-band answer exactly −SLACK rather than a partial.
-    expect(clip).toContain(`- ${FLOW_CLIP_SLACK_PX}px + clamp(`);
-  });
-
-  test("a pinned card's clip is measured from its centred frame", () => {
-    // A size-locked card is narrower than its slot and centred inside it, so
-    // the clip's near edge is the slot's strip position plus the centring
-    // offset, and the far edge is that plus the frame's own width.
-    const clip = String(
-      imposeStyle(
-        { slot: 0, count: 2, flow: { stripLeft: 100 } },
-        800,
-        { width: 320 },
-      ).clipPath,
-    );
-    expect(clip).toContain("- 340px)");
-    expect(clip).toContain("calc(660px - ");
+    // Including a size-locked card, which used to carry a clip measured from
+    // its centred frame rather than from its slot.
+    expect(
+      imposeStyle({ slot: 0, count: 2, flow: { stripLeft: 100 } }, 800, {
+        width: 320,
+      }).clipPath,
+    ).toBeUndefined();
   });
 
   test("a size-locked card is still centred in its slot, in either mode", () => {

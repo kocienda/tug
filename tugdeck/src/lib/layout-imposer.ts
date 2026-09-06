@@ -1062,22 +1062,6 @@ export function sidebarWidthProperty(side: SidebarSide): string {
 /** The gaps as CSS lengths, for the calc expressions below. */
 const GAP = `${IMPOSITION_GAP_PX}px`;
 
-/**
- * How far outside a flow pane's own box its clip rests while no band edge
- * cuts it. Big enough to hold every pane shadow the themes draw (1px offset,
- * 4px blur, plus the flash ring's outset), small enough that a card standing
- * just inside a band edge does not paint meaningfully past it.
- */
-export const FLOW_CLIP_SLACK_PX = 32;
-
-/**
- * How steeply the band clip switches from "inside, keep the slack" to
- * "crossing, clip exactly". A gain rather than a comparison because CSS has
- * no conditional: multiplying the overhang by this and clamping it to the
- * slack is a step function everywhere except a 1/gain-pixel window around
- * zero, which is finer than the device pixel the clip lands on.
- */
-const FLOW_CLIP_STEP_GAIN = 1000;
 const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTTOM_MAKER_PX}px)`;
 
 /** The CSS custom properties carrying the rail insets (see `deck-canvas.tsx`).
@@ -1438,59 +1422,12 @@ export function imposeStyle(
       `max(0px, var(${FLOW_STRIP_PROPERTY}, 0px) - ${band}))`;
     style.left = `calc(0% + ${INSET_LEFT} + ${GAP} + ${placement.flow.stripLeft}px - ${offset}${center})`;
 
-    // THE BAND CLIPS. A flow pane's ink stops at the band's edges — without
-    // this, a card that straddles an edge paints on under the rail and out
-    // the far side into the margin between the rail and the window edge,
-    // where it shows as a sliver of card no rail width can cover (the rail's
-    // own outer margin is exactly the region a rail cannot stand in).
-    //
-    // Same discipline as the offset above: one expression the browser
-    // re-resolves on every reflow, so the clip answers a live resize without
-    // waiting for the settled-resize retune. `clip-path: inset()` measures
-    // percentages against the pane's own box, so the band cannot be phrased
-    // with `100%` here the way `left` phrases it — it is phrased with `100vw`
-    // instead, which equals the canvas width because the deck canvas spans
-    // the window. (If the canvas ever stops spanning the window, this term is
-    // the one to revisit.)
-    //
-    // The insets rest at −FLOW_CLIP_SLACK_PX rather than 0: `clip-path`
-    // clips box-shadow too, and a zero inset on a card standing wholly
-    // inside the band would shear its shadow off for no reason. The slack
-    // holds the clip edge off the card until the card actually crosses a
-    // band edge; only then is the exact overhang chosen.
-    //
-    // **The slack is all-or-nothing, and that is the whole of `bandClip`.**
-    // A plain `max(−SLACK, overhang)` reads as "hold the clip off until the
-    // card crosses" and does not do it: it starts spending the slack the
-    // moment the card comes within SLACK of the edge, and has spent every
-    // pixel of it at flush. Flush is not a corner case here — it is where the
-    // FIRST slot rests whenever the strip is home and where the LAST rests at
-    // the far end, which the clamp pins there. Both cards lost their drop
-    // shadow and the whole of their flash ring on that side, permanently, and
-    // the two chords most likely to be typed (⌃⌘1 and the last digit) are
-    // exactly the two that land on them.
-    //
-    // So the crossing is a STEP. `clamp(0px, overhang × steep, SLACK)` is 0
-    // while the overhang is zero or negative and SLACK once it is even a
-    // fraction of a pixel positive, which makes `overhang − SLACK + step`
-    // read −SLACK inside the band and the exact overhang outside it. Still
-    // one expression the browser re-resolves on every reflow, which is the
-    // property this whole block is built on — a JS conditional would answer a
-    // live scrub with the position the card had when it was last rendered.
-    const bandOfViewport = `(100vw - ${INSET_LEFT} - ${INSET_RIGHT} - ${GAP} * 2)`;
-    const offsetOfViewport =
-      `min(var(${FLOW_OFFSET_PROPERTY}, 0px), ` +
-      `max(0px, var(${FLOW_STRIP_PROPERTY}, 0px) - ${bandOfViewport}))`;
-    const near = placement.flow.stripLeft + centerOffset;
-    const bandClip = (overhang: string): string =>
-      `max(${-FLOW_CLIP_SLACK_PX}px, calc(${overhang} - ${FLOW_CLIP_SLACK_PX}px + ` +
-      `clamp(0px, calc((${overhang}) * ${FLOW_CLIP_STEP_GAIN}), ${FLOW_CLIP_SLACK_PX}px)))`;
-    const clipLeft = bandClip(`calc(${offsetOfViewport} - ${near}px)`);
-    const clipRight = bandClip(
-      `calc(${near + frameWidth}px - ${offsetOfViewport} - ${bandOfViewport})`,
-    );
-    style.clipPath =
-      `inset(${-FLOW_CLIP_SLACK_PX}px ${clipRight} ${-FLOW_CLIP_SLACK_PX}px ${clipLeft})`;
+    // The ink stops by OCCLUSION, not by a cut. A card that straddles a band
+    // edge travels on under the rail, which is opaque, already outranks every
+    // free card, and casts its own shadow over what it covers. The five pixels
+    // of margin no rail can stand in are covered by the margin caps
+    // `deck-canvas.tsx` stands at each window edge. So the flow branch is the
+    // one `left` expression above and nothing else ([B01]).
     return style;
   }
 
@@ -3016,8 +2953,8 @@ export function columnOffsetProperty(slot: number): string {
  * `"overflow"` — three or more: division stops being useful past about two and
  * a half visible members, so the members stop dividing and start stacking down
  * a strip of fixed-height cards that scrolls behind the run. The half-visible
- * member at the bottom edge IS the affordance, the way flow's clipped card at
- * the band edge is.
+ * member at the bottom edge IS the affordance, the way flow's half-visible
+ * card at the band edge is.
  *
  * The rule was written for columns and is stated over the count alone, so
  * lifting it to rails cost nothing but the name: a four-member rail dividing

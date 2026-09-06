@@ -122,6 +122,7 @@ import {
 import type { Rect } from "@/snap";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import "./slot-vacancy.css";
+import "./margin-cap.css";
 import {
   isSidebarPinned,
   sidebarSide,
@@ -201,6 +202,19 @@ const CARD_ZINDEX_BASE = 1;
  * top forever, and with two identical rects that is a card you can never reach.
  */
 const SIDEBAR_PANE_ZINDEX_BASE = 8990;
+
+/**
+ * Z for the margin caps — the two elements covering the five pixels a rail
+ * stands off the window edge and therefore cannot cover itself.
+ *
+ * It has to be ABOVE every free card, because covering a card travelling out
+ * past the band edge is the whole job, and free cards take a tiny array-order
+ * z (1..N). And it has to be strictly BELOW the rail band, because the rail is
+ * what actually occludes the card and a cap painting over a rail's own margin
+ * edge would put canvas ground on top of chrome. One below the band's base is
+ * both, with no arithmetic over the deck's card count. [B02]
+ */
+const MARGIN_CAP_ZINDEX = SIDEBAR_PANE_ZINDEX_BASE - 1;
 
 /** The most rails the band can order before it would collide with the overlay
  *  base. Far past any real deck; the clamp is here so it cannot ever collide. */
@@ -3747,6 +3761,26 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           />
         );
       })}
+      {/* The margin caps: the five pixels on each side that a rail stands off
+          the window edge and therefore cannot cover. A flow card's ink stops
+          at the band edge by occlusion now rather than by a cut, and the rails
+          do the occluding — these two cover the one strip no rail width can
+          reach. Each paints the body's own ground, grid and all, so it reads
+          as canvas rather than as a stripe; each takes the press so no card
+          the user cannot see receives it; and each carries the
+          canvas-background marker so the press it took still deselects, which
+          is what a press in that margin does today. See margin-cap.css for the
+          whole argument. [B02] [B03] */}
+      {(["left", "right"] as const).map((side) => (
+        <div
+          key={`margin-cap:${side}`}
+          className={`tug-margin-cap tug-margin-cap--${side}`}
+          data-margin-cap={side}
+          aria-hidden="true"
+          style={{ width: `${IMPOSITION_GAP_PX}px`, zIndex: MARGIN_CAP_ZINDEX }}
+          {...{ [CANVAS_BACKGROUND_ATTRIBUTE]: "" }}
+        />
+      ))}
       </div>
       {/*
         * CanvasOverlayRoot: single deck-level container for popup-class

@@ -1,0 +1,70 @@
+/**
+ * margin-cap.css — the five pixels no rail can stand in.
+ *
+ * A flow card's ink used to stop at the band edge because a `clip-path` cut
+ * it there. It stops by occlusion now: the rails are opaque, they outrank
+ * every free card, and a card travelling toward one slides behind it. What a
+ * rail cannot cover is the margin it stands off the window edge — `left: GAP`
+ * on the left, `100% - width - GAP` on the right — which is exactly
+ * `IMPOSITION_GAP_PX` wide on each side. These two elements cover it.
+ *
+ * **Each cap paints the body's own ground, grid included.** The canvas is not
+ * a flat colour: `globals.css` paints `body` with the canvas token plus two
+ * 24px `linear-gradient`s in the grid token. A cap in the flat colour alone
+ * would read as a stripe down each window edge, cutting every horizontal grid
+ * line short and dropping the vertical line at x=0. So the declarations below
+ * are that rule stated a second time, token for token — the cap is not
+ * *matched* to the ground, it IS the ground, which is why it is right in
+ * every theme by construction rather than by judgment.
+ *
+ * `background-attachment: fixed` is what buys the alignment, and it is doing
+ * real work rather than being belt-and-braces. It anchors the pattern to the
+ * viewport rather than to the element's own box, so both caps land in phase
+ * with the body's grid without a single length being computed. Without it the
+ * left cap happens to align — its origin is the window's — and the right cap
+ * does not, since its own left edge falls at `windowWidth - 5`, which is not a
+ * multiple of 24. The repair for that would be a `background-position` phrased
+ * against `100vw`, which is exactly the algebra the occlusion change retired.
+ *
+ * The geometry is static: no `var()`, no offset term, nothing to re-resolve on
+ * reflow. It inherits the retired clip's one premise — the deck canvas spans
+ * the window — but inherits it far more weakly. What a violation cost the clip
+ * was a sliver of card in the margin; what it costs a cap is a grid line out
+ * of phase.
+ *
+ * **The cap swallows the press.** `clip-path` clipped hit-testing as well as
+ * paint, so the cut-away part of a card took no clicks. A cap transparent to
+ * pointers would hand those five pixels to a card the user cannot see, which
+ * is a worse bug than the one being fixed. So the cap takes the press and the
+ * card beneath never sees it — and, having taken it, does with it what that
+ * margin does today: each cap carries the canvas-background marker, so a press
+ * there still reads as bare canvas and still deselects. `containerRef` holds
+ * that marker now and the gesture interpreter matches on target identity, so a
+ * cap that omitted it would quietly make five pixels of canvas stop behaving
+ * like canvas.
+ *
+ * [B02] [B03] [F03] [F08] [F09]
+ */
+
+.tug-margin-cap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Width and z come from `deck-canvas.tsx`, which holds `IMPOSITION_GAP_PX`
+     and the z band the cap has to land between — a second copy of either here
+     would be a number that could drift from the one that decides. */
+  background-color: var(--tug7-surface-global-primary-normal-canvas-rest);
+  background-image:
+    linear-gradient(var(--tug7-surface-global-primary-normal-grid-rest) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tug7-surface-global-primary-normal-grid-rest) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-attachment: fixed;
+}
+
+.tug-margin-cap--left {
+  left: 0;
+}
+
+.tug-margin-cap--right {
+  right: 0;
+}

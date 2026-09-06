@@ -30,12 +30,17 @@
  *     browser to hold the last card against the band's right edge anyway.
  *  5. **The band's edge is real ink.** A straddling card's overhang paints on
  *     under the rail and out into the margin between the rail and the window
- *     edge, unless the flow clip stops it at the band. `elementFromPoint`
- *     honors `clip-path`, so the margin answering background — while the same
- *     card still answers inside the band — is the pin.
+ *     edge unless something stops it. The rail does the stopping now — it is
+ *     opaque and outranks every free card — and the five pixels it stands off
+ *     the window edge, which no rail width can cover, are covered by a margin
+ *     cap. So the pin is that no card answers in that margin while the same
+ *     card still answers inside the band, and that what answers there is the
+ *     cap, carrying the canvas-background marker so the press it takes still
+ *     deselects.
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
+ * @covers tugdeck/src/components/chrome/margin-cap.css
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/components/layout/layout-card.tsx
@@ -381,18 +386,31 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
 
         // ── 5. The band's edge is real ink ──────────────────────────────────
         // A card that straddles the band's far edge paints on under the rail
-        // and — without the flow clip — out the far side, into the margin the
-        // rail stands off the window edge, where it shows as a sliver no rail
-        // width can cover. `elementFromPoint` honors `clip-path`, so hitting
-        // background there is the whole assertion. The straddling card itself
-        // must still answer inside the band — the clip trims the overhang,
-        // never the card.
-        const ink = await app.evalJS<{ margin: string | null; inBand: string | null }>(
+        // and, unstopped, out the far side into the margin the rail stands off
+        // the window edge, where it shows as a sliver no rail width can cover.
+        // The rail itself does the occluding — it is opaque and outranks every
+        // free card — and the margin it cannot stand in is covered by the
+        // margin cap. So the guarantee is unchanged and the element that keeps
+        // it has moved: no card ink answers in that margin, and what answers
+        // instead is the cap. The straddling card must still answer inside the
+        // band — the cap covers the overhang, never the card.
+        const ink = await app.evalJS<{
+          marginPane: string | null;
+          marginCap: string | null;
+          marginTag: string;
+          marginCanvas: boolean;
+          inBand: string | null;
+        }>(
           `(function () {
             // At rest the strip runs 2120px into a ~1550px band, so a card is
             // guaranteed to straddle the far edge — the reveal above parked
             // the strip on a boundary, where the margin is clean with or
-            // without the clip and the assertion would prove nothing.
+            // without the cap and the assertion would prove nothing.
+            //
+            // The caps carry the canvas-background marker too, so this
+            // selector matches three elements now rather than one — but
+            // document order puts the container first, and the container is
+            // the one the frames inherit the offset from.
             var host = document.querySelector("[data-deck-canvas-background]");
             host.style.setProperty("--tug-imposer-flow-offset", "0px");
             function paneAt(x, y) {
@@ -403,16 +421,32 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
             var rail = document
               .querySelector('.tug-pane[data-pane-id="pRail"]')
               .getBoundingClientRect();
+            var marginEl = document.elementFromPoint(window.innerWidth - 2, 600);
             return {
-              margin: paneAt(window.innerWidth - 2, 600),
+              marginPane: paneAt(window.innerWidth - 2, 600),
+              marginCap: marginEl === null ? null : marginEl.getAttribute("data-margin-cap"),
+              marginTag: marginEl === null ? "(none)" : marginEl.tagName + "." + String(marginEl.className),
+              marginCanvas:
+                marginEl !== null && marginEl.hasAttribute("data-deck-canvas-background"),
               inBand: paneAt(rail.left - 5 - 40, 600),
             };
           })()`,
         );
+        note(
+          `margin at the window edge: ${ink.marginTag} cap=${String(ink.marginCap)} canvas=${ink.marginCanvas} | pane there ${String(ink.marginPane)}`,
+        );
         expect(
-          ink.margin,
+          ink.marginPane,
           "the margin outside the rail shows no card ink",
         ).toBeNull();
+        expect(
+          ink.marginCap,
+          "and the element answering there is the right-hand margin cap",
+        ).toBe("right");
+        expect(
+          ink.marginCanvas,
+          "which carries the canvas-background marker, so a press there still deselects",
+        ).toBe(true);
         expect(
           ink.inBand,
           "the straddling card still paints inside the band",
