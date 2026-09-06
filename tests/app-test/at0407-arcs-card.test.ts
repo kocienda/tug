@@ -731,7 +731,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         );
 
         const opened = await app.evalJS<{
-          rows: Array<{ status: string | null; text: string }>;
+          rows: Array<{ status: string | null; dot: string | null; text: string }>;
           expanded: string | null;
           ticks: string[];
         }>(
@@ -745,6 +745,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
              return {
                rows: Array.from(list.querySelectorAll('[data-slot="arc-step"]')).map((el) => ({
                  status: el.getAttribute("data-status"),
+                 dot: el
+                   .querySelector('[data-slot="tug-progress-indicator"]')
+                   ?.getAttribute("data-state") ?? null,
                  text: (el.textContent ?? "").trim(),
                })),
                expanded: cue?.getAttribute("aria-expanded") ?? null,
@@ -774,6 +777,18 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
           "pending",
         ]);
         expect(opened.ticks).toEqual(["active", "pending", "pending"]);
+
+        // And nothing on this row breathes. `in progress` is a cell somebody
+        // wrote into a document, and this fixture's arc has no wheel running
+        // it and no holder working — so the ledger says step 1 is under way
+        // and the glyph declines to claim it is happening right now. The tick
+        // above still paints `active`, because where the walk stands and
+        // whether anybody is walking it are two different facts.
+        expect(opened.rows.map((r) => r.dot)).toEqual([
+          "stopped",
+          "stopped",
+          "stopped",
+        ]);
 
         // ── And the press picked nothing ─────────────────────────────────
         // The list commits selection at pointerdown and excuses any

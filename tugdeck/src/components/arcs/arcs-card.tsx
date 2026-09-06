@@ -769,7 +769,7 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
             opened costs no ledger DOM at all. */}
         {expanded && steps.length > 0 ? (
           <span className="arcs-steps" data-slot="arcs-steps">
-            <ArcStepItems steps={steps} idle={entry.holders_busy !== true} />
+            <ArcStepItems steps={steps} live={model.live} />
           </span>
         ) : null}
       </span>

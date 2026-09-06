@@ -7,6 +7,10 @@
  * the row's position, which is the step number the plan itself uses and the
  * number an arc's fraction counts against.
  *
+ * The dot's liveness comes in as `live` and is the **arc's**, not the holder
+ * card's: an arc between rounds is still walking, and the ticks on the track
+ * beside this list are drawn from that same fact.
+ *
  * **It lives here rather than beside the `ARC` placard because it is not the
  * placard's.** The placard was its first surface and for a while its only one;
  * the Arcs card row folds open to the same ledger, and a row that says a step
@@ -49,10 +53,16 @@ import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicato
 
 export function ArcStepItems({
   steps,
-  idle,
+  live,
 }: {
   steps: ReadonlyArray<ArcStep>;
-  idle: boolean;
+  /**
+   * Whether the arc is under way — `ArcTrackModel.live`, never a card's own
+   * idleness. A surface that hands this its holder's turn state rests every
+   * dot in the seconds between rounds, which is exactly the window a walking
+   * arc spends most of its life in.
+   */
+  live: boolean;
 }): React.ReactElement {
   return (
     <>
@@ -68,7 +78,7 @@ export function ArcStepItems({
             <TugProgressIndicator
               variant="pulsing-dot"
               size={17}
-              state={ledgerRowState(step.status, idle)}
+              state={ledgerRowState(step.status, live)}
               aria-label={`step ${step.status}`}
             />
           }

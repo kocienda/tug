@@ -1447,7 +1447,7 @@ export function ArcPopoverContent({
           />
         </div>
         {steps.length > 0 ? (
-          <ArcStepItems steps={steps} idle={idle} />
+          <ArcStepItems steps={steps} live={model.live} />
         ) : tasks.length > 0 ? (
           <TaskListItems tasks={tasks} idle={idle} />
         ) : null}

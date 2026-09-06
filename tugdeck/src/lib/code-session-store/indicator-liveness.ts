@@ -100,14 +100,22 @@ export function jobRowState(status: JobStatus): TugProgressIndicatorState {
 }
 
 /**
- * A plan-ledger row's state — the arc's own step list, gated the same way a
- * task row is.
+ * A plan-ledger row's state — the arc's own step list, gated on the arc.
  *
  * `in progress` is a cell a step verb wrote into a document, not an
  * observation of anything running: a run that stopped mid-step leaves the row
- * saying `in progress` for as long as the plan sits on disk. So the `idle`
- * gate is the same gate, for the same reason — the ledger still reads "in
- * progress", the glyph does not claim it is happening.
+ * saying `in progress` for as long as the plan sits on disk. So the cell alone
+ * may not breathe — something has to say the walk is still under way.
+ *
+ * **For a ledger row that something is the arc, not the card.** A task row's
+ * gate is its session's turn state, because a checklist has no other witness;
+ * an arc has its own record, and a wheel that holds it between rotations. A
+ * card sits idle for the seconds between the round it just finished and the
+ * one the wheel is about to seat, and gating on the card made every dot rest
+ * through those seconds while the track beside them painted the same step
+ * `active`. `live` is {@link ArcTrackModel.live} — the arc is running, or a
+ * holder is working — which is the fact the ticks are already drawn from, so
+ * the two readings of one ledger cannot disagree.
  *
  * `withdrawn` is a step the run decided not to walk, and it reads `completed`
  * for the same reason every other closed-count does: the row is over. Resting
@@ -119,10 +127,10 @@ export function jobRowState(status: JobStatus): TugProgressIndicatorState {
  */
 export function ledgerRowState(
   status: string,
-  idle: boolean,
+  live: boolean,
 ): TugProgressIndicatorState {
   if (status === "done" || status === "withdrawn") return "completed";
-  if (status === "in progress") return idle ? "stopped" : "running";
+  if (status === "in progress") return live ? "running" : "stopped";
   return "stopped";
 }
 

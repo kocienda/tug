@@ -116,16 +116,18 @@ describe("the liveness rule — only executing work breathes", () => {
     }
   });
 
-  it("holds a ledger row to the same gate a task row is held to", () => {
+  it("holds a ledger row to the arc's liveness, not to a card's turn", () => {
     // The plan's own spellings, which are not the task list's. `in progress`
     // is a cell a step verb wrote into a document on disk — a run that stopped
-    // mid-step leaves it saying so for as long as the file sits there — so it
-    // breathes only while the session it belongs to is actually working.
-    expect(ledgerRowState("done", false)).toBe("completed");
+    // mid-step leaves it saying so for as long as the file sits there — so the
+    // cell alone never breathes. What lets it breathe is the arc being under
+    // way, which is the gate the track's ticks already read: a card between
+    // rounds is idle for seconds at a time, and the walk is not.
     expect(ledgerRowState("done", true)).toBe("completed");
-    expect(ledgerRowState("in progress", false)).toBe("running");
-    expect(ledgerRowState("in progress", true)).toBe("stopped");
-    expect(ledgerRowState("pending", false)).toBe("stopped");
+    expect(ledgerRowState("done", false)).toBe("completed");
+    expect(ledgerRowState("in progress", true)).toBe("running");
+    expect(ledgerRowState("in progress", false)).toBe("stopped");
+    expect(ledgerRowState("pending", true)).toBe("stopped");
   });
 
   it("reads a withdrawn row as closed, never as one nobody started", () => {
@@ -140,7 +142,7 @@ describe("the liveness rule — only executing work breathes", () => {
     // The conservative reading, and the one the plan-doc scan takes for the
     // same cell: a spelling nobody knows has not been shown to be running.
     for (const status of ["", "blocked", "IN PROGRESS", "skipped"]) {
-      expect(ledgerRowState(status, false)).toBe("stopped");
+      expect(ledgerRowState(status, true)).toBe("stopped");
     }
   });
 
