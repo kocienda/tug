@@ -25,15 +25,9 @@ describe("card close advice registry", () => {
     expect(cardWaivesCloseConfirm("w1")).toBe(false);
   });
 
-  test("carries the card's own popover copy when the confirm stands", () => {
-    const release = registerCardCloseAdvice("w2", () => ({
-      waive: false,
-      message: "Close Card? A thing goes with it.",
-    }));
-    expect(readCardCloseAdvice("w2")).toEqual({
-      waive: false,
-      message: "Close Card? A thing goes with it.",
-    });
+  test("a card that is holding something keeps the confirm", () => {
+    const release = registerCardCloseAdvice("w2", () => ({ waive: false }));
+    expect(readCardCloseAdvice("w2")).toEqual({ waive: false });
     expect(cardWaivesCloseConfirm("w2")).toBe(false);
     release();
   });

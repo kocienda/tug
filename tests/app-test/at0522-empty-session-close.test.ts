@@ -1,6 +1,6 @@
 /**
  * at0522-empty-session-close.test.ts — an empty Session card closes without
- * asking; one holding an unsent message says so.
+ * asking; one holding an unsent message still asks.
  *
  * ## What this gates
  *
@@ -18,11 +18,10 @@
  *   - **B (attached-but-unsent waives):** a bound session with an empty
  *     transcript and an empty composer closes the same way. This is the
  *     branch that reads the session store rather than the picker state.
- *   - **C (a draft stands, and speaks):** type into the composer of that
- *     same bound card and the X now raises the confirm, worded for what it
- *     would take. The draft lives only in the editor — waiving over it
- *     would be silent data loss — and a generic "Close Card?" would not
- *     tell the user why a card they think is empty is arguing.
+ *   - **C (a draft stands):** type into the composer of that same bound
+ *     card and the X now raises the standing "Close Card?" confirm. The
+ *     draft lives only in the editor, so waiving over it would be silent
+ *     data loss.
  *   - **D (the count rule survives):** two Session cards in one pane still
  *     get "Close 2 Tabs?". That guard is about discarding N tabs at once,
  *     which no card's emptiness answers.
@@ -45,9 +44,6 @@ const TEST_TIMEOUT_MS = 120_000;
 const CONFIRM_POPOVER_SELECTOR = '[data-slot="tug-confirm-popover"]';
 const PICKER_OPEN = 'document.querySelector(".session-card-picker-form") !== null';
 const COMPOSER_SELECTOR = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';
-
-/** The copy the card supplies when a draft is all that stands to be lost. */
-const DRAFT_MESSAGE = "Close Card? The message you haven't sent goes with it.";
 
 function pause(ms: number): Promise<void> {
   return new Promise<void>((resolve) =>
@@ -171,7 +167,7 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "case C — an unsent draft keeps the confirm and words it",
+      "case C — an unsent draft keeps the confirm",
       async () => {
         const app = await launchTugApp({ testName: "at0522-c-unsent-draft" });
         try {
@@ -206,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)(
             popoverText,
             "an unsent draft must not be discarded silently",
           ).not.toBeNull();
-          expect(popoverText).toContain(DRAFT_MESSAGE);
+          expect(popoverText).toContain("Close Card?");
           const panePresent = await app.evalJS<boolean>(
             `document.querySelector('[data-pane-id="p1"]') !== null`,
           );

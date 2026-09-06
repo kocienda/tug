@@ -1,7 +1,6 @@
 /**
  * session-card-close-advice.ts — what a Session card says when the pane
- * asks whether closing it needs a confirm, and what that confirm should
- * say.
+ * asks whether closing it needs a confirm.
  *
  * The Session card's registration carries `confirmClose: true` because a
  * transcript cannot be recovered once the card is gone. That is the right
@@ -12,9 +11,8 @@
  *
  * The exception is the composer. Text typed and not yet sent lives only in
  * the editor — nothing has persisted it — so closing over it is data loss
- * even on a card that is otherwise empty. That case does not waive; it
- * confirms, and the confirm says what it is about rather than asking a
- * generic question about a card the user thinks is blank ([L31]).
+ * even on a card that is otherwise empty. That case does not waive: the
+ * standing confirm is what stops it.
  *
  * The rule is {@link sessionCloseAdviceFor}, a pure function over what the
  * card is holding. {@link readSessionCardCloseAdvice} is the thin reader
@@ -29,13 +27,6 @@ import { cardServicesStore } from "./card-services-store";
 import type { CodeSessionPhase } from "./code-session-store";
 import { restorePassGate, sessionRestoreRegistry } from "./session-restore";
 import type { TugPromptEntryDelegate } from "@/components/tugways/tug-prompt-entry";
-
-/**
- * The confirm popover's copy when the only thing a close would take is a
- * message the user typed and never sent.
- */
-export const UNSENT_DRAFT_CLOSE_MESSAGE =
-  "Close Card? The message you haven't sent goes with it.";
 
 /** What an attached card's session is holding. */
 export interface SessionCardSessionState {
@@ -62,15 +53,13 @@ export interface SessionCardCloseState {
 }
 
 /**
- * The rule. A draft always confirms and names itself; an empty card
- * waives; anything else confirms in the pane's own words.
+ * The rule. A draft always confirms; an empty card waives; anything else
+ * confirms.
  */
 export function sessionCloseAdviceFor(
   state: SessionCardCloseState,
 ): CardCloseAdvice {
-  if (state.holdsDraft) {
-    return { waive: false, message: UNSENT_DRAFT_CLOSE_MESSAGE };
-  }
+  if (state.holdsDraft) return { waive: false };
   if (state.session === null) {
     return { waive: state.restorePassSettled && !state.restorePending };
   }

@@ -279,10 +279,10 @@ export interface CardTitleBarProps {
   confirmClose?: boolean;
   /**
    * What the pane's card says about a close, asked live at close time and
-   * consulted only when {@link confirmClose} is `true`. A `waive` closes
-   * the pane immediately despite the type's opt-in (an empty Session card
-   * has no transcript to protect); a `message` words the popover in the
-   * card's own terms when the confirm does stand (an unsent draft).
+   * consulted only when {@link confirmClose} is `true`: a `waive` closes
+   * the pane immediately despite the type's opt-in, because the card is
+   * holding nothing the confirm would protect (an empty Session card has
+   * no transcript, and no draft in its composer).
    *
    * Wired only for a single-card pane: a multi-card pane's guard is about
    * discarding N tabs at once, which no card's emptiness answers.
@@ -700,19 +700,14 @@ function CardTitleBar({
   const isMultiTab = cardCount > 1;
 
   // The pane-close intent (X button / single-tab Cmd-W): closes the whole
-  // pane via `onClose`, with multi-tab vs single-tab copy. A single card
-  // that has something specific to say about what the close would take
-  // (a Session card holding an unsent message) words the popover itself
-  // ([L31]); everything else gets the pane's own question.
+  // pane via `onClose`, with multi-tab vs single-tab copy.
   const paneCloseIntent = useCallback(
     (): CloseIntent => ({
-      message: isMultiTab
-        ? `Close ${cardCount} Tabs?`
-        : (resolveCloseAdvice?.()?.message ?? "Close Card?"),
+      message: isMultiTab ? `Close ${cardCount} Tabs?` : "Close Card?",
       confirmLabel: isMultiTab ? "Close All" : "Close",
       onConfirm: () => onClose?.(),
     }),
-    [isMultiTab, cardCount, onClose, resolveCloseAdvice],
+    [isMultiTab, cardCount, onClose],
   );
 
   const openCloseConfirm = useCallback((intent: CloseIntent) => {
@@ -2229,15 +2224,12 @@ export function TugPane({
       // single-tab close Cmd-W performs here.)
       const activeCard = currentCards.find((c) => c.id === currentActiveId);
       const reg = activeCard ? getRegistration(activeCard.componentId) : undefined;
-      // The card's own word on the close, live: it may be holding nothing
-      // (waive the guard) or holding something it can name (word the
-      // popover with it).
-      const advice = readCardCloseAdvice(currentActiveId);
       const needsConfirm =
-        reg?.defaultMeta.confirmClose === true && advice?.waive !== true;
+        reg?.defaultMeta.confirmClose === true &&
+        !cardWaivesCloseConfirm(currentActiveId);
       titleBarRef.current?.requestCloseWith({
         needsConfirm,
-        message: advice?.message ?? "Close Card?",
+        message: "Close Card?",
         confirmLabel: "Close",
         onConfirm: () => store.removeCard(stackId, currentActiveId),
       });

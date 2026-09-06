@@ -1,12 +1,11 @@
 /**
  * session-card-close-advice.test.ts — the rule behind the Session card's
- * close confirm: what waives, what stands, and what the popover says.
+ * close confirm: what waives and what stands.
  */
 
 import { describe, test, expect } from "bun:test";
 import {
   sessionCloseAdviceFor,
-  UNSENT_DRAFT_CLOSE_MESSAGE,
   type SessionCardCloseState,
 } from "@/lib/session-card-close-advice";
 
@@ -53,12 +52,11 @@ describe("session card close advice", () => {
     });
   });
 
-  test("a transcript keeps the guard, in the pane's own words", () => {
+  test("a transcript keeps the guard", () => {
     const advice = sessionCloseAdviceFor(
       state({ session: { ...EMPTY_SESSION, transcriptLength: 4 } }),
     );
     expect(advice.waive).toBe(false);
-    expect(advice.message ?? null).toBeNull();
   });
 
   test("a turn in flight, a queued send, or a busy phase all keep the guard", () => {
@@ -79,14 +77,13 @@ describe("session card close advice", () => {
     ).toBe(false);
   });
 
-  test("an unsent draft never waives, and names itself in the confirm", () => {
+  test("an unsent draft never waives", () => {
     // The composer is the one thing on an otherwise-empty card that only
     // the editor holds: closing over it is data loss.
     for (const session of [null, EMPTY_SESSION]) {
-      expect(sessionCloseAdviceFor(state({ holdsDraft: true, session }))).toEqual({
-        waive: false,
-        message: UNSENT_DRAFT_CLOSE_MESSAGE,
-      });
+      expect(
+        sessionCloseAdviceFor(state({ holdsDraft: true, session })),
+      ).toEqual({ waive: false });
     }
   });
 });

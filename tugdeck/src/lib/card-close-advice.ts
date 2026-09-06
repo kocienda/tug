@@ -3,17 +3,15 @@
  *
  * The mirror image of `card-close-guard.ts`. A guard ADDS a decision to a
  * close gesture for a card holding unsaved state; advice speaks to the
- * confirm a card's TYPE already asks for — waiving it when the card is
- * holding nothing, and naming what is at stake when it is not.
+ * confirm a card's TYPE already asks for, waiving it when the card is
+ * holding nothing.
  *
  * The Session card is the case. Its registration carries
  * `confirmClose: true` because a transcript is not recoverable, but a card
  * still sitting on the project picker has no transcript, and asking
  * "Close Card?" over an empty one is a guard with nothing behind it. The
  * same card with an unsent message in its composer is the opposite case:
- * the confirm stands, and it should say so rather than ask a generic
- * question about a card the user thinks is empty ([L31] — the holder
- * speaks the reason).
+ * the draft lives only in the editor, so the confirm stands.
  *
  * Advice is a live call, not a flag: the pane asks at close time, so the
  * same card waives while it is empty and confirms the moment it holds a
@@ -33,12 +31,6 @@ export interface CardCloseAdvice {
    * gesture closes immediately despite the card type's opt-in.
    */
   waive: boolean;
-  /**
-   * The confirm's copy when it does stand — the card naming what the
-   * close would take. Absent (or null) takes the pane's own wording.
-   * Ignored when `waive` is true, where there is no popover to word.
-   */
-  message?: string | null;
 }
 
 /** Answers for the card at the moment it is asked. */
@@ -65,7 +57,7 @@ export function registerCardCloseAdvice(
 /**
  * What `cardId` says about a close right now, or null when the card
  * registered no advisor — a card that says nothing keeps the confirm its
- * type asked for, worded by the pane.
+ * type asked for.
  */
 export function readCardCloseAdvice(cardId: string): CardCloseAdvice | null {
   return advisors.get(cardId)?.() ?? null;
