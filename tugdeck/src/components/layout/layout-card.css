@@ -25,6 +25,13 @@
   /* The card owns its pane's height, so it owns the overflow too: the whole
      picker scrolls as one document. The old rail card used to hand every band to a
      scroller it owned; a card has no siblings to negotiate that with. */
+
+  /* The 100% is the pane's height, so the card's own padding has to be inside
+     it. In `content-box` the 14px of block padding stands outside that measure
+     and the scroller has 14px of overflow to carry on a card whose content
+     fits with room to spare — a scrollbar drawn for the padding rather than
+     for anything to read. */
+  box-sizing: border-box;
   block-size: 100%;
   min-block-size: 0;
   overflow-y: auto;
