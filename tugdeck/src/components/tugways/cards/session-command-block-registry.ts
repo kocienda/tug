@@ -123,12 +123,31 @@ export type CommandBlockAttribution = "shell" | "git" | "wheel" | "tug";
  */
 export type CommandBlockPresentation = "entry" | "quiet";
 
+/**
+ * What a registration declares about its rows' shape: one presentation for
+ * every row it claims, or a reading of the row itself.
+ *
+ * **The reading is for one case and earns its keep there.** `/arc-run` is a
+ * single command carrying three outcomes ([F08]): an arc that finished is one
+ * derived sentence and wants the quiet seat, while an arc that stopped carries
+ * the stage's own words and a Resume offer and wants the whole entry. A
+ * constant here would dress one of the two as the other, and the alternative —
+ * two commands — would mean the server writing a different verb for an
+ * outcome, which is the record deciding presentation.
+ *
+ * The predicate lives beside the renderer that already parses the output, so
+ * the row's shape and its block are still one reading of one row.
+ */
+export type CommandBlockPresentationRule =
+  | CommandBlockPresentation
+  | ((message: ShellExchangeMessage) => CommandBlockPresentation);
+
 /** Optional facts a registration may declare beyond matcher and renderer. */
 export interface CommandBlockOptions {
   /** Defaults to `shell` — see {@link CommandBlockAttribution}. */
   attribution?: CommandBlockAttribution;
   /** Defaults to `entry` — see {@link CommandBlockPresentation}. */
-  presentation?: CommandBlockPresentation;
+  presentation?: CommandBlockPresentationRule;
   /**
    * The projection half of `data-tugx-findable` for this row kind — the
    * text this renderer puts on screen, in the order it renders it, one
@@ -169,7 +188,7 @@ interface CommandBlockRegistration {
   matcher: CommandBlockMatcher;
   renderer: CommandBlockRenderer;
   attribution: CommandBlockAttribution;
-  presentation: CommandBlockPresentation;
+  presentation: CommandBlockPresentationRule;
   findParts:
     | ((message: ShellExchangeMessage, collapsed: boolean) => string[] | null)
     | undefined;
@@ -261,11 +280,18 @@ export function resolveCommandAttribution(command: string): CommandBlockAttribut
  * terms as {@link resolveCommandBlock}, and resolved by the *same* walk in
  * the *same* order — a row's shape and its block are one reading of the
  * command, exactly as its attribution is.
+ *
+ * The row, not the command: a registration may read its own output to decide
+ * ({@link CommandBlockPresentationRule}), and one does.
  */
-export function resolveCommandPresentation(command: string): CommandBlockPresentation {
-  const trimmed = command.trim();
+export function resolveCommandPresentation(
+  message: ShellExchangeMessage,
+): CommandBlockPresentation {
+  const trimmed = message.command.trim();
   for (const registration of registry()) {
-    if (registration.matcher(trimmed)) return registration.presentation;
+    if (!registration.matcher(trimmed)) continue;
+    const rule = registration.presentation;
+    return typeof rule === "function" ? rule(message) : rule;
   }
   return "entry";
 }

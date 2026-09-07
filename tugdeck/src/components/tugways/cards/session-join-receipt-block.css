@@ -17,21 +17,6 @@
   font-family: var(--tugx-commit-subject-font, var(--tugx-block-code-font));
 }
 
-/* The join boundary's detail — the landing sha and the squash subject,
-   continuing the event's inline run. Inline, deliberately: the run is ONE
-   sentence and a block here would break the sha onto its own line. It carries
-   no hanging indent for the same reason the boundary's slot flows normally —
-   a wrapped subject returns flush under the event rather than hanging under
-   wherever the sha ended, which is the correction the boundary exists for. */
-.join-boundary-detail {
-  min-width: 0;
-  /* Same face as the commit receipt's identity line, from the same scope: the
-     boundary bar is already sans, but a `code` inside its detail is pinned to
-     mono by `.session-boundary-detail code`, and the squash subject beside the
-     sha is a sentence rather than a code run. */
-  font-family: var(--tugx-commit-subject-font, var(--tug-font-family-sans));
-}
-
 .join-receipt-summary {
   min-width: 0;
 }
@@ -39,8 +24,7 @@
 /* Override the header's `code { color: inherit }`, which would drain the
    subject to the muted command tone. The squash subject is primary content,
    not an incidental command. */
-.join-receipt-header .join-receipt-summary,
-.join-boundary-detail .join-receipt-summary {
+.join-receipt-header .join-receipt-summary {
   color: var(--tugx-block-text-color);
   /* And the face of the line it sits on rather than the code face its element
      would otherwise take — see the identity rules above. */
@@ -66,7 +50,9 @@
      same prose the message below it reads in. It carried a second mono pin of
      its own, which is exactly the per-site override the scope class replaces. */
   font-family: var(--tugx-commit-subject-font, var(--tug-font-family-sans));
-  font-size: var(--tug-font-size-xs);
+  /* The boundary event's size, unbolded — the one scale every subsidiary line
+     in this report reads at ([B05]). */
+  font-size: var(--tugx-toolheader-name-size);
 }
 
 /* The `arc → base` names and the fit line are `<code>` elements for their
@@ -83,10 +69,26 @@
   padding-block: var(--tug-space-sm);
 }
 
-/* The receipt as the boundary's fold body — a grouping element only. Each body
-   region owns its own spacing (the identity line, the message, the file rows),
-   exactly as it did under the chrome this replaced, so nothing here reaches
-   inside them. */
-.join-receipt-body {
-  display: contents;
+/* The arc's record as the boundary's fold body ([B02]). It wears
+   `.arc-receipt-body` for its column and padding — the same seat the
+   `/arc-run` receipt gives the same rows — and this class carries only what is
+   the boundary's: the strip above them. */
+
+/* The lifecycle strip that leads the record, `Finished · N stages`. It sits
+   above the rows rather than in a header slot, so it takes the gap the body's
+   flex column already establishes and adds nothing of its own. */
+.join-boundary-record-strip {
+  display: flex;
+  min-width: 0;
+}
+
+/* The header's detail column publishes the mono command face at the detail
+   size, which is right for a shell command and wrong for a lifecycle line —
+   the note is a sentence. The `/arc-run` receipt scopes the identical
+   correction to its own header; this is the fold's copy of it, at the size
+   [B05] sets for every subsidiary line in the report. */
+.join-boundary-record-strip .tug-arc-lifecycle-line {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tugx-toolheader-name-size);
+  line-height: calc(var(--tugx-toolheader-name-size) * 1.6);
 }

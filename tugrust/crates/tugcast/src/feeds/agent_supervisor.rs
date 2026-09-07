@@ -7413,6 +7413,12 @@ impl AgentSupervisor {
             .find(|d| d.name == request.arc)
             .map(|d| d.rounds)
             .unwrap_or(0);
+        // And the arc's record, for the same reason and at the same moment:
+        // the receipt folds the document, the stages and the plan behind the
+        // `Joined` boundary ([B02], [B03]), and `read_arc` applies the log's
+        // generation reset — so a read taken after the join, whose own
+        // terminal line is already appended, comes back with nothing.
+        let arc_record = tugarc_core::read_arc(dir, &request.arc);
 
         // A join tears the workshop down and deletes the branch under it, so it
         // cannot share the arc with a resolve or a verification (Spec S01). A
@@ -7555,13 +7561,16 @@ impl AgentSupervisor {
                             Vec::new()
                         };
                         let summary = crate::feeds::changeset::format_join_summary(
-                            sha,
-                            &outcome.name,
-                            &outcome.base_branch,
-                            rounds,
-                            outcome.message.as_deref().unwrap_or(""),
-                            &files,
-                            outcome.fit.as_ref(),
+                            &crate::feeds::changeset::JoinSummary {
+                                sha,
+                                arc: &outcome.name,
+                                base: &outcome.base_branch,
+                                rounds,
+                                message: outcome.message.as_deref().unwrap_or(""),
+                                files: &files,
+                                fit: outcome.fit.as_ref(),
+                                record: arc_record.as_ref(),
+                            },
                         );
                         receipt_id = Self::record_landing_receipt(
                             self.shell_ledger.as_ref(),

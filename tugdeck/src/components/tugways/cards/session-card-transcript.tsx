@@ -832,7 +832,7 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   // describes an exchange somebody performed, and nobody performed this one;
   // the responder scope and cell menu stay so the line selects and copies
   // like any other ink.
-  if (resolveCommandPresentation(message.command) === "quiet") {
+  if (resolveCommandPresentation(message) === "quiet") {
     return (
       <ResponderScope>
       <AnnotationScope value={annotation}>

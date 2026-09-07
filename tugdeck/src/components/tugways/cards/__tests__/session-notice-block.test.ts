@@ -36,7 +36,12 @@ describe("the tug-notice row", () => {
     // the model's name until the attribution existed. `quiet` is what strips
     // the exchange chrome that would announce a process.
     expect(resolveCommandAttribution("tug notice arc-resolve")).toBe("tug");
-    expect(resolveCommandPresentation("tug notice arc-resolve")).toBe("quiet");
+    expect(
+      resolveCommandPresentation({
+        command: "tug notice arc-resolve",
+        output: "",
+      } as ShellExchangeMessage),
+    ).toBe("quiet");
   });
 
   it("projects the notice itself for find, not the synthetic command", () => {

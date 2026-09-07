@@ -28,15 +28,20 @@
  * The header's detail column is the mono command slot — it sets the block's
  * code font at `--tugx-toolheader-detail-size`, which is right for a shell
  * command and wrong for a lifecycle line. The line is prose: the note is a
- * sentence, not a token, and at the detail size in mono a stop reason
- * dominates the row it is a footnote to.
+ * sentence, not a token, and in mono a stop reason dominates the row it is a
+ * footnote to.
+ *
+ * The size is the boundary event's, unbolded, the way the record's own rows
+ * and the join fold's copy of this line read ([B05]: the lifecycle line takes
+ * it *wherever* it renders). It was `xs`, which after the record's rows moved
+ * up left this row captioned smaller than the body it captions.
  *
  * Scoped to this block.
  */
 .arc-receipt-identity .tug-arc-lifecycle-line {
   font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-xs);
-  line-height: calc(var(--tug-font-size-xs) * 1.6);
+  font-size: var(--tugx-toolheader-name-size);
+  line-height: calc(var(--tugx-toolheader-name-size) * 1.6);
 }
 
 .arc-receipt-body {
@@ -46,11 +51,17 @@
   padding: var(--tug-space-sm) var(--tug-space-md) var(--tug-space-md);
 }
 
+/* The record's rows read at the boundary event's size, unbolded ([B05]).
+   They were `xs` — the timestamp's size, borrowed from the provenance run
+   beside an entry's identifier. These lines are the arc's substance rather
+   than its provenance, and they read at the same size in either seat: the
+   `/arc-run` receipt's body, and the fold behind the `Joined` boundary. */
+
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .arc-receipt-doc,
 .arc-receipt-tail {
   margin: 0;
-  font-size: var(--tug-font-size-xs);
+  font-size: var(--tugx-toolheader-name-size);
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
@@ -81,14 +92,14 @@
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .arc-receipt-stage-word {
-  font-size: var(--tug-font-size-xs);
+  font-size: var(--tugx-toolheader-name-size);
   font-weight: var(--tug-font-weight-medium);
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .arc-receipt-stage-model {
-  font-size: var(--tug-font-size-xs);
+  font-size: var(--tugx-toolheader-name-size);
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
@@ -98,7 +109,7 @@
   /* The size its two siblings declare. The cell used to hold an atom whose
      own rule is `font-size: inherit`, so it took the block's base size and
      read larger than the stage and the model beside it. */
-  font-size: var(--tug-font-size-xs);
+  font-size: var(--tugx-toolheader-name-size);
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

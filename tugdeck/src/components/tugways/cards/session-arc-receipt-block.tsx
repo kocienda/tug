@@ -8,6 +8,16 @@
  * string and presents it as a receipt instead of the generic fenced
  * `ShellExchangeBlock`.
  *
+ * **One row, two shapes, decided by outcome** ([B04], [F08]). An arc that
+ * *finished* paints a quiet line — `<arc> Finished · N stages` under the ship
+ * wheel, at the transcript's body inset, in the arc-note register every other
+ * arc gesture reads in — because the record it used to carry now folds behind
+ * the `Joined` boundary once the arc lands ([B02]), and a second full report
+ * of one event is the doubling this whole report ended. An arc that *stopped*
+ * or *picked itself back up* keeps the receipt below, because it carries the
+ * stage's own words and the Resume offer, which a line cannot hold. The seat
+ * follows the shape: `arcReceiptPresentation` is what the registry reads.
+ *
  * **The header wears {@link ArcLifecycleBlock} in its row layout**, which is
  * the whole design: the same block the Arcs card, the Changes shade's
  * collapsed row and the masthead placard wear stacked, set on one line
@@ -44,6 +54,7 @@ import { formatDurationMs } from "@/components/tugways/cards/session-card-teleme
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { arcPressStore } from "@/lib/arc-press-store";
+import { arcNoteParts } from "@/lib/arc-note-command";
 import { CardIdContext } from "@/lib/card-id-context";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { formatTokensApprox } from "@/lib/code-session-store/compaction";
@@ -54,7 +65,9 @@ import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import {
   registerCommandBlock,
   type CommandBlockProps,
+  type CommandBlockPresentation,
 } from "./session-command-block-registry";
+import { ArcNoteLine } from "./session-arc-note-block";
 import { ShellExchangeBlock } from "./shell-exchange-block";
 import "./session-arc-receipt-block.css";
 
@@ -248,10 +261,7 @@ export function arcReceiptPhase(
  * a reader nothing can assert.
  */
 export function trackModelFor(parsed: ParsedArcReceipt): ReturnType<typeof arcTrackModel> {
-  const documents =
-    parsed.document !== null && parsed.document.endsWith("brief.md")
-      ? { brief: parsed.document, plan: parsed.plan ?? undefined }
-      : { plan: parsed.plan ?? undefined };
+  const documents = recordDocuments(parsed.document, parsed.plan);
   if (parsed.outcome === "resumed") {
     return arcTrackModel({
       documents,
@@ -264,8 +274,40 @@ export function trackModelFor(parsed: ParsedArcReceipt): ReturnType<typeof arcTr
       arc: { stage: parsed.stop?.stage ?? "review", stopped: parsed.stop?.reason },
     });
   }
+  return finishedArcTrackModel(parsed.document, parsed.plan);
+}
+
+/**
+ * Which of the two documents an arc's record names, keyed on the filename the
+ * devise stage writes. A `brief.md` is a brief and anything else is not — the
+ * same reading `trackModelFor` has always taken, lifted out so the finished
+ * arm below and the caller above cannot spell it two ways.
+ */
+function recordDocuments(
+  document: string | null,
+  plan: string | null,
+): { brief?: string; plan?: string } {
+  return document !== null && document.endsWith("brief.md")
+    ? { brief: document, plan: plan ?? undefined }
+    : { plan: plan ?? undefined };
+}
+
+/**
+ * The strip for an arc that **finished** — rested on the audit, done, with
+ * the audit's own mark as the stage.
+ *
+ * Exported because the join boundary folds the same record and wears the same
+ * strip over it ([B02]), and it has no `ParsedArcReceipt` to hand
+ * `trackModelFor`: a join receipt is a join receipt. An arc that reached a
+ * join is finished by construction, so the complete arm is the whole of what
+ * that caller needs.
+ */
+export function finishedArcTrackModel(
+  document: string | null,
+  plan: string | null,
+): ReturnType<typeof arcTrackModel> {
   return arcTrackModel({
-    documents,
+    documents: recordDocuments(document, plan),
     arc: { stage: "audit", done: true },
     stage: "audited",
   });
@@ -344,11 +386,133 @@ function ArcReceiptStageUsage({ sessionId }: { sessionId: string }): React.React
 }
 
 /**
+ * The arc's record as rows: the document it opened on, one row per stage with
+ * its model and what it cost, and the plan that came out.
+ *
+ * **One spelling, two seats.** This is the body of the `/arc-run` receipt and
+ * it is also what folds behind the `Joined` boundary once the arc lands
+ * ([B02]) — the record does not change because it moved, so a second
+ * composition of it would be the same rows drifting apart one edit at a time.
+ * The class names come with it, which is what keeps `session-arc-receipt-block.css`
+ * the one stylesheet either seat reads.
+ *
+ * The three parts are independently optional, exactly as the record's own
+ * lines are: an arc that opened on nothing, walked no stage, or produced no
+ * plan writes the rest and omits that one.
+ */
+export function ArcRecordBlock({
+  document,
+  stages,
+  plan,
+}: {
+  document: string | null;
+  stages: ArcReceiptStage[];
+  plan: string | null;
+}): React.ReactElement {
+  return (
+    <>
+      {document !== null ? (
+        <p className="arc-receipt-doc" data-tugx-findable="">
+          opened on <code>{document}</code>
+        </p>
+      ) : null}
+      <ul className="arc-receipt-stages">
+        {stages.map((stage) => (
+          <li className="arc-receipt-stage" key={stage.sessionId}>
+            <span className="arc-receipt-stage-word">{stage.stage}</span>
+            <span className="arc-receipt-stage-model">{stage.model}</span>
+            <ArcReceiptStageUsage sessionId={stage.sessionId} />
+          </li>
+        ))}
+      </ul>
+      {plan !== null ? (
+        <p className="arc-receipt-doc" data-tugx-findable="">
+          plan <code>{plan}</code>
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The record's searchable text, in render order — the two lines
+ * {@link ArcRecordBlock} marks findable.
+ *
+ * The stage rows are deliberately absent, on the landed-files list's terms:
+ * a row's third cell is resolved asynchronously from the session ledger and is
+ * empty until it answers, so a projected string carrying it would be a match
+ * the painter reaches only sometimes.
+ */
+export function arcRecordFindParts({
+  document,
+  plan,
+}: {
+  document: string | null;
+  plan: string | null;
+}): string[] {
+  const parts: string[] = [];
+  if (document !== null) parts.push(`opened on ${document}`);
+  if (plan !== null) parts.push(`plan ${plan}`);
+  return parts;
+}
+
+/**
  * The offer's title. Exported so it can be pinned without rendering — the
  * deck's tests are pure-logic `bun:test` with no fake DOM, so a string only
  * the JSX holds is a string nothing can assert.
  */
 export const ARC_RESUME_OFFER_TITLE = "Resume this arc";
+
+/** `N stages`, singular when there is one. */
+export function arcStagesPhrase(count: number): string {
+  return `${count} ${count === 1 ? "stage" : "stages"}`;
+}
+
+/** The `data-slot` the finish's quiet line wears. */
+export const ARC_FINISH_SLOT = "arc-finish-line";
+
+/**
+ * The finish as an arc gesture: the synthetic command its quiet line is read
+ * from, and the sentence beside it ([B04]).
+ *
+ * **The shape is composed, the words are not invented.** `Finished · N
+ * stages` is what the lifecycle strip said on this row before it became a
+ * line, and what the join boundary's strip still says over the same record
+ * ([B02]) — so the finish reads the same wherever the reader meets it.
+ *
+ * It goes through `arcNoteParts` rather than around it because the row is now
+ * in the arc-note register, and a second composition of a register's row is
+ * how two seats of one line come to disagree. `arc done <name>` is a command
+ * nothing writes to the shell ledger: the finish already HAS its row — this
+ * one — and admitting it to the arc-notes feed as well would paint a second
+ * line for one event ([F09]).
+ *
+ * Pure and exported: the deck's tests are `bun:test` with no fake DOM.
+ */
+export function arcFinishNote(parsed: ParsedArcReceipt): {
+  command: string;
+  sentence: string;
+} {
+  return {
+    command: `arc done ${parsed.arc}`,
+    sentence: `${parsed.arc}: finished · ${arcStagesPhrase(parsed.stages.length)}`,
+  };
+}
+
+/**
+ * Which seat a `/arc-run` row takes, read off the row ([B04], [F08]).
+ *
+ * A finished arc is one derived sentence and takes the quiet seat every other
+ * arc gesture has; a stop and a pick-up keep the entry, because they carry the
+ * stage's own words and the Resume offer, which a quiet line cannot hold. A
+ * row whose output does not parse falls through to `ShellExchangeBlock` and
+ * takes the entry it would have had anyway.
+ */
+export function arcReceiptPresentation(
+  message: ShellExchangeMessage,
+): CommandBlockPresentation {
+  return parseArcReceipt(message.output)?.outcome === "complete" ? "quiet" : "entry";
+}
 
 /**
  * The offer itself: `TugInlineDialog` carrying one **Resume**.
@@ -421,6 +585,22 @@ function ArcResumeOffer({ arc }: { arc: string }): React.ReactElement {
 export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactElement {
   const parsed = parseArcReceipt(props.message.output);
   if (parsed === null) return <ShellExchangeBlock {...props} />;
+  // A finished arc is a quiet line, not a receipt ([B04]). The record it used
+  // to carry is not lost: it folds behind the `Joined` boundary once the arc
+  // lands ([B02]), and until then it is the Arcs card's. What is left here is
+  // the moment itself, in the register every other arc gesture reads in.
+  if (parsed.outcome === "complete") {
+    const finish = arcFinishNote(parsed);
+    return (
+      <ArcNoteLine
+        command={finish.command}
+        sentence={finish.sentence}
+        atMs={props.message.startedAtMs}
+        className="session-arc-note-line"
+        slot={ARC_FINISH_SLOT}
+      />
+    );
+  }
   // A stop a later row in this transcript has already answered ([P08]). The
   // row is **demoted, never rewritten**: `copyText`, the stage list, the
   // document lines and the stop's own tail are byte-identical to what the
@@ -437,12 +617,12 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
   // A pick-up's `stop` is `null`, so the stopped arm's `?? "stopped"` would
   // label a row saying the arc is running again with the word *stopped* —
   // the fall-through this arm exists to stop.
+  //
+  // There is no complete arm: that outcome left above, as a quiet line.
   const note =
-    parsed.outcome === "complete"
-      ? `Finished · ${parsed.stages.length} ${parsed.stages.length === 1 ? "stage" : "stages"}`
-      : parsed.outcome === "resumed"
-        ? "Picked back up"
-        : `Stopped · ${parsed.stop?.reason ?? "stopped"}`;
+    parsed.outcome === "resumed"
+      ? "Picked back up"
+      : `Stopped · ${parsed.stop?.reason ?? "stopped"}`;
   const identity = (
     <span className="arc-receipt-identity">
       <ArcLifecycleBlock
@@ -473,25 +653,11 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
               {parsed.resumed.moved}
             </p>
           ) : null}
-          {parsed.document !== null ? (
-            <p className="arc-receipt-doc" data-tugx-findable="">
-              opened on <code>{parsed.document}</code>
-            </p>
-          ) : null}
-          <ul className="arc-receipt-stages">
-            {parsed.stages.map((stage) => (
-              <li className="arc-receipt-stage" key={stage.sessionId}>
-                <span className="arc-receipt-stage-word">{stage.stage}</span>
-                <span className="arc-receipt-stage-model">{stage.model}</span>
-                <ArcReceiptStageUsage sessionId={stage.sessionId} />
-              </li>
-            ))}
-          </ul>
-          {parsed.plan !== null ? (
-            <p className="arc-receipt-doc" data-tugx-findable="">
-              plan <code>{parsed.plan}</code>
-            </p>
-          ) : null}
+          <ArcRecordBlock
+            document={parsed.document}
+            stages={parsed.stages}
+            plan={parsed.plan}
+          />
           {parsed.stop?.said != null ? (
             <p className="arc-receipt-tail" data-tugx-findable="">
               {parsed.stop.said}
@@ -536,10 +702,23 @@ export function matchesArcReceipt(command: string): boolean {
  * The session atoms are deliberately absent: a truncated id is not text
  * anybody searches for, and projecting it would put eight hex characters into
  * the index for every stage of every arc.
+ *
+ * A **finished** arc projects the quiet line instead, and projects it the way
+ * {@link ArcNoteLine} paints it: one unit for the label node, whose bytes are
+ * the name and the verb with one space between them. There is no subject on
+ * this gesture, so there is no second unit — the declare-both-halves rule read
+ * off the same `arcNoteParts` the row renders from.
  */
 export function arcReceiptFindParts(message: ShellExchangeMessage): string[] | null {
   const parsed = parseArcReceipt(message.output);
   if (parsed === null) return null;
+  if (parsed.outcome === "complete") {
+    const finish = arcFinishNote(parsed);
+    const { name, label, subject } = arcNoteParts(finish.command, finish.sentence);
+    return [[name, label].filter((part) => part !== null).join(" "), subject ?? ""].filter(
+      (part) => part !== "",
+    );
+  }
   const parts = [parsed.arc, ...parsed.stages.map((stage) => stage.stage)];
   if (parsed.stop !== null) {
     parts.push(parsed.stop.reason);
@@ -556,5 +735,6 @@ export function arcReceiptFindParts(message: ShellExchangeMessage): string[] | n
 // three are registered before the first resolve.
 registerCommandBlock("arc-run-receipt", matchesArcReceipt, SessionArcReceiptBlock, {
   attribution: "wheel",
+  presentation: arcReceiptPresentation,
   findParts: arcReceiptFindParts,
 });

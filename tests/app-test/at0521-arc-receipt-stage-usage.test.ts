@@ -1,6 +1,6 @@
 /**
- * at0521-arc-receipt-stage-usage.test.ts — an arc receipt's stage row shows
- * what the stage cost, and no session id anywhere.
+ * at0521-arc-receipt-stage-usage.test.ts — an arc's stage row shows what the
+ * stage cost, and no session id anywhere.
  *
  * ## Why this exists
  *
@@ -13,7 +13,17 @@
  * `turn_telemetry` into tokens and active time — the pair the agent footer
  * already prints for a finished unit of agent work.
  *
- * Three facts, on one rendered receipt, in the running app:
+ * ## Where the rows moved, and why this file followed them
+ *
+ * The stage rows used to be the body of the `/arc-run` receipt. They are the
+ * arc's **record**, and the record now folds behind the `Joined` boundary once
+ * the arc lands ([B02]) — the `/arc-run` row a finished arc leaves is a quiet
+ * line with no rows on it at all ([B04], and `at0529` for that half). So the
+ * fixture here is a landing rather than an ending: the same three facts, over
+ * the same `ArcRecordBlock` and the same `ArcReceiptStageUsage`, in the seat
+ * the rows actually occupy.
+ *
+ * Three facts, on one rendered record, in the running app:
  *
  *   1. **The numbers arrive on the wire and land in the cell.** The usage rides
  *      the `session_updated` push beside the row, through the production
@@ -27,12 +37,13 @@
  *      the change: the id left the interface while every place it is recorded,
  *      logged and parsed stayed exactly as it was.
  *
- * The receipt is driven in as a real `/arc-run` shell exchange carrying the
- * exact string `format_arc_receipt` writes, so the renderer under test is the
+ * The join is driven in as a real `/arc-join` shell exchange carrying the
+ * exact string `format_join_summary` writes, so the renderer under test is the
  * production one against the production parser.
  *
  * @covers tugdeck/src/components/tugways/cards/session-arc-receipt-block.tsx
  * @covers tugdeck/src/components/tugways/cards/session-arc-receipt-block.css
+ * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx
  * @covers tugdeck/src/lib/session-usage-store.ts
  */
 
@@ -49,17 +60,24 @@ const SID_KNOWN = "557d7058-8076-4c1d-9f7e-2b3a4c5d6e7f";
 const SID_SILENT = "0431f0dd-cb36-4a2b-8c1d-9e0f1a2b3c4d";
 
 const CARD = '[data-testid="session-card"]';
-const RECEIPT = `${CARD} [data-slot="arc-receipt-block"]`;
-const USAGE_CELLS = `${RECEIPT} [data-slot="arc-receipt-stage-usage"]`;
-const STAGE_WORDS = `${RECEIPT} .arc-receipt-stage-word`;
-const STAGE_MODELS = `${RECEIPT} .arc-receipt-stage-model`;
+const BOUNDARY = `${CARD} [data-boundary="join"]`;
+const FOLD_CUE = '[data-slot="tool-call-header-disclosure"]';
+/** The arc's record, behind the boundary's fold. */
+const RECORD = `${CARD} [data-slot="join-boundary-record"]`;
+const USAGE_CELLS = `${RECORD} [data-slot="arc-receipt-stage-usage"]`;
+const STAGE_WORDS = `${RECORD} .arc-receipt-stage-word`;
+const STAGE_MODELS = `${RECORD} .arc-receipt-stage-model`;
 
-/** The receipt's own text, in the shape `format_arc_receipt` writes it. */
-const RECEIPT_TEXT = [
-  "arc complete · atom-selections",
-  "opened on .tug/arcs/atom-selections/brief.md",
-  `implement · opus · ${SID_KNOWN}`,
-  `audit · opus · ${SID_SILENT}`,
+/**
+ * The landing's own text, in the shape `format_join_summary` writes it — the
+ * record's lines each behind their `arc: ` prefix ([B08]).
+ */
+const JOIN_TEXT = [
+  "joined 0123456789 · atom-selections → main · 4 round(s)",
+  "arc: opened on .tug/arcs/atom-selections/brief.md",
+  `arc: implement · opus · ${SID_KNOWN}`,
+  `arc: audit · opus · ${SID_SILENT}`,
+  "tugarc(atom-selections): land the selections",
 ].join("\n");
 
 /** A `session_updated` body carrying a segment's usage, as the supervisor pushes it. */
@@ -109,13 +127,30 @@ describe.skipIf(!SHOULD_RUN)("AT0521: a stage row costs, it does not cite", () =
 
         await app.driveSession("A", {
           op: "shellExchange",
-          exchangeId: "at0521-arc",
-          command: "/arc-run",
-          output: RECEIPT_TEXT,
+          exchangeId: "at0521-join",
+          command: "/arc-join",
+          output: JOIN_TEXT,
           cwd: "/tmp",
           exitCode: 0,
           startedAtMs: 1_700_000_000_000,
         });
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(BOUNDARY)}).length === 1`,
+          { timeoutMs: 30_000 },
+        );
+        // The record is behind the fold — the boundary arrives folded, which
+        // is the whole of what it holds ([B02]).
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(RECORD)}).length`,
+          ),
+          "the record folds behind the boundary",
+        ).toBe(0);
+        await app.evalJS<null>(
+          `(document.querySelector(${JSON.stringify(
+            `${BOUNDARY} ${FOLD_CUE}`,
+          )}).click(), null)`,
+        );
         await app.waitForCondition<boolean>(
           `${textsJS(STAGE_WORDS)}.length === 2`,
           { timeoutMs: 30_000 },
@@ -151,7 +186,7 @@ describe.skipIf(!SHOULD_RUN)("AT0521: a stage row costs, it does not cite", () =
           "at0521 stage rows",
           JSON.stringify({ words, models, cells }),
         );
-        note("at0521 receipt", (await app.screenshot()).path);
+        note("at0521 record", (await app.screenshot()).path);
 
         // 1. The answered stage reads a token figure and a duration.
         expect(cells[0]).toMatch(/tokens/);
@@ -165,10 +200,10 @@ describe.skipIf(!SHOULD_RUN)("AT0521: a stage row costs, it does not cite", () =
         expect(words).toEqual(["implement", "audit"]);
         expect(models).toEqual(["opus", "opus"]);
 
-        // 3. No id anywhere in the block — not as a label, not as a chip.
+        // 3. No id anywhere in the record — not as a label, not as a chip.
         const blockText = await app.evalJS<string>(
           `(function () {
-             var b = document.querySelector(${JSON.stringify(RECEIPT)});
+             var b = document.querySelector(${JSON.stringify(RECORD)});
              return b === null ? "" : (b.textContent || "");
            })()`,
         );

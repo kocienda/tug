@@ -30,6 +30,29 @@ describe("arcNoteParts — the [B01] table", () => {
     });
   });
 
+  test("the finish is one bold label, and its command comes from the receipt", () => {
+    // The one gesture whose command no server writes: an arc's finish already
+    // has a row — the `/arc-run` receipt — and `SessionArcReceiptBlock`
+    // composes `arc done <name>` so that row reads out of this one grammar
+    // ([B04], [F09]). `Finished · N stages` is the event, not a detail under
+    // one, so it is the label whole ([B09]).
+    expect(arcNoteParts("arc done demo", "demo: finished · 4 stages")).toEqual({
+      name: "demo",
+      label: "Finished · 4 stages",
+      subject: null,
+      glyph: "ShipWheel",
+    });
+  });
+
+  test("a finish whose sentence did not read keeps its name and its shape", () => {
+    expect(arcNoteParts("arc done demo", "demo: something else entirely")).toEqual({
+      name: "demo",
+      label: null,
+      subject: "something else entirely",
+      glyph: "ShipWheel",
+    });
+  });
+
   test("the run declaration is its own gesture, told apart by --through", () => {
     expect(
       arcNoteParts("arc step demo start --through", "demo: run declared through step 15"),

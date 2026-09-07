@@ -10,15 +10,20 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  ARC_FINISH_SLOT,
   ARC_RESUME_OFFER_TITLE,
+  arcFinishNote,
   arcReceiptFindParts,
   arcReceiptPhase,
+  arcReceiptPresentation,
+  arcStagesPhrase,
   matchesArcReceipt,
   parseArcReceipt,
   shouldOfferResume,
   trackModelFor,
 } from "@/components/tugways/cards/session-arc-receipt-block";
 import { resolveCommandAttribution } from "@/components/tugways/cards/session-command-block-registry";
+import { arcNoteParts } from "@/lib/arc-note-command";
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 
 const COMPLETE = [
@@ -334,10 +339,65 @@ describe("the row the transcript builds around it", () => {
   });
 
   it("projects the arc and the stages, and never a truncated id", () => {
-    const parts = arcReceiptFindParts(message(COMPLETE));
+    // The two outcomes that stay receipts. A finished arc is a line and
+    // projects as one — see the finish's own describe below.
+    const parts = arcReceiptFindParts(message(STOPPED));
     expect(parts).toContain("foo");
-    expect(parts).toContain("implement");
+    expect(parts).toContain("review");
     expect(parts).not.toContain("claude-a");
+  });
+});
+
+/**
+ * A finished arc is a quiet line ([B04]).
+ *
+ * The receipt's record is not lost with it — it folds behind the `Joined`
+ * boundary once the arc lands ([B02]) — so what is asserted here is that the
+ * row takes the quiet seat, says the same words the strip said, and projects
+ * exactly the one unit the line paints.
+ */
+describe("a complete arc finishes as a quiet line", () => {
+  it("takes the quiet seat, and leaves the other two outcomes in their entry", () => {
+    expect(arcReceiptPresentation(message(COMPLETE))).toBe("quiet");
+    expect(arcReceiptPresentation(message(STOPPED))).toBe("entry");
+    expect(
+      arcReceiptPresentation(
+        message("arc picked back up · demo · in implement · a step closed"),
+      ),
+    ).toBe("entry");
+    // A row that does not parse falls through to the generic block, which has
+    // always worn the entry.
+    expect(arcReceiptPresentation(message("arc did a thing"))).toBe("entry");
+  });
+
+  it("says what the lifecycle strip said, through the arc-note grammar", () => {
+    const finish = arcFinishNote(parseArcReceipt(COMPLETE)!);
+    const { name, label, subject, glyph } = arcNoteParts(finish.command, finish.sentence);
+    // The arc's own quiet run, then the gesture as one bold label — the event
+    // rather than a detail under one ([B09]).
+    expect(name).toBe("foo");
+    expect(label).toBe("Finished · 3 stages");
+    expect(subject).toBeNull();
+    expect(glyph).toBe("ShipWheel");
+  });
+
+  it("counts one stage in the singular", () => {
+    expect(arcStagesPhrase(1)).toBe("1 stage");
+    expect(arcStagesPhrase(0)).toBe("0 stages");
+    const one = arcFinishNote(parseArcReceipt("arc complete · solo\ndevise · opus · c-a")!);
+    expect(arcNoteParts(one.command, one.sentence).label).toBe("Finished · 1 stage");
+  });
+
+  it("projects the line it paints, and nothing behind it", () => {
+    // One unit: the label node, whose bytes are the name and the verb with one
+    // space between them, exactly as `ArcNoteLine` renders them. The record's
+    // stages and documents are not on screen here, so projecting them would be
+    // matches the painter could never reach.
+    expect(arcReceiptFindParts(message(COMPLETE))).toEqual(["foo Finished · 3 stages"]);
+  });
+
+  it("names the slot the line wears", () => {
+    expect(ARC_FINISH_SLOT).toBe("arc-finish-line");
   });
 });
 

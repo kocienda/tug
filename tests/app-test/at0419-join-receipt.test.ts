@@ -7,14 +7,19 @@
  * string as transcript ink and parses it back out for the receipt block. This
  * drives the deck half against the **exact bytes the Rust formatters assert**
  * — the literals below are copied from
- * `format_join_summary_carries_the_files_line` and
- * `format_discard_summary_lists_the_round_subjects`, which is what keeps the
- * two ends pinned to one format.
+ * `format_join_summary_carries_the_files_line`,
+ * `format_join_summary_carries_the_arc_record_between_the_fit_and_the_files`
+ * and `format_discard_summary_lists_the_round_subjects`, which is what keeps
+ * the two ends pinned to one format.
  *
- * A join lands a commit on the base, so its receipt is the commit receipt:
- * the sha and squash subject lead, the file and ± badges ride the header, the
- * landed files are expandable rows, and one line — `arc → base` — carries the
- * identity a plain commit has no room for.
+ * **A landing is two rows, and each carries its own kind** ([B01], [B02]). The
+ * `Git Commit` entry carries the commit receipt exactly as a `/commit` does —
+ * the sha atom and the squash subject on the header, the file and ± badges
+ * beside them, the message and the expandable file rows beneath, expanded —
+ * plus the one line a plain commit has no room for, `arc → base` and its fit.
+ * The `Joined` boundary follows it at the transcript's edge, carrying the
+ * event and the `N stages · N rounds` counts, with the arc's own record behind
+ * its fold: the lifecycle strip, the document, the stages, the plan.
  *
  * The expansion is driven over **this checkout's own HEAD**, whose sha and
  * touched file are read from git at run time. A row's diff fetch resolves its
@@ -25,6 +30,20 @@
  * the failure mode rather than the feature. The pinned-literal rows and the
  * real-repository row are therefore separate: the first pin the format's
  * bytes, the second pins that a row reaches real hunks.
+ *
+ * ## What left this file, and why
+ *
+ * The boundary's **flush wrap** — a long run returning to the event's own x on
+ * every line — used to be measured here on a join whose squash subject sat on
+ * the bar. **The join's bar carries no detail at all now** ([B02]), so no join
+ * can exercise that rule, and the fixture is gone rather than retargeted at
+ * the receipt's header — which wraps on `/commit`'s own long-standing terms
+ * and is not what this file is about.
+ *
+ * The rule itself is still live: `StageDivider` passes a `detail`, so a stage
+ * rotation's bar is the boundary that can still wrap one. **Nothing measures
+ * it today** — that is a fixture owed to `session-boundary.css`, on a stage
+ * boundary, and it is named here so the gap is a known one.
  *
  * ## What this cannot drive, and where that is covered
  *
@@ -45,6 +64,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx
  * @covers tugdeck/src/components/tugways/cards/session-boundary.tsx
  * @covers tugdeck/src/components/tugways/cards/session-commit-receipt-block.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-arc-receipt-block.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
  */
 
@@ -61,21 +81,41 @@ const TEST_TIMEOUT_MS = 180_000;
 
 const SID = "at0419-session";
 const CARD = '[data-card-id="A"]';
-/** The settled join row itself — one of the transcript's three boundaries. */
+/** The settled join row's boundary — one of the transcript's three. */
 const JOIN_BOUNDARY = `${CARD} [data-boundary="join"]`;
-/** The commit receipt, which is now the boundary's fold body. */
+/** The commit receipt, in the `Git Commit` entry's own body column. */
 const JOIN_RECEIPT = `${CARD} [data-slot="join-receipt-block"]`;
+/** The arc's record, behind the boundary's fold. */
+const RECORD = '[data-slot="join-boundary-record"]';
 const FOLD_CUE = '[data-slot="tool-call-header-disclosure"]';
 const DISCARD_RECEIPT = `${CARD} [data-slot="discard-receipt-block"]`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 const FILE_LIST = '[data-slot="tug-commit-changes-list"]';
 
-/** The exact S01 bytes `format_join_summary` produces for a squash landing. */
-const JOIN_SUMMARY =
+/**
+ * The exact S01 bytes for a squash landing that carries its arc's record —
+ * the shape every join written from here on has. Copied from
+ * `format_join_summary_carries_the_arc_record_between_the_fit_and_the_files`.
+ */
+const JOIN_SUMMARY_WITH_RECORD =
   "joined 0123456789 · join-lane → main · 5 round(s)\n" +
+  "fit: verified 3f0a1c9e2b onto 91c4de70f2\n" +
+  "arc: opened on .tug/arcs/join-lane/brief.md\n" +
+  "arc: devise · opus · sess-devise\n" +
+  "arc: implement · account default · sess-implement\n" +
   'files: [{"path":"src/a.rs","status":"modified","added":16,"removed":1},' +
   '{"path":"src/b.rs","status":"created","added":4,"removed":0}]\n' +
   "tugarc(join-lane): land the join surface";
+/**
+ * The same landing with no record on it — a join written before the `arc: `
+ * lines existed, and one whose arc log had nothing to say. Copied from
+ * `format_join_summary_carries_the_files_line`.
+ */
+const JOIN_SUMMARY =
+  "joined abcdef0123 · quiet-lane → main · 3 round(s)\n" +
+  'files: [{"path":"src/a.rs","status":"modified","added":16,"removed":1},' +
+  '{"path":"src/b.rs","status":"created","added":4,"removed":0}]\n' +
+  "tugarc(quiet-lane): land without a record";
 /**
  * A join receipt written before the `files:` line existed — read forever,
  * written never. A non-squash join produces these same bytes today, because
@@ -90,21 +130,6 @@ const DISCARD_SUMMARY =
   "first round\nsecond round";
 /** A row the parser does not claim at all: raw output, not a receipt. */
 const LEGACY_OUTPUT = "joined join-lane into main";
-/**
- * A landing whose squash subject cannot fit one line of the bar — the fixture
- * for [B03]'s flush wrap, which a short subject cannot exercise at all. Long
- * enough to wrap even though the run now has the bar's FULL width to spend:
- * the trailing badges no longer fence a column, so the fixture that used to
- * wrap against their left edge would fit on one line.
- */
-const LONG_SUBJECT_JOIN_SUMMARY =
-  "joined abcdef0123 · wrap-lane → main · 1 round(s)\n" +
-  "tugarc(wrap-lane): give the three rows where the ground moves under the " +
-  "transcript one anatomy, one seat at the transcript's own edge, and one " +
-  "sentence that returns flush to its own left edge when it wraps, running " +
-  "the whole width of the bar on every line beneath the first rather than " +
-  "stopping where the badges above it happened to stop, because a receipt " +
-  "is a paragraph and not a column in a fixed-width grid";
 
 let projectDir = "";
 /**
@@ -231,9 +256,34 @@ async function receiptRow(
   });
 }
 
+/** Find a mounted node by the arc name its text carries.
+ *
+ *  BY NAME, not by position: a restored row is seated where its turn is rather
+ *  than at the end, so the last node in the document is not the row just
+ *  driven in. Indexing here measured the wrong row for as long as it happened
+ *  to look the same. */
+function byArc(selector: string, arc: string): string {
+  return `Array.from(document.querySelectorAll(${JSON.stringify(selector)}))
+     .find((n) => (n.textContent || "").includes(${JSON.stringify(arc)}))`;
+}
+
+/** Find a mounted commit receipt by the arc its IDENTITY line names.
+ *
+ *  Not by the block's whole text, which is what `byArc` reads: one row in this
+ *  file expands a real commit's hunks, and the commit it expands is this
+ *  checkout's `HEAD` — which, whenever `HEAD` last touched this file, carries
+ *  every arc name written below as diff content. The identity line is the
+ *  receipt's own claim about which arc it landed, and nothing else can put a
+ *  name there. */
+function byReceiptArc(arc: string): string {
+  return `Array.from(document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}))
+     .find((n) => (n.querySelector(".join-receipt-identity")?.textContent || "")
+       .includes(${JSON.stringify(arc)}))`;
+}
+
 describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
   test(
-    "the two landings render as receipts, and a row the format does not claim stays raw",
+    "a landing is a commit receipt in its entry and a boundary carrying the arc",
     async () => {
       const app = await launchTugApp({ testName: "at0419-join-receipt" });
       try {
@@ -250,20 +300,74 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
           workspaceKey: projectDir,
         });
 
-        // ── The settled join: a boundary, receipt folded behind it ───────
-        await receiptRow(app, "join-1", "/arc-join", JOIN_SUMMARY);
+        // ── The commit, in the entry named for it ────────────────────────
+        await receiptRow(app, "join-1", "/arc-join", JOIN_SUMMARY_WITH_RECORD);
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length === 1`,
+          { timeoutMs: 20000 },
+        );
+        const receipt = await app.evalJS<{
+          sha: string;
+          subject: string;
+          summary: string;
+          arcIdentity: string;
+          rows: string[];
+          terminals: number;
+          inBodyColumn: boolean;
+        }>(
+          `(() => {
+             const block = document.querySelector(${JSON.stringify(JOIN_RECEIPT)});
+             const entry = block.closest(".tug-transcript-entry");
+             return {
+               sha: (block.querySelector(".commit-receipt-sha")?.textContent ?? "").trim(),
+               subject: (block.querySelector(".commit-receipt-summary")?.textContent ?? "").trim(),
+               summary: Array.from(
+                 block.querySelectorAll('[data-slot="tool-call-header-summary"]'),
+               ).map((s) => (s.textContent ?? "").trim()).join(" "),
+               arcIdentity: (block.querySelector(".join-receipt-identity")?.textContent ?? "").trim(),
+               rows: Array.from(
+                 block.querySelectorAll('[data-testid="tug-changes-list-file-block"]'),
+               ).map((r) => r.getAttribute("data-path") ?? ""),
+               terminals: block.querySelectorAll(".tugx-term-content").length,
+               // The receipt is body-column content, unlike the boundary
+               // below it: it starts INSIDE the entry's inset rather than at
+               // the entry's own left edge.
+               inBodyColumn:
+                 block.getBoundingClientRect().left - entry.getBoundingClientRect().left > 1,
+             };
+           })()`,
+        );
+        note(`at0419 join receipt: ${JSON.stringify(receipt)}`);
+        // The sha atom and the squash subject lead the header, exactly as on a
+        // `/commit`. That parity is what this row is for: the same act,
+        // differently started, reads the same way.
+        expect(receipt.sha).toContain("01234567");
+        expect(receipt.subject).toBe("tugarc(join-lane): land the join surface");
+        // Files and ± ride the header's trailing badges — the join's rounds do
+        // not, because they are the arc's fact and ride the boundary.
+        expect(receipt.summary).toContain("2 files");
+        expect(receipt.summary).not.toContain("round");
+        // The join's own facts — which branch it squashed, and what the last
+        // green verify said about the tree.
+        expect(receipt.arcIdentity).toContain("join-lane → main");
+        expect(receipt.arcIdentity).toContain("fit verified 3f0a1c9e2b onto 91c4de70f2");
+        // The landed files are rows, in the order the record froze them, and
+        // they are mounted without a gesture.
+        expect(receipt.rows).toEqual(["src/a.rs", "src/b.rs"]);
+        // A receipt, not a terminal: the fenced output body is gone.
+        expect(receipt.terminals).toBe(0);
+        expect(receipt.inBodyColumn, "the receipt sits in the entry's body column").toBe(true);
+
+        // ── The boundary, at the transcript's edge, folded ────────────────
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)}).length === 1`,
           { timeoutMs: 20000 },
         );
-        // The bar is the row a reader meets, and the receipt is BEHIND it:
-        // nothing of the receipt's body is in the document until it is opened,
-        // the way a compaction's recap is not.
         const bar = await app.evalJS<{
           event: string;
           detail: string;
           summary: string;
-          receipts: number;
+          records: number;
           registers: number;
           edge: number;
           rightEdge: number;
@@ -273,12 +377,15 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
              const entry = b.closest(".tug-transcript-entry");
              return {
                event: (b.querySelector(".session-boundary-event")?.textContent ?? "").trim(),
-               detail: (b.querySelector(".join-boundary-detail")?.textContent ?? "").trim(),
+               // The whole detail run, less the event: empty is the claim.
+               detail: (b.querySelector(".session-boundary-line")?.textContent ?? "")
+                 .replace((b.querySelector(".session-boundary-event")?.textContent ?? ""), "")
+                 .trim(),
                // One pipe-section per summary entry, so read them all.
                summary: Array.from(
                  b.querySelectorAll('[data-slot="tool-call-header-summary"]'),
                ).map((s) => (s.textContent ?? "").trim()).join(" "),
-               receipts: document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length,
+               records: document.querySelectorAll(${JSON.stringify(RECORD)}).length,
                registers: document.querySelectorAll('[data-slot="arc-join-register"]').length,
                edge: Math.round(
                  b.getBoundingClientRect().left - entry.getBoundingClientRect().left,
@@ -296,17 +403,15 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // The event is the register's own terminal sentence, in the boundary's
         // voice — the two branch names, derived off the receipt, not written.
         expect(bar.event).toBe("Joined join-lane into main");
-        // The landing sha leads the detail — as the `commit:<8>` atom every
-        // other commit surface names a commit with — and the SUBJECT takes the
-        // seat beside it, exactly as on a `/commit`. That is the parity this
-        // row is for.
-        expect(bar.detail).toContain("01234567");
-        expect(bar.detail).toContain("tugarc(join-lane): land the join surface");
-        // Files, ± and rounds ride the trailing summary.
-        expect(bar.summary).toContain("2 files");
+        // And nothing else on the bar. The receipt above names the commit;
+        // naming it twice is the doubling this shape ends ([B02], [B06]).
+        expect(bar.detail, "the bar carries no sha and no subject").toBe("");
+        // The stages and the rounds — the arc's counts, not the commit's.
+        expect(bar.summary).toContain("2 stages");
         expect(bar.summary).toContain("5 rounds");
-        // Folded: the receipt is not mounted at all until the bar is opened.
-        expect(bar.receipts, "the receipt folds behind the boundary").toBe(0);
+        expect(bar.summary).not.toContain("file");
+        // Folded: the record is not mounted at all until the bar is opened.
+        expect(bar.records, "the record folds behind the boundary").toBe(0);
         // And no second register settles beside it. The live register keeps
         // narrating everywhere it mounts; what settles here is the boundary.
         expect(bar.registers, "no settled register beside the boundary").toBe(0);
@@ -319,45 +424,83 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
           "and runs the transcript's full width, not the body column's shifted left",
         ).toBeLessThanOrEqual(1);
 
-        // ── Opened: the commit receipt is what is behind the fold ─────────
+        // ── Opened: the arc's record is what is behind the fold ───────────
         await app.evalJS<null>(
           `(document.querySelector(${JSON.stringify(
             `${JOIN_BOUNDARY} ${FOLD_CUE}`,
           )}).click(), null)`,
         );
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length === 1`,
+          `document.querySelectorAll(${JSON.stringify(RECORD)}).length === 1`,
           { timeoutMs: 20000 },
         );
-        const joined = await app.evalJS<{
-          arcIdentity: string;
-          body: string;
-          rows: string[];
-          terminals: number;
+        const record = await app.evalJS<{
+          strip: string;
+          docs: string[];
+          stages: string[][];
         }>(
           `(() => {
-             const block = document.querySelector(${JSON.stringify(JOIN_RECEIPT)});
+             const r = document.querySelector(${JSON.stringify(RECORD)});
              return {
-               arcIdentity: (block.querySelector(".join-receipt-identity")?.textContent ?? "").trim(),
-               body: (block.querySelector('[data-slot="join-receipt-detail"]')?.textContent ?? "").trim(),
-               rows: Array.from(
-                 block.querySelectorAll('[data-testid="tug-changes-list-file-block"]'),
-               ).map((r) => r.getAttribute("data-path") ?? ""),
-               terminals: block.querySelectorAll(".tugx-term-content").length,
+               strip: (r.querySelector(".join-boundary-record-strip")?.textContent ?? "").trim(),
+               docs: Array.from(r.querySelectorAll(".arc-receipt-doc")).map(
+                 (p) => (p.textContent ?? "").trim(),
+               ),
+               stages: Array.from(r.querySelectorAll(".arc-receipt-stage")).map((li) => [
+                 (li.querySelector(".arc-receipt-stage-word")?.textContent ?? "").trim(),
+                 (li.querySelector(".arc-receipt-stage-model")?.textContent ?? "").trim(),
+               ]),
              };
            })()`,
         );
-        note(`at0419 join receipt: ${JSON.stringify(joined)}`);
-        // The join's own fact — the identity a plain commit cannot carry —
-        // sits in the fold body, beside the message and the file rows.
-        expect(joined.arcIdentity).toBe("join-lane → main");
-        // The subject led the bar, so the fold carries only what follows
-        // it; this squash message is a subject alone.
-        expect(joined.body).toBe("");
-        // The landed files are rows, in the order the record froze them.
-        expect(joined.rows).toEqual(["src/a.rs", "src/b.rs"]);
-        // A receipt, not a terminal: the fenced output body is gone.
-        expect(joined.terminals).toBe(0);
+        note(`at0419 arc record: ${JSON.stringify(record)}`);
+        // The lifecycle strip leads it, in the arc's own vocabulary.
+        expect(record.strip).toContain("Finished · 2 stages");
+        expect(record.strip).toContain("join-lane");
+        // The document it opened on; no plan on this fixture, so one line.
+        expect(record.docs).toEqual(["opened on .tug/arcs/join-lane/brief.md"]);
+        // One row per stage, with the model the server wrote — including the
+        // literal `account default`, which is a word by the time it arrives.
+        expect(record.stages).toEqual([
+          ["devise", "opus"],
+          ["implement", "account default"],
+        ]);
+
+        // ── A join with no record folds nothing ──────────────────────────
+        await receiptRow(app, "join-quiet", "/arc-join", JOIN_SUMMARY);
+        await app.waitForCondition<boolean>(
+          `${byArc(JOIN_BOUNDARY, "quiet-lane")} !== undefined`,
+          { timeoutMs: 20000 },
+        );
+        const quiet = await app.evalJS<{
+          event: string;
+          summary: string;
+          cues: number;
+          receipts: number;
+        }>(
+          `(() => {
+             const b = ${byArc(JOIN_BOUNDARY, "quiet-lane")};
+             return {
+               event: (b.querySelector(".session-boundary-event")?.textContent ?? "").trim(),
+               summary: Array.from(
+                 b.querySelectorAll('[data-slot="tool-call-header-summary"]'),
+               ).map((s) => (s.textContent ?? "").trim()).join(" "),
+               cues: b.querySelectorAll(${JSON.stringify(FOLD_CUE)}).length,
+               receipts: document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length,
+             };
+           })()`,
+        );
+        note(`at0419 recordless join: ${JSON.stringify(quiet)}`);
+        expect(quiet.event).toBe("Joined quiet-lane into main");
+        // Rounds alone: no stages to count, and a `0 stages` would be a claim
+        // the receipt cannot make.
+        expect(quiet.summary).toContain("3 rounds");
+        expect(quiet.summary).not.toContain("stage");
+        // Nothing folds, so there is no chevron to offer.
+        expect(quiet.cues, "a boundary with no record offers no fold").toBe(0);
+        // Its commit still reads in full, which is the point: the record is
+        // the arc's, and a join without one is still a commit.
+        expect(quiet.receipts).toBe(2);
 
         // ── A row expands into the real commit's hunks ────────────────────
         // Against this checkout's own HEAD: the fetch is a genuine
@@ -365,19 +508,8 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // ledger-persisted cwd.
         expect(realAddedLine.length).toBeGreaterThan(0);
         await receiptRow(app, "join-real", "/arc-join", realJoinSummary, realRepoRoot);
-        await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)}).length === 2`,
-          { timeoutMs: 20000 },
-        );
-        // The file rows are behind this boundary's fold, as they are behind
-        // every other one.
-        await app.evalJS<null>(
-          `(() => {
-             const bs = document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)});
-             bs[bs.length - 1].querySelector(${JSON.stringify(FOLD_CUE)}).click();
-             return null;
-           })()`,
-        );
+        // The file rows are in the receipt, mounted without a gesture — no
+        // fold to open first.
         await app.waitForCondition<boolean>(
           `document.querySelectorAll('[data-path="${realPath}"] .tug-changes-list-row-hit').length === 1`,
           { timeoutMs: 20000 },
@@ -411,50 +543,36 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // already recorded back into a raw shell row.
         await receiptRow(app, "join-historical", "/arc-join", HISTORICAL_JOIN_SUMMARY);
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)}).length === 3`,
+          `${byArc(JOIN_BOUNDARY, "old-lane")} !== undefined`,
           { timeoutMs: 20000 },
         );
-        // Its bar first, then what it folds — the same two reads as the first
-        // join, so the degraded receipt is checked at both altitudes.
-        const historicalBar = await app.evalJS<{ event: string; detail: string }>(
-          `(() => {
-             const bs = document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)});
-             const b = bs[bs.length - 1];
-             return {
-               event: (b.querySelector(".session-boundary-event")?.textContent ?? "").trim(),
-               detail: (b.querySelector(".join-boundary-detail")?.textContent ?? "").trim(),
-             };
-           })()`,
-        );
-        note(`at0419 historical join bar: ${JSON.stringify(historicalBar)}`);
-        expect(historicalBar.event).toBe("Joined old-lane into main");
-        expect(historicalBar.detail).toContain("fedcba98");
-        expect(historicalBar.detail).toContain("tugarc(old-lane): land what came before");
-        await app.evalJS<null>(
-          `(() => {
-             const bs = document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)});
-             bs[bs.length - 1].querySelector(${JSON.stringify(FOLD_CUE)}).click();
-             return null;
-           })()`,
-        );
+        // Both halves of the row, before reading either: the boundary and the
+        // receipt mount independently, and a read taken on the first alone
+        // finds the second undefined often enough to be a flake.
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length === 3`,
+          `${byReceiptArc("old-lane")} !== undefined`,
           { timeoutMs: 20000 },
         );
         const historical = await app.evalJS<{
+          event: string;
+          subject: string;
           arcIdentity: string;
           lists: number;
         }>(
           `(() => {
-             const blocks = document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)});
-             const block = blocks[blocks.length - 1];
+             const b = ${byArc(JOIN_BOUNDARY, "old-lane")};
+             const block = ${byReceiptArc("old-lane")};
              return {
+               event: (b.querySelector(".session-boundary-event")?.textContent ?? "").trim(),
+               subject: (block.querySelector(".commit-receipt-summary")?.textContent ?? "").trim(),
                arcIdentity: (block.querySelector(".join-receipt-identity")?.textContent ?? "").trim(),
                lists: block.querySelectorAll(${JSON.stringify(FILE_LIST)}).length,
              };
            })()`,
         );
-        note(`at0419 historical join receipt: ${JSON.stringify(historical)}`);
+        note(`at0419 historical join: ${JSON.stringify(historical)}`);
+        expect(historical.event).toBe("Joined old-lane into main");
+        expect(historical.subject).toBe("tugarc(old-lane): land what came before");
         expect(historical.arcIdentity).toBe("old-lane → main");
         // No files line, so no file list — degraded, never fabricated.
         expect(historical.lists).toBe(0);
@@ -485,7 +603,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // reader sees the output rather than an empty block.
         await receiptRow(app, "join-legacy", "/arc-join", LEGACY_OUTPUT);
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}).length === 5`,
+          `document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}).length === 6`,
           { timeoutMs: 20000 },
         );
         const fallback = await app.evalJS<{ boundaries: number; raw: string }>(
@@ -498,96 +616,9 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
              };
            })()`,
         );
-        // The three parseable joins became boundaries; this one did not.
-        expect(fallback.boundaries).toBe(3);
+        // The four parseable joins became boundaries; this one did not.
+        expect(fallback.boundaries).toBe(4);
         expect(fallback.raw).toContain(LEGACY_OUTPUT);
-
-        // ── A long subject wraps FLUSH, and runs the bar's full width ─────
-        // The correction the boundary exists for: the event and its detail are
-        // one inline run, so a second line returns to the run's own left edge
-        // rather than hanging under wherever the detail began. Seating the
-        // event in the strip's name slot instead would look identical on every
-        // one-line row above and break this silently, which is why the claim
-        // is measured on a row long enough to wrap.
-        //
-        // And the right edge is the same argument. The trailing badges float
-        // INSIDE the run rather than fencing a column beside it, so they
-        // shorten the first line and nothing below it — a wrapped line that
-        // stopped at their left edge would be a tab stop nobody set, on a
-        // surface that is not a fixed-width grid.
-        await receiptRow(app, "join-wrap", "/arc-join", LONG_SUBJECT_JOIN_SUMMARY);
-        // Wait for the row ITSELF, not for a count of four: the boundaries do
-        // not mount in the order they were driven in, so a count can be
-        // satisfied while this row is still absent — which is a flake under a
-        // loaded batch and a pass when run alone.
-        await app.waitForCondition<boolean>(
-          `Array.from(document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)}))
-             .some((n) => (n.textContent || "").includes("wrap-lane"))`,
-          { timeoutMs: 20000 },
-        );
-        const wrap = await app.evalJS<{
-          lines: number;
-          indents: number[];
-          overhang: number;
-          short: number;
-          width: number;
-        }>(
-          `(() => {
-             const bs = document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)});
-             // BY NAME, not by position: a restored boundary is seated where
-             // its turn is rather than at the end, so the last node in the
-             // document is the historical join rather than the row just driven
-             // in. Indexing here measured that row for as long as it happened
-             // to wrap too.
-             const b = Array.from(bs).find(
-               (n) => (n.textContent || "").includes("wrap-lane"),
-             );
-             const run = b.querySelector(".session-boundary-line");
-             // One client rect per line box the run occupies, in order.
-             const rects = Array.from(run.getClientRects());
-             const first = rects.length === 0 ? 0 : rects[0].left;
-             const cluster = b.querySelector(".tool-call-header-trailing");
-             const c = cluster.getBoundingClientRect();
-             return {
-               lines: rects.length,
-               indents: rects.map((r) => Math.round(r.left - first)),
-               // How far the badges reach past the FIRST line's own bottom:
-               // the number of lines they exclude, less one. Zero or below is
-               // the claim.
-               overhang: Math.round(c.bottom - rects[0].bottom),
-               // How far the first line stops short of the badges. The pair
-               // is the whole invariant: the cluster shortens the line it
-               // sits on, and reaches no line below it.
-               short: Math.round(c.left - rects[0].right),
-               // The width the run had to spend, so a future failure says
-               // whether the fixture stopped wrapping or the layout did.
-               width: Math.round(
-                 b.querySelector(".tool-call-header-detail").getBoundingClientRect().width,
-               ),
-             };
-           })()`,
-        );
-        note(`at0419 wrapped run: ${JSON.stringify(wrap)}`);
-        expect(wrap.lines, "the fixture subject is long enough to wrap").toBeGreaterThan(1);
-        for (const indent of wrap.indents) {
-          expect(Math.abs(indent), "every line of the run begins at the event's x").toBeLessThanOrEqual(1);
-        }
-        // Measured on the BADGES rather than on where a word happened to
-        // break: which line runs longest is the text's business, and a claim
-        // read off it is a coin flip at a width nobody pinned. The layout
-        // claim is the pair below, and it holds whatever the text does.
-        //
-        // They shorten the line they sit on...
-        expect(
-          wrap.short,
-          "the badges hold the first line short of themselves",
-        ).toBeGreaterThanOrEqual(0);
-        // ...and reach no line beneath it, which is what leaves every line
-        // below free of them and running the block's full width.
-        expect(
-          wrap.overhang,
-          "the badges reach no line below the first",
-        ).toBeLessThanOrEqual(1);
       } finally {
         await app.close();
       }

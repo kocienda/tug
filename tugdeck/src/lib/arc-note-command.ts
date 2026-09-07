@@ -20,6 +20,17 @@
  * and the transcript absorption pass (`absorbArcNotes` in the
  * code-session-store reducer, which re-seats a restored row inside the turn
  * it narrated). One regex, imported by both.
+ *
+ * **One gesture reaches the grammar without reaching the matcher.** An arc's
+ * finish already has a row — the `/arc-run` receipt tugcast writes from the
+ * record — so `note_for_line` deliberately paints no quiet line for it, and a
+ * second one would be the doubling this whole report exists to end ([F09]).
+ * What changed is the shape that row takes: on the `complete` outcome
+ * `SessionArcReceiptBlock` renders the quiet line itself ([B04]), and it
+ * composes `arc done <name>` to read the gesture out of this one grammar
+ * rather than spelling `Finished · N stages` a second time. So `arc done` is
+ * a gesture {@link arcNoteParts} knows and {@link ARC_NOTE_COMMAND} does not
+ * claim: nothing writes that command to the shell ledger.
  */
 
 export const ARC_NOTE_COMMAND = /^(arc|dash) (create|step|mark|commit)\s+\S+/;
@@ -88,6 +99,7 @@ type ArcGesture =
   | "step-reopen"
   | "built"
   | "audited"
+  | "finished"
   | "round";
 
 const GLYPHS: Record<ArcGesture, ArcNoteGlyph> = {
@@ -100,6 +112,7 @@ const GLYPHS: Record<ArcGesture, ArcNoteGlyph> = {
   "step-reopen": "Undo2",
   built: "ShipWheel",
   audited: "ShipWheel",
+  finished: "ShipWheel",
   round: "GitCommitHorizontal",
 };
 
@@ -124,6 +137,8 @@ function readCommand(command: string): { gesture: ArcGesture; name: string } | n
   switch (verb) {
     case "create":
       return { gesture: "created", name };
+    case "done":
+      return { gesture: "finished", name };
     case "commit":
       return { gesture: "round", name };
     case "mark":
@@ -206,6 +221,13 @@ export function arcNoteParts(command: string, sentence: string): ArcNoteParts {
   switch (gesture) {
     case "created":
       return { name, label: "Arc opened", subject: null, glyph };
+    case "finished": {
+      // `Finished · N stages` is one label rather than a label and a subject:
+      // it is the event, not a detail under one, so it keeps the register's
+      // own semibold whole ([B09]).
+      const stages = /^finished · (.+)$/.exec(head)?.[1];
+      return stages ? { name, label: `Finished · ${stages}`, subject: null, glyph } : unread;
+    }
     case "built":
     case "audited":
       return { name, label: `Marked ${gesture}`, subject: null, glyph };

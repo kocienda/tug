@@ -1867,6 +1867,9 @@ pub(crate) fn format_commit_summary(
 /// ```text
 /// joined <sha[0..10]> · <arc> → <base> · <N> round(s)
 /// fit: verified <head[0..10]> onto <base[0..10]>
+/// arc: opened on <document>
+/// arc: <stage> · <model> · <claude session id>
+/// arc: plan <path>
 /// files: [{"path":"…","status":"modified","added":16,"removed":1}, …]
 /// <full message>
 /// ```
@@ -1879,15 +1882,52 @@ pub(crate) fn format_commit_summary(
 /// The `fit:` line takes exactly that path, for exactly that reason: it sits
 /// between the header and `files:`, is omitted when the arc carried no fit
 /// fact, and is claimed by its own prefix rather than by its position.
-pub(crate) fn format_join_summary(
-    sha: &str,
-    arc: &str,
-    base: &str,
-    rounds: u32,
-    message: &str,
-    files: &[tugchanges_core::FileStat],
-    fit: Option<&tugarc_core::log::FitFact>,
-) -> String {
+///
+/// The **`arc: ` lines carry the arc's own record** — the document it opened
+/// on, one line per stage it rotated through, and the plan that came out —
+/// and take the same path again, each claimed by its own prefix and each
+/// omitted when the record has nothing to say ([B03], [B08]).
+///
+/// One prefix for all three, rather than a bare `opened on `/`plan `/stage
+/// spelling: a bare `plan ` prefix would eat a squash message whose first
+/// word is *plan*, which is a message a human writes. `arc: ` is one token no
+/// commit subject reaches by accident, and it makes the record read as one
+/// run rather than three unrelated spellings.
+///
+/// The stage line's third field is the stage's **claude session id**, exactly
+/// as [`crate::feeds::arc_runner`]'s own `format_arc_receipt` writes it. The
+/// deck prints what the stage cost rather than the id, but the cost is a
+/// lookup the client makes *through* the id and not a figure the server holds
+/// at join time — so the id is what the durable string carries, and a receipt
+/// restored weeks later resolves the same way the live one did.
+pub(crate) struct JoinSummary<'a> {
+    pub sha: &'a str,
+    pub arc: &'a str,
+    pub base: &'a str,
+    pub rounds: u32,
+    pub message: &'a str,
+    pub files: &'a [tugchanges_core::FileStat],
+    pub fit: Option<&'a tugarc_core::log::FitFact>,
+    /// The arc's record as the log had it **before** the join ran. A join
+    /// appends its own terminal line and deletes the branch, so a read taken
+    /// afterwards resets the generation and returns nothing — the same reason
+    /// the round count and the owner key are read ahead of the join.
+    pub record: Option<&'a tugarc_core::ArcRecord>,
+}
+
+/// Format the join receipt's durable summary — the shape and the reasoning
+/// for every line of it are on [`JoinSummary`].
+pub(crate) fn format_join_summary(summary: &JoinSummary<'_>) -> String {
+    let &JoinSummary {
+        sha,
+        arc,
+        base,
+        rounds,
+        message,
+        files,
+        fit,
+        record,
+    } = summary;
     let short = &sha[..sha.len().min(10)];
     let message = message.trim();
     let header = format!("joined {short} · {arc} → {base} · {rounds} round(s)");
@@ -1897,6 +1937,22 @@ pub(crate) fn format_join_summary(
         let head = &fit.head[..fit.head.len().min(10)];
         let onto = &fit.base[..fit.base.len().min(10)];
         lines.push(format!("fit: {word} {head} onto {onto}"));
+    }
+    if let Some(record) = record {
+        if let Some(document) = record.document.as_ref() {
+            lines.push(format!("arc: opened on {document}"));
+        }
+        for line in &record.stages {
+            lines.push(format!(
+                "arc: {} · {} · {}",
+                line.stage.as_str(),
+                line.model.as_deref().unwrap_or("account default"),
+                line.session_id,
+            ));
+        }
+        if let Some(plan) = record.plan.as_ref() {
+            lines.push(format!("arc: plan {plan}"));
+        }
     }
     if !files.is_empty() {
         lines.push(receipt_files_line(files));
@@ -4494,6 +4550,64 @@ Some context.
         }
     }
 
+    /// A join summary with no arc record — the shape every case written
+    /// before the record existed pins, and the shape a legacy row still
+    /// carries. Keeps those assertions reading as the seven facts they are
+    /// about rather than as a struct literal with a `record: None` on it.
+    fn join_summary(
+        sha: &str,
+        arc: &str,
+        base: &str,
+        rounds: u32,
+        message: &str,
+        files: &[tugchanges_core::FileStat],
+        fit: Option<&tugarc_core::log::FitFact>,
+    ) -> String {
+        format_join_summary(&JoinSummary {
+            sha,
+            arc,
+            base,
+            rounds,
+            message,
+            files,
+            fit,
+            record: None,
+        })
+    }
+
+    /// A record with every optional part present, so a case can drop the ones
+    /// it is not about.
+    fn arc_record() -> tugarc_core::ArcRecord {
+        tugarc_core::ArcRecord {
+            arc: "join-lane".to_string(),
+            document: Some(".tug/arcs/join-lane/plan.md".to_string()),
+            kind: None,
+            plan: Some(".tug/arcs/join-lane/plan.md".to_string()),
+            stages: vec![
+                tugarc_core::ArcStageLine {
+                    stage: tugarc_core::ArcStage::Devise,
+                    session_id: "sess-devise".to_string(),
+                    model: Some("opus".to_string()),
+                    at: "2026-09-06T00:00:00Z".to_string(),
+                },
+                tugarc_core::ArcStageLine {
+                    stage: tugarc_core::ArcStage::Implement,
+                    session_id: "sess-implement".to_string(),
+                    model: None,
+                    at: "2026-09-06T01:00:00Z".to_string(),
+                },
+            ],
+            notes: Vec::new(),
+            stopped: None,
+            last_stop: None,
+            resume: None,
+            dispatched: None,
+            owner: None,
+            done: false,
+            last_activity: None,
+        }
+    }
+
     #[test]
     fn format_commit_summary_single_file() {
         let s = format_commit_summary(
@@ -4551,7 +4665,7 @@ Some context.
 
     #[test]
     fn format_join_summary_names_the_arc_the_base_and_the_rounds() {
-        let s = format_join_summary(
+        let s = join_summary(
             "0123456789abcdef",
             "join-lane",
             "main",
@@ -4603,7 +4717,7 @@ Some context.
     /// pinning discipline the commit receipt already runs on.
     #[test]
     fn format_join_summary_carries_the_files_line() {
-        let s = format_join_summary(
+        let s = join_summary(
             "0123456789abcdef",
             "join-lane",
             "main",
@@ -4629,7 +4743,7 @@ Some context.
     /// the line existed carries, so legacy and no-list are one code path.
     #[test]
     fn format_join_summary_omits_the_files_line_when_there_are_none() {
-        let s = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject line", &[], None);
+        let s = join_summary("abc1234567def", "d", "trunk", 1, "Subject line", &[], None);
         assert_eq!(
             s,
             "joined abc1234567 · d → trunk · 1 round(s)\nSubject line"
@@ -4646,7 +4760,7 @@ Some context.
             base: "91c4de70f2a3b5c7".to_string(),
             current: true,
         };
-        let s = format_join_summary(
+        let s = join_summary(
             "0123456789abcdef",
             "join-lane",
             "main",
@@ -4673,7 +4787,7 @@ Some context.
             base: "91c4de70f2a3b5c7".to_string(),
             current: false,
         };
-        let s = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], Some(&fit));
+        let s = join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], Some(&fit));
         assert_eq!(
             s,
             "joined abc1234567 · d → trunk · 1 round(s)\n\
@@ -4694,8 +4808,7 @@ Some context.
         let files = [file_stat("src/a.rs", "modified", Some(1), Some(0))];
 
         // Fit, no files.
-        let fit_only =
-            format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], Some(&fit));
+        let fit_only = join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], Some(&fit));
         assert_eq!(
             fit_only.lines().nth(1),
             Some("fit: verified 3f0a1c9e2b onto 91c4de70f2")
@@ -4704,8 +4817,7 @@ Some context.
         assert!(!fit_only.contains("files:"));
 
         // Files, no fit — the pre-fit shape, with `files:` still at index 1.
-        let files_only =
-            format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &files, None);
+        let files_only = join_summary("abc1234567def", "d", "trunk", 1, "Subject", &files, None);
         assert!(
             files_only
                 .lines()
@@ -4715,7 +4827,7 @@ Some context.
         assert!(!files_only.contains("fit:"));
 
         // Both.
-        let both = format_join_summary(
+        let both = join_summary(
             "abc1234567def",
             "d",
             "trunk",
@@ -4733,12 +4845,152 @@ Some context.
         assert_eq!(both.lines().nth(3), Some("Subject"));
 
         // Neither.
-        let neither = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], None);
+        let neither = join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], None);
         assert_eq!(neither.lines().nth(1), Some("Subject"));
+    }
+
+    /// The record's lines in full, byte for byte: the document, one line per
+    /// stage, then the plan — every one wearing `arc: ` — seated between
+    /// `fit:` and `files:` ([B03], [B08]). The second stage's `None` model is
+    /// the literal `account default`, written by the server so the absence is
+    /// already a word by the time the deck reads it.
+    #[test]
+    fn format_join_summary_carries_the_arc_record_between_the_fit_and_the_files() {
+        let fit = tugarc_core::log::FitFact {
+            head: "3f0a1c9e2b7d4f6a".to_string(),
+            base: "91c4de70f2a3b5c7".to_string(),
+            current: true,
+        };
+        let record = arc_record();
+        let s = format_join_summary(&JoinSummary {
+            sha: "0123456789abcdef",
+            arc: "join-lane",
+            base: "main",
+            rounds: 5,
+            message: "tugarc(join-lane): land the join surface",
+            files: &[file_stat("src/a.rs", "modified", Some(16), Some(1))],
+            fit: Some(&fit),
+            record: Some(&record),
+        });
+        assert_eq!(
+            s,
+            "joined 0123456789 · join-lane → main · 5 round(s)\n\
+             fit: verified 3f0a1c9e2b onto 91c4de70f2\n\
+             arc: opened on .tug/arcs/join-lane/plan.md\n\
+             arc: devise · opus · sess-devise\n\
+             arc: implement · account default · sess-implement\n\
+             arc: plan .tug/arcs/join-lane/plan.md\n\
+             files: [{\"path\":\"src/a.rs\",\"status\":\"modified\",\"added\":16,\"removed\":1}]\n\
+             tugarc(join-lane): land the join surface"
+        );
+    }
+
+    /// With neither neighbour present the record still sits where its prefixes
+    /// put it — the cursor rule is what seats these lines, not an index.
+    #[test]
+    fn format_join_summary_carries_the_arc_record_with_no_fit_and_no_files() {
+        let record = arc_record();
+        let s = format_join_summary(&JoinSummary {
+            sha: "abc1234567def",
+            arc: "d",
+            base: "trunk",
+            rounds: 1,
+            message: "Subject",
+            files: &[],
+            fit: None,
+            record: Some(&record),
+        });
+        assert_eq!(
+            s,
+            "joined abc1234567 · d → trunk · 1 round(s)\n\
+             arc: opened on .tug/arcs/join-lane/plan.md\n\
+             arc: devise · opus · sess-devise\n\
+             arc: implement · account default · sess-implement\n\
+             arc: plan .tug/arcs/join-lane/plan.md\n\
+             Subject"
+        );
+    }
+
+    /// Each part of the record is omitted on its own. An arc that opened on
+    /// nothing and produced no plan writes its stages and nothing else — the
+    /// same one-degradation-not-two discipline `fit:` and `files:` keep.
+    #[test]
+    fn format_join_summary_omits_the_record_parts_the_arc_has_none_of() {
+        let mut record = arc_record();
+        record.document = None;
+        record.plan = None;
+        let s = format_join_summary(&JoinSummary {
+            sha: "abc1234567def",
+            arc: "d",
+            base: "trunk",
+            rounds: 1,
+            message: "Subject",
+            files: &[],
+            fit: None,
+            record: Some(&record),
+        });
+        assert_eq!(
+            s,
+            "joined abc1234567 · d → trunk · 1 round(s)\n\
+             arc: devise · opus · sess-devise\n\
+             arc: implement · account default · sess-implement\n\
+             Subject"
+        );
+    }
+
+    /// A record with nothing in it at all writes no `arc: ` line, so the
+    /// summary is byte-identical to the legacy shape. `Some(record)` is not
+    /// itself a claim that there is a record to show.
+    #[test]
+    fn format_join_summary_writes_no_record_lines_for_an_empty_record() {
+        let mut record = arc_record();
+        record.document = None;
+        record.plan = None;
+        record.stages.clear();
+        let with_empty = format_join_summary(&JoinSummary {
+            sha: "abc1234567def",
+            arc: "d",
+            base: "trunk",
+            rounds: 1,
+            message: "Subject",
+            files: &[],
+            fit: None,
+            record: Some(&record),
+        });
+        assert_eq!(
+            with_empty,
+            join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], None)
+        );
+        assert!(!with_empty.contains("arc: "));
+    }
+
+    /// The message still begins where the prefixes stop, whatever the record
+    /// carries — a squash message whose own first word is *plan* is a message
+    /// a human writes, and `arc: ` is the token that keeps it out of the
+    /// record ([B08]).
+    #[test]
+    fn format_join_summary_keeps_a_message_that_starts_with_plan_out_of_the_record() {
+        let record = arc_record();
+        let s = format_join_summary(&JoinSummary {
+            sha: "abc1234567def",
+            arc: "d",
+            base: "trunk",
+            rounds: 1,
+            message: "plan the next lane\n\nopened on nothing in particular.",
+            files: &[],
+            fit: None,
+            record: Some(&record),
+        });
+        assert!(s.ends_with("plan the next lane\n\nopened on nothing in particular."));
+        assert_eq!(
+            s.lines().filter(|l| l.starts_with("arc: ")).count(),
+            4,
+            "the record's four lines and nothing the message contributed"
+        );
     }
     #[test]
     fn format_join_summary_keeps_the_full_multi_line_message() {
-        let s = format_join_summary(
+        let s = join_summary(
             "abcdef0123456789",
             "d",
             "trunk",

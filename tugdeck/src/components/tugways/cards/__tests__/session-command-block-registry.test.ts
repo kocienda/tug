@@ -33,9 +33,15 @@ import {
 } from "../session-command-block-registry";
 import type { CommandBlockRenderer } from "../session-command-block-registry";
 import { ShellExchangeBlock } from "../shell-exchange-block";
+import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 
 const RendererA: CommandBlockRenderer = () => null;
 const RendererB: CommandBlockRenderer = () => null;
+
+/** The two fields presentation resolution reads, and nothing else. */
+function row(command: string, output: string): ShellExchangeMessage {
+  return { command, output } as ShellExchangeMessage;
+}
 
 // The registry is module-static and the runner shares one module graph across
 // files, so this file borrows the shipped population rather than destroying
@@ -110,11 +116,19 @@ describe("session-command-block-registry", () => {
       attribution: "wheel",
       presentation: "quiet",
     });
+    // And a registration may read the ROW instead of declaring one shape for
+    // every row it claims — the `/arc-run` case, where one command carries an
+    // outcome that is a line and two that are receipts.
+    registerCommandBlock("byrow", (c) => c === "/two-shapes", RendererA, {
+      presentation: (m) => (m.output.startsWith("quietly") ? "quiet" : "entry"),
+    });
     // The default is the shape every exchange has always worn, so a
     // registration that says nothing gets it — as does an unclaimed command.
-    expect(resolveCommandPresentation("ls")).toBe("entry");
-    expect(resolveCommandPresentation("arc step demo done")).toBe("quiet");
-    expect(resolveCommandPresentation("git status")).toBe("entry");
+    expect(resolveCommandPresentation(row("ls", ""))).toBe("entry");
+    expect(resolveCommandPresentation(row("arc step demo done", ""))).toBe("quiet");
+    expect(resolveCommandPresentation(row("git status", ""))).toBe("entry");
+    expect(resolveCommandPresentation(row("/two-shapes", "quietly done"))).toBe("quiet");
+    expect(resolveCommandPresentation(row("/two-shapes", "loudly stopped"))).toBe("entry");
   });
 
   test("attribution resolves by the same walk as the renderer", () => {

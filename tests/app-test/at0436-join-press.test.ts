@@ -82,8 +82,12 @@ const ROUTE_GROUP = `${CARD} .tug-prompt-entry-toolbar .tug-prompt-entry-route-g
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 // The bespoke `/arc-join` receipt block — the generic shell fallback carries a
 // different slot, so this selector is also the assertion that it parsed.
-/** The settled join row — a boundary, with the receipt folded behind it. */
+/** The settled join's boundary, at the transcript's edge — the row that names
+ *  the event and counts the arc ([B02]). */
 const JOIN_RECEIPT = `${CARD} [data-boundary="join"]`;
+/** And the commit receipt beside it, in the `Git Commit` entry's own body
+ *  column, which is where the squash message lives ([B01]). */
+const JOIN_COMMIT_RECEIPT = `${CARD} [data-slot="join-receipt-block"]`;
 
 /** The checkout whose built binaries the fixture drives — never the project. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -356,7 +360,13 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
           `document.querySelector(${JSON.stringify(JOIN_RECEIPT)})?.textContent ?? ""`,
         );
         expect(receiptText, "the receipt names the arc it landed").toContain(ARC);
-        expect(receiptText, "and the message the user pressed with").toContain(
+        // The message is the commit's, so it is on the commit receipt rather
+        // than on the boundary's bar — the boundary counts the arc, and the
+        // entry named for the commit carries the commit ([B01], [B02]).
+        const commitText = await app.evalJS<string>(
+          `document.querySelector(${JSON.stringify(JOIN_COMMIT_RECEIPT)})?.textContent ?? ""`,
+        );
+        expect(commitText, "and the message the user pressed with").toContain(
           "land this arc",
         );
 

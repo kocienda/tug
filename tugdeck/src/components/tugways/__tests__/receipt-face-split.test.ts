@@ -134,7 +134,6 @@ describe("the receipt surfaces take the face from the scope", () => {
     for (const [css, selector] of [
       [COMMIT_RECEIPT_CSS, ".commit-receipt-header"],
       [JOIN_RECEIPT_CSS, ".join-receipt-header"],
-      [JOIN_RECEIPT_CSS, ".join-boundary-detail"],
       [JOIN_RECEIPT_CSS, ".join-receipt-identity"],
     ] as const) {
       const family = decl(ruleBody(css, selector), "font-family");
@@ -152,9 +151,12 @@ describe("the receipt surfaces take the face from the scope", () => {
 
   test("every receipt root wears the receipt class", () => {
     expect(COMMIT_RECEIPT_TSX).toContain('className="tugx-commit-receipt"');
-    // The join boundary and the discard receipt — two roots in one file.
+    // The join's commit receipt, the `Joined` boundary and the discard
+    // receipt — three roots in one file. The join is two of them because a
+    // landing is two rows: the commit in the entry, the arc behind the
+    // boundary ([B01], [B02]).
     expect(
       JOIN_RECEIPT_TSX.match(/className="tugx-commit-receipt"/g)?.length,
-    ).toBe(2);
+    ).toBe(3);
   });
 });

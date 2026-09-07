@@ -79,7 +79,13 @@
 .session-boundary-bar .tool-call-header-detail {
   display: block;
   font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-xs);
+  /* The event's own size, unbolded ([B05]). It was the timestamp's `xs`,
+     borrowed from the provenance run beside an entry's identifier — right for
+     a time and a cwd, wrong for the substantive lines a boundary's detail
+     carries. The event's semibold is the only weight in the bar; the detail
+     matches its size and takes the normal weight. */
+  font-size: var(--tugx-toolheader-name-size);
+  font-weight: var(--tug-font-weight-normal);
   line-height: var(--tug-line-height-normal, 1.45);
   white-space: normal;
   overflow-wrap: anywhere;

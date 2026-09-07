@@ -254,3 +254,95 @@ describe("the join receipt's optional lines, in every combination", () => {
     expect(parsed?.message).toBe("fit: something else entirely\nSubject");
   });
 });
+
+/**
+ * The arc record's `arc: ` run ([B03], [B08]), between `fit:` and `files:`.
+ *
+ * Every literal is copied verbatim from the Rust cases that assert the bytes —
+ * `format_join_summary_carries_the_arc_record_between_the_fit_and_the_files`
+ * and its neighbours — which is the same two-ends-one-format pin the file's
+ * other literals are.
+ */
+describe("the arc record on a join receipt", () => {
+  const HEADER = "joined 0123456789 · join-lane → main · 5 round(s)";
+  const FIT_LINE = "fit: verified 3f0a1c9e2b onto 91c4de70f2";
+  const FILES_LINE =
+    'files: [{"path":"src/a.rs","status":"modified","added":16,"removed":1}]';
+  const RECORD = [
+    "arc: opened on .tug/arcs/join-lane/plan.md",
+    "arc: devise · opus · sess-devise",
+    "arc: implement · account default · sess-implement",
+    "arc: plan .tug/arcs/join-lane/plan.md",
+  ].join("\n");
+
+  it("reads the record between the fit and the files", () => {
+    const parsed = parseJoinReceipt(
+      `${HEADER}\n${FIT_LINE}\n${RECORD}\n${FILES_LINE}\ntugarc(join-lane): land the join surface`,
+    );
+    expect(parsed?.record).toEqual({
+      document: ".tug/arcs/join-lane/plan.md",
+      stages: [
+        { stage: "devise", model: "opus", sessionId: "sess-devise" },
+        { stage: "implement", model: "account default", sessionId: "sess-implement" },
+      ],
+      plan: ".tug/arcs/join-lane/plan.md",
+    });
+    // And the neighbours it sits between are untouched by it.
+    expect(parsed?.fit?.verified).toBe(true);
+    expect(parsed?.files.map((f) => f.path)).toEqual(["src/a.rs"]);
+    expect(parsed?.message).toBe("tugarc(join-lane): land the join surface");
+  });
+
+  it("reads the record with neither neighbour present", () => {
+    const parsed = parseJoinReceipt(`${HEADER}\n${RECORD}\nSubject`);
+    expect(parsed?.record?.stages).toHaveLength(2);
+    expect(parsed?.fit).toBeUndefined();
+    expect(parsed?.files).toEqual([]);
+    expect(parsed?.message).toBe("Subject");
+  });
+
+  it("reads a record missing its document and its plan", () => {
+    const parsed = parseJoinReceipt(
+      `${HEADER}\narc: devise · opus · sess-devise\nSubject`,
+    );
+    expect(parsed?.record).toEqual({
+      document: null,
+      stages: [{ stage: "devise", model: "opus", sessionId: "sess-devise" }],
+      plan: null,
+    });
+  });
+
+  it("leaves the record absent on every receipt written before it existed", () => {
+    // The parse-forever pin. Transcripts replay from JSONL on every card
+    // reload, so a receipt with no `arc: ` run arrives here forever — and it
+    // must arrive with no record rather than an empty one, because the two
+    // render differently: no record folds nothing behind the boundary.
+    expect(parseJoinReceipt(`${HEADER}\n${FIT_LINE}\n${FILES_LINE}\nSubject`)?.record)
+      .toBeUndefined();
+    expect(parseJoinReceipt(`${HEADER}\nSubject`)?.record).toBeUndefined();
+  });
+
+  it("keeps a message whose own first word is plan out of the record", () => {
+    // The whole reason for the `arc: ` prefix ([B08]): a bare `plan ` prefix
+    // would eat a squash message that opens with the word, and a human writes
+    // those.
+    const parsed = parseJoinReceipt(
+      `${HEADER}\n${RECORD}\nplan the next lane\n\nopened on nothing in particular.`,
+    );
+    expect(parsed?.record?.plan).toBe(".tug/arcs/join-lane/plan.md");
+    expect(parsed?.message).toBe(
+      "plan the next lane\n\nopened on nothing in particular.",
+    );
+  });
+
+  it("consumes an arc line it does not understand rather than leaking it", () => {
+    // The prefix is the server's own, so a line wearing it belongs to the
+    // record whether or not this build knows what it says. Letting it fall
+    // through would put a machine line in the middle of a commit body.
+    const parsed = parseJoinReceipt(
+      `${HEADER}\narc: something a later build writes\narc: devise · opus · sess-devise\nSubject`,
+    );
+    expect(parsed?.message).toBe("Subject");
+    expect(parsed?.record?.stages).toHaveLength(1);
+  });
+});
