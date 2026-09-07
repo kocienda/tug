@@ -50,11 +50,14 @@
  *
  * ── The description ladder ([D132]) ──────────────────────────────────────
  * The agent's rolling synopsis, else the session's own first prompt, else what
- * the arc it is seated on is here to do, else the date it was created. Every
- * rung below the first is a fact STANDING IN for a line nobody has written
- * yet, so they are marked and painted a step quieter.
+ * the arc it is seated on is here to do, else the date it was created, else
+ * {@link UNDESCRIBED}. Every rung below the first is a fact STANDING IN for a
+ * line nobody has written yet, so they are marked and painted a step quieter.
+ * The whole of it is {@link sessionDescription}, pure and total: it answers
+ * with a non-empty string for every input, and the test that says so is what
+ * keeps the line from going blank again.
  *
- * All four rungs on every surface. The Cards card carried only two, on the argument
+ * All five rungs on every surface. The Cards card carried only two, on the argument
  * that its rows are always bound live cards and so never reach the prompt rung
  * — which, if true, makes the rung free, and if false makes it the one
  * human-meaningful line the row could have shown.
@@ -76,6 +79,14 @@
  * It sits BELOW the prompt rung rather than above it: a session a person bound
  * to an arc by hand has its own ask, and what the user said outranks what the
  * stage is named for.
+ *
+ * Under it, {@link UNDESCRIBED} closes the same hole for the session that has
+ * no arc either. `Created …` was the old last rung and was never a floor: it
+ * rests on a ledger row or a replay anchor, both of which arrive on wires of
+ * their own, so a session between its spawn and its first push had nothing
+ * left to fall to. That is a much narrower window than the arc one — seconds
+ * rather than a whole stage — but the failure it produces is the same blank,
+ * and a blank cannot be told from a bug.
  *
  * ── The activity ladder ──────────────────────────────────────────────────
  * A caller's override, else the compaction pin, else the live beat, else the
@@ -112,6 +123,7 @@ import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
 import {
   arcSessionPurpose,
   arcTrackModelFromEntry,
+  type ArcTrackModel,
 } from "@/components/tugways/tug-arc-track";
 import { arcGlanceFraction } from "@/lib/arc-meta-facts";
 import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
@@ -159,6 +171,50 @@ import type { SessionRow } from "@/protocol";
  * may hold no state at all.
  */
 export const MIN_DWELL_MS = 1_800;
+
+/**
+ * The description line when nothing at all is known — the ladder's last rung.
+ *
+ * In the house's `Not yet <participle>` grammar, the same one the arc cells
+ * are set in, and it is the one sentence here that cannot be false: the rung
+ * is reached exactly when no description exists and no fact stands in for one.
+ *
+ * It says something rather than nothing on purpose. The line used to end on
+ * the empty string, which renders as a blank that holds its place — and a
+ * blank line is indistinguishable from a line that failed to draw, which is
+ * how the hole this rung closes was found in the first place.
+ */
+export const UNDESCRIBED = "Not yet described";
+
+/**
+ * The description ladder ([D132]), as a function: the agent's rolling
+ * synopsis, else the session's own first prompt, else what the arc it is
+ * seated on is here to do, else the date it was made, else {@link
+ * UNDESCRIBED}.
+ *
+ * Pure and total — it returns a non-empty string for every input, which is
+ * the property the rungs above cannot each guarantee on their own. It lives
+ * outside the component because that property is worth a test, and a ladder
+ * inlined in a hook can only be checked by mounting the row it renders.
+ *
+ * See the module docblock for why each rung sits where it does.
+ */
+export function sessionDescription(input: {
+  /** The written synopsis, or null when none has been composed. */
+  synopsis: string | null;
+  /** The session's first prompt, trimmed; empty when it has none. */
+  prompt: string;
+  /** The arc this session is seated on, as the track reads it, or null. */
+  arc: ArcTrackModel | null;
+  /** When the session was made, or null while nothing has said. */
+  createdAtMs: number | null;
+}): string {
+  if (input.synopsis !== null) return input.synopsis;
+  if (input.prompt.length > 0) return input.prompt;
+  if (input.arc !== null) return arcSessionPurpose(input.arc);
+  if (input.createdAtMs !== null) return `Created ${formatRestingStamp(input.createdAtMs)}`;
+  return UNDESCRIBED;
+}
 
 /**
  * The handle on a row whose parts came from the stores, as distinct from a bare
@@ -679,15 +735,12 @@ export function SessionIdentityRow({
 
   // ── The description ladder ([D132]) ───────────────────────────────────
   const prompt = facts?.last_user_prompt?.trim() ?? "";
-  const descriptionSource =
-    identity.description ??
-    (prompt.length > 0
-      ? prompt
-      : arcModel !== null
-        ? arcSessionPurpose(arcModel)
-        : createdAtMs !== null
-          ? `Created ${formatRestingStamp(createdAtMs)}`
-          : "");
+  const descriptionSource = sessionDescription({
+    synopsis: identity.description,
+    prompt,
+    arc: arcModel,
+    createdAtMs,
+  });
   // Flattened always, capped only where the caller asks. A prompt is the one
   // rung that can carry newlines, and a multi-line run inside a `nowrap` box
   // is a line whose break the reader cannot see.
