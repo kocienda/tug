@@ -15,9 +15,19 @@
 
 /* The step rows lead with a 17px dot in a 22px box. The placard's head leads
    with a strip rather than a mark, so the box belongs to the rows — it is the
-   rows that have a mark to line up. */
+   rows that have a mark to line up.
+
+   The rows also BOUND the mark, so they cap its ring. Below 28px the pulsing
+   dot lets its ring travel out past the glyph box (`sizeGeometry`'s reach), and
+   at 17px that envelope is ~28.7px against a row pitch of 27px — a pulse that
+   arrives at the dot below. `markRingEnvelope`'s contract is that a caller
+   inside an enclosure publishes its own cap rather than sizing by the dot
+   alone, so the flight is shortened to ~22px and dies with air on both sides.
+   Shrinking the dot would buy the same clearance by accident, and cost the
+   settled ring its legibility to do it. */
 .arc-step-list-item {
   --tugx-arc-step-lead-width: 22px;
+  --tugx-progress-pulsing-dot-emit-reach: 1.3;
 }
 
 /* Prose, not a table. A plan's step titles are sentences a person wrote, and
