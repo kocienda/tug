@@ -5,10 +5,10 @@
  * in monospace at its full length, every changed path in snapshot order, and
  * every round's subject. Each was complete and none was a summary, so the
  * reader did the summarizing. The brief inverts that: the first screen is
- * made of things that aggregate — the subject, a strip of counts, the
- * message's own summary paragraph, the tree's areas with their churn — and
- * every verbatim list stands one fold away, mounted but folded, so nothing is
- * lost and nothing has to be parsed to be understood.
+ * made of things that aggregate — the subject, the message's own summary
+ * paragraph, a totals row, the tree's areas with their churn — and every
+ * verbatim list stands one fold away, mounted but folded, so nothing is lost
+ * and nothing has to be parsed to be understood.
  *
  * The message is one string on the wire, exactly what the join lands; the
  * subject and summary shown here are {@link landingMessageParts}'s reading of
@@ -17,30 +17,48 @@
  * one changed file, ordered by lines moved, so six rows say what the change
  * is made of before a single path is read. A cluster of one file is that file.
  *
+ * **A changed file here is the commit receipt's own row** — `ArcRangeFileRow`,
+ * from `tug-changes-list.tsx` — so expanding one mounts that file's
+ * `base…branch` diff and nothing else ([B02], [P04]). The row's pop-out and
+ * every directory row's are scoped to the paths they name ([P01]); the totals
+ * row's is the whole range, which is what that row is about.
+ *
+ * Every other line is the fold's one `ArcFoldRow`, so the section has one row
+ * height and one size throughout — the receipt's grammar, which is the surface
+ * this fold was always trying to read like.
+ *
  * The brief reports and does not act ([P08]): the join is the composer's
- * gesture, the range diff is the row's pop-out. Every fold here is a
- * `data-expanded` attribute the stylesheet reads ([L06]); the folded rows stay
- * in the tree, so what a reader can reveal is what a test can find.
+ * gesture, the range diff is the row's pop-out. Every fold here is either a
+ * `data-expanded` attribute the stylesheet reads ([L06]) or a row that mounts
+ * on expand ([L26]).
  *
  * Laws: [L02] props only; [L06] folds via data attributes; [L19] composes
- * `TugSectionLabel` / `TugStatusMark` / `DiffSummaryBadges` / `TugClamp` /
- * `TugPushButton`.
+ * `TugSectionLabel` / `ArcFoldRow` / `ChangesFileRow` / `DiffSummaryBadges` /
+ * `BlockFoldCue` / `CommitMessage` / `TugClamp`; [L26] a file row's diff body
+ * mounts on expand and a refetch keeps it rather than remounting it.
  *
  * @module components/tugways/cards/session-changes/session-changes-arc-brief
  */
 
-import "./session-changes-arc-brief.css";
+import "./session-changes-arc-fold.css";
 
 import React, { useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { AlignLeft, Folder, GitCommitHorizontal } from "lucide-react";
 
 import { TugClamp } from "@/components/tugways/tug-clamp";
-import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { TugStatusMark } from "@/components/tugways/tug-status-mark";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { DiffSummaryBadges } from "@/components/tugways/blocks/diff-summary-badges";
+import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
+import { CommitMessage } from "@/components/tugways/commit-presentation";
 import {
-  CLUSTER_LIMIT,
+  ArcRangeFileRow,
+  PopOutDiffButton,
+} from "@/components/tugways/tug-changes-list";
+import {
+  ArcFoldCell,
+  ArcFoldRow,
+} from "@/components/tugways/cards/session-changes/session-changes-arc-fold-row";
+import {
   clusterArcFiles,
   clusterStatusLine,
   arcFileTotals,
@@ -48,6 +66,7 @@ import {
 } from "@/lib/arc-file-clusters";
 import { fileCountLabel } from "@/lib/commit-format";
 import { landingMessageParts } from "@/lib/landing-message";
+import type { DiffDescriptor } from "@/lib/git-diff-store";
 import type { ArcChangesetEntry, ArcJoinOfferWire } from "@/lib/changeset-types";
 
 /** Where the message the brief fronts came from, and the eyebrow it earns. */
@@ -97,82 +116,135 @@ function stepsFact(entry: ArcChangesetEntry): string | null {
   return `${done}/${steps.length} steps`;
 }
 
+/** Where a file row addresses its range from. One object, threaded down. */
+interface RangeAddress {
+  root: string;
+  worktree: string;
+  base: string;
+  branch: string;
+}
+
+/**
+ * A directory: a folder in the mark cell, the dir and its facts, and the file
+ * row's own trailing cluster — counts, then a pop-out scoped to this
+ * directory's files, then the fold cue. The last control on a row is the one
+ * that acts on it, which is the order `ChangesFileRow` already keeps.
+ *
+ * A cluster of one file is that file: there is nothing under it to fold.
+ */
 function ClusterRow({
   cluster,
+  address,
   expanded,
   onToggle,
 }: {
   cluster: ArcFileCluster;
+  address: RangeAddress;
   expanded: boolean;
   onToggle: () => void;
 }): React.ReactElement {
-  // A cluster of one file is that file: there is nothing under it to fold.
   const single = cluster.files.length === 1 ? cluster.files[0]! : null;
+  if (single !== null) {
+    return <ArcRangeFileRow {...address} file={single} shown={single.path} />;
+  }
   const status = clusterStatusLine(cluster.statuses);
+  const dir = cluster.dir === "" ? "/" : cluster.dir;
+  const scoped: DiffDescriptor = {
+    kind: "range",
+    root: address.root,
+    worktree: address.worktree,
+    base: address.base,
+    branch: address.branch,
+    paths: cluster.files.map((file) => file.path),
+  };
   return (
-    <li
+    <div
       className="session-changes-arc-cluster"
       data-slot="session-changes-arc-cluster"
       data-dir={cluster.dir}
       data-expanded={expanded ? "true" : "false"}
     >
-      {single !== null ? (
-        <div className="session-changes-arc-cluster-head">
-          <TugStatusMark status={single.git_status} />
-          <span className="session-changes-arc-file-path">{single.path}</span>
-          <span className="session-changes-arc-cluster-counts">
-            <DiffSummaryBadges added={single.added ?? 0} removed={single.deleted ?? 0} />
+      <ArcFoldRow
+        hit
+        wrapperProps={{
+          role: "button",
+          tabIndex: 0,
+          "aria-expanded": expanded,
+          "aria-label": `${expanded ? "Hide" : "Show"} the files under ${cluster.dir === "" ? "the repository root" : cluster.dir}`,
+          onClick: onToggle,
+          onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            onToggle();
+          },
+        }}
+        leading={
+          <ArcFoldCell tone="muted">
+            <Folder size={12} aria-hidden />
+          </ArcFoldCell>
+        }
+        trailing={
+          <span className="arc-fold-trailing" onClick={(event) => event.stopPropagation()}>
+            <DiffSummaryBadges added={cluster.added} removed={cluster.deleted} />
+            <PopOutDiffButton
+              descriptor={scoped}
+              label={`Open the ${dir} diff in a card`}
+            />
+            <BlockFoldCue
+              collapsed={!expanded}
+              onToggle={onToggle}
+              collapsedLabel="Expand"
+              ariaLabelExpand={`Show the files under ${dir}`}
+              ariaLabelCollapse={`Hide the files under ${dir}`}
+              size="2xs"
+              subtype="icon"
+              stabilizeScroll={false}
+            />
           </span>
+        }
+      >
+        <span className="arc-fold-path">{dir}</span>
+        <span className="arc-fold-fact">
+          {fileCountLabel(cluster.files.length)}
+          {status !== "" ? ` · ${status}` : ""}
+        </span>
+      </ArcFoldRow>
+      {expanded ? (
+        <div className="arc-fold-nested">
+          {cluster.files.map((file) => (
+            <ArcRangeFileRow
+              key={file.path}
+              {...address}
+              file={file}
+              shown={
+                cluster.dir === ""
+                  ? file.path
+                  : file.path.slice(cluster.dir.length + 1)
+              }
+            />
+          ))}
         </div>
-      ) : (
-        <>
-          <TugPushButton
-            size="xs"
-            emphasis="ghost"
-            subtype="icon-text"
-            className="session-changes-arc-cluster-head session-changes-arc-cluster-toggle"
-            aria-expanded={expanded}
-            aria-label={`${expanded ? "Hide" : "Show"} the files under ${cluster.dir === "" ? "the repository root" : cluster.dir}`}
-            icon={<ChevronRight size={12} className="session-changes-arc-cluster-chevron" />}
-            onClick={onToggle}
-          >
-            <span className="session-changes-arc-cluster-dir">
-              {cluster.dir === "" ? "/" : cluster.dir}
-            </span>
-            <span className="session-changes-arc-cluster-facts">
-              {fileCountLabel(cluster.files.length)}
-              {status !== "" ? ` · ${status}` : ""}
-            </span>
-            <span className="session-changes-arc-cluster-counts">
-              <DiffSummaryBadges added={cluster.added} removed={cluster.deleted} />
-            </span>
-          </TugPushButton>
-          <ul className="session-changes-arc-cluster-files">
-            {cluster.files.map((file) => (
-              <li key={file.path}>
-                <TugStatusMark status={file.git_status} />
-                <span className="session-changes-arc-file-path">
-                  {cluster.dir === "" ? file.path : file.path.slice(cluster.dir.length + 1)}
-                </span>
-                <span className="session-changes-arc-cluster-counts">
-                  <DiffSummaryBadges added={file.added ?? 0} removed={file.deleted ?? 0} />
-                </span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </li>
+      ) : null}
+    </div>
   );
 }
 
 export function SessionChangesArcBrief({
   entry,
+  projectRoot,
+  branch,
 }: {
   entry: ArcChangesetEntry;
+  /** The project dir the arc lives in — resolves the workspace for every
+   *  scoped range diff this section opens. */
+  projectRoot: string;
+  /** The arc's branch ref, as the lane resolves it. */
+  branch: string;
 }): React.ReactElement | null {
   const [openDirs, setOpenDirs] = useState<ReadonlySet<string>>(() => new Set());
-  const [allClusters, setAllClusters] = useState(false);
+  // Open, as the candidate is: the fold cue is a way to get the list out of
+  // the way, not a gate in front of it.
+  const [filesOpen, setFilesOpen] = useState(true);
   const [roundsOpen, setRoundsOpen] = useState(false);
   const [bodyOpen, setBodyOpen] = useState(false);
 
@@ -187,9 +259,32 @@ export function SessionChangesArcBrief({
     return null;
   }
 
-  const shownClusters = allClusters ? clusters : clusters.slice(0, CLUSTER_LIMIT);
-  const hiddenClusters = clusters.length - shownClusters.length;
+  const address: RangeAddress = {
+    root: projectRoot,
+    worktree: entry.worktree,
+    base: entry.base,
+    branch,
+  };
+  const wholeRange: DiffDescriptor = { kind: "range", ...address };
+  // The totals row's content: the facts the stats strip used to carry, each
+  // clause omitted when it has nothing to say ([P05]).
+  const totalsFacts = [
+    totals.files > 0 ? fileCountLabel(totals.files) : null,
+    entry.rounds > 0
+      ? entry.rounds === 1
+        ? "1 round"
+        : `${entry.rounds} rounds`
+      : null,
+    steps,
+  ].filter((fact): fact is string => fact !== null);
+
   const eyebrow = source === "offer" ? "lands as" : source === "draft" ? "draft" : "rounds";
+  // The totals row stands on its own facts. It is the file list's head when
+  // there is a list — that is what its fold cue and its range pop-out are for
+  // — but the rounds and the steps it also states are true of an arc that has
+  // a draft and has not moved a file yet, and the strip it replaced said them
+  // on such an arc. So the affordances are the list's and the row is not.
+  const hasFiles = clusters.length > 0;
   const slot =
     source === "offer"
       ? "session-changes-arc-lands-as"
@@ -202,64 +297,103 @@ export function SessionChangesArcBrief({
       <TugSectionLabel label={{ name: eyebrow }} slot="session-changes-arc-brief-label" />
       <div className="session-changes-arc-brief-body">
         {parts.subject !== "" ? (
-          <div className="session-changes-arc-brief-subject" data-slot="session-changes-arc-brief-subject">
+          <div
+            className="session-changes-arc-brief-subject"
+            data-slot="session-changes-arc-brief-subject"
+          >
             {parts.subject}
           </div>
         ) : null}
-        <div className="session-changes-arc-brief-stats" data-slot="session-changes-arc-brief-stats">
-          {totals.files > 0 ? <span>{fileCountLabel(totals.files)}</span> : null}
-          {totals.counted ? (
-            <span className="session-changes-arc-cluster-counts">
-              <DiffSummaryBadges added={totals.added} removed={totals.deleted} />
-            </span>
-          ) : null}
-          {entry.rounds > 0 ? (
-            <span>{entry.rounds === 1 ? "1 round" : `${entry.rounds} rounds`}</span>
-          ) : null}
-          {steps !== null ? <span>{steps}</span> : null}
-        </div>
         {parts.summary !== "" ? (
-          <p className="session-changes-arc-brief-summary" data-slot="session-changes-arc-brief-summary">
-            {parts.summary}
-          </p>
+          <div className="tugx-commit-receipt">
+            <CommitMessage
+              body={parts.summary}
+              dataSlot="session-changes-arc-brief-summary"
+            />
+          </div>
         ) : null}
         {note !== null ? (
-          <div className="session-changes-arc-draft-note" data-slot="session-changes-arc-lands-as-note">
+          <div
+            className="session-changes-arc-draft-note"
+            data-slot="session-changes-arc-lands-as-note"
+          >
             {note}
           </div>
         ) : null}
-        {clusters.length > 0 ? (
-          <ul className="session-changes-arc-clusters" data-slot="session-changes-arc-files">
-            {shownClusters.map((cluster) => (
-              <ClusterRow
-                key={cluster.dir}
-                cluster={cluster}
-                expanded={openDirs.has(cluster.dir)}
-                onToggle={() =>
-                  setOpenDirs((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(cluster.dir)) next.delete(cluster.dir);
-                    else next.add(cluster.dir);
-                    return next;
-                  })
-                }
-              />
-            ))}
-            {hiddenClusters > 0 || allClusters ? (
-              <li className="session-changes-arc-clusters-more">
-                <TugPushButton
-                  size="xs"
-                  emphasis="ghost"
-                  onClick={() => setAllClusters((v) => !v)}
-                  data-slot="session-changes-arc-clusters-more"
-                >
-                  {allClusters
-                    ? "Fewer areas"
-                    : `${hiddenClusters} more ${hiddenClusters === 1 ? "area" : "areas"}`}
-                </TugPushButton>
-              </li>
-            ) : null}
-          </ul>
+        {hasFiles || totalsFacts.length > 0 ? (
+          <div
+            className="session-changes-arc-clusters"
+            data-slot="session-changes-arc-files"
+            data-expanded={filesOpen ? "true" : "false"}
+          >
+            {/* The totals row, which folds the whole list the way a receipt's
+                header folds its own. Its pop-out is the unscoped range: what
+                this row is about is everything below it. */}
+            <ArcFoldRow
+              hit={hasFiles}
+              wrapperProps={
+                hasFiles
+                  ? {
+                      role: "button",
+                      tabIndex: 0,
+                      "aria-expanded": filesOpen,
+                      "aria-label": `${filesOpen ? "Hide" : "Show"} the changed files`,
+                      "data-slot": "session-changes-arc-totals",
+                      onClick: () => setFilesOpen((v) => !v),
+                      onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        setFilesOpen((v) => !v);
+                      },
+                    }
+                  : { "data-slot": "session-changes-arc-totals" }
+              }
+              leading={<ArcFoldCell />}
+              trailing={
+                hasFiles ? (
+                  <span className="arc-fold-trailing" onClick={(event) => event.stopPropagation()}>
+                    {totals.counted ? (
+                      <DiffSummaryBadges added={totals.added} removed={totals.deleted} />
+                    ) : null}
+                    <PopOutDiffButton
+                      descriptor={wholeRange}
+                      label={`Open the ${entry.display_name} arc diff in a card`}
+                    />
+                    <BlockFoldCue
+                      collapsed={!filesOpen}
+                      onToggle={(nextCollapsed) => setFilesOpen(!nextCollapsed)}
+                      collapsedLabel="Expand"
+                      ariaLabelExpand="Show the changed files"
+                      ariaLabelCollapse="Hide the changed files"
+                      size="2xs"
+                      subtype="icon"
+                      stabilizeScroll={false}
+                    />
+                  </span>
+                ) : undefined
+              }
+            >
+              <span className="arc-fold-fact">{totalsFacts.join(" · ")}</span>
+            </ArcFoldRow>
+            {hasFiles && filesOpen
+              ? clusters.map((cluster) => (
+                  <ClusterRow
+                    key={cluster.dir}
+                    cluster={cluster}
+                    address={address}
+                    expanded={openDirs.has(cluster.dir)}
+                    onToggle={() =>
+                      setOpenDirs((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(cluster.dir)) next.delete(cluster.dir);
+                        else next.add(cluster.dir);
+                        return next;
+                      })
+                    }
+                  />
+                ))
+              : null}
+          </div>
         ) : null}
         {subjects.length > 0 ? (
           <div
@@ -267,22 +401,62 @@ export function SessionChangesArcBrief({
             data-slot="session-changes-arc-brief-rounds"
             data-expanded={roundsOpen ? "true" : "false"}
           >
-            <TugPushButton
-              size="xs"
-              emphasis="ghost"
-              subtype="icon-text"
-              className="session-changes-arc-cluster-toggle"
-              aria-expanded={roundsOpen}
-              icon={<ChevronRight size={12} className="session-changes-arc-cluster-chevron" />}
-              onClick={() => setRoundsOpen((v) => !v)}
+            <ArcFoldRow
+              hit
+              wrapperProps={{
+                role: "button",
+                tabIndex: 0,
+                "aria-expanded": roundsOpen,
+                onClick: () => setRoundsOpen((v) => !v),
+                onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  setRoundsOpen((v) => !v);
+                },
+              }}
+              leading={
+                <ArcFoldCell tone="muted">
+                  <GitCommitHorizontal size={12} aria-hidden />
+                </ArcFoldCell>
+              }
+              trailing={
+                <span className="arc-fold-trailing" onClick={(event) => event.stopPropagation()}>
+                  <BlockFoldCue
+                    collapsed={!roundsOpen}
+                    onToggle={(nextCollapsed) => setRoundsOpen(!nextCollapsed)}
+                    collapsedLabel="Expand"
+                    ariaLabelExpand="Show the rounds"
+                    ariaLabelCollapse="Hide the rounds"
+                    size="2xs"
+                    subtype="icon"
+                    stabilizeScroll={false}
+                  />
+                </span>
+              }
             >
-              {subjects.length === 1 ? "1 round" : `${subjects.length} rounds`}
-            </TugPushButton>
-            <ul className="session-changes-arc-subjects" data-slot="session-changes-arc-subjects">
+              <span className="arc-fold-prose">
+                {subjects.length === 1 ? "1 round" : `${subjects.length} rounds`}
+              </span>
+            </ArcFoldRow>
+            {/* The subjects stay in the tree whether or not the fold is open,
+                so what a reader can reveal is what a test can find ([L06]). */}
+            <div
+              className="session-changes-arc-subjects"
+              data-slot="session-changes-arc-subjects"
+            >
               {subjects.map((subject, index) => (
-                <li key={`${index}:${subject}`}>{subject}</li>
+                <ArcFoldRow
+                  key={`${index}:${subject}`}
+                  leading={
+                    // Counting down from the newest, which is the order the
+                    // subjects arrive in.
+                    <ArcFoldCell tone="muted">{subjects.length - index}</ArcFoldCell>
+                  }
+                >
+                  <span className="arc-fold-prose">{subject}</span>
+                </ArcFoldRow>
               ))}
-            </ul>
+            </div>
           </div>
         ) : null}
         {parts.body !== "" ? (
@@ -294,18 +468,44 @@ export function SessionChangesArcBrief({
               data-slot="session-changes-arc-brief-detail"
               data-expanded={bodyOpen ? "true" : "false"}
             >
-              <TugPushButton
-                size="xs"
-                emphasis="ghost"
-                subtype="icon-text"
-                className="session-changes-arc-cluster-toggle"
-                aria-expanded={bodyOpen}
-                icon={<ChevronRight size={12} className="session-changes-arc-cluster-chevron" />}
-                onClick={() => setBodyOpen((v) => !v)}
+              <ArcFoldRow
+                hit
+                wrapperProps={{
+                  role: "button",
+                  tabIndex: 0,
+                  "aria-expanded": bodyOpen,
+                  onClick: () => setBodyOpen((v) => !v),
+                  onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    setBodyOpen((v) => !v);
+                  },
+                }}
+                leading={
+                  <ArcFoldCell tone="muted">
+                    <AlignLeft size={12} aria-hidden />
+                  </ArcFoldCell>
+                }
+                trailing={
+                  <span className="arc-fold-trailing" onClick={(event) => event.stopPropagation()}>
+                    <BlockFoldCue
+                      collapsed={!bodyOpen}
+                      onToggle={(nextCollapsed) => setBodyOpen(!nextCollapsed)}
+                      collapsedLabel="Expand"
+                      ariaLabelExpand="Show the full message"
+                      ariaLabelCollapse="Hide the full message"
+                      size="2xs"
+                      subtype="icon"
+                      stabilizeScroll={false}
+                    />
+                  </span>
+                }
               >
-                Full message
-              </TugPushButton>
-              <div className="session-changes-arc-draft-message">{parts.body}</div>
+                <span className="arc-fold-prose">Full message</span>
+              </ArcFoldRow>
+              <div className="tugx-commit-receipt session-changes-arc-draft-message">
+                <CommitMessage body={parts.body} dataSlot="session-changes-arc-brief-body" />
+              </div>
             </div>
           ) : (
             // Unsummarized: the message was not written to be clamped, so

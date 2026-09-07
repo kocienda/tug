@@ -148,12 +148,17 @@ function usePressTracker(): {
 
 function FilePathLink({
   path,
+  shownPath,
   op,
   gitStatus,
   projectRoot,
   highlightQuery = "",
 }: {
   path: string;
+  /** The string to *render*, when it differs from `path` — a file under a
+   *  directory row shows its cluster-relative name. `path` keeps every other
+   *  job below: the absolute path, the stamp, the menu, the open. */
+  shownPath?: string;
   op: string;
   gitStatus: string;
   projectRoot: string;
@@ -163,7 +168,7 @@ function FilePathLink({
   // The path is matchable content wherever a filtered list shows it, so the
   // marks go on the rendered string. `path` stays the authority for the
   // hover, the menu, and the open action.
-  const shown = renderFilterHighlight(path, highlightQuery);
+  const shown = renderFilterHighlight(shownPath ?? path, highlightQuery);
 
   // Inside the transcript a file reference has a HOST: one delegated click
   // listener and one context-menu provider that serve every annotation,
@@ -690,11 +695,14 @@ export type FileElectionBadge =
 
 function FileIdentity({
   file,
+  shownPath,
   projectRoot,
   highlightQuery,
   election = null,
 }: {
   file: FileBlockData;
+  /** See {@link ChangesFileRow}'s `shownPath`. */
+  shownPath?: string;
   projectRoot: string;
   highlightQuery?: string;
   /** See {@link ChangesFileRow}'s `election`. */
@@ -733,6 +741,7 @@ function FileIdentity({
     <span className="tug-changes-list-file-identity">
       <FilePathLink
         path={file.path}
+        shownPath={shownPath}
         op={file.op}
         gitStatus={file.git_status}
         projectRoot={projectRoot}
@@ -795,6 +804,7 @@ function FileIdentity({
  */
 export function ChangesFileRow({
   file,
+  shownPath,
   projectRoot,
   counts,
   election = null,
@@ -810,6 +820,16 @@ export function ChangesFileRow({
   highlightQuery,
 }: {
   file: FileBlockData;
+  /**
+   * What the row *renders* in place of `file.path`, when the two differ — a
+   * file under a directory row shows its cluster-relative name. It is used for
+   * the displayed string and the filter highlight run over it, and for nothing
+   * else: `file.path` stays the authority for the absolute path the annotation
+   * stamp carries, the context menu, the open action, and the pop-out's label.
+   * Passing a relative string as `file.path` instead would stamp
+   * `<projectRoot>/<relative-to-cluster>` and open a file that is not there.
+   */
+  shownPath?: string;
   projectRoot: string;
   /** A list filter's live query — marks the path where it matched. Absent for
    *  the live Changes list, which carries no filter. */
@@ -954,6 +974,7 @@ export function ChangesFileRow({
         >
           <FileIdentity
             file={file}
+            shownPath={shownPath}
             projectRoot={projectRoot}
             highlightQuery={highlightQuery}
             election={election}
@@ -1426,6 +1447,77 @@ function CommitFileRow({
       popOut={descriptor}
       body={expanded ? fileBlockBody(snapshot, file.path) : null}
       highlightQuery={highlightQuery}
+    />
+  );
+}
+
+/**
+ * One changed file of an **arc range**, as the receipt's own row.
+ *
+ * The range twin of {@link CommitFileRow}, and it lives here rather than under
+ * `session-changes/` for one reason: `fileBlockBody` is module-private, and it
+ * is the right thing to stay private. It encodes the policy an expanded diff
+ * body must have — a refetch keeps rendering the last payload rather than
+ * blanking to a notice and back, which would remount and lose the collapsed
+ * bands, the view mode and the scroll ([L26]). Exporting that helper to a card
+ * would put the policy on the wrong side of a boundary; exporting a *row*
+ * keeps it inside.
+ *
+ * Unlike a commit, an arc range is **mutable** — a new round moves it — so the
+ * per-row store is dropped on unmount and a re-expand after a round re-requests
+ * rather than serving a stale snapshot.
+ */
+export function ArcRangeFileRow({
+  root,
+  worktree,
+  base,
+  branch,
+  file,
+  shown,
+}: {
+  /** The project dir the arc lives in (resolves the workspace). */
+  root: string;
+  /** The arc worktree's absolute path, as the wire carries it. */
+  worktree: string;
+  /** The arc's base branch. */
+  base: string;
+  /** The arc's branch ref. */
+  branch: string;
+  file: ChangesetFile;
+  /** What to render in place of `file.path` — a cluster-relative name. The
+   *  descriptor, the store id and the open action all still use `file.path`. */
+  shown?: string;
+}): React.ReactElement {
+  const [expanded, setExpanded] = useState(false);
+  const storeId = `range:${worktree}:${base}:${branch}:${file.path}`;
+  const descriptor = useMemo<DiffDescriptor>(
+    () => ({ kind: "range", root, worktree, base, branch, paths: [file.path] }),
+    [root, worktree, base, branch, file.path],
+  );
+  const { snapshot, ensureRequested } = useEntryDiff(storeId, descriptor);
+  useEffect(() => {
+    if (expanded) ensureRequested();
+  }, [expanded, ensureRequested]);
+  useEffect(() => () => releaseEntryDiffStore(storeId), [storeId]);
+
+  return (
+    <ChangesFileRow
+      file={{
+        path: file.path,
+        git_status: file.git_status,
+        // A file in an arc range renders no op/origin provenance — the fold's
+        // own eyebrow already carries the arc identity.
+        op: "",
+        origin: "",
+        shared: false,
+      }}
+      shownPath={shown}
+      projectRoot={root}
+      counts={{ added: file.added ?? 0, removed: file.deleted ?? 0 }}
+      expanded={expanded}
+      onToggle={setExpanded}
+      popOut={descriptor}
+      body={expanded ? fileBlockBody(snapshot, file.path) : null}
     />
   );
 }

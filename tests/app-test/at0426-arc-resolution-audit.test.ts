@@ -36,6 +36,8 @@
  * @covers tugrust/crates/tugarc-core/src/resolve.rs
  * @covers tugrust/crates/tugarc-core/src/workshop.rs
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold-row.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold.css
  * @covers tugdeck/src/lib/join-mode-controller.ts
  */
 

@@ -910,7 +910,11 @@ export function GalleryArcLifecycle(): React.ReactElement {
               <span className="cg-arc-surface-name">
                 Summarized — the draft as the skills now write it
               </span>
-              <SessionChangesArcBrief entry={briefEntry(BRIEF_MESSAGE, "draft")} />
+              <SessionChangesArcBrief
+                entry={briefEntry(BRIEF_MESSAGE, "draft")}
+                projectRoot={ROOT}
+                branch={`tugarc/${BRIEF_ARC}`}
+              />
             </div>
             <div className="cg-arc-surface">
               <span className="cg-arc-surface-name">
@@ -918,6 +922,8 @@ export function GalleryArcLifecycle(): React.ReactElement {
               </span>
               <SessionChangesArcBrief
                 entry={briefEntry(BRIEF_MESSAGE_UNSUMMARIZED, "draft")}
+                projectRoot={ROOT}
+                branch={`tugarc/${BRIEF_ARC}`}
               />
             </div>
           </div>

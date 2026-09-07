@@ -49,6 +49,8 @@
  * @covers tugdeck/src/lib/arc-join-register.ts
  * @covers tugdeck/src/components/tugways/arc-join-register.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold-row.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold.css
  * @covers tugrust/crates/tugcast/src/feeds/join_resolver.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_occupancy.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_pilot.rs

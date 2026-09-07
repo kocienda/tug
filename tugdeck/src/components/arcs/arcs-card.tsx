@@ -110,10 +110,13 @@ import {
   documentArcAsEntry,
   documentArcTrackModel,
 } from "@/lib/document-arc-entry";
-import { ArcJoinRegister } from "@/components/tugways/arc-join-register";
+import { ArcJoinRegisterView } from "@/components/tugways/arc-join-register";
 import { ArcTransportControl } from "@/components/tugways/arc-transport-control";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
+import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
+import { arcJoinRegister } from "@/lib/arc-join-register";
 import { useChangesetJoinLand } from "@/lib/changeset-join-store";
+import { toolCallPhaseVisual } from "@/lib/code-session-store/tool-call-phase-visual";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugListView } from "@/components/tugways/tug-list-view";
 import type {
@@ -693,6 +696,33 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   const verbsMenu = useArcRowVerbsMenu(row);
   // And the one control that acts on the arc rather than navigating to it.
   const followed = useFollowedCardFacts();
+  // What this arc's JOIN is doing, in the one shared sentence — the same
+  // derivation the shade and the composer call. The `useSyncExternalStore`
+  // read is here rather than in a child because the property that mattered was
+  // keeping it off the SECTION: `ArcCell` is per-row, so a beat of one arc's
+  // join re-renders that row and no other, exactly as before. Do not re-split
+  // it into a child — the row needs the reading to decide its own shape.
+  const landBeat = useChangesetJoinLand(row.workspaceKey, entry.display_name);
+  const register = arcJoinRegister({
+    arc: entry.display_name,
+    base: entry.base ?? "main",
+    stage: entry.stage,
+    join: entry.join,
+    holdersBusy: entry.holders_busy === true,
+    landBeat,
+    // The Arcs card is the one surface that renders arcs nobody is holding,
+    // so it is the one that has to hand the register that fact ([D147]).
+    bound: entry.bound_session !== undefined,
+    // A live wheel outranks the offer: the section shows the stage that is
+    // running rather than a readiness the audit has not signed off on.
+    run: entry.arc ?? null,
+  });
+  // A READY arc says so in the lifecycle line's own words, and draws no band
+  // ([P08]). The register's third line was chrome restating a settled fact one
+  // line below the line that could have carried it — and only for this one
+  // reading, which is why the override is scoped to `ready` and every other
+  // reading keeps its band untouched ([Q01]).
+  const ready = register?.word === "ready";
   return (
     <TugListRow
       className="arcs-row"
@@ -700,6 +730,11 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       density="compact"
       data-slot="arcs-row"
       data-arc={entry.display_name}
+      // What this arc's join reads as, on the row itself. The register band
+      // below carries the same word in its own `data-word`, but a READY row
+      // draws no band at all — so the row is the one element that states the
+      // reading whichever shape it takes.
+      data-join-word={register?.word}
       data-bound={worker !== null ? "true" : undefined}
       data-activatable={activatable ? "true" : undefined}
       onContextMenu={verbsMenu.onContextMenu}
@@ -720,6 +755,24 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           model={model}
           stepTitle={entry.step_title ?? null}
           facts={arcMetaFacts(entry)}
+          {...(ready && register !== null
+            ? {
+                note: register.line,
+                // The settled green dot the transcript already means `done`
+                // by, standing where the phase glyph stands. A ready arc is
+                // waiting on a person rather than on work, which no phase of
+                // the model says — so the host says it ([P06]).
+                mark: (
+                  <TugProgressIndicator
+                    variant="pulsing-dot"
+                    size={11}
+                    phase="success"
+                    phaseVisual={toolCallPhaseVisual}
+                    aria-label="Ready"
+                  />
+                ),
+              }
+            : {})}
           trailing={
             <>
               {/* The transport, before the cue: the act on the arc leads the
@@ -760,8 +813,13 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
         {verbsMenu.menu}
         {/* And what its JOIN is doing, in the one shared register — the same
             sentence the shade and the composer show, because all three call
-            one derivation. Renders nothing until there is a join. */}
-        <ArcJoinRow row={row} />
+            one derivation. Renders nothing until there is a join, and nothing
+            for a ready arc, which said it one line up. */}
+        {ready ? null : (
+          <span className="arcs-register">
+            <ArcJoinRegisterView register={register} altitude="section" />
+          </span>
+        )}
         {/* And, folded open, the plan's own ledger — the same component the
             `ARC` placard mounts, so the row and the placard cannot disagree
             about one arc's steps. Structure rather than appearance: the rows
@@ -776,37 +834,6 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
     </TugListRow>
   );
 };
-
-/**
- * The arc's join register, with the beats its own store read supplies.
- *
- * A separate component so the `useSyncExternalStore` subscription belongs to
- * the row that needs it ([L02]) rather than re-rendering every row in the
- * section on every beat of one arc's join.
- */
-function ArcJoinRow({ row }: { row: ArcRow }): React.ReactElement | null {
-  const entry = row.entry;
-  const landBeat = useChangesetJoinLand(row.workspaceKey, entry.display_name);
-  return (
-    <span className="arcs-register">
-      <ArcJoinRegister
-        arc={entry.display_name}
-        base={entry.base ?? "main"}
-        stage={entry.stage}
-        join={entry.join}
-        holdersBusy={entry.holders_busy === true}
-        landBeat={landBeat}
-        // The Arcs card is the one surface that renders arcs nobody is holding,
-        // so it is the one that has to hand the register that fact ([D147]).
-        bound={entry.bound_session !== undefined}
-        // A live wheel outranks the offer: the section shows the stage that is
-        // running rather than a readiness the audit has not signed off on.
-        run={entry.arc ?? null}
-        altitude="section"
-      />
-    </span>
-  );
-}
 
 /**
  * A waiting plan document, in the section's own two-line grammar: an eyebrow

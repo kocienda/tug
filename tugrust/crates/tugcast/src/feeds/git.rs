@@ -623,7 +623,13 @@ fn parse_git_log(output: &str) -> Vec<GitLogCommit> {
 /// relative to. The diff itself is resolved by [`fetch_arc_diff`]: working
 /// tree vs. merge-base when the worktree exists (rounds + dirt), else committed
 /// rounds only. The snapshot's `base` field carries the human-readable range
-/// `<base>...<branch>` so the document header reads correctly.
+/// `<base>...<branch>` so the document header reads correctly — it names what
+/// the diff is *against*, and a scoped diff is against the same range.
+///
+/// `paths` is a repo-relative pathspec narrowing the diff; an **empty slice is
+/// the whole range**, which is what every unscoped caller passes. A scoped
+/// range is what lets the arc fold's per-file and per-directory pop-outs open
+/// their own row rather than the whole arc ([P01]).
 pub async fn build_arc_diff_snapshot(
     repo_dir: &Path,
     request_id: String,
@@ -631,6 +637,7 @@ pub async fn build_arc_diff_snapshot(
     worktree_abs: &str,
     base: &str,
     branch: &str,
+    paths: &[String],
 ) -> GitDiffSnapshot {
     let range = format!("{base}...{branch}");
     if !is_within_git_worktree(repo_dir).await {
@@ -645,7 +652,7 @@ pub async fn build_arc_diff_snapshot(
             files: Vec::new(),
         };
     }
-    let files = match fetch_arc_diff(repo_dir, worktree_abs, base, branch).await {
+    let files = match fetch_arc_diff(repo_dir, worktree_abs, base, branch, paths).await {
         Some(output) => parse_git_diff(&output),
         None => Vec::new(),
     };
@@ -679,28 +686,40 @@ pub async fn build_arc_diff_snapshot(
 /// fallback's working directory. Joining the two was the old shape and it
 /// degraded silently — a missed join yields a path that is not a directory,
 /// which reads as "this arc has no worktree" and quietly drops its dirt.
+///
+/// `paths` narrows both arms alike; an empty slice is the whole range.
 pub(crate) async fn fetch_arc_diff(
     repo_dir: &Path,
     worktree_abs: &str,
     base: &str,
     branch: &str,
+    paths: &[String],
 ) -> Option<String> {
     let worktree_abs = Path::new(worktree_abs);
     if worktree_abs.is_dir() {
         let merge_base = run_git_line(worktree_abs, &["merge-base", base, branch]).await?;
-        run_git_diff_against(worktree_abs, &merge_base).await
+        run_git_diff_against(worktree_abs, &merge_base, paths).await
     } else {
-        run_git_diff_against(repo_dir, &format!("{base}...{branch}")).await
+        run_git_diff_against(repo_dir, &format!("{base}...{branch}"), paths).await
     }
 }
 
-/// Run `git diff -M <target>` in `dir` with the canonical hunk-identity flags,
-/// returning stdout on success.
-async fn run_git_diff_against(dir: &Path, target: &str) -> Option<String> {
+/// Run `git diff -M <target> [-- <paths…>]` in `dir` with the canonical
+/// hunk-identity flags, returning stdout on success. An empty `paths` appends
+/// no separator and diffs everything.
+///
+/// Note that `-M` rename detection is scoped along with the diff: a rename
+/// whose other side falls outside the pathspec renders as an add or a delete
+/// rather than as a rename. That is git's behaviour for any scoped diff.
+async fn run_git_diff_against(dir: &Path, target: &str, paths: &[String]) -> Option<String> {
     let dir = dir.to_string_lossy();
     let mut args: Vec<&str> = vec!["-C", &dir, "-c", "core.quotepath=false", "diff"];
     args.extend_from_slice(HUNK_DIFF_FLAGS);
     args.extend_from_slice(&["-M", target]);
+    if !paths.is_empty() {
+        args.push("--");
+        args.extend(paths.iter().map(String::as_str));
+    }
     let output = Command::new("git")
         .env_remove("GIT_DIFF_OPTS")
         .args(&args)
@@ -1683,6 +1702,7 @@ index 1111111..2222222 100644
             &worktree_abs,
             "main",
             "tugarc/demo",
+            &[],
         )
         .await;
 
@@ -1712,6 +1732,7 @@ index 1111111..2222222 100644
             "/nonexistent/tugtree/does-not-exist",
             "main",
             "tugarc/demo",
+            &[],
         )
         .await;
 
@@ -1747,6 +1768,7 @@ index 1111111..2222222 100644
             &worktree_abs,
             "main",
             "tugarc/demo",
+            &[],
         )
         .await;
 
@@ -1755,6 +1777,33 @@ index 1111111..2222222 100644
         assert!(
             paths.contains(&"keep.txt"),
             "worktree dirt survives a worktree-hosted caller: {paths:?}"
+        );
+    }
+
+    /// A pathspec narrows the arc range to the rows that named it — the thing
+    /// the fold's per-file and per-directory pop-outs rest on ([P01]). The
+    /// unscoped fixture returns both `round.txt` and `keep.txt`; scoping to
+    /// one of them must return exactly that one.
+    #[tokio::test]
+    async fn test_build_arc_diff_snapshot_scoped_to_one_path() {
+        let (temp, worktree_abs) = init_arc_fixture_repo().await;
+        let snapshot = build_arc_diff_snapshot(
+            temp.path(),
+            "req-arc-scoped".to_string(),
+            "ws-key",
+            &worktree_abs,
+            "main",
+            "tugarc/demo",
+            &["keep.txt".to_string()],
+        )
+        .await;
+
+        assert_eq!(snapshot.file_count, 1, "the pathspec names one file");
+        let paths: Vec<&str> = snapshot.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["keep.txt"], "and it is the one asked for: {paths:?}");
+        assert_eq!(
+            snapshot.base, "main...tugarc/demo",
+            "a scoped diff is still against the whole range"
         );
     }
 

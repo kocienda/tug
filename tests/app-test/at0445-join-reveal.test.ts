@@ -79,6 +79,7 @@
  * @covers tugdeck/src/lib/shade-view-controller.ts
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugdeck/src/lib/arc-join-register.ts
+ * @covers tugdeck/src/components/arcs/arcs-card.tsx
  * @covers tugrust/crates/tugarc-core/src/log.rs
  * @covers tugrust/crates/tugarc-core/src/ops.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
@@ -139,8 +140,6 @@ const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`
 const ARCS_CARD = '.arcs-section';
 const arcRow = (arc: string): string =>
   `${ARCS_CARD} [data-slot="arcs-row"][data-arc="${arc}"]`;
-const arcRegister = (arc: string): string =>
-  `${arcRow(arc)} [data-slot="arc-join-register"]`;
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -232,7 +231,10 @@ async function shadeAppearsWithin(app: App, ms: number): Promise<boolean> {
 /** An arc's register word on the Arcs card right now, or null if it has none. */
 function registerWord(app: App, arc: string): Promise<string | null> {
   return app.evalJS<string | null>(
-    `document.querySelector(${JSON.stringify(arcRegister(arc))})?.getAttribute("data-word") ?? null`,
+    // Read off the ROW rather than off the register band. A ready arc says so
+    // in the lifecycle line's own words and draws no band at all, so the band
+    // is not the element that always carries the reading — the row is.
+    `document.querySelector(${JSON.stringify(arcRow(arc))})?.getAttribute("data-join-word") ?? null`,
   );
 }
 
@@ -263,7 +265,7 @@ async function registerReaches(
   timeoutMs: number,
 ): Promise<void> {
   await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(arcRegister(arc))})?.getAttribute("data-word") === ${JSON.stringify(word)}`,
+    `document.querySelector(${JSON.stringify(arcRow(arc))})?.getAttribute("data-join-word") === ${JSON.stringify(word)}`,
     { timeoutMs },
   );
 }

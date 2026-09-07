@@ -821,7 +821,10 @@ async fn main() {
             request_id: Option<String>,
             /// Optional repo-relative pathspec — the changeset card scopes
             /// its diff to one file or one changeset. Absent/empty keeps
-            /// the whole-tree diff (session card `/diff`). Head flavor only.
+            /// the whole diff. Read by every flavor: the head flavor's
+            /// whole-tree diff, the commit flavor's per-file receipt rows,
+            /// and the arc range flavor's per-file and per-directory
+            /// pop-outs ([P01]). Absent or empty is the whole diff in each.
             paths: Option<Vec<String>>,
             /// Arc range flavor ([P19]): a present `branch` selects
             /// `<base>...<branch>` + worktree dirt instead of `git diff HEAD`.
@@ -879,6 +882,7 @@ async fn main() {
                                 worktree.as_deref().unwrap_or_default(),
                                 base.as_deref().unwrap_or("main"),
                                 &branch,
+                                &paths,
                             )
                             .await
                         }

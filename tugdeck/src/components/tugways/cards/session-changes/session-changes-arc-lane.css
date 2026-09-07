@@ -90,14 +90,13 @@ body {
 
 /* The fold hangs on the block's own left margin — the stacked lines' indent —
    so the disclosure reads as more of the same block rather than as a panel
-   that arrived from somewhere else. Its sections (report · rounds · draft)
-   are separated by the same step the lane puts between blocks: each is a
-   labeled unit, and at a hairline of padding the last line of one sat as
-   close to the eyebrow of the next as to its own. */
+   that arrived from somewhere else. Its sections put NOTHING between
+   themselves: a row's separation is its own padding, and a section's is its
+   eyebrow's own `margin-top`. The `xl` gap that used to sit here compounded
+   with both, which is how three short sections came to fill a screen. */
 .session-changes-arc-detail {
   display: flex;
   flex-direction: column;
-  gap: var(--tug-space-xl);
   padding: var(--tug-space-sm) var(--tug-space-sm) var(--tug-space-sm)
     var(--tugx-arc-stack-indent);
 }

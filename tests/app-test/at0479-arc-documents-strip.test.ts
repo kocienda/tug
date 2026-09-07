@@ -28,7 +28,8 @@
  * document into the checkout under test.
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-documents.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-documents.css
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold-row.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold.css
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
@@ -142,6 +143,34 @@ const readDocuments = (
        title: (row.querySelector('[data-slot="session-arc-document-title"]')?.textContent ?? "").trim(),
        facts: (row.querySelector('[data-slot="session-arc-document-facts"]')?.textContent ?? "").trim(),
      }))`,
+  );
+
+/** One row's measured box and the two type sizes inside it. */
+interface DocumentMetric {
+  height: number;
+  titleSize: string;
+  factsSize: string;
+}
+
+/**
+ * The fold's rows are one row — the compact mono `TugListRow` — so every one
+ * reports the same height, and the title and the facts on a row are set at the
+ * same size. The shipping strip set the title `sm` over `xs` facts, which is
+ * what made a row's subordinate fact read against its own title.
+ */
+const readDocumentMetrics = (
+  app: Awaited<ReturnType<typeof launchTugApp>>,
+): Promise<DocumentMetric[]> =>
+  app.evalJS<DocumentMetric[]>(
+    `Array.from(document.querySelectorAll(${JSON.stringify(DOCUMENTS)})).map((row) => {
+       const title = row.querySelector('[data-slot="session-arc-document-title"]');
+       const facts = row.querySelector('[data-slot="session-arc-document-facts"]');
+       return {
+         height: Math.round(row.getBoundingClientRect().height * 100) / 100,
+         titleSize: title === null ? "" : getComputedStyle(title).fontSize,
+         factsSize: facts === null ? "" : getComputedStyle(facts).fontSize,
+       };
+     })`,
   );
 
 describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
@@ -260,6 +289,16 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
         expect(live.find((row) => row.role === "plan")!.facts).toBe(
           "never-reviewed · 2 steps",
         );
+
+        // ── One row height, one size per row ──────────────────────────────
+        const metrics = await readDocumentMetrics(app);
+        note("at0479 metrics", JSON.stringify(metrics));
+        expect(metrics).toHaveLength(2);
+        expect(metrics[1]!.height).toBe(metrics[0]!.height);
+        for (const metric of metrics) {
+          expect(metric.titleSize).not.toBe("");
+          expect(metric.factsSize).toBe(metric.titleSize);
+        }
         note("at0479 live", (await app.screenshot()).path);
       } finally {
         await app.close();

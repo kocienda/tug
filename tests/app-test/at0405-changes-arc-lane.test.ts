@@ -66,9 +66,13 @@
  * asserting it against a fabricated frame.
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.css
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-documents.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/changes-section-labels.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-brief.tsx
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-brief.css
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold-row.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold.css
+ * @covers tugdeck/src/components/tugways/tug-changes-list.tsx
  * @covers tugdeck/src/lib/arc-file-clusters.ts
  * @covers tugdeck/src/lib/landing-message.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/arc-row-menu.tsx
@@ -79,6 +83,9 @@
  * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
  * @covers tugdeck/src/lib/document-arc-entry.ts
  * @covers tugdeck/src/components/tugways/tug-section-label.tsx
+ * @covers tugdeck/src/components/arcs/arcs-card.tsx
+ * @covers tugdeck/src/lib/arc-join-register.ts
+ * @covers tugdeck/src/components/tugways/arc-join-register.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -128,6 +135,11 @@ const REST_LABEL = `${LANE} [data-slot="session-changes-arc-lane-rest-label"]`;
 
 const ARC_NAME = "at0405-lane";
 const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
+/** The brief's file list — the totals row and every area under it. */
+const FILES = `${ROW} [data-slot="session-changes-arc-files"]`;
+/** The whole fold — documents, report, brief — the one box the geometry
+ *  assertions below are asked of. */
+const DETAIL = `${ROW} .session-changes-arc-detail`;
 const ROW_FOLD = `${ROW} [data-slot="session-changes-arc-fold"]`;
 /** The same arc on the Arcs card — the every-arc surface, where a held arc
  *  is still a row. */
@@ -137,6 +149,26 @@ const ARCS_ROW = `.arcs-section [data-slot="arcs-row"][data-arc="${ARC_NAME}"]`;
  * question about them is asked of an opened menu rather than of the row.
  */
 const ROW_MENU_OPENER = arcRowMenuOpener(ROW);
+
+/**
+ * The chrome the fold hosts but does not author, excluded from the two-sizes
+ * assertion because each of these carries a type scale of its own that the
+ * fold has no business overriding. Without the list the assertion is false by
+ * construction rather than by defect.
+ */
+const FOREIGN_TYPE_SCALES = [
+  // `TugSectionLabel` sets `2xs` for all three section eyebrows — an eyebrow
+  // is smaller than its rows by design, everywhere in the app.
+  ".tug-section-label",
+  // `DiffSummaryBadges` renders `TugBadge`, whose counts have their own 8–12px
+  // scale — the same badges a commit receipt's rows carry.
+  ".tug-badge",
+  // A blocker is a `TugInlineDialog`; the frame, its title and its actions are
+  // the primitive's type, not the fold's.
+  ".tug-inline-dialog",
+  // The escalation's surface is the shipped question wizard, mounted whole.
+  ".tug-question-wizard",
+];
 
 /** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -600,66 +632,167 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // Read-only means read-only: no editor, anywhere in the row.
         expect(detail.editors).toBe(0);
 
-        // ── An area that folds says so, and has room to be pressed ────────
-        // The cluster head is the fold's only affordance: a chevron that
-        // turns, a name, and a box big enough that the hover wash and the
-        // focus ring land around the row rather than on its glyphs. It also
-        // takes the size every other file list in the deck takes — a path is
-        // a path, whichever block prints it — so the size is read off the
-        // commit receipt's own token rather than off a number written here.
-        const fold = await app.evalJS<{
-          chevrons: number;
-          rotated: string;
-          expanded: string | null;
-          pad: number;
-          nameSize: string;
-          rowSize: string;
-          receiptSize: string;
+        // ── A changed file is the receipt's own row ───────────────────────
+        // Not a lookalike: `ChangesFileRow` itself, mounted through
+        // `ArcRangeFileRow`, so the fold's rows and a commit receipt's rows
+        // cannot drift apart. A root-level file is a cluster of one and
+        // renders directly.
+        const shape = await app.evalJS<{
+          blocks: number;
+          roundFile: boolean;
+          area: string | null;
+          areaIsRow: boolean;
         }>(
           `(() => {
-             const row = document.querySelector(${JSON.stringify(ROW)});
-             const cluster = row.querySelector('[data-slot="session-changes-arc-cluster"][data-dir$="${ROUND_AREA}"]');
-             const head = cluster.querySelector(".session-changes-arc-cluster-toggle");
-             const chevron = head.querySelector(".session-changes-arc-cluster-chevron");
-             const name = head.querySelector(".session-changes-arc-cluster-dir");
-             const file = cluster.querySelector(".session-changes-arc-cluster-files .session-changes-arc-file-path");
-             const style = getComputedStyle(head);
+             const files = document.querySelector(${JSON.stringify(FILES)});
+             const area = files.querySelector('[data-slot="session-changes-arc-cluster"][data-dir$="${ROUND_AREA}"]');
              return {
-               chevrons: head.querySelectorAll(".session-changes-arc-cluster-chevron").length,
-               rotated: getComputedStyle(chevron).transform,
-               expanded: cluster.getAttribute("data-expanded"),
-               pad: parseFloat(style.paddingLeft) + parseFloat(style.paddingTop),
-               nameSize: getComputedStyle(name).fontSize,
-               rowSize: getComputedStyle(file).fontSize,
-               receiptSize: getComputedStyle(document.body).getPropertyValue("--tugx-filerow-name-size"),
+               blocks: files.querySelectorAll(".tug-changes-list-file-block").length,
+               roundFile: files.querySelector('.tug-changes-list-file-block[data-path="${ROUND_FILE}"]') !== null,
+               area: area === null ? null : area.getAttribute("data-expanded"),
+               areaIsRow: area !== null && area.querySelector(".arc-fold-row") !== null,
              };
            })()`,
         );
-        note(`at0405 fold: ${JSON.stringify(fold)}`);
-        expect(fold.chevrons, "an area that folds carries a chevron").toBe(1);
-        expect(fold.expanded, "and starts folded").toBe("false");
-        expect(
-          fold.rotated === "none" || fold.rotated === "matrix(1, 0, 0, 1, 0, 0)",
-          "the chevron rests unturned while the fold is shut",
-        ).toBe(true);
-        expect(
-          fold.pad,
-          "the press has padding, so its ring is not drawn on the text",
-        ).toBeGreaterThan(0);
-        // The token resolves to a length; both rows are measured against what
-        // it resolves to, so retuning the token moves all three together.
-        const receiptPx = await app.evalJS<string>(
+        note(`at0405 file shape: ${JSON.stringify(shape)}`);
+        expect(shape.roundFile, "a changed file is a receipt file block").toBe(true);
+        expect(shape.area, "an area starts folded").toBe("false");
+        expect(shape.areaIsRow, "and its head is the fold's own row").toBe(true);
+
+        // And the head's own fold cue turns it — the directory row is a fold,
+        // not a label with a chevron drawn beside it.
+        const AREA = `${FILES} [data-slot="session-changes-arc-cluster"][data-dir$="${ROUND_AREA}"]`;
+        await app.nativeClickAtElement(`${AREA} .arc-fold-row`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${AREA}')?.getAttribute("data-expanded") === "true"`,
+          { timeoutMs: 8000 },
+        );
+        await app.nativeClickAtElement(`${AREA} .arc-fold-row`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${AREA}')?.getAttribute("data-expanded") === "false"`,
+          { timeoutMs: 8000 },
+        );
+
+        // Expanding one mounts THAT file's diff and no other — the pathspec
+        // this fold's pop-outs rest on, proven at the row that uses it.
+        await app.nativeClickAtElement(
+          `${FILES} .tug-changes-list-file-block[data-path="${ROUND_FILE}"] .tug-changes-list-row-hit`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${FILES} .tug-changes-list-file-block[data-path="${ROUND_FILE}"] [data-slot="diff-body"]') !== null`,
+          { timeoutMs: 20000 },
+        );
+        const scoped = await app.evalJS<{ headers: string[] }>(
           `(() => {
-             const probe = document.createElement("span");
-             probe.style.fontSize = "var(--tugx-filerow-name-size)";
-             document.body.appendChild(probe);
-             const size = getComputedStyle(probe).fontSize;
-             probe.remove();
-             return size;
+             const block = document.querySelector('${FILES} .tug-changes-list-file-block[data-path="${ROUND_FILE}"]');
+             return {
+               headers: Array.from(block.querySelectorAll("[data-slot=\\"diff-body\\"]")).map(
+                 (body) => (body.textContent ?? "").slice(0, 400),
+               ),
+             };
            })()`,
         );
-        expect(fold.rowSize, "a path takes the commit receipt's size").toBe(receiptPx);
-        expect(fold.nameSize, "and so does the area that holds it").toBe(receiptPx);
+        note(`at0405 scoped diff: ${JSON.stringify(scoped).slice(0, 300)}`);
+        expect(scoped.headers.length, "the expand mounted one diff body").toBe(1);
+        expect(
+          scoped.headers[0],
+          "and it is this file's, not the whole range's",
+        ).not.toContain(ROUND_AREA);
+
+        // ── The totals row folds the whole list, and stays ────────────────
+        await app.nativeClickAtElement(
+          `${FILES} [data-slot="session-changes-arc-totals"]`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll('${FILES} .tug-changes-list-file-block').length === 0`,
+          { timeoutMs: 8000 },
+        );
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector('${FILES} [data-slot="session-changes-arc-totals"]') !== null`,
+          ),
+          "the totals row survives its own fold",
+        ).toBe(true);
+        // And back, so the rest of the file reads the list it expects.
+        await app.nativeClickAtElement(
+          `${FILES} [data-slot="session-changes-arc-totals"]`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll('${FILES} .tug-changes-list-file-block').length > 0`,
+          { timeoutMs: 8000 },
+        );
+
+        // ── The air: rows and eyebrows, and nothing else ──────────────────
+        // One row height for every row the fold draws, two type sizes for
+        // everything the fold itself authors, and no gap between the sections
+        // — the three facts that make the fold read as one list rather than
+        // as three strips that happen to be stacked.
+        const air = await app.evalJS<{
+          gap: string;
+          heights: number[];
+          sizes: number[];
+          xs: number;
+          sm: number;
+        }>(
+          `(() => {
+             const detail = document.querySelector(${JSON.stringify(DETAIL)});
+             // The two sizes are read from the theme rather than written down:
+             // a probe resolving each token is what the assertion compares
+             // against, so retuning a token retunes the test with it.
+             const probe = document.createElement("span");
+             probe.style.position = "absolute";
+             probe.style.visibility = "hidden";
+             detail.appendChild(probe);
+             probe.style.fontSize = "var(--tug-font-size-xs)";
+             const xs = parseFloat(getComputedStyle(probe).fontSize);
+             probe.style.fontSize = "var(--tug-font-size-sm)";
+             const sm = parseFloat(getComputedStyle(probe).fontSize);
+             probe.remove();
+
+             const foreign = ${JSON.stringify(FOREIGN_TYPE_SCALES)}.join(",");
+             const sizes = new Set();
+             for (const el of detail.querySelectorAll("*")) {
+               if (el.closest(foreign) !== null) continue;
+               // Only elements that actually SET type on their own text: an
+               // ancestor's size is asserted at the descendant that shows it.
+               let own = false;
+               for (const node of el.childNodes) {
+                 if (node.nodeType === 3 && node.textContent.trim() !== "") own = true;
+               }
+               if (!own) continue;
+               sizes.add(parseFloat(getComputedStyle(el).fontSize));
+             }
+
+             const style = getComputedStyle(detail);
+             return {
+               gap: style.rowGap,
+               heights: [...new Set(
+                 // A row inside a closed fold is display:none and has no
+                 // height to be equal to; the question is about the rows a
+                 // reader can see.
+                 [...detail.querySelectorAll(".tug-list-row")]
+                   .filter((r) => r.offsetParent !== null)
+                   .map((r) => Math.round(r.getBoundingClientRect().height)),
+               )],
+               sizes: [...sizes].sort((a, b) => a - b),
+               xs,
+               sm,
+             };
+           })()`,
+        );
+        note(`at0405 air: ${JSON.stringify(air)}`);
+        // A `gap` the stylesheet does not set computes as `normal` on a flex
+        // box; either reading is the same fact — the sections are flush and
+        // their eyebrows are what separates them.
+        expect(
+          air.gap === "normal" || parseFloat(air.gap) === 0,
+          "the fold has no inter-section gap",
+        ).toBe(true);
+        expect(air.heights, "every fold row reports one height").toHaveLength(1);
+        expect(air.sizes, "and the fold's own text has two sizes").toEqual([
+          air.xs,
+          air.sm,
+        ]);
 
         // ── Bind: the arc fronts, expanded, under its own label ───────────
         await app.dispatchControlAction("bind_arc_ok", {
@@ -753,6 +886,50 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
             `document.querySelector(${JSON.stringify(`${LANE} [data-slot="session-changes-arc-row"]`)})?.getAttribute("data-arc") ?? null`,
           ),
         ).toBe(ARC_NAME);
+
+        // ── A ready arc says so in the Arcs card's own line ────────────────
+        // This arc's join is armed — the `lands as` grammar above is what says
+        // so — and on the Arcs card that reading is two lines rather than
+        // three: the lifecycle line carries the whole sentence, naming the
+        // base, with a settled dot where the phase glyph stands, and the
+        // register band under it is not drawn at all ([P08]). The band's job
+        // was to say a thing the line above it could say itself.
+        await app.dispatchControlAction("toggle-arcs");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(ARCS_ROW)}) !== null`,
+          { timeoutMs: 30000 },
+        );
+        await app.waitForCondition<boolean>(
+          `(document.querySelector('${ARCS_ROW} [data-slot="tug-arc-lifecycle-note"]')?.textContent ?? "").trim() === "Ready to join to main"`,
+          { timeoutMs: 30000 },
+        );
+        const readyRow = await app.evalJS<{
+          note: string;
+          registers: number;
+          phaseMarks: number;
+          overrides: number;
+          dots: number;
+        }>(
+          `(() => {
+             const row = document.querySelector(${JSON.stringify(ARCS_ROW)});
+             const slot = row.querySelector(".tug-arc-lifecycle-mark-slot");
+             return {
+               note: (row.querySelector('[data-slot="tug-arc-lifecycle-note"]')?.textContent ?? "").trim(),
+               registers: row.querySelectorAll('[data-slot="arc-join-register"]').length,
+               phaseMarks: row.querySelectorAll('[data-slot="tug-arc-phase-mark"]').length,
+               overrides: slot === null ? 0 : 1,
+               dots: slot === null ? 0 : slot.querySelectorAll('[data-slot="tug-progress-indicator"]').length,
+             };
+           })()`,
+        );
+        note(`at0405 ready row: ${JSON.stringify(readyRow)}`);
+        expect(readyRow.note, "the line carries the whole sentence, base and all").toBe(
+          "Ready to join to main",
+        );
+        expect(readyRow.registers, "and no register band stands under it").toBe(0);
+        expect(readyRow.overrides, "the host's own mark is seated").toBe(1);
+        expect(readyRow.phaseMarks, "and the phase glyph yields to it").toBe(0);
+        expect(readyRow.dots, "the mark is the settled indicator").toBe(1);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

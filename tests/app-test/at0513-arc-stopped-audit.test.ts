@@ -26,8 +26,12 @@
  * table in `arc-join-register.test.ts` pins that; what this file pins is the
  * whole chain from the record through the feed to the row.
  *
+ * @covers tugdeck/src/components/arcs/arcs-card.tsx
  * @covers tugdeck/src/lib/arc-join-register.ts
  * @covers tugdeck/src/components/tugways/arc-lifecycle-line.tsx
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-line.css
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
+ * @covers tugdeck/src/components/tugways/arc-phase-mark.tsx
  * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
  * @covers tugrust/crates/tugarc-core/src/log.rs
  */
@@ -156,6 +160,9 @@ interface RowReading {
   litCell: string | null;
   note: string;
   facts: Array<{ key: string | null; label: string }>;
+  phaseMarks: number;
+  markOverrides: number;
+  registers: number;
   registerWord: string | null;
   registerLine: string;
   text: string;
@@ -178,6 +185,9 @@ const readRow = (app: App): Promise<RowReading> =>
          note: (row.querySelector('[data-slot="tug-arc-lifecycle-note"]')?.textContent ?? "").trim(),
          facts: Array.from(row.querySelectorAll('[data-slot="tug-arc-lifecycle-fact"]'))
            .map((el) => ({ key: el.getAttribute("data-fact"), label: (el.textContent ?? "").trim() })),
+         phaseMarks: row.querySelectorAll('[data-slot="tug-arc-phase-mark"]').length,
+         markOverrides: row.querySelectorAll(".tug-arc-lifecycle-mark-slot").length,
+         registers: row.querySelectorAll('[data-slot="arc-join-register"]').length,
          registerWord: register?.getAttribute("data-word") ?? null,
          registerLine: (register?.textContent ?? "").trim(),
          text: (row.textContent ?? "").trim(),
@@ -235,12 +245,27 @@ describe.skipIf(!SHOULD_RUN)("AT0513: a stopped audit on the Arcs card", () => {
         expect(row.facts.map((f) => f.label)).not.toContain("planned");
         expect(row.text).not.toContain("planned");
 
+        // ── The mark override changes nothing for a host that passes none ──
+        // `ArcLifecycleLine` takes a `mark` beside its `note`, and both are
+        // overrides: absent one, the line reads the model. This row passes
+        // neither, so the phase glyph stands where it always stood and the
+        // override's seat is not in the tree at all.
+        expect(row.phaseMarks, "the unoverridden line still renders its phase glyph").toBe(1);
+        expect(row.markOverrides, "and mounts no override slot").toBe(0);
+
         // ── The offer is not made ─────────────────────────────────────────
         // The server holds `join_ready` shut over a stopped audit, and the
         // register says why in the caution register rather than going dark.
         expect(row.registerWord).toBe("unaudited");
         expect(row.registerLine).toContain("audit stopped");
         expect(row.text).not.toContain("Ready to join");
+        // And the band is still drawn. A *ready* arc's row loses it — the
+        // lifecycle line says `Ready to join to <base>` in its own words and a
+        // third line restating a settled fact is chrome ([P08]). That reach is
+        // exactly one reading: every other one, including this caution, keeps
+        // its band, and this assertion is what stops the narrowing spreading
+        // to readings nobody decided about.
+        expect(row.registers, "a non-ready reading keeps its register band").toBe(1);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

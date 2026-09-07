@@ -67,6 +67,8 @@
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold-row.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold.css
  * @covers tugdeck/src/lib/changeset-join-store.ts
  * @covers tugdeck/src/lib/arc-join-register.ts
  */

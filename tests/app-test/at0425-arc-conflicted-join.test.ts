@@ -42,6 +42,8 @@
  *   flips to Leave only on the `bind_arc_ok` broadcast that comes back.
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold-row.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold.css
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/lib/join-mode-controller.ts
@@ -92,6 +94,8 @@ const JOIN_FACE = `${ROW} [data-slot="session-changes-arc-join"]`;
 const REGISTER = `${ROW} [data-slot="arc-join-register"]`;
 const CONFLICTS = `${ROW} [data-slot="session-changes-arc-join-conflicts"]`;
 const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-arc-join-archaeology"]`;
+const CONFLICT_PATH = `${ROW} [data-slot="session-changes-arc-join-conflict-path"]`;
+const CONFLICT_FACT = `${ROW} [data-slot="session-changes-arc-join-conflict-fact"]`;
 
 const ARCS_CARD = '.arcs-section';
 
@@ -264,6 +268,54 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         );
         expect(archaeology).toContain(baseSubject);
         note(`archaeology names the base commit: ${baseSubject}`);
+
+        // ── One fact, one red ─────────────────────────────────────────────
+        // The conflict's mark, its path and its sentence are one fact stated
+        // once, so all three take the same tint — and that tint is the one the
+        // lifecycle line's own danger clause takes, one line above. The
+        // reference value is resolved by a probe carrying the token inside the
+        // fold itself, so this reads the theme rather than a literal.
+        const tint = await app.evalJS<{
+          probe: string;
+          path: string;
+          mark: string;
+          fact: string;
+        }>(
+          `(function(){
+            var host = document.querySelector(${JSON.stringify(CONFLICTS)});
+            var probe = document.createElement("span");
+            probe.style.color = "var(--tug7-element-tone-icon-normal-danger-rest)";
+            host.appendChild(probe);
+            var value = getComputedStyle(probe).color;
+            probe.remove();
+            var path = document.querySelector(${JSON.stringify(CONFLICT_PATH)});
+            var fact = document.querySelector(${JSON.stringify(CONFLICT_FACT)});
+            var mark = host.querySelector('[data-slot="arc-fold-cell"][data-tone="danger"]');
+            return {
+              probe: value,
+              path: path === null ? "" : getComputedStyle(path).color,
+              mark: mark === null ? "" : getComputedStyle(mark).color,
+              fact: fact === null ? "" : getComputedStyle(fact).color,
+            };
+          })()`,
+        );
+        note("at0425 conflict tint", JSON.stringify(tint));
+        expect(tint.probe).not.toBe("");
+        expect(tint.path).toBe(tint.probe);
+        expect(tint.mark).toBe(tint.probe);
+        expect(tint.fact).toBe(tint.probe);
+
+        // ── One row height across the whole report ────────────────────────
+        // Every line of evidence is the fold's one row, so the section reports
+        // exactly one distinct row height.
+        const heights = await app.evalJS<number[]>(
+          `Array.from(
+             document.querySelectorAll(${JSON.stringify(JOIN_FACE)} + " .arc-fold-row"),
+           ).map((row) => Math.round(row.getBoundingClientRect().height * 100) / 100)`,
+        );
+        note("at0425 report row heights", JSON.stringify(heights));
+        expect(heights.length).toBeGreaterThan(1);
+        expect(new Set(heights).size).toBe(1);
 
         // ── Landing: not offered, and the reason is on screen ─────────────
         // The incident's shape was a control that offered a press and refused

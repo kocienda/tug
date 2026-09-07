@@ -39,14 +39,15 @@
  *
  * Laws: [L02] every value here arrives as a prop from the view's store reads;
  * [L06] tone paints through `data-outcome` and CSS; [L19] the section
- * composes `TugSectionLabel` rather than hand-rolling an eyebrow; [L31] every
+ * composes `TugSectionLabel` rather than hand-rolling an eyebrow, and every
+ * line of evidence is the fold's one `ArcFoldRow`; [L31] every
  * refusal is on screen — on the control that refuses, or as the blocker's own
  * sentence here.
  *
  * @module components/tugways/cards/session-changes/session-changes-arc-join
  */
 
-import "./session-changes-arc-join.css";
+import "./session-changes-arc-fold.css";
 
 import React from "react";
 import { LoaderCircle, TriangleAlert } from "lucide-react";
@@ -54,6 +55,10 @@ import { LoaderCircle, TriangleAlert } from "lucide-react";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import {
+  ArcFoldCell,
+  ArcFoldRow,
+} from "@/components/tugways/cards/session-changes/session-changes-arc-fold-row";
 import {
   QuestionWizard,
   type ParsedQuestion,
@@ -336,14 +341,16 @@ function BlockerDialog({
               is a number the reader has to take on trust, which is not what a
               fact sheet is for. */}
           {paths.length > 0 ? (
-            <ul
+            <div
               className="session-changes-arc-join-paths"
               data-slot="session-changes-arc-join-paths"
             >
               {paths.map((path) => (
-                <li key={path}>{path}</li>
+                <ArcFoldRow key={path} leading={<ArcFoldCell />}>
+                  <span className="arc-fold-path">{path}</span>
+                </ArcFoldRow>
               ))}
-            </ul>
+            </div>
           ) : null}
           {detailIsElsewhere ? null : (
             <span className="session-changes-arc-join-detail">
@@ -554,7 +561,7 @@ export function SessionChangesArcJoin({
           the fold is taking. Two lines with two words for one act is the whole
           defect the register exists to prevent. */}
       {resolveFace === "folding" ? (
-        <ul
+        <div
           className="session-changes-arc-join-rungs"
           data-slot="session-changes-arc-join-folding"
         >
@@ -562,9 +569,11 @@ export function SessionChangesArcJoin({
             .filter((blocker) => blocker.kind === "base-dirt")
             .flatMap((blocker) => blocker.paths ?? [])
             .map((path) => (
-              <li key={path}>{path}</li>
+              <ArcFoldRow key={path} leading={<ArcFoldCell />}>
+                <span className="arc-fold-path">{path}</span>
+              </ArcFoldRow>
             ))}
-        </ul>
+        </div>
       ) : null}
       {/* A ladder run says so for its whole duration, whether or not it has
           anything to stream yet. The rungs below the AI one resolve without
@@ -583,41 +592,47 @@ export function SessionChangesArcJoin({
         </div>
       ) : null}
       {resolveFace === "progress" && resolve.progress.length > 0 ? (
-        <ul
+        <div
           className="session-changes-arc-join-rungs"
           data-slot="session-changes-arc-join-progress"
         >
           {resolve.progress.map((file) => (
-            <li key={file.path} data-status={file.status}>
+            <ArcFoldRow
+              key={file.path}
+              wrapperProps={{ "data-status": file.status }}
+              leading={<ArcFoldCell />}
+              trailing={
+                <span className="arc-fold-fact">
+                  {file.rung} · {file.status}
+                </span>
+              }
+            >
               {/* The resolver rung reports a candidate rather than a file, so
                   the column names whichever it has. It used to render the sha
                   as a path, which read as a filename nobody could find. */}
-              <span className="session-changes-arc-join-rung-path">
+              <span className="arc-fold-path">
                 {file.path !== "" ? file.path : (file.candidate ?? "")}
               </span>
-              <span className="session-changes-arc-join-rung-word">
-                {file.rung} · {file.status}
-              </span>
-            </li>
+            </ArcFoldRow>
           ))}
-        </ul>
+        </div>
       ) : null}
       {resolvedRows ? (
-        <ul
+        <div
           className="session-changes-arc-join-rungs"
           data-slot="session-changes-arc-join-resolved"
         >
           {resolved.map((file) => (
-            <li key={file.path} data-resolved-by={file.resolved_by}>
-              <span className="session-changes-arc-join-rung-path">
-                {file.path}
-              </span>
-              <span className="session-changes-arc-join-rung-word">
-                {file.resolved_by}
-              </span>
-            </li>
+            <ArcFoldRow
+              key={file.path}
+              wrapperProps={{ "data-resolved-by": file.resolved_by }}
+              leading={<ArcFoldCell />}
+              trailing={<span className="arc-fold-fact">{file.resolved_by}</span>}
+            >
+              <span className="arc-fold-path">{file.path}</span>
+            </ArcFoldRow>
           ))}
-        </ul>
+        </div>
       ) : null}
       {/* Where the review panel stood ([P07]). The human is no longer the
           auditor of machine text decisions: the resolver read every resolution
@@ -631,21 +646,25 @@ export function SessionChangesArcJoin({
           data-slot="session-changes-arc-join-account"
         >
           {report !== null && report.files.length > 0 ? (
-            <ul
+            <div
               className="session-changes-arc-join-report"
               data-slot="session-changes-arc-join-report"
             >
               {report.files.map((file) => (
-                <li key={file.path} data-audit={file.audit ?? "finished"}>
-                  <span className="session-changes-arc-join-report-path">
-                    {file.path}
-                  </span>
-                  <span className="session-changes-arc-join-report-what">
-                    {file.reconciliation}
-                  </span>
-                </li>
+                <ArcFoldRow
+                  key={file.path}
+                  wrapperProps={{ "data-audit": file.audit ?? "finished" }}
+                  leading={<ArcFoldCell />}
+                  trailing={
+                    <span className="arc-fold-fact session-changes-arc-join-report-what">
+                      {file.reconciliation}
+                    </span>
+                  }
+                >
+                  <span className="arc-fold-path">{file.path}</span>
+                </ArcFoldRow>
               ))}
-            </ul>
+            </div>
           ) : null}
           {report !== null &&
           report.notes !== undefined &&
@@ -715,7 +734,7 @@ export function SessionChangesArcJoin({
         </div>
       ) : null}
       {conflicts.length > 0 ? (
-        <ul
+        <div
           className="session-changes-arc-join-conflicts"
           data-slot="session-changes-arc-join-conflicts"
         >
@@ -729,36 +748,59 @@ export function SessionChangesArcJoin({
             const elided =
               history === null ? 0 : history.total - commits.length;
             return (
-              <li key={path}>
-                <span className="session-changes-arc-join-conflict-path">
-                  {path}
-                </span>
+              <React.Fragment key={path}>
+                {/* One tint for the whole fact ([B07]): the mark, the path and
+                    the sentence all take the tone the lifecycle line's own
+                    danger clause takes, one line above. Two reds for one fact
+                    was the shipping fold's defect. */}
+                <ArcFoldRow
+                  leading={
+                    <ArcFoldCell tone="danger">
+                      <TriangleAlert size={12} aria-hidden />
+                    </ArcFoldCell>
+                  }
+                  trailing={
+                    <span
+                      className="arc-fold-fact arc-fold-fact-danger"
+                      data-slot="session-changes-arc-join-conflict-fact"
+                    >
+                      conflicts with {entry.base}
+                    </span>
+                  }
+                >
+                  <span
+                    className="arc-fold-path arc-fold-path-danger session-changes-arc-join-conflict-path"
+                    data-slot="session-changes-arc-join-conflict-path"
+                  >
+                    {path}
+                  </span>
+                </ArcFoldRow>
                 {history !== null ? (
-                  <ul
+                  <div
                     className="session-changes-arc-join-archaeology"
                     data-slot="session-changes-arc-join-archaeology"
                   >
                     {commits.map((commit) => (
-                      <li key={commit.sha}>
-                        <span className="session-changes-arc-join-archaeology-sha">
-                          {commit.sha}
-                        </span>
-                        <span className="session-changes-arc-join-archaeology-subject">
+                      <ArcFoldRow key={commit.sha} leading={<ArcFoldCell />}>
+                        <span className="arc-fold-sha">{commit.sha}</span>
+                        <span className="arc-fold-prose arc-fold-muted">
                           {commit.subject}
                         </span>
-                      </li>
+                      </ArcFoldRow>
                     ))}
                     {elided > 0 ? (
-                      <li className="session-changes-arc-join-note">
-                        +{elided} earlier
-                      </li>
+                      <ArcFoldRow leading={<ArcFoldCell />}>
+                        <span className="arc-fold-prose arc-fold-muted">
+                          +{elided} earlier
+                        </span>
+                      </ArcFoldRow>
                     ) : null}
-                  </ul>
+                  </div>
                 ) : null}
-              </li>
+              </React.Fragment>
             );
           })}
-        </ul>
+        </div>
       ) : null}
       {error !== null ? (
         <div className="session-changes-arc-join-error" role="alert">

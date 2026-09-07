@@ -394,8 +394,15 @@ export function arcJoinRegister(
   // A candidate that stands is the whole readiness fact now. Nothing is built
   // here: the run's ending verified the tree that lands, so reconcile-clean is
   // what the arc was waiting for.
+  //
+  // The sentence names the base because on the Arcs card it is now the only
+  // thing that does: a ready arc reads in the lifecycle line's own words and
+  // the register band under it is not drawn at all ([P08]), so "Ready to join"
+  // alone would have dropped the branch the offer is about. It is derived here
+  // rather than composed at any surface, which is what keeps the shade, the
+  // composer and the card reading one sentence.
   if (typeof join?.candidate === "string" && join.candidate !== "") {
-    return { phase: "success", line: "Ready to join", word: "ready" };
+    return { phase: "success", line: `Ready to join to ${base}`, word: "ready" };
   }
 
   // No candidate, nothing running. On a joinable arc somebody is holding,

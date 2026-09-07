@@ -37,6 +37,12 @@
  * anything is moving. And the line never leaves its box: the reading elides
  * first, and what still does not fit is clipped rather than overflowing.
  *
+ * **Two overrides, both for a host that knows something the model does not.**
+ * `note` replaces the reading's word — a receipt's frozen `Finished · 3
+ * stages`. `mark` replaces the phase glyph — a settled dot for an arc whose
+ * join is armed and waiting on a person. Neither is a prop every host threads,
+ * which is the point of an override: the model answers for everyone else.
+ *
  * **The whole run is CENTRED — track, then reading, as one unit.** The line
  * used to pack everything against its left edge, which was the right shape
  * when the reading carried a step's title and ran most of the width; it does
@@ -95,6 +101,21 @@ export interface ArcLifecycleLineProps {
    * never a run of its own ([D168]).
    */
   stepTitle?: string | null;
+  /**
+   * A mark of the host's own, standing where {@link ArcPhaseMark} stands —
+   * the second override beside `note`, and for the same reason.
+   *
+   * The phase glyph says which phase the model is in. A host that has settled
+   * something the model has no phase for — an arc whose join is armed and
+   * waiting on a person rather than on work — knows a fact the model does not,
+   * and an override is how it says so without every other caller having to
+   * thread a prop it would always leave empty. Present, `ArcPhaseMark` is not
+   * rendered: one mark stands at the head of the reading, never two.
+   *
+   * The line seats it on the track's cap band, as it seats the glyph. Its own
+   * box — its size, its colour — is the caller's.
+   */
+  mark?: React.ReactNode;
   facts?: readonly ArcMetaFact[];
 }
 
@@ -102,6 +123,7 @@ export function ArcLifecycleLine({
   model,
   note,
   stepTitle = null,
+  mark,
   facts = [],
 }: ArcLifecycleLineProps): React.ReactElement {
   const steps = model.steps;
@@ -118,8 +140,12 @@ export function ArcLifecycleLine({
       <span className="tug-arc-lifecycle-reading" data-slot="tug-arc-lifecycle-reading">
         {/* One pixel proud of the 9px cap band the track occupies, so the glyph
           reads as the strip's neighbour rather than as a taller mark set
-          beside it. */}
-        <ArcPhaseMark model={model} size={11} />
+          beside it — or the host's own mark in its place, on the same band. */}
+        {mark !== undefined ? (
+          <span className="tug-arc-lifecycle-mark-slot">{mark}</span>
+        ) : (
+          <ArcPhaseMark model={model} size={11} />
+        )}
         {/* A tooltip is never a second copy of the word under the cursor. The
           reading elides first when the line runs out of room, so the bubble is
           for the words the ellipsis took away — `truncated` measures the

@@ -12,21 +12,30 @@
  * surface that wants to name a document cannot open it to find out. Absent, the
  * role stands in — a document with no heading is still a document.
  *
+ * The section mounts its own eyebrow, as the report and brief sections do, so
+ * the fold's markup is three self-describing sections in a row and a section
+ * that has nothing to say takes its heading with it when it returns null.
+ *
  * Laws: [L02] every fact arrives as a prop from the view's
  * `useSyncExternalStore` read, and nothing here subscribes; [L06] role and
- * review paint through data attributes and CSS; [L19] the row is `TugListRow`
- * rather than hand-rolled chrome; [L23] the open goes through
- * `openFileInCard`, which owns the focus transfer.
+ * review paint through data attributes and CSS; [L19] the row is `ArcFoldRow`
+ * — the fold's one row — rather than hand-rolled chrome; [L23] the open goes
+ * through `openFileInCard`, which owns the focus transfer.
  *
  * @module components/tugways/cards/session-changes/session-changes-arc-documents
  */
 
-import "./session-changes-arc-documents.css";
+import "./session-changes-arc-fold.css";
 
 import React from "react";
-import { FileText } from "lucide-react";
+import { FileText, SquareArrowOutUpRight } from "lucide-react";
 
-import { TugListRow } from "@/components/tugways/tug-list-row";
+import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TugSectionLabel } from "@/components/tugways/tug-section-label";
+import {
+  ArcFoldCell,
+  ArcFoldRow,
+} from "@/components/tugways/cards/session-changes/session-changes-arc-fold-row";
 import { arcReviewPaints } from "@/lib/arc-review";
 import { useDeckManager } from "@/deck-manager-context";
 import { openFileInCard } from "@/lib/open-file-in-card";
@@ -124,54 +133,75 @@ export function SessionChangesArcDocuments({
       className="session-changes-arc-documents"
       data-slot="session-changes-arc-documents"
     >
-      {rows.map((row) => (
-        <TugListRow
-          key={row.role}
-          variant="flush"
-          density="compact"
-          className="session-changes-arc-document"
-          data-slot="session-arc-document"
-          data-role={row.role}
-          {...(arcReviewPaints(review, taskList) && row.role === "plan"
-            ? { "data-review": review }
-            : {})}
-          // `TugListRow` is presentational by design and owns no activation,
-          // so the row carries its own — and carries it on the keyboard too,
-          // because a document a reader can only reach with a mouse is a
-          // document the shade made harder to open than the tree did.
-          role="button"
-          tabIndex={0}
-          aria-label={`Open the ${row.role} ${row.title}`}
-          onClick={() => openFileInCard(store, row.path)}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            openFileInCard(store, row.path);
-          }}
-          leading={
-            <FileText
-              size={13}
-              className="session-changes-arc-document-glyph"
-              aria-hidden
-            />
-          }
-        >
-          <span className="session-changes-arc-document-block">
-            <span
-              className="session-changes-arc-document-title"
-              data-slot="session-arc-document-title"
-            >
+      <TugSectionLabel
+        label={{ name: "documents" }}
+        slot="session-changes-arc-documents-label"
+      />
+      {rows.map((row) => {
+        const caution = arcReviewPaints(review, taskList) && row.role === "plan";
+        return (
+          <ArcFoldRow
+            key={row.role}
+            hit
+            wrapperProps={{
+              className: "session-changes-arc-document",
+              "data-slot": "session-arc-document",
+              "data-role": row.role,
+              ...(caution ? { "data-review": review } : {}),
+              // `ArcFoldRow` is presentational by design and owns no
+              // activation, so the row carries its own — and carries it on the
+              // keyboard too, because a document a reader can only reach with
+              // a mouse is a document the shade made harder to open than the
+              // tree did.
+              role: "button",
+              tabIndex: 0,
+              "aria-label": `Open the ${row.role} ${row.title}`,
+              onClick: () => openFileInCard(store, row.path),
+              onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                openFileInCard(store, row.path);
+              },
+            }}
+            leading={
+              <ArcFoldCell tone="muted">
+                <FileText size={12} aria-hidden />
+              </ArcFoldCell>
+            }
+            trailing={
+              <>
+                <span
+                  className={
+                    caution ? "arc-fold-fact arc-fold-fact-caution" : "arc-fold-fact"
+                  }
+                  data-slot="session-arc-document-facts"
+                >
+                  {row.facts ?? row.role}
+                </span>
+                {/* The last control on the row is the one that acts on it. */}
+                <TugPushButton
+                  size="2xs"
+                  subtype="icon"
+                  emphasis="ghost"
+                  role="action"
+                  aria-label={`Open the ${row.role} ${row.title} in a card`}
+                  icon={<SquareArrowOutUpRight size={12} />}
+                  onClick={(event) => {
+                    // The wrapper opens the same document; letting the click
+                    // reach it would open the card twice.
+                    event?.stopPropagation();
+                    openFileInCard(store, row.path);
+                  }}
+                />
+              </>
+            }
+          >
+            <span className="arc-fold-prose" data-slot="session-arc-document-title">
               {row.title}
             </span>
-            <span
-              className="session-changes-arc-document-facts"
-              data-slot="session-arc-document-facts"
-            >
-              {row.facts ?? row.role}
-            </span>
-          </span>
-        </TugListRow>
-      ))}
+          </ArcFoldRow>
+        );
+      })}
     </div>
   );
 }

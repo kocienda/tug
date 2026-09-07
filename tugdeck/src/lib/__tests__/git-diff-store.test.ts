@@ -148,10 +148,35 @@ describe("diffDescriptorKey", () => {
       branch: "tugarc/demo",
     };
     expect(diffDescriptorKey(a)).toBe(
-      "range:/repo:.tug/worktrees/demo:main:tugarc/demo",
+      "range:/repo:.tug/worktrees/demo:main:tugarc/demo:",
     );
     const b: DiffDescriptor = { ...a, branch: "tugarc/other" };
     expect(diffDescriptorKey(b)).not.toBe(diffDescriptorKey(a));
+  });
+
+  test("a scoped range is a different key from the unscoped one", () => {
+    // The fold's per-file pop-out asks for one path out of the arc range; if
+    // the pathspec fell out of the key, that card would reuse the whole
+    // range's ([P01], Risk R01).
+    const whole: DiffDescriptor = {
+      kind: "range",
+      root: "/repo",
+      worktree: ".tug/worktrees/demo",
+      base: "main",
+      branch: "tugarc/demo",
+    };
+    const scoped: DiffDescriptor = { ...whole, paths: ["src/a.ts"] };
+    const other: DiffDescriptor = { ...whole, paths: ["src/b.ts"] };
+    expect(diffDescriptorKey(scoped)).not.toBe(diffDescriptorKey(whole));
+    expect(diffDescriptorKey(scoped)).not.toBe(diffDescriptorKey(other));
+    expect(diffDescriptorKey(scoped)).toBe(
+      "range:/repo:.tug/worktrees/demo:main:tugarc/demo:src/a.ts",
+    );
+    // The same descriptor repeated is the same key, and order does not perturb it.
+    expect(diffDescriptorKey(scoped)).toBe(diffDescriptorKey({ ...whole, paths: ["src/a.ts"] }));
+    expect(diffDescriptorKey({ ...whole, paths: ["b.ts", "a.ts"] })).toBe(
+      diffDescriptorKey({ ...whole, paths: ["a.ts", "b.ts"] }),
+    );
   });
 
   test("head keys sort paths so order does not perturb identity", () => {

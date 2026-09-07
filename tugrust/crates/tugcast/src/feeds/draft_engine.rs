@@ -600,7 +600,8 @@ async fn gather_arc(
     };
     let fingerprint = scribe::fingerprint_arc_entry(&head_sha, &worktree_status);
 
-    let diff = crate::feeds::git::fetch_arc_diff(repo_dir, worktree, base, branch)
+    // The draft engine reads the whole range: an empty pathspec is unscoped.
+    let diff = crate::feeds::git::fetch_arc_diff(repo_dir, worktree, base, branch, &[])
         .await
         .unwrap_or_default();
     let git_log = git_output(

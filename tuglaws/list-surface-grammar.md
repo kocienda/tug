@@ -78,6 +78,26 @@ The failure this prevents is specific and it shipped once. A near-miss is worse 
 
 **The block is separated from its neighbour by a step, not a hairline.** The eyebrow's rule divides one arc from the next *within* a line; it cannot also make a two-line block read as a unit. At a hairline of padding the second line of one arc sits as close to the eyebrow of the next as to its own.
 
+## An endgame surface is the commit receipt's own row
+
+An arc's endgame — the Changes shade's arc fold, the Arcs card's ready row — used to be three lookalike strips, each with its own type scale and its own spacing. That is how a directory row came to set its subordinate fact *larger* than the path the fact qualified. The correction is the same move the eyebrow and the fact run already made: stop authoring the row and render the one that exists.
+
+**The row is the commit receipt's: `TugListRow` in `variant="flush" density="compact" mono`.** A document, a conflict path, a rung, a changed directory, a round's subject — every line the fold draws is that row, so the fold's rows and a receipt's rows cannot drift apart. A 2ch leading cell holds a glyph or an ordinal, so the content column starts where a `TugStatusMark` would put it.
+
+**One height, and it is declared rather than left to the content.** A row carrying an open cue is as tall as the button; a row carrying only text is as tall as its line. Left alone the two differ by a few pixels, and a strip standing over a strip then reads as two lists. `TugListRow` publishes `--tugx-list-row-min-height` for exactly this, and the fold sets it once, as arithmetic over the button's own published geometry and the row's own padding — never a literal, which would be right until the first retune.
+
+**Two type sizes, and no more.** The fold's own text is `xs`, except the one line the reader came for — a draft's subject — at `sm`. Nothing else steps. **Distinctions are carried by face and tone, never by size**: mono for a path, sans for prose and for a fact, muted for what qualifies and full strength for what is named. A fact set smaller than the row it qualifies is what sets a column's baselines wandering, and it says nothing a tone does not say better. Chrome the surface hosts but does not author — a `TugSectionLabel`, a `TugBadge`, a `TugInlineDialog`, a mounted wizard — keeps its own scale; that is a short, named list rather than a filter that grows until a test passes.
+
+**A row's trailing cluster is ordered counts · pop-out · fold, and the last control on a row is the one that acts on the row.** The counts describe, the pop-out takes the row's subject somewhere else, and the fold opens the row itself — so the cursor's shortest travel ends on the act with the largest effect on what is in front of it.
+
+**Air comes from a row's own padding and a section eyebrow's own margin, and from nothing else.** No gap between sections, no per-section content hang, no block margins on nested lists. Each of those compounds with the other two, which is how three short sections come to fill a screen. A `TugSectionLabel`'s `margin-top` is what separates one section from the last row of the one before it; a row's own 1px is what separates it from its neighbour. A section that wants its rows to hang under its heading is asking for a level of nesting the eyebrow already supplies.
+
+### One fact, one colour
+
+A fact that is worth tinting is tinted **once, in one hue, everywhere it appears on the line**. A conflicted path's glyph, its path and its trailing fact all take `--tug7-element-tone-icon-normal-danger-rest` — the same red the lifecycle line's stopped reading takes — rather than a mark in one red and its words in a lighter one.
+
+Two strengths of the same signal read as two facts of different severity, and there is only one fact. The lighter `--tug7-element-tone-text-normal-danger-rest` exists for prose set in danger, not for a second rung under the icon tone; a row that mixes them is saying something about its own parts that is not true. The tone families themselves are [theme-engine](theme-engine.md#tinted-neutral-authoring-doctrine)'s — signals are fixed across themes by hue — and this is the rule about spending one.
+
 ## Vocabulary
 
 - **`uncommitted`**, never `dirty`. `worktree_dirty` is the wire's spelling and stays the wire's; no surface shows the word.

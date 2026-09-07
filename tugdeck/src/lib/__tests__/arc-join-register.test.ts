@@ -50,8 +50,15 @@ describe("what the register says", () => {
   test("ready is a candidate that stands — nothing is built here", () => {
     const ready = reg(reconciled());
     expect(ready?.phase).toBe("success");
-    expect(ready?.line).toBe("Ready to join");
+    expect(ready?.line).toBe("Ready to join to main");
     expect(ready?.word).toBe("ready");
+
+    // The base is interpolated, not spelled: on the Arcs card this sentence is
+    // the only thing naming the branch the offer is about, because a ready
+    // arc's row draws no register band under it. Two bases, so a hard-coded
+    // `main` cannot pass.
+    expect(reg(reconciled(), { base: "release/7" })?.line).toBe("Ready to join to release/7");
+    expect(reg(reconciled(), { base: "trunk" })?.line).toBe("Ready to join to trunk");
   });
 
   test("an arc whose session is still working is not offered", () => {
@@ -425,7 +432,7 @@ describe("a live arc holds the offer", () => {
     const stopped = reg(reconciled(), {
       run: { stage: "implement", stopped: "stalled", stopped_stage: "implement" },
     });
-    expect(stopped?.line).toBe("Ready to join");
+    expect(stopped?.line).toBe("Ready to join to main");
     expect(stopped?.word).toBe("ready");
   });
 
@@ -469,13 +476,13 @@ describe("a live arc holds the offer", () => {
       stage: "audited",
       run: { stage: "audit", stopped: "stopped by user", stopped_stage: "audit" },
     });
-    expect(signed?.line).toBe("Ready to join");
+    expect(signed?.line).toBe("Ready to join to main");
     expect(signed?.word).toBe("ready");
   });
 
   test("a finished wheel reads ready, which is what the audit signing off means", () => {
     const done = reg(reconciled(), { run: { stage: "audit", done: true } });
-    expect(done?.line).toBe("Ready to join");
+    expect(done?.line).toBe("Ready to join to main");
   });
 
   test("an unbound arc under a live wheel says so, where today it says nothing", () => {
@@ -488,9 +495,9 @@ describe("a live arc holds the offer", () => {
   });
 
   test("no arc at all leaves every other reading exactly as it was", () => {
-    expect(reg(reconciled())?.line).toBe("Ready to join");
-    expect(reg(reconciled(), { run: null })?.line).toBe("Ready to join");
-    expect(reg(reconciled(), { run: undefined })?.line).toBe("Ready to join");
+    expect(reg(reconciled())?.line).toBe("Ready to join to main");
+    expect(reg(reconciled(), { run: null })?.line).toBe("Ready to join to main");
+    expect(reg(reconciled(), { run: undefined })?.line).toBe("Ready to join to main");
   });
 
   test("an audit that has signed off does not go on holding its own offer", () => {
@@ -501,7 +508,7 @@ describe("a live arc holds the offer", () => {
     // the server has already made the offer. Holding it shut over that window
     // would be this arm telling the user to wait for a stage that is finished.
     const signed = reg(reconciled(), { stage: "audited", run: { stage: "audit" } });
-    expect(signed?.line).toBe("Ready to join");
+    expect(signed?.line).toBe("Ready to join to main");
     expect(signed?.word).toBe("ready");
   });
 
@@ -510,8 +517,8 @@ describe("a live arc holds the offer", () => {
     // is live and has no seat. The arm must not fire, or the sentence
     // interpolates the absent stage into the user's face.
     const unseated = reg(reconciled(), { run: { done: false } });
-    expect(unseated?.line).toBe("Ready to join");
-    expect(reg(reconciled(), { run: { stage: "" } })?.line).toBe("Ready to join");
+    expect(unseated?.line).toBe("Ready to join to main");
+    expect(reg(reconciled(), { run: { stage: "" } })?.line).toBe("Ready to join to main");
   });
 
   test("a busy holder still outranks the arc, and a blocker outranks both", () => {

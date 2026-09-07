@@ -558,28 +558,19 @@ function ArcRow({
               readable because they were files in the tree, and they still are
               files — the strip is the same act on the same bytes ([B08]). */}
           {entry.documents !== undefined ? (
-            <div
-              className="session-changes-arc-documents-block"
-              data-slot="session-changes-arc-documents-block"
-            >
-              <TugSectionLabel
-                label={{ name: "documents" }}
-                slot="session-changes-arc-documents-label"
-              />
-              <SessionChangesArcDocuments
-                documents={entry.documents}
-                review={entry.review}
-                taskList={entry.task_list ?? false}
-                steps={
-                  entry.steps === undefined || entry.steps.length === 0
-                    ? undefined
-                    : {
-                        done: entry.steps.filter((s) => s.status === "done").length,
-                        total: entry.steps.length,
-                      }
-                }
-              />
-            </div>
+            <SessionChangesArcDocuments
+              documents={entry.documents}
+              review={entry.review}
+              taskList={entry.task_list ?? false}
+              steps={
+                entry.steps === undefined || entry.steps.length === 0
+                  ? undefined
+                  : {
+                      done: entry.steps.filter((s) => s.status === "done").length,
+                      total: entry.steps.length,
+                    }
+              }
+            />
           ) : null}
           {joinFace !== null ? (
             <SessionChangesArcJoin
@@ -592,7 +583,11 @@ function ArcRow({
               actions={joinFace.actions}
             />
           ) : null}
-          <SessionChangesArcBrief entry={entry} />
+          <SessionChangesArcBrief
+            entry={entry}
+            projectRoot={projectRoot}
+            branch={descriptor.branch}
+          />
         </div>
       ) : null}
     </div>
@@ -658,25 +653,16 @@ function DocumentArcRow({
         />
       </TugListRow>
       <div className="session-changes-arc-detail">
-        <div
-          className="session-changes-arc-documents-block"
-          data-slot="session-changes-arc-documents-block"
-        >
-          <TugSectionLabel
-            label={{ name: "documents" }}
-            slot="session-changes-arc-documents-label"
-          />
-          <SessionChangesArcDocuments
-            documents={entry.documents}
-            review={entry.review}
-            taskList={entry.task_list ?? false}
-            steps={
-              entry.step_total > 0
-                ? { done: entry.steps_done, total: entry.step_total }
-                : undefined
-            }
-          />
-        </div>
+        <SessionChangesArcDocuments
+          documents={entry.documents}
+          review={entry.review}
+          taskList={entry.task_list ?? false}
+          steps={
+            entry.step_total > 0
+              ? { done: entry.steps_done, total: entry.step_total }
+              : undefined
+          }
+        />
       </div>
     </div>
   );

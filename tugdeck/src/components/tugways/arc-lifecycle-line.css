@@ -60,6 +60,15 @@
   align-self: baseline;
 }
 
+/* The `mark` override's seat, and deliberately not in the run above: an
+   override stands where the phase glyph stands, on the track's cap band, and
+   a mark that joined the baseline run would drop half a line below the strip
+   it belongs beside. The seat is the line's so no caller has to know that. */
+.tug-arc-lifecycle-mark-slot {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
 .tug-arc-lifecycle-note {
   flex: 0 1 auto;

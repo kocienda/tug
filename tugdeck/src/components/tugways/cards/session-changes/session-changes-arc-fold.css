@@ -1,0 +1,447 @@
+/**
+ * The arc fold's one stylesheet.
+ *
+ * One row grammar for every line the Changes shade's arc fold draws — the
+ * documents strip, the report section, the brief section — set in the commit
+ * receipt's own compact mono `TugListRow`: one row height, two type sizes, and
+ * air that comes only from rows and eyebrows. The doctrine is
+ * `tuglaws/list-surface-grammar.md`, under "An endgame surface is the
+ * receipt's own row".
+ *
+ * One stylesheet dresses four components — `ArcFoldRow` and the three
+ * sections — and each of them imports it, so the `[L19]` pairing is readable
+ * off every file that wears these rules.
+ *
+ * @tug-pairings
+ * | Element                                          | Surface                                           | Role    | Context                     |
+ * |--------------------------------------------------|---------------------------------------------------|---------|-----------------------------|
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-fact, .arc-fold-muted, .arc-fold-sha, .arc-fold-cell[data-tone="muted"] |
+ * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-path, .arc-fold-prose |
+ * | --tug7-element-tone-icon-normal-danger-rest      | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-path-danger, .arc-fold-fact-danger, .arc-fold-cell[data-tone="danger"] |
+ * | --tug7-element-tone-icon-normal-caution-rest     | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-fact-caution      |
+ */
+
+.arc-fold-row {
+  min-width: 0;
+}
+
+/* ONE row height, for every row the fold draws — the rule the fold is named
+   for, and the one it could not keep by leaving each row to its content.
+   A row that carries an open cue is as tall as a `2xs` button; a row that
+   carries only text is as tall as an `xs` line. Left alone the two differ by
+   five pixels, and a documents strip standing over a report strip then reads
+   as two lists rather than one.
+
+   So the height is declared once and every row fills to it, through the
+   token `TugListRow` publishes for exactly this ("a consumer that wants
+   uniform row heights across a list"). The value is the arithmetic — the
+   tallest thing a row can carry, plus the compact row's own block padding on
+   both sides — in the terms each part is authored in, so a change to button
+   geometry or row density follows instead of drifting against a literal.
+   `--tug-button-2xs-height` is published on `body` for sibling components to
+   read; it is a geometry token, outside [L20]'s appearance rule. */
+.session-changes-arc-detail .tug-list-row {
+  --tugx-list-row-min-height: calc(
+    var(--tug-button-2xs-height) + 2 * var(--tugx-list-row-padding-block)
+  );
+}
+
+.arc-fold-row-hit {
+  cursor: pointer;
+}
+
+/* Every row that is a gesture's target raises the same visible wash the
+   receipt's file rows raise — declared on the row element, where the
+   primitive declares the token for its consumers. */
+.arc-fold-row-hit .tug-list-row,
+.session-changes-arc-detail .tug-changes-list-row-hit .tug-list-row {
+  --tugx-list-row-flush-hover-bg: var(--tugx-key-cursor-surface);
+}
+
+/* The content column: one run, clipped at the row, gap between its parts. */
+.arc-fold-line {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* The trailing cluster — facts · pop-out · fold — at the file row's own gap.
+
+   `inline-flex` is load-bearing rather than tidy: a bare inline `<span>` here
+   puts its controls on a text baseline, and the leading below the baseline
+   then adds two or three pixels to the row. That is what made the totals row
+   and the directory rows stand taller than the file rows under them, so a
+   wrapper nested inside this one — the stop-propagation spans the brief's
+   rows carry — wears this class too. */
+.arc-fold-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tugx-list-row-trailing-gap);
+}
+
+/* The 2ch leading cell: `TugStatusMark`'s own box, so a glyph or an ordinal
+   here starts the content column where the mark does. */
+.arc-fold-cell {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2ch;
+  font-size: var(--tug-font-size-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.arc-fold-cell[data-tone="muted"] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.arc-fold-cell[data-tone="danger"] {
+  color: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.arc-fold-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.arc-fold-path-danger {
+  color: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+/* Prose in a mono row: a title, a subject, a fold's own name. The family is
+   the one change; the size is the row's. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.arc-fold-prose {
+  font-family: var(--tug-font-family-sans);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.arc-fold-muted {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.arc-fold-sha {
+  flex-shrink: 0;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* A row's fact — `brief`, `4 files · 1 added`, `conflicts with main` — in the
+   sans face, muted, at the row's size. Never smaller than the row: the size
+   step is what set the shipping fold's baselines wandering. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.arc-fold-fact {
+  flex-shrink: 0;
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: nowrap;
+}
+
+.arc-fold-fact-danger {
+  color: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+/* A plan nothing has vouched for says so in the caution tone the rest of the
+   shade uses for the same fact. */
+.arc-fold-fact-caution {
+  color: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+
+/* THE nesting step: a row's children hang one mark cell under it — the step
+   the parent's glyph took — so a nested row's own mark stands where its
+   parent's content started. A directory's files, a conflict's archaeology,
+   the rounds and the full message under their fold heads: one rule, because
+   it is one step.
+
+   The type declared here is load-bearing rather than decorative. `ch`
+   resolves against the ELEMENT'S OWN font, so four sites each writing
+   `calc(2ch + …)` in whatever type it happened to inherit are four different
+   steps wearing one expression — a near-miss of a pixel or two, which this
+   file's own doctrine says is worse than no indent at all. Naming the mark
+   cell's type here is what makes the step one step; everything inside sets
+   its own type, so nothing that shows text inherits it. */
+.arc-fold-nested,
+.session-changes-arc-join-archaeology,
+.session-changes-arc-brief-rounds > .session-changes-arc-subjects,
+.session-changes-arc-brief-detail > .tugx-commit-receipt {
+  padding-inline-start: calc(2ch + var(--tugx-list-row-gap));
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+}
+
+/* ---------------------------------------------------------------------------
+   The sections, on the one row
+   ------------------------------------------------------------------------- */
+
+.session-changes-arc-documents {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------------------------------------------------------------------------
+   The report section — the join's evidence
+
+   Every line of evidence is an `ArcFoldRow` now, so what survives here is the
+   chrome a row is not: the section's own column, the two dialog sentences, the
+   spinner, the account's accent, and the prose arms. Their `sm` sizes are all
+   `xs` — the fold's one size below the draft subject.
+   ------------------------------------------------------------------------- */
+
+.session-changes-arc-join {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The section's ROWS take no air and no hang — they are the fold's one row,
+   and their column is the fold's column. What does take air is the chrome a
+   row is not: a framed blocker, the account panel, the wizard, a sentence of
+   prose. Each of those is a block standing among rows, and a block flush
+   against a row reads as part of it. */
+.session-changes-arc-join > .session-changes-arc-join-note,
+.session-changes-arc-join > .session-changes-arc-join-blockers,
+.session-changes-arc-join > .session-changes-arc-join-running,
+.session-changes-arc-join > .session-changes-arc-join-account,
+.session-changes-arc-join > .session-changes-arc-join-question,
+.session-changes-arc-join > .session-changes-arc-join-stuck,
+.session-changes-arc-join > .session-changes-arc-join-error {
+  margin-block: var(--tug-space-2xs);
+}
+
+/* The empty outcome's one line of prose. It asks the question the release
+   affordance answers, and asks it in words because a dead control would be
+   worse than a sentence that is already true. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-join-note {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.session-changes-arc-join-blockers,
+.session-changes-arc-join-conflicts,
+.session-changes-arc-join-rungs,
+.session-changes-arc-join-report,
+.session-changes-arc-join-paths {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.session-changes-arc-join-blockers {
+  gap: var(--tug-space-2xs);
+}
+
+/* What the base did to a conflicted path since the two sides parted, nested
+   under the path it explains. Indented rather than badged: it is the row's own
+   footnote, and a conflict list that shouted its history twice over would bury
+   the paths themselves. The hang is the fold's own nesting step, so an
+   archaeology row's mark cell stands where its conflict's path started. */
+.session-changes-arc-join-archaeology {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* A blocker is a `TugInlineDialog`, so the frame, the icon column, the title
+   row and the actions cluster are all the primitive's. What is left here is
+   the two sentences that share its description slot: they stack rather than
+   run together, and the first is toned so the fact reads ahead of the act. */
+.session-changes-arc-join-blocker .session-changes-arc-join-detail,
+.session-changes-arc-join-blocker .session-changes-arc-join-act {
+  display: block;
+}
+
+.session-changes-arc-join-blocker
+  .session-changes-arc-join-detail
+  + .session-changes-arc-join-act {
+  margin-block-start: var(--tug-space-2xs);
+}
+
+/* A blocker's own sentence, for the blockers past the first — the first one's
+   is the register's line, one line above this section, and is not said twice.
+   Server-composed, the same bytes the execute path would refuse with, so the
+   preview and the refusal read identically. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-join-detail {
+  color: var(--tug7-element-tone-text-normal-caution-rest);
+}
+
+/* The ladder is running. Present for the whole run, so the act has a receipt
+   even when the rungs below the AI one settle every file without streaming a
+   delta — the case where the list below this line stays empty from press to
+   result. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-join-running {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.session-changes-arc-join-spin {
+  flex: none;
+  animation: session-changes-arc-join-spin 1s linear infinite;
+  /* Compositor promotion: the spin runs exactly while the ladder does. */
+  will-change: transform;
+}
+
+@keyframes session-changes-arc-join-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The verdict panel ([P31]): what the ladder decided and what the checks said,
+   before it can land. It reads as evidence under the report eyebrow now — the
+   tier line fronts the verdict and the tones carry it, so the panel needs no
+   framing rule of its own. */
+.session-changes-arc-join-account {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+}
+
+.session-changes-arc-join-report {
+  align-self: stretch;
+}
+
+/* A path the resolver redid rather than kept is the one the audit earned, so
+   it reads at full strength while the kept ones recede. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-join-report
+  [data-audit="redone"]
+  .session-changes-arc-join-report-what {
+  color: var(--tug7-element-tone-text-normal-accent-rest);
+}
+
+/* The escalation's surface is the shipped question wizard; the face gives it
+   room and nothing else. */
+.session-changes-arc-join-question {
+  align-self: stretch;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-join-error {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-tone-text-normal-danger-rest);
+}
+
+/* The server's own account of why a resolve stopped. Danger-toned like the
+   overlay's error beside it, but durable: it comes back on the feed after a
+   reload, because a resolve is minutes long and the deck that started it is
+   often not the deck that comes back to it. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-join-stuck {
+  align-self: stretch;
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-tone-text-normal-danger-rest);
+}
+
+/* ---------------------------------------------------------------------------
+   The brief section — what an arc would land
+
+   The eyebrow is `TugSectionLabel`'s, the counts are `DiffSummaryBadges`', the
+   file rows are `ChangesFileRow`'s, the message wells are `CommitMessage`'s.
+   What is authored here is the stack — subject, summary, totals, areas,
+   rounds, detail — and the one rule every fold shares: a
+   `data-expanded="false"` host hides the list it stands over.
+
+   Both readings of `--tugx-filerow-name-size` are gone with the markup that
+   read them ([P03]): the rows set their own size now, and it is the row
+   primitive's.
+   ------------------------------------------------------------------------- */
+
+.session-changes-arc-brief {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.session-changes-arc-brief-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The subject, in prose: it is the one line the reader came for, and the one
+   line in the whole fold above `xs` ([B03]). It sits on the message well's own
+   inset so it shares a left edge with the summary under it. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-brief-subject {
+  padding-inline-start: calc(
+    var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
+  );
+  padding-block: var(--tug-space-xs) var(--tug-space-2xs);
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-medium);
+  line-height: 1.4;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  overflow-wrap: anywhere;
+}
+
+/* The receipt's message well carries no block padding of its own, so the
+   summary and the full message take the fold's. */
+.session-changes-arc-brief [data-slot="session-changes-arc-brief-summary"],
+.session-changes-arc-brief [data-slot="session-changes-arc-brief-body"] {
+  padding-block: var(--tug-space-2xs) var(--tug-space-sm);
+}
+
+.session-changes-arc-clusters,
+.session-changes-arc-cluster,
+.session-changes-arc-subjects,
+.session-changes-arc-brief-rounds,
+.session-changes-arc-brief-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The folded lists stay mounted and hidden: what a reader can reveal is in the
+   tree, and a fold costs a paint and not a render. */
+.session-changes-arc-brief-rounds[data-expanded="false"] > .session-changes-arc-subjects,
+.session-changes-arc-brief-detail[data-expanded="false"] > .tugx-commit-receipt,
+.session-changes-arc-brief-detail[data-expanded="false"] > .session-changes-arc-draft-message {
+  display: none;
+}
+
+/* The message's detail on the unsummarized arm, muted: the one block that
+   quotes rather than reports. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-draft-message {
+  white-space: pre-line;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  overflow-wrap: anywhere;
+}
+
+/* Where a standing join's message came from, when the precedence fell through
+   to something nobody wrote. Prose: the surface speaking about the quote, not
+   part of it. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-draft-note {
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}

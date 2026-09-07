@@ -195,13 +195,22 @@ export interface GitDiffScope {
  *   {@link GitDiffScope}.
  * - `range` — the arc view: committed rounds past `base` **plus** worktree
  *   dirt, resolved as `merge-base(base, branch)` diffed against the worktree
- *   working tree (see `feeds/git.rs::fetch_arc_diff`).
+ *   working tree (see `feeds/git.rs::fetch_arc_diff`), optionally narrowed to
+ *   a repo-relative `paths` pathspec — what the arc fold's per-file and
+ *   per-directory pop-outs open ([P01]). Absent or empty is the whole range.
  * - `commit` — one commit against its first parent (`git diff-tree --root`),
  *   the `/commit` receipt's expandable file rows ([P08]).
  */
 export type DiffDescriptor =
   | { kind: "head"; root?: string; paths?: string[] }
-  | { kind: "range"; root?: string; worktree: string; base: string; branch: string }
+  | {
+      kind: "range";
+      root?: string;
+      worktree: string;
+      base: string;
+      branch: string;
+      paths?: string[];
+    }
   | { kind: "commit"; root?: string; sha: string; paths?: string[] };
 
 /**
@@ -210,10 +219,12 @@ export type DiffDescriptor =
  * the same diff share a key.
  */
 export function diffDescriptorKey(descriptor: DiffDescriptor): string {
-  if (descriptor.kind === "range") {
-    return `range:${descriptor.root ?? ""}:${descriptor.worktree}:${descriptor.base}:${descriptor.branch}`;
-  }
   const paths = [...(descriptor.paths ?? [])].sort().join("\n");
+  if (descriptor.kind === "range") {
+    // The pathspec is part of the range's identity: two scoped diffs of one
+    // arc would otherwise share a Text card and one would show the other.
+    return `range:${descriptor.root ?? ""}:${descriptor.worktree}:${descriptor.base}:${descriptor.branch}:${paths}`;
+  }
   if (descriptor.kind === "commit") {
     return `commit:${descriptor.root ?? ""}:${descriptor.sha}:${paths}`;
   }
@@ -338,6 +349,9 @@ export class GitDiffStore {
       query.worktree = this._scope.worktree;
       query.base = this._scope.base;
       query.branch = this._scope.branch;
+      if (this._scope.paths !== undefined && this._scope.paths.length > 0) {
+        query.paths = this._scope.paths;
+      }
     } else if (isCommitDescriptor(this._scope)) {
       // Commit flavor: one commit vs. its first parent, optionally scoped.
       const root = this._scope.root ?? this._projectDir;
