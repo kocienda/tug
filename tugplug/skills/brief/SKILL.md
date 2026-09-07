@@ -42,4 +42,4 @@ No sharpening of its own. No plan, no task list, no arc, no worktree, no commit.
 
 ## Hand off
 
-Name the path you wrote and stop. What happens to the brief next — a plan devised from it, a spike, or nothing at all — is the user's call, and the document is what makes it theirs to make.
+Name the path you wrote and stop. What happens to the brief next — an arc opened on it by `/arc`, a spike, or nothing at all — is the user's call, and the document is what makes it theirs to make. Whether that arc walks a task list or devises a plan first is the door's decision, made from the brief's content when it is handed over; this skill does not pre-empt it, and the brief's Exit section names an arc rather than a plan for that reason.

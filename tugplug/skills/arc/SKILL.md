@@ -18,7 +18,7 @@ An arc opens in one of two shapes, and they differ by **settling time** and by n
 
 Everything downstream is identical: one step per turn, compaction between steps, an audit of the whole diff by a session that never saw the work, the join offered through the Changes shade. A plain arc is not a lesser lane; it is the same lane entered by a door that has already answered what devise and review would have asked.
 
-**Which shape the arc takes is decided here, by this skill, in step 4.** It is not a route the user picks from a menu and not a flag anybody passes: the two documents this door leaves are what say which shape it is, and the engine reads the shape off them when the arc opens.
+**Which shape the arc takes is decided here, by this skill, in step 4, by reading the work.** It is not a route the user picks from a menu, not a flag anybody passes, and not a line in a document: the two documents this door leaves are what say which shape it is, and the engine reads the shape off them when the arc opens.
 
 **The wheel is a hand-off, not a sequence you run.** A running model cannot drive it — it cannot end its own turn to start the next stage, and each stage wants a session that has never seen the last one's context. So this skill writes the brief, decides the shape, writes the task list when the shape is plain, runs `tugtool arc run`, and ends the turn. **This door creates no worktree, commits nothing, implements nothing, and joins nothing.**
 
@@ -32,7 +32,7 @@ Everything downstream is identical: one step per turn, compaction between steps,
 
 Tokens are the invocation's whitespace-split arguments after the command. These rules apply in order, and the first that matches wins.
 
-1. **A path token anywhere.** A token containing `/` or ending in `.md` that resolves, relative to the project root, to a readable file is a **handed-in brief**. Copy it (step 3). If another token is slug-shaped (rule 3), that is the name; otherwise the name is the file's stem with a trailing `-brief` removed — `briefs/one-door-brief.md` becomes `one-door`. Remaining tokens are instruction. Skip sharpening for whatever the brief already settles: the door settles only the name and the shape.
+1. **A path token anywhere.** A token containing `/` or ending in `.md` that resolves, relative to the project root, to a readable file is a **handed-in brief**. Copy it (step 3). If another token is slug-shaped (rule 3), that is the name; otherwise the name is the file's stem with a trailing `-brief` removed — `briefs/one-door-brief.md` becomes `one-door`. Remaining tokens are instruction. Skip sharpening for whatever the brief already settles: the door settles only the name and the shape — and the shape is settled by reading the brief's content and the code it names (step 4), never by anything the brief says about its own successor. **This is the door's main road, not an edge case**: the user writes briefs with `/tugplug:brief` and hands them in, so on most invocations the conversation is empty and the reading in step 4 is the only judgment the door makes.
 2. **A lone token** that is a well-formed arc name — ASCII alphanumerics and hyphens, at least two characters, accepted by `tugtool arc list`'s naming rule, and not a reserved word such as `status` — is the arc's name. If `tugtool arc list --json` or `tugtool arc documents <name> --json` shows the arc exists, this is a **continuation**: read its documents and its record, say where it stands, and offer to continue. If it does not exist, open the conversation on a new arc under that name and ask what to work on.
 3. **A first token that is slug-shaped** — at least one hyphen, otherwise ASCII alphanumeric, at least two characters — followed by more tokens is the name, and everything after it is the instruction. A single unhyphenated word followed by prose is **prose**, not a name: `/arc make the ring pulse` opens on an idea.
 4. **Anything else** is the idea in prose. Settle the name in conversation and state it in the hand-off sentence.
@@ -105,13 +105,22 @@ The copy is what makes the arc self-contained — every stage reads the arc's ow
 
 ### 4. Decide the kind
 
-One bit, decided here: **plain** (write the task list; the arc opens at implement) or **planned** (leave the brief alone; the wheel devises and reviews a plan before a step is walked). Three deciders, in order, and the first that settles it wins.
+One bit, decided here by reading the work: **plain** (write the task list; the arc opens at implement) or **planned** (leave the brief alone; the wheel devises and reviews a plan before a step is walked). The axis is **settling, not size**: a planned arc is one whose decisions are not yet made, or whose parts have an order that nobody has written down and that a cold reader would need to. Everything else is plain, however many files it touches.
 
-1. **Prose decides outright.** In the invocation or in the conversation. "plan this", "devise a plan", "plan it first", "review before walking" → planned. "just go", "no plan", "straight to implement", "small fix" → plain. A handed-in brief that carries its own exit line naming a plan ("Exit: a plan") → planned; one naming steps, or "just do it" → plain.
-2. **Your own reading.** With the prose silent, write the task list **when you can write one you would stand behind**: the decisions are settled, the steps are few, and their order is not itself a problem. Leave the brief alone when the decisions are not settled, or when the *order* of the parts is itself the problem, or when a cold review would catch something this conversation cannot.
-3. **Ambiguity asks once.** Only when your reading and the prose disagree, or you have no reading you would stand behind: one `AskUserQuestion`, one question, exactly two options — (a) write the task list now and open at implement; (b) write the brief alone and let the wheel devise and review a plan first. No third option, and never re-asked in the same conversation.
+Three deciders, in order, and the first that settles it wins.
 
-**A quarter or fewer of arcs warrant the planned shape.** Plain is the expected answer, and a door that asks on most arcs has the threshold wrong.
+1. **The user's own words.** Something they typed in the invocation or said in this conversation: "plan this", "devise a plan", "plan it first", "review before walking" → planned; "just go", "no plan", "straight to implement", "small fix" → plain. **Nothing inside a document counts.** A brief's Exit section, a "next steps" paragraph, the word "plan" in a heading — those were written against a template by whoever wrote the brief on the day, and they say what that author expected the successor to be *called*, not how much settling the work needs. Reading such a line as an instruction is the failure this step exists to prevent: the skeleton offered "a plan" as the usual exit, so a door that obeyed it routed every handed-in brief to planned and decided nothing.
+
+2. **Your own reading of the work.** This is the decision, and with a handed-in brief it is the only judgment the door makes, so do it as work rather than as a glance. Read the brief's Decisions and Open Questions, then **open the files its findings and decisions name**, and answer three things concretely:
+   - **Are the decisions made?** Count the `[B##]` decisions against the open questions. An open question that would change *what gets written* is a decision not yet made; one that defers a mechanical detail to whoever writes the code is not. Enough of the first kind is what earns a plan.
+   - **How many surfaces move, and is their order known?** List the files, and the components, crates, or subsystems they belong to. An order the brief already states ("the fold first, because the card depends on its mark") is a *settled* order — that is a task list saying its order out loud, not a reason for a plan. An order nobody has stated, across parts that constrain each other, is the problem a plan exists to solve.
+   - **Can you write the task list you would stand behind?** Try it, in your head or on the page. If the steps come out as a handful of concrete, checkable moves in an order you can defend from the code you just read, the arc is plain and that is the task list. If writing them forces you to decide something the brief did not, or to guess at an order across parts you have not read, the arc is planned.
+
+   **Plain is the expected answer — a quarter or fewer of arcs warrant the planned shape.** Two components and a stylesheet collapse, five steps, one dependency the brief already states: plain. Half the brief's decisions still open, or parts that constrain each other in ways nobody has written down: planned. A door that lands on planned for most briefs has read the documents' wishes instead of the work.
+
+3. **Ambiguity asks once.** Only when the user's words and your reading disagree, or you have no reading you would stand behind *after* doing the work above: one `AskUserQuestion`, one question, exactly two options — (a) write the task list now and open at implement; (b) write the brief alone and let the wheel devise and review a plan first. Put your own reading in the question, so the user is choosing against something rather than from nothing. No third option, and never re-asked in the same conversation.
+
+**Keep the reason.** Whichever decider settled it, carry the reason into step 7's hand-off sentence in one clause — "decisions settled, order stated in the brief" or "two open questions decide the shape". A reason that names a document's wish ("the brief asked for a plan") is not a reason, and writing it down is how you notice.
 
 ### 5. Write the task list — plain arcs only
 
@@ -170,11 +179,13 @@ With the receipt confirmed, issuing that command was the last thing you do. Say 
 
 Nothing else will speak until the arc is over, so tell the user what they are about to watch.
 
-**Name the shape, in one sentence, every time.** One of these two forms:
+**Name the shape and the reason, in one sentence, every time.** One of these two forms, with the reason clause filled from step 4 — the work's own facts, never a document's wish:
 
-> Opened `<name>` as a plain arc — task list written, opens at implement.
+> Opened `<name>` as a plain arc — <N> steps, task list written, opens at implement; <reason: decisions settled, order stated in the brief>.
 
-> Opened `<name>` as a planned arc — brief alone, the wheel devises and reviews a plan first.
+> Opened `<name>` as a planned arc — brief alone, the wheel devises and reviews a plan first; <reason: two open questions decide what gets written / the parts constrain each other and no order is stated>.
+
+The reason is what makes a wrong call correctable in one reply. A sentence that names the shape without saying why hides exactly the mistake the user would have caught.
 
 Then, in a few sentences:
 
@@ -195,7 +206,9 @@ Then, in a few sentences:
 - **Never write a plan here.** That is the devise stage's product, judged by a stage that reads it cold, and coldness is the whole of what a planned arc buys.
 - **Never lint the task list, and never grow it into a plan.** A task list that wants a plan's frame wanted the other shape, and that is step 4's decision, not a document's.
 - **Ask about the design, never the process.** Bounded by the doctrine's never-ask list — nothing with a conventional default, nothing the code can answer, never "should I continue?".
+- **A document never decides the kind.** A brief's Exit section, or any sentence in it about what should come next, is the brief author's expectation — not the user's instruction and not a reading of the work. Only the user's own words, or your reading of the brief's content and the code it names, decide.
 - **The kind is asked about at most once**, with exactly two options, and only when step 4's first two deciders both come up empty.
+- **Say which shape, and why.** The hand-off sentence carries the reason from step 4; a reason that cites a document's wish is the trip-up, not a reason.
 - **Read the receipt, then end the turn.** The first rotation happens at *this* turn's end, so `arc run` is the last thing you do — but its receipt is a returned value, not a thing to wait for, and confirming it names a live session is this session's one chance to see the anchor set. Never wait on the rotation, never poll `arc record`.
 - **Diagnose before re-binding.** `tugtool arc doctor <name>` reads all four of an arc's records and says which disagrees; `/arc-bind` writes one and answers nothing about the rest.
 - **There is no review gate.** On a planned arc the review is a stage on its own fresh session — there is nothing here to hold and no chip to print.

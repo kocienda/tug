@@ -70,13 +70,24 @@ That writes the sentence as the arc's last note and stops the arc as `needs a de
    It is idempotent — a present branch and worktree return as-is, `created: false`, and nothing is re-hydrated. Take `worktree` from the response as the working root from here on, and say in one sentence that the dispatch had not made it, so the fact is on the transcript the audit reads. A line whose path *is* a directory runs nothing. If the path is still not a directory afterwards, that is the [second stop case](#0-read-the-where-line): `tugtool arc ask`, not prose.
 
    The plan lives at `.tug/arcs/<name>/plan.md` and nothing copies it anywhere ([D139]). `tugtool arc documents <name>` prints that path; **never copy a plan file by hand**, and never write one into the worktree. An arc whose door wrote a **task list** instead has its ledger at `tasks.md`, which the same verb prints and every `plan` verb resolves from the name alone — everything below reads "the plan" as "whichever of the two this arc has".
-3. **Check that the plan's review covers the plan.**
+3. **Check that the ledger is one you can walk: a plan's review covers it, or a task list rests on decisions the brief makes.**
 
    ```bash
    tugtool plan status <name> --json
    ```
 
-   **A task list has no review to check** — the `/arc` door settled its steps before the arc opened, and that arc has no devise stage and no review stage. When the arc's ledger is `tasks.md`, skip this whole step and say nothing about it: a review gate on a document no review stage was ever going to read is a question with no answer behind it.
+   **A task list has no review to check, so this stage is its cold read.** The `/arc` door settled its steps before the arc opened, and that arc has no devise stage and no review stage — which means you, a session that did not write the brief or the task list, are the first reader of either with nothing to defend. So when the arc's ledger is `tasks.md`, do not read `plan status`; read the task list against the brief and against the code, before opening step 1:
+
+   - For each step, find the files it moves and the `[B##]` decision it rests on. A step you can carry out from the brief's decisions and the code as it is needs nothing said.
+   - **A step that rests on a decision the brief does not make** — one where writing the code would mean choosing between two designs the brief did not choose between, or where the brief's `(verified)` finding is not what the file says — is the one thing this read exists to catch. Stop, before any step opens:
+
+     ```bash
+     tugtool arc ask <name> "<the decision the task list assumes and the brief does not make, in one sentence>"
+     ```
+
+     That writes the question as the arc's last note and stops the arc as `needs a decision`, with a Resume on the receipt. The user answers in their own conversation, and the arc picks up here. A brief that overreached is answered in one exchange rather than built on.
+
+   This is the plain arc's equivalent of the review stage, and the bar is the same never-ask list: a *design* decision the documents do not settle, never a step you would have ordered differently, never a detail the code or the conventional default answers, never "are you sure". On a task list whose steps all follow from the brief — the ordinary case — this read costs the reading of documents you had to read anyway, and you say nothing about having done it.
 
    Read `data.review`. On `reviewed`, say nothing and carry on.
 

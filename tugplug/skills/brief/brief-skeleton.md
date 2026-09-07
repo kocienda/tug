@@ -7,9 +7,15 @@
 
   A brief is NOT a small plan. It carries no execution steps, no Step Status Ledger,
   no checkpoints, no commit boundaries, and no Review Record. The test of a brief is
-  whether a devise round can be run from it — not whether an implementer can work
-  from it. If you find yourself writing steps, you are writing a plan — and
-  a planned arc is how a plan is made.
+  whether an arc can be opened on it — a task list written at the door, or a devise
+  round run from it — not whether an implementer can work from it. If you find
+  yourself writing steps, you are writing a ledger, and the door or the devise stage
+  is where a ledger is made.
+
+  A brief does not say whether the work wants a plan. That is the `/arc` door's
+  decision, made from this document's content and the code it names when the brief
+  is handed to it — so nothing here is read as an instruction about the arc's shape,
+  and the Exit section below names an arc, not a plan.
 
   **This format is deliberately not linted, and the omission is a decision.** There is
   no `tugtool brief lint`, no parser, and no rules engine. A format written down for
@@ -86,12 +92,14 @@
 
 ## Open Questions {#open-questions}
 
-> What the devise round must settle. A question here is one genuinely still open —
-> not one nobody got around to asking. If you can answer it by reading the code, read
-> the code and write a `[B##]` instead; if it needs the user's judgment, ask them.
+> What is genuinely still open — not what nobody got around to asking. If you can
+> answer it by reading the code, read the code and write a `[B##]` instead; if it
+> needs the user's judgment, ask them.
 >
-> A brief that hands a plan a pile of unasked questions has moved work rather than
-> done it.
+> This section is also the one the `/arc` door weighs most when it decides the
+> arc's shape: an open question that would change what gets written is a decision
+> not yet made, and enough of those is what earns a plan. A brief that hands the
+> next reader a pile of unasked questions has moved work rather than done it.
 
 - <The question, and why it cannot be settled here. What would settle it.>
 
@@ -115,8 +123,14 @@
 >
 > One of:
 >
-> - **A plan** — the usual exit. Sketch what its first steps look like and what the
->   phase boundary is, so the devise round starts from a shape rather than a blank page.
+> - **An arc** — the usual exit. Sketch what the first steps look like and any order
+>   they must land in, so whoever walks the work starts from a shape rather than a
+>   blank page. **Do not say whether the arc wants a plan.** Whether the work earns a
+>   written, cold-reviewed plan before a step is walked is the `/arc` door's decision,
+>   made from this brief's content and the code when the brief is handed to it. A line
+>   here naming "a plan" as the successor is not read as an instruction by anything,
+>   and it misleads the next reader about what was decided — the usual arc walks a
+>   task list, and a sketch of first steps here is that task list's raw material.
 > - **A design spike** — when the question is what something should *look* or *feel*
 >   like, and prose cannot settle it.
 > - **A wontfix** — when the finding is real and the answer is to do nothing. Say why,
