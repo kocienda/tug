@@ -197,7 +197,7 @@ import { ClaimErrorNoticeController } from "./claim-error-notice-controller";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 
 import { createStagedLanding, type StagedLanding } from "./staged-landing";
-import { LandingNoticeController } from "./landing-notice-controller";
+import { SessionLandingNoticeStrip } from "./session-landing-notice-strip";
 import { DiscardErrorNoticeController } from "./discard-error-notice-controller";
 import { DraftErrorNoticeController } from "./draft-error-notice-controller";
 import { ArcBindErrorNoticeController } from "./arc-bind-error-notice-controller";
@@ -5162,14 +5162,17 @@ export function SessionCardBody({
               each consumer reading the right `PaneToasterIdContext`: the
               controller sees the outer (top-right), `PaneBulletinAnchor` sees
               the inner (bottom). [P02]
+
+              Nothing landing-shaped reaches either lane. A commit or join
+              refusal speaks at the seam between the shade and the composer
+              instead ([P03]) — inside the gesture, and outside the shade's
+              scrim, which is what dimmed this lane's copy of it.
             */}
           <TugPaneBulletinProvider
             placement="top-right"
             className="session-card-notice-host"
           >
             <TransientNoticeController store={codeSessionStore} />
-            <LandingNoticeController controller={commitModeController} />
-            <LandingNoticeController controller={joinModeController} />
             <DiscardErrorNoticeController
               entryKey={changesController.entryKey}
             />
@@ -5432,6 +5435,21 @@ export function SessionCardBody({
             disabled={sessionErrored}
             className="session-card-entry-pane"
           >
+            {/* A landing's refusal, in the seam between the shade's bottom
+                edge and the composer's top edge — inside the gesture it
+                belongs to, and outside the shade's scrim by geometry ([B01],
+                [P03]). One per landing mode, each self-hiding unless its own
+                mode is active, so at most one is ever up. `handleAfterSubmit`
+                is the same reader-return Z5 gets, because Retry and Z5 are one
+                act ([P04]). */}
+            <SessionLandingNoticeStrip
+              controller={commitModeController}
+              onAfterRetry={handleAfterSubmit}
+            />
+            <SessionLandingNoticeStrip
+              controller={joinModeController}
+              onAfterRetry={handleAfterSubmit}
+            />
             {/* Composer-side reminder of staged shell / `/btw` context that
                 will ride the next `❯` submission. Self-hides when empty. */}
             <SessionPendingContextStrip

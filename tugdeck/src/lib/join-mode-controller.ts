@@ -734,6 +734,22 @@ export class JoinModeController implements LandingMode {
     this.seedMessage = null;
     this.target = null;
     this.landRefusal = null;
+    // A standing failure is the mode's, not the store's ([P05]): leaving the
+    // join surface and coming back must not re-raise the error the user
+    // already walked away from. Only `error` qualifies — a `conflict` settle
+    // carries `error: null`, so there is no standing failure to clear there.
+    //
+    // The entry key comes from the changes controller rather than the target,
+    // which the line above just nulled. And the order matters: `clearJoin`
+    // fires the store's subscribers synchronously and this controller is one
+    // of them, so it re-enters `recompute()` mid-`exit()`. Clearing after the
+    // flag is down means that re-entrant derive already sees `active: false`
+    // and agrees with the final derive below; clearing before it would publish
+    // one intermediate snapshot reading active-with-no-error, which the strip
+    // would render for a frame.
+    const { entryKey } = this.deps.changesController;
+    const verbStore = getChangesetVerbStore();
+    if (verbStore?.joinState(entryKey).phase === "error") verbStore.clearJoin(entryKey);
     this.snapshot = this.derive();
     this.fire();
   }
@@ -823,6 +839,19 @@ export class JoinModeController implements LandingMode {
     }
     runJoin();
     return { kind: "fired" };
+  }
+
+  /**
+   * Retry the failed join — the strip's Retry button ([P04]).
+   *
+   * It is {@link land} over the composer's live message, and deliberately not
+   * a second path: the message is still in the editor because a failure never
+   * clears the draft, and the gate has to be re-checked because the world may
+   * have moved since the failure (a turn started, the preview went dirty). One
+   * land verb means Retry and Z5 cannot disagree about what a press does.
+   */
+  retry(): LandOutcome {
+    return this.land(this.messageProvider?.() ?? "");
   }
 
   /**

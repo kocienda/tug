@@ -39,7 +39,7 @@
  *
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/components/tugways/cards/staged-landing.ts
- * @covers tugdeck/src/components/tugways/cards/landing-notice-controller.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-landing-notice-strip.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/components/tugways/cards/use-landing-receipts.ts
  * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx

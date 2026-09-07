@@ -1,11 +1,16 @@
 /**
  * landing-notice — what a landing surface should be saying right now ([L31]).
  *
- * The decision is separated from the controller that applies it because the
- * controller is a React component with no substrate to test against, while the
- * decision is the part that can be wrong: which of two competing conditions
- * speaks, whether a repeat press re-posts, when a notice comes down. Keeping it
- * a pure function over (what is posted, what the mode published) makes those
+ * The face is what a landing surface renders: two independent notices, each
+ * carrying a cause in the user's frame, the remedy, and git's own words to
+ * fold. The strip that renders it is `session-landing-notice-strip.tsx`; this
+ * module decides the words and the identity, and nothing about visibility.
+ *
+ * The words are separated from the surface that renders them because the
+ * surface is a React component with no substrate to test against, while the
+ * words are the part that can be wrong: which of two competing conditions
+ * speaks, what a given stderr means, whether a repeat press speaks again.
+ * Keeping it a pure function over what the mode published makes those
  * answerable without a DOM, and leaves the component with nothing to decide.
  *
  * @module lib/landing-notice
@@ -13,89 +18,158 @@
 
 import type { LandingKind, LandingSnapshot } from "@/lib/landing-mode";
 
-/** What is currently on screen for a landing mode — the caller's own record. */
-export interface LandingNoticeState {
-  /** The land-error detail last posted, or null. */
-  error: string | null;
-  /** The refusal `seq` last posted, or null when no refusal is up. */
-  refusalSeq: number | null;
+/** One notice a landing surface can render — the words plus its identity. */
+export interface LandingNotice {
+  /** Identity for local dismiss / fade: the detail string for an error, `String(seq)` for a refusal. */
+  key: string;
+  channel: "error" | "refusal";
+  tone: "danger" | "caution";
+  title: string;
+  /** The remedy sentence, or the refusal's sentence. */
+  remedy: string;
+  /** Verbatim detail to fold, or null when there is nothing beyond the title. */
+  detail: string | null;
+  /** Whether Retry applies — true only for the error channel. */
+  retry: boolean;
 }
 
-/** Nothing posted yet — the state a fresh notice controller starts from. */
-export const NO_LANDING_NOTICE: LandingNoticeState = Object.freeze({
-  error: null,
-  refusalSeq: null,
-});
+/** Both channels at once, because both can be true ([P02]). */
+export interface LandingNoticeFace {
+  error: LandingNotice | null;
+  refusal: LandingNotice | null;
+}
 
-/** One thing to do to the bulletin channel. */
-export type LandingNoticeAction =
-  | {
-      kind: "post";
-      id: string;
-      /** `danger` persists until dismissed; `caution` fades on its own. */
-      tone: "danger" | "caution";
-      title: string;
-      description: string;
-    }
-  | { kind: "dismiss"; id: string };
+/** One row of the cause table — a match over the lowercased detail, and what to say. */
+interface CauseRow {
+  match: (lower: string) => boolean;
+  title: string;
+  remedy: string;
+}
 
-/** The notice ids a landing kind owns — stable, so a repeat replaces in place. */
-export function landingNoticeIds(kind: LandingKind): { error: string; refusal: string } {
-  return { error: `${kind}-error`, refusal: `${kind}-refusal` };
+const KEPT = "try again — your message is kept.";
+
+/**
+ * The causes git actually produces, in the order they are tried (Table T01).
+ *
+ * Substring matching over the whole detail, case-insensitively, first row wins.
+ * A row's title names the cause in the user's frame and its remedy names the
+ * one thing to do; git's own text is never thrown away, it is folded.
+ */
+const COMMIT_CAUSES: CauseRow[] = [
+  {
+    match: (lower) => lower.includes("index.lock") && lower.includes("exists"),
+    title: "Another git process is holding the repository lock",
+    remedy: `Tug couldn't take .git/index.lock. If nothing else is running git here, remove the lock file and ${KEPT}`,
+  },
+  {
+    match: (lower) =>
+      lower.includes("please tell me who you are") ||
+      lower.includes("author identity unknown") ||
+      lower.includes("empty ident name"),
+    title: "Git doesn't know who you are yet",
+    remedy: `Set user.name and user.email with git config, then ${KEPT}`,
+  },
+  {
+    match: (lower) =>
+      lower.includes("hook") &&
+      (lower.includes("failed") ||
+        lower.includes("declined") ||
+        lower.includes("rejected") ||
+        lower.includes("exit code")),
+    title: "A commit hook refused the commit",
+    remedy: "Read the hook's output below, fix what it names, and try again.",
+  },
+  {
+    match: (lower) =>
+      lower.includes("nothing to commit") || lower.includes("no changes added to commit"),
+    title: "Nothing left to commit",
+    remedy:
+      "These files were already committed — likely by another session. Close the shade and check the transcript.",
+  },
+  {
+    match: (lower) => lower.includes("hunk drift:"),
+    title: "The hunks you picked have moved",
+    remedy:
+      "The file changed under your selection. Reopen the Changes shade, pick the hunks again, and try again.",
+  },
+];
+
+/** git's first line, with the prefix that names a severity the title doesn't need. */
+function firstLine(detail: string): string {
+  const line = detail.split("\n", 1)[0]?.trim() ?? "";
+  return line.replace(/^(?:fatal|error):\s*/i, "");
 }
 
 /**
- * What the bulletin channel should be told, given what is already up and what
- * the mode now publishes.
+ * What a landing failure means, and what to do about it.
  *
- * Two independent channels, because they answer different questions and can be
- * true at once: `landError` is the server refusing a landing that went out (it
- * persists until it clears), and `landRefusal` is this deck refusing to send
- * one (it is about the press the user just made). A gate refusal fades, because
- * the user can see the condition and clear it; a fault is sticky, because a
- * broken dependency needs reading and there is a remediation in the sentence.
+ * The evidence is always kept: `detail` comes back verbatim so the surface can
+ * fold it, and goes null only when folding it would show the title a second
+ * time. A commit detail that matches no row falls back to git's own first line
+ * as the title, which is worse prose than a translated row and still better
+ * than "Commit failed" — the fallback is what makes the table extensible
+ * without a gap in the meantime. A join detail is always its first line: the
+ * engine's refusals are already sentences in the user's frame ([P01]).
+ */
+export function describeLandingFailure(
+  kind: LandingKind,
+  detail: string,
+): { title: string; remedy: string; detail: string | null } {
+  const lower = detail.toLowerCase();
+  const row =
+    kind === "commit" ? COMMIT_CAUSES.find((candidate) => candidate.match(lower)) : undefined;
+
+  const title = row ? row.title : firstLine(detail);
+  const remedy = row
+    ? row.remedy
+    : kind === "commit"
+      ? `Read git's message below, fix what it names, and ${KEPT}`
+      : `Fix what it names and ${KEPT}`;
+
+  const spent = !detail.includes("\n") && detail.trim() === title;
+  return { title, remedy, detail: spent ? null : detail };
+}
+
+/**
+ * The two notices a landing mode is publishing right now.
+ *
+ * `active` is not read here — the strip gates on it. That keeps this function
+ * about words and identity, and leaves the visibility rule in one place.
  *
  * Refusals are keyed on `seq`, never on the sentence: pressing a refusing
  * button twice usually produces the identical words, and a surface that
- * compared text would go silent exactly when the user asked a second time.
+ * compared text would go silent exactly when the user asked a second time. An
+ * error is keyed on its detail for the same reason inverted — the same failure
+ * settling twice is the same notice, and a dismiss of it should hold.
  */
-export function landingNoticeDecision(
-  kind: LandingKind,
-  prev: LandingNoticeState,
-  snapshot: LandingSnapshot,
-): { actions: LandingNoticeAction[]; next: LandingNoticeState } {
-  const ids = landingNoticeIds(kind);
+export function landingNoticeFace(kind: LandingKind, snapshot: LandingSnapshot): LandingNoticeFace {
   const noun = kind === "commit" ? "Commit" : "Join";
-  const actions: LandingNoticeAction[] = [];
 
-  const error = snapshot.landError;
-  if (error !== prev.error) {
-    if (error === null) actions.push({ kind: "dismiss", id: ids.error });
-    else {
-      actions.push({
-        kind: "post",
-        id: ids.error,
-        tone: "danger",
-        title: `${noun} failed`,
-        description: error,
-      });
-    }
-  }
+  const failure = snapshot.landError;
+  const error: LandingNotice | null =
+    failure === null
+      ? null
+      : {
+          key: failure,
+          channel: "error",
+          tone: "danger",
+          retry: true,
+          ...describeLandingFailure(kind, failure),
+        };
 
-  const refusal = snapshot.landRefusal;
-  const seq = refusal?.seq ?? null;
-  if (seq !== prev.refusalSeq) {
-    if (refusal === null) actions.push({ kind: "dismiss", id: ids.refusal });
-    else {
-      actions.push({
-        kind: "post",
-        id: ids.refusal,
-        tone: refusal.kind === "fault" ? "danger" : "caution",
-        title: refusal.kind === "fault" ? `${noun} cannot run` : `${noun} not sent`,
-        description: refusal.sentence,
-      });
-    }
-  }
+  const refused = snapshot.landRefusal;
+  const refusal: LandingNotice | null =
+    refused === null
+      ? null
+      : {
+          key: String(refused.seq),
+          channel: "refusal",
+          tone: refused.kind === "fault" ? "danger" : "caution",
+          title: refused.kind === "fault" ? `${noun} cannot run` : `${noun} not sent`,
+          remedy: refused.sentence,
+          detail: null,
+          retry: false,
+        };
 
-  return { actions, next: { error, refusalSeq: seq } };
+  return { error, refusal };
 }

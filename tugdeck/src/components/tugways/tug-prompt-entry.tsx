@@ -197,6 +197,7 @@ export const LANDING_WORDS: Record<
     cancel: string;
     autoMessage: string;
     land: string;
+    retry: string;
     landUnavailable: string;
     routeTooltip: string;
     emptyHint: string;
@@ -206,6 +207,7 @@ export const LANDING_WORDS: Record<
     cancel: "Cancel commit",
     autoMessage: "Generate a commit message",
     land: "Commit",
+    retry: "Retry commit",
     landUnavailable: "Unavailable while a turn is running or the changeset is empty",
     routeTooltip: "Write a commit message",
     emptyHint: "Write a commit message, or use Auto-Message.",
@@ -214,6 +216,7 @@ export const LANDING_WORDS: Record<
     cancel: "Cancel join",
     autoMessage: "Generate a join message",
     land: "Join",
+    retry: "Retry join",
     landUnavailable: "Unavailable until the preview is clean",
     routeTooltip: "Write the join message",
     emptyHint: "Write the join message, or use Auto-Message.",
@@ -3981,9 +3984,16 @@ export const TugPromptEntry = React.forwardRef<
   // `disabled` is kept for the two states that are mechanical rather than
   // judgments — a draft streaming into the editor and a landing already in
   // flight — where the button is reporting itself and there is nothing to say.
+  //
+  // While a server refusal stands, the same button wears "Retry commit" /
+  // "Retry join" ([P04]). The strip at the seam has a Retry of its own and
+  // both run the mode's one land verb, so the relabel is what says they are
+  // the same act rather than two — a Z5 still reading "Commit" beside a strip
+  // offering Retry would read as a choice between them.
   const landingPending = landingSnap?.landPhase === "pending";
   const commitCanLand =
     landingSnap !== null && landingSnap.canLandIgnoringMessage;
+  const landingFailed = landingSnap?.active === true && landingSnap.landError !== null;
   // The rail's words are functions of which landing this is ([P01]). Only the
   // words move — every control, gate, and ordering below is shared.
   const landingWords = LANDING_WORDS[landingMode?.kind ?? "commit"];
@@ -4034,9 +4044,11 @@ export const TugPromptEntry = React.forwardRef<
         // join first" beats a constant that names no cause, and a disabled
         // land button with no reason is a dead end at the worst moment.
         content={
-          commitCanLand
-            ? landingWords.land
-            : landingSnap?.landBlockedReason ?? landingWords.landUnavailable
+          landingFailed
+            ? landingWords.retry
+            : commitCanLand
+              ? landingWords.land
+              : landingSnap?.landBlockedReason ?? landingWords.landUnavailable
         }
         // Authored, and deliberately so: the composer's submit key is the
         // editor's own, text-editing currency handled by the CM6 keymap rather
@@ -4062,7 +4074,7 @@ export const TugPromptEntry = React.forwardRef<
           // Dimmed and cursor-marked, still pressable — see the rail comment.
           data-land-blocked={commitCanLand ? undefined : ""}
           onClick={performSubmit}
-          aria-label={landingWords.land}
+          aria-label={landingFailed ? landingWords.retry : landingWords.land}
           focusGroup={submitFocusGroup}
           focusOrder={commitOrder(2)}
           data-testid="tug-prompt-entry-commit-button"

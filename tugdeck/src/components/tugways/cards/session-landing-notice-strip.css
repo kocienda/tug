@@ -1,0 +1,45 @@
+/**
+ * session-landing-notice-strip.css — the landing failure's seat at the seam
+ * ([L06] appearance via CSS/DOM).
+ *
+ * The shell is the pending-context strip's: the entry field's own surface with
+ * a rule above, so the notice reads as part of the composer rather than as
+ * pane chrome. What sits inside is a `TugInlineAlert` wearing its own padding,
+ * radius, and type — nothing here reaches into `.tug-inline-alert`, because
+ * the whole point of the alert is that a danger notice looks the same wherever
+ * the deck puts one.
+ */
+
+.session-landing-notice-strip {
+  /* The dismiss button is absolutely positioned against this. */
+  position: relative;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  background: var(--tugx-entry-shell-rest);
+  border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
+}
+
+.session-landing-notice-dismiss {
+  position: absolute;
+  top: var(--tug-space-xs);
+  right: var(--tug-space-xs);
+}
+
+/* Git's own words, one disclosure away. The element owns open/closed. */
+.session-landing-notice-evidence {
+  margin-top: var(--tug-space-xs);
+}
+
+.session-landing-notice-evidence summary {
+  color: var(--tug7-element-global-text-normal-accent-rest);
+  cursor: pointer;
+}
+
+.session-landing-notice-evidence pre {
+  margin: var(--tug-space-xs) 0 0;
+  /* Wrapped, not scrolled: stderr is prose with newlines in it, and a reader
+     who has to scroll sideways to finish a sentence is reading a log. */
+  white-space: pre-wrap;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}

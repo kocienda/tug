@@ -112,8 +112,8 @@ describe("the landing round trip", () => {
       detail: "base moved under the candidate",
     });
     const state = h.store.joinState(ENTRY);
-    // `error` is what the mounted LandingNoticeController reads to post the
-    // danger bulletin.
+    // `error` is what the landing notice strip at the seam reads to speak the
+    // danger notice.
     expect(state.phase).toBe("error");
     expect(state.error).toBe("base moved under the candidate");
   });

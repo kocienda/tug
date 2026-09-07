@@ -214,6 +214,14 @@ export interface LandingMode {
    * and reported here by type ([L31]) — never a silent no-op.
    */
   land: (message: string) => LandOutcome;
+  /**
+   * Land the composer's live message again — the strip's Retry and Z5 are one
+   * act ([P04]). The message survived the failure in the draft store and is
+   * still in the editor, so a retry is a press of the same button over the
+   * same text; taking it through the same gate is what keeps the two from
+   * drifting into a second land path with its own rules.
+   */
+  retry: () => LandOutcome;
   /** The user leaving the route: persist what is typed, then exit. */
   leave: () => void;
   /** Exit the mode without persisting (the land path's own way out). */

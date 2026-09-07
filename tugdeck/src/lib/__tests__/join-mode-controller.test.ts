@@ -946,6 +946,43 @@ describe("JoinModeController", () => {
     controller.dispose();
   });
 
+  it("exit clears a standing server failure, so re-entering is quiet ([P05])", () => {
+    const { controller } = build();
+    controller.enter(TARGET);
+    controller.land("land it");
+    reply({
+      action: "changeset_join_err",
+      project_dir: WORKSPACE_KEY,
+      arc: "join-lane",
+      detail: "Cannot join: the worktree is dirty",
+    });
+    expect(controller.getSnapshot().landError).toBe("Cannot join: the worktree is dirty");
+
+    // `exit()` nulls the target before the clear runs, so the clear reads its
+    // entry key from the changes controller — the bug this case pins.
+    controller.exit();
+    expect(controller.getSnapshot().landError).toBeNull();
+    // The failure the user walked away from does not come back with them.
+    controller.enter(TARGET);
+    expect(controller.getSnapshot().landError).toBeNull();
+    controller.dispose();
+  });
+
+  it("retry lands the composer's live message, through the same gate", () => {
+    const { controller } = build();
+    controller.enter(TARGET);
+    controller.setMessageProvider(() => "the maintained join message");
+    // The host stages the land behind the shade's dismissal, so a gated retry
+    // reports `staged` and hands the run back rather than firing inline.
+    let staged: (() => void) | null = null;
+    controller.setLandHook((run) => {
+      staged = run;
+    });
+    expect(controller.retry()).toEqual({ kind: "staged" });
+    expect(staged).not.toBeNull();
+    controller.dispose();
+  });
+
   it("dispose releases every subscription ([L27])", () => {
     const { controller, changesController } = build();
     let fires = 0;

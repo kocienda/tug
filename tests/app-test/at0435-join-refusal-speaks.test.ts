@@ -9,8 +9,11 @@
  *
  * What this drives is the mechanism, not a hypothesis about which condition
  * fires: an empty message over an otherwise landable arc is the cheapest
- * deterministic refusal there is. The press produces a bulletin carrying the
- * gate's own sentence, the mode stays up, and nothing goes on the wire.
+ * deterministic refusal there is. The press produces a notice at the seam
+ * between the shade and the composer carrying the gate's own sentence, the
+ * mode stays up, and nothing goes on the wire. The seam is where a landing's
+ * refusal speaks: inside the gesture, and outside the shade's scrim, which
+ * used to dim the corner bulletin this test once read.
  *
  * It is driven both ways, because only one of them was ever broken. A submit
  * CHORD reaches `land()` whatever the button looks like; a CLICK on the button
@@ -25,7 +28,7 @@
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/landing-mode.ts
  * @covers tugdeck/src/lib/landing-notice.ts
- * @covers tugdeck/src/components/tugways/cards/landing-notice-controller.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-landing-notice-strip.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.css
  */
@@ -181,7 +184,10 @@ async function raiseShade(app: App): Promise<void> {
   );
 }
 
-/** Every bulletin currently on screen, as text. */
+/** Every landing notice currently at the seam, as text. */
+const STRIP_TEXTS = `Array.from(document.querySelectorAll('${CARD} [data-slot="session-landing-notice-strip"]')).map(function(e){ return e.textContent || ""; })`;
+
+/** Every corner bulletin currently on screen, as text — nothing landing-shaped may be here. */
 const BULLETIN_TEXTS = `Array.from(document.querySelectorAll('[data-sonner-toast]')).map(function(e){ return e.textContent || ""; })`;
 
 describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
@@ -299,18 +305,28 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // before asserting on the words. A bare wait for the exact sentence
         // times out identically whether the refusal was silent or merely
         // reworded, and those are different bugs.
-        await app.waitForCondition<boolean>(`${BULLETIN_TEXTS}.length > 0`, {
+        await app.waitForCondition<boolean>(`${STRIP_TEXTS}.length > 0`, {
           timeoutMs: 10000,
         });
-        const texts = await app.evalJS<string[]>(BULLETIN_TEXTS);
-        note(`at0435 bulletins after the refused press: ${JSON.stringify(texts)}`);
+        const texts = await app.evalJS<string[]>(STRIP_TEXTS);
+        note(`at0435 seam notices after the refused press: ${JSON.stringify(texts)}`);
         expect(
           texts.some((t) => t.includes("Write a join message")),
           "the refusal names what is missing",
         ).toBe(true);
         expect(
           texts.some((t) => t.includes("Join not sent")),
-          "the bulletin names the act that was refused",
+          "the notice names the act that was refused",
+        ).toBe(true);
+
+        // And it is the seam that carries it. The corner lane is where this
+        // refusal used to land, dimmed under the shade's scrim; nothing
+        // landing-shaped reaches it any more ([P03]).
+        const corner = await app.evalJS<string[]>(BULLETIN_TEXTS);
+        note(`at0435 corner bulletins after the refused press: ${JSON.stringify(corner)}`);
+        expect(
+          corner.every((t) => !t.includes("Join not sent")),
+          "the corner lane carries nothing landing-shaped",
         ).toBe(true);
 
         // The refusal is not a dismissal: the mode is still up, so the user is
@@ -324,25 +340,25 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
 
         // A second press speaks again rather than going quiet on a repeat.
         //
-        // The wait for the first bulletin to fade is the test, not a delay: a
+        // The wait for the first notice to fade is the test, not a delay: a
         // gate refusal is a caution and cautions auto-dismiss, so by the time
         // someone presses again the previous sentence is gone and a surface
         // that compared wording — rather than the refusal's `seq` — would sit
         // silent on exactly the press where the user is asking louder. The
         // fade is observed rather than forced; removing the node by hand would
-        // leave the bulletin channel believing it was still up.
+        // leave the strip believing the notice was still up.
         await app.waitForCondition<boolean>(
-          `${BULLETIN_TEXTS}.every(function(t){ return t.indexOf("Write a join message") === -1; })`,
+          `${STRIP_TEXTS}.every(function(t){ return t.indexOf("Write a join message") === -1; })`,
           { timeoutMs: 30000 },
         );
         await app.nativeClickAtElement(EDITOR);
         await settle();
         await app.nativeKey("Return", ["cmd"]);
         await app.waitForCondition<boolean>(
-          `${BULLETIN_TEXTS}.some(function(t){ return t.indexOf("Write a join message") !== -1; })`,
+          `${STRIP_TEXTS}.some(function(t){ return t.indexOf("Write a join message") !== -1; })`,
           { timeoutMs: 10000 },
         );
-        note("at0435 the second press spoke again after the first bulletin faded");
+        note("at0435 the second press spoke again after the first notice faded");
 
         // And the same refusal, reached by CLICKING the button rather than by
         // the submit chord — which is the half of this that was dead.
@@ -357,12 +373,12 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // button now dims without going numb, so the click refuses out loud
         // like the keystroke does.
         await app.waitForCondition<boolean>(
-          `${BULLETIN_TEXTS}.every(function(t){ return t.indexOf("Write a join message") === -1; })`,
+          `${STRIP_TEXTS}.every(function(t){ return t.indexOf("Write a join message") === -1; })`,
           { timeoutMs: 30000 },
         );
         await app.nativeClickAtElement(JOIN_BUTTON);
         await app.waitForCondition<boolean>(
-          `${BULLETIN_TEXTS}.some(function(t){ return t.indexOf("Write a join message") !== -1; })`,
+          `${STRIP_TEXTS}.some(function(t){ return t.indexOf("Write a join message") !== -1; })`,
           { timeoutMs: 10000 },
         );
         note("at0435 clicking the dimmed land button refused out loud");

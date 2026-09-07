@@ -40,7 +40,6 @@ import { spike as pinnedHeadersSpike } from "./spike-pinned-headers";
 import { spike as commitSurfacesSpike } from "./spike-commit-surfaces";
 import { spike as placeCoordinateSpike } from "./spike-place-coordinate";
 import { spike as joinReportSpike } from "./spike-join-report";
-import { spike as commitFailureNoticeSpike } from "./spike-commit-failure-notice";
 import { spike as cardChromeSpike } from "./spike-card-chrome";
 import { spike as modalHeadersSpike } from "./spike-modal-headers";
 import { spike as focusLanguageSpike } from "./spike-focus-language";
@@ -111,7 +110,6 @@ export const SPIKES: readonly SpikeDef[] = [
   commitSurfacesSpike,
   placeCoordinateSpike,
   joinReportSpike,
-  commitFailureNoticeSpike,
   // Settled references: these began as spikes and closed into the reference
   // for their subject. They stay here rather than becoming permanent gallery
   // furniture, so the graduation path — durable content into tuglaws/, file

@@ -6,7 +6,11 @@ import {
 } from "@/lib/commit-mode-controller";
 import { CHANGES_SERVICE_DISCONNECTED } from "@/lib/landing-mode";
 import { _resetChangesetDraftStoreForTest } from "@/lib/changeset-draft-store";
-import { _resetChangesetVerbStoreForTest } from "@/lib/changeset-verb-store";
+import {
+  _resetChangesetVerbStoreForTest,
+  attachChangesetVerbStore,
+  getChangesetVerbStore,
+} from "@/lib/changeset-verb-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 
@@ -14,9 +18,29 @@ import type { CodeSessionStore } from "@/lib/code-session-store";
 // regardless of order — another test file may have attached them to a mock
 // connection whose `setDraft` frame would throw inside `enter()`.
 beforeEach(() => {
+  controlHandlers.length = 0;
   _resetChangesetDraftStoreForTest();
   _resetChangesetVerbStoreForTest();
 });
+
+// A connection that keeps every CONTROL handler the verb store registers, so a
+// test can hand the store a real server reply rather than poking its internals.
+const controlHandlers: ((payload: Uint8Array) => void)[] = [];
+
+function fakeConnection(): never {
+  return {
+    onFrame: (_feed: number, cb: (payload: Uint8Array) => void) => {
+      controlHandlers.push(cb);
+      return () => {};
+    },
+    sendControlFrame: () => {},
+  } as never;
+}
+
+function reply(body: Record<string, unknown>): void {
+  const payload = new TextEncoder().encode(JSON.stringify(body));
+  for (const handler of [...controlHandlers]) handler(payload);
+}
 
 describe("evaluateCommitLandGate", () => {
   const base = {
@@ -76,6 +100,7 @@ function fakeChangesController(
   return {
     entryKey: "session:s1",
     projectDir: "/p",
+    workspaceKey: "/p",
     tugSessionId: "s1",
     subscribe: () => () => {},
     getSnapshot: () => ({
@@ -219,6 +244,64 @@ describe("CommitModeController", () => {
       kind: "fault",
       seq: 1,
     });
+    controller.dispose();
+  });
+
+  it("retry lands the composer's live message, through the same gate", () => {
+    const controller = new CommitModeController({
+      changesController: fakeChangesController(2),
+      codeSessionStore: fakeCodeSessionStore(false),
+    });
+    controller.enter();
+    controller.setMessageProvider(() => "fix the thing");
+    // The host stages the land behind the shade's dismissal, so a gated retry
+    // reports `staged` and hands the run back rather than firing inline.
+    let staged: (() => void) | null = null;
+    controller.setLandHook((run) => {
+      staged = run;
+    });
+    expect(controller.retry()).toEqual({ kind: "staged" });
+    expect(staged).not.toBeNull();
+    controller.dispose();
+  });
+
+  it("refuses a retry with nothing to land, in the gate's own words", () => {
+    const controller = new CommitModeController({
+      changesController: fakeChangesController(2),
+      codeSessionStore: fakeCodeSessionStore(false),
+    });
+    controller.enter();
+    controller.setMessageProvider(() => "   ");
+    expect(controller.retry()).toEqual({ kind: "refused", sentence: "Write a commit message" });
+    expect(controller.getSnapshot().landRefusal?.sentence).toBe("Write a commit message");
+    controller.dispose();
+  });
+
+  it("exiting clears a standing server failure, so re-entering is quiet ([P05])", () => {
+    // The store is attached before the controller is built, because the
+    // controller subscribes to whatever store exists at construction.
+    attachChangesetVerbStore(fakeConnection());
+    const controller = new CommitModeController({
+      changesController: fakeChangesController(2),
+      codeSessionStore: fakeCodeSessionStore(false),
+    });
+    controller.enter();
+
+    getChangesetVerbStore()?.commit("session:s1", "/p", ["f0"], "fix the thing");
+    reply({
+      action: "changeset_commit_err",
+      project_dir: "/p",
+      detail: "fatal: Unable to create '/p/.git/index.lock': File exists.",
+    });
+    expect(controller.getSnapshot().landError).toBe(
+      "fatal: Unable to create '/p/.git/index.lock': File exists.",
+    );
+
+    controller.exit();
+    expect(controller.getSnapshot().landError).toBeNull();
+    // The failure the user walked away from does not come back with them.
+    controller.enter();
+    expect(controller.getSnapshot().landError).toBeNull();
     controller.dispose();
   });
 
