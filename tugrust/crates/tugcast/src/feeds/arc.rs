@@ -87,9 +87,10 @@ pub struct ArcFacts {
     /// list: an arc carrying both is read as planned.
     ///
     /// **A fallback only.** The progression comes from the record's
-    /// [`ArcKind`] now ([B04] forbids sniffing the documents for it); this
-    /// answers for a **pre-kind arc**, whose arc opened before `arc-kind`
-    /// was written.
+    /// [`ArcKind`], which the opening derived from these same documents and
+    /// wrote down once; nothing sniffs them again afterwards. This answers
+    /// for a **pre-kind arc**, whose arc opened before `arc-kind` was
+    /// written.
     pub task_list: bool,
     /// The plan's current path — the base copy until adoption, the worktree
     /// copy after it. `None` when no plan file exists there, which is
@@ -590,7 +591,7 @@ fn start_action(record: &ArcRecord, facts: &ArcFacts) -> ArcAction {
         // opens at devise rather than implement, which spends two rotations it
         // did not need and never skips a cold read it did. The sniff skews
         // this way for the pre-kind arc only: the default is plain, matching
-        // the bare door.
+        // what the door writes.
         None => {
             if facts.input_is_plan {
                 ArcStage::Review

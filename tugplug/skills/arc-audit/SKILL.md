@@ -39,7 +39,7 @@ tugtool arc ask <name> "<what you found, in one sentence>"
 
 That writes the sentence as the arc's last note and stops the arc as `needs a decision`, with a Resume on the receipt the user sees in seconds.
 
-**With no `where` line above, that is the sentence to stop on.** This skill is a stage of an arc rather than a standalone command, and it is the last stage of **every** arc: `/arc` opens one at implement and `/arc-plan` opens one at devise, and each reaches here when its final declared step closes. There is no path from here that ends anywhere else — the mark this stage writes is read by a runner, and with no runner reading it the mark declares an arc finished that nothing was running.
+**With no `where` line above, that is the sentence to stop on.** This skill is a stage of an arc rather than a standalone command, and it is the last stage of **every** arc: `/arc` is the one door, and the shape it settles on decides only where the arc *starts* — a plain arc at implement, a planned one at devise. Each reaches here when its final declared step closes. There is no path from here that ends anywhere else — the mark this stage writes is read by a runner, and with no runner reading it the mark declares an arc finished that nothing was running.
 
 ### 1. Read what the arc said it would do
 
@@ -163,7 +163,7 @@ Everything in [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrin
 - **Fix, never report-and-defer.** The stage that would have acted on a report is over. What you cannot settle is written into the report and the draft, not asked.
 - **No dialogs.** This stage runs cold and often unattended; a question here stops the arc in front of nobody.
 - **Judge against both documents.** The ledger says what, the brief says why, and an arc can satisfy one without the other.
-- **Run only under an arc.** With no `where` line in the prompt that seated you, say what this is the last stage of and which doors start one, and stop.
+- **Run only under an arc.** With no `where` line in the prompt that seated you, say what this is the last stage of and that `/arc` is the door that starts one, and stop.
 - **Never open or close a step.** The ledger is walked; an audit's work is rounds.
 - **Leave alone what is merely not yours.** An arc is not wrong for not being yours.
 - **Verify before every commit, and never commit red.**

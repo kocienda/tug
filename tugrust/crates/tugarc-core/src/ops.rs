@@ -470,21 +470,31 @@ pub struct OpenOutcome {
 /// the record is the arc's identity and a second `arc-start` would make one arc
 /// read as two.
 ///
-/// `kind` is the arc kind to record ([B08]) and is written only on the
-/// opening. A resume ignores it for the same reason a second `arc-start` is
-/// refused: the arc's kind is part of what the record *is*, and a resume that
-/// could change it would let one arc run two progressions.
+/// The kind is derived from the documents by [`kind_from_documents`] and
+/// recorded on the opening ([B04] of the one-door brief). A resume derives
+/// nothing, for the same reason a second `arc-start` is refused: the arc's
+/// kind is part of what the record *is*, and a resume that re-read the
+/// documents would let one arc run two progressions when a later stage wrote
+/// a plan beside a task list.
 ///
 /// Separated from the verb so the decision is testable over a synthesized log
 /// with no session and no instance — and it lives here, in the engine, rather
 /// than in the `tugtool` binary crate, because the server opens arcs too
 /// ([P05]) and cannot depend on a binary.
-pub fn open_arc(root: &Path, arc: &str, kind: crate::arc::ArcKind) -> Result<OpenOutcome, String> {
+pub fn open_arc(root: &Path, arc: &str) -> Result<OpenOutcome, String> {
     validate_arc_name(arc).map_err(|e| e.to_string())?;
     if let Some(record) = crate::arc::read_arc(root, arc) {
         return resume_arc(root, arc, record);
     }
 
+    // One sentence for the one refusal, said by whichever of the two reads
+    // gets there first.
+    let missing = || {
+        format!(
+            "arc '{arc}' has no brief, plan, or task list at {} — write one first",
+            documents_dir(root, arc).display()
+        )
+    };
     let file = if brief_file(root, arc).is_file() {
         "brief.md"
     } else if plan_file(root, arc).is_file() {
@@ -495,10 +505,13 @@ pub fn open_arc(root: &Path, arc: &str, kind: crate::arc::ArcKind) -> Result<Ope
         // refusing it would be a rule with no reason behind it.
         "tasks.md"
     } else {
-        return Err(format!(
-            "arc '{arc}' has no brief, plan, or task list at {} — write one first",
-            documents_dir(root, arc).display()
-        ));
+        return Err(missing());
+    };
+    // Unreachable once the ladder found a document — both reads look at the
+    // same three addresses — but the kind belongs to the record and is not
+    // worth inventing a default for.
+    let Some(kind) = kind_from_documents(root, arc) else {
+        return Err(missing());
     };
     // Repo-relative in the record, which is what the stage divider shows and
     // what the runner resolves against the main root.
@@ -561,6 +574,26 @@ pub fn ledger_file(repo: &Path, name: &str) -> Option<PathBuf> {
     }
     let tasks = tasks_file(repo, name);
     tasks.is_file().then_some(tasks)
+}
+
+/// The kind an arc opens as, read off its documents ([B04]).
+///
+/// `None` when no document exists. `Plain` when a task list exists and no
+/// plan does — the shape the door leaves after settling the steps itself.
+/// `Planned` otherwise: a brief alone, a plan alone, a brief with a plan,
+/// or a plan beside a vestigial task list, because `plan.md` outranks
+/// `tasks.md` exactly as it does for [`ledger_file`].
+pub fn kind_from_documents(repo: &Path, name: &str) -> Option<crate::arc::ArcKind> {
+    let brief = brief_file(repo, name).is_file();
+    let plan = plan_file(repo, name).is_file();
+    let tasks = tasks_file(repo, name).is_file();
+    if !brief && !plan && !tasks {
+        return None;
+    }
+    if tasks && !plan {
+        return Some(crate::arc::ArcKind::Plain);
+    }
+    Some(crate::arc::ArcKind::Planned)
 }
 
 /// Every name under `<repo>/.tug/arcs/` that is an arc with documents.
@@ -5534,6 +5567,50 @@ mod tests {
         // A plan alone is a planned arc's ledger, as it always was.
         fs::remove_file(dir.join("tasks.md")).unwrap();
         assert_eq!(ledger_file(root, "ledgered"), Some(dir.join("plan.md")));
+    }
+
+    /// Table T01 of the one-door plan, every row of it, read straight off the
+    /// documents. The `None` row is the one that matters twice over: a
+    /// directory with nothing in it and a directory that was never made both
+    /// answer "no kind", because the kind is a fact about documents and there
+    /// are none.
+    #[test]
+    fn the_kind_is_read_off_the_documents() {
+        use crate::arc::ArcKind::{Plain, Planned};
+
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+
+        // Never made: no kind, and nothing created by asking.
+        assert_eq!(kind_from_documents(root, "absent"), None);
+        assert!(!documents_dir(root, "absent").exists());
+
+        for (row, (documents, expected)) in [
+            (&[][..], None),
+            (&["brief.md"][..], Some(Planned)),
+            (&["plan.md"][..], Some(Planned)),
+            (&["tasks.md"][..], Some(Plain)),
+            (&["brief.md", "tasks.md"][..], Some(Plain)),
+            (&["brief.md", "plan.md"][..], Some(Planned)),
+            (&["plan.md", "tasks.md"][..], Some(Planned)),
+            (&["brief.md", "plan.md", "tasks.md"][..], Some(Planned)),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            // One arc per row, so no row inherits the last one's documents.
+            let name = format!("kinded-{row}");
+            let dir = documents_dir(root, &name);
+            fs::create_dir_all(&dir).unwrap();
+            for document in documents {
+                fs::write(dir.join(document), "# fixture\n").unwrap();
+            }
+            assert_eq!(
+                kind_from_documents(root, &name),
+                expected,
+                "documents {documents:?}"
+            );
+        }
     }
 
     /// The property [P01] and [P02] both rest on: a validated name is one safe
@@ -13714,8 +13791,7 @@ Some context.
     fn open_arc_opens_on_the_brief_then_the_plan() {
         let (_home, repo) = open_arc_fixture();
         write_arc_document(repo.path(), "plan-only", "plan.md");
-        let opened =
-            open_arc(repo.path(), "plan-only", crate::arc::ArcKind::Planned).expect("opened");
+        let opened = open_arc(repo.path(), "plan-only").expect("opened");
         assert_eq!(
             opened.record.document.as_deref(),
             Some(".tug/arcs/plan-only/plan.md")
@@ -13724,7 +13800,7 @@ Some context.
         let (_home, repo) = open_arc_fixture();
         write_arc_document(repo.path(), "both", "brief.md");
         write_arc_document(repo.path(), "both", "plan.md");
-        let opened = open_arc(repo.path(), "both", crate::arc::ArcKind::Planned).expect("opened");
+        let opened = open_arc(repo.path(), "both").expect("opened");
         assert_eq!(
             opened.record.document.as_deref(),
             Some(".tug/arcs/both/brief.md")
@@ -13740,40 +13816,54 @@ Some context.
         let (_home, repo) = open_arc_fixture();
         write_arc_document(repo.path(), "both-docs", "brief.md");
         write_arc_document(repo.path(), "both-docs", "tasks.md");
-        let opened = open_arc(repo.path(), "both-docs", crate::arc::ArcKind::Plain).unwrap();
+        let opened = open_arc(repo.path(), "both-docs").unwrap();
         assert_eq!(
             opened.record.document.as_deref(),
             Some(".tug/arcs/both-docs/brief.md")
         );
+        assert_eq!(opened.record.kind, Some(crate::arc::ArcKind::Plain));
     }
 
-    /// **The opening records the kind ([B08]).** `--plan` is absent by
-    /// default, so an ordinary `arc run` writes the shorter progression;
-    /// passing the flag writes the settled one.
+    /// **The opening records the kind its documents name ([B04]).** Table T01
+    /// in one test: a task list with no plan beside it is the plain shape the
+    /// door leaves after settling the steps itself, and every other document
+    /// set is planned, because `plan.md` outranks `tasks.md` here exactly as
+    /// it does for `ledger_file`.
     #[test]
     #[serial]
-    fn opening_an_arc_records_the_kind_it_was_asked_for() {
-        let (_home, repo) = open_arc_fixture();
-        write_arc_document(repo.path(), "shortcut", "brief.md");
-        let opened = open_arc(repo.path(), "shortcut", crate::arc::ArcKind::Plain).unwrap();
-        assert_eq!(opened.record.kind, Some(crate::arc::ArcKind::Plain));
-
-        let (_home, repo) = open_arc_fixture();
-        write_arc_document(repo.path(), "settled", "brief.md");
-        let opened = open_arc(repo.path(), "settled", crate::arc::ArcKind::Planned).unwrap();
-        assert_eq!(opened.record.kind, Some(crate::arc::ArcKind::Planned));
+    fn opening_an_arc_records_the_kind_its_documents_name() {
+        let planned = Some(crate::arc::ArcKind::Planned);
+        let plain = Some(crate::arc::ArcKind::Plain);
+        for (documents, expected) in [
+            (&["brief.md"][..], planned),
+            (&["plan.md"][..], planned),
+            (&["tasks.md"][..], plain),
+            (&["brief.md", "tasks.md"][..], plain),
+            (&["brief.md", "plan.md"][..], planned),
+            (&["plan.md", "tasks.md"][..], planned),
+            (&["brief.md", "plan.md", "tasks.md"][..], planned),
+        ] {
+            let (_home, repo) = open_arc_fixture();
+            for document in documents {
+                write_arc_document(repo.path(), "table", document);
+            }
+            let opened = open_arc(repo.path(), "table").unwrap();
+            assert_eq!(opened.record.kind, expected, "documents {documents:?}");
+        }
     }
 
-    /// **A resume cannot change the kind.** The record is the arc's identity,
-    /// and a bare `arc run` over an arc opened with `--plan` is a resume of
-    /// that arc, not a second one wearing a different progression.
+    /// **A resume does not re-derive the kind.** The record is the arc's
+    /// identity, and a second `arc run` over an arc already open is a resume
+    /// of that arc, not a second one wearing a different progression — so a
+    /// task list written after the opening does not turn a planned arc plain.
     #[test]
     #[serial]
     fn a_resume_keeps_the_kind_the_opening_recorded() {
         let (_home, repo) = open_arc_fixture();
         write_arc_document(repo.path(), "settled", "brief.md");
-        open_arc(repo.path(), "settled", crate::arc::ArcKind::Planned).unwrap();
-        let reopened = open_arc(repo.path(), "settled", crate::arc::ArcKind::Plain).unwrap();
+        open_arc(repo.path(), "settled").unwrap();
+        write_arc_document(repo.path(), "settled", "tasks.md");
+        let reopened = open_arc(repo.path(), "settled").unwrap();
         assert!(!reopened.started);
         assert_eq!(reopened.record.kind, Some(crate::arc::ArcKind::Planned));
     }
@@ -13785,10 +13875,11 @@ Some context.
     fn a_task_list_alone_opens_an_arc() {
         let (_home, repo) = open_arc_fixture();
         write_arc_document(repo.path(), "tasks-only", "tasks.md");
-        let opened = open_arc(repo.path(), "tasks-only", crate::arc::ArcKind::Planned).unwrap();
+        let opened = open_arc(repo.path(), "tasks-only").unwrap();
         assert_eq!(
             opened.record.document.as_deref(),
             Some(".tug/arcs/tasks-only/tasks.md")
         );
+        assert_eq!(opened.record.kind, Some(crate::arc::ArcKind::Plain));
     }
 }

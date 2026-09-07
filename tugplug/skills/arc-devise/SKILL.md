@@ -97,7 +97,7 @@ Then run the **cold-reader test**: could a fresh session, given only this docume
 - **Print no chip and name no next command.** Nobody is going to click it. The runner is watching the documents — it reads `tugtool plan lint` and `tugtool plan status` on the plan you just wrote and rotates the stage itself.
 - **Ask for no rotation either.** The card is already running an arc, and a second request on it is refused by name. Say what you wrote and where, and end the turn. Ending the turn *is* the hand-off.
 
-**With no `where` line above, stop and say so.** This skill is a stage of an arc rather than a standalone command, and `/arc-plan` is the door into it: it sharpens the idea with the user, writes the brief you would be devising from, and opens the arc that carries the plan to its review. (The other door, `/arc`, settles its steps as a task list and opens an arc with no devise stage at all.) There is no path from here that ends anywhere else, because the plan is not ready when you finish writing it — it is ready when a fresh session has read it cold, and only the arc opens that session.
+**With no `where` line above, stop and say so.** This skill is a stage of an arc rather than a standalone command, and `/arc` is the one door into it: it sharpens the idea with the user, writes the brief you would be devising from, and decides there whether the arc is planned — in which case it opens at this stage — or plain, in which case the door settled the steps itself and the arc has no devise stage at all. There is no path from here that ends anywhere else, because the plan is not ready when you finish writing it — it is ready when a fresh session has read it cold, and only the arc opens that session.
 
 ### 6. Hand off
 

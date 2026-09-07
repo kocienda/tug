@@ -18,8 +18,10 @@ use tugtool_core::error::TugError;
 
 use crate::log::{append_arc_log, is_terminal, split_log_line};
 
-/// Which kind of arc this is — the *recorded* kind, written when the arc opens
-/// and never derived from what documents happen to be on disk.
+/// Which kind of arc this is — derived from the arc's documents when it opens,
+/// recorded there once, and read from the record thereafter. Nothing sniffs
+/// the documents again: a plan written by the devise stage is a later fact
+/// about a planned arc, not a re-decision of what kind it is.
 ///
 /// The two kinds differ only in settling time ([B01]): a planned arc spends
 /// devise and review before any step is walked, a plain arc opens at implement
@@ -412,7 +414,8 @@ pub struct ArcRecord {
     pub arc: String,
     /// The document the arc opened on.
     pub document: Option<String>,
-    /// Which kind of arc this is, recorded when the arc opened.
+    /// Which kind of arc this is, derived from the arc's documents when it
+    /// opened and recorded there.
     ///
     /// `None` is a **pre-kind arc** — an arc opened by a build that had no
     /// `arc-kind` marker to write. Its reader falls back to sniffing the

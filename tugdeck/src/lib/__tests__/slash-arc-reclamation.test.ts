@@ -40,7 +40,6 @@ import {
 const PLUGIN_CATALOG = [
   "tugplug:arc",
   "tugplug:arc-implement",
-  "tugplug:arc-plan",
   "tugplug:draft",
   "tugplug:arc-devise",
   "tugplug:arc-review",
@@ -89,12 +88,13 @@ describe("the bare /arc reaches the door skill", () => {
     expect(canonicalizeBareCommandLine("/arc", CATALOG)).toBe("/tugplug:arc");
   });
 
-  test("the other door resolves on the same terms", () => {
-    expect(resolveRemoteCommand("arc-plan", CATALOG)).toBe("tugplug:arc-plan");
-    expect(isUnknownRemoteCommand("arc-plan", CATALOG)).toBe(false);
-    expect(canonicalizeBareCommandLine("/arc-plan", CATALOG)).toBe(
-      "/tugplug:arc-plan",
-    );
+  test("the retired second door resolves to nothing", () => {
+    // `/arc-plan` was the other door and is gone. The catalog carries no leaf
+    // for it, so the resolver misses and the submit path reports an unknown
+    // command — which is the honest answer, and better than a silent
+    // pass-through to a skill that is not there.
+    expect(resolveRemoteCommand("arc-plan", CATALOG)).toBeNull();
+    expect(isUnknownRemoteCommand("arc-plan", CATALOG)).toBe(true);
   });
 
   test("a second arc-leaf entry would break the resolution, not hide it", () => {
@@ -107,12 +107,10 @@ describe("the bare /arc reaches the door skill", () => {
   });
 });
 
-describe("the popup offers the doors and not the stages", () => {
-  test("both doors survive the completion filter", () => {
-    for (const name of ["tugplug:arc", "tugplug:arc-plan"]) {
-      expect(isUnlistedSlashCommand(name)).toBe(false);
-      expect(isHiddenSlashCommand(name)).toBe(false);
-    }
+describe("the popup offers the door and not the stages", () => {
+  test("the door survives the completion filter", () => {
+    expect(isUnlistedSlashCommand("tugplug:arc")).toBe(false);
+    expect(isHiddenSlashCommand("tugplug:arc")).toBe(false);
   });
 
   test("every stage skill in the real catalog is unlisted", () => {

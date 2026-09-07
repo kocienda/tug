@@ -96,7 +96,7 @@ describe("enumeratePluginCommands", () => {
   // (`resolveRemoteCommand`, tugdeck), and a second catalog entry whose leaf is
   // also `arc` would make that resolution ambiguous — which reads to the user
   // as "Unknown command" rather than as anything nameable.
-  test("the repository's own plugin catalogues tugplug:arc and tugplug:arc-plan, unambiguously", () => {
+  test("the repository's own plugin catalogues tugplug:arc, unambiguously, and no arc-plan", () => {
     const pluginDir = join(import.meta.dir, "..", "..", "..", "tugplug");
     if (!existsSync(join(pluginDir, "skills"))) return; // not a full checkout.
 
@@ -119,17 +119,11 @@ describe("enumeratePluginCommands", () => {
     const arcLeaves = cmds.filter((c) => c.name.split(":").pop() === "arc");
     expect(arcLeaves.map((c) => c.name)).toEqual(["tugplug:arc"]);
 
-    // The other door, on the same terms: a second catalog entry whose leaf is
-    // also `arc-plan` is what would make a bare `/arc-plan` ambiguous.
-    const arcPlan = cmds.find((c) => c.name === "tugplug:arc-plan");
-    expect(arcPlan).toBeDefined();
-    const arcPlanDescription = arcPlan?.description ?? "";
-    expect(arcPlanDescription.length).toBeGreaterThan(0);
-    const arcPlanSource = readFileSync(join(pluginDir, "skills", "arc-plan", "SKILL.md"), "utf8");
-    expect(arcPlanSource).toContain(arcPlanDescription);
-
-    const arcPlanLeaves = cmds.filter((c) => c.name.split(":").pop() === "arc-plan");
-    expect(arcPlanLeaves.map((c) => c.name)).toEqual(["tugplug:arc-plan"]);
+    // And there is no second door. `/arc` is the only one, so a catalog entry
+    // whose leaf is `arc-plan` is a skill that should have been deleted —
+    // asserted here rather than merely absent, because a stale directory in
+    // the shipped plugin is exactly what nobody would notice.
+    expect(cmds.filter((c) => c.name.split(":").pop() === "arc-plan")).toEqual([]);
   });
 });
 

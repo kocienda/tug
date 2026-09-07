@@ -208,7 +208,7 @@ describe.skipIf(!SHOULD_RUN)("AT0523: Stop on the Arcs card's row", () => {
         );
 
         // The arc runs for real, through the card's own shell route.
-        await shellUntil(app, `${cli} arc run ${ARC_NAME} --plan`, "is bound to it");
+        await shellUntil(app, `${cli} arc run ${ARC_NAME}`, "is bound to it");
 
         // ── And the row's one button is now Stop ──────────────────────────
         await app.waitForCondition<boolean>(

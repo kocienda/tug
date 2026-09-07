@@ -53,16 +53,15 @@ The sentence that defines them: **a planned arc is an arc that earns a plan befo
 
 ---
 
-## The wheel, the doors, the stages
+## The wheel, the door, the stages
 
 The **wheel** drives every arc. It rotates the **stages** — devise, review, implement, audit — onto fresh sessions of its own, on the same card, one step per turn, so each stage reads the documents cold. A running model cannot drive the wheel; it cannot end its own turn to start the next stage.
 
-The **doors** are the two skills that open the arc lane, and a door's whole job is to settle what the work is and hand it over: sharpen the conversation into a brief, hand the brief to the wheel, end the turn. A door creates no worktree, commits nothing, implements nothing, joins nothing.
+The **door** is the one skill that opens the arc lane, and its whole job is to settle what the work is and hand it over: sharpen the conversation into a brief, decide which kind of arc it wants, hand the brief to the wheel, end the turn. The door creates no worktree, commits nothing, implements nothing, joins nothing.
 
-- **`/arc`** — the door onto an arc.
-- **`/arc-plan`** — the door onto a planned arc.
+- **`/arc`** — the door onto an arc, plain or planned.
 
-Which door the user typed **is** the routing decision. The stage skills are internal machinery — stages of an arc that refuse to run outside one — not doors, and not vocabulary anyone speaks.
+The **kind is the door's decision, not the user's spelling**. It reads the conversation first — an instruction that asks for a plan, or for going straight at it, settles it — and otherwise makes the call itself on the axis above: whether the work earns a written, cold-reviewed plan before a step is walked. Only on genuine ambiguity does it confirm by dialog, and either way it says which shape it chose before it hands off. A plain arc leaves a task list beside the brief; a planned arc leaves the brief alone, and the engine reads the kind off exactly that when the arc opens. The stage skills are internal machinery — stages of an arc that refuse to run outside one — not doors, and not vocabulary anyone speaks.
 
 ---
 
@@ -80,9 +79,10 @@ Per the retirement doctrine, the designs go and the spellings stay findable — 
 
 - **course** — once named the stage-sequence variant ("dash course" / "plan course"), and before that "arc" named the same thing. Retired totally: the variant axis is now the **kind** (plain | planned), and the stage sequence needs no proper noun — say "a planned arc's stages."
 - **dash** — the old name for the short arc, and one of the three words this lexicon's own rule could not keep. Now: **an arc**, entered by `/arc`.
-- **trek** — the old name for the long arc. Now: **a planned arc**, entered by `/arc-plan`.
-- **planned dash** / **`/dash-plan`** — the old marked kind and its door. It went to `/trek`, and `/trek` goes to `/arc-plan`; the collision that retired the first spelling was in *dash*, never in *plan*.
+- **trek** — the old name for the long arc. Now: **a planned arc**, entered by `/arc` like every other.
+- **planned dash** / **`/dash-plan`** — the old marked kind and its door. It went to `/trek`, and `/trek` goes to the one door `/arc`; the collision that retired the first spelling was in *dash*, never in *plan*.
 - **`tugdash/`** — the old branch prefix, with its four `branch.tugdash/<name>.*` config keys. Now: **`tugarc/`**, migrated at the top of every arc verb.
+- **`/arc-plan`** — the second door, onto a planned arc. Now: the one door **`/arc`**, which decides the kind from the conversation and its own reading. The retired flag `tugtool arc run --plan` and the `arc_run` frame's `kind` field went with it: each was a second source of truth for what the arc's own documents already say.
 - **`Tug-Dash:`** — the old join trailer. Now: **`Tug-Arc:`**; landed trailers are read for life.
 - **`dash-log`** — the old per-project record file. Now: **the arc log** (`arc-log.md`), renamed once on first read.
 - **`/dash-discard`** — the discard receipt's old spelling. Now: **`/arc-discard`**, with the old one read for life below.

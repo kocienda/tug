@@ -259,16 +259,17 @@ pub(crate) fn bind(
 /// [`arc_resume`]'s act and no other ([B04]). Two verbs, two facts: Start
 /// opens, Resume picks back up.
 ///
-/// `kind` is what the opening records ([B08]) and is required only by the
-/// opening — a request that names none over an arc with no record is refused
-/// before anything is written, since an arc's kind is part of what its record
-/// *is* and there is no default worth guessing.
+/// **The opening derives the kind from the arc's documents** ([B04] of the
+/// one-door brief), so the request names none: a task list beside the brief
+/// opens a plain arc, a brief alone or a plan opens a planned one. An arc
+/// with no documents at all has nothing to derive from, and `open_arc`
+/// refuses it — naming the address to write to — before anything is written
+/// or bound.
 pub(crate) fn arc_run(
     ledger: &SessionLedger,
     project_dir: &std::path::Path,
     tug_session_id: &str,
     arc: &str,
-    kind: Option<tugarc_core::ArcKind>,
 ) -> ArcApiOutcome {
     // The live segment, resolved before anything is written: an open that
     // landed and then failed to bind would leave the arc reading live with
@@ -278,12 +279,7 @@ pub(crate) fn arc_run(
         Err(outcome) => return outcome,
     };
     if tugarc_core::arc::read_arc(project_dir, arc).is_none() {
-        let Some(kind) = kind else {
-            return ArcApiOutcome::Error(format!(
-                "{arc} has no arc yet and the request named no kind"
-            ));
-        };
-        if let Err(e) = tugarc_core::ops::open_arc(project_dir, arc, kind) {
+        if let Err(e) = tugarc_core::ops::open_arc(project_dir, arc) {
             return ArcApiOutcome::Error(e);
         }
     }
@@ -711,6 +707,14 @@ mod tests {
         std::fs::write(dir.join("brief.md"), "# Brief\n").unwrap();
     }
 
+    /// The other document the `/arc` door writes. A task list with no plan
+    /// beside it is what makes an arc plain.
+    fn write_tasks(root: &std::path::Path, arc: &str) {
+        let dir = root.join(".tug").join("arcs").join(arc);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("tasks.md"), "# Tasks\n").unwrap();
+    }
+
     /// A temp `TUG_DATA_DIR` and a temp repo, in the order every arc test
     /// here needs them: the environment first, so the arc log lands under the
     /// fixture rather than the developer's own data dir.
@@ -724,47 +728,58 @@ mod tests {
     }
 
     /// **Start opens.** An arc with a brief and no record is the shape the
-    /// Arcs card's Start button acts on, and the kind the press derived from
-    /// the documents is what the opening records ([B08]).
+    /// Arcs card's Start button acts on, and the opening reads the kind off
+    /// those documents ([B04]) — a brief alone is planned, a task list beside
+    /// it is plain. The press names neither.
     #[test]
     #[serial_test::serial]
-    fn arc_run_opens_a_document_only_arc_with_the_kind_it_was_sent() {
+    fn arc_run_opens_a_document_only_arc_with_the_kind_its_documents_name() {
         let (_home, dir) = arc_run_fixture();
         let root = dir.path();
         let ledger = idle_card(root);
         write_brief(root, "beta");
 
         assert!(matches!(
-            arc_run(
-                &ledger,
-                root,
-                "claude-1",
-                "beta",
-                Some(tugarc_core::ArcKind::Planned)
-            ),
+            arc_run(&ledger, root, "claude-1", "beta"),
             ArcApiOutcome::Bound { .. }
         ));
         let record = tugarc_core::arc::read_arc(root, "beta").expect("the arc was opened");
         assert_eq!(record.kind, Some(tugarc_core::ArcKind::Planned));
         assert_eq!(record.document.as_deref(), Some(".tug/arcs/beta/brief.md"));
         assert_eq!(bound_arc(&ledger).as_deref(), Some("beta"));
-    }
 
-    /// **And an opening with no kind is refused before it writes.** The kind
-    /// is part of what a record *is*, so there is no default to fall back on
-    /// — and a refusal that has already written half an arc is worse than the
-    /// refusal alone.
-    #[test]
-    #[serial_test::serial]
-    fn arc_run_with_no_record_and_no_kind_is_refused_before_it_writes() {
         let (_home, dir) = arc_run_fixture();
         let root = dir.path();
         let ledger = idle_card(root);
-        write_brief(root, "beta");
+        write_brief(root, "gamma");
+        write_tasks(root, "gamma");
 
-        match arc_run(&ledger, root, "claude-1", "beta", None) {
+        assert!(matches!(
+            arc_run(&ledger, root, "claude-1", "gamma"),
+            ArcApiOutcome::Bound { .. }
+        ));
+        let record = tugarc_core::arc::read_arc(root, "gamma").expect("the arc was opened");
+        assert_eq!(record.kind, Some(tugarc_core::ArcKind::Plain));
+        assert_eq!(record.document.as_deref(), Some(".tug/arcs/gamma/brief.md"));
+    }
+
+    /// **And an arc with no documents is refused before it writes.** There is
+    /// nothing to derive a kind from and nothing for a stage to read, so the
+    /// refusal names the address to write to — and a refusal that has already
+    /// written half an arc is worse than the refusal alone.
+    #[test]
+    #[serial_test::serial]
+    fn arc_run_with_no_record_and_no_documents_is_refused_before_it_writes() {
+        let (_home, dir) = arc_run_fixture();
+        let root = dir.path();
+        let ledger = idle_card(root);
+
+        match arc_run(&ledger, root, "claude-1", "beta") {
             ArcApiOutcome::Error(message) => {
-                assert!(message.contains("named no kind"), "{message}");
+                assert!(
+                    message.contains("has no brief, plan, or task list"),
+                    "{message}"
+                );
             }
             other => panic!("expected a refusal, got {}", outcome_name(&other)),
         }
@@ -795,13 +810,7 @@ mod tests {
         .unwrap();
 
         assert!(matches!(
-            arc_run(
-                &ledger,
-                root,
-                "claude-1",
-                "beta",
-                Some(tugarc_core::ArcKind::Plain)
-            ),
+            arc_run(&ledger, root, "claude-1", "beta"),
             ArcApiOutcome::Bound { .. }
         ));
         let record = tugarc_core::arc::read_arc(root, "beta").expect("the record stands");

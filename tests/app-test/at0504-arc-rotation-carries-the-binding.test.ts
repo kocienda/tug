@@ -28,11 +28,12 @@
  * So the door is the gesture, and the four things the incident lost are the
  * assertions:
  *
- *   1. **The kind is recorded and obeyed.** A bare `arc run` opens at
- *      implement; the same arc run with `--plan` opens at devise. That is
- *      W5's recorded kind, driven end to end for the first time — the second
- *      test is the contrast, and the contrast is what makes it a *recorded*
- *      kind rather than a document sniff.
+ *   1. **The kind the documents name is recorded and obeyed.** A brief with
+ *      a task list beside it opens at implement; a brief alone opens at
+ *      devise. That is W5's recorded kind, driven end to end for the first
+ *      time — the second test is the contrast, and the contrast is what shows
+ *      the kind was derived once at the opening and then obeyed from the
+ *      record.
  *   2. **The binding rode the seat.** The card's masthead sigil and the Z2
  *      ARC cell still name the arc after the fresh segment lands. That is
  *      W2's broadcast ordering: the `session_updated` push carrying the
@@ -163,10 +164,11 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   scratch = makeArcScratchRepo({ prefix: "at0504", checkout: CHECKOUT });
 
-  // Two arcs with **identical documents** — a brief and a task list, which
-  // is the shape the bare door leaves. Identical on purpose: the only thing
-  // that differs between the two tests is the `--plan` flag, so a difference in
-  // where the arc opens can only be the recorded kind talking.
+  // Two arcs whose documents differ by exactly one file. The plain arc gets a
+  // brief and a task list, which is the shape the door leaves when it settles
+  // the steps itself; the planned arc gets the brief alone. That one file is
+  // the whole of the kind decision, so a difference in where the arc opens
+  // can only be the derived-and-recorded kind talking.
   //
   // The plain arc has **no seat** before the wheel runs — no `arc create`, no
   // branch, no worktree — which is exactly what a door leaves: the documents
@@ -181,7 +183,10 @@ beforeAll(() => {
       disarmAutoreplay(projectDir(), arc);
     }
     writeFileSync(arcBriefPath(projectDir(), arc), "# A brief\n\nOne small thing.\n");
-    writeFileSync(arcTasksPath(projectDir(), arc), fixturePlanDocument(1));
+    // Only the plain arc gets a task list: it is what makes the arc plain.
+    if (arc === PLAIN_ARC) {
+      writeFileSync(arcTasksPath(projectDir(), arc), fixturePlanDocument(1));
+    }
   }
 
   for (const id of [SID_PLAIN, SID_PLANNED]) {
@@ -359,9 +364,9 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
 
         // ── 1. The recorded kind decided where to open ───────────────────
         //
-        // A brief with no plan opens at *devise* under `--plan` — which the
-        // second test drives, over identical documents. So this is the kind
-        // talking, not the documents.
+        // The same brief with no task list beside it opens at *devise* —
+        // which the second test drives. So the opening read these documents
+        // once, and every stage after it reads the record.
         expect(arc.kind, "the kind is recorded, not derived later").toBe("plain");
         expect(arc.stages[0]?.stage, "no devise, no review").toBe("implement");
         const seatedSegment = arc.stages[0]!.session_id;
@@ -475,7 +480,7 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
   );
 
   test(
-    "the same documents with --plan open at devise, which is what makes the kind a kind",
+    "a brief with no task list opens at devise, which is what makes the kind a kind",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -487,14 +492,16 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
       try {
         await openCard(app, SID_PLANNED);
 
-        // `--plan`, which is the only thing the settled progression is asked
-        // for: the default is plain, matching the bare door, and the flag is
-        // what buys the devise and the review before any step is walked.
-        await shell(app, `${cli} arc run ${PLANNED_ARC} --plan`);
+        // No flag, and none to pass: the brief with no task list beside it is
+        // what buys the devise and the review before any step is walked, and
+        // the opening reads that off the documents.
+        await shell(app, `${cli} arc run ${PLANNED_ARC}`);
         const arc = await waitForRotation(PLANNED_ARC);
         note(`at0504 planned arc: ${JSON.stringify(arc)}`);
 
-        expect(arc.kind, "the flag is recorded like any other kind").toBe("planned");
+        expect(arc.kind, "the documents named it and the opening wrote it down").toBe(
+          "planned",
+        );
         expect(arc.stages[0]?.stage, "a brief with no plan settles first").toBe(
           "devise",
         );

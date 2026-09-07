@@ -276,13 +276,12 @@ describe("filterCommandProvider", () => {
     expect(filtered("xx")).toEqual([]);
   });
 
-  test("the session card's own predicate offers the doors and not the stages", () => {
+  test("the session card's own predicate offers the door and not the stages", () => {
     // The closure `use-session-card-services.ts` builds, over a catalog shaped
-    // like the one claude reports: the two doors survive, the four stage skills
+    // like the one claude reports: the door survives, the four stage skills
     // do not, and a hidden name is dropped as it always was.
     const base: CompletionProvider = () => [
       mkItem("tugplug:arc"),
-      mkItem("tugplug:arc-plan"),
       mkItem("tugplug:arc-devise"),
       mkItem("tugplug:arc-review"),
       mkItem("tugplug:arc-implement"),
@@ -296,7 +295,6 @@ describe("filterCommandProvider", () => {
     );
     expect(filtered("").map((i) => i.label)).toEqual([
       "tugplug:arc",
-      "tugplug:arc-plan",
       "init",
     ]);
   });

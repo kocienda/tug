@@ -3415,13 +3415,13 @@ fn parse_model_selector(payload: &[u8]) -> Option<String> {
     (!model.is_empty()).then(|| model.to_owned())
 }
 
-/// The four spellings of the two doors, as a prompt's first token.
-const ARC_DOOR_PREFIXES: [&str; 4] = ["/arc", "/arc-plan", "/tugplug:arc", "/tugplug:arc-plan"];
+/// The two spellings of the one door, as a prompt's first token.
+const ARC_DOOR_PREFIXES: [&str; 2] = ["/arc", "/tugplug:arc"];
 
 /// The arc a door prompt names, or `None` for every other prompt.
 ///
-/// A prompt whose first token is one of the two doors — `/arc`, `/arc-plan`,
-/// or their `/tugplug:` spellings — and whose one and only other token is a
+/// A prompt whose first token is the door — `/arc`, or its `/tugplug:`
+/// spelling — and whose one and only other token is a
 /// well-formed arc name (alphanumerics and hyphens, at least two characters,
 /// and one `validate_arc_name` would accept, so a reserved word like
 /// `status` never binds) names the arc the door is about to open. That is
@@ -4179,21 +4179,13 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            // The same payload again, with one optional field beside it: the
-            // kind to record if the arc has never run ([B08]). A frame that
-            // names none can still start an arc that already has a record,
-            // which is every start but the first.
+            // The same payload, and nothing beside it. The open reads the
+            // arc's kind off its documents ([P03]), so a press that computed
+            // one and sent it would be a control owning a fact about the
+            // responder's data.
             "arc_run" => match parse_bind_arc_payload(payload) {
                 Ok(parsed) => {
-                    let kind = serde_json::from_slice::<serde_json::Value>(payload)
-                        .ok()
-                        .and_then(|value| {
-                            value
-                                .get("kind")
-                                .and_then(|v| v.as_str())
-                                .and_then(tugarc_core::ArcKind::parse)
-                        });
-                    self.do_arc_run(&parsed, kind).await;
+                    self.do_arc_run(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -6408,7 +6400,7 @@ impl AgentSupervisor {
     /// The mating is announced with the same `bind_arc_ok` a bind broadcasts,
     /// because it *is* one — the `arc_run_ok` beside it is the press's own
     /// answer, which the transport control settles on.
-    async fn do_arc_run(&self, request: &BindArcPayload, kind: Option<tugarc_core::ArcKind>) {
+    async fn do_arc_run(&self, request: &BindArcPayload) {
         let Some(ledger) = self.session_ledger.clone() else {
             Self::send_arc_run_err(
                 &self.control_tx,
@@ -6426,7 +6418,7 @@ impl AgentSupervisor {
         let session = request.tug_session_id.clone();
         let arc = request.arc.clone();
         let outcome = tokio::task::spawn_blocking(move || {
-            crate::arc_api::arc_run(&ledger, &project, &session, &arc, kind)
+            crate::arc_api::arc_run(&ledger, &project, &session, &arc)
         })
         .await;
 
@@ -15565,11 +15557,12 @@ mod tests {
         assert!(body["bindings"][0]["arc_name"].is_null());
     }
 
-    /// The door prompt's token parse: exactly the four door spellings, then a
-    /// well-formed arc name, and nothing else reads as a door.
+    /// The door prompt's token parse: exactly the door's two spellings, then
+    /// a well-formed arc name, and nothing else reads as a door — the retired
+    /// `/arc-plan` included.
     #[test]
-    fn arc_door_target_reads_exactly_the_four_doors() {
-        for door in ["/arc", "/arc-plan", "/tugplug:arc", "/tugplug:arc-plan"] {
+    fn arc_door_target_reads_exactly_the_two_spellings_of_the_door() {
+        for door in ["/arc", "/tugplug:arc"] {
             assert_eq!(
                 super::arc_door_target(&format!("{door} demo-arc2")),
                 Some("demo-arc2"),
@@ -15583,6 +15576,8 @@ mod tests {
         }
         // Not a door.
         for text in [
+            "/arc-plan demo-arc2",
+            "/tugplug:arc-plan demo",
             "/arc-join demo",
             "/arc-bind demo",
             "/tugplug:draft demo",
@@ -15597,7 +15592,6 @@ mod tests {
         // whose first word merely looks like one.
         for text in [
             "/arc",
-            "/arc-plan   ",
             "/arc make the ring pulse",
             "/arc demo sharpen this",
             "/arc a",

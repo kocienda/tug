@@ -9,7 +9,7 @@
   no checkpoints, no commit boundaries, and no Review Record. The test of a brief is
   whether a devise round can be run from it — not whether an implementer can work
   from it. If you find yourself writing steps, you are writing a plan — and
-  `/arc-plan` is how a plan is made.
+  a planned arc is how a plan is made.
 
   **This format is deliberately not linted, and the omission is a decision.** There is
   no `tugtool brief lint`, no parser, and no rules engine. A format written down for

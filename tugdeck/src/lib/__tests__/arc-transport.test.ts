@@ -1,9 +1,9 @@
 /**
- * `arc-transport` — the three questions a transport control asks, as tables.
+ * `arc-transport` — the two questions a transport control asks, as tables.
  *
- * The face, the actor and the start kind are pure functions precisely so their
- * whole truth tables can be written down here rather than driven through a
- * rendered row. Every case below is a row of Table T01, Table T02, or Spec S01.
+ * The face and the actor are pure functions precisely so their whole truth
+ * tables can be written down here rather than driven through a rendered row.
+ * Every case below is a row of Table T01 or Table T02.
  */
 
 import { describe, expect, it } from "bun:test";
@@ -12,7 +12,6 @@ import {
   hasAnyDocument,
   isLiveRun,
   resolveTransportActor,
-  startKind,
   transportFace,
   type FollowedCardFacts,
 } from "@/lib/arc-transport";
@@ -262,37 +261,6 @@ describe("resolveTransportActor (Table T02)", () => {
         arc: "alpha",
       }).reason,
     ).toBe("cherry-rider is running beta");
-  });
-});
-
-describe("startKind (Spec S01)", () => {
-  it("opens plain on a task list with no plan", () => {
-    // What the `/arc` door leaves, with or without a brief beside it.
-    expect(startKind({ tasks: "/a/tasks.md" })).toBe("plain");
-    expect(startKind({ brief: "/a/brief.md", tasks: "/a/tasks.md" })).toBe(
-      "plain",
-    );
-  });
-
-  it("opens planned on a brief or a plan", () => {
-    expect(startKind({ brief: "/a/brief.md" })).toBe("planned");
-    expect(startKind({ plan: "/a/plan.md" })).toBe("planned");
-    expect(startKind({ brief: "/a/brief.md", plan: "/a/plan.md" })).toBe(
-      "planned",
-    );
-  });
-
-  it("opens planned on a plan beside a task list", () => {
-    // A plan outranks a task list: the arc was devised, and the task list is
-    // vestigial — the same rule `ledger_file` follows.
-    expect(startKind({ plan: "/a/plan.md", tasks: "/a/tasks.md" })).toBe(
-      "planned",
-    );
-  });
-
-  it("names no kind with no documents", () => {
-    expect(startKind({})).toBeNull();
-    expect(startKind(undefined)).toBeNull();
   });
 });
 

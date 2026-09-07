@@ -16,6 +16,6 @@ A **plan** is the implementable document, written from a brief. It carries the s
 
 It names no route, no mode, and no kind of work. That restriction is what keeps the rest of the vocabulary usable.
 
-So: **the model never authors a plan on its own**, and never enters Plan mode. The user gets a plan by typing `/arc-plan`, which sharpens the idea into a brief and hands it to the stage that devises the plan document. Anything else the model might call a plan — an ad hoc `plan.md`, a numbered list offered as one — is a document nobody asked for, wearing the name of one they might have.
+So: **the model never authors a plan on its own**, and never enters Plan mode. The user gets a plan by typing `/arc` and settling on a planned arc, which hands the brief to the stage that devises the plan document. Anything else the model might call a plan — an ad hoc `plan.md`, a numbered list offered as one — is a document nobody asked for, wearing the name of one they might have.
 
 **DO NOT automatically enter Plan mode.** Never use `EnterPlanMode` unless the user explicitly asks for it. Just do the work directly.

@@ -116,7 +116,7 @@ describe("isUnlistedSlashCommand", () => {
   });
 
   test("a door, a pass-through and a hidden name are all listed", () => {
-    for (const name of ["tugplug:arc", "tugplug:arc-plan", "init", "vim"]) {
+    for (const name of ["tugplug:arc", "init", "vim"]) {
       expect(isUnlistedSlashCommand(name)).toBe(false);
     }
   });

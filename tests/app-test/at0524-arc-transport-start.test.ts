@@ -9,16 +9,16 @@
  * [D176]'s card removed a button that had composed a `/tugplug:…` line into
  * the followed card, because a label is not a control. [D178] gives the row a
  * real one, and this file is the proof that it is real: the press opens the
- * arc through the server's own `arc_run`, with the **kind the documents name**
- * rather than a kind the server sniffed off a directory, and the row it was
- * pressed on redraws with the card that is now working the arc.
+ * arc through the server's own `arc_run`, the opening records the **kind the
+ * arc's documents name**, and the row it was pressed on redraws with the card
+ * that is now working the arc.
  *
- * A brief and nothing else, deliberately: that is what `/arc-plan`'s door
- * leaves, and Spec S01 reads it as a `planned` arc. The recorded kind is the
- * one fact here that no other surface would notice going wrong — a plain arc
- * and a planned one differ only in how long they settle before a step is
- * walked, so a kind derived on the wrong side of the wire is silent for a
- * whole stage.
+ * A brief and nothing else, deliberately: that is what the door leaves for a
+ * planned arc, and the server derives `planned` from it when it opens. The
+ * recorded kind is the one fact here that no other surface would notice going
+ * wrong — a plain arc and a planned one differ only in how long they settle
+ * before a step is walked, so a kind derived on the wrong side of the wire is
+ * silent for a whole stage.
  *
  * @covers tugdeck/src/components/tugways/arc-transport-control.tsx
  * @covers tugdeck/src/lib/arc-transport.ts
@@ -215,9 +215,9 @@ describe.skipIf(!SHOULD_RUN)("AT0524: Start on a waiting document's row", () => 
           (report) => report.kind !== null,
         );
         note("at0524 arc after the press", JSON.stringify(opened));
-        // A brief and no plan is what `/arc-plan`'s door leaves, and Spec S01
-        // reads it as planned — derived on the deck, sent in the frame, and
-        // recorded by the server as it was sent.
+        // A brief and no plan is what the door leaves for a planned arc. The
+        // press named no kind: the server derived it from the documents at
+        // the opening and recorded it there.
         expect(opened.kind).toBe("planned");
         expect(opened.document ?? "").toEndWith("brief.md");
 

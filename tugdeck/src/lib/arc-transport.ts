@@ -1,12 +1,16 @@
 /**
- * arc-transport.ts — the transport control's three questions, answered as pure
+ * arc-transport.ts — the transport control's two questions, answered as pure
  * functions over data.
  *
- * A row showing an arc has to decide three things before it can draw a button:
- * **which act** the arc is asking for, **which card** the press would act as,
- * and — when the act is Start — **which kind** to open the arc with. All three
- * are functions of the entry and the surface, with no store read and no DOM,
- * so the whole truth table is a unit test rather than a rendered one.
+ * A row showing an arc has to decide two things before it can draw a button:
+ * **which act** the arc is asking for, and **which card** the press would act
+ * as. Both are functions of the entry and the surface, with no store read and
+ * no DOM, so the whole truth table is a unit test rather than a rendered one.
+ *
+ * A Start used to answer a third — which kind to open the arc with — and no
+ * longer does. The kind is derived where the documents live, on the opening
+ * ([P03]); a control that computed it would own a fact about the responder's
+ * data.
  *
  * The face and the actor are separate on purpose. The face is a property of
  * the *arc*: an arc that is running wants Stop wherever it is shown. The actor
@@ -152,27 +156,6 @@ export function resolveTransportActor(
     projectDir: followed.projectDir,
     reason: null,
   };
-}
-
-/**
- * The kind a Start would open this arc with (Spec S01), or null when there is
- * nothing to open.
- *
- * Read off the documents rather than off the record, because an arc with no
- * record is exactly the one this answers for. A task list with no plan beside
- * it is what the `/arc` door leaves, and it is the only shape that opens
- * plain; everything else with a document is planned.
- */
-export function startKind(
-  documents: ArcDocuments | undefined,
-): "plain" | "planned" | null {
-  if (documents === undefined) return null;
-  const hasPlan = documents.plan !== undefined;
-  const hasTasks = documents.tasks !== undefined;
-  const hasBrief = documents.brief !== undefined;
-  if (hasTasks && !hasPlan) return "plain";
-  if (hasBrief || hasPlan) return "planned";
-  return null;
 }
 
 /** Whether an arc has any document at all — {@link transportFace}'s third input. */

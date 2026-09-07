@@ -36,7 +36,7 @@ The **Step Status Ledger** at the top of the plan's Execution Steps is the sourc
 
 **If the plan has no Step Status Ledger** (an older or hand-written plan), the step verbs cannot drive it. Fall back gracefully: with no selector, walk from Step 1, and infer which steps are already done from `tugtool arc show <name>`, which reads the arc's rounds back — their commits *and* the instruction git cannot see. Offer to add a ledger to the plan (on the worktree) so a later session resumes, and so the verbs can drive it.
 
-If no ledger exists yet, start at a door. `/arc` sharpens the idea into a brief and a task list and opens an arc straight at this stage; `/arc-plan` writes the brief and its arc devises a plan and reads it cold before any step is walked. Which door the user typed is the routing decision, and neither is this skill's to make.
+If no ledger exists yet, start at the door. `/arc` sharpens the idea into a brief and decides the arc's shape there: a plain arc gets a task list and opens straight at this stage, a planned one gets the brief alone and its arc devises a plan and reads it cold before any step is walked. That decision belongs to the door and is not this skill's to make.
 
 ## The phases
 
@@ -54,7 +54,7 @@ tugtool arc ask <name> "<what you found, in one sentence>"
 
 That writes the sentence as the arc's last note and stops the arc as `needs a decision`, with a Resume on the receipt the user sees in seconds. It is the one gesture by which a stage's refusal becomes a stop rather than a stall, and it is the doctrine's rule that a stop recording a person's decision is never reversed by the machine.
 
-**With no `where` line above, that is the sentence to stop on.** This skill is a stage of an arc rather than a standalone command, and the doors are what start one: `/arc` sharpens an idea into a brief and a task list and opens an arc straight at this stage, `/arc-plan` writes the brief and its arc devises a plan and reads it cold first. There is no path from here that ends anywhere else, because the discipline this stage runs under — one step per turn — is only safe when something is pacing it. Without a wheel, a turn that ends at a step boundary abandons the arc: the ledger reads `in progress`, every face says somebody is working it, and nobody is.
+**With no `where` line above, that is the sentence to stop on.** This skill is a stage of an arc rather than a standalone command, and `/arc` is the one door that starts one: it sharpens an idea into a brief and decides the arc's shape there, opening a plain arc straight at this stage and a planned one at devise. There is no path from here that ends anywhere else, because the discipline this stage runs under — one step per turn — is only safe when something is pacing it. Without a wheel, a turn that ends at a step boundary abandons the arc: the ledger reads `in progress`, every face says somebody is working it, and nobody is.
 
 ### 1. Setup
 
@@ -238,6 +238,6 @@ Everything in [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrin
 
 ## When to reach for something else
 
-This skill is a stage, so what to reach for instead is a **door**. For a change whose shape is already clear, `/arc` sharpens it into a brief and a task list and opens an arc straight at this stage. For work whose decisions want settling first, `/arc-plan` writes the brief and its arc devises a plan and reads it cold before any step is walked. Both hand off by ending their turn, and the wheel paces the walk from there.
+This skill is a stage, so what to reach for instead is the **door**. `/arc` sharpens the work into a brief and settles its shape: a change whose shape is already clear gets a task list and opens straight at this stage, and work whose decisions want settling first gets the brief alone and a plan devised and read cold before any step is walked. Either way the door hands off by ending its turn, and the wheel paces the walk from there.
 
 A ledger with a great many steps is not a reason to invoke this skill in batches by hand — the wheel already walks it one step per turn, compacting between them and rotating when compaction is not enough, which is exactly what batching was for. A ledger that is genuinely too large is a sign the *work* wanted splitting at the door.

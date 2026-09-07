@@ -59,7 +59,7 @@ runs, the same as before.
 The membership rule is that **a stage skill is not vocabulary anyone speaks**.
 Each refuses to run outside an arc, so a user reading the popup for a door
 should not have to read past four names that would stop the moment they were
-typed. The doors — `/arc` and `/arc-plan` — stay listed, as does every local
+typed. The door — `/arc` — stays listed, as does every local
 command.
 
 `isUnlistedSlashCommand()` matches on the part after the last `:`, so the

@@ -226,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
         // Opening the arc binds this card and starts the wheel: review first,
         // because the document lints as a plan, then implement once the review
         // stage has ended a turn.
-        await shell(app, `${cli} arc run ${ARC_NAME} --plan`);
+        await shell(app, `${cli} arc run ${ARC_NAME}`);
         await app.waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(STAGE_DIVIDERS)}))
              .some((el) => (el.textContent || "").indexOf("implement") !== -1)`,

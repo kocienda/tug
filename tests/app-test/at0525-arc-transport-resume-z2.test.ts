@@ -195,7 +195,7 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
         // between the two would put the interruption somewhere else.
         await shellUntil(
           app,
-          `${cli} arc run ${ARC_NAME} --plan && ${cli} arc stop ${ARC_NAME}`,
+          `${cli} arc run ${ARC_NAME} && ${cli} arc stop ${ARC_NAME}`,
           "you stopped it",
         );
 

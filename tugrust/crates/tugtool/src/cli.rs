@@ -846,18 +846,16 @@ pub enum ArcCommands {
     /// that stopped is resumed instead — the documents hold the progress,
     /// so a resume re-runs the stopped stage and never restarts from the top.
     ///
+    /// The kind is read off those same documents and recorded once: a task
+    /// list beside the brief opens a plain arc at implement, and a brief
+    /// alone or a plan opens a planned one at devise. There is no flag,
+    /// because the documents already say which shape the door settled on.
+    ///
     /// The arc runs *on a card*, so the verb refuses without a calling
     /// session: there would be nowhere for a stage to rotate.
     Run {
         /// Arc name — its key, valid before any branch exists.
         name: String,
-        /// Record this as a planned arc: devise → review → implement → audit.
-        ///
-        /// Absent, the arc is plain: implement → audit, the task list as
-        /// implement's first act. Recorded when the arc opens; ignored on a
-        /// resume.
-        #[arg(long)]
-        plan: bool,
         /// Project directory (default: cwd). Travels as your own spelling —
         /// the server canonicalizes it ([L29]).
         #[arg(long)]
@@ -1282,5 +1280,19 @@ mod tests {
             }
             _ => panic!("arc stop did not parse"),
         }
+    }
+
+    /// **`--plan` is gone, and its absence is a refusal rather than a
+    /// shrug.** The kind is derived from the arc's documents now, so a flag
+    /// naming one would be a second source of truth; clap saying so out loud
+    /// is the visible reason [L31] asks for.
+    #[test]
+    fn arc_run_refuses_the_retired_plan_flag() {
+        let err = Cli::try_parse_from(["tugtool", "arc", "run", "demo", "--plan"])
+            .err()
+            .expect("--plan must not parse");
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
+
+        Cli::try_parse_from(["tugtool", "arc", "run", "demo"]).expect("the bare verb still parses");
     }
 }

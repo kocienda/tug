@@ -80,7 +80,7 @@ beforeAll(() => {
   scratch = makeArcScratchRepo({ prefix: "at0513", checkout: CHECKOUT });
   const cli = scratch.cli;
 
-  // A planned arc, as the `/arc-plan` door leaves it: a brief, a stamped
+  // A planned arc, as the door leaves a planned arc: a brief, a stamped
   // two-row plan with its run declared over both rows, and the kind on the
   // record. The log lines are appended rather than driven through `arc run`,
   // which is what writes them in life — the runner would seat a stage and

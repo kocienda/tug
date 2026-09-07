@@ -501,8 +501,8 @@ fn apply_draft_request(
 /// terminal join fires). Spec S04, [P04].
 ///
 /// `arc_run` also reaches this shape from the deck's transport control, which
-/// is the one caller that can arrive with documents and no record — hence
-/// `kind`, which the opening records and every other op ignores.
+/// is the one caller that can arrive with documents and no record. It names
+/// no kind: the opening reads that off the documents it finds.
 #[derive(serde::Deserialize)]
 struct ArcApiRequest {
     /// `bind` | `arc_run` | `arc_resume` | `unbind` | `arc_stop` | `arc_ask` |
@@ -518,11 +518,6 @@ struct ArcApiRequest {
     /// The arc name, for `bind`.
     #[serde(default)]
     arc: Option<String>,
-    /// For `arc_run`: the kind to record if the arc has never run ([B08]).
-    /// Absent is legal and means "do not open" — the CLI opens client-side
-    /// and arrives with a record, so it never sends one.
-    #[serde(default)]
-    kind: Option<String>,
     /// For `arc_gone`: the owner key captured **before** the teardown that
     /// deleted the arc's branch ([P05]).
     #[serde(default)]
@@ -770,9 +765,10 @@ fn apply_arc_request(
         // transition ([P05]).
         //
         // It also *opens* the arc when there is no record and the request
-        // named a kind ([P04]) — the deck's Start button is the caller that
-        // arrives with documents and nothing else. The CLI opens client-side
-        // and arrives with a record, so the open is a no-op for it.
+        // has documents to open on ([P04]) — the deck's Start button is the
+        // caller that arrives with documents and nothing else, and the open
+        // derives the arc's kind from them. The CLI opens client-side and
+        // arrives with a record, so the open is a no-op for it.
         "arc_run" => {
             let (Some(session), Some(project), Some(arc)) = (
                 req.tug_session_id.as_deref(),
@@ -783,13 +779,7 @@ fn apply_arc_request(
                     "arc_run needs tug_session_id, project_dir, and arc".to_string(),
                 );
             };
-            crate::arc_api::arc_run(
-                ledger,
-                &project,
-                session,
-                arc,
-                req.kind.as_deref().and_then(tugarc_core::ArcKind::parse),
-            )
+            crate::arc_api::arc_run(ledger, &project, session, arc)
         }
         // Pick a stopped arc back up: clear the stop by naming the stage it
         // stopped in, then bind — `arc_run`'s pair of acts made reachable

@@ -48,7 +48,6 @@ import { arcPressStore, type ArcTransportVerb } from "@/lib/arc-press-store";
 import {
   hasAnyDocument,
   resolveTransportActor,
-  startKind,
   transportFace,
   type FollowedCardFacts,
 } from "@/lib/arc-transport";
@@ -148,21 +147,17 @@ export function ArcTransportControl({
         return;
       }
       arcPressStore.press(arc, verb);
-      const payload: Record<string, unknown> = {
+      // The same three fields for every verb. A Start names no kind: the
+      // opening reads that off the arc's documents ([P03]), and a row that
+      // should not have offered Start is answered by the server's own refusal
+      // naming the address to write to.
+      connection.sendControlFrame(ACTION_FOR[verb], {
         tug_session_id: actor.tugSessionId,
         project_dir: actor.projectDir,
         arc,
-      };
-      if (verb === "start") {
-        // Absent when the documents name no kind — the server refuses an open
-        // it cannot name, which is the honest answer to a row that should not
-        // have offered Start.
-        const kind = startKind(documents);
-        if (kind !== null) payload.kind = kind;
-      }
-      connection.sendControlFrame(ACTION_FOR[verb], payload);
+      });
     },
-    [actor, arc, boundSession, documents, followed, pending, verb],
+    [actor, arc, boundSession, followed, pending, verb],
   );
 
   if (face === "none") return null;

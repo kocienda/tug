@@ -27,7 +27,7 @@ disallowed-tools: Task, Write, AskUserQuestion
 
 The prompt that seated you carries one: `where: worktree <abs path> · session <id> bound · stage review`. That is the arc's worktree and the seat it is bound to. Read it and start reading the plan. The runner composed it from the records it owns and ran `arc doctor`'s five-record comparison against them immediately before sending it, so there is nothing here to probe for, nothing to confirm, and nothing to say about having done either.
 
-**With no `where` line above, stop and say so.** This skill is a stage of a planned arc rather than a standalone command, and `/arc-plan` is the door into it: it sharpens the idea with the user, writes the brief, and opens the arc that devises the plan and hands it here. (The other door, `/arc`, settles its steps as a task list and opens an arc with no devise stage and no review stage at all.) There is no path from here that ends anywhere else — the stamp this stage writes is read by a runner, and with no runner watching it there is nothing behind the gesture.
+**With no `where` line above, stop and say so.** This skill is a stage of a planned arc rather than a standalone command, and `/arc` is the one door into it: it sharpens the idea with the user, writes the brief, and decides there that the arc is planned — the arc then devises the plan and hands it here. A plain arc, whose door settled the steps itself, has no devise stage and no review stage at all. There is no path from here that ends anywhere else — the stamp this stage writes is read by a runner, and with no runner watching it there is nothing behind the gesture.
 
 ### 1. Read the plan's review state, then lint it
 
@@ -134,4 +134,4 @@ A review that ends **without a stamp** has answered nothing, exactly as an audit
 - **Always append the Review Record**, even on a clean pass — a round that found nothing is a fact worth recording, and a vacuous round is supposed to be visible in the artifact.
 - **The stamp is the last thing you do, and you never type it.** `tugtool plan stamp` computes it; an edit after it makes it a lie.
 - **Print no chip and name no next command.** The runner reads the stamp and rotates to implement itself; a command line here is a button nobody will press.
-- **Run only under an arc.** With no `where` line in the prompt that seated you, say what this is a stage of and which door starts one, and stop.
+- **Run only under an arc.** With no `where` line in the prompt that seated you, say what this is a stage of and that `/arc` is the door that starts one, and stop.

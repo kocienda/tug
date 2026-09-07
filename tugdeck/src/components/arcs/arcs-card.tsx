@@ -817,8 +817,9 @@ function ArcJoinRow({ row }: { row: ArcRow }): React.ReactElement | null {
  * plan row has no room to open, and pressing anywhere on it must not start
  * anything. The control is a Start — an arc that exists only as documents has
  * no run to stop or resume — and pressing it opens the arc on the followed
- * card through the server's own `arc_run`, with the kind the documents name
- * ([D178], Spec S01). A press that cannot land is not disabled: it stays
+ * card through the server's own `arc_run`. The press names no kind: the
+ * server derives that from the arc's documents at the opening ([D178] as
+ * amended, [P03]). A press that cannot land is not disabled: it stays
  * pressable and speaks its reason ([L31], [P07]).
  *
  * No fold cue beside it: [D176] left the plan rows out of the fold, because

@@ -270,7 +270,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // told, in words, on the surface the user is watching.
         await shellUntil(
           app,
-          `${cli} arc run ${ARC_NAME} --plan && ${cli} arc stop ${ARC_NAME}`,
+          `${cli} arc run ${ARC_NAME} && ${cli} arc stop ${ARC_NAME}`,
           "you stopped it",
         );
 

@@ -21013,7 +21013,6 @@
             "--description",
             "--json",
             "--message",
-            "--plan",
             "--through"
           ],
           "value_flags": [

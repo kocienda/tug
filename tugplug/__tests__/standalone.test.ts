@@ -291,13 +291,12 @@ describe("every verb a skill names is one the shipped binary has", () => {
    * the arc to the wheel, and a door that created a worktree would be the
    * shape this test exists to keep out.
    */
-  test("the stage skills carry the seat fallback and the doors do not", () => {
+  test("the stage skills carry the seat fallback and the door does not", () => {
     const skills = join(pluginRoot, "skills");
     const names = (skill: string): boolean =>
       readFileSync(join(skills, skill, "SKILL.md"), "utf8").includes("tugtool arc create");
     expect(names("arc-implement"), "arc-implement keeps the fallback").toBe(true);
     expect(names("arc-audit"), "arc-audit keeps the fallback").toBe(true);
-    expect(names("arc"), "the plain door makes no seat").toBe(false);
-    expect(names("arc-plan"), "the planning door makes no seat").toBe(false);
+    expect(names("arc"), "the door makes no seat").toBe(false);
   });
 });
