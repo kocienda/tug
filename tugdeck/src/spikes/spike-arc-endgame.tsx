@@ -7,12 +7,13 @@
  * What ships today, in the shade's arc fold: three labeled sections that
  * each set their own type. `documents` is a `TugListRow` whose title is `sm`
  * and whose facts are `xs` on the same line. `report` sets a conflict path
- * in `sm` mono and its history in `2xs`. `rounds` sets the paths at a token
- * nothing defines (`--tugx-filerow-name-size`), so they fall back to the
- * shade's inherited size — a step LARGER than a commit receipt's rows — and
- * its directory folds are `TugPushButton`s with their own padding, their own
- * 1.6 leading and their own nested-list margins, which is where the air comes
- * from. Six sizes and three row heights in one fold.
+ * in `sm` mono and its history in `2xs`. `rounds` sets its paths at
+ * `--tugx-filerow-name-size`, which is `2xs` — 11px, a step BELOW the 12px
+ * the receipt's own file rows take — while setting the facts beside them at
+ * `xs`, so the count reads larger than the path it qualifies. Its directory
+ * folds are `TugPushButton`s with their own padding, their own 1.6 leading
+ * and their own nested-list margins, which is where the air comes from.
+ * Three sizes in contradictory pairings, and rows from 17px to 28px tall.
  *
  * The candidate has two sizes and one row. Every row in the fold is the
  * compact mono `TugListRow` a commit receipt's file list is made of: a 2ch
@@ -352,10 +353,12 @@ function ZoneToday(): React.ReactElement {
       <p className="sp-ae-note">
         The document titles are <code>sm</code> with <code>xs</code> facts on the same
         baseline; the conflict path is <code>sm</code> mono over <code>2xs</code> history;
-        the areas are set at a token no stylesheet defines, so they inherit the shade's
-        size and land larger than a receipt's rows. Each directory fold is a button with
-        its own padding and leading, and each nested list its own margins — that is the
-        air. Compare the file rows here against the ones in the candidate below.
+        the areas take <code>--tugx-filerow-name-size</code>, which is <code>2xs</code> —
+        a step below the receipt's own rows — under facts a step above them, so a
+        directory's count reads larger than its path. Each directory fold is a button
+        with its own padding and leading, and each nested list its own margins — that is
+        the air. Measured: rows of 17px, 21px and 28px here; 22px throughout the
+        candidate below.
       </p>
     </section>
   );
