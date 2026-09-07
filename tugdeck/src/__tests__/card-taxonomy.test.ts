@@ -89,7 +89,7 @@ describe("card taxonomy", () => {
     expect(survivors).toEqual([]);
   });
 
-  test("the spike set is the fifteen spikes plus their index", () => {
+  test("the spike set is the fourteen spikes plus their index", () => {
     const spikes = allRegistrations().filter((reg) =>
       reg.componentId.startsWith("spike-"),
     );
