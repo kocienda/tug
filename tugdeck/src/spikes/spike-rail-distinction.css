@@ -1,0 +1,345 @@
+/**
+ * spike-rail-distinction.css — six treatments for telling a RAIL from a CARD.
+ *
+ * Every treatment is a miniature deck: real graph paper, a rail standing one
+ * imposition gap off the left edge, a content card one gap past it. The rail
+ * and the card are real `.tug-pane-chrome` frames wearing a real
+ * `CardTitleBar`, so what differs between rows is ONLY what this file adds —
+ * a token override on the rail, a paper change under it, or a shape for the
+ * gap. Nothing here restyles a bar, a title, or a glyph.
+ *
+ * Three knobs are written onto `.sp-rd-root` by the card's slider effect:
+ *
+ *   --sp-rd-tint     0–1   how far the rail's ground travels toward the hue
+ *   --sp-rd-gutter   px    the gap between the rail and the first card
+ *   --sp-rd-hue      a color: the theme's Key hue, or its accent
+ *
+ * Their defaults live in `var()` fallbacks at the point of use, so the first
+ * paint is already right before the effect runs.
+ *
+ * ── Why the hue comes from the title bar on dark themes ──────────────────
+ * Only the light themes declare `--tugx-chrome-key-surface`. On a dark theme
+ * the fallback is the focused card title bar's surface — the one tinted band
+ * the deck already paints — so "tint toward the Key" means "the same hue as
+ * the card lids", which is the family resemblance we want a rail to carry.
+ *
+ * ── Two things the mock cannot do ────────────────────────────────────────
+ * The deck dims an unfocused pane with two blend layers on `.tug-pane-chrome`;
+ * those DO apply here (the frames are real), so the rail in every row shows
+ * the recede it would show on the deck with the content card focused.
+ * What the mock cannot do is stand the rail on the real canvas edge: the
+ * miniature deck has its own edge, and that is where the rail stands.
+ *
+ * @tug-pairings
+ * | Element                                           | Surface                                           | Role          | Context                       |
+ * |---------------------------------------------------|---------------------------------------------------|---------------|-------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-global-primary-normal-default-rest | informational | .sp-rd-caption, .sp-rd-note   |
+ * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-global-primary-normal-content-rest | content       | .sp-rd-row, .sp-rd-card-body  |
+ * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-global-primary-normal-content-rest | informational | .sp-rd-row-meta               |
+ * | --tug7-element-global-border-normal-strong-rest   | --tug7-surface-global-primary-normal-canvas-rest  | informational | .sp-rd-deck[data-variant="gutter"] .sp-rd-gutter |
+ */
+
+/* ── The root and its knobs ──────────────────────────────────────────── */
+
+.sp-rd-root {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+
+  /* The hue every tint travels toward. The slider effect sets `--sp-rd-hue`
+     to one of these two; the fallback is the Key. */
+  --sp-rd-key: var(
+    --tugx-chrome-key-surface,
+    var(--tug7-surface-card-primary-normal-titlebar-active)
+  );
+  --sp-rd-hue-resolved: var(--sp-rd-hue, var(--sp-rd-key));
+
+  /* The tint as a percentage for `color-mix`. `calc()` on a unitless knob
+     times 100% yields a percentage the mix accepts. */
+  --sp-rd-tint-pct: calc(var(--sp-rd-tint, 0.12) * 100%);
+}
+
+.sp-rd-tuner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 420px;
+}
+
+.sp-rd-tuner-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-rd-note {
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  max-width: 62ch;
+}
+
+/* ── A row: caption above, the miniature deck below ──────────────────── */
+
+.sp-rd-option {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-rd-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  max-width: 70ch;
+}
+
+.sp-rd-caption strong {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+/* ── The miniature deck ──────────────────────────────────────────────── */
+
+/* The same paper as `body` in globals.css: canvas color, 1px grid lines on a
+   24px pitch. Restated here rather than inherited because the spike's own
+   pane stands on the pane surface, not on the canvas. */
+.sp-rd-deck {
+  position: relative;
+  height: 236px;
+  border-radius: var(--tug-radius-sm);
+  border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  overflow: clip;
+  background-color: var(--tug7-surface-global-primary-normal-canvas-rest);
+  background-image:
+    linear-gradient(var(--tug7-surface-global-primary-normal-grid-rest) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tug7-surface-global-primary-normal-grid-rest) 1px, transparent 1px);
+  background-size: 24px 24px;
+
+  /* Geometry the imposer would produce: the rail one gap off the edge, the
+     card one gutter past the rail. Baseline pins the gutter to the imposition
+     gap; every other variant reads the knob. */
+  --sp-rd-gap: 5px;
+  --sp-rd-rail-w: 168px;
+  --sp-rd-gutter-resolved: var(--sp-rd-gutter, 12px);
+}
+
+.sp-rd-deck[data-variant="baseline"] {
+  --sp-rd-gutter-resolved: var(--sp-rd-gap);
+}
+
+/* The MARGIN: the band of canvas the rail stands in, from the deck's edge to
+   the far side of the gutter. Painted as its own layer so a variant can give
+   it different paper without touching the deck's. Transparent by default. */
+.sp-rd-margin {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: calc(var(--sp-rd-gap) + var(--sp-rd-rail-w) + var(--sp-rd-gutter-resolved));
+  pointer-events: none;
+}
+
+/* The GUTTER: the gap itself, between the rail's inner edge and the card.
+   Transparent by default; the ruled variant draws in it. */
+.sp-rd-gutter {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(var(--sp-rd-gap) + var(--sp-rd-rail-w));
+  inline-size: var(--sp-rd-gutter-resolved);
+  pointer-events: none;
+}
+
+/* The two frames. `.tug-pane` is the real wrapper — it publishes the chrome
+   height and is what `data-focused` selects on — and `.tug-pane-chrome` is the
+   real frame, so the border, radius, shadow, and recede are the shipping ones. */
+.sp-rd-pane {
+  position: absolute;
+  inset-block: var(--sp-rd-gap);
+}
+
+.sp-rd-pane-rail {
+  inset-inline-start: var(--sp-rd-gap);
+  inline-size: var(--sp-rd-rail-w);
+}
+
+.sp-rd-pane-card {
+  inset-inline-start: calc(var(--sp-rd-gap) + var(--sp-rd-rail-w) + var(--sp-rd-gutter-resolved));
+  inset-inline-end: var(--sp-rd-gap);
+}
+
+/* Mock content, in the voice each surface actually speaks. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-rd-rows {
+  display: flex;
+  flex-direction: column;
+  padding: var(--tug-space-sm) 0;
+}
+
+.sp-rd-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding: 5px var(--tug-space-md);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sp-rd-row-dot {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--tug7-element-global-icon-normal-muted-rest);
+}
+
+.sp-rd-row-meta {
+  margin-inline-start: auto;
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-rd-card-body {
+  padding: var(--tug-space-lg);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-rd-card-body p {
+  margin: 0 0 8px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   The treatments. Each is a `data-variant` on the deck.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── B. Tinted rail ───────────────────────────────────────────────────
+   The rail's GROUND travels toward the hue; the card stays neutral. Set as a
+   token override on the rail pane, because that is the shape the fix would
+   take in `tug-pane.css` (`.tug-pane[data-role="sidebar"] { --tugx-pane-bg }`).
+   The rail's title bar paints from `--tugx-pane-bg`, so it tints with the body
+   and the rail stays one flush panel. The border travels the same way, a
+   little further, so the edge reads in the hue too. */
+.sp-rd-deck[data-variant="tinted-rail"] .sp-rd-pane-rail,
+.sp-rd-deck[data-variant="both"] .sp-rd-pane-rail {
+  --tugx-pane-bg: color-mix(
+    in oklch,
+    var(--tug7-surface-global-primary-normal-content-rest),
+    var(--sp-rd-hue-resolved) var(--sp-rd-tint-pct)
+  );
+  --tugx-pane-border: color-mix(
+    in oklch,
+    var(--tug7-element-global-border-normal-default-rest),
+    var(--sp-rd-hue-resolved) calc(var(--sp-rd-tint-pct) * 2)
+  );
+}
+
+/* ── C. Tinted margin ─────────────────────────────────────────────────
+   The rail is untouched; the PAPER under it changes. The margin band takes a
+   canvas tinted toward the hue and grid lines tinted the same way, on the
+   same 24px pitch and aligned to the deck's, so the two papers meet at the
+   gutter's far edge as one grid in two inks. The gap between rail and card is
+   inside the band, so the gap IS the treatment. */
+.sp-rd-deck[data-variant="tinted-margin"] .sp-rd-margin,
+.sp-rd-deck[data-variant="both"] .sp-rd-margin {
+  background-color: color-mix(
+    in oklch,
+    var(--tug7-surface-global-primary-normal-canvas-rest),
+    var(--sp-rd-hue-resolved) var(--sp-rd-tint-pct)
+  );
+  --sp-rd-margin-grid: color-mix(
+    in oklch,
+    var(--tug7-surface-global-primary-normal-grid-rest),
+    var(--sp-rd-hue-resolved) calc(var(--sp-rd-tint-pct) * 3)
+  );
+  background-image:
+    linear-gradient(var(--sp-rd-margin-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--sp-rd-margin-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  /* A hairline where the papers meet, so the seam is a drawn edge and not a
+     color step the eye has to find. */
+  border-inline-end: 1px solid color-mix(
+    in oklch,
+    var(--tug7-element-global-divider-normal-default-rest),
+    var(--sp-rd-hue-resolved) var(--sp-rd-tint-pct)
+  );
+}
+
+/* ── D. Ruled gutter ──────────────────────────────────────────────────
+   The gap itself is drawn. The rail's own livery — three hairlines on a 3px
+   pitch — turned vertical and run the full height of the gutter, centered.
+   The rail stands flush to the deck's edge (no gap on its outer side, square
+   outer corners), so the stripes are the ONLY air between rail and card and
+   read as a binding rather than as margin. Ink is `strong`, one notch above
+   the grid, so it is livery and not more paper. */
+.sp-rd-deck[data-variant="gutter"] .sp-rd-pane-rail {
+  inset-inline-start: 0;
+}
+
+.sp-rd-deck[data-variant="gutter"] .sp-rd-pane-rail .tug-pane-chrome {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-inline-start-color: transparent;
+}
+
+.sp-rd-deck[data-variant="gutter"] .sp-rd-gutter {
+  inset-inline-start: var(--sp-rd-rail-w);
+}
+
+/* The band: 7px wide (three 1px lines, two 2px gaps — the rail bar's own
+   arithmetic), centered in whatever width the gutter has. */
+.sp-rd-deck[data-variant="gutter"] .sp-rd-gutter::before {
+  content: "";
+  position: absolute;
+  inset-block: var(--tug-space-lg);
+  inset-inline-start: calc(50% - 3.5px);
+  inline-size: 7px;
+  background: repeating-linear-gradient(
+    to right,
+    var(--tug7-element-global-border-normal-strong-rest) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+.sp-rd-deck[data-variant="gutter"] .sp-rd-pane-card {
+  inset-inline-start: calc(var(--sp-rd-rail-w) + var(--sp-rd-gutter-resolved));
+}
+
+/* ── E. Panel, not card ───────────────────────────────────────────────
+   The rail gives up the card's whole shape: no radius, no shadow, no outer
+   border, flush to the deck's top, bottom, and outer edge, on the SUNKEN
+   surface rather than the content surface. One strong hairline on its inner
+   edge is all the frame it keeps. The card keeps everything. The point of
+   this row is the contrast of SHAPE: a rail that is part of the window versus
+   a card that floats on the paper. */
+.sp-rd-deck[data-variant="panel"] .sp-rd-pane-rail {
+  inset: 0 auto 0 0;
+  --tugx-pane-bg: var(--tug7-surface-global-primary-normal-sunken-rest);
+}
+
+.sp-rd-deck[data-variant="panel"] .sp-rd-pane-rail .tug-pane-chrome {
+  border-radius: 0;
+  box-shadow: none;
+  border-width: 0 1px 0 0;
+  border-inline-end-color: var(--tug7-element-global-border-normal-strong-rest);
+}
+
+.sp-rd-deck[data-variant="panel"] .sp-rd-pane-card {
+  inset-inline-start: calc(var(--sp-rd-rail-w) + var(--sp-rd-gutter-resolved));
+}
+
+/* ── F. Both ──────────────────────────────────────────────────────────
+   Tinted rail on tinted margin, and the margin's grid at HALF pitch — the
+   paper under the tools is finer-ruled than the paper under the documents.
+   The rail and its margin then share a hue and the margin has its own
+   texture; three signals where the baseline has none. */
+.sp-rd-deck[data-variant="both"] .sp-rd-margin {
+  background-size: 12px 12px;
+}
