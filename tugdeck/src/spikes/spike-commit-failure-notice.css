@@ -1,0 +1,341 @@
+/* @tug-pairings: none — spike scaffolding; the notice's own tokens live in
+ * tug-inline-alert.css and tug-pane-bulletin.css [L20] */
+
+/* spike-commit-failure-notice — the stage a refused commit is judged on: a
+   card's bottom region (transcript under scrim, Changes shade, commit-mode
+   composer) mocked just far enough to seat a notice against. Nothing here is
+   production styling; the notice components are the real ones. */
+
+.sp-cfn {
+  min-width: 0;
+}
+
+.sp-cfn-caption {
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-field-text-normal-label-rest);
+  margin: 0;
+}
+
+.sp-cfn-caption code,
+.sp-cfn-table code {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.92em;
+}
+
+.sp-cfn-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-sm);
+}
+
+/* ---- Stage: the pane's bottom region ------------------------------------ */
+
+/* Fixed-height frame, the card surface behind it. Also the positioning
+   context for the scrim and — on the "what ships" stage — the toaster the
+   bulletin provider mounts inside it (its root is this element). */
+.sp-cfn-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 560px;
+  overflow: hidden;
+  border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  border-radius: var(--tugx-block-radius, 8px);
+  background: var(--tug7-surface-global-primary-normal-default-rest);
+}
+
+/* Faux transcript: fills whatever the bottom region leaves. */
+.sp-cfn-transcript {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--tug-space-md) var(--tug-space-lg);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.55;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+.sp-cfn-transcript p,
+.sp-cfn-transcript ul {
+  margin: 0 0 var(--tug-space-sm);
+}
+.sp-cfn-transcript code {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.9em;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The pane scrim. It spans the stage, and the bottom region paints above it
+   (the shade rests ON the scrim, so it is never covered) — the app's own
+   geometry. The toaster the bulletin provider mounts is `z-index: 90` inside
+   this same stacking context, so the scrim covers it, which is the bug. */
+.sp-cfn-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: var(--tug7-surface-overlay-primary-normal-scrim-rest);
+  pointer-events: none;
+}
+
+/* The uncovered region: shade + (notice) + composer, above the scrim. */
+.sp-cfn-bottom {
+  position: relative;
+  z-index: 110;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  padding: 0 var(--tug-space-sm) var(--tug-space-sm);
+  background: var(--tug7-surface-global-primary-normal-default-rest);
+}
+
+/* ---- Shade ---------------------------------------------------------------- */
+
+.sp-cfn-shade {
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tugx-block-radius, 8px);
+  background: var(--tug7-surface-global-primary-normal-overlay-rest);
+  box-shadow: var(--tug7-element-global-shadow-normal-overlay-rest);
+  overflow: hidden;
+}
+
+.sp-cfn-shade-header {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+.sp-cfn-shade-title {
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-semibold);
+}
+.sp-cfn-shade-tools {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+}
+
+.sp-cfn-shade-body {
+  padding: var(--tug-space-sm) var(--tug-space-md) var(--tug-space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+}
+
+.sp-cfn-section-label {
+  font-size: 10px;
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  margin-bottom: var(--tug-space-2xs);
+}
+
+.sp-cfn-row {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: var(--tug-space-sm);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+.sp-cfn-row-status {
+  color: var(--tug7-element-tone-text-normal-success-rest);
+  font-weight: var(--tug-font-weight-semibold);
+}
+.sp-cfn-row-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sp-cfn-row-origin {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  border-left: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  padding-left: var(--tug-space-sm);
+}
+.sp-cfn-row-count {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-cfn-shade-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--tug-space-xs);
+}
+
+/* ---- Composer in commit mode -------------------------------------------- */
+
+.sp-cfn-composer {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tugx-block-radius, 8px);
+  background: var(--tug7-surface-global-primary-normal-overlay-rest);
+  overflow: hidden;
+}
+
+.sp-cfn-editor {
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+.sp-cfn-editor-subject {
+  font-weight: var(--tug-font-weight-semibold);
+  padding-bottom: var(--tug-space-2xs);
+  margin-bottom: var(--tug-space-2xs);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+.sp-cfn-editor-line {
+  margin-top: var(--tug-space-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-cfn-composer-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-top: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.sp-cfn-route {
+  display: inline-flex;
+  border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: var(--tug-font-size-xs);
+}
+.sp-cfn-route > span {
+  padding: 3px 10px;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+.sp-cfn-route > span[data-active] {
+  background: var(--tug7-element-control-fill-filled-accent-rest);
+  color: var(--tug7-element-control-text-filled-accent-rest);
+}
+
+.sp-cfn-chips {
+  margin-left: auto;
+  display: flex;
+  gap: var(--tug-space-xs);
+}
+.sp-cfn-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  border-radius: 6px;
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+.sp-cfn-chip small {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-cfn-z5 {
+  display: flex;
+  gap: var(--tug-space-xs);
+}
+
+/* ---- The notice ----------------------------------------------------------- */
+
+/* A: the seam. The alert fills the region's width; the dismiss X hangs in
+   its top-right corner over the alert's own padding. */
+.sp-cfn-notice {
+  position: relative;
+}
+.sp-cfn-notice-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+/* C: inside the shade — the same notice at the shade's density. */
+.sp-cfn-notice[data-compact] {
+  margin-top: var(--tug-space-xs);
+}
+.sp-cfn-notice[data-compact] .tug-inline-alert {
+  padding: var(--tug-space-sm) var(--tug-space-md);
+}
+
+/* Folded evidence: git's own words, in mono, under the sentence. */
+.sp-cfn-stderr {
+  margin: var(--tug-space-xs) 0 0;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  background: var(--tug7-surface-global-primary-normal-default-rest);
+  border-radius: 4px;
+}
+
+/* The disclosure is a link-styled button in the message's own type. */
+.sp-cfn-disclose {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--tug7-element-tone-text-normal-accent-rest);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* B: the composer's status row, wearing danger. One line, wraps if it must. */
+.sp-cfn-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--tug-space-xs) var(--tug-space-sm);
+  padding: var(--tug-space-xs) var(--tug-space-md);
+  border-bottom: 1px solid var(--tug7-element-tone-border-normal-danger-rest);
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+.sp-cfn-status-text b {
+  color: var(--tug7-element-tone-text-normal-danger-rest);
+}
+.sp-cfn-status code {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.92em;
+}
+.sp-cfn-status .sp-cfn-stderr {
+  flex-basis: 100%;
+}
+
+/* ---- The sentence table -------------------------------------------------- */
+
+.sp-cfn-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+.sp-cfn-table th,
+.sp-cfn-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+.sp-cfn-table th {
+  font-size: 10px;
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}

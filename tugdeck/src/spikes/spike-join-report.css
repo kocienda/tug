@@ -1,0 +1,174 @@
+/* ============================================================================
+   Join Report spike — one landing report instead of two summaries
+   ========================================================================= */
+
+/**
+ * @tug-pairings
+ * | Element                                      | Surface                                           | Role    | Context                     |
+ * |----------------------------------------------|---------------------------------------------------|---------|-----------------------------|
+ * | --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-content-rest | content | .sp-jr-note                 |
+ * | --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-content-rest | content | .sp-jr-arc-name             |
+ * | --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-default-rest | content | .sp-jr-record-doc           |
+ * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-default-rest | content | .sp-jr-record-stage-word  |
+ */
+
+/* The faux transcript column. The entries carry their own gutter grid; what
+   the column supplies is the inset arithmetic the real transcript root
+   declares, so an edge-seated row (the quiet line, prose) and a body-seated
+   one land at the same x they would on a card. */
+.sp-jr-column {
+  --tugx-transcript-icon-column-width: 2.5em;
+  --tugx-transcript-icon-column-gap: var(--tug-space-xs);
+  --tugx-transcript-body-inset:
+    calc(var(--tugx-transcript-icon-column-width) + var(--tugx-transcript-icon-column-gap));
+  /* The transcript root's own anchor. Em-relative descendants — the markdown
+     prose, the gutter icons, the quiet line's box — size off this nominal
+     14px on a card, and off the spike card's larger root without it, which
+     read as every subsidiary line having grown. The family is the root's
+     too, so the header badges take sans rather than whatever the spike
+     inherited. */
+  font-size: 14px;
+  font-family: var(--tug-font-family-sans);
+  /* Every subsidiary line in this column — the record's rows, the strip, the
+     quiet line, the bar's run — reads at the boundary event's own size
+     (`Joined … into main`), unbolded. One size for the family, and the
+     event's weight is the only thing that separates it from the rest. */
+  --sp-jr-subsidiary-size: var(--tugx-toolheader-name-size);
+  --sp-jr-subsidiary-line: var(--tugx-toolheader-line);
+  --sp-jr-subsidiary-weight: var(--tug-font-weight-normal);
+  --tugx-quiet-line-label-weight: var(--sp-jr-subsidiary-weight);
+  display: flex;
+  flex-direction: column;
+  padding: var(--tug-space-md);
+  border: 1px solid var(--tugx-block-border);
+  border-radius: var(--tug-radius-md);
+}
+
+.sp-jr-column .tug-transcript-entry__icon svg {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.sp-jr-body-seat {
+  padding-inline-start: var(--tugx-transcript-body-inset);
+}
+
+.sp-jr-prose {
+  --tugx-md-block-padding-x: 0;
+  font-size: var(--sp-jr-subsidiary-size);
+  font-weight: var(--sp-jr-subsidiary-weight);
+}
+
+.sp-jr-cwd {
+  text-decoration: underline;
+  text-decoration-color: transparent;
+}
+
+.sp-jr-quiet {
+  font-size: var(--sp-jr-subsidiary-size);
+  margin-block: var(--tug-space-md);
+}
+
+/* The quiet line pins `sm` on its own root, so the column's size is restated
+   on it rather than inherited past it. */
+.sp-jr-quiet .tug-quiet-line {
+  font-size: var(--sp-jr-subsidiary-size);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-jr-arc-name {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-weight: var(--tug-font-weight-normal);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-jr-note {
+  margin: 0;
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-jr-note code {
+  font-family: var(--tug-font-family-mono);
+}
+
+/* ---------------------------------------------------------------------------
+   The arc's record — the Joined boundary's fold body.
+   ------------------------------------------------------------------------- */
+.sp-jr-record {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  padding: var(--tug-space-sm) var(--tug-space-md) var(--tug-space-md);
+}
+
+/* The lifecycle strip on one row, the way the Wheel header wore it — prose,
+   not the mono command face, at the detail size. */
+.sp-jr-record-strip {
+  display: flex;
+  min-width: 0;
+  padding-block-end: var(--tug-space-2xs);
+}
+
+.sp-jr-record-strip .tug-arc-lifecycle-line {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--sp-jr-subsidiary-size);
+  line-height: var(--sp-jr-subsidiary-line);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-jr-record-doc {
+  margin: 0;
+  font-size: var(--sp-jr-subsidiary-size);
+  line-height: var(--sp-jr-subsidiary-line);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-jr-record-doc code {
+  font-family: var(--tug-font-family-mono);
+  font-size: inherit;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+/* One grid for every stage, so the models and the costs line up in columns. */
+.sp-jr-record-stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: var(--tug-space-2xs) var(--tug-space-md);
+}
+
+.sp-jr-record-stage {
+  display: contents;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-jr-record-stage-word {
+  font-size: var(--sp-jr-subsidiary-size);
+  line-height: var(--sp-jr-subsidiary-line);
+  font-weight: var(--sp-jr-subsidiary-weight);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-jr-record-stage-model {
+  font-size: var(--sp-jr-subsidiary-size);
+  line-height: var(--sp-jr-subsidiary-line);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-jr-record-stage-cost {
+  justify-self: end;
+  font-size: var(--sp-jr-subsidiary-size);
+  line-height: var(--sp-jr-subsidiary-line);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
