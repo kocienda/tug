@@ -55,8 +55,6 @@ import { SHA_DISPLAY_LEN } from "@/components/tugways/commit-sha-text";
 import type { ActionHandlerResult } from "@/components/tugways/responder-chain";
 import type { TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
 import { entityMenuItems } from "@/components/tugways/entity-menu-items";
-import { DeckManagerContext } from "@/deck-manager-context";
-import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import { annotationFromEvent } from "@/lib/annotator/annotation-element";
 import { annotationEntryFor } from "@/lib/annotator/registry";
 import {
@@ -70,7 +68,7 @@ import { revealDirectoryInFinder, revealPathInFinder } from "@/lib/os-open";
 import { dispatchCommand } from "@/command-dispatch";
 import { atomPlainTextFor, atomSegmentFor } from "@/lib/annotator/atom-segment";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
-import type { CodeSessionStore } from "@/lib/code-session-store";
+import type { PromptInsertTarget } from "@/lib/prompt-insert-target";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -86,11 +84,12 @@ export interface UseAnnotationMenuOptions {
    */
   originRef?: React.RefObject<HTMLElement | null>;
   /**
-   * The prompt an Insert into Prompt seeds. Omitted by a surface with no live
-   * session — the Overview, a fixture — and the item is then not offered at
-   * all, rather than offered and dead.
+   * The composer an Insert into Prompt seeds — the Session card's, the
+   * Overview's, whichever the surface is showing entities beside. Omitted by
+   * a surface with no composer to send to (a fixture), and the item is then
+   * not offered at all, rather than offered and dead.
    */
-  codeSessionStore?: CodeSessionStore;
+  insertTarget?: PromptInsertTarget;
 }
 
 export interface UseAnnotationMenuResult {
@@ -130,17 +129,8 @@ function sampledAnnotationValue(payload: AnnotationPayload | null): string | nul
 
 export function useAnnotationMenu({
   originRef,
-  codeSessionStore,
+  insertTarget,
 }: UseAnnotationMenuOptions = {}): UseAnnotationMenuResult {
-  // Insert into Prompt brings the annotation's own card forward before it
-  // types into it. Read from context rather than props: every surface that
-  // shows annotations already renders inside a card host, and threading the
-  // deck down through a cell tree would be ceremony. Read optionally, because
-  // a gallery fixture mounts these surfaces outside a deck and an entity menu
-  // is not the thing that should refuse to exist there.
-  const deck = React.useContext(DeckManagerContext);
-  const cardId = useCardId();
-
   // The annotation the current right-click landed on, sampled by
   // `extraEntries` at menu-open time and read by the handlers when the user
   // picks an item. `null` when the right-click missed every annotation.
@@ -199,27 +189,24 @@ export function useAnnotationMenu({
   // not one. Every other kind goes in as its text.
   const handleInsertIntoPrompt = useCallback((): ActionHandlerResult => {
     const payload = contextAnnotationRef.current;
-    if (payload === null || codeSessionStore === undefined) return;
-    const raise = (): void => {
-      if (cardId !== null && deck !== null) deck.activateCard(cardId);
-    };
+    if (payload === null || insertTarget === undefined) return;
     // Whether this entity inserts as an atom or as text is the registry's
     // rule, stated once in `atomSegmentFor` and read by the Copy as Atom
     // item as well as by this one.
     const segment = atomSegmentFor(payload);
     if (segment !== null) {
       return () => {
-        raise();
-        codeSessionStore.insertAtomDraft(segment);
+        insertTarget.raise();
+        insertTarget.insertAtom(segment);
       };
     }
     const value = sampledAnnotationValue(payload);
     if (value === null) return;
     return () => {
-      raise();
-      codeSessionStore.insertJot(value, [], null);
+      insertTarget.raise();
+      insertTarget.insertText(value, [], null);
     };
-  }, [cardId, codeSessionStore, deck]);
+  }, [insertTarget]);
 
   // The atom copy — the same segment the insert mints, on the clipboard as
   // the one-atom sidecar a paste back into any Tug editor rebuilds the chip
@@ -346,13 +333,13 @@ export function useAnnotationMenu({
         }) ?? [];
       // Annotated ink and a placed atom know the entity and nothing else
       // about it, which is what `{ kind: "none" }` says. A surface with no
-      // live session can't seed a prompt, so it doesn't offer to.
+      // composer to send to can't seed a prompt, so it doesn't offer to.
       return entityMenuItems(entries, (e) =>
-        codeSessionStore === undefined &&
+        insertTarget === undefined &&
         e.action === TUG_ACTIONS.INSERT_INTO_PROMPT,
       );
     },
-    [codeSessionStore],
+    [insertTarget],
   );
 
   const hideStandardItems = useCallback((event: MouseEvent): boolean => {

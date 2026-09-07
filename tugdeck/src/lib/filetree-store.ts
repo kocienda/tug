@@ -61,6 +61,16 @@ export interface FileTreeResultSnapshot {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
+/**
+ * The workspace a FILETREE frame answered for — the canonical absolute path
+ * tugcast splices into every response as `workspace_key`.
+ */
+function readWorkspaceKey(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const key = (payload as { workspace_key?: unknown }).workspace_key;
+  return typeof key === "string" && key.length > 0 ? key : null;
+}
+
 const EMPTY_SNAPSHOT: FileTreeResultSnapshot = {
   query: "",
   results: [],
@@ -106,6 +116,23 @@ export class FileTreeStore {
    */
   private _projectDir: string | undefined;
 
+  /**
+   * The last query this store put on the wire, or `null` before it has sent
+   * one. Read only to decide which response frame is this store's own — the
+   * FILETREE feed is a shared broadcast, so a frame arriving here may be
+   * another workspace answering another card.
+   */
+  private _lastSentQuery: string | null = null;
+
+  /**
+   * The workspace root the answers to this store's queries came from — the
+   * canonical absolute path tugcast keys the workspace by, spliced into every
+   * FILETREE frame. It is how an unrooted store learns where its results were
+   * counted from: a query with no `root` falls through to the bootstrap
+   * workspace, and only the answer says which directory that is.
+   */
+  private _answeredRoot: string | null = null;
+
   constructor(feedStore: FeedStore, feedId: FeedIdValue, projectDir?: string) {
     this._feedId = feedId;
     this._projectDir = projectDir;
@@ -127,6 +154,21 @@ export class FileTreeStore {
     const parsed = parseResponsePayload(payload);
     if (!parsed) return;
 
+    // Latch the root from the frame that answers what THIS store asked, and
+    // only then. The gate is what keeps another card's answer from renaming
+    // this store's root — and the query text alone is not enough of one
+    // before a query exists: every workspace's filetree feed opens by
+    // broadcasting an empty initial snapshot whose query is `""`, so a store
+    // that had not yet asked anything would latch whichever workspace opened
+    // last, which for an unrooted store is exactly the wrong directory. Until
+    // this store has asked, it does not know, and `null` says so. A different
+    // workspace answering the same query text is the one ambiguity left, and
+    // it is the same one the results below already carry.
+    if (this._lastSentQuery !== null && parsed.query === this._lastSentQuery) {
+      const key = readWorkspaceKey(payload);
+      if (key !== null) this._answeredRoot = key;
+    }
+
     this._snapshot = parsed;
     this._responded = true;
     for (const listener of this._listeners) {
@@ -145,6 +187,25 @@ export class FileTreeStore {
    */
   hasResponded(): boolean {
     return this._responded;
+  }
+
+  /**
+   * The absolute directory this store's results are relative to, or `null`
+   * when no answer has arrived yet.
+   *
+   * A store constructed with a `projectDir` already knows: that is the root
+   * it routes its queries to. One without — the app-wide case, whose queries
+   * fall through to tugcast's bootstrap workspace — learns it from the
+   * answers, because the frontend is never told the bootstrap's path any
+   * other way.
+   *
+   * The caller for this is a composer that has to hand a chip's gestures an
+   * absolute address: an `@` mention's value is root-relative, so a field
+   * completing against this store resolves against this root, and the two
+   * agree by construction rather than by a second guess at the same path.
+   */
+  answeredRoot(): string | null {
+    return this._projectDir ?? this._answeredRoot;
   }
 
   /** Subscribe to store updates. Returns an unsubscribe function. */
@@ -167,6 +228,7 @@ export class FileTreeStore {
   sendQuery(query: string, root?: string): void {
     const conn = getConnection();
     if (!conn) return;
+    this._lastSentQuery = query;
     const payload: Record<string, string> = { query };
     if (root !== undefined) payload.root = root;
     const bytes = new TextEncoder().encode(JSON.stringify(payload));

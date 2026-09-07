@@ -182,10 +182,10 @@ function SessionPulseHistory({
   // A beat's file reference is a live reference here too, not a picture of
   // one: the popover is portalled out of the masthead's tree, so the
   // delegated layer that services the line has to be mounted again on the
-  // frame. `activateCard` is a no-op — the opened file's card claims
-  // activation itself, and this popover is not a card.
+  // frame. No insert target — a popover is not a composer, and the kinds a
+  // pulse line carries open themselves.
   const frameRef = React.useRef<HTMLDivElement | null>(null);
-  useAnnotationClicks(frameRef, { activateCard: () => {} });
+  useAnnotationClicks(frameRef, {});
   return (
     <TugPopupListFrame
       ref={frameRef}
@@ -507,7 +507,7 @@ export function SessionMasthead({
     carries is serviced by the same route.
   */
   const rootRef = useRef<HTMLDivElement | null>(null);
-  useAnnotationClicks(rootRef, { activateCard: () => {} });
+  useAnnotationClicks(rootRef, {});
 
   // The ledger's row for this session, for the telemetry panel: by id, not out
   // of the workspace listing, because a just-spawned session is content-empty

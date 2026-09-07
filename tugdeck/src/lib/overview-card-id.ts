@@ -13,3 +13,16 @@
 
 /** Registry componentId of the Overview card. */
 export const OVERVIEW_CARD_ID = "overview";
+
+/**
+ * The route the Overview's prompt history is keyed under.
+ *
+ * Prompt history keys every row by `(session_id, route)`, and the Overview
+ * borrows the machinery whole: its rows carry {@link OVERVIEW_CARD_ID} as a
+ * synthetic session id — the ledger takes any string, and nothing on the
+ * server requires the id to name a live session — and this route, which is
+ * deliberately NOT the Code route `❯`. Two consequences, both wanted: an
+ * Overview question is never recalled inside a session, and a query by route
+ * finds the Overview corpus on its own.
+ */
+export const OVERVIEW_HISTORY_ROUTE = "overview";

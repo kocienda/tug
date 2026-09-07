@@ -595,3 +595,23 @@ export class PromptHistoryStore {
     }
   }
 }
+
+// ── The shared instance ───────────────────────────────────────────────────────
+
+let _sharedStore: PromptHistoryStore | null = null;
+
+/**
+ * The one prompt-history store the app runs on.
+ *
+ * The store is keyed by session id internally, every `push` appends to the
+ * machine-global prompt ledger, and each session's entries page back in on
+ * first access — so one instance serves every composer that has a corpus,
+ * whatever surface it sits on. It lived as a module-private singleton in
+ * `use-session-card-services.ts` while the Session cards were the only
+ * clients; the Overview composer is the second, and a second instance would
+ * mean two windows over one ledger with no way to notice they had diverged.
+ */
+export function sharedPromptHistoryStore(): PromptHistoryStore {
+  _sharedStore ??= new PromptHistoryStore();
+  return _sharedStore;
+}

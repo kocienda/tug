@@ -61,6 +61,12 @@ import type {
   HistoryProvider,
   TugTextEditingState,
 } from "@/lib/tug-text-types";
+import {
+  coerceAttachmentBytes,
+  isEditingState,
+  pruneOrphanedImageAtoms,
+  type RestoredAttachmentEntry,
+} from "@/lib/composer-draft-payload";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
 import { mintLeadingCommandAtom } from "@/lib/command-atom";
 import type {
@@ -84,11 +90,8 @@ import type { PastedCommandResolver } from "./tug-text-editor/clipboard-filters"
 import { landingMessageStructure } from "./tug-text-editor/landing-message-structure";
 import { lineBoxMetric } from "./tug-text-editor/line-box-metric";
 import {
-  clearDropCaret,
   dropOffsetAtCoords,
   insertSubstrateAt,
-  markEditorDropActive,
-  paintDropCaret,
   processAttachmentFiles,
 } from "./tug-text-editor/drop-extension";
 import type { InlineCommandMatcher } from "@/lib/inline-command-ghost";
@@ -164,7 +167,8 @@ import { useSharedAgentReady } from "@/lib/shared-agent-store";
 import type { ShellClassifyStore } from "@/lib/shell-classify-store";
 import type { FindSession } from "@/lib/find-session";
 import type { LandingKind, LandingMode } from "@/lib/landing-mode";
-import { hasJotDrag, readJotDrag } from "@/lib/jot-drag";
+import { useComposerDrop } from "./use-composer-drop";
+import { useSessionPromptInsertTarget } from "./use-prompt-insert-target";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
 import { rehydrateDraftAttachments } from "@/lib/attachment-upload";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
@@ -403,128 +407,6 @@ export function coerceRestorePayload(raw: unknown): TugPromptEntryState {
   }
 
   return fallback;
-}
-
-/**
- * Drop image atoms whose bytes did not ride along in the same restore
- * payload, splicing out their `TUG_ATOM_CHAR` placeholders and shifting the
- * surviving atom positions + selection to match.
- *
- * An image atom is kept when its entry can still produce bytes — either it
- * carries them outright (the HMR path, where the in-memory cache brought
- * everything across) or it carries a `path` to the original tugcast stored at
- * drop time, which rehydration reads back. An entry with neither is the old
- * case and still the reason this function exists: `capDurableCardState`
- * persists no image data, so an attachment whose upload never landed restores
- * as a payload-less placeholder — a chip that would ship no image on resubmit.
- * Its atom is spliced out. What the user keeps regardless is their typed text
- * and every self-contained atom (text/file/command/doc, whose `value` IS the
- * payload and so are never pruned here). [L23].
- *
- * Returns the draft unchanged when nothing is orphaned, and `null` straight
- * through. Exported-via-coerce; a self-consistent payload where every
- * surviving image atom has bytes or a route to them is the postcondition.
- */
-function pruneOrphanedImageAtoms(
-  draft: TugTextEditingState | null,
-  attachmentBytes: Record<string, RestoredAttachmentEntry> | undefined,
-): TugTextEditingState | null {
-  if (draft === null) return null;
-  const hasBytes = (id: string | undefined): boolean => {
-    if (id === undefined || attachmentBytes === undefined) return false;
-    const entry = attachmentBytes[id];
-    if (entry === undefined) return false;
-    return entry.content.length > 0 || typeof entry.path === "string";
-  };
-  const dropPositions = draft.atoms
-    .filter((a) => a.type === "image" && !hasBytes(a.id))
-    .map((a) => a.position)
-    .sort((x, y) => x - y);
-  if (dropPositions.length === 0) return draft;
-
-  const dropSet = new Set(dropPositions);
-  let text = "";
-  for (let i = 0; i < draft.text.length; i += 1) {
-    if (!dropSet.has(i)) text += draft.text.charAt(i);
-  }
-  // Shift a surviving offset left by the count of dropped chars before it.
-  const shift = (offset: number): number => {
-    let n = 0;
-    for (const p of dropPositions) {
-      if (p < offset) n += 1;
-      else break;
-    }
-    return offset - n;
-  };
-  const atoms = draft.atoms
-    .filter((a) => !dropSet.has(a.position))
-    .map((a) => ({ ...a, position: shift(a.position) }));
-  const selection =
-    draft.selection === null
-      ? null
-      : {
-          start: shift(draft.selection.start),
-          end: shift(draft.selection.end),
-        };
-  return { ...draft, text, atoms, selection };
-}
-
-/**
- * Defensive coercion for the persisted `attachmentBytes` map. Filters
- * out non-object payloads (corrupt persistence, schema drift) and
- * entries missing the required `content` / `mediaType` shape. Returns
- * `undefined` when the input contains zero valid entries — that
- * value round-trips through the snapshot pipeline cleanly and gates
- * `restore` from being called with an empty object.
- *
- * `path` is forwarded when present. It has to be: a durably-restored entry
- * carries nothing else — the bytes were left on disk and the path is the
- * only way back to them — so dropping it here (this function reconstructs
- * the entry field by field) would make the whole restore a silent no-op.
- */
-function coerceAttachmentBytes(
-  value: unknown,
-): Record<string, RestoredAttachmentEntry> | undefined {
-  if (value === null || typeof value !== "object") return undefined;
-  const out: Record<string, RestoredAttachmentEntry> = {};
-  let any = false;
-  for (const [id, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (entry === null || typeof entry !== "object") continue;
-    const e = entry as { content?: unknown; mediaType?: unknown; path?: unknown };
-    if (typeof e.content !== "string" || typeof e.mediaType !== "string") {
-      continue;
-    }
-    out[id] =
-      typeof e.path === "string" && e.path.length > 0
-        ? { content: e.content, mediaType: e.mediaType, path: e.path }
-        : { content: e.content, mediaType: e.mediaType };
-    any = true;
-  }
-  return any ? out : undefined;
-}
-
-/**
- * One entry as it comes back off the durable bag: either real bytes (the HMR
- * path, where the in-memory cache carried everything) or a reference to the
- * original on disk with an empty `content`.
- */
-interface RestoredAttachmentEntry {
-  content: string;
-  mediaType: string;
-  path?: string;
-}
-
-/**
- * Defensive runtime check: does `value` look enough like a
- * `TugTextEditingState` to feed into `delegate.restoreState` without
- * crashing? Validates only the shape, not the content — a truly
- * malformed atom will surface inside the substrate's own restore
- * path.
- */
-function isEditingState(value: unknown): value is TugTextEditingState {
-  if (value === null || typeof value !== "object") return false;
-  const candidate = value as { text?: unknown; atoms?: unknown };
-  return typeof candidate.text === "string" && Array.isArray(candidate.atoms);
 }
 
 // ---------------------------------------------------------------------------
@@ -1431,85 +1313,17 @@ export const TugPromptEntry = React.forwardRef<
     [attachmentBytesStore],
   );
 
-  // The WHOLE prompt entry is ONE continuous drop surface. The editor
-  // substrate claims drags over its own host (`drop-extension.ts` attaches
-  // host-level listeners, so the blank band below short content accepts
-  // too); these entry-level handlers catch everything else — the
-  // attachment strip, the toolbar, the status row, the gaps — and route
-  // the drop through the same editor pipeline, mirroring the image-paste
-  // path. Events the substrate already claimed arrive here with
-  // `defaultPrevented` set and are left alone, so the two layers compose
-  // without double handling. The visual cues are the editor's own: the
-  // drop ring on the editor host (`markEditorDropActive`) plus the drop
-  // caret at the resolved position — the coordinate clamps to the nearest
-  // document position, so a drop over the toolbar lands at the bottom
-  // row. All DOM writes, no React state ([L06]).
-  //
-  // Two payloads land here: a file drag (images become atoms, other files
-  // their basename) and a Jots card jot drag ([P05]) — the same accept ring
-  // and drop caret for both, so a jot reads exactly like an image over
-  // the entry.
-  const handleEntryDragOver = useCallback(
-    (event: React.DragEvent<HTMLDivElement>): void => {
-      if (event.defaultPrevented) return;
-      const dt = event.dataTransfer;
-      if (!dt.types.includes("Files") && !hasJotDrag(dt)) return;
-      const view = textEditorRef.current?.view();
-      if (view === null || view === undefined) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
-      markEditorDropActive(view, true);
-      paintDropCaret(view, event.clientX, event.clientY);
-    },
+  // The WHOLE prompt entry is ONE continuous drop surface, and the shape of
+  // that surface is `useComposerDrop` — the jot half of it is the Overview
+  // composer's too. What stays here is the file half: images become atoms,
+  // other files their basename, through the substrate's own pipeline.
+  const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
+  const dropView = useCallback(
+    (): EditorView | null => textEditorRef.current?.view() ?? null,
     [],
   );
-  const clearEntryDropState = useCallback((): void => {
-    const view = textEditorRef.current?.view();
-    if (view === null || view === undefined) return;
-    markEditorDropActive(view, false);
-    clearDropCaret(view);
-  }, []);
-  const handleEntryDragLeave = useCallback(
-    (event: React.DragEvent<HTMLDivElement>): void => {
-      // Ignore leave events that merely cross into a descendant — only
-      // clear when the pointer truly exits the entry. A native
-      // Escape-cancel fires dragleave with a null relatedTarget, so this
-      // also tears down the caret on cancel.
-      const next = event.relatedTarget as Node | null;
-      if (next !== null && event.currentTarget.contains(next)) return;
-      clearEntryDropState();
-    },
-    [clearEntryDropState],
-  );
-  const handleEntryDrop = useCallback(
-    (event: React.DragEvent<HTMLDivElement>): void => {
-      if (event.defaultPrevented) return;
-      const jot = readJotDrag(event.dataTransfer);
-      const files = Array.from(event.dataTransfer.files);
-      if (jot === null && files.length === 0) return;
-      const view = textEditorRef.current?.view();
-      if (view === null || view === undefined) return;
-      event.preventDefault();
-      if (jot !== null) {
-        // Park the substrate on the store's slot; the `pendingJotInsert`
-        // effect below owns the insertion (drop offset, else the
-        // `applyAppendInsertion` append) for both this drag and the
-        // double-click-a-jot path.
-        clearEntryDropState();
-        codeSessionStore.insertJot(jot.text, jot.atoms, {
-          x: event.clientX,
-          y: event.clientY,
-        });
-        return;
-      }
-      // Resolve the drop against the editor's measured layout, same as a
-      // drop on the editor itself. The chrome sits outside the document,
-      // so the coordinate clamps to the nearest position — the bottom row
-      // — letting the user target it instead of dumping at a stale caret.
-      const pos =
-        dropOffsetAtCoords(view, event.clientX, event.clientY) ??
-        view.state.doc.length;
-      clearEntryDropState();
+  const onDropFiles = useCallback(
+    (view: EditorView, files: File[], pos: number): void => {
       void processAttachmentFiles(
         view,
         files,
@@ -1518,13 +1332,13 @@ export const TugPromptEntry = React.forwardRef<
         publishAttachmentError,
       );
     },
-    [
-      attachmentBytesStore,
-      publishAttachmentError,
-      clearEntryDropState,
-      codeSessionStore,
-    ],
+    [attachmentBytesStore, publishAttachmentError],
   );
+  const entryDrop = useComposerDrop({
+    view: dropView,
+    insertTarget,
+    onFiles: onDropFiles,
+  });
 
   // Session ▸ Insert File… (⌘I). The host picked the path; this is the
   // insertion. It reads exactly like accepting an `@` mention — a `file`
@@ -4139,10 +3953,7 @@ export const TugPromptEntry = React.forwardRef<
           // drag anywhere over the entry — chrome included — accepts and
           // lands in the editor. The substrate's own host-level handlers
           // claim drags over the editor first; these catch the rest.
-          onDragOver={handleEntryDragOver}
-          onDragLeave={handleEntryDragLeave}
-          onDragEnd={clearEntryDropState}
-          onDrop={handleEntryDrop}
+          {...entryDrop}
           statusRow={
             hasStatusRow ? (
               <div className="tug-prompt-entry-status">

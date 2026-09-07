@@ -171,6 +171,7 @@ import { selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selecti
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { AnnotationScope } from "@/components/tugways/annotation-scope";
 import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
+import { useSessionPromptInsertTarget } from "@/components/tugways/use-prompt-insert-target";
 import { attachSelectionExtension } from "@/components/tugways/selection-extension";
 import { TugJumpToBottomButton } from "@/components/tugways/tug-jump-to-bottom-button";
 import {
@@ -515,8 +516,11 @@ const UserMessageCell = React.memo(function UserMessageCell({
     (bodyEl, selection) => selectionToTranscriptSubstrate(selection, bodyEl),
     [],
   );
-  const { ResponderScope, cellProps, bodyRef, menu } =
-    useTranscriptCellMenu({ resolveCopyMarkdown, codeSessionStore });
+  const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
+  const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
+    resolveCopyMarkdown,
+    insertTarget,
+  });
   // The COPY chip's write. `copyText` is what an external app gets; a paste
   // back into Tug gets the substrate itself — text with its U+FFFC positions
   // and the atoms that stand there, image bytes included — so the chips
@@ -779,8 +783,10 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   //
   // No `resolveCopyMarkdown`: shell ink is literal text (like the user row), so
   // the copy is the selection verbatim, not markdown reconstructed from it.
-  const { ResponderScope, cellProps, bodyRef, menu } =
-    useTranscriptCellMenu({ codeSessionStore });
+  const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
+  const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
+    insertTarget,
+  });
   // One stable callback ref for both the responder registration and the menu /
   // Select All body anchor. Inline would mint a new function each render, and
   // React detaches + reattaches a changed callback ref on every one.
@@ -991,8 +997,10 @@ const RefsTurnCell = React.memo(function RefsTurnCell({
   // Edit ▸ Copy validates dark and ⌘C dies in the menu bar before the web
   // view sees it. Refs ink is literal text, so the copy is the selection
   // verbatim — no `resolveCopyMarkdown`.
-  const { ResponderScope, cellProps, bodyRef, menu } =
-    useTranscriptCellMenu({ codeSessionStore });
+  const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
+  const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
+    insertTarget,
+  });
   const cellRef = useCallback(
     (el: HTMLDivElement | null) => {
       cellProps.ref(el);
@@ -1807,8 +1815,11 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
     (bodyEl, selection) => selectionToTranscriptSubstrate(selection, bodyEl),
     [],
   );
-  const { ResponderScope, cellProps, bodyRef, menu } =
-    useTranscriptCellMenu({ resolveCopyMarkdown, codeSessionStore });
+  const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
+  const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
+    resolveCopyMarkdown,
+    insertTarget,
+  });
 
   // A compaction-only turn (a `/compact`, or an auto-compact boundary) is not
   // the model speaking — it is a session-meta event. Render it as a standalone
@@ -2587,8 +2598,7 @@ export const SessionTranscriptHost = forwardRef<
   // The layer itself is `useAnnotationClicks`, which the Overview and the
   // masthead mount over their own roots.
   useAnnotationClicks(rootRef, {
-    activateCard: () => deck.activateCard(cardId),
-    codeSessionStore,
+    insertTarget: useSessionPromptInsertTarget(codeSessionStore),
   });
 
   // Deferred-content hold ([P03] as amended: progressive AFFORDANCE,

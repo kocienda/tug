@@ -41,7 +41,7 @@ import {
 import { atomTextClipboardPayload, formatAtomTextForCopy } from "@/lib/atom-text";
 import type { SelectionSubstrate } from "@/lib/markdown/serialize-selection";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
-import type { CodeSessionStore } from "@/lib/code-session-store";
+import type { PromptInsertTarget } from "@/lib/prompt-insert-target";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { pathResolutionStore } from "@/lib/annotator/path-resolution";
 import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
@@ -304,11 +304,10 @@ export interface TranscriptCellMenuOptions {
    */
   resolveCopyMarkdown?: CopyMarkdownResolver;
   /**
-   * The session whose prompt an annotation's Insert into Prompt item
-   * seeds. Omitted by a fixture with no live session; the item is then not
-   * offered.
+   * The composer an annotation's Insert into Prompt item seeds. Omitted by a
+   * fixture with no composer to send to; the item is then not offered.
    */
-  codeSessionStore?: CodeSessionStore;
+  insertTarget?: PromptInsertTarget;
 }
 
 // Exported for the copy-wiring app-test fixture (`fixture-transcript-copy`),
@@ -316,7 +315,7 @@ export interface TranscriptCellMenuOptions {
 // the real ⌘C / menu-Copy path. Not part of the card's public API otherwise.
 export function useTranscriptCellMenu({
   resolveCopyMarkdown,
-  codeSessionStore,
+  insertTarget,
 }: TranscriptCellMenuOptions = {}): {
   ResponderScope: React.FC<{ children: React.ReactNode }>;
   cellProps: TranscriptCellProps;
@@ -332,7 +331,7 @@ export function useTranscriptCellMenu({
   // own and could not be shared.
   const annotation = useAnnotationMenu({
     originRef: bodyRef,
-    ...(codeSessionStore !== undefined ? { codeSessionStore } : {}),
+    ...(insertTarget !== undefined ? { insertTarget } : {}),
   });
   // Live-ref the resolver ([L07]) so `handleCopy` keeps a stable
   // identity while always invoking the latest closure (which captures

@@ -76,6 +76,7 @@
 
 import React, {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -133,6 +134,21 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { dispatchCommand } from "@/command-dispatch";
 import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
 import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
+import { overviewInsertTarget } from "@/components/overview/overview-insert-target";
+import { useComposerDrop } from "@/components/tugways/use-composer-drop";
+import { useCardStatePreservation } from "@/components/tugways/use-card-state-preservation";
+import {
+  coerceOverviewDraftPayload,
+  overviewDraftHolder,
+  type OverviewComposerDraftState,
+} from "@/components/overview/overview-composer-draft";
+import { sharedPromptHistoryStore } from "@/lib/prompt-history-store";
+import {
+  OVERVIEW_CARD_ID,
+  OVERVIEW_HISTORY_ROUTE,
+} from "@/lib/overview-card-id";
+import { subscribeAppendFailures } from "@/lib/prompt-history-api";
+import { rehydrateDraftAttachments } from "@/lib/attachment-upload";
 import { pathResolutionStore } from "@/lib/annotator/path-resolution";
 import { dataAttributesForPayload } from "@/lib/annotator/payloads";
 import { makeReferenceResolver } from "@/lib/annotator/resolve-reference";
@@ -172,6 +188,7 @@ import {
 import { selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selection";
 import { buildSlashCommandLine } from "@/lib/slash-commands";
 import type { AtomSegment } from "@/lib/tug-atom-img";
+import type { AtomPathRoots } from "@/lib/atom-file-path";
 import type { CompletionProvider } from "@/lib/tug-text-types";
 import {
   FeedId,
@@ -819,6 +836,10 @@ function OverviewPostRow({
   );
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     resolveCopyMarkdown,
+    // Insert Atom into Prompt, on the Overview's own composer. The item is
+    // the registry's, unchanged; what used to filter it out was the absence
+    // of a `CodeSessionStore`, which was never what the gesture needed.
+    insertTarget: overviewInsertTarget(),
   });
   // The wake reason explains why this post exists at all — background to the
   // sentence, so it rides the identifier's tooltip rather than the row.
@@ -1148,11 +1169,12 @@ export function OverviewContent({
   // Annotation gestures — the Session transcript's own delegated layer,
   // `useAnnotationClicks`, mounted over the Overview's scroller. The atoms
   // here are FULLY stamped (payload dataset, not just a kind), so the layer
-  // reads a real payload back off whatever element the press lands on. No
-  // codeSessionStore in the context: the Overview has no live session, and a
-  // kind that needs one declines on its own. `activateCard` is a no-op — the
-  // opened card claims activation itself; the rail stays put.
-  useAnnotationClicks(scrollRef, { activateCard: () => {} });
+  // reads a real payload back off whatever element the press lands on. The
+  // insert target is the composer at the bottom of this rail, so a click that
+  // seeds a prompt seeds THIS one; a slash or shell command still declines,
+  // because the Overview target offers no `insertCommand` and the Overview
+  // protocol has no commands to run.
+  useAnnotationClicks(scrollRef, { insertTarget: overviewInsertTarget() });
 
   const onScroll = (): void => {
     const el = scrollRef.current;
@@ -1370,16 +1392,30 @@ export function OverviewContent({
  * one feed subscription however many times the card mounts.
  */
 let _fileCompletionProvider: CompletionProvider | null = null;
+let _fileCompletionStore: FileTreeStore | null = null;
 function overviewFileCompletionProvider(): CompletionProvider {
   if (_fileCompletionProvider !== null) return _fileCompletionProvider;
   const conn = getConnection();
   if (conn === null) return ((_q: string) => []) as CompletionProvider;
   const feedStore = new FeedStore(conn, [FeedId.FILETREE]);
-  _fileCompletionProvider = new FileTreeStore(
-    feedStore,
-    FeedId.FILETREE,
-  ).getFileCompletionProvider();
+  _fileCompletionStore = new FileTreeStore(feedStore, FeedId.FILETREE);
+  _fileCompletionProvider = _fileCompletionStore.getFileCompletionProvider();
   return _fileCompletionProvider;
+}
+
+/**
+ * The absolute directory an `@` mention in the Overview's composer is
+ * relative to — the bootstrap workspace, learned from the answers the
+ * completion provider above is reading anyway ([B10]).
+ *
+ * It is the same store, so the root a chip's gestures address against and the
+ * root its value was counted from cannot disagree; naming the directory a
+ * second way here would be a second chance to name it wrong. `null` until an
+ * answer has landed, which resolves as the honest unresolved rather than as a
+ * guess.
+ */
+function overviewCompletionRoot(): string | null {
+  return _fileCompletionStore?.answeredRoot() ?? null;
 }
 
 /**
@@ -1538,6 +1574,23 @@ function OverviewComposer({
     [],
   );
 
+  // The roots an `@` mention's value is addressed against, for the atoms the
+  // substrate stamps ([B10]). A mention's value is root-relative — that is
+  // what the file index reports — while every gesture on the chip speaks
+  // absolute only, so without this a chip in this field carried no payload at
+  // all: `payloadForAtom` returns null for a relative value with no root, and
+  // an inert chip offers neither Open nor Reveal ([F08], read from the code
+  // rather than inferred).
+  //
+  // Read live at atom-mount time ([L07]) rather than frozen: the root arrives
+  // with the first FILETREE answer, which may land after a chip already has.
+  // There is no `cwd` half to give — that is a session's, and this composer
+  // has no session.
+  const atomPathRoots = useCallback(
+    (): AtomPathRoots => ({ projectDir: overviewCompletionRoot(), cwd: null }),
+    [],
+  );
+
   // An image that could not be attached says so where the question is being
   // asked — in the field's own placeholder-adjacent notice row — and clears
   // on the next document change. The Session card raises a pane bulletin for
@@ -1578,6 +1631,235 @@ function OverviewComposer({
     },
   });
 
+  // The composer's drop surface, the Session entry's own — so a jot dragged
+  // out of the Jots card lands here at the drop point, with the same accept
+  // ring and drop caret an image gets ([B08]). No `onFiles`: an image over
+  // this composer is the substrate's own host-level pipeline, which already
+  // runs, and the rail's chrome takes no file drop of its own.
+  const composerDropView = useCallback(
+    (): EditorView | null => editorRef.current?.view() ?? null,
+    [],
+  );
+  const composerDrop = useComposerDrop({
+    view: composerDropView,
+    insertTarget: overviewInsertTarget(),
+  });
+
+  // ── Prompt history ───────────────────────────────────────────────────────
+  //
+  // The substrate's keymap already carries the whole gesture set — Cmd-Up and
+  // Cmd-Down at the document edges, Opt-Up and Opt-Down as a position-
+  // independent walk — and walks whatever provider the host passes. The
+  // Overview passed none, which is the only reason it had no history. So it
+  // becomes a client of the one store the Session cards share, keyed on the
+  // card id as a synthetic session and on its own route, so its corpus is its
+  // own and no Overview question is ever recalled inside a session ([B03]).
+  //
+  // The corpus is machine-global, and that is right: the ledger is global by
+  // doctrine and the Overview narrates the whole app, so a question asked
+  // from one project is worth recalling from another ([B04]).
+  const historyStore = sharedPromptHistoryStore();
+  useSyncExternalStore(historyStore.subscribe, historyStore.getSnapshot);
+  const historyProvider = useMemo(
+    () =>
+      historyStore.createRouteProvider(
+        OVERVIEW_CARD_ID,
+        OVERVIEW_HISTORY_ROUTE,
+      ),
+    [historyStore],
+  );
+
+  // Re-seed the composer's bytes store from stored history attachments, so a
+  // recalled prompt shows its pictures and can be sent again after a cold
+  // launch. Store→store wiring in a callback ([L22], [L24]): the history
+  // store's own subscription, not a `useSyncExternalStore` → effect round
+  // trip. Every image atom gets a marker whether or not it has a path —
+  // seeding only the path-bearing ones would leave the rest reading as "still
+  // processing" — and the path-bearing ones are then handed to rehydration,
+  // which reads the original back and replaces the marker with real bytes.
+  useLayoutEffect(() => {
+    const reseed = (): void => {
+      const seeded: Record<
+        string,
+        { content: string; mediaType: string; path?: string }
+      > = {};
+      for (const entry of historyStore.getSessionEntries(OVERVIEW_CARD_ID)) {
+        for (const atom of entry.atoms) {
+          if (atom.type !== "image" || atom.id === undefined) continue;
+          if (bytesStore.get(atom.id) !== null) continue;
+          bytesStore.put(atom.id, {
+            content: "",
+            mediaType: "",
+            path: atom.path,
+          });
+          if (atom.path !== undefined) {
+            seeded[atom.id] = { content: "", mediaType: "", path: atom.path };
+          }
+        }
+      }
+      // After every marker is in place, never during — rehydration re-reads
+      // the store to decide whether the atom is still live.
+      if (Object.keys(seeded).length > 0) {
+        rehydrateDraftAttachments(seeded, bytesStore);
+      }
+    };
+    reseed();
+    return historyStore.subscribe(reseed);
+  }, [historyStore, bytesStore]);
+
+  // An append that has outlived its fast retry rungs is the user's question
+  // not yet on disk. The Session card raises a pane bulletin for this; the
+  // Overview has no pane chrome of its own, so it says so in the composer's
+  // own notice row — the one an unattachable image already speaks through,
+  // which is where the reader is already looking ([B03]).
+  useLayoutEffect(
+    () =>
+      subscribeAppendFailures((notice) => {
+        // The channel is app-wide — every composer's outbox publishes to it —
+        // and this row speaks for the Overview's field. A session's prompt
+        // failing to persist is that card's sentence to say, not this one's.
+        if (notice.sessionId !== OVERVIEW_CARD_ID) return;
+        const excerpt =
+          notice.text.length > 60 ? `${notice.text.slice(0, 60)}…` : notice.text;
+        setAttachmentError(
+          `Prompt history isn't saving — still retrying "${excerpt}".`,
+        );
+      }),
+    [],
+  );
+
+  // The rested-path backfill ([B05]). The Overview sends its bytes inline in
+  // the question frame rather than through the upload route, so there is no
+  // upload receipt to complete a history row from — but the answering post
+  // IS that receipt: it comes back keyed by `request_id` with an
+  // `attachments` list, in composition order, naming the absolute path
+  // tugcast rested each picture at. Patch those paths onto the row's image
+  // atoms and a recalled prompt is resubmittable rather than merely legible.
+  //
+  // A row whose post never comes back — the rail hidden before the answer, a
+  // dropped connection — keeps a path-less atom and recalls as legible only,
+  // the same degradation the Session accepts for an upload that never landed.
+  const restedPathWaitsRef = useRef(
+    new Map<string, { historyEntryId: string; atomIds: readonly string[] }>(),
+  );
+  const restedPathUnsubRef = useRef<(() => void) | null>(null);
+  const drainRestedPaths = useCallback((): void => {
+    const waits = restedPathWaitsRef.current;
+    const posts = getOverviewStore()?.getSnapshot().posts ?? [];
+    for (const [requestId, wait] of [...waits]) {
+      const question = posts.find(
+        (p) =>
+          p.requestId === requestId &&
+          p.author === "user" &&
+          p.attachments.length > 0,
+      );
+      if (question === undefined) continue;
+      wait.atomIds.forEach((atomId, i) => {
+        const rested = question.attachments[i];
+        if (rested === undefined) return;
+        historyStore.patchAtomPath(wait.historyEntryId, atomId, rested.path);
+      });
+      waits.delete(requestId);
+    }
+    if (waits.size === 0 && restedPathUnsubRef.current !== null) {
+      restedPathUnsubRef.current();
+      restedPathUnsubRef.current = null;
+    }
+  }, [historyStore]);
+  const registerRestedPathWait = useCallback(
+    (requestId: string, historyEntryId: string, atomIds: readonly string[]) => {
+      if (atomIds.length === 0) return;
+      restedPathWaitsRef.current.set(requestId, { historyEntryId, atomIds });
+      const store = getOverviewStore();
+      if (store !== null && restedPathUnsubRef.current === null) {
+        restedPathUnsubRef.current = store.subscribe(drainRestedPaths);
+      }
+      // The echo may already have landed between the send and here.
+      drainRestedPaths();
+    },
+    [drainRestedPaths],
+  );
+  useLayoutEffect(
+    () => () => {
+      restedPathUnsubRef.current?.();
+      restedPathUnsubRef.current = null;
+    },
+    [],
+  );
+
+  // Whether the held draft has been taken up yet. Until it has, an empty
+  // field is not evidence the user discarded anything — it is a composer
+  // that has not yet been handed what it is holding — so a save that fires
+  // in that window must forward the holder rather than capture over it.
+  const draftSeededRef = useRef(false);
+
+  // ── Draft preservation ───────────────────────────────────────────────────
+  //
+  // The user's words are theirs, and a composer that loses them because a rail
+  // was put away is a defect ([B09]). Two channels carry them, because one
+  // cannot: the app-scoped holder survives the unmount that hiding the rail
+  // performs — `hideSidebarPane` closes the pane and destroys the card, and
+  // showing it again mints a fresh card id ([F07], measured) — and the bag
+  // this hook writes is what survives a relaunch, where the rail's card id
+  // comes back off the saved layout unchanged. `overview-composer-draft.ts`
+  // is where that division is written down.
+  //
+  // This composer is the sole preserver for the card's compound: the
+  // substrate stays `preserveState={false}` below, so there is no competing
+  // registration.
+  useCardStatePreservation<OverviewComposerDraftState>({
+    onSave: () => {
+      // No live substrate — the card is on its way out — means the holder is
+      // the last word on what was typed rather than a reason to write `null`
+      // over a good draft.
+      if (draftSeededRef.current) {
+        overviewDraftHolder.set(
+          editorRef.current?.captureState() ?? overviewDraftHolder.get(),
+        );
+      }
+      // The pictures ride along with the words. Across a relaunch these
+      // arrive back as bare references — `capDurableCardState` persists no
+      // image data — and rehydration on restore is what makes them bytes
+      // again. Omitted when empty so the persisted payload stays small.
+      const bytesSnap = bytesStore.snapshot();
+      const attachmentBytes =
+        Object.keys(bytesSnap).length > 0 ? bytesSnap : undefined;
+      return { draft: overviewDraftHolder.get(), attachmentBytes };
+    },
+    onRestore: (raw) => {
+      // A holder with something in it is this session's own draft, which is
+      // always fresher than a bag written before the app last quit.
+      if (overviewDraftHolder.get() !== null) return;
+      const restored = coerceOverviewDraftPayload(raw);
+      if (restored.attachmentBytes !== undefined) {
+        // Bytes first, so the substrate reads its atom ids back to bytes that
+        // are already there. Then the read-back for every entry that arrived
+        // as a bare reference — fire and forget, exactly as the Session
+        // entry's restore does it, and strictly after the prune inside
+        // `coerceOverviewDraftPayload` has decided which atoms survive.
+        bytesStore.restore(restored.attachmentBytes);
+        rehydrateDraftAttachments(restored.attachmentBytes, bytesStore);
+      }
+      if (restored.draft === null) return;
+      overviewDraftHolder.set(restored.draft);
+      editorRef.current?.restoreState(restored.draft);
+    },
+  });
+
+  // The other half of the holder's job: a composer arriving on a rail the user
+  // just showed again mounts with the draft they left in it.
+  //
+  // A passive effect rather than a layout one, and that is the whole of why
+  // it works: `restoreEditState` refuses a view whose `contentDOM` is not
+  // connected yet, and during the mount commit — where a layout effect runs —
+  // it is not. After the paint it is, so the restore takes.
+  useEffect(() => {
+    const held = overviewDraftHolder.get();
+    draftSeededRef.current = true;
+    if (held === null) return;
+    editorRef.current?.restoreState(held);
+  }, []);
+
   const submit = (): void => {
     if (pending) return;
     const store = getOverviewStore();
@@ -1616,10 +1898,51 @@ function OverviewComposer({
       .filter((a) => a.type === "file" && a.value !== "")
       .map((a) => ({ kind: "file" as const, target: a.value }));
     if (text === "" && attachments.length === 0) return;
-    if (store.submitQuestion(text, attachments, refs) === null) return;
+    const requestId = store.submitQuestion(text, attachments, refs);
+    if (requestId === null) return;
+    // Record the question in the Overview's own corpus, keyed on the card id
+    // and this composer's route. Captured before the clear below, so the row
+    // holds what was asked rather than the empty field that follows it.
+    //
+    // `projectPath` is the workspace the `@` provider completes against —
+    // the bootstrap one, learned from the answers that provider is already
+    // reading ([B04]), which is the same root a chip in this field addresses
+    // against. Empty until an answer has landed, because an invented path
+    // would be worse than none. The row says where the question was asked;
+    // nothing recalls by it, so an empty one costs the corpus nothing.
+    //
+    // Every image atom goes in path-less: the bytes rode the question frame
+    // inline, so nothing has rested them yet. The wait registered below is
+    // what completes them.
+    const historyEntryId = `${OVERVIEW_CARD_ID}-${Date.now()}`;
+    historyStore.push({
+      id: historyEntryId,
+      sessionId: OVERVIEW_CARD_ID,
+      projectPath: overviewCompletionRoot() ?? "",
+      route: OVERVIEW_HISTORY_ROUTE,
+      text: state.text,
+      atoms: state.atoms.map((a) => ({
+        position: a.position,
+        type: a.type,
+        label: a.label,
+        value: a.value,
+        id: a.id,
+      })),
+      timestamp: Date.now(),
+    });
+    // In the order the attachments went out, which is the order the post's
+    // own list comes back in — that pairing is what makes the patch correct.
+    registerRestedPathWait(requestId, historyEntryId, sent);
     // The question comes back off the wire as a post; the field's job is
     // done. `clear` fires the update listener, which resets `data-empty`.
     editorRef.current?.clear();
+    // And the draft the field held is spent with it — a question that has been
+    // asked must not come back the next time the rail does.
+    overviewDraftHolder.set(null);
+    // Submitting returns the history cursor to the end of the list, so the
+    // next Cmd-Up starts from this question rather than wherever the reader
+    // had browsed to. The draft is the now-empty field.
+    historyProvider.resetToDraft({ text: "", atoms: [], selection: null });
     // And the bytes' job is done with it: what the post shows from here on is
     // read from where tugcast rested them, not from this store. Holding them
     // would keep every screenshot ever composed alive for the app's life.
@@ -1640,6 +1963,7 @@ function OverviewComposer({
       data-slot="overview-composer"
       data-testid="overview-composer"
       data-empty="true"
+      {...composerDrop}
       accessoryRow={
         composeImageAtoms.length > 0 || attachmentError !== null ? (
           <div
@@ -1703,6 +2027,11 @@ function OverviewComposer({
       <TugTextEditor
         ref={(delegate) => {
           editorRef.current = delegate;
+          // And the rail's insert target, which is how a menu pick or a click
+          // several components away reaches this field. Bound here rather
+          // than in an effect so an insert parked against an unmounted
+          // composer drains in the same commit the editor arrives in.
+          overviewInsertTarget().bind(delegate);
         }}
         className="overview-composer-field"
         data-testid="overview-composer-field"
@@ -1723,6 +2052,8 @@ function OverviewComposer({
         focusOrder={0}
         disabled={pending}
         completionProviders={completionProviders}
+        atomPathRoots={atomPathRoots}
+        historyProvider={historyProvider}
         onSubmit={submit}
         extensions={substrateBridge}
         // What turns a dropped or pasted image into an attachment rather than

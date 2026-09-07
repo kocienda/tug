@@ -83,12 +83,6 @@ export interface AnnotationLinkOptions {
    * resolver already knew at mount, which is correct for a static host.
    */
   subscribe?: (listener: () => void) => () => void;
-  /**
-   * Bring the host's own card forward before the gesture opens another.
-   * Defaults to doing nothing — the card a reference opens claims
-   * activation itself, which is what the Overview's listener relies on too.
-   */
-  activateCard?: () => void;
 }
 
 /** The reference at `col`, or `null` when the column sits in prose. */
@@ -201,9 +195,10 @@ export function annotationLinkExtension(
         if (payload === null) return false;
         e.preventDefault();
         e.stopPropagation();
-        annotationEntryFor(payload.kind)?.primaryClick?.(payload, {
-          activateCard: options.activateCard ?? ((): void => {}),
-        });
+        // No insert target: an accel-click in an editor opens what it names,
+        // and the kinds that would seed a composer instead decline on their
+        // own when there is none.
+        annotationEntryFor(payload.kind)?.primaryClick?.(payload, {});
         return true;
       },
     }),

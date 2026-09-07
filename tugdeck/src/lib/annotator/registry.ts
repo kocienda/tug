@@ -37,7 +37,7 @@ import { openUrlInOS, revealDirectoryInFinder } from "@/lib/os-open";
 import { openAttachmentPreview } from "@/lib/attachment-preview-open";
 import { atomSegmentFor } from "./atom-segment";
 
-import type { CodeSessionStore } from "@/lib/code-session-store";
+import type { PromptInsertTarget } from "@/lib/prompt-insert-target";
 import type { AnnotationPayload } from "./payloads";
 import type { AnnotationKind } from "./types";
 
@@ -116,19 +116,24 @@ export type AnnotationMenuFacts =
 
 /**
  * What a registry handler is allowed to reach. Deliberately narrow: the
- * card-activation gesture as a thunk (the caller already knows which card
- * it is) and the session store a command seeds into. A kind that needs
- * more says so by widening this, which keeps the blast radius of a new
- * capability visible.
+ * composer a click sends the entity into, and nothing else. A kind that
+ * needs more says so by widening this, which keeps the blast radius of a
+ * new capability visible.
  */
 export interface AnnotationDispatchContext {
-  /** Bring the annotation's own card forward before acting on it. */
-  activateCard: () => void;
-  /** The prompt/transcript store a command or snippet is seeded into.
-   *  Absent on a surface with no live session (the Overview): such a surface
-   *  can't seed a prompt, so a command's click is a no-op there — the same
-   *  rule its menu already follows by dropping Insert into Prompt. */
-  codeSessionStore?: CodeSessionStore;
+  /**
+   * The composer a command or snippet is seeded into — the same target the
+   * surface's menu sends `Insert into Prompt` to, so a click and a menu pick
+   * land in one place. It carries its own `raise`, which is why the card
+   * activation this used to take separately is gone: bringing the receiving
+   * composer forward is the target's business, and the Overview's answer to
+   * it is a caret rather than a card.
+   *
+   * Absent on a surface with no composer to send to, and a click is then a
+   * no-op there — the same rule its menu already follows by dropping Insert
+   * into Prompt.
+   */
+  insertTarget?: PromptInsertTarget;
 }
 
 /** The behavior registered for one annotation kind. */
@@ -180,16 +185,19 @@ function seedCommand(
   payload: AnnotationPayload,
   ctx: AnnotationDispatchContext,
 ): void {
-  const store = ctx.codeSessionStore;
-  if (store === undefined) return;
+  // A ready-to-run command draft is a session semantic — the Overview has no
+  // commands to run — so a target that does not offer `insertCommand` is one
+  // this click has nothing to do on.
+  const target = ctx.insertTarget;
+  if (target === undefined || target.insertCommand === undefined) return;
   if (payload.kind === "slash-command") {
-    ctx.activateCard();
-    store.insertCommandDraft(payload.name, payload.args);
+    target.raise();
+    target.insertCommand(payload.name, payload.args);
     return;
   }
   if (payload.kind === "shell-command") {
-    ctx.activateCard();
-    store.insertCommandDraft("shell", payload.command);
+    target.raise();
+    target.insertCommand("shell", payload.command);
   }
 }
 

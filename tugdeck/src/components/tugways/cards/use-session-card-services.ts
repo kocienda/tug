@@ -18,7 +18,7 @@
 
 import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
 import { cardServicesStore, type CardServices } from "@/lib/card-services-store";
-import { PromptHistoryStore } from "@/lib/prompt-history-store";
+import { sharedPromptHistoryStore } from "@/lib/prompt-history-store";
 import type { CompletionProvider } from "@/lib/tug-text-types";
 import type { ArgumentHintResolver } from "@/components/tugways/tug-text-editor/argument-hint-extension";
 import type { PastedCommandResolver } from "@/components/tugways/tug-text-editor/clipboard-filters";
@@ -42,19 +42,6 @@ import type { SessionCardServices } from "./session-card";
 
 /** Stable empty `@` provider used while services aren't ready. */
 const EMPTY_FILE_COMPLETION_PROVIDER = ((_q: string) => []) as CompletionProvider;
-
-// Lazily-constructed singleton prompt-history store shared across dev cards.
-// The store is internally keyed by session id (see `lib/prompt-history-store.ts`);
-// every `push()` appends to the machine-global prompt ledger, and each session's
-// entries page back in on first access. Cross-card reuse of history for the same
-// project arrives once a stable per-workspace session id exists.
-let _devPromptHistoryStore: PromptHistoryStore | null = null;
-function getSessionPromptHistoryStore(): PromptHistoryStore {
-  if (_devPromptHistoryStore === null) {
-    _devPromptHistoryStore = new PromptHistoryStore();
-  }
-  return _devPromptHistoryStore;
-}
 
 export function useSessionCardServices(cardId: string): SessionCardServices | null {
   // Read services from the module-scope `cardServicesStore` via
@@ -190,7 +177,7 @@ export function useSessionCardServices(cardId: string): SessionCardServices | nu
     return {
       codeSessionStore: services.codeSessionStore,
       sessionMetadataStore: services.sessionMetadataStore,
-      historyStore: getSessionPromptHistoryStore(),
+      historyStore: sharedPromptHistoryStore(),
       completionProviders,
       argumentHintResolver,
       inlineCommandMatcher,
