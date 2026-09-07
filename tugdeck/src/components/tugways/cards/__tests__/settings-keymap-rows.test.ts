@@ -20,6 +20,8 @@ import {
   rowMatches,
   UNGROUPED,
 } from "../settings-keymap-rows";
+import { PROBE_ROW_ID } from "../settings-keymap-rows";
+import type { KeymapFilter } from "../settings-keymap-rows";
 import { COMMANDS, COMMANDS_BY_ID, GLOBAL_SCOPE } from "../../command-registry";
 import type { CommandEntry } from "../../command-registry";
 import {
@@ -156,39 +158,92 @@ describe("a binding's standing", () => {
 
 describe("filtering", () => {
   const rows = buildKeymapRows(NONE);
+  const text = (query: string): KeymapFilter => ({ kind: "text", query });
 
   test("matches on the command's name", () => {
     const save = rows.find((r) => r.commandId === "save")!;
-    expect(rowMatches(save, "sav")).toBe(true);
-    expect(rowMatches(save, "quit")).toBe(false);
+    expect(rowMatches(save, text("sav"))).toBe(true);
+    expect(rowMatches(save, text("quit"))).toBe(false);
   });
 
   test("matches on the chord, because that is the other way in", () => {
     // "What has ⌘K" is as real a question as "what is Focus Prompt bound to".
     const focus = rows.find((r) => r.commandId === "focus-prompt")!;
-    expect(rowMatches(focus, "⌘K")).toBe(true);
+    expect(rowMatches(focus, text("⌘K"))).toBe(true);
   });
 
   test("an empty query matches everything", () => {
-    expect(rows.every((r) => rowMatches(r, "   "))).toBe(true);
+    expect(rows.every((r) => rowMatches(r, text("   ")))).toBe(true);
+  });
+
+  test("a chord filter matches by claimant, not by rendered chord", () => {
+    // The probe already resolved the chord through every layer, so the filter
+    // carries ids. Matching the label instead would let ⌘K narrow to ⌃⌘K as
+    // well — a superstring of a chord is a different chord.
+    const focus = rows.find((r) => r.commandId === "focus-prompt")!;
+    const byChord: KeymapFilter = {
+      kind: "chord",
+      label: "⌘K",
+      commandIds: new Set(["focus-prompt"]),
+    };
+    expect(rowMatches(focus, byChord)).toBe(true);
+    expect(rows.filter((r) => rowMatches(r, byChord))).toHaveLength(1);
   });
 
   test("a heading whose group the filter emptied does not appear", () => {
     // A heading over nothing is a lie about what the list holds, and under a
     // narrow query most of them would be empty.
-    const items = buildKeymapListItems(rows, "quit");
+    const items = buildKeymapListItems(rows, text("quit"));
+    // Test plus the one menu the query left standing. Test is not a menu and
+    // does not follow the filter; see below.
     const groups = items.filter((i) => i.kind === "group");
-    expect(groups).toHaveLength(1);
+    expect(groups.map((g) => g.kind === "group" && g.title)).toEqual([
+      "Test",
+      "Tug",
+    ]);
     expect(items.filter((i) => i.kind === "command").length).toBeGreaterThan(0);
-    // Every heading is followed by at least one command.
+    // Every heading is followed by at least one row of its own kind.
     for (let i = 0; i < items.length; i++) {
       if (items[i].kind !== "group") continue;
-      expect(items[i + 1]?.kind, "a heading has rows under it").toBe("command");
+      expect(items[i + 1]?.kind, "a heading has rows under it").not.toBe(
+        "group",
+      );
     }
   });
 
-  test("a query that matches nothing yields no items at all", () => {
-    expect(buildKeymapListItems(rows, "zzzznothing")).toEqual([]);
+  test("a query that matches nothing yields no COMMANDS at all", () => {
+    const items = buildKeymapListItems(rows, text("zzzznothing"));
+    expect(items.filter((i) => i.kind === "command")).toEqual([]);
+  });
+
+  test("the Test section stands whatever the filter says", () => {
+    // It is a control, not a result. A filter that hid the thing you narrow
+    // the list WITH would take the tool away at the moment it worked — and
+    // the probe's verdict wants to be readable above the rows it narrowed to.
+    for (const filter of [
+      text(""),
+      text("zzzznothing"),
+      { kind: "chord", label: "⌘K", commandIds: new Set(["focus-prompt"]) },
+    ] satisfies KeymapFilter[]) {
+      const items = buildKeymapListItems(rows, filter);
+      expect(items[0]).toEqual({
+        kind: "group",
+        id: "group:Test",
+        title: "Test",
+        first: true,
+      });
+      expect(items[1]).toEqual({ kind: "probe", id: PROBE_ROW_ID });
+    }
+  });
+
+  test("only the Test heading is `first`, and it is always the one on top", () => {
+    // `first` drives the space above a heading, and a windowed list cannot
+    // ask CSS for `:first-child`. With Test always on top, every menu heading
+    // below it is separated from something.
+    const items = buildKeymapListItems(rows, text(""));
+    const firsts = items.filter((i) => i.kind === "group" && i.first);
+    expect(firsts).toHaveLength(1);
+    expect(items.indexOf(firsts[0])).toBe(0);
   });
 });
 

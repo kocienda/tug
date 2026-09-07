@@ -253,6 +253,21 @@ export function chordHasKeyEquivalent(chord: Chord): boolean {
   return keyEquivalentCharacter(chord.key, chord.shift === true) !== null;
 }
 
+/**
+ * Whether a chord is one a keyboard surface may record at all.
+ *
+ * A recordable chord carries a real modifier or is a function key. Bare `K`
+ * would fire on every keystroke everywhere; shift alone is a capital letter.
+ * Both the pane's capture strip and its chord probe ask this before anything
+ * else, because a chord that cannot be bound has neither a conflict worth
+ * reporting nor a binding worth writing.
+ */
+export function isRecordableChord(chord: Chord): boolean {
+  if (chord.meta === true || chord.ctrl === true || chord.alt === true)
+    return true;
+  return /^F\d{1,2}$/.test(chord.key);
+}
+
 /* ---------------------------------------------------------------------------
  * Display
  * ------------------------------------------------------------------------- */

@@ -39,12 +39,40 @@
  * lives, not a reason the chord is unchangeable. A rebind keeps the row's
  * scope and moves only its chord.
  *
+ * ## Asking without binding
+ *
+ * "Is ⌥⌘J free?" was answerable before this pane grew a probe, but only by
+ * borrowing some command's Change button: arm its capture, read the conflict
+ * note, cancel. The answer came at the price of standing one keystroke away
+ * from rebinding a command opened purely to interrogate, and the price was
+ * paid by the person least willing to pay it — someone who came here to find
+ * out what was safe.
+ *
+ * So the pane opens with a Test section holding one row that reads a chord
+ * and reports what has it. Its defining property is a negative one: no commit
+ * path. It shares `useChordCapture` and `CaptureStrip` with the row capture,
+ * and shares none of the writer. One press, one answer, and a taken chord
+ * narrows the list below to every command claiming it — because the second
+ * half of "what has this chord" is being shown the row.
+ *
+ * It is a ROW, in the pane's own row anatomy, and that is not decoration: it
+ * asks the question every other row answers standing still, so a second
+ * layout for it would have made one pane read as two stacked. What it is not
+ * is a command, which is why it stands in its own section above the menus.
+ *
+ * Arming is one slot for the whole pane ({@link KeymapCellContext.armed}),
+ * which is what makes it exclusive. Two armed readers would both see the same
+ * keydown, and `chordCaptureState` is a count rather than a lock — so the
+ * exclusivity has to be the fact that one variable cannot hold two ids, not a
+ * pair of booleans that agree by convention.
+ *
  * Laws: [L02] the override store and the keymap registry enter React through
- * `useSyncExternalStore`; [L03] the capture surface's focus trap is pushed in
- * a layout effect (via `useFocusTrap`); [L06] the armed affordance is CSS on a
- * data attribute, never a second render path; [L19]/[L20] every row composes
- * real Tug primitives — `TugListView`, `TugListRow`, `TugIconButton`,
- * `TugAlert` — and hand-rolls no list, no focus, and no dialog.
+ * `useSyncExternalStore`; [L03] both chord readers push their focus trap and
+ * their arm in a layout effect (via `useChordCapture`); [L06] the armed
+ * affordance is CSS on a data attribute, never a second render path;
+ * [L19]/[L20] every row composes real Tug primitives — `TugListView`,
+ * `TugListRow`, `TugIconButton`, `TugAlert` — and hand-rolls no list, no
+ * focus, and no dialog.
  *
  * @module components/tugways/cards/settings-keymap-body
  */
@@ -70,11 +98,10 @@ import {
 } from "lucide-react";
 
 import {
-  chordFromEvent,
   chordHasKeyEquivalent,
   formatChord,
+  isRecordableChord,
 } from "../chord-format";
-import { chordCaptureState } from "../chord-capture-state";
 import type { BindingScope, Chord } from "../command-registry";
 import { COMMANDS_BY_ID } from "../command-registry";
 import { keymapRegistry } from "../keymap-registry";
@@ -98,14 +125,21 @@ import { useAttachedFilter } from "../attached-filter";
 import { TugAlert, type TugAlertHandle } from "../tug-alert";
 import { TugBadge } from "../tug-badge";
 import { TugPushButton } from "../tug-push-button";
-import { useFocusTrap } from "../use-focus-trap";
+import { useChordCapture } from "../use-chord-capture";
 import {
   buildKeymapListItems,
   buildKeymapRows,
+  NO_KEYMAP_FILTER,
+  PROBE_ROW_ID,
+  type KeymapFilter,
   type KeymapListItem,
   type KeymapRow,
   type KeymapRowBinding,
 } from "./settings-keymap-rows";
+import {
+  probeChord,
+  type ChordProbeVerdict,
+} from "./settings-keymap-probe";
 
 /* ---------------------------------------------------------------------------
  * Data source
@@ -163,19 +197,6 @@ class KeymapDataSource implements TugListViewDataSource {
 /* ---------------------------------------------------------------------------
  * Chord capture
  * ------------------------------------------------------------------------- */
-
-/** Modifier keys pressed alone, which are a chord in progress, not a chord. */
-const MODIFIER_CODES = new Set([
-  "MetaLeft",
-  "MetaRight",
-  "ControlLeft",
-  "ControlRight",
-  "AltLeft",
-  "AltRight",
-  "ShiftLeft",
-  "ShiftRight",
-  "CapsLock",
-]);
 
 /**
  * Something the user should read before committing the chord they just
@@ -248,95 +269,35 @@ function conflictNoteFor(chord: Chord, commandId: string): CaptureNote | null {
 }
 
 /**
- * A recordable chord carries a real modifier or is a function key. Bare `K`
- * would fire on every keystroke everywhere; shift alone is a capital letter.
- */
-function isRecordableChord(chord: Chord): boolean {
-  if (chord.meta === true || chord.ctrl === true || chord.alt === true)
-    return true;
-  return /^F\d{1,2}$/.test(chord.key);
-}
-
-/**
- * The armed capture surface: it owns every chord while it is up.
+ * The strip an armed row grows downward: the chord being read, whatever there
+ * is to say about it, and the ways out.
  *
- * Three layers have to yield for that to be true rather than aspirational,
- * and arming (`chordCaptureState`) is what makes them. The key pipeline's
- * stage-1 listener stands down, so a chord that currently means something is
- * read instead of dispatched. The host parks every menu key equivalent for
- * the span (the `captureArmed` push field), so AppKit's key-equivalent scan
- * — which runs before the web view sees a keydown — lets ⌘W through to be
- * recorded instead of closing the card. And the focus trap holds the
- * keyboard focus story, with Escape as the cancel.
+ * One line, hung on the row's right edge under the button that opened it,
+ * with the note beside the strip — not under it. The strip is as wide as its
+ * own prompt and no wider, so a note arriving does not narrow it, and the
+ * row's height never changes while the capture is open. Growing downward to
+ * speak would move the buttons out from under the pointer at the exact moment
+ * the user is deciding whether to press one.
+ *
+ * The note leads, to the strip's left, because it is read on the way to the
+ * buttons rather than after them.
+ *
+ * Presentational, and shared by both armed rows: a rebind ends in Cancel and
+ * Set, a probe ends in Cancel alone, and that difference is the `children`.
+ * Everything else about the two is the same surface, so it is the same
+ * markup — a second strip built to look like this one would drift from it.
  */
-function ChordCapture({
-  commandId,
-  onCommit,
-  onCancel,
+function CaptureStrip({
+  pending,
+  note,
+  children,
 }: {
-  commandId: string;
-  onCommit: (chord: Chord) => void;
-  onCancel: () => void;
+  pending: Chord | null;
+  note: CaptureNote | null;
+  children: React.ReactNode;
 }): React.ReactElement {
-  const [pending, setPending] = useState<Chord | null>(null);
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const onCancelRef = useRef(onCancel);
-  onCancelRef.current = onCancel;
-
-  useFocusTrap({
-    active: true,
-    onEscapeDismiss: () => onCancelRef.current(),
-  });
-
-  useLayoutEffect(() => {
-    const release = chordCaptureState.arm();
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (MODIFIER_CODES.has(event.code)) return;
-      // Nothing else may act on this key: the surface is here to read the
-      // chord, and a chord that fires its old command on the way to being
-      // recorded is the failure this whole capture exists to avoid.
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (event.code === "Escape") {
-        onCancelRef.current();
-        return;
-      }
-      setPending(chordFromEvent(event));
-    };
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown, true);
-      release();
-    };
-  }, []);
-
-  const recordable = pending !== null && isRecordableChord(pending);
-  const note =
-    pending === null
-      ? null
-      : !recordable
-        ? plainNote("Needs ⌘, ⌃, or ⌥")
-        : (conflictNoteFor(pending, commandId) ??
-          (!chordHasKeyEquivalent(pending)
-            ? plainNote("No menu-bar form")
-            : null));
-
-  // One line, hung on the row's right edge under the Change button that opened
-  // it, with whatever there is to say about the chord beside it — not under
-  // it. The strip is as wide as its own prompt and no wider, so a note
-  // arriving does not narrow it, and the row's height never changes while the
-  // capture is open. Growing downward to speak would move the buttons out from
-  // under the pointer at the exact moment the user is deciding whether to
-  // press one.
-  //
-  // The note leads, to the strip's left, because it is read on the way to the
-  // buttons rather than after them.
   return (
-    <div
-      className="settings-keymap-capture-block"
-      ref={hostRef}
-      data-testid="keymap-capture"
-    >
+    <div className="settings-keymap-capture-block" data-testid="keymap-capture">
       <div
         className="settings-keymap-capture-note"
         data-testid="keymap-capture-note"
@@ -362,31 +323,71 @@ function ChordCapture({
         >
           {pending === null ? "Press a chord…" : formatChord(pending)}
         </div>
-        <div className="settings-keymap-capture-actions">
-          {/* Cancel first: it is the one that always applies, and the chord
-              may not yet be usable. */}
-          <TugPushButton
-            size="xs"
-            data-testid="keymap-capture-cancel"
-            onClick={onCancel}
-          >
-            Cancel
-          </TugPushButton>
-          <TugPushButton
-            size="xs"
-            role="accent"
-            emphasis="filled"
-            data-testid="keymap-capture-use"
-            disabled={!recordable}
-            onClick={() => {
-              if (recordable) onCommit(pending);
-            }}
-          >
-            Set
-          </TugPushButton>
-        </div>
+        <div className="settings-keymap-capture-actions">{children}</div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The armed capture surface: it owns every chord while it is up.
+ *
+ * The three layers that have to yield for that to be true rather than
+ * aspirational are `useChordCapture`'s business — it is the one reader, and
+ * the probe row is its other rendering. What is this component's own is what
+ * happens to a chord once read: it is held pending, resolved against the
+ * keymap, and committed only if the user says so.
+ */
+function ChordCapture({
+  commandId,
+  onCommit,
+  onCancel,
+}: {
+  commandId: string;
+  onCommit: (chord: Chord) => void;
+  onCancel: () => void;
+}): React.ReactElement {
+  const [pending, setPending] = useState<Chord | null>(null);
+
+  // Each chord read replaces the last: the strip stays up until the user
+  // commits or cancels, so a mis-press is corrected by pressing again.
+  useChordCapture({ onChord: setPending, onCancel });
+
+  const recordable = pending !== null && isRecordableChord(pending);
+  const note =
+    pending === null
+      ? null
+      : !recordable
+        ? plainNote("Needs ⌘, ⌃, or ⌥")
+        : (conflictNoteFor(pending, commandId) ??
+          (!chordHasKeyEquivalent(pending)
+            ? plainNote("No menu-bar form")
+            : null));
+
+  return (
+    <CaptureStrip pending={pending} note={note}>
+      {/* Cancel first: it is the one that always applies, and the chord may
+          not yet be usable. */}
+      <TugPushButton
+        size="xs"
+        data-testid="keymap-capture-cancel"
+        onClick={onCancel}
+      >
+        Cancel
+      </TugPushButton>
+      <TugPushButton
+        size="xs"
+        role="accent"
+        emphasis="filled"
+        data-testid="keymap-capture-use"
+        disabled={!recordable}
+        onClick={() => {
+          if (recordable) onCommit(pending);
+        }}
+      >
+        Set
+      </TugPushButton>
+    </CaptureStrip>
   );
 }
 
@@ -452,6 +453,10 @@ interface KeymapCellContext {
   commit(commandId: string, chord: Chord): void;
   reset(commandId: string): void;
   removeBinding(commandId: string, index: number): void;
+  /** The probe's last answer, or `null` if it has not been asked. */
+  verdict: ChordProbeVerdict | null;
+  takeVerdict(chord: Chord): void;
+  clearVerdict(): void;
 }
 
 const KeymapCellContextValue = React.createContext<KeymapCellContext | null>(
@@ -639,12 +644,177 @@ function CommandCell({
   );
 }
 
+/**
+ * The probe's reader — the same strip a rebind opens, ending in Cancel alone.
+ *
+ * The missing Set button is the feature. Asking what a chord means used to
+ * require borrowing a command's Change button, which left the user one
+ * keystroke from rebinding something they had opened purely to interrogate;
+ * this row cannot commit, because there is nothing on it that commits.
+ *
+ * `pending` is always null: the parent unmounts this on the first chord read,
+ * so the slot never holds anything but its own prompt. That is "one press,
+ * one answer" expressed structurally — mounting IS the arming, so the reader
+ * cannot outlive the answer, and the menu bar it parks is unparked by the
+ * same unmount.
+ */
+function ProbeCapture({
+  onChord,
+  onCancel,
+}: {
+  onChord: (chord: Chord) => void;
+  onCancel: () => void;
+}): React.ReactElement {
+  useChordCapture({ onChord, onCancel });
+  return (
+    <CaptureStrip pending={null} note={null}>
+      <TugPushButton
+        size="xs"
+        data-testid="keymap-capture-cancel"
+        onClick={onCancel}
+      >
+        Cancel
+      </TugPushButton>
+    </CaptureStrip>
+  );
+}
+
+/**
+ * The verdict, in the grammar a chord chip's note already speaks.
+ *
+ * A command row's chip says "⌘1 shadowed by First Page"; the probe's says
+ * "⌘1 is First Page". Same chip, same note slot, same voice — the pane has
+ * one way of saying what a chord amounts to, and the probe uses it rather
+ * than a sentence of its own design.
+ *
+ * The layer goes unsaid when it is `everywhere`, which is what a plain global
+ * binding is: appending it to every ordinary answer would bury the one case
+ * that changes what the user does next — a chord taken in one surface and
+ * free in all the others.
+ */
+function probeNote(verdict: ChordProbeVerdict): string {
+  if (verdict.kind === "unrecordable") return "needs ⌘, ⌃, or ⌥";
+  if (verdict.kind === "free") {
+    return verdict.menuEligible ? "is free" : "is free — no menu-bar form";
+  }
+  const layer = verdict.layer === "everywhere" ? "" : `, ${verdict.layer}`;
+  const others =
+    verdict.others > 0
+      ? `, and ${verdict.others} other${verdict.others === 1 ? "" : "s"}`
+      : "";
+  return `is ${verdict.title}${layer}${others}`;
+}
+
+/**
+ * The chord probe, as a row.
+ *
+ * Deliberately the same row a command gets: title on the left, the answer in
+ * the chord slot, one button in the action column, and the capture strip
+ * growing underneath when it is armed. The question it asks — what does this
+ * chord amount to — is the question every other row answers standing still,
+ * so a second layout for it would have made the pane read as two panes
+ * stacked. It sits in its own Test section above the menus because it is a
+ * control rather than one of the commands being configured.
+ *
+ * The arming is the pane's single slot, which is what makes it exclusive: a
+ * row capture and the probe cannot both be up, because `armed` holds one id.
+ */
+function ProbeCell({
+  index,
+  dataSource,
+  selected,
+}: TugListViewCellProps<KeymapDataSource>) {
+  const item = dataSource.itemAt(index);
+  const ctx = React.useContext(KeymapCellContextValue);
+  if (item.kind !== "probe" || ctx === null) return null;
+  const armed = ctx.armed === PROBE_ROW_ID;
+  const verdict = ctx.verdict;
+
+  return (
+    <TugListRow
+      selected={selected}
+      title="Test shortcut"
+      data-testid="settings-keymap-probe"
+      data-armed={armed ? "" : undefined}
+    >
+      <div className="settings-keymap-row-body">
+        <div className="settings-keymap-row-head">
+          <div className="settings-keymap-row-title">
+            <TugLabel size="md">Test shortcut</TugLabel>
+          </div>
+          <div className="settings-keymap-trailing">
+            <div className="settings-keymap-chords">
+              {verdict === null ? (
+                // The same chip an unbound command shows, saying the same
+                // kind of thing: this row has no chord to report yet.
+                <TugBadge
+                  size="md"
+                  emphasis="outlined"
+                  role="inherit"
+                  className="settings-keymap-unbound"
+                >
+                  Not tested
+                </TugBadge>
+              ) : (
+                <span
+                  className="settings-keymap-chord"
+                  // Never struck. The strike means "this mapping does not
+                  // hold", and a chord the probe merely reports on is not a
+                  // mapping of this row's at all.
+                  data-active=""
+                  data-testid="settings-keymap-probe-verdict"
+                  data-kind={verdict.kind}
+                >
+                  <span className="settings-keymap-chord-label">
+                    {verdict.label}
+                  </span>
+                  <span className="settings-keymap-chord-note">
+                    {probeNote(verdict)}
+                  </span>
+                  <TugIconButton
+                    size="2xs"
+                    aria-label="Clear the tested chord"
+                    icon={<X aria-hidden="true" />}
+                    onClick={ctx.clearVerdict}
+                  />
+                </span>
+              )}
+            </div>
+            <div className="settings-keymap-action">
+              <TugPushButton
+                size="xs"
+                emphasis={armed ? "filled" : "outlined"}
+                role="accent"
+                aria-pressed={armed || undefined}
+                data-testid="settings-keymap-probe-arm"
+                onClick={() =>
+                  armed ? ctx.cancel() : ctx.arm(PROBE_ROW_ID)
+                }
+              >
+                Test
+              </TugPushButton>
+            </div>
+            {/* The reset column, held empty: there is nothing to reset on a
+                row that never wrote anything. The space is kept so this row's
+                button lines up with every other row's. */}
+            <div className="settings-keymap-reset" />
+          </div>
+        </div>
+        {armed ? (
+          <ProbeCapture onChord={ctx.takeVerdict} onCancel={ctx.cancel} />
+        ) : null}
+      </div>
+    </TugListRow>
+  );
+}
+
 const CELL_RENDERERS: Record<
   string,
   TugListViewCellRenderer<KeymapDataSource>
 > = {
   group: GroupCell,
   command: CommandCell,
+  probe: ProbeCell,
 };
 
 /* ---------------------------------------------------------------------------
@@ -666,6 +836,11 @@ export function SettingsKeymapBody(): React.ReactElement {
   );
 
   const [query, setQuery] = useState("");
+  // The probe's answer, held here rather than in the strip because it is also
+  // what narrows the list. `filterEpoch` remounts the filter field to clear
+  // it — the field is uncontrolled by design, and `key` is how it is reset.
+  const [verdict, setVerdict] = useState<ChordProbeVerdict | null>(null);
+  const [filterEpoch, setFilterEpoch] = useState(0);
   const [armed, setArmed] = useState<string | null>(null);
   const alertRef = useRef<TugAlertHandle>(null);
   const focusGroup = useId();
@@ -682,7 +857,24 @@ export function SettingsKeymapBody(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [overridden, keymapRegistry.getSnapshot()],
   );
-  const items = useMemo(() => buildKeymapListItems(rows, query), [rows, query]);
+  // One narrowing, two entry points. A chord that turned out to be taken
+  // takes the list over and clears the typed query; anything else leaves the
+  // query in charge. They never both apply, so the list is never empty for a
+  // reason only one of the two controls can explain.
+  const filter = useMemo<KeymapFilter>(() => {
+    if (verdict !== null && verdict.kind === "taken") {
+      return {
+        kind: "chord",
+        label: verdict.label,
+        commandIds: verdict.commandIds,
+      };
+    }
+    return query === "" ? NO_KEYMAP_FILTER : { kind: "text", query };
+  }, [verdict, query]);
+  const items = useMemo(
+    () => buildKeymapListItems(rows, filter),
+    [rows, filter],
+  );
 
   const dataSource = useRef<KeymapDataSource>(
     null as unknown as KeymapDataSource,
@@ -696,8 +888,29 @@ export function SettingsKeymapBody(): React.ReactElement {
   const ctx = useMemo<KeymapCellContext>(
     () => ({
       armed,
-      arm: (commandId) => setArmed(commandId),
+      // One slot, so arming anything disarms whatever was armed. That is the
+      // exclusivity: two live readers would both see the same keydown, and
+      // `chordCaptureState` is a count rather than a lock, so nothing below
+      // this line would have caught it.
+      arm: (commandId) => {
+        setArmed(commandId);
+        // A stale verdict beside a live prompt is the row saying two things.
+        if (commandId === PROBE_ROW_ID) setVerdict(null);
+      },
       cancel: () => setArmed(null),
+      verdict,
+      takeVerdict: (chord) => {
+        // One press, one answer: disarm first, then report. The reader
+        // unmounts with the arming, which is what unparks the menu bar.
+        setArmed(null);
+        const next = probeChord(chord);
+        setVerdict(next);
+        if (next.kind === "taken") {
+          setQuery("");
+          setFilterEpoch((epoch) => epoch + 1);
+        }
+      },
+      clearVerdict: () => setVerdict(null),
       commit: (commandId, chord) => {
         // Replace rather than append: a rebind is "this is the chord", and a
         // pane that quietly accumulated bindings would leave the user with a
@@ -721,17 +934,26 @@ export function SettingsKeymapBody(): React.ReactElement {
         keymapOverrideStore.set(commandId, next);
       },
     }),
-    [armed],
+    [armed, verdict],
   );
 
   // The commands list and its filter are one compound control ([P08]): ↑/↓
   // from the caret cursor the list, and a character typed at the list lands
   // back in the field.
   const listRef = useRef<TugListViewHandle>(null);
-  const filter = useAttachedFilter(() => listRef.current);
+  const attachment = useAttachedFilter(() => listRef.current);
   const filterDelegate = useMemo<TugFilterFieldDelegate>(
-    () => ({ filterFieldDidChangeQuery: setQuery, ...filter.delegate }),
-    [filter],
+    () => ({
+      filterFieldDidChangeQuery: (next) => {
+        setQuery(next);
+        // Typing takes the list back from the probe. Last gesture wins, so
+        // there is always exactly one thing narrowing the list and it is the
+        // one the user touched most recently.
+        setVerdict(null);
+      },
+      ...attachment.delegate,
+    }),
+    [attachment],
   );
 
   const delegate = useMemo<TugListViewDelegate>(
@@ -741,6 +963,9 @@ export function SettingsKeymapBody(): React.ReactElement {
       // two menus takes no band at all.
       stripeParityForIndex: (index) => {
         const item = items[index];
+        // The probe takes the first band of its own section, like any row
+        // standing first under a heading.
+        if (item?.kind === "probe") return "even";
         if (item === undefined || item.kind !== "command") return "none";
         return item.parity;
       },
@@ -767,8 +992,9 @@ export function SettingsKeymapBody(): React.ReactElement {
     <div className="settings-keymap" data-testid="settings-keymap">
       <div className="settings-keymap-toolbar">
         <TugFilterField
+          key={`filter-${filterEpoch}`}
           delegate={filterDelegate}
-          attachment={filter}
+          attachment={attachment}
           placeholder="Filter commands"
           fill
           focusGroup={focusGroup}
@@ -802,18 +1028,28 @@ export function SettingsKeymapBody(): React.ReactElement {
             singleSelect
             focusGroup={focusGroup}
             focusOrder={1}
-            attachedFilter={filter}
+            attachedFilter={attachment}
             listRole="list"
             itemRole="listitem"
             inline
           />
         </KeymapCellContextValue.Provider>
       </div>
-      {items.length === 0 ? (
+      {/* The Test row is always in `items`, so emptiness is a question about
+          the COMMANDS — the probe standing there is not the list having
+          found something. */}
+      {!items.some((item) => item.kind === "command") ? (
         <div className="settings-keymap-empty">
           <Keyboard size={20} aria-hidden="true" />
           <TugLabel size="sm" emphasis="calm">
-            No command matches that.
+            {/* A chord filter can empty the list even though the chord IS
+                taken: the claimant may be a command this pane does not list
+                (a parameterized family, an internal entry). Saying "no
+                command matches" there would contradict the verdict standing
+                two lines above it. */}
+            {filter.kind === "chord"
+              ? "No command in this list holds that chord."
+              : "No command matches that."}
           </TugLabel>
         </div>
       ) : null}

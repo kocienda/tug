@@ -107,12 +107,38 @@ function isListedEntry(entry: CommandEntry): boolean {
 }
 
 /**
- * Does this row match a query? Title and chord both, because a person
- * arrives at this pane from either end — "what is Save As bound to" and
- * "what has ⌘K".
+ * How the list is narrowed — one dimension at a time, never two.
+ *
+ * A person arrives at this pane from either end: "what is Save As bound to"
+ * (they type) and "what has ⌘K" (they probe). Those are one narrowing with
+ * two entry points, so the filter is a sum rather than two independent
+ * predicates ANDed together — a list narrowed by a query AND a chord at once
+ * could be empty for a reason neither control shows.
+ *
+ * The chord case carries command ids rather than a chord to match, because
+ * the question was already answered: `probeChord` resolved the chord through
+ * the whole layer stack, and matching the rendered label instead would make
+ * `⌘K` narrow to `⌃⌘K` as well.
  */
-export function rowMatches(row: KeymapRow, query: string): boolean {
-  const q = query.trim().toLowerCase();
+export type KeymapFilter =
+  | { readonly kind: "text"; readonly query: string }
+  | {
+      readonly kind: "chord";
+      /** The chord as the pane renders it, for the dismissible pill. */
+      readonly label: string;
+      readonly commandIds: ReadonlySet<string>;
+    };
+
+/** The unnarrowed list — an empty query, which every row matches. */
+export const NO_KEYMAP_FILTER: KeymapFilter = { kind: "text", query: "" };
+
+/**
+ * Does this row survive the filter? Title, command id, and chord label for a
+ * typed query; membership for a probed chord.
+ */
+export function rowMatches(row: KeymapRow, filter: KeymapFilter): boolean {
+  if (filter.kind === "chord") return filter.commandIds.has(row.commandId);
+  const q = filter.query.trim().toLowerCase();
   if (q === "") return true;
   if (row.title.toLowerCase().includes(q)) return true;
   if (row.commandId.toLowerCase().includes(q)) return true;
@@ -163,7 +189,17 @@ export function buildKeymapRows(
   return rows;
 }
 
-/** A row in the pane's flat list: a group heading, or a command. */
+/**
+ * The id of the chord-probe row.
+ *
+ * A sentinel in the same namespace command ids live in, because the pane's
+ * arming slot holds one or the other and exclusivity is worth getting from
+ * the type rather than from two booleans that have to agree. No command may
+ * be called this; the leading `__` is what makes that true.
+ */
+export const PROBE_ROW_ID = "__probe__";
+
+/** A row in the pane's flat list: a group heading, a command, or the probe. */
 export type KeymapListItem =
   | {
       readonly kind: "group";
@@ -177,6 +213,13 @@ export type KeymapListItem =
        */
       readonly first: boolean;
     }
+  /**
+   * The chord probe. A row like any other — same title column, same accessory
+   * band, same capture strip underneath — because it asks the same kind of
+   * question a command row asks and inventing a second layout for it would
+   * make the pane read as two panes.
+   */
+  | { readonly kind: "probe"; readonly id: typeof PROBE_ROW_ID }
   | {
       readonly kind: "command";
       readonly id: string;
@@ -197,16 +240,25 @@ export type KeymapListItem =
  * A heading over nothing is a lie about what the list holds, and under a
  * narrow query most of them are empty — so the headings follow the filter
  * rather than standing over it.
+ *
+ * The Test section is the exception, and stands whatever the filter says: it
+ * is a control rather than a result, and a filter that hid the thing you
+ * narrow the list WITH would take the tool away at the moment it worked. It
+ * also keeps the verdict on screen above the rows a probed chord narrowed to,
+ * which is where the answer wants to be read.
  */
 export function buildKeymapListItems(
   rows: readonly KeymapRow[],
-  query: string,
+  filter: KeymapFilter,
 ): KeymapListItem[] {
-  const items: KeymapListItem[] = [];
+  const items: KeymapListItem[] = [
+    { kind: "group", id: "group:Test", title: "Test", first: true },
+    { kind: "probe", id: PROBE_ROW_ID },
+  ];
   let group: string | null = null;
   let withinGroup = 0;
   for (const row of rows) {
-    if (!rowMatches(row, query)) continue;
+    if (!rowMatches(row, filter)) continue;
     if (row.group !== group) {
       group = row.group;
       withinGroup = 0;
@@ -214,7 +266,7 @@ export function buildKeymapListItems(
         kind: "group",
         id: `group:${group}`,
         title: group,
-        first: items.length === 0,
+        first: false,
       });
     }
     items.push({
