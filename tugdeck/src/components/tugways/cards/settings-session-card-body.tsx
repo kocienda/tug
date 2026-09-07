@@ -9,8 +9,8 @@
  *      root, per card). The macOS app's View menu (`WKWebView.pageZoom`)
  *      scales the whole window and composes with the per-card
  *      magnification.
- *   2. **Prompt Editor** — typography, view toggles, and submit-key
- *      policy for the prompt editor.
+ *   2. **Prompt Editor** — typography, view toggles, tab policy, and
+ *      submit-key policy for the prompt editor.
  *   3. **AI Model** — the deck-wide default model / reasoning effort /
  *      permission mode new cards adopt on first open. The control is
  *      {@link AiConfigEditor} — the very component the Session card's mixer
@@ -43,13 +43,13 @@ import { TugBox } from "../tug-box";
 import { TugChoiceGroup } from "../tug-choice-group";
 import { TugLabel } from "../tug-label";
 import { TugPopupButton } from "../tug-popup-button";
-import type { TugPopupButtonItem } from "../tug-popup-button";
 import { TugSlider } from "../tug-slider";
 import { TugSwitch } from "../tug-switch";
-import { TUG_ACTIONS } from "../action-vocabulary";
+import { TugValueInput } from "../tug-value-input";
 import { useResponderForm } from "../use-responder-form";
 import { AiConfigEditor } from "./ai-config-editor";
-import { EditorSettingsStore } from "@/lib/editor-settings-store";
+import { EDITOR_FONT_OPTIONS, FONT_SIZE_OPTIONS } from "./editor-font-options";
+import { clampEditorTabSize, EditorSettingsStore } from "@/lib/editor-settings-store";
 import { TranscriptSettingsStore } from "@/lib/transcript-settings-store";
 import { DefaultsMetadataAdapter } from "@/lib/defaults-metadata-adapter";
 import {
@@ -59,24 +59,6 @@ import {
 } from "@/lib/ai-config";
 import { createNumberFormatter } from "@/lib/tug-format";
 import "./settings-session-card-body.css";
-
-// ---------------------------------------------------------------------------
-// Option constants
-// ---------------------------------------------------------------------------
-
-const EDITOR_FONT_OPTIONS: TugPopupButtonItem<string>[] = [
-  { action: TUG_ACTIONS.SET_VALUE, value: "plex-mono", label: "IBM Plex Mono" },
-  { action: TUG_ACTIONS.SET_VALUE, value: "plex-sans", label: "IBM Plex Sans" },
-];
-
-const FONT_SIZE_OPTIONS: TugPopupButtonItem<number>[] = [
-  { action: TUG_ACTIONS.SET_VALUE, value: 11, label: "11 px" },
-  { action: TUG_ACTIONS.SET_VALUE, value: 12, label: "12 px" },
-  { action: TUG_ACTIONS.SET_VALUE, value: 13, label: "13 px" },
-  { action: TUG_ACTIONS.SET_VALUE, value: 14, label: "14 px" },
-  { action: TUG_ACTIONS.SET_VALUE, value: 15, label: "15 px" },
-  { action: TUG_ACTIONS.SET_VALUE, value: 16, label: "16 px" },
-];
 
 /**
  * Two-decimal formatter for the magnification slider's value input.
@@ -189,6 +171,8 @@ export function SettingsSessionCardBody() {
   const lineWrapId = useId();
   const lineNumbersId = useId();
   const activeLineGutterId = useId();
+  const softTabsId = useId();
+  const tabSizeId = useId();
   const returnKeyId = useId();
   const enterKeyId = useId();
   const transcriptMagnificationSliderId = useId();
@@ -199,6 +183,7 @@ export function SettingsSessionCardBody() {
     },
     setValueNumber: {
       [fontSizePopupId]: (v: number) => editorStore.set({ fontSize: v }),
+      [tabSizeId]: (v: number) => editorStore.set({ tabSize: clampEditorTabSize(v) }),
       [transcriptMagnificationSliderId]: (v: number) =>
         transcriptStore.set({ magnification: v }),
     },
@@ -207,6 +192,7 @@ export function SettingsSessionCardBody() {
       [lineNumbersId]: (v: boolean) => editorStore.set({ lineNumbers: v }),
       [activeLineGutterId]: (v: boolean) =>
         editorStore.set({ highlightActiveLineGutter: v }),
+      [softTabsId]: (v: boolean) => editorStore.set({ softTabs: v }),
     },
     selectValue: {
       [returnKeyId]: (v: string) =>
@@ -294,6 +280,29 @@ export function SettingsSessionCardBody() {
               checked={editorSettings.highlightActiveLineGutter}
               senderId={activeLineGutterId}
               size="md"
+            />
+            <TugSwitch
+              label="Auto-expand tabs"
+              checked={editorSettings.softTabs}
+              senderId={softTabsId}
+              size="md"
+              data-testid="prompt-editor-option-soft-tabs"
+            />
+          </div>
+
+          {/* Spaces per tab — the indent unit the Tab key inserts when
+              auto-expand is on, and the render width of a literal tab
+              either way. Its own row: a number field beside four
+              switches reads as a fifth switch otherwise. */}
+          <div className="settings-session-card-tabsize">
+            <TugLabel size="sm">Spaces per tab</TugLabel>
+            <TugValueInput
+              value={editorSettings.tabSize}
+              senderId={tabSizeId}
+              min={1}
+              max={16}
+              step={1}
+              size="sm"
             />
           </div>
 

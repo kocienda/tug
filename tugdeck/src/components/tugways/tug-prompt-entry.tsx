@@ -1015,6 +1015,18 @@ export interface TugPromptEntryProps {
    */
   lineNumbers?: boolean;
   /**
+   * Auto-expand tabs in the embedded editor. Forwarded verbatim to the
+   * substrate.
+   * @default true
+   */
+  softTabs?: boolean;
+  /**
+   * Spaces per tab in the embedded editor. Forwarded verbatim to the
+   * substrate.
+   * @default 4
+   */
+  tabSize?: number;
+  /**
    * Highlight the gutter cell of the line containing the cursor.
    * Forwarded verbatim to the substrate.
    * @default false
@@ -1243,6 +1255,8 @@ export const TugPromptEntry = React.forwardRef<
     className,
     lineWrap,
     lineNumbers,
+    softTabs,
+    tabSize,
     highlightActiveLineGutter,
     returnAction: returnActionOverride,
     numpadEnterAction,
@@ -4201,6 +4215,8 @@ export const TugPromptEntry = React.forwardRef<
               defaultButtonOwnsReturn={defaultButtonOwnsReturn}
               lineWrap={lineWrap}
               lineNumbers={lineNumbers}
+              softTabs={softTabs}
+              tabSize={tabSize}
               highlightActiveLineGutter={highlightActiveLineGutter}
               // Code is prose to Claude, so light markdown styling stays on.
               markdownTextStyling

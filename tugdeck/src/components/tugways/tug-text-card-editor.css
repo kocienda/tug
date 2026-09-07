@@ -1,6 +1,6 @@
 /* @tug-pairings:
    - --tugx-block-bg / --tugx-block-text-color           (shared block frame; from tugx-block.css)
-   - --tugx-block-code-font / --tugx-block-code-font-size / --tugx-block-code-line-height (shared code typography)
+   - --tugx-block-code-font / --tugx-block-code-font-size / --tugx-block-code-line-height (shared code typography; the fallbacks under --tugx-textcard-font / --tugx-textcard-font-size)
    - --tugx-textcard-gutter-bg / --tugx-textcard-gutter-text (editor-local line-number gutter)
    - --tugx-textcard-selection-bg / --tugx-textcard-caret (editor-local selection + caret paint)
    - --tugx-find-* (shared find-match paint; from transcript-find.css)
@@ -48,6 +48,13 @@ body {
   --tugx-textcard-content-padding: var(--tug-space-2xs) 0;
   --tugx-textcard-line-padding-x:  var(--tug-space-md);
 
+  /* Reader-chosen typography. The editor publishes the picked face and
+     size as inline overrides of these two on its host (see
+     `applyTypographyVars` in the .tsx); the fallbacks below are the shared
+     code typography, so an untuned card reads exactly as it always did. */
+  --tugx-textcard-font:      var(--tugx-block-code-font);
+  --tugx-textcard-font-size: var(--tugx-block-code-font-size);
+
   /* Line-number gutter — same surface family the code viewer uses,
    * spelled out independently per [L20]. */
   --tugx-textcard-gutter-bg:        var(--tug7-surface-indicator-primary-normal-plain-rest);
@@ -84,8 +91,8 @@ body {
   z-index: 0;
   background: transparent;
   color: var(--tugx-block-text-color);
-  font-family: var(--tugx-block-code-font);
-  font-size: var(--tugx-block-code-font-size);
+  font-family: var(--tugx-textcard-font);
+  font-size: var(--tugx-textcard-font-size);
   line-height: var(--tugx-block-code-line-height);
 }
 

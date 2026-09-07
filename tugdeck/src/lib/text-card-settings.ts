@@ -21,8 +21,9 @@
  * Both surfaces hold the same shape ({@link TextCardSettings}): every
  * deck-wide default is a per-card value too.
  *
- * Every field maps to a CodeMirror 6 extension; there is no setting
- * here CM6 cannot back live.
+ * Every field maps to a CodeMirror 6 extension or to a CSS custom
+ * property on the editor host; there is no setting here the editor
+ * cannot adopt live.
  *
  * @module lib/text-card-settings
  */
@@ -32,6 +33,10 @@ import type { SaveMode } from "@/lib/text-card-store";
 
 /** The per-card, CM6-backed view settings for one Text card editor. */
 export interface TextCardSettings {
+  /** Editor face, keyed by `FONT_STACKS` id (`lib/editor-settings-store`). */
+  fontId: string;
+  /** Editor point size. */
+  fontSize: number;
   /** Line-number gutter. */
   lineNumbers: boolean;
   /** Soft-wrap long lines to the viewport width. */
@@ -83,6 +88,8 @@ export function parseSaveMode(entry: TaggedValue | undefined): SaveMode {
 
 /** The view settings a Text card uses when nothing else is configured. */
 export const DEFAULT_TEXT_CARD_SETTINGS: TextCardSettings = {
+  fontId: "plex-mono",
+  fontSize: 13,
   lineNumbers: true,
   // A card is a column of text in a window the user sizes, not a terminal —
   // reading it should never mean scrolling sideways. A markdown link to an
@@ -127,6 +134,8 @@ export function parseTextCardSettings(
   const obj = entry.value as Record<string, unknown>;
   const d = DEFAULT_TEXT_CARD_SETTINGS;
   return {
+    fontId: typeof obj.fontId === "string" ? obj.fontId : d.fontId,
+    fontSize: typeof obj.fontSize === "number" ? obj.fontSize : d.fontSize,
     lineNumbers: readBool(obj, "lineNumbers", d.lineNumbers),
     lineWrap: readBool(obj, "lineWrap", d.lineWrap),
     softTabs: readBool(obj, "softTabs", d.softTabs),

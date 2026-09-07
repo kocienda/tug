@@ -33,8 +33,8 @@ export const tugTextCardEditorTheme: Extension = EditorView.theme({
     height: "100%",
     backgroundColor: "var(--tugx-textcard-bg)",
     color: "var(--tugx-block-text-color)",
-    fontFamily: "var(--tugx-block-code-font)",
-    fontSize: "var(--tugx-block-code-font-size)",
+    fontFamily: "var(--tugx-textcard-font)",
+    fontSize: "var(--tugx-textcard-font-size)",
     lineHeight: "var(--tugx-block-code-line-height)",
     outline: "none",
   },
@@ -43,7 +43,7 @@ export const tugTextCardEditorTheme: Extension = EditorView.theme({
   // jitter line layout.
   ".cm-scroller": {
     overflow: "auto",
-    fontFamily: "var(--tugx-block-code-font)",
+    fontFamily: "var(--tugx-textcard-font)",
     lineHeight: "var(--tugx-block-code-line-height)",
     scrollbarGutter: "stable",
     // Positioning context for the find landing-flash ring (an absolutely
@@ -70,7 +70,7 @@ export const tugTextCardEditorTheme: Extension = EditorView.theme({
     backgroundColor: "var(--tugx-textcard-gutter-bg)",
     borderRight: "1px solid var(--tugx-textcard-gutter-border)",
     color: "var(--tugx-textcard-gutter-text)",
-    fontFamily: "var(--tugx-block-code-font)",
+    fontFamily: "var(--tugx-textcard-font)",
   },
   ".cm-lineNumbers .cm-gutterElement": {
     padding: "0 var(--tugx-textcard-gutter-padding-x)",

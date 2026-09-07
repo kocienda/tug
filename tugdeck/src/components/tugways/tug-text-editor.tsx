@@ -90,6 +90,7 @@ import {
   ViewPlugin,
 } from "@codemirror/view";
 import type { ViewUpdate } from "@codemirror/view";
+import { indentUnit } from "@codemirror/language";
 import {
   cursorGroupBackward,
   cursorGroupForward,
@@ -98,7 +99,6 @@ import {
   deleteLineBoundaryBackward,
   history,
   historyKeymap,
-  indentWithTab,
   redo,
   redoDepth,
   selectAll,
@@ -109,6 +109,7 @@ import { cn } from "@/lib/utils";
 import { quoteMarkdown, stripMarkdown } from "@/lib/paste-transforms";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
+import { tugTabKeyBinding } from "./editor-tab-key";
 import { loadMarkdownTextStyling } from "./tug-text-editor/markdown-text-styling";
 import { sessionNameStore } from "@/lib/session-name-store";
 import { subscribeThemeChange, unsubscribeThemeChange } from "@/theme-tokens";
@@ -270,6 +271,20 @@ const lineWrapCompartment = new Compartment();
 
 /** Reconfigurable line-number gutter (`lineNumbers()` or empty). */
 const lineNumbersCompartment = new Compartment();
+
+/**
+ * Reconfigurable indent unit + tab width (`softTabs` / `tabSize`). Soft
+ * tabs make the Tab key (via {@link tugTabKeyBinding}) advance to the next
+ * tab stop in spaces; hard tabs insert a literal `\t`. `tabSize` also sets
+ * how a literal tab already in the buffer is rendered and measured.
+ */
+const tabConfigCompartment = new Compartment();
+
+/** The `[tabSize, indentUnit]` pair for a soft-tabs / spaces-per-tab pair. */
+function tabConfigFor(softTabs: boolean, tabSize: number): Extension {
+  const unit = softTabs ? " ".repeat(tabSize) : "\t";
+  return [EditorState.tabSize.of(tabSize), indentUnit.of(unit)];
+}
 
 /**
  * Reconfigurable active-line gutter highlight
@@ -875,6 +890,18 @@ export interface TugTextEditorProps
    */
   lineNumbers?: boolean;
   /**
+   * Auto-expand tabs: the Tab key inserts spaces up to the next
+   * {@link tabSize} stop rather than a literal tab character.
+   * @default true
+   */
+  softTabs?: boolean;
+  /**
+   * Spaces per tab — the indent unit width when {@link softTabs} is on,
+   * and the render width of a literal tab already in the buffer either way.
+   * @default 4
+   */
+  tabSize?: number;
+  /**
    * Highlight the gutter cell of the line containing the cursor.
    * When true, adds `highlightActiveLineGutter()` from
    * `@codemirror/view`, which sets a `cm-activeLineGutter` class
@@ -1105,6 +1132,8 @@ function buildExtensions(
     placeholder: string;
     lineWrap: boolean;
     lineNumbers: boolean;
+    softTabs: boolean;
+    tabSize: number;
     highlightActiveLineGutter: boolean;
     disabled: boolean;
     tabMovesFocus: boolean;
@@ -1151,6 +1180,7 @@ function buildExtensions(
     ),
     lineWrapCompartment.of(initial.lineWrap ? EditorView.lineWrapping : []),
     lineNumbersCompartment.of(initial.lineNumbers ? tugLineNumbersGutter : []),
+    tabConfigCompartment.of(tabConfigFor(initial.softTabs, initial.tabSize)),
     activeLineGutterCompartment.of(
       initial.highlightActiveLineGutter ? highlightActiveLineGutter() : [],
     ),
@@ -1184,7 +1214,7 @@ function buildExtensions(
     // bindings handle newline insertion, undo/redo, selectAll, Cmd-Up /
     // Cmd-Down (cursorDocStart / cursorDocEnd), and the rest.
     tugTextEditorKeymap(getKeymapConfig),
-    // `indentWithTab` last so Tab is a tab while editing: the higher-prec
+    // The Tab binding last so Tab is a tab while editing: the higher-prec
     // inline-ghost keymap and the typeahead popup each claim Tab only while
     // they are on screen (they yield otherwise), so a plain Tab with neither
     // showing falls through to here and inserts the indent unit (Shift-Tab
@@ -1192,7 +1222,7 @@ function buildExtensions(
     // `data-tug-tab-consume` marker below — without that marker the
     // document-level focus walk swallows Tab in capture phase before CM6
     // ever sees it.
-    keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+    keymap.of([...defaultKeymap, ...historyKeymap, tugTabKeyBinding]),
     // Selection + caret painted by custom layers. We deliberately
     // do NOT use `drawSelection`: drawSelection bundles a styled
     // `.cm-cursor` (which sizes itself from `coordsAtPos`'s glyph
@@ -1374,6 +1404,8 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       focusPolicy,
       lineWrap = false,
       lineNumbers: lineNumbersProp = false,
+      softTabs = true,
+      tabSize = 4,
       highlightActiveLineGutter: highlightActiveLineGutterProp = false,
       markdownTextStyling = false,
       fontFamily,
@@ -1716,6 +1748,8 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     const placeholderRef = useRef(placeholder);
     const lineWrapRef = useRef(lineWrap);
     const lineNumbersRef = useRef(lineNumbersProp);
+    const softTabsRef = useRef(softTabs);
+    const tabSizeRef = useRef(tabSize);
     const highlightActiveLineGutterRef = useRef(highlightActiveLineGutterProp);
     // Read at async-load fire time so a grammar load that resolves after the
     // prop has flipped back off doesn't strand styling on (the flip-during-
@@ -1734,6 +1768,12 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     useLayoutEffect(() => {
       lineNumbersRef.current = lineNumbersProp;
     }, [lineNumbersProp]);
+    useLayoutEffect(() => {
+      softTabsRef.current = softTabs;
+    }, [softTabs]);
+    useLayoutEffect(() => {
+      tabSizeRef.current = tabSize;
+    }, [tabSize]);
     useLayoutEffect(() => {
       highlightActiveLineGutterRef.current = highlightActiveLineGutterProp;
     }, [highlightActiveLineGutterProp]);
@@ -1815,6 +1855,16 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
         ),
       });
     }, [highlightActiveLineGutterProp]);
+    // Tab policy is not geometry: the indent unit only changes what a Tab
+    // press inserts, and `tabSize` re-measures an existing literal tab
+    // through CM6's own tab widget. A plain compartment swap is enough.
+    useLayoutEffect(() => {
+      const view = viewRef.current;
+      if (view === null) return;
+      view.dispatch({
+        effects: tabConfigCompartment.reconfigure(tabConfigFor(softTabs, tabSize)),
+      });
+    }, [softTabs, tabSize]);
     useLayoutEffect(() => {
       const view = viewRef.current;
       if (view === null) return;
@@ -2644,6 +2694,8 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       const initialPlaceholder = placeholderRef.current;
       const initialLineWrap = lineWrapRef.current;
       const initialLineNumbers = lineNumbersRef.current;
+      const initialSoftTabs = softTabsRef.current;
+      const initialTabSize = tabSizeRef.current;
       const initialHighlightActiveLineGutter = highlightActiveLineGutterRef.current;
       const initialDisabled = disabledRef.current;
       const initialTabMovesFocus = tabMovesFocusRef.current;
@@ -2667,6 +2719,8 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
             placeholder: initialPlaceholder,
             lineWrap: initialLineWrap,
             lineNumbers: initialLineNumbers,
+            softTabs: initialSoftTabs,
+            tabSize: initialTabSize,
             highlightActiveLineGutter: initialHighlightActiveLineGutter,
             disabled: initialDisabled,
             tabMovesFocus: initialTabMovesFocus,

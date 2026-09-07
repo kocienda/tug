@@ -120,6 +120,17 @@
   row-gap: var(--tug-space-md);
 }
 
+/* Spaces per tab — label + number field on their own row, under the
+   switches. A bare number field lined up with the switches would read as
+   one of them. */
+.settings-session-card-tabsize {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--tug-space-md);
+  margin-top: var(--tug-space-md);
+}
+
 /* Submit-key option groups — a label + choice-group pair per physical
    key, stacked above the live legend. */
 .settings-session-card-keys {

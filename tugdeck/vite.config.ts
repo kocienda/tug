@@ -858,6 +858,21 @@ export default (defineConfig as any)((env: any = {}) => {
       },
     },
     resolve: {
+      // CodeMirror 6 packages MUST be single instances in the bundle. Its
+      // Facets and Compartments are identified by object reference, so a
+      // second copy of a package is a second, unconfigured set of facets:
+      // `@codemirror/commands` shipped a nested `@codemirror/language`, and
+      // `indentMore` therefore read a DIFFERENT `indentUnit` facet than the
+      // editors configure — silently falling back to its built-in two-space
+      // default and making "Spaces per tab" look inert. Deduping is the
+      // upstream-documented remedy; `overrides` in package.json keeps the
+      // second copy from reappearing on install.
+      dedupe: [
+        "@codemirror/state",
+        "@codemirror/view",
+        "@codemirror/language",
+        "@codemirror/commands",
+      ],
       alias: {
         "@": path.resolve(__dirname, "./src"),
         // Shared client→tugcode message contract ([#step-13c1]). Lives at the

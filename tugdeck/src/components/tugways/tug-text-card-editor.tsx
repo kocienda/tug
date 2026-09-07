@@ -99,7 +99,6 @@ import {
   defaultKeymap,
   history,
   historyKeymap,
-  indentWithTab,
   redo,
   redoDepth,
   selectAll as cmSelectAll,
@@ -138,11 +137,13 @@ import {
   DEFAULT_TEXT_CARD_SETTINGS,
   type TextCardSettings,
 } from "@/lib/text-card-settings";
+import { FONT_STACKS } from "@/lib/editor-settings-store";
 import type { EditorStats } from "@/lib/editor-stats-store";
 import { countWords, wordCountDelta } from "@/lib/word-count";
 import { languageForExtension, tugEditingHighlightStyle } from "@/lib/language-registry";
 
 import { mdListHangingIndent } from "./tug-text-editor/list-hanging-indent";
+import { tugTabKeyBinding } from "./editor-tab-key";
 import { anchorLinkExtension } from "./tug-text-card-editor/anchor-links";
 import {
   fileDropExtension,
@@ -234,8 +235,8 @@ const activeLineCompartment = new Compartment();
 
 /**
  * The `[tabSize, indentUnit]` pair for a given settings snapshot. Soft
- * tabs make the Tab key (via `indentWithTab` → `insertTab`) insert
- * `tabSize` spaces; hard tabs insert a literal `\t`. `tabSize` also
+ * tabs make the Tab key (via {@link tugTabKeyBinding}) advance to the next
+ * tab stop in spaces; hard tabs insert a literal `\t`. `tabSize` also
  * sets how a literal tab already in the file is rendered/measured.
  */
 function tabConfigFor(settings: TextCardSettings): Extension {
@@ -287,6 +288,20 @@ function whitespaceFor(settings: TextCardSettings): Extension {
 function applyWhitespaceAttrs(host: HTMLElement, settings: TextCardSettings): void {
   host.dataset.showSpaces = String(settings.showSpaces);
   host.dataset.showTabs = String(settings.showTabs);
+}
+
+/**
+ * Publish the chosen face and size onto the host as the editor-local
+ * typography slots. The CM6 theme reads `--tugx-textcard-font` /
+ * `--tugx-textcard-font-size` (see `tug-text-card-editor.css`), which
+ * default to the shared `--tugx-block-code-*` pair — so a card that has
+ * never been tuned looks exactly as it did. DOM-only ([L06], [L22]) —
+ * typography is appearance, never React state.
+ */
+function applyTypographyVars(host: HTMLElement, settings: TextCardSettings): void {
+  const stack = FONT_STACKS[settings.fontId];
+  if (stack) host.style.setProperty("--tugx-textcard-font", stack);
+  host.style.setProperty("--tugx-textcard-font-size", `${settings.fontSize}px`);
 }
 
 /**
@@ -887,6 +902,7 @@ export const TugTextCardEditor = React.forwardRef<
     const snapshot = storeRef.current.getSnapshot();
     const s = settingsRef.current;
     applyWhitespaceAttrs(host, s);
+    applyTypographyVars(host, s);
     const state = EditorState.create({
       doc: snapshot.seedContent ?? "",
       extensions: [
@@ -1051,7 +1067,7 @@ export const TugTextCardEditor = React.forwardRef<
         // (capture-phase preventDefault before CM6 sees them); these
         // cover everything else — cursor motion, Home/End, indent,
         // and history chords in browser contexts without the chain.
-        keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+        keymap.of([...defaultKeymap, ...historyKeymap, tugTabKeyBinding]),
         undoMenuStatePlugin,
         tugTextCardEditorTheme,
       ],
@@ -1125,6 +1141,30 @@ export const TugTextCardEditor = React.forwardRef<
       effects: tabConfigCompartment.reconfigure(tabConfigFor(settings)),
     });
   }, [settings.softTabs, settings.tabSize]);
+
+  // Typography rides CSS variables on the host, so the text re-flows on its
+  // own. CM6 does not observe variable changes, though: its `heightOracle`
+  // caches the measured font metrics and the line-number gutter's per-row
+  // heights live in a `RangeSet` rebuilt only on a reconfigure or a non-empty
+  // transaction. Swapping the gutter compartment with its CURRENT value is
+  // still a structural reconfigure, which runs the full update cycle; the
+  // paired `requestMeasure` refreshes what the reconfigure doesn't. Same
+  // hammer the prompt substrate uses for the same reason.
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (host !== null) applyTypographyVars(host, settings);
+    const view = viewRef.current;
+    if (view === null) return;
+    view.dispatch({
+      effects: lineNumbersCompartment.reconfigure(
+        settings.lineNumbers ? lineNumbersGutter : [],
+      ),
+    });
+    view.requestMeasure();
+    // `settings.lineNumbers` is deliberately not a dep — its own effect above
+    // owns the toggle; this pass only re-runs when the typography moves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.fontId, settings.fontSize]);
 
   useLayoutEffect(() => {
     viewRef.current?.dispatch({

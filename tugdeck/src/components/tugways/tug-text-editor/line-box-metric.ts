@@ -30,14 +30,31 @@ export const LINE_BOX_PROPERTY = "--tugx-editor-line-box";
 export const lineBoxMetric: Extension = ViewPlugin.fromClass(
   class {
     private published = 0;
+    /** Whether `published` came off a real row, or is the estimate an empty
+     *  document had to settle for. Only a real row is allowed to refuse a
+     *  later, taller reading — an estimate is replaced by the first row seen. */
+    private measured = false;
 
     constructor(view: EditorView) {
       this.publish(view);
     }
 
     update(update: ViewUpdate): void {
-      if (!update.geometryChanged && !update.viewportChanged && !update.docChanged) {
-        return;
+      // NEVER on `geometryChanged` or `viewportChanged`. The publish below IS a
+      // geometry change (the composer's max-height multiplies by it), and the
+      // set of lines CodeMirror has rendered depends on that height — so a
+      // metric that re-measured on geometry read a different shortest line at
+      // each height and drove the field between two sizes on alternating
+      // frames. What a plain row measures depends on the face, the size, the
+      // zoom and the theme; none of those is a geometry change, and every one
+      // of them arrives here as a reconfigure (the substrate's typography
+      // revision) — so that, and a document edit that may have introduced the
+      // first plain row, are the only two things worth measuring for.
+      const retyped = update.transactions.some((tr) => tr.reconfigured);
+      if (!retyped && !update.docChanged) return;
+      if (retyped) {
+        this.published = 0;
+        this.measured = false;
       }
       this.publish(update.view);
     }
@@ -47,10 +64,22 @@ export const lineBoxMetric: Extension = ViewPlugin.fromClass(
       // during an update would force a layout mid-write.
       view.requestMeasure({
         read: (measured) => measuredLineBox(measured),
-        write: (height, measured) => {
-          if (height <= 0 || height === this.published) return;
+        write: (row, view) => {
+          const fromRow = row > 0;
+          const height = fromRow ? row : view.defaultLineHeight;
+          if (height <= 0) return;
+          // A row only ever gets SHORTER as more of the document comes into
+          // view (a wrapped line is taller than a plain one, never the reverse),
+          // so a taller reading is a worse sample, not a change. A genuine
+          // change — a bigger face — comes through the reconfigure reset above.
+          if (this.measured && (!fromRow || height >= this.published)) return;
+          if (height === this.published) {
+            this.measured = this.measured || fromRow;
+            return;
+          }
           this.published = height;
-          measured.dom.style.setProperty(LINE_BOX_PROPERTY, `${height}px`);
+          this.measured = fromRow;
+          view.dom.style.setProperty(LINE_BOX_PROPERTY, `${height}px`);
         },
       });
     }
@@ -64,19 +93,24 @@ export const lineBoxMetric: Extension = ViewPlugin.fromClass(
  * line that wrapped into several rows, or a line wearing furniture of its own
  * (the landing message's subject, which carries a rule), and a block of no
  * height is a line the surface has collapsed. The shortest is the plain one.
+ * An EMPTY line is not a candidate: it holds no glyph, so it measures the
+ * bare line-height rather than the row a glyph occupies, and whether one is
+ * on screen at all is a matter of where the viewport happens to fall.
  *
  * Measured off the DOM, and not off `view.defaultLineHeight` or the height map
  * behind `viewportLineBlocks`: both are CodeMirror's own accounting, and both
  * read 25px in this composer where a line occupies 30. Close enough for its
  * scrolling arithmetic; one line wrong in ten for a cap that means to count
- * them. The estimate is the fallback for an empty document, where there is no
- * row to measure.
+ * them. `0` when there is no row to measure (an empty document); the caller
+ * falls back to the estimate, and remembers that it did.
  */
 function measuredLineBox(view: EditorView): number {
   let shortest = Infinity;
   for (const line of view.contentDOM.children) {
+    if (!(line instanceof HTMLElement) || !line.classList.contains("cm-line")) continue;
+    if (line.textContent === null || line.textContent.length === 0) continue;
     const height = line.getBoundingClientRect().height;
     if (height > 1 && height < shortest) shortest = height;
   }
-  return Number.isFinite(shortest) ? shortest : view.defaultLineHeight;
+  return Number.isFinite(shortest) ? shortest : 0;
 }

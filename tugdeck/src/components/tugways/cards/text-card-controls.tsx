@@ -1,7 +1,7 @@
 /**
- * text-card-controls.tsx — the shared Editing + Display controls for
+ * text-card-controls.tsx — the shared Typography + Editing + Display controls for
  * the Text Card's view settings, rendered identically in two places:
- * the Settings card's "Text Card" tab (bound to the deck-wide
+ * the Settings card's "Text Files" tab (bound to the deck-wide
  * defaults) and each Text card's gear popover (bound to that card's
  * local settings). One component so the two always look the same.
  *
@@ -19,9 +19,12 @@
 import React, { useId } from "react";
 import { TugBox } from "../tug-box";
 import { TugLabel } from "../tug-label";
+import { TugPopupButton } from "../tug-popup-button";
 import { TugSwitch } from "../tug-switch";
 import { TugValueInput } from "../tug-value-input";
 import { useResponderForm } from "../use-responder-form";
+import { EDITOR_FONT_OPTIONS, FONT_SIZE_OPTIONS } from "./editor-font-options";
+import { FONT_DEFAULT_SIZES } from "@/lib/editor-settings-store";
 import { clampTabSize, type TextCardSettings } from "@/lib/text-card-settings";
 import "./text-card-controls.css";
 
@@ -31,6 +34,8 @@ export interface TextCardControlsProps {
 }
 
 export function TextCardControls({ settings, onChange }: TextCardControlsProps) {
+  const fontPopupId = useId();
+  const fontSizePopupId = useId();
   const softTabsId = useId();
   const lineWrapId = useId();
   const tabSizeId = useId();
@@ -52,6 +57,14 @@ export function TextCardControls({ settings, onChange }: TextCardControlsProps) 
     },
     setValueNumber: {
       [tabSizeId]: (v: number) => onChange({ tabSize: clampTabSize(v) }),
+      [fontSizePopupId]: (v: number) => onChange({ fontSize: v }),
+    },
+    setValueString: {
+      // Picking a face carries its own default size, exactly as the prompt
+      // editor's store does — a mono face reads larger than a proportional
+      // one at the same point size.
+      [fontPopupId]: (v: string) =>
+        onChange({ fontId: v, fontSize: FONT_DEFAULT_SIZES[v] ?? settings.fontSize }),
     },
   });
 
@@ -62,6 +75,35 @@ export function TextCardControls({ settings, onChange }: TextCardControlsProps) 
         data-slot="text-card-controls"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
+        <TugBox
+          label="Typography"
+          labelPosition="legend"
+          variant="bordered"
+          className="text-card-controls-group"
+        >
+          <div className="text-card-controls-row">
+            <TugPopupButton
+              className="text-card-controls-popup text-card-controls-popup-font"
+              topLabel="Font"
+              label={
+                EDITOR_FONT_OPTIONS.find(f => f.value === settings.fontId)?.label ??
+                "Font"
+              }
+              items={EDITOR_FONT_OPTIONS}
+              senderId={fontPopupId}
+              size="sm"
+            />
+            <TugPopupButton
+              className="text-card-controls-popup text-card-controls-popup-size"
+              topLabel="Size"
+              label={`${settings.fontSize}px`}
+              items={FONT_SIZE_OPTIONS}
+              senderId={fontSizePopupId}
+              size="sm"
+            />
+          </div>
+        </TugBox>
+
         <TugBox
           label="Tabs & Spaces"
           labelPosition="legend"

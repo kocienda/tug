@@ -1,7 +1,7 @@
 /* ----------------------------------------------------------------------------
    .text-card-controls — shared Editing + Display view-setting groups
    ----------------------------------------------------------------------------
-   Rendered in both the Settings card's Text Card tab and each File
+   Rendered in both the Settings card's Text Files tab and each File
    card's gear popover, so the two read as one instrument. Bordered
    TugBox groups with a legend painted on the border (the same idiom as
    the other settings panels), switches flowing in up to three equal
@@ -97,11 +97,24 @@
   width: auto;
 }
 
-/* Label + numeric field on one row (Spaces per tab). */
+/* A label + control pair on one row (Spaces per tab; the Font / Size
+   popups). */
 .text-card-controls-row {
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: var(--tug-space-md);
+}
+
+/* Font / Size popups. `TugPopupButton` puts our className on the trigger
+   button itself, so these select the button (no descendant). A pinned
+   min-width per popup keeps the row from reflowing as the label changes
+   — each button stays at the width of its widest option. */
+.text-card-controls-popup-font {
+  min-width: 9.5rem;
+}
+
+.text-card-controls-popup-size {
+  min-width: 6rem;
 }
 

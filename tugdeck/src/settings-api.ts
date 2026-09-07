@@ -790,6 +790,12 @@ export interface EditorSettings {
   lineWrap: boolean;
   /** Whether the editor renders the line-numbers gutter. */
   lineNumbers: boolean;
+  /** Auto-expand tabs: the Tab key inserts `tabSize` spaces rather than
+   *  a literal tab. */
+  softTabs: boolean;
+  /** Spaces per tab — the indent unit width, and the render width of a
+   *  literal tab already in the buffer. */
+  tabSize: number;
   /** Whether the editor highlights the gutter cell of the line containing
    *  the cursor. Independent of `lineNumbers`. */
   highlightActiveLineGutter: boolean;

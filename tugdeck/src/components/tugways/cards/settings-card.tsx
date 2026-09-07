@@ -70,7 +70,7 @@ interface SettingsSectionSpec {
 
 const SECTIONS: readonly SettingsSectionSpec[] = [
   // "General" wears a sliders icon for app-wide preferences; "Sessions"
-  // wears the session card's own icon; "Text Card" a file icon.
+  // wears the session card's own icon; "Text Files" a file icon.
   { id: "general", label: "General", Icon: Settings2, Body: SettingsGeneralBody },
   {
     id: "sessionCard",
@@ -78,7 +78,7 @@ const SECTIONS: readonly SettingsSectionSpec[] = [
     Icon: MessageSquareText,
     Body: SettingsSessionCardBody,
   },
-  { id: "textCard", label: "Text Card", Icon: FileText, Body: SettingsTextCardBody },
+  { id: "textCard", label: "Text Files", Icon: FileText, Body: SettingsTextCardBody },
   // One section for both viewer kinds — images and PDFs are one card, and a
   // reader should not have to learn that their preferences live in two places.
   {

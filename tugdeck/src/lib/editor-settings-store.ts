@@ -46,6 +46,8 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   fontSize: 13,
   lineWrap: true,
   lineNumbers: false,
+  softTabs: true,
+  tabSize: 4,
   highlightActiveLineGutter: false,
   // Return inserts a newline (prompts are long-form); Shift+Return
   // submits. Numpad Enter submits. Both overridable in the settings sheet.
@@ -64,6 +66,12 @@ export const FONT_DEFAULT_SIZES: Record<string, number> = {
   "plex-sans": 14,
   "plex-mono": 13,
 };
+
+/** Clamp an arbitrary number to a sane spaces-per-tab range. */
+export function clampEditorTabSize(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_SETTINGS.tabSize;
+  return Math.max(1, Math.min(16, Math.round(value)));
+}
 
 // ── Store ───────────────────────────────────────────────────────────────────
 
@@ -120,6 +128,11 @@ export class EditorSettingsStore {
         fontSize: stored.fontSize ?? DEFAULT_SETTINGS.fontSize,
         lineWrap: stored.lineWrap ?? DEFAULT_SETTINGS.lineWrap,
         lineNumbers: stored.lineNumbers ?? DEFAULT_SETTINGS.lineNumbers,
+        softTabs: stored.softTabs ?? DEFAULT_SETTINGS.softTabs,
+        tabSize:
+          typeof stored.tabSize === "number"
+            ? clampEditorTabSize(stored.tabSize)
+            : DEFAULT_SETTINGS.tabSize,
         highlightActiveLineGutter:
           stored.highlightActiveLineGutter ?? DEFAULT_SETTINGS.highlightActiveLineGutter,
         returnKeyAction: stored.returnKeyAction ?? DEFAULT_SETTINGS.returnKeyAction,

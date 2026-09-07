@@ -5644,6 +5644,8 @@ export function SessionCardBody({
                 }
                 lineWrap={editorSettings.lineWrap}
                 lineNumbers={editorSettings.lineNumbers}
+                softTabs={editorSettings.softTabs}
+                tabSize={editorSettings.tabSize}
                 highlightActiveLineGutter={
                   editorSettings.highlightActiveLineGutter
                 }
