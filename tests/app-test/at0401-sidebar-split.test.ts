@@ -57,6 +57,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { RAIL_EDGE_INSET_PX } from "../../tugdeck/src/lib/layout-imposer";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -67,17 +68,22 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
-/** The imposition gaps (`lib/layout-imposer.ts`). */
+/** The imposition gap (`lib/layout-imposer.ts`) — the air between two split
+ *  members, which is the deck's own rhythm. */
 const GAP = 5;
+/** Where a pinned rail's run begins: the rail edge inset, not the card gap
+ *  (`RAIL_EDGE_INSET_PX` in `lib/layout-imposer.ts`). */
+const RAIL_TOP = RAIL_EDGE_INSET_PX;
 /**
- * The bottom gap, which is the profile's rather than a constant. A maker's
- * canvas reserves `IMPOSITION_GAP_BOTTOM_MAKER_PX` at the foot for the host's
- * dev-info stamps; a release build draws none and keeps the ordinary gap
- * there. The app-test harness always reports maker mode OFF
+ * The rail's bottom pin, which is the profile's rather than a constant. A
+ * maker's canvas reserves `IMPOSITION_GAP_BOTTOM_MAKER_PX` at the foot for the
+ * host's dev-info stamps and the rail keeps that strip's own clearance; a
+ * release build draws none, and the rail runs to the foot at its edge inset,
+ * exactly as at its top. The app-test harness always reports maker mode OFF
  * (`AppDelegate.makerModeEnabled`), so the geometry under test is the release
  * one.
  */
-const GAP_BOTTOM = GAP;
+const RAIL_BOTTOM = RAIL_EDGE_INSET_PX;
 /** Every sidebar registration declares this floor; the seam clamp reads it. */
 const MEMBER_MIN_HEIGHT = 240;
 /** Geometry tolerance: sub-pixel layout rounding, never a real disagreement. */
@@ -398,12 +404,12 @@ describe.skipIf(!SHOULD_RUN)(
             const ordered = Object.values(split).sort((a, b) => a.top - b.top);
             const [upper, lower] = ordered;
             expect(
-              Math.abs(upper.top - GAP),
-              "the top member starts at the imposition gap, exactly where an unsplit rail does",
+              Math.abs(upper.top - RAIL_TOP),
+              "the top member starts at the rail edge inset, exactly where an unsplit rail does",
             ).toBeLessThanOrEqual(EPSILON);
             expect(
-              Math.abs(lower.bottom - (vp.h - GAP_BOTTOM)),
-              "the bottom member ends at the deeper bottom gap",
+              Math.abs(lower.bottom - (vp.h - RAIL_BOTTOM)),
+              "the bottom member ends at the rail's bottom pin",
             ).toBeLessThanOrEqual(EPSILON);
             expect(
               Math.abs(lower.top - upper.bottom - GAP),
@@ -504,7 +510,7 @@ describe.skipIf(!SHOULD_RUN)(
                 (a, b) => a.top - b.top,
               );
               expect(
-                Math.abs(orderedAfter[0].top - GAP),
+                Math.abs(orderedAfter[0].top - RAIL_TOP),
               ).toBeLessThanOrEqual(EPSILON);
               expect(
                 Math.abs(
@@ -627,11 +633,11 @@ describe.skipIf(!SHOULD_RUN)(
               const alone = await railRects(app);
               const survivor = alone[LAYOUT_PANE];
               expect(
-                Math.abs(survivor.top - GAP),
+                Math.abs(survivor.top - RAIL_TOP),
                 "the survivor takes the whole run, top",
               ).toBeLessThanOrEqual(EPSILON);
               expect(
-                Math.abs(survivor.bottom - (vp.h - GAP_BOTTOM)),
+                Math.abs(survivor.bottom - (vp.h - RAIL_BOTTOM)),
                 "and bottom",
               ).toBeLessThanOrEqual(EPSILON);
               await flushSave(app);
@@ -771,9 +777,9 @@ describe.skipIf(!SHOULD_RUN)(
                 Math.abs(a.height - b.height),
                 "and a height — two frames the browser cannot tell apart",
               ).toBeLessThanOrEqual(EPSILON);
-              expect(Math.abs(a.top - GAP)).toBeLessThanOrEqual(EPSILON);
+              expect(Math.abs(a.top - RAIL_TOP)).toBeLessThanOrEqual(EPSILON);
               expect(
-                Math.abs(a.bottom - (vp.h - GAP_BOTTOM)),
+                Math.abs(a.bottom - (vp.h - RAIL_BOTTOM)),
                 "across the whole run, exactly as an unsplit rail",
               ).toBeLessThanOrEqual(EPSILON);
 

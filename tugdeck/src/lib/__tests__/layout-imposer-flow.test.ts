@@ -40,6 +40,8 @@ import {
   CONTENT_WIDTH_WIDE_PX,
   DEFAULT_IMPOSITION_LAYOUT,
   IMPOSITION_GAP_PX,
+  RAIL_EDGE_INSET_PX,
+  RAIL_GUTTER_PX,
   allocateSidebarWidths,
   clampFlowOffset,
   firstVisibleFlowSlot,
@@ -63,6 +65,10 @@ import {
 } from "@/lib/layout-imposer";
 
 const GAP = IMPOSITION_GAP_PX;
+/** What one standing rail costs the canvas besides its width: its edge inset
+ *  and its gutter. A one-rail canvas is `rail + RAIL_AIR + GAP + band`, the
+ *  band keeping one card gap at its far end. */
+const RAIL_AIR = RAIL_EDGE_INSET_PX + RAIL_GUTTER_PX;
 
 /** The strip's positions as a plain array, in slot order — the shape every
  *  assertion below reads, and what the golden table serializes. */
@@ -605,7 +611,7 @@ describe("the band's far edge", () => {
     band: number,
     occupied: readonly FlowSlotExtent[],
   ): AllocatorInput => ({
-    canvasWidth: band + RAIL_PX + IMPOSITION_GAP_PX * 3,
+    canvasWidth: band + RAIL_PX + RAIL_AIR + GAP,
     kind: "four-up",
     layout: "flow",
     occupied: [...occupied],
@@ -739,7 +745,8 @@ describe("the allocator in flow", () => {
    *  chosen so the band at the rail's preferred width ends THREE PIXELS inside
    *  the second card — the hairline under the Layout card this objective exists for. */
   const hairlineDeck: AllocatorInput = {
-    canvasWidth: 1243,
+    // A 420px rail over a band of 808: three pixels past slot 1's near edge.
+    canvasWidth: 420 + RAIL_AIR + GAP + 808,
     kind: "three-up",
     layout: "flow",
     occupied: [
@@ -826,7 +833,9 @@ describe("the allocator in flow", () => {
       greedRank: 1,
     };
     const deck: AllocatorInput = {
-      canvasWidth: 2280,
+      // At the rail's preferred 670 the band is 1595: ten pixels short of
+      // the two-card boundary at 1605.
+      canvasWidth: 670 + RAIL_AIR + GAP + 1595,
       kind: "three-up",
       layout: "flow",
       occupied: [
@@ -856,7 +865,7 @@ describe("the allocator in flow", () => {
       greedRank: 1,
     };
     const deck: AllocatorInput = {
-      canvasWidth: 2280,
+      canvasWidth: 300 + RAIL_AIR + GAP + 1965,
       kind: "three-up",
       layout: "flow",
       occupied: [

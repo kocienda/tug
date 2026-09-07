@@ -872,6 +872,22 @@ export function impositionGapBottomPx(): number {
 }
 
 /**
+ * The bottom pin a pinned rail keeps, in px — the numeric twin of the
+ * `RAIL_GAP_BOTTOM` expression the rail's frames read.
+ *
+ * A rail's bottom is the edge inset, as its top is, except that a MAKER's
+ * canvas has a tenant at the foot: the dev-info strip. The bottom gap clears
+ * that strip and leaves one card gap of air above it; a panel touching the
+ * strip reads as furniture meeting furniture, so the rail gives up the air and
+ * keeps the clearance — the bottom gap less the card gap, plus the edge inset.
+ * A release build has no strip, and the rail runs flush to the foot there
+ * exactly as it does to the top.
+ */
+export function railGapBottomPx(): number {
+  return gapBottomPx - IMPOSITION_GAP_PX + RAIL_EDGE_INSET_PX;
+}
+
+/**
  * Settle the bottom gap from the host's build profile. Called once at boot,
  * when the maker-mode round trip lands; returns whether the gap actually
  * moved, which is the caller's cue to stamp the property and re-impose.
@@ -886,6 +902,66 @@ export function setImpositionGapBottom(makerMode: boolean): boolean {
   gapBottomPx = next;
   return true;
 }
+
+/**
+ * The **rail edge inset**: a pinned rail's stand-off from the window edge on
+ * its outer side and at its top. It is one of the two lengths that name a
+ * rail's geometry apart from the card gap ({@link RAIL_GUTTER_PX} is the
+ * other), so the rail can stand flush to the window while every seam between
+ * cards keeps {@link IMPOSITION_GAP_PX}. The property is the CSS twin, on the
+ * bottom gap's pattern: every emitted `calc()` names it, and `main.tsx` stamps
+ * it on the document root once so a stylesheet can read it too.
+ *
+ * Zero: a rail is a panel of the window, not a card on the paper, so it
+ * stands flush. The card gap (5) would put it back on the paper as one more
+ * card, which is the reading the panel treatment exists to break.
+ */
+export const RAIL_EDGE_INSET_PX = 0;
+
+export const RAIL_EDGE_INSET_PROPERTY = "--tug-rail-edge-inset";
+
+/**
+ * The **rail gutter**: the space between a pinned rail's inner edge and the
+ * band the cards stand in — the first card's near edge is exactly this far
+ * from the rail. Wider than the card gap on purpose: the air between a panel
+ * and the paper is not the air between two cards, and the width is what says
+ * so without tint or livery in the gap.
+ */
+export const RAIL_GUTTER_PX = 12;
+
+export const RAIL_GUTTER_PROPERTY = "--tug-rail-gutter";
+
+/**
+ * The inset a standing rail contributes to the span, in px — the numeric twin
+ * of {@link railSpanInset}.
+ *
+ * The span keeps one card gap at each end before the first card
+ * ({@link imposeRect}), whether or not a rail stands there, so a rail at the
+ * edge inset whose inner edge is one gutter from the first card pushes the
+ * span in by `edge inset + width + gutter − gap`: the gap the span spends on
+ * its own is the last of the gutter. At 5/5 that is `width + gap`, which is
+ * the number this arithmetic was once written as.
+ */
+export function railSpanInsetPx(width: number): number {
+  return RAIL_EDGE_INSET_PX + width + RAIL_GUTTER_PX - IMPOSITION_GAP_PX;
+}
+
+/**
+ * The **rail treatment**: the one name every appearance rule for a pinned
+ * rail and the margin it stands in is keyed on. It is written once, as
+ * {@link RAIL_TREATMENT_ATTRIBUTE} on the deck's frame container, and the CSS
+ * for a treatment is one block scoped under that attribute — so a second
+ * treatment is a new value here, one block there, and possibly different
+ * values for the two rail lengths, with no expression touched.
+ *
+ * `panel` is the shipped treatment: the rail as a flush panel of the window
+ * rather than a card on the paper. It is a constant rather than a setting
+ * because nobody has asked to choose; the attribute is what makes a setting
+ * one line away if that changes.
+ */
+export const RAIL_TREATMENT = "panel";
+
+export const RAIL_TREATMENT_ATTRIBUTE = "data-rail-treatment";
 
 /* ---------------------------------------------------------------------------
  * Content width presets
@@ -1064,9 +1140,31 @@ const GAP = `${IMPOSITION_GAP_PX}px`;
 
 const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTTOM_MAKER_PX}px)`;
 
+/** The rail's two lengths as CSS lengths, each reading its property with the
+ *  numeric twin as the fallback, so an expression resolves to the same pixel
+ *  whether or not the root has been stamped yet. */
+const RAIL_EDGE_INSET = `var(${RAIL_EDGE_INSET_PROPERTY}, ${RAIL_EDGE_INSET_PX}px)`;
+
+const RAIL_GUTTER = `var(${RAIL_GUTTER_PROPERTY}, ${RAIL_GUTTER_PX}px)`;
+
+/** The rail's bottom pin as a CSS length — see {@link railGapBottomPx}. */
+const RAIL_GAP_BOTTOM = `calc(${GAP_BOTTOM} - ${GAP} + ${RAIL_EDGE_INSET})`;
+
+/**
+ * The inset a standing rail contributes to the span, as a CSS length over the
+ * rail's live width expression — the CSS twin of {@link railSpanInsetPx}, and
+ * what `deck-canvas.tsx` writes into `--tug-imposer-inset-<side>`. The two
+ * state the same identity so the numeric span and the imposed frames cannot
+ * part company.
+ */
+export function railSpanInset(width: string): string {
+  return `calc(${RAIL_EDGE_INSET} + ${width} + ${RAIL_GUTTER} - ${GAP})`;
+}
+
 /** The CSS custom properties carrying the rail insets (see `deck-canvas.tsx`).
- *  These carry the rail only; the gap is added on top of them here, so the
- *  numeric twin below and the CSS agree by construction. */
+ *  Each carries a standing rail's whole span inset less the gap the band
+ *  spends at its own end ({@link railSpanInset}); that gap is added on top of
+ *  them here, so the numeric twin below and the CSS agree by construction. */
 const INSET_LEFT = "var(--tug-imposer-inset-left, 0px)";
 const INSET_RIGHT = "var(--tug-imposer-inset-right, 0px)";
 
@@ -1246,16 +1344,19 @@ export interface SidebarRail {
  * Resolve the span from the canvas box and the rails standing on its edges. No
  * rails means the span is the whole canvas; one or two inset it from that side.
  *
- * A rail is itself imposed — it stands one gap off the canvas edge — so its
- * near edge sits `width + gap` in, and that is the inset the band takes on that
- * side. The chain's own gap then lands its far card exactly one gap off the
+ * A rail is itself imposed — it stands the rail edge inset off the canvas edge
+ * — so its near edge sits `edge inset + width` in, and the band takes that plus
+ * the rail's gutter, less the gap it spends at its own end: the chain's own gap
+ * is the last of the gutter, and its far card lands exactly one gutter off the
  * rail. This is the numeric twin of the `--tug-imposer-inset-*` custom
- * properties `deck-canvas.tsx` writes; both add the same gap per occupied side,
- * so they agree by construction.
+ * properties `deck-canvas.tsx` writes; both are {@link railSpanInsetPx} per
+ * occupied side, so they agree by construction.
  *
  * **This function is the gap count.** A closed rail contributes neither width
- * nor gap, so the band a solve must reproduce is `span.width − 2 × gap` for
+ * nor inset, so the band a solve must reproduce is `span.width − 2 × gap` for
  * whatever rails stand — never a constant number of gaps written out by hand.
+ * What a standing rail contributes is {@link railSpanInsetPx}: its width plus
+ * the rail's edge inset and gutter, less the gap the span spends on its own.
  * {@link solveSidebarWidths} derives its band identity from here rather than
  * carrying its own arithmetic, which is what keeps the numeric twin and the CSS
  * from parting company as rails come and go.
@@ -1267,7 +1368,7 @@ export function resolveSpan(
   let left = 0;
   let right = 0;
   for (const rail of rails) {
-    const inset = rail.width + IMPOSITION_GAP_PX;
+    const inset = railSpanInsetPx(rail.width);
     if (rail.side === "left") left += inset;
     else right += inset;
   }
@@ -2470,14 +2571,19 @@ export function solveSidebarWidths(input: AllocatorInput): number | null {
   if (denominator <= 0) return null;
 
   // The band identity, read off {@link resolveSpan} rather than written out:
-  // `band = span.width − 2 × gap` and `span.width = canvasWidth − Σ(rail + gap)`,
-  // so the rails' total is `canvasWidth − (R + 2)·gap − band`. At one rail that
-  // is today's `3 × gap`, which is why the constant was safe to write down and
-  // is not safe to carry forward — the gap count is a function of how many
-  // rails stand, and a closed rail contributes neither width nor gap.
+  // `band = span.width − 2 × gap` and `span.width = canvasWidth − Σ inset(rail)`
+  // with `inset(rail) = rail + inset(0)` ({@link railSpanInsetPx}), so the
+  // rails' total is `canvasWidth − R·inset(0) − 2·gap − band`. At one rail and
+  // the rail's lengths equal to the gap that is `3 × gap`, which is why a
+  // constant was once safe to write down and is not safe to carry forward —
+  // the count is a function of how many rails stand, and a closed rail
+  // contributes neither width nor inset.
   const band = numerator / denominator;
   const solved = Math.round(
-    input.canvasWidth - IMPOSITION_GAP_PX * (railCount + 2) - band,
+    input.canvasWidth -
+      railCount * railSpanInsetPx(0) -
+      IMPOSITION_GAP_PX * 2 -
+      band,
   );
   return Number.isFinite(solved) ? solved : null;
 }
@@ -2766,8 +2872,9 @@ function pictureOfChain(
 }
 
 /**
- * The rail's frame: pinned to the side it holds, one gap in on three edges and
- * the deeper gap at the bottom, at the width the pane carries.
+ * The rail's frame: pinned to the side it holds, the rail edge inset in on its
+ * outer edge and top and the strip's clearance at the bottom, at the width the
+ * pane carries.
  *
  * The rail is imposed but it is not a link in the chain. A chain link travels
  * across the band and can end up overlapped when the deck is crowded. The rail
@@ -2840,15 +2947,38 @@ export function imposeSidebarStyle(
     ...railMemberPins(options.member),
     [RAIL_SIDE_PROPERTY]: rail,
     left:
-      `calc(var(${RAIL_SIDE_PROPERTY}) * (100% - ${width} - ${GAP})` +
-      ` + (1 - var(${RAIL_SIDE_PROPERTY})) * ${GAP})`,
+      `calc(var(${RAIL_SIDE_PROPERTY}) * (100% - ${width} - ${RAIL_EDGE_INSET})` +
+      ` + (1 - var(${RAIL_SIDE_PROPERTY})) * ${RAIL_EDGE_INSET})`,
   };
   return style as React.CSSProperties;
 }
 
-/** The vertical run a rail's members divide: the frames' container less the
- *  gap it keeps at the top and the deeper one it keeps at the bottom. */
-const RAIL_RUN = `(100% - ${GAP} - ${GAP_BOTTOM})`;
+/**
+ * The vertical run a place's members divide, and the pins at either end of it:
+ * the frames' container less what the place keeps at each end. A column keeps
+ * the card gap at its top and the deeper gap at its bottom; a rail keeps the
+ * rail edge inset at its top and the strip's clearance at its bottom
+ * ({@link railGapBottomPx}). Every pin below is written over the run it is
+ * handed rather than over a number.
+ */
+interface PlaceRun {
+  top: string;
+  bottom: string;
+  /** `(100% − top − bottom)`, as one CSS expression. */
+  extent: string;
+}
+
+const RAIL_RUN: PlaceRun = {
+  top: RAIL_EDGE_INSET,
+  bottom: RAIL_GAP_BOTTOM,
+  extent: `(100% - ${RAIL_EDGE_INSET} - ${RAIL_GAP_BOTTOM})`,
+};
+
+const COLUMN_RUN: PlaceRun = {
+  top: GAP,
+  bottom: GAP_BOTTOM,
+  extent: `(100% - ${GAP} - ${GAP_BOTTOM})`,
+};
 
 /** Half an imposition gap — each seam takes one, half from each neighbour, so
  *  the air between two split members reads as the same rhythm as every other
@@ -2874,11 +3004,11 @@ const RAIL_SEAM_HALF_GAP = `${IMPOSITION_GAP_PX / 2}px`;
 function railMemberPins(
   member: RailMemberPlacement | undefined,
 ): { top: string; bottom: string } {
-  if (member === undefined) return { top: GAP, bottom: GAP_BOTTOM };
+  if (member === undefined) return { top: RAIL_RUN.top, bottom: RAIL_RUN.bottom };
   if (placeStanding(member.count) === "overflow") {
-    return overflowPins(member, railOffsetProperty(member.side));
+    return overflowPins(member, railOffsetProperty(member.side), RAIL_RUN);
   }
-  return memberPins(member, (j) => railSeamProperty(member.side, j));
+  return memberPins(member, (j) => railSeamProperty(member.side, j), RAIL_RUN);
 }
 
 /**
@@ -2886,11 +3016,11 @@ function railMemberPins(
  * property carrying each seam of that place.
  *
  * The whole of what a rail member and a column member share, which is
- * everything but the property name: both divide the same vertical run, both
- * take half a gap either side of a seam, and both pin their outer edge to the
- * run's own endpoint rather than to a fraction. That last part is what makes a
- * split read as a division of the card the eye already knew — the top member
- * and a stacked card share a top edge to the pixel.
+ * everything but the property name and the run's endpoints: both divide a
+ * vertical run, both take half a gap either side of a seam, and both pin their
+ * outer edge to the run's own endpoint rather than to a fraction. That last
+ * part is what makes a split read as a division of the card the eye already
+ * knew — the top member and a stacked card share a top edge to the pixel.
  *
  * A place of fewer than two members is not divided, so it gets the undivided
  * pins. That is the byte-identity the split feature rests on: a slot or a side
@@ -2900,20 +3030,21 @@ function railMemberPins(
 function memberPins(
   member: { index: number; count: number },
   seamProperty: (index: number) => string,
+  run: PlaceRun,
 ): { top: string; bottom: string } {
   const { index, count } = member;
-  if (count < 2) return { top: GAP, bottom: GAP_BOTTOM };
+  if (count < 2) return { top: run.top, bottom: run.bottom };
   const seam = (j: number): string =>
     `var(${seamProperty(j)}, ${(j + 1) / count})`;
   return {
     top:
       index === 0
-        ? GAP
-        : `calc(${GAP} + ${seam(index - 1)} * ${RAIL_RUN} + ${RAIL_SEAM_HALF_GAP})`,
+        ? run.top
+        : `calc(${run.top} + ${seam(index - 1)} * ${run.extent} + ${RAIL_SEAM_HALF_GAP})`,
     bottom:
       index === count - 1
-        ? GAP_BOTTOM
-        : `calc(${GAP_BOTTOM} + (1 - ${seam(index)}) * ${RAIL_RUN} + ${RAIL_SEAM_HALF_GAP})`,
+        ? run.bottom
+        : `calc(${run.bottom} + (1 - ${seam(index)}) * ${run.extent} + ${RAIL_SEAM_HALF_GAP})`,
   };
 }
 
@@ -2986,12 +3117,14 @@ export interface ColumnMemberPlacement {
 /** An overflowing member's height: the run over the number of members meant to
  *  be visible in it. A pure function of the run, so no pane is measured and the
  *  browser re-resolves it on reflow. */
-const OVERFLOW_MEMBER_HEIGHT = `(${RAIL_RUN} / ${PLACE_OVERFLOW_VISIBLE_MEMBERS})`;
+function overflowMemberHeight(run: PlaceRun): string {
+  return `(${run.extent} / ${PLACE_OVERFLOW_VISIBLE_MEMBERS})`;
+}
 
 /** The strip `count` overflowing members make: their heights plus the gap
  *  standing between each neighbouring pair. */
-function overflowStripHeight(count: number): string {
-  return `(${count} * ${OVERFLOW_MEMBER_HEIGHT} + ${(count - 1) * IMPOSITION_GAP_PX}px)`;
+function overflowStripHeight(count: number, run: PlaceRun): string {
+  return `(${count} * ${overflowMemberHeight(run)} + ${(count - 1) * IMPOSITION_GAP_PX}px)`;
 }
 
 /**
@@ -3017,17 +3150,21 @@ function overflowStripHeight(count: number): string {
 function overflowPins(
   member: { index: number; count: number },
   offsetProperty: string,
+  run: PlaceRun,
 ): { top: string; bottom: string } {
+  const height = overflowMemberHeight(run);
   const offset =
     `min(var(${offsetProperty}, 0px), ` +
-    `max(0px, ${overflowStripHeight(member.count)} - ${RAIL_RUN}))`;
+    `max(0px, ${overflowStripHeight(member.count, run)} - ${run.extent}))`;
   const advance =
     member.index === 0
       ? "0px"
-      : `${member.index} * (${OVERFLOW_MEMBER_HEIGHT} + ${GAP})`;
+      : `${member.index} * (${height} + ${GAP})`;
+  // The bottom pin is the top pin's complement — `100% − top − height` — so
+  // the run's own top is what it subtracts, not the deeper bottom gap.
   return {
-    top: `calc(${GAP} + ${advance} - ${offset})`,
-    bottom: `calc(100% - ${GAP} - ${advance} - ${OVERFLOW_MEMBER_HEIGHT} + ${offset})`,
+    top: `calc(${run.top} + ${advance} - ${offset})`,
+    bottom: `calc(100% - ${run.top} - ${advance} - ${height} + ${offset})`,
   };
 }
 
@@ -3045,10 +3182,15 @@ function overflowPins(
 export function columnMemberPins(
   member: ColumnMemberPlacement | undefined,
 ): { top: string; bottom: string } {
-  if (member === undefined) return { top: GAP, bottom: GAP_BOTTOM };
+  if (member === undefined)
+    return { top: COLUMN_RUN.top, bottom: COLUMN_RUN.bottom };
   if (placeStanding(member.count) === "shared") {
-    return memberPins(member, (j) => columnSeamProperty(member.slot, j));
+    return memberPins(
+      member,
+      (j) => columnSeamProperty(member.slot, j),
+      COLUMN_RUN,
+    );
   }
-  return overflowPins(member, columnOffsetProperty(member.slot));
+  return overflowPins(member, columnOffsetProperty(member.slot), COLUMN_RUN);
 }
 

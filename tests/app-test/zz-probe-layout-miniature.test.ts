@@ -33,6 +33,10 @@ import { describe, expect, test } from "bun:test";
 import { copyFileSync } from "node:fs";
 
 import { launchTugApp, note, type App } from "./_harness";
+import {
+  IMPOSITION_GAP_PX,
+  RAIL_GUTTER_PX,
+} from "../../tugdeck/src/lib/layout-imposer";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -145,9 +149,9 @@ async function paintedWidths(app: App): Promise<number[]> {
  *
  * Measured off the rail's own painted frame rather than off the
  * `--tug-imposer-inset-*` properties, which resolve to a `calc()` that
- * `parseFloat` reads as NaN. A rail stands one gap off its canvas edge and the
- * chain is inset one more gap from it, which is the arithmetic `resolveSpan`
- * does — read here from pixels instead.
+ * `parseFloat` reads as NaN. The band begins one card gap in from the canvas
+ * edge and ends one rail gutter short of the rail's near edge, which is the
+ * arithmetic `resolveSpan` does — read here from pixels instead.
  */
 async function bandWidth(app: App): Promise<number> {
   return app.evalJS<number>(
@@ -158,7 +162,7 @@ async function bandWidth(app: App): Promise<number> {
       var rail = document
         .querySelector('.tug-pane[data-pane-id="pRail"]')
         .getBoundingClientRect();
-      return (rail.left - 5) - (box.left + 5);
+      return (rail.left - ${RAIL_GUTTER_PX}) - (box.left + ${IMPOSITION_GAP_PX});
     })()`,
   );
 }

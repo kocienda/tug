@@ -16,6 +16,10 @@ import { getSettings } from "./lib/maker-mode-bridge";
 import {
   IMPOSITION_GAP_BOTTOM_PROPERTY,
   impositionGapBottomPx,
+  RAIL_EDGE_INSET_PROPERTY,
+  RAIL_EDGE_INSET_PX,
+  RAIL_GUTTER_PROPERTY,
+  RAIL_GUTTER_PX,
   setImpositionGapBottom,
 } from "./lib/layout-imposer";
 import { initRecentDocuments } from "./lib/recent-documents";
@@ -472,6 +476,19 @@ if (!container) {
   // host, which validates the menu bar from it. See
   // `lib/host-menu-state.ts` for the wire contract.
   initHostMenuState(deck);
+
+  // Publish the rail's two lengths on the root. The imposer's own expressions
+  // carry the numeric twins as fallbacks, so this write moves nothing they
+  // draw; it is for the stylesheets, which can read a property and cannot
+  // read a constant.
+  document.documentElement.style.setProperty(
+    RAIL_EDGE_INSET_PROPERTY,
+    `${RAIL_EDGE_INSET_PX}px`,
+  );
+  document.documentElement.style.setProperty(
+    RAIL_GUTTER_PROPERTY,
+    `${RAIL_GUTTER_PX}px`,
+  );
 
   // Settle the imposition's bottom band from the host's build profile. A
   // maker's canvas reserves depth at the foot for the host's dev-info stamps;

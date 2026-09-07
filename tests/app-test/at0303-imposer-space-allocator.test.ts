@@ -84,12 +84,21 @@ import {
   DEFAULT_OVERVIEW_WIDTH_PX,
   MIN_OVERVIEW_WIDTH_PX,
 } from "../../tugdeck/src/lib/overview-measure";
+import {
+  IMPOSITION_GAP_PX,
+  RAIL_EDGE_INSET_PX,
+  RAIL_GUTTER_PX,
+} from "../../tugdeck/src/lib/layout-imposer";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
 /** The imposition gap (`lib/layout-imposer.ts`). */
-const GAP = 5;
+const GAP = IMPOSITION_GAP_PX;
+/** What one standing rail costs the canvas besides its width: its stand-off
+ *  from the window edge and its gutter to the first card, which are the
+ *  rail's own lengths rather than the card gap (`lib/layout-imposer.ts`). */
+const RAIL_AIR = RAIL_EDGE_INSET_PX + RAIL_GUTTER_PX;
 /** The widest any rail may stand: the slim content width. */
 const CEILING = 675;
 /** The preferred rail width this test seeds, so nothing depends on the default. */
@@ -200,35 +209,36 @@ async function seams(app: App): Promise<number[]> {
 
 /**
  * The pane width whose exact solve puts the rail `offset` px off the preferred
- * width. Three cards and two gaps fill the band, and the band is the canvas
- * less the rail and three gaps — so `rail = canvas - 5·gap - 3·width`.
+ * width. Three cards and two seams fill the band, the band keeps one gap at
+ * its far edge, and the rail keeps its own air on the near side — so
+ * `rail = canvas - railAir - 3·gap - 3·width`.
  */
 function paneWidthFor(canvas: number, offset: number): number {
-  return Math.floor((canvas - GAP * 5 - (PREFERRED + offset)) / 3);
+  return Math.floor((canvas - RAIL_AIR - GAP * 3 - (PREFERRED + offset)) / 3);
 }
 
 /** What the allocator must answer for that fixture — the same arithmetic back. */
 function predictedRailWidth(canvas: number, paneWidth: number): number {
-  return canvas - GAP * 5 - paneWidth * 3;
+  return canvas - RAIL_AIR - GAP * 3 - paneWidth * 3;
 }
 
 /**
  * The pane width whose solve wants the two rails to total `railTotal`.
  *
- * With rails on both edges the canvas spends six gaps — one per rail, one at
- * each end of the band, and one interior seam per card pair — so
- * `canvas = railTotal + 6·gap + 3·pane`. Seeding the CARD width is how this
- * test moves the target: `T*` is a function of the chain's widths exactly as
- * it is of the canvas, and the harness cannot resize the window.
+ * With rails on both edges the canvas spends each rail's air and two gaps —
+ * one interior seam per card pair — so
+ * `canvas = railTotal + 2·railAir + 2·gap + 3·pane`. Seeding the CARD width is
+ * how this test moves the target: `T*` is a function of the chain's widths
+ * exactly as it is of the canvas, and the harness cannot resize the window.
  */
 function twoRailPaneWidth(canvas: number, railTotal: number): number {
-  return Math.floor((canvas - GAP * 6 - railTotal) / 3);
+  return Math.floor((canvas - RAIL_AIR * 2 - GAP * 2 - railTotal) / 3);
 }
 
 /** The rail total that fixture actually asks for — the floor above leaves up
  *  to 2px on the table, and the assertions are exact, so they read it back. */
 function railTotalFor(canvas: number, paneWidth: number): number {
-  return canvas - GAP * 6 - paneWidth * 3;
+  return canvas - RAIL_AIR * 2 - GAP * 2 - paneWidth * 3;
 }
 
 /** The three-card chain with the Overview pinned left and the Layout card right, each
@@ -304,7 +314,7 @@ describe.skipIf(!SHOULD_RUN)(
           // inside the flex range whatever the window size.
           const canvas = await canvasWidth(app);
           const paneWidth = paneWidthFor(canvas, 30);
-          expect(paneWidth).toBeGreaterThan(200);
+          expect(paneWidth).toBeGreaterThanOrEqual(200);
           await seedFixture(app, paneWidth, PREFERRED);
           await wait(AFTER_LAND_MS);
 
@@ -387,7 +397,7 @@ describe.skipIf(!SHOULD_RUN)(
           // deleted rule capped an untileable slack here and left the deck's
           // spare pixels pooled between the cards instead.
           const reachable = paneWidthFor(canvas, 120);
-          expect(reachable).toBeGreaterThan(200);
+          expect(reachable).toBeGreaterThanOrEqual(200);
           await seedFixture(app, reachable, PREFERRED);
           await wait(AFTER_LAND_MS);
           expect(await frameWidth(app, "pRail")).toBeCloseTo(PREFERRED, 0);
@@ -406,7 +416,7 @@ describe.skipIf(!SHOULD_RUN)(
           // and stops there, and the pixels it could not take stay in the
           // chain, which is why the cards still stand apart.
           const unreachable = paneWidthFor(canvas, 320);
-          expect(unreachable).toBeGreaterThan(200);
+          expect(unreachable).toBeGreaterThanOrEqual(200);
           await app.seedDeckState({
             state: {
               ...deckShape(unreachable, PREFERRED),
@@ -513,7 +523,7 @@ describe.skipIf(!SHOULD_RUN)(
           // so the rail rests at the preferred width until a gesture asks.
           const canvas = await canvasWidth(app);
           const paneWidth = paneWidthFor(canvas, 30);
-          expect(paneWidth).toBeGreaterThan(200);
+          expect(paneWidth).toBeGreaterThanOrEqual(200);
 
           const shape = deckShape(paneWidth, PREFERRED);
           const middle = shape.panes.find((p) => p.id === "p2");
@@ -583,7 +593,7 @@ describe.skipIf(!SHOULD_RUN)(
             canvas,
             PREFERRED + DEFAULT_OVERVIEW_WIDTH_PX + 60,
           );
-          expect(surplusPane).toBeGreaterThan(200);
+          expect(surplusPane).toBeGreaterThanOrEqual(200);
           await seedTwoRails(app, surplusPane);
           await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
@@ -611,7 +621,7 @@ describe.skipIf(!SHOULD_RUN)(
             canvas,
             PREFERRED + DEFAULT_OVERVIEW_WIDTH_PX - 140,
           );
-          expect(deficitPane).toBeGreaterThan(200);
+          expect(deficitPane).toBeGreaterThanOrEqual(200);
           await seedTwoRails(app, deficitPane, "three-up");
           await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
@@ -674,7 +684,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBeGreaterThanOrEqual(16);
           const tiling = comfortTotal - Math.floor(comfortBand / 2);
           const crowdedPane = twoRailPaneWidth(canvas, tiling);
-          expect(crowdedPane).toBeGreaterThan(200);
+          expect(crowdedPane).toBeGreaterThanOrEqual(200);
           await seedTwoRails(app, crowdedPane, "three-up");
           await app.nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);

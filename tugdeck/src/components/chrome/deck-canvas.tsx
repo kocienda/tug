@@ -160,6 +160,11 @@ import {
   railSeamProperty,
   railSharesFromFractions,
   impositionGapBottomPx,
+  RAIL_EDGE_INSET_PX,
+  railGapBottomPx,
+  RAIL_TREATMENT,
+  RAIL_TREATMENT_ATTRIBUTE,
+  railSpanInset,
   sidebarWidthProperty,
   type RailMode,
   type SidebarSide,
@@ -561,6 +566,19 @@ function seamPropertyOf(place: SeamPlace, index: number): string {
     : columnSeamProperty(place.slot, index);
 }
 
+/** Where `place`'s run begins, in px: a rail keeps the rail edge inset at its
+ *  top and a column keeps the card gap — the same distinction the imposer's
+ *  member pins draw. */
+function placeRunTopPx(place: SeamPlace): number {
+  return place.kind === "rail" ? RAIL_EDGE_INSET_PX : IMPOSITION_GAP_PX;
+}
+
+/** Where `place`'s run ends, in px from the foot: a rail keeps the strip's
+ *  clearance and a column keeps the bottom gap. */
+function placeRunBottomPx(place: SeamPlace): number {
+  return place.kind === "rail" ? railGapBottomPx() : impositionGapBottomPx();
+}
+
 interface PlaceSeamProps {
   place: SeamPlace;
   /** Which gap this is: the boundary between members `index` and `index + 1`. */
@@ -633,8 +651,8 @@ function PlaceSeam({
       // once, because a window resize mid-drag is not a thing a hand does.
       const run =
         container.getBoundingClientRect().height / zoom -
-        IMPOSITION_GAP_PX -
-        impositionGapBottomPx();
+        placeRunTopPx(place) -
+        placeRunBottomPx(place);
       if (run <= 0) return;
 
       // How far this seam may travel before one of the two members it divides
@@ -726,9 +744,9 @@ function PlaceSeam({
   // Only the vertical placement is the seam's own: its centre is the same
   // expression the frames either side of it read.
   const centre =
-    `calc(${IMPOSITION_GAP_PX}px + var(${seamPropertyOf(place, index)}, ` +
+    `calc(${placeRunTopPx(place)}px + var(${seamPropertyOf(place, index)}, ` +
     `${(index + 1) / (fractions.length + 1)})` +
-    ` * (100% - ${IMPOSITION_GAP_PX}px - ${impositionGapBottomPx()}px))`;
+    ` * (100% - ${placeRunTopPx(place)}px - ${placeRunBottomPx(place)}px))`;
 
   return (
     <div
@@ -1850,7 +1868,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         `--tug-imposer-inset-${side}`,
         width === 0
           ? "0px"
-          : `calc(var(${sidebarWidthProperty(side)}) + ${IMPOSITION_GAP_PX}px)`,
+          : railSpanInset(`var(${sidebarWidthProperty(side)})`),
       );
       // Both sides are written on every pass, and every index past the current
       // gap count is removed rather than left standing. A rail going three
@@ -2924,8 +2942,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       const railWidth = railWidthOf(railStanding.side);
       const half = `var(${sidebarWidthProperty(railStanding.side)}, ${railWidth}px) / 2`;
       return railStanding.side === "left"
-        ? `calc(${IMPOSITION_GAP_PX}px + ${half})`
-        : `calc(100% - ${IMPOSITION_GAP_PX}px - ${half})`;
+        ? `calc(${RAIL_EDGE_INSET_PX}px + ${half})`
+        : `calc(100% - ${RAIL_EDGE_INSET_PX}px - ${half})`;
     }
     // Through `placementFor`, so on a flow deck this line is the FLOW left —
     // strip position and viewport offset — rather than the fit anchor. That is
@@ -3275,8 +3293,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               kind: "rail",
               side: rail.side,
               axis: "y",
-              bandStart: IMPOSITION_GAP_PX,
-              bandEnd: IMPOSITION_GAP_PX + railRun,
+              bandStart: RAIL_EDGE_INSET_PX,
+              bandEnd: RAIL_EDGE_INSET_PX + railRun,
               offset: state.railOffsets?.[rail.side] ?? 0,
               maxOffset: Math.max(0, strip - railRun),
             };
@@ -3544,6 +3562,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         ref={containerRef}
         style={{ position: "absolute", inset: 0 }}
         {...{ [CANVAS_BACKGROUND_ATTRIBUTE]: "" }}
+        {...{ [RAIL_TREATMENT_ATTRIBUTE]: RAIL_TREATMENT }}
         {...(bullseyePaneId !== null ? { "data-bullseye": "" } : {})}
       >
       {/* The held-open places: one tile per slot of the arrangement no card
@@ -3761,23 +3780,30 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           />
         );
       })}
-      {/* The margin caps: the five pixels on each side that a rail stands off
-          the window edge and therefore cannot cover. A flow card's ink stops
-          at the band edge by occlusion now rather than by a cut, and the rails
-          do the occluding — these two cover the one strip no rail width can
-          reach. Each paints the body's own ground, grid and all, so it reads
+      {/* The rail margins: the band a rail stands in on each side, from the
+          window edge through the rail's gutter, and the bare band gap on a
+          side with no rail. A flow card's ink stops at the band edge by
+          occlusion rather than by a cut, and these two are the ground it
+          slides behind — under the rail in z, so the rail still paints over
+          them. Each paints the body's own ground, grid and all, so it reads
           as canvas rather than as a stripe; each takes the press so no card
           the user cannot see receives it; and each carries the
           canvas-background marker so the press it took still deselects, which
-          is what a press in that margin does today. See margin-cap.css for the
-          whole argument. [B02] [B03] */}
+          is what a press in that margin does today. The width is the side's
+          span inset plus the band gap — `edge inset + rail + gutter` with a
+          rail standing, one gap without — read from the same property the
+          frames read, so a rail drag moves the margin in the same reflow. See
+          margin-cap.css for the whole argument. [B02] [B03] */}
       {(["left", "right"] as const).map((side) => (
         <div
           key={`margin-cap:${side}`}
           className={`tug-margin-cap tug-margin-cap--${side}`}
           data-margin-cap={side}
           aria-hidden="true"
-          style={{ width: `${IMPOSITION_GAP_PX}px`, zIndex: MARGIN_CAP_ZINDEX }}
+          style={{
+            width: `calc(var(--tug-imposer-inset-${side}, 0px) + ${IMPOSITION_GAP_PX}px)`,
+            zIndex: MARGIN_CAP_ZINDEX,
+          }}
           {...{ [CANVAS_BACKGROUND_ATTRIBUTE]: "" }}
         />
       ))}

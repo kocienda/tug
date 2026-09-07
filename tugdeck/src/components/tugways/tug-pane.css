@@ -53,6 +53,30 @@ body {
   --tugx-pane-shadow-inactive: 0 1px 4px var(--tug7-element-global-shadow-normal-xs-rest);
   --tugx-pane-dim-overlay: var(--tug7-surface-overlay-primary-normal-highlight-rest);
 
+  /* --- Rail tint (declared, unused at strength 0) ---
+     The hue a tinted rail treatment would travel toward, and how far. The
+     light themes' chrome Key is the hue where one exists; the focused title
+     bar's surface is the fallback on the dark ones. `--tugx-rail-tint` is a
+     0–1 strength, and every ground a treatment might tint — the rail's
+     surface and border here, the margin's canvas and grid in
+     `margin-cap.css` — is declared ONCE as a `color-mix` toward this hue at
+     this strength. The shipped treatment holds it at 0 and paints the bare
+     tokens; a tinted treatment is one block that sets a strength, and
+     nothing else moves.
+
+     The strength is written as `calc(var(--tugx-rail-tint) * 100%)` at each
+     mix rather than published here as a percentage of its own, and that is
+     load-bearing: a custom property's `var()` references are substituted
+     where the property is DECLARED, so a `--tugx-rail-tint-pct` on `body`
+     would freeze at the body's strength and a treatment's override, which
+     lands on the rail or the margin, would never reach it. Written at the
+     mix, the substitution happens on the element the treatment block keys. */
+  --tugx-rail-tint-hue: var(
+    --tugx-chrome-key-surface,
+    var(--tug7-surface-card-primary-normal-titlebar-active)
+  );
+  --tugx-rail-tint: 0;
+
   /* --- Pane title bar --- */
   --tugx-pane-title-bar-bg-active: var(--tug7-surface-card-primary-normal-titlebar-active);
   --tugx-pane-title-bar-bg-inactive: var(--tug7-surface-card-primary-normal-titlebar-inactive);
@@ -283,6 +307,64 @@ body {
    they style the bar, not the pane. */
 .tug-pane[data-role="sidebar"] {
   --tugx-pane-chrome-height: var(--tug-rail-chrome-height, 32px);
+}
+
+/* ============================================================================
+   The rail treatment: a pinned rail is a panel, not a card
+   ========================================================================= */
+
+/*
+ * Keyed on two attributes at once. `data-rail-treatment` is stamped ONCE on
+ * the deck's frame container (`RAIL_TREATMENT` in `layout-imposer.ts`), and
+ * each treatment is one block scoped under its value — so a second treatment
+ * is a new value there and a block here, and nothing about the frames moves.
+ * `data-rail-side` is present only while the rail is PINNED to an edge: a
+ * rail dragged off its pin is afloat over cards and needs a card's frame to
+ * read as a thing that can be dropped, so it regains the frame while it is
+ * afloat and keeps its bar, stripes, label, and glyph throughout. A panel is a
+ * shape a rail has AT AN EDGE, not a property of the card.
+ *
+ * `panel`: the rail gives up the card's whole shape. Flush to the window's
+ * top and outer edge (the rail edge inset is 0 — `RAIL_EDGE_INSET_PX`), square
+ * corners, no shadow, on the SUNKEN surface rather than the content surface,
+ * and one `strong` hairline on its inner edge is all the frame it keeps. The
+ * gutter to the first card is `RAIL_GUTTER_PX`, wider than the card gap. The
+ * contrast is one of SHAPE: a rail that is part of the window against a card
+ * that floats on the paper, which no tint achieves by degree — so the tint
+ * strength is 0 here, stated so the block is the whole treatment. The bar's
+ * ink, stripes, and label are the rail tier's and do not change.
+ *
+ * The rail's title bar and every in-pane surface that paints from
+ * `--tugx-pane-bg` take the sunken tone with it, which is what keeps the
+ * panel one flush surface from bar to foot. The focused/unfocused reading
+ * stays on the bar's ink, where the rail tier already carries it; the drop
+ * shadow it gives up was never the rail's focus signal. The activation flash
+ * still lands: it is an animation on `box-shadow`, and an animation outranks
+ * every static declaration below.
+ */
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side] {
+  --tugx-rail-tint: 0;
+  --tugx-pane-bg: color-mix(
+    in oklch,
+    var(--tug7-surface-global-primary-normal-sunken-rest),
+    var(--tugx-rail-tint-hue) calc(var(--tugx-rail-tint) * 100%)
+  );
+  --tugx-pane-border: color-mix(
+    in oklch,
+    var(--tug7-element-global-border-normal-strong-rest),
+    var(--tugx-rail-tint-hue) calc(var(--tugx-rail-tint) * 100%)
+  );
+}
+
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side] .tug-pane-chrome {
+  border-radius: 0;
+  box-shadow: none;
+  border-width: 0 1px 0 0;
+}
+
+/* Mirrored: the inner edge of a right-hand rail is its left. */
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side="right"] .tug-pane-chrome {
+  border-width: 0 0 0 1px;
 }
 
 .tug-pane-title-bar {

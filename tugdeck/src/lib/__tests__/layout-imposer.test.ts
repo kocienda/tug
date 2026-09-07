@@ -7,6 +7,13 @@ import {
   setImpositionGapBottom,
   IMPOSITION_GAP_PX,
   IMPOSITION_KINDS,
+  RAIL_EDGE_INSET_PX,
+  RAIL_EDGE_INSET_PROPERTY,
+  RAIL_GUTTER_PX,
+  RAIL_GUTTER_PROPERTY,
+  railGapBottomPx,
+  railSpanInset,
+  railSpanInsetPx,
   clampSlot,
   allocateSidebarWidths,
   solveSidebarWidths,
@@ -47,6 +54,19 @@ const GAP = IMPOSITION_GAP_PX;
  *  maker depth as its fallback. Stated once here, as it is stated once in the
  *  imposer, so a build that keeps a different band changes neither. */
 const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTTOM_MAKER_PX}px)`;
+/** How the emitted expressions spell the rail edge inset — the rail's
+ *  stand-off from the window edge on its outer side and top — on the same
+ *  pattern: the property, with the numeric twin as its fallback. */
+const EDGE = `var(${RAIL_EDGE_INSET_PROPERTY}, ${RAIL_EDGE_INSET_PX}px)`;
+/** How they spell the rail's bottom pin: the bottom gap less the card gap
+ *  plus the edge inset — the strip's clearance in a maker build, and flush in
+ *  a release one. */
+const RAIL_BOTTOM = `calc(${GAP_BOTTOM} - ${GAP}px + ${EDGE})`;
+/** What one standing rail costs the canvas besides its width: its edge inset
+ *  and its gutter, which are the rail's own lengths rather than the card gap.
+ *  A one-rail canvas is `rail + RAIL_AIR + GAP + band` (the band keeps one
+ *  gap at its far end); a two-rail canvas is `rails + 2·RAIL_AIR + band`. */
+const RAIL_AIR = RAIL_EDGE_INSET_PX + RAIL_GUTTER_PX;
 
 /**
  * A rail policy with no comfort band above its hard floor — `comfortWidth`
@@ -129,11 +149,19 @@ function solveOneRail(input: {
 /** A 1000×800 canvas with no rail — the simplest span to hand-compute against. */
 const FULL: ImposerSpan = { x: 0, width: 1000, height: 800 };
 /** The same canvas with a 260px rail holding the left. The inset is the
- *  rail's width plus one gap, because the rail is itself imposed a gap off
- *  the canvas edge. */
-const RAIL_LEFT: ImposerSpan = { x: 265, width: 735, height: 800 };
+ *  rail's width plus its edge inset and gutter, less the gap the span keeps
+ *  on its own — `railSpanInsetPx`. */
+const RAIL_LEFT: ImposerSpan = {
+  x: railSpanInsetPx(260),
+  width: 1000 - railSpanInsetPx(260),
+  height: 800,
+};
 /** The same canvas with a 260px rail holding the right. */
-const RAIL_RIGHT: ImposerSpan = { x: 0, width: 735, height: 800 };
+const RAIL_RIGHT: ImposerSpan = {
+  x: 0,
+  width: 1000 - railSpanInsetPx(260),
+  height: 800,
+};
 
 /** Terse placement literal for the geometry cases. */
 const at = (slot: number, count: number): ImposedPlacement => ({ slot, count });
@@ -165,6 +193,30 @@ describe("gaps", () => {
     expect(IMPOSITION_GAP_PX).toBe(5);
   });
 
+  test("the rail's two lengths are named apart from the card gap", () => {
+    // A pinned rail is a panel of the window: flush to the edge, and one
+    // wider gutter from the first card than the card gap — the shape and the
+    // air are what tell a rail from a card, and neither moves the deck's own
+    // rhythm, which stays the card gap everywhere else.
+    expect(RAIL_EDGE_INSET_PX).toBe(0);
+    expect(RAIL_GUTTER_PX).toBe(12);
+    expect(RAIL_GUTTER_PX).toBeGreaterThan(IMPOSITION_GAP_PX);
+    expect(RAIL_EDGE_INSET_PROPERTY).toBe("--tug-rail-edge-inset");
+    expect(RAIL_GUTTER_PROPERTY).toBe("--tug-rail-gutter");
+  });
+
+  test("a rail's span inset is its width plus its air, less the span's own gap", () => {
+    expect(railSpanInsetPx(260)).toBe(
+      RAIL_EDGE_INSET_PX + 260 + RAIL_GUTTER_PX - IMPOSITION_GAP_PX,
+    );
+    // The CSS twin states the same identity over the same names, with the
+    // numeric twins as each property's fallback.
+    expect(railSpanInset("var(--w)")).toBe(
+      `calc(var(${RAIL_EDGE_INSET_PROPERTY}, ${RAIL_EDGE_INSET_PX}px) + var(--w)` +
+        ` + var(${RAIL_GUTTER_PROPERTY}, ${RAIL_GUTTER_PX}px) - ${IMPOSITION_GAP_PX}px)`,
+    );
+  });
+
   test("a maker's bottom gap is deeper, and clears the dev-info strip", () => {
     // The strip sits 8px above the canvas bottom and stands about 19px tall.
     // The bottom gap has to clear that and still leave an ordinary gap of air.
@@ -179,6 +231,9 @@ describe("gaps", () => {
   test("a release build keeps the same air at the foot as at the sides", () => {
     expect(setImpositionGapBottom(false)).toBe(true);
     expect(impositionGapBottomPx()).toBe(IMPOSITION_GAP_PX);
+    // The rail runs flush to the foot where there is no strip to clear, and
+    // keeps the strip's own clearance — no gap of air — where there is one.
+    expect(railGapBottomPx()).toBe(RAIL_EDGE_INSET_PX);
     // Settling twice to the same answer is not a change, so it asks for no
     // re-imposition.
     expect(setImpositionGapBottom(false)).toBe(false);
@@ -219,7 +274,7 @@ describe("resolveSpan", () => {
     expect(resolveSpan(canvas, [])).toEqual(FULL);
   });
 
-  test("a left-side rail insets the span's origin by its width plus a gap", () => {
+  test("a left-side rail insets the span's origin by its span inset", () => {
     expect(resolveSpan(canvas, [{ side: "left", width: 260 }])).toEqual(RAIL_LEFT);
   });
 
@@ -233,23 +288,30 @@ describe("resolveSpan", () => {
         { side: "left", width: 260 },
         { side: "right", width: 300 },
       ]),
-    ).toEqual({ x: 265, width: 1000 - 265 - 305, height: 800 });
+    ).toEqual({
+      x: railSpanInsetPx(260),
+      width: 1000 - railSpanInsetPx(260) - railSpanInsetPx(300),
+      height: 800,
+    });
   });
 
-  // The gap count is not a constant: it is one gap per STANDING rail. This is
-  // the identity the allocator's band solve reads off rather than writing its
-  // own, so a closed rail can never leave a phantom gap in the arithmetic.
-  test("each standing rail contributes exactly one gap", () => {
+  // The inset count is not a constant: it is one rail's air per STANDING
+  // rail. This is the identity the allocator's band solve reads off rather
+  // than writing its own, so a closed rail can never leave a phantom inset in
+  // the arithmetic.
+  test("each standing rail contributes exactly its own air", () => {
     const bandOf = (rails: Parameters<typeof resolveSpan>[1]): number =>
       resolveSpan(canvas, rails).width - GAP * 2;
     expect(bandOf([])).toBe(1000 - GAP * 2);
-    expect(bandOf([{ side: "right", width: 260 }])).toBe(1000 - 260 - GAP * 3);
+    expect(bandOf([{ side: "right", width: 260 }])).toBe(
+      1000 - 260 - RAIL_AIR - GAP,
+    );
     expect(
       bandOf([
         { side: "left", width: 260 },
         { side: "right", width: 300 },
       ]),
-    ).toBe(1000 - 560 - GAP * 4);
+    ).toBe(1000 - 560 - RAIL_AIR * 2);
   });
 
   test("same-side cards share one rail, so a side is passed once", () => {
@@ -257,7 +319,7 @@ describe("resolveSpan", () => {
     // caller folds them, and passing the side twice would inset the band twice
     // for a picture with one edge in it.
     const stacked = resolveSpan(canvas, [{ side: "right", width: 300 }]);
-    expect(stacked.width).toBe(1000 - 305);
+    expect(stacked.width).toBe(1000 - railSpanInsetPx(300));
   });
 });
 
@@ -552,25 +614,25 @@ describe("imposeSidebarStyle", () => {
   const widthOf = (side: "left" | "right", px = 420): string =>
     `var(--tug-sidebar-width-${side}, ${px}px)`;
   const pinOf = (side: "left" | "right", px = 420): string =>
-    `calc(var(--tugx-rail-side) * (100% - ${widthOf(side, px)} - 5px)` +
-    " + (1 - var(--tugx-rail-side)) * 5px)";
+    `calc(var(--tugx-rail-side) * (100% - ${widthOf(side, px)} - ${EDGE})` +
+    ` + (1 - var(--tugx-rail-side)) * ${EDGE})`;
 
-  test("pins a rail to its side, a gap in on three edges and deeper below", () => {
+  test("pins a rail to its side, the edge inset in on three edges and deeper below", () => {
     expect(imposeSidebarStyle("left", 420) as Record<string, unknown>).toEqual({
       width: widthOf("left"),
       height: "auto",
-      top: "5px",
+      top: EDGE,
       "--tugx-rail-side": 0,
       left: pinOf("left"),
-      bottom: GAP_BOTTOM,
+      bottom: RAIL_BOTTOM,
     });
     expect(imposeSidebarStyle("right", 420) as Record<string, unknown>).toEqual({
       width: widthOf("right"),
       height: "auto",
-      top: "5px",
+      top: EDGE,
       "--tugx-rail-side": 1,
       left: pinOf("right"),
-      bottom: GAP_BOTTOM,
+      bottom: RAIL_BOTTOM,
     });
   });
 
@@ -633,8 +695,8 @@ describe("a stacked rail's members are geometrically identical", () => {
     // width, same run, and z-order decides which of the two you are looking at.
     for (const side of ["left", "right"] as const) {
       const style = imposeSidebarStyle(side, 420);
-      expect(style.top).toBe("5px");
-      expect(style.bottom).toBe(GAP_BOTTOM);
+      expect(style.top).toBe(EDGE);
+      expect(style.bottom).toBe(RAIL_BOTTOM);
     }
   });
 
@@ -648,11 +710,14 @@ describe("a stacked rail's members are geometrically identical", () => {
   });
 
   test("the style carries no vertical term a stack could vary", () => {
-    // A stacked member has no per-member vertical math: these stay bare
-    // lengths, and only a `member` placement turns them into fractions.
+    // A stacked member has no per-member vertical math: these are the rail's
+    // own two pins, and only a `member` placement turns them into fractions
+    // of the run read off a seam property.
     const style = imposeSidebarStyle("right", 420);
-    expect(style.top).not.toContain("calc");
-    expect(style.bottom).not.toContain("calc");
+    expect(style.top).toBe(EDGE);
+    expect(style.bottom).toBe(RAIL_BOTTOM);
+    expect(style.top).not.toContain("seam");
+    expect(style.bottom).not.toContain("seam");
   });
 
   test("a rail of one is stacked geometry however it is asked for", () => {
@@ -668,7 +733,7 @@ describe("a stacked rail's members are geometrically identical", () => {
 });
 
 describe("a split rail divides the run between its members", () => {
-  const RUN = `(100% - 5px - ${GAP_BOTTOM})`;
+  const RUN = `(100% - ${EDGE} - ${RAIL_BOTTOM})`;
   const seam = (side: "left" | "right", j: number, fallback: number): string =>
     `var(--tug-rail-${side}-seam-${j}, ${fallback})`;
   const split = (side: "left" | "right", index: number, count: number) =>
@@ -677,21 +742,21 @@ describe("a split rail divides the run between its members", () => {
   test("two members meet at one seam, half a gap each side of it", () => {
     const top = split("right", 0, 2);
     const bottom = split("right", 1, 2);
-    expect(top.top).toBe("5px");
+    expect(top.top).toBe(EDGE);
     expect(top.bottom).toBe(
-      `calc(${GAP_BOTTOM} + (1 - ${seam("right", 0, 0.5)}) * ${RUN} + 2.5px)`,
+      `calc(${RAIL_BOTTOM} + (1 - ${seam("right", 0, 0.5)}) * ${RUN} + 2.5px)`,
     );
     expect(bottom.top).toBe(
-      `calc(5px + ${seam("right", 0, 0.5)} * ${RUN} + 2.5px)`,
+      `calc(${EDGE} + ${seam("right", 0, 0.5)} * ${RUN} + 2.5px)`,
     );
-    expect(bottom.bottom).toBe(GAP_BOTTOM);
+    expect(bottom.bottom).toBe(RAIL_BOTTOM);
   });
 
   test("the rail's own endpoints are the pins an unsplit rail has", () => {
     // A split reads as a division of the card the user already knew, so the
     // first member's top and the last member's bottom land on the pixel.
-    expect(split("right", 0, 2).top).toBe("5px");
-    expect(split("right", 1, 2).bottom).toBe(GAP_BOTTOM);
+    expect(split("right", 0, 2).top).toBe(EDGE);
+    expect(split("right", 1, 2).bottom).toBe(RAIL_BOTTOM);
   });
 
   test("the var fallbacks are the equal division, so a frame rendering before the properties land still tiles", () => {
@@ -722,7 +787,7 @@ describe("a split rail divides the run between its members", () => {
 });
 
 describe("a rail of three or more overflows instead of dividing", () => {
-  const RUN = `(100% - 5px - ${GAP_BOTTOM})`;
+  const RUN = `(100% - ${EDGE} - ${RAIL_BOTTOM})`;
   const MEMBER = `(${RUN} / 2.5)`;
   const strip = (count: number): string =>
     `(${count} * ${MEMBER} + ${(count - 1) * 5}px)`;
@@ -757,19 +822,21 @@ describe("a rail of three or more overflows instead of dividing", () => {
     // column's rule, over the other kind of place.
     for (const count of [3, 4, 6]) {
       const first = member("left", 0, count);
-      expect(first.top).toBe(`calc(5px + 0px - ${offset("left", count)})`);
+      expect(first.top).toBe(`calc(${EDGE} + 0px - ${offset("left", count)})`);
       expect(first.bottom).toBe(
-        `calc(100% - 5px - 0px - ${MEMBER} + ${offset("left", count)})`,
+        `calc(100% - ${EDGE} - 0px - ${MEMBER} + ${offset("left", count)})`,
       );
     }
   });
 
   test("members stack down the strip a member plus a gap apart", () => {
+    // The seam between stacked members is the card gap, not the rail's
+    // length: a strip's rhythm is the deck's.
     expect(member("right", 1, 4).top).toBe(
-      `calc(5px + 1 * (${MEMBER} + 5px) - ${offset("right", 4)})`,
+      `calc(${EDGE} + 1 * (${MEMBER} + 5px) - ${offset("right", 4)})`,
     );
     expect(member("right", 2, 4).top).toBe(
-      `calc(5px + 2 * (${MEMBER} + 5px) - ${offset("right", 4)})`,
+      `calc(${EDGE} + 2 * (${MEMBER} + 5px) - ${offset("right", 4)})`,
     );
   });
 
@@ -1097,25 +1164,30 @@ describe("rail arrangement accessors", () => {
   });
 });
 
-describe("the arrangement clears the rail by exactly one gap", () => {
+describe("the arrangement clears the rail by exactly one gutter", () => {
   // The derivation the pinned-rail geometry rests on: with the rail on the
-  // right at width W, its near edge sits at `canvasW - GAP - W`, and the last
-  // slot's card must land one gap short of that.
+  // right at width W, its near edge sits at `canvasW - edge inset - W`, and
+  // the last slot's card must land one gutter short of that. The band's far
+  // end from the canvas edge is still the card gap.
   const CANVAS = { width: 1000, height: 800 };
 
   for (const W of [260, 420, 500]) {
-    test(`a ${W}px right-side rail leaves the last slot one gap off it`, () => {
+    test(`a ${W}px right-side rail leaves the last slot one gutter off it`, () => {
       const span = resolveSpan(CANVAS, [{ side: "right", width: W }]);
       const rect = imposeRect(at(1, 2), 240, span);
-      expect(rect.position.x + rect.size.width).toBe(CANVAS.width - GAP - W - GAP);
+      expect(rect.position.x + rect.size.width).toBe(
+        CANVAS.width - RAIL_EDGE_INSET_PX - W - RAIL_GUTTER_PX,
+      );
       expect(imposeRect(at(0, 2), 240, span).position.x).toBe(GAP);
     });
 
-    test(`a ${W}px left-side rail leaves slot 1 one gap off it`, () => {
+    test(`a ${W}px left-side rail leaves slot 1 one gutter off it`, () => {
       const span = resolveSpan(CANVAS, [{ side: "left", width: W }]);
       // Slot 1 is the leftmost position, so on this deck it is the one against
       // the rail; the last slot runs to the canvas's right edge.
-      expect(imposeRect(at(0, 2), 240, span).position.x).toBe(GAP + W + GAP);
+      expect(imposeRect(at(0, 2), 240, span).position.x).toBe(
+        RAIL_EDGE_INSET_PX + W + RAIL_GUTTER_PX,
+      );
       const last = imposeRect(at(1, 2), 240, span);
       expect(last.position.x + last.size.width).toBe(CANVAS.width - GAP);
     });
@@ -1179,10 +1251,13 @@ describe("the space allocator", () => {
     { slot: 2, width: 800 },
   ];
   /** The band that tiles the shape above exactly, and the rail width that
-   *  produces it on a canvas of width W: `W - 3·gap - band`. */
+   *  produces it on a canvas of width W: `W - rail air - gap - band`. */
   const EXACT_BAND = 3 * 800 + 2 * GAP;
   const railWidthFor = (canvasWidth: number): number =>
-    canvasWidth - GAP * 3 - EXACT_BAND;
+    canvasWidth - RAIL_AIR - GAP - EXACT_BAND;
+  /** The inverse: the canvas on which a rail of `lensWidth` tiles exactly. */
+  const canvasFor = (lensWidth: number): number =>
+    lensWidth + RAIL_AIR + GAP + EXACT_BAND;
 
   /** Every seam in the chain, measured through `imposeRect` at a given rail
    *  width — the geometry the allocator's answer actually produces. */
@@ -1208,7 +1283,7 @@ describe("the space allocator", () => {
   }
 
   test("the exact-tiling case lands every seam on the gap", () => {
-    const canvasWidth = 2845;
+    const canvasWidth = canvasFor(400);
     const width = allocateOneRail({
       canvasWidth,
       kind: "three-up",
@@ -1226,7 +1301,7 @@ describe("the space allocator", () => {
     const preferredWidth = 420;
     // A deck 20px wider than the exact fit spreads the cards: the rail takes
     // the surplus.
-    const roomy = 2865;
+    const roomy = canvasFor(preferredWidth) + 20;
     expect(seamsAt(roomy, preferredWidth, THREE_UP_RUN, "three-up")[0]).toBeGreaterThan(GAP);
     const grown = allocateOneRail({
       canvasWidth: roomy,
@@ -1239,7 +1314,7 @@ describe("the space allocator", () => {
     expect(grown).toBeGreaterThan(preferredWidth);
 
     // And 20px narrower overlaps them: the rail gives the difference back.
-    const crowded = 2825;
+    const crowded = canvasFor(preferredWidth) - 20;
     expect(seamsAt(crowded, preferredWidth, THREE_UP_RUN, "three-up")[0]).toBeLessThan(GAP);
     const shrunk = allocateOneRail({
       canvasWidth: crowded,
@@ -1262,7 +1337,10 @@ describe("the space allocator", () => {
     // So the least-squares fit does not remove the error, it spreads it, and
     // it lands outside the rail's range entirely. Sum-of-squares scores an
     // overlap and a gap alike; on screen they are not remotely the same thing.
-    const canvasWidth = 2523;
+    // The three cards end to end want a band of 2840; this canvas leaves
+    // 332px LESS than that after one rail's air, so the exact fit is a rail
+    // of −332.
+    const canvasWidth = 800 + 1230 + 800 + 2 * GAP - 332 + RAIL_AIR + GAP;
     const input = {
       canvasWidth,
       kind: "three-up" as const,
@@ -1313,8 +1391,6 @@ describe("the space allocator", () => {
     // answer is the ceiling, at every distance: a target the rails cannot
     // reach is still a direction they move in as far as they may.
     const maxRailWidth = CONTENT_WIDTH_SLIM_PX;
-    const canvasFor = (lensWidth: number): number =>
-      lensWidth + GAP * 3 + EXACT_BAND;
     const solve = (canvasWidth: number): number | null =>
       allocateOneRail({
         canvasWidth,
@@ -1336,8 +1412,6 @@ describe("the space allocator", () => {
     // deleted grade capped an untileable slack at the chosen width and left
     // the deck's slack pooled between the cards instead; the geometry wants
     // the width, so the rail takes it.
-    const canvasFor = (lensWidth: number): number =>
-      lensWidth + GAP * 3 + EXACT_BAND;
     const input = {
       canvasWidth: canvasFor(560),
       kind: "three-up" as const,
@@ -1356,8 +1430,6 @@ describe("the space allocator", () => {
     // has and stops there. What the chain does with the 20px it did not get
     // is the chain's business — a floor is a width below which the card
     // cannot be painted at all.
-    const canvasFor = (lensWidth: number): number =>
-      lensWidth + GAP * 3 + EXACT_BAND;
     expect(
       allocateOneRail({
         canvasWidth: canvasFor(300),
@@ -1374,8 +1446,6 @@ describe("the space allocator", () => {
     // deck's policy caps rails at the slim width: a maximum is a policy about
     // how wide the deck may stand a rail, and a minimum is a width below which
     // there is nothing to look at.
-    const canvasFor = (lensWidth: number): number =>
-      lensWidth + GAP * 3 + EXACT_BAND;
     expect(
       allocateOneRail({
         canvasWidth: canvasFor(300),
@@ -1392,7 +1462,7 @@ describe("the space allocator", () => {
     // stand to the fit.
     expect(
       allocateOneRail({
-        canvasWidth: 2735,
+        canvasWidth: canvasFor(310),
         kind: "three-up",
         occupied: THREE_UP_RUN,
         preferredWidth: 340,
@@ -1402,7 +1472,7 @@ describe("the space allocator", () => {
     // 330 clears the floor and is taken exactly.
     expect(
       allocateOneRail({
-        canvasWidth: 2755,
+        canvasWidth: canvasFor(330),
         kind: "three-up",
         occupied: THREE_UP_RUN,
         preferredWidth: 340,
@@ -1412,7 +1482,7 @@ describe("the space allocator", () => {
   });
 
   test("duplicate slots fold to the widest pane standing there", () => {
-    const canvasWidth = 2845;
+    const canvasWidth = canvasFor(400);
     const stacked = allocateOneRail({
       canvasWidth,
       kind: "three-up",
@@ -1429,7 +1499,7 @@ describe("the space allocator", () => {
   });
 
   test("the order of the occupied list does not matter", () => {
-    const canvasWidth = 2845;
+    const canvasWidth = canvasFor(400);
     const shuffled = allocateOneRail({
       canvasWidth,
       kind: "three-up",
@@ -1527,6 +1597,9 @@ describe("the total is chosen by the picture it paints", () => {
   });
   const CARDS = rail({ preferredWidth: 420, minWidth: 320, greedRank: 2 });
   const THREE_COMFY = [0, 1, 2].map((slot) => ({ slot, width: 800 }));
+  /** The canvas on which the two rails tile this deck at a given total. */
+  const canvasFor = (railTotal: number): number =>
+    railTotal + RAIL_AIR * 2 + (3 * 800 + 2 * GAP);
   const at = (canvasWidth: number) => ({
     canvasWidth,
     kind: "three-up" as const,
@@ -1542,8 +1615,8 @@ describe("the total is chosen by the picture it paints", () => {
     // exactly; the rails can reach it; the 56ch comfort floor forbade it, and
     // the deck sat on 26px of occlusion rather than give up 62px of measure.
     // Comfort is spent precisely because spending it removes the overlap.
-    expect(answerAt(3200)).toEqual({ left: 320, right: 450 });
-    const picture = seamPicture(at(3200), { left: 320, right: 450 });
+    expect(answerAt(canvasFor(770))).toEqual({ left: 320, right: 450 });
+    const picture = seamPicture(at(canvasFor(770)), { left: 320, right: 450 });
     expect(picture.worstOverlap).toBe(0);
     expect(picture.worstError).toBe(0);
     expect(picture.worstShortfall).toBe(0);
@@ -1560,10 +1633,12 @@ describe("the total is chosen by the picture it paints", () => {
     // CLASS of picture — clean, cramped, occluded — and here it does not, so
     // the rails held their measure and the cards stayed 126px on top of one
     // another. The cards are the subject; the rails are the frame.
-    for (const canvasWidth of [2000, 3000]) {
+    for (const canvasWidth of [2000, canvasFor(570)]) {
       expect(answerAt(canvasWidth)).toEqual({ left: 320, right: 400 });
     }
-    expect(seamPicture(at(3000), answerAt(3000)).worstOverlap).toBe(70);
+    expect(
+      seamPicture(at(canvasFor(570)), answerAt(canvasFor(570))).worstOverlap,
+    ).toBe(70);
   });
 
   test("a hopeless deck returns the rails to their preferences", () => {
@@ -1575,8 +1650,9 @@ describe("the total is chosen by the picture it paints", () => {
   });
 
   test("a roomy canvas leaves comfort alone and feeds the greediest rail", () => {
-    expect(answerAt(3400)).toEqual({ left: 390, right: 580 });
-    expect(seamPicture(at(3400), answerAt(3400)).worstOverlap).toBe(0);
+    const roomy = canvasFor(970);
+    expect(answerAt(roomy)).toEqual({ left: 390, right: 580 });
+    expect(seamPicture(at(roomy), answerAt(roomy)).worstOverlap).toBe(0);
   });
 
   test("the answer tracks the canvas instead of saturating", () => {
@@ -1628,7 +1704,7 @@ describe("the total is chosen by the picture it paints", () => {
     // Both tiers, in reverse greed order within each: the Cards rail gives up its
     // whole range before the Overview gives up a pixel of measure, and the
     // Overview reaches its hard floor last of all.
-    const drained = answerAt(3200);
+    const drained = answerAt(canvasFor(770));
     expect(drained.left).toBe(320);
     expect(drained.right).toBeGreaterThan(400);
   });
@@ -1637,7 +1713,7 @@ describe("the total is chosen by the picture it paints", () => {
 describe("greed order decides which rail is the wide one", () => {
   /** The plan's worked example: a full two-up of 800px cards. One 5px seam
    *  between them wants a band of exactly 1605, so with two rails standing the
-   *  fit wants a rail TOTAL of `canvas − 1625`.
+   *  fit wants a rail TOTAL of `canvas − 1605 − 2·rail air`.
    *
    *  Written as a full two-up rather than as three-up with slots 0 and 2 —
    *  same travel fractions, same arithmetic, but the chain is now every slot
@@ -1648,7 +1724,7 @@ describe("greed order decides which rail is the wide one", () => {
     { slot: 1, width: 800 },
   ] as const;
   /** The canvas whose fit wants the two rails to total `total`. */
-  const canvasFor = (total: number): number => total + GAP * 4 + 1605;
+  const canvasFor = (total: number): number => total + RAIL_AIR * 2 + 1605;
 
   /** The Overview: the greediest rail, at the ch-derived magnitudes the plan's
    *  example uses. Fed first, drained last. */
@@ -1674,7 +1750,7 @@ describe("greed order decides which rail is the wide one", () => {
     // Σ preferred is 980, and a canvas whose fit wants exactly that leaves
     // every rail at the width its owner chose.
     expect(solve(canvasFor(980))).toEqual({ left: 420, right: 560 });
-    expect(canvasFor(980)).toBe(2605);
+    expect(canvasFor(980)).toBe(2609);
   });
 
   test("a deficit drains the least greedy rail first, to its floor", () => {
@@ -1688,11 +1764,11 @@ describe("greed order decides which rail is the wide one", () => {
   });
 
   test("a deficit past every floor stands both rails on their floors", () => {
-    // The plan's canvas-2430 case: the fit wants 805 of rail and the floors
-    // total 816, so the target clamps UP and the 11px the rails refuse to
-    // give is carried by the chain instead — the cards overlap by 6px at the
-    // single interior seam, reported honestly rather than repaired.
-    const canvasWidth = 2430;
+    // The plan's worked case: the fit wants 805 of rail and the floors total
+    // 816, so the target clamps UP and the 11px the rails refuse to give is
+    // carried by the chain instead — the cards overlap by 6px at the single
+    // interior seam, reported honestly rather than repaired.
+    const canvasWidth = canvasFor(805);
     expect(solve(canvasWidth)).toEqual({ left: 320, right: 496 });
     const picture = seamPicture(
       {
@@ -1716,7 +1792,7 @@ describe("greed order decides which rail is the wide one", () => {
       left: 505,
       right: CONTENT_WIDTH_SLIM_PX,
     });
-    expect(canvasFor(1180)).toBe(2805);
+    expect(canvasFor(1180)).toBe(2809);
   });
 
   test("the two rails answer with different widths", () => {
@@ -1763,11 +1839,13 @@ describe("greed order decides which rail is the wide one", () => {
     // Fewer than two occupied slots is no seam and nothing to solve. Each
     // rail answers with its preference, held between its own bounds — not
     // with a shared number, and not with a refusal.
-    expect(solve(2605, CARDS, OVERVIEW, [{ slot: 0, width: 800 }])).toEqual({
+    expect(
+      solve(canvasFor(980), CARDS, OVERVIEW, [{ slot: 0, width: 800 }]),
+    ).toEqual({ left: 420, right: 560 });
+    expect(solve(canvasFor(980), CARDS, OVERVIEW, [])).toEqual({
       left: 420,
       right: 560,
     });
-    expect(solve(2605, CARDS, OVERVIEW, [])).toEqual({ left: 420, right: 560 });
   });
 
   test("the answer tiles the chain measured through both rails", () => {
@@ -1845,7 +1923,7 @@ describe("the stacking folds a rail is built from", () => {
     // is rank 1, so Cards drains first even though Jots alone would not
     // outrank it.
     const widths = allocateSidebarWidths({
-      canvasWidth: 880 + GAP * 4 + 1605,
+      canvasWidth: 880 + RAIL_AIR * 2 + 1605,
       kind: "two-up",
       occupied: [
         { slot: 0, width: 800 },
@@ -1859,7 +1937,7 @@ describe("the stacking folds a rail is built from", () => {
 
   test("a stacked rail never falls below any member's floor", () => {
     const widths = allocateSidebarWidths({
-      canvasWidth: 700 + GAP * 4 + 1605,
+      canvasWidth: 700 + RAIL_AIR * 2 + 1605,
       kind: "two-up",
       occupied: [
         { slot: 0, width: 800 },
@@ -1873,7 +1951,7 @@ describe("the stacking folds a rail is built from", () => {
   });
 });
 
-describe("the rails' gap count follows how many of them stand", () => {
+describe("the rails' inset count follows how many of them stand", () => {
   const THREE_UP_RUN = [
     { slot: 0, width: 800 },
     { slot: 1, width: 800 },
@@ -1881,10 +1959,11 @@ describe("the rails' gap count follows how many of them stand", () => {
   ] as const;
   const EXACT_BAND = 3 * 800 + 2 * GAP;
 
-  test("a left-only rail is solved with the left-only gap count", () => {
-    // One rail, so three gaps — not the four a bilateral deck spends.
+  test("a left-only rail is solved with the left-only inset count", () => {
+    // One rail, so one rail's air and the band's own far gap — not the two
+    // rails' air a bilateral deck spends.
     const widths = allocateSidebarWidths({
-      canvasWidth: 420 + GAP * 3 + EXACT_BAND,
+      canvasWidth: 420 + RAIL_AIR + GAP + EXACT_BAND,
       kind: "three-up",
       occupied: THREE_UP_RUN,
       rails: { left: rail({ preferredWidth: 400, minWidth: 320, greedRank: 2 }) },
@@ -1893,10 +1972,10 @@ describe("the rails' gap count follows how many of them stand", () => {
     expect(widths).toEqual({ left: 420 });
   });
 
-  test("two rails spend four gaps, and the total is what tiles", () => {
+  test("two rails spend their air twice, and the total is what tiles", () => {
     const twin = rail({ preferredWidth: 400, minWidth: 320, greedRank: 5 });
     const widths = allocateSidebarWidths({
-      canvasWidth: 840 + GAP * 4 + EXACT_BAND,
+      canvasWidth: 840 + RAIL_AIR * 2 + EXACT_BAND,
       kind: "three-up",
       occupied: THREE_UP_RUN,
       rails: { left: twin, right: { ...twin } },

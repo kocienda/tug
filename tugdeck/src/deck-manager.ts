@@ -114,6 +114,9 @@ import {
   FLOW_OFFSET_PROPERTY,
   impositionGapBottomPx,
   IMPOSITION_GAP_PX,
+  RAIL_EDGE_INSET_PX,
+  railGapBottomPx,
+  railSpanInsetPx,
   stripRevealOffset,
   railModeOf,
   withRailMode,
@@ -2938,19 +2941,21 @@ export class DeckManager implements IDeckManagerStore {
    * The vertical run a place's members stand in, in px: the canvas less the
    * gap it keeps at the top and the deeper one it keeps at the bottom.
    *
-   * One run for both kinds of place. A column and a rail divide the same
-   * vertical extent — `RAIL_RUN` in the imposer is the single expression both
-   * sets of pins are written over — so a second measurement here would be a
-   * second chance to disagree with the CSS.
+   * One measurement for both kinds of place, differing only in what the place
+   * keeps at each end: a column keeps the card gap and the bottom gap, a rail
+   * keeps the rail edge inset and the strip's clearance, which is exactly the
+   * distinction the imposer's `RAIL_RUN` and `COLUMN_RUN` draw, so the pins
+   * and this number cannot disagree with the CSS by measuring differently.
    *
    * The vertical twin of {@link _flowBandWidth}, and simpler for the reason
    * the overflow pins are simpler than the share pins: nothing insets the run.
    * A rail takes width from the band; nothing takes height from the run.
    */
-  private _placeRunHeight(): number {
-    return (
-      this.container.clientHeight - IMPOSITION_GAP_PX - impositionGapBottomPx()
-    );
+  private _placeRunHeight(kind: "column" | "rail"): number {
+    const top = kind === "rail" ? RAIL_EDGE_INSET_PX : IMPOSITION_GAP_PX;
+    const bottom =
+      kind === "rail" ? railGapBottomPx() : impositionGapBottomPx();
+    return this.container.clientHeight - top - bottom;
   }
 
   /**
@@ -2963,14 +2968,15 @@ export class DeckManager implements IDeckManagerStore {
    * keeps the deck's one measurement in one place.
    */
   getColumnRunHeight(): number | null {
-    const run = this._placeRunHeight();
+    const run = this._placeRunHeight("column");
     return run > 0 ? run : null;
   }
 
-  /** The run a rail's members stand in — {@link getColumnRunHeight}'s value
-   *  under the other place's name, because the two runs are one. */
+  /** The run a rail's members stand in — {@link getColumnRunHeight}'s twin,
+   *  measured from the rail edge inset rather than the card gap. */
   getRailRunHeight(): number | null {
-    return this.getColumnRunHeight();
+    const run = this._placeRunHeight("rail");
+    return run > 0 ? run : null;
   }
 
   /**
@@ -3008,7 +3014,7 @@ export class DeckManager implements IDeckManagerStore {
     );
     if (column === undefined || column.mode !== "split") return undefined;
     if (placeStanding(column.members.length) !== "overflow") return undefined;
-    const run = this._placeRunHeight();
+    const run = this._placeRunHeight("column");
     if (!(run > 0)) return undefined;
     const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const index = column.members.indexOf(paneId);
@@ -3060,7 +3066,7 @@ export class DeckManager implements IDeckManagerStore {
     const standing = this.deckState.columnOffsets;
     if (standing === undefined) return;
     const state = { ...this.deckState, panes, imposition };
-    const run = this._placeRunHeight();
+    const run = this._placeRunHeight("column");
     const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const columns = deckColumnsOf(state);
     const next: Record<number, number> = {};
@@ -3111,7 +3117,7 @@ export class DeckManager implements IDeckManagerStore {
    * the card goes home, the view does not.
    */
   setColumnOffset(slot: number, offset: number): void {
-    const run = this._placeRunHeight();
+    const run = this._placeRunHeight("column");
     if (!(run > 0)) return;
     const column = deckColumnsOf(this.deckState).find((c) => c.slot === slot);
     if (column === undefined || column.mode !== "split") return;
@@ -3164,7 +3170,7 @@ export class DeckManager implements IDeckManagerStore {
     if (placeStanding(order.length) !== "overflow") return undefined;
     const index = order.indexOf(componentId);
     if (index < 0) return undefined;
-    const run = this._placeRunHeight();
+    const run = this._placeRunHeight("rail");
     if (!(run > 0)) return undefined;
     const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const standing = this.deckState.railOffsets?.[side] ?? 0;
@@ -3215,7 +3221,7 @@ export class DeckManager implements IDeckManagerStore {
   ): void {
     const standing = this.deckState.railOffsets;
     if (standing === undefined) return;
-    const run = this._placeRunHeight();
+    const run = this._placeRunHeight("rail");
     const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const next: Partial<Record<SidebarSide, number>> = {};
     let changed = false;
@@ -3254,7 +3260,7 @@ export class DeckManager implements IDeckManagerStore {
    * goes home when a drag is cancelled, the view does not.
    */
   setRailOffset(side: SidebarSide, offset: number): void {
-    const run = this._placeRunHeight();
+    const run = this._placeRunHeight("rail");
     if (!(run > 0)) return;
     const imposition = this.deckState.imposition;
     if (railModeOf(imposition, side) !== "split") return;
@@ -3319,10 +3325,11 @@ export class DeckManager implements IDeckManagerStore {
    * The band the strip is seen through: the canvas, less each standing rail's
    * inset, less the chain's own gap at either end.
    *
-   * The same arithmetic {@link resolveSpan} does — one gap per occupied side,
-   * then one at each end of what is left — read off the standing rails rather
-   * than by building `SidebarRail` records to hand that function, since a
-   * rail's mode, members and seams are nothing this measurement reads.
+   * The same arithmetic {@link resolveSpan} does — {@link railSpanInsetPx} per
+   * occupied side, then one gap at each end of what is left — read off the
+   * standing rails rather than by building `SidebarRail` records to hand that
+   * function, since a rail's mode, members and seams are nothing this
+   * measurement reads.
    */
   private _flowBandWidth(
     panes: readonly TugPaneState[],
@@ -3336,7 +3343,7 @@ export class DeckManager implements IDeckManagerStore {
       for (const pane of sidePanes) {
         width = Math.max(width, paneRenderWidthOf(state, pane));
       }
-      inset += width + IMPOSITION_GAP_PX;
+      inset += railSpanInsetPx(width);
     }
     return this.container.clientWidth - inset - IMPOSITION_GAP_PX * 2;
   }

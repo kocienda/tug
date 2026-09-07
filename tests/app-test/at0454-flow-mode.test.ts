@@ -50,6 +50,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import {
+  IMPOSITION_GAP_PX,
+  RAIL_GUTTER_PX,
+} from "../../tugdeck/src/lib/layout-imposer";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -149,10 +153,10 @@ async function slotRects(
  *
  * Measured off the rail's own painted frame rather than off the
  * `--tug-imposer-inset-*` properties, because those resolve to a `calc()` over
- * the rail width property and `parseFloat` of a calc is NaN. A rail stands one
- * gap off its canvas edge and the chain is inset one more gap from it, so the
- * band ends one gap short of the rail's near edge — which is the same
- * arithmetic `resolveSpan` does, read from pixels the deck actually drew.
+ * the rail width property and `parseFloat` of a calc is NaN. The band begins
+ * one card gap in from the canvas edge and ends one rail gutter short of the
+ * rail's near edge — which is the same arithmetic `resolveSpan` does, read
+ * from pixels the deck actually drew.
  */
 async function band(app: App): Promise<{ left: number; right: number }> {
   return app.evalJS<{ left: number; right: number }>(
@@ -162,7 +166,7 @@ async function band(app: App): Promise<{ left: number; right: number }> {
       var rail = document
         .querySelector('.tug-pane[data-pane-id="pRail"]')
         .getBoundingClientRect();
-      return { left: box.left + 5, right: rail.left - 5 };
+      return { left: box.left + ${IMPOSITION_GAP_PX}, right: rail.left - ${RAIL_GUTTER_PX} };
     })()`,
   );
 }
@@ -373,7 +377,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
             var rail = document
               .querySelector('.tug-pane[data-pane-id="pRail"]')
               .getBoundingClientRect();
-            return { right: right, band: rail.left - 5 };
+            return { right: right, band: rail.left - ${RAIL_GUTTER_PX} };
           })()`,
         );
         note(
@@ -385,20 +389,20 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         ).toBeLessThanOrEqual(TOL);
 
         // ── 5. The band's edge is real ink ──────────────────────────────────
-        // A card that straddles the band's far edge paints on under the rail
-        // and, unstopped, out the far side into the margin the rail stands off
-        // the window edge, where it shows as a sliver no rail width can cover.
-        // The rail itself does the occluding — it is opaque and outranks every
-        // free card — and the margin it cannot stand in is covered by the
-        // margin cap. So the guarantee is unchanged and the element that keeps
-        // it has moved: no card ink answers in that margin, and what answers
-        // instead is the cap. The straddling card must still answer inside the
-        // band — the cap covers the overhang, never the card.
+        // A card that straddles the band's far edge paints on into the gutter
+        // between the band and the rail, where it would show as a sliver no
+        // rail width can cover: the rail stands flush to the window edge and
+        // occludes only what is under it. The gutter is covered by the rail
+        // margin — the layer that paints the whole band the rail stands in —
+        // so no card ink answers there, and what answers instead is the
+        // margin. The straddling card must still answer inside the band — the
+        // margin covers the overhang, never the card.
         const ink = await app.evalJS<{
           marginPane: string | null;
           marginCap: string | null;
           marginTag: string;
           marginCanvas: boolean;
+          marginReach: number;
           inBand: string | null;
         }>(
           `(function () {
@@ -421,23 +425,31 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
             var rail = document
               .querySelector('.tug-pane[data-pane-id="pRail"]')
               .getBoundingClientRect();
-            var marginEl = document.elementFromPoint(window.innerWidth - 2, 600);
+            // The gutter's middle: clear of the rail's own edge affordance,
+            // which hangs a few pixels past its frame.
+            var gutterX = rail.left - ${RAIL_GUTTER_PX} / 2;
+            var marginEl = document.elementFromPoint(gutterX, 600);
+            var cap = document.querySelector('[data-margin-cap="right"]');
             return {
-              marginPane: paneAt(window.innerWidth - 2, 600),
+              marginPane: paneAt(gutterX, 600),
               marginCap: marginEl === null ? null : marginEl.getAttribute("data-margin-cap"),
               marginTag: marginEl === null ? "(none)" : marginEl.tagName + "." + String(marginEl.className),
               marginCanvas:
                 marginEl !== null && marginEl.hasAttribute("data-deck-canvas-background"),
-              inBand: paneAt(rail.left - 5 - 40, 600),
+              // How far the margin reaches in from the rail's near edge: the
+              // margin spans the whole band the rail stands in, so its own
+              // edge is one gutter past the rail, at the band's edge.
+              marginReach: rail.left - cap.getBoundingClientRect().left,
+              inBand: paneAt(rail.left - ${RAIL_GUTTER_PX} - 40, 600),
             };
           })()`,
         );
         note(
-          `margin at the window edge: ${ink.marginTag} cap=${String(ink.marginCap)} canvas=${ink.marginCanvas} | pane there ${String(ink.marginPane)}`,
+          `gutter beside the rail: ${ink.marginTag} cap=${String(ink.marginCap)} canvas=${ink.marginCanvas} | pane there ${String(ink.marginPane)}`,
         );
         expect(
           ink.marginPane,
-          "the margin outside the rail shows no card ink",
+          "the gutter beside the rail shows no card ink",
         ).toBeNull();
         expect(
           ink.marginCap,
@@ -451,6 +463,10 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
           ink.inBand,
           "the straddling card still paints inside the band",
         ).not.toBeNull();
+        expect(
+          Math.round(ink.marginReach),
+          "the margin spans the rail's whole band, from the window edge to the gutter's far side",
+        ).toBe(RAIL_GUTTER_PX);
       } finally {
         await app.close();
       }

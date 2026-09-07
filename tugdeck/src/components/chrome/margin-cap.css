@@ -1,12 +1,17 @@
 /**
- * margin-cap.css — the five pixels no rail can stand in.
+ * margin-cap.css — the rail margin: the band a rail stands in.
  *
  * A flow card's ink used to stop at the band edge because a `clip-path` cut
  * it there. It stops by occlusion now: the rails are opaque, they outrank
- * every free card, and a card travelling toward one slides behind it. What a
- * rail cannot cover is the margin it stands off the window edge — `left: GAP`
- * on the left, `100% - width - GAP` on the right — which is exactly
- * `IMPOSITION_GAP_PX` wide on each side. These two elements cover it.
+ * every free card, and a card travelling toward one slides behind it. These
+ * two elements are the ground under and beside the rail — from the window
+ * edge, across the rail's edge inset, the rail itself, and its gutter, to the
+ * band the cards stand in; on a side with no rail, the band's own gap. They
+ * sit one z step below the rails, so the rail paints over its margin and the
+ * margin paints over every free card. Being the one layer that paints the
+ * rail's band, they are also where a treatment that wants to draw in the
+ * gutter or tint the margin does it: one block under `data-rail-treatment`,
+ * on this element, and no second component.
  *
  * **Each cap paints the body's own ground, grid included.** The canvas is not
  * a flat colour: `globals.css` paints `body` with the canvas token plus two
@@ -26,11 +31,13 @@
  * multiple of 24. The repair for that would be a `background-position` phrased
  * against `100vw`, which is exactly the algebra the occlusion change retired.
  *
- * The geometry is static: no `var()`, no offset term, nothing to re-resolve on
- * reflow. It inherits the retired clip's one premise — the deck canvas spans
- * the window — but inherits it far more weakly. What a violation cost the clip
- * was a sliver of card in the margin; what it costs a cap is a grid line out
- * of phase.
+ * The width is the one moving part, and it moves with the rail: the deck
+ * canvas writes it as the side's span inset plus the band gap, over the same
+ * `--tug-imposer-inset-*` property the frames read, so a rail drag re-resolves
+ * the margin in the same reflow with no measurement. The pattern's phase
+ * inherits the retired clip's one premise — the deck canvas spans the window —
+ * but inherits it far more weakly. What a violation cost the clip was a sliver
+ * of card in the margin; what it costs a cap is a grid line out of phase.
  *
  * **The cap swallows the press.** `clip-path` clipped hit-testing as well as
  * paint, so the cut-away part of a card took no clicks. A cap transparent to
@@ -50,13 +57,29 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  /* Width and z come from `deck-canvas.tsx`, which holds `IMPOSITION_GAP_PX`
-     and the z band the cap has to land between — a second copy of either here
-     would be a number that could drift from the one that decides. */
-  background-color: var(--tug7-surface-global-primary-normal-canvas-rest);
+  /* Width and z come from `deck-canvas.tsx`, which holds the rail's inset
+     property and the z band the cap has to land between — a second copy of
+     either here would be a number that could drift from the one that
+     decides. */
+  /* The canvas and grid, each declared once as a mix toward the rail tint
+     hue at the rail tint strength (`tug-pane.css` declares both on `body`).
+     At strength 0 — the shipped treatment — the mix is the bare token and the
+     margin IS the ground; a treatment that tints the margin sets a strength
+     under `data-rail-treatment` and touches neither declaration. */
+  --tugx-rail-margin-canvas: color-mix(
+    in oklch,
+    var(--tug7-surface-global-primary-normal-canvas-rest),
+    var(--tugx-rail-tint-hue) calc(var(--tugx-rail-tint) * 100%)
+  );
+  --tugx-rail-margin-grid: color-mix(
+    in oklch,
+    var(--tug7-surface-global-primary-normal-grid-rest),
+    var(--tugx-rail-tint-hue) calc(var(--tugx-rail-tint) * 100%)
+  );
+  background-color: var(--tugx-rail-margin-canvas);
   background-image:
-    linear-gradient(var(--tug7-surface-global-primary-normal-grid-rest) 1px, transparent 1px),
-    linear-gradient(90deg, var(--tug7-surface-global-primary-normal-grid-rest) 1px, transparent 1px);
+    linear-gradient(var(--tugx-rail-margin-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--tugx-rail-margin-grid) 1px, transparent 1px);
   background-size: 24px 24px;
   background-attachment: fixed;
 }

@@ -46,6 +46,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import {
+  IMPOSITION_GAP_PX,
+  RAIL_GUTTER_PX,
+} from "../../tugdeck/src/lib/layout-imposer";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -56,7 +60,7 @@ const AFTER_LAND_MS = 900;
 /** The slim content-width preset. */
 const SLIM_PX = 675;
 /** `IMPOSITION_GAP_PX` — what stands between two slots of the strip. */
-const GAP_PX = 5;
+const GAP_PX = IMPOSITION_GAP_PX;
 
 /**
  * `NSEvent.ModifierFlags` as the menu snapshot reports them: ⌃ = 1 << 18,
@@ -143,7 +147,7 @@ async function bandWidth(app: App): Promise<number> {
         .getBoundingClientRect();
       var rail = document.querySelector('.tug-pane[data-pane-id="pRail"]')
         .getBoundingClientRect();
-      return (rail.left - 5) - (box.left + 5);
+      return (rail.left - ${RAIL_GUTTER_PX}) - (box.left + ${IMPOSITION_GAP_PX});
     })()`,
   );
 }
