@@ -10,6 +10,7 @@ import {
   arcCellWord,
   arcCellTip,
   arcReading,
+  arcSessionPurpose,
   arcTrackModel,
   arcTrackSteps,
   tickState,
@@ -539,5 +540,89 @@ describe("the mark's word", () => {
       stage: "working",
     });
     expect(arcPhaseWord(stopped)).toBe("Stopped in review · needs a decision");
+  });
+});
+
+/**
+ * The description line's register: what the SESSION seated on the arc is here
+ * to do. The rung exists because a wheel-seated stage session reaches it — the
+ * two rungs above it are facts about the user typing, and a stage session's
+ * only submission is the `/tugplug:arc-…` command neither of them reads.
+ */
+describe("a seated session's purpose", () => {
+  const model = (over: Partial<ArcTrackModel>): ArcTrackModel => ({
+    direct: false,
+    planned: true,
+    phase: "implement",
+    stopped: null,
+    stoppedWhy: null,
+    live: false,
+    steps: null,
+    ...over,
+  });
+
+  // Every phase, so a phase added to the union cannot reach the description
+  // line with nothing to say — which is the failure this rung was added for.
+  const purposes: Array<[ArcPhase, string]> = [
+    ["brief", "Writing the brief"],
+    ["devise", "Devising a plan"],
+    ["review", "Reviewing the plan"],
+    ["implement", "Implementing the plan"],
+    ["audit", "Auditing the branch"],
+    ["join", "Finished — the join is next"],
+  ];
+  for (const [phase, purpose] of purposes) {
+    test(`${phase} is for ${purpose.toLowerCase()}`, () => {
+      expect(arcSessionPurpose(model({ phase }))).toBe(purpose);
+    });
+  }
+
+  // Both ways round, because a purpose is what the session is FOR and that
+  // does not change when the work pauses — unlike the cell's own reading,
+  // where two phases read differently at rest.
+  test("it reads the same live and at rest", () => {
+    for (const [phase] of purposes) {
+      expect(arcSessionPurpose(model({ phase, live: true }))).toBe(
+        arcSessionPurpose(model({ phase, live: false })),
+      );
+    }
+  });
+
+  // The one phase where the two kinds do different work under one phase word.
+  test("a plain arc walks a task list where a planned one implements a plan", () => {
+    expect(arcSessionPurpose(model({ phase: "implement", planned: false }))).toBe(
+      "Walking the task list",
+    );
+    expect(arcSessionPurpose(model({ phase: "implement", planned: true }))).toBe(
+      "Implementing the plan",
+    );
+  });
+
+  // Only at implement: the kind is what the ledger IS, and no other stage
+  // reads it.
+  test("the kind changes no other stage's sentence", () => {
+    for (const [phase, purpose] of purposes) {
+      if (phase === "implement") continue;
+      expect(arcSessionPurpose(model({ phase, planned: false }))).toBe(purpose);
+    }
+  });
+
+  // A stopped session is not doing the thing its stage is named for, and it
+  // says so in the same words the line does.
+  test("a stop outranks the purpose, in the line's own words", () => {
+    const stopped = model({ phase: "devise", stopped: "needs a decision" });
+    expect(arcSessionPurpose(stopped)).toBe("Stopped · needs a decision");
+    expect(arcSessionPurpose(stopped)).toBe(arcReading(stopped).word);
+  });
+
+  // The floor is a floor: no model reaches the description line empty.
+  test("no phase, kind, or liveness yields an empty line", () => {
+    for (const [phase] of purposes) {
+      for (const planned of [true, false]) {
+        for (const live of [true, false]) {
+          expect(arcSessionPurpose(model({ phase, planned, live })).length).toBeGreaterThan(0);
+        }
+      }
+    }
   });
 });

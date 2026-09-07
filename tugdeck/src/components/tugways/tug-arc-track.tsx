@@ -386,6 +386,53 @@ export function arcCellWord(model: ArcTrackModel): string {
   return arcReading(model).word;
 }
 
+/**
+ * What a session seated on an arc is FOR — the description line's sentence.
+ *
+ * A third register beside {@link ARC_PHASE_READINGS} and {@link
+ * ARC_CELL_PARTICIPLES}, and the one that describes the SESSION rather than
+ * the arc. The other two answer "where is this arc"; a description line
+ * answers "what is this session here to do", which is a clause rather than a
+ * word, and the two cannot be the same string: `Devising` under a title is a
+ * state, and `Devising a plan` beside a name is a purpose.
+ *
+ * It exists because a wheel-seated stage session has no other way to say it.
+ * The description ladder's upper rungs are both facts about the user typing —
+ * a synopsis composed from the session's asks, else the session's own first
+ * prompt — and a stage session's only submission is its `/tugplug:arc-…`
+ * command, which is deliberately not read as either. So every rung above this
+ * one is empty for the whole of a stage's first turn, and this is the rung
+ * that is never empty: the binding is what seated the session in the first
+ * place.
+ *
+ * The arc's NAME is not here, for {@link ArcLifecycleMark}'s reason: the
+ * identity run's own `^<arc>` is already on the line above.
+ */
+const ARC_STAGE_PURPOSES: Record<ArcPhase, string> = {
+  brief: "Writing the brief",
+  devise: "Devising a plan",
+  review: "Reviewing the plan",
+  implement: "Implementing the plan",
+  audit: "Auditing the branch",
+  join: "Finished — the join is next",
+};
+
+/**
+ * {@link ARC_STAGE_PURPOSES} for a model, with the two facts a table cannot
+ * hold. Pure.
+ *
+ * A stop outranks the purpose exactly as it does in {@link arcReading}, and in
+ * the same words, because a stopped session is not doing the thing its stage
+ * is named for. And a plain arc walks a task list rather than a plan — the one
+ * phase where the two kinds do different work under one phase word, so it is
+ * the one place the sentence reads the kind.
+ */
+export function arcSessionPurpose(model: ArcTrackModel): string {
+  if (model.stopped !== null) return `Stopped · ${model.stopped}`;
+  if (model.phase === "implement" && !model.planned) return "Walking the task list";
+  return ARC_STAGE_PURPOSES[model.phase];
+}
+
 /** {@link arcTrackModel} over a wire entry. */
 export function arcTrackModelFromEntry(entry: ArcChangesetEntry): ArcTrackModel {
   return arcTrackModel({

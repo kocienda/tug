@@ -49,14 +49,33 @@
  * picker's badges and trash, the masthead's popovers and copy handles).
  *
  * ── The description ladder ([D132]) ──────────────────────────────────────
- * The agent's rolling synopsis, else the session's own first prompt, else the
- * date it was created. The lower two are facts STANDING IN for a line nobody
- * has written yet, so they are marked and painted a step quieter.
+ * The agent's rolling synopsis, else the session's own first prompt, else what
+ * the arc it is seated on is here to do, else the date it was created. Every
+ * rung below the first is a fact STANDING IN for a line nobody has written
+ * yet, so they are marked and painted a step quieter.
  *
- * All three rungs on every surface. The Cards card carried only two, on the argument
+ * All four rungs on every surface. The Cards card carried only two, on the argument
  * that its rows are always bound live cards and so never reach the prompt rung
  * — which, if true, makes the rung free, and if false makes it the one
  * human-meaningful line the row could have shown.
+ *
+ * The arc rung ({@link arcSessionPurpose}) is the ladder's floor for the one
+ * session that can reach it, and it was added because that session was landing
+ * on the empty string. The two rungs above it are both facts about the USER
+ * typing — a synopsis composed from the session's own asks, else its first
+ * prompt — and a wheel-seated stage session has no user typing in it: its only
+ * submission is a `/tugplug:arc-…` command, which both the synopsis feed and
+ * the ledger's `last_user_prompt` deliberately decline to read as an ask. So
+ * for the whole of a stage's first turn — a devise stage IS one long first
+ * turn — the upper rungs were empty together, and the `Created …` rung under
+ * them is not a floor either: it rests on a ledger row or a replay anchor
+ * arriving on a different wire, and a just-spawned session has neither. The
+ * binding, by contrast, is the reason the session exists at all, so it is
+ * there before the first frame is.
+ *
+ * It sits BELOW the prompt rung rather than above it: a session a person bound
+ * to an arc by hand has its own ask, and what the user said outranks what the
+ * stage is named for.
  *
  * ── The activity ladder ──────────────────────────────────────────────────
  * A caller's override, else the compaction pin, else the live beat, else the
@@ -90,7 +109,10 @@ import React, {
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
-import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
+import {
+  arcSessionPurpose,
+  arcTrackModelFromEntry,
+} from "@/components/tugways/tug-arc-track";
 import { arcGlanceFraction } from "@/lib/arc-meta-facts";
 import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
 import { SessionActivitySparkline } from "@/components/tugways/session-activity-sparkline";
@@ -617,6 +639,15 @@ export function SessionIdentityRow({
   // differently.
   const storeArc = useArcForSession(arcOverride === undefined ? sessionId : null);
   const arcFact = arcOverride ?? storeArc;
+  // The track's reading of that fact, derived once for the two places that
+  // want it — the title's lifecycle mark and the description's floor rung —
+  // so a row cannot say one thing about its arc on one line and another on
+  // the next. Memoized on the wire entry, which is reference-stable across
+  // beats that do not move this arc.
+  const arcModel = React.useMemo(
+    () => (arcFact !== null ? arcTrackModelFromEntry(arcFact.entry) : null),
+    [arcFact],
+  );
   // The numerals count the declared RUN — the selection somebody asked for,
   // which is what the task list mirrors and the invocation named. The plan's
   // own pair is the track's, drawn as one tick per plan step, so nothing here
@@ -652,9 +683,11 @@ export function SessionIdentityRow({
     identity.description ??
     (prompt.length > 0
       ? prompt
-      : createdAtMs !== null
-        ? `Created ${formatRestingStamp(createdAtMs)}`
-        : "");
+      : arcModel !== null
+        ? arcSessionPurpose(arcModel)
+        : createdAtMs !== null
+          ? `Created ${formatRestingStamp(createdAtMs)}`
+          : "");
   // Flattened always, capped only where the caller asks. A prompt is the one
   // rung that can carry newlines, and a multi-line run inside a `nowrap` box
   // is a line whose break the reader cannot see.
@@ -786,13 +819,13 @@ export function SessionIdentityRow({
   //
   // The step's TITLE stays off this line — it lives in the Arcs section.
   const progress =
-    arcFact !== null ? (
+    arcFact !== null && arcModel !== null ? (
       <span
         className="session-identity-row-progress"
         data-slot="session-identity-row-progress"
       >
         <ArcLifecycleMark
-          model={arcTrackModelFromEntry(arcFact.entry)}
+          model={arcModel}
           size="read"
           name={arcFact.name}
           fraction={arcGlance}
