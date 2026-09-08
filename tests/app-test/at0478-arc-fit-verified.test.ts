@@ -67,7 +67,9 @@ const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 
 const ARC_NAME = "at0478-fit";
 const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
-const FIT_MARK = `${ROW} [data-slot="tug-arc-lifecycle-fact"][data-fact="fit"]`;
+/** The line's mark, and the sentence under the block the mark stands for. */
+const FIT_MARK = `${ROW} [data-slot="tug-arc-lifecycle-fact-mark"][data-fact="fit"]`;
+const FIT_NOTE = `${ROW} [data-slot="arc-trouble-note"][data-fact="fit"]`;
 
 /** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -257,18 +259,24 @@ describe.skipIf(!SHOULD_RUN)("AT0478: the fit an arc was verified at", () => {
           `document.querySelector(${JSON.stringify(FIT_MARK)}) !== null`,
           { timeoutMs: 30000 },
         );
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(FIT_NOTE)}) !== null`,
+          { timeoutMs: 30000 },
+        );
         const mark = await app.evalJS<{ text: string; tone: string }>(
           `(() => {
              const el = document.querySelector(${JSON.stringify(FIT_MARK)});
+             const note = document.querySelector(${JSON.stringify(FIT_NOTE)});
              return {
-               text: (el.textContent ?? "").trim(),
+               text: (note.textContent ?? "").trim(),
                tone: el.getAttribute("data-tone") ?? "",
              };
            })()`,
         );
         note(`lane fact: ${mark.text} (${mark.tone})`);
-        // On the line, `verified` is the whole of what a reader needs;
+        // Under the block, `verified` is the whole of what a reader needs;
         // "fit" is `tugtool arc verify`'s word and stays in the hover ([B07]).
+        // The line itself carries the receipt as a mark in the same tone.
         expect(mark.text).toBe("verified");
         // A quiet receipt, not a warning — the fit says; it never gates.
         expect(mark.tone).toBe("subtle");

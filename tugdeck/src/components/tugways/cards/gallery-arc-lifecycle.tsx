@@ -55,6 +55,7 @@ import "./gallery-arc-lifecycle.css";
 import React from "react";
 
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
+import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
 import {
   ArcLifecycleLine,
 } from "@/components/tugways/arc-lifecycle-line";
@@ -581,6 +582,15 @@ function blockedEntry(blocker: ArcJoinBlockerWire): ArcChangesetEntry {
 }
 
 /**
+ * The one blocked entry both faces of the last stage are drawn over — the
+ * overlap case, which is the one that still refuses. Derived once, so the two
+ * blocks standing beside each other cannot be reading two different objects.
+ */
+const BLOCKED_EXEMPLAR = blockedEntry(BLOCKED_CASES[1]!.blocker);
+const BLOCKED_MODEL = arcTrackModelFromEntry(BLOCKED_EXEMPLAR);
+const BLOCKED_FACTS = arcMetaFacts(BLOCKED_EXEMPLAR);
+
+/**
  * The session-scoped binding, projected from the entry exactly as
  * `arcSessionIndex` projects it — so the masthead is reading the same object
  * the two blocks beside it are.
@@ -982,20 +992,32 @@ export function GalleryArcLifecycle(): React.ReactElement {
             })}
           </div>
         </Stage>
-        <Stage caption="The row's whole reading, at both scales, for the case that still refuses. The register takes `blockers[0].detail` as its line — the server's own sentence, never a second copy composed here — and the fact chip counts the overlap beside it">
+        <Stage caption="The row's whole reading, for the case that still refuses, in both of the line's faces. The register takes `blockers[0].detail` as its line — the server's own sentence, never a second copy composed here. LEFT is the default: the trouble is a sentence on the line, and because it is the only run there that cannot shrink, it takes its width from the phase word beside it — which is how `Implementing` came to read `I…`. RIGHT is what a host with somewhere to put the sentences opts into: a fixed-width tone mark in the clause's slot, keeping the same stacked hover, with every applicable sentence in full below. The transcript's stage notes and the arc receipt's header keep the left face, having nothing under them to render into">
           <div className="cg-arc-surfaces">
             <div className="cg-arc-surface">
               <span className="cg-arc-surface-name">
-                Arcs card / Changes shade · ArcLifecycleBlock
+                The default · a sentence on the line
               </span>
               <ArcLifecycleBlock
                 name={BLOCKED_ARC}
                 worker={SOLO}
-                model={arcTrackModelFromEntry(
-                  blockedEntry(BLOCKED_CASES[1]!.blocker),
-                )}
-                facts={arcMetaFacts(blockedEntry(BLOCKED_CASES[1]!.blocker))}
+                model={BLOCKED_MODEL}
+                facts={BLOCKED_FACTS}
               />
+            </div>
+            <div className="cg-arc-surface">
+              <span className="cg-arc-surface-name">
+                Arcs card / Changes shade / ARC placard · the mark, and the
+                notes below
+              </span>
+              <ArcLifecycleBlock
+                name={BLOCKED_ARC}
+                worker={SOLO}
+                model={BLOCKED_MODEL}
+                facts={BLOCKED_FACTS}
+                troublePlacement="mark"
+              />
+              <ArcTroubleNotes facts={BLOCKED_FACTS} />
             </div>
           </div>
         </Stage>

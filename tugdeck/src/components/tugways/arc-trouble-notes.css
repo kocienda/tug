@@ -1,0 +1,56 @@
+/* arc-trouble-notes.css — the notes' column and the tones they wear.
+ *
+ * The rows are set at the step list's scale and in its face, because a note
+ * sits directly under those rows on two of the three surfaces and a sentence
+ * in a different size there would read as a different kind of thing. What it
+ * does NOT borrow is the step row's lead column: a note has no ordinal and no
+ * dot, so its text starts where a step's title does only by accident, and it
+ * is the tone that says which note this is.
+ *
+ * The tones are the line's, verbatim — the same icon tone tokens
+ * `.tug-arc-lifecycle-fact` takes, so one fact reads the same colour wherever
+ * it is painted.
+ *
+ * [L20] — the column and its rows only; `TugTooltip`'s own tokens are its.
+ */
+
+/* A line each, and the sentence WRAPS rather than eliding. The whole point of
+   the footer is that the trouble clause stops being squeezed, so a note that
+   ran out of room and ellipsized would give back exactly what the move
+   bought. */
+.arc-trouble-notes {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--tug-space-2xs);
+  padding-block: var(--tug-space-2xs);
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-sm);
+}
+
+/* Two surfaces, because these notes mount on both: the `ARC` placard's
+   popover and the Arcs card's and the Changes shade's own ground. A component
+   authored to mount anywhere names every ground it lands on, or the contrast
+   audit reads it against one of them.
+   @tug-renders-on: --tug7-surface-popover-primary-normal-default-rest, --tug7-surface-global-primary-normal-default-rest */
+.arc-trouble-note {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.arc-trouble-note[data-tone="danger"] {
+  color: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+.arc-trouble-note[data-tone="caution"] {
+  color: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+
+.arc-trouble-note[data-tone="muted"] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.arc-trouble-note[data-tone="subtle"] {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}

@@ -76,6 +76,7 @@ import {
 } from "@/components/tugways/tug-transcript-entry";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
+import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
 import { ArcTransportControl } from "@/components/tugways/arc-transport-control";
 import {
   TugProgressIndicator,
@@ -1387,6 +1388,7 @@ export function ArcPopoverContent({
 }): React.ReactElement {
   const steps = fact.entry.steps ?? [];
   const model = arcTrackModelFromEntry(fact.entry);
+  const facts = arcMetaFacts(fact.entry);
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   // The list below is the ledger when there is one and the task list when
   // there is not, so the row to reveal is read off whichever is rendered.
@@ -1443,7 +1445,10 @@ export function ArcPopoverContent({
             worker={fact.entry.bound_session ?? null}
             model={model}
             stepTitle={fact.stepTitle}
-            facts={arcMetaFacts(fact.entry)}
+            facts={facts}
+            // The placard has a list under the block, so the block's line
+            // carries a mark and the sentences go below in full ([B06]).
+            troublePlacement="mark"
           />
         </div>
         {steps.length > 0 ? (
@@ -1451,6 +1456,12 @@ export function ArcPopoverContent({
         ) : tasks.length > 0 ? (
           <TaskListItems tasks={tasks} idle={idle} />
         ) : null}
+        {/* Below the last step — or below the block, on an arc that has no
+            ledger of either kind yet, which is the one case where "below the
+            steps" has no steps to be below. */}
+        <div className="session-arc-popover-notes">
+          <ArcTroubleNotes facts={facts} />
+        </div>
       </TugPopupListScroller>
     </TugPopupListFrame>
   );

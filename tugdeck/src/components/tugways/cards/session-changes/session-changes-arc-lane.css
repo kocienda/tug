@@ -86,6 +86,15 @@ body {
   display: none;
 }
 
+/* What is in the arc's way, under the block and never behind the fold. At the
+   register's own indent, so the notes stand under the block's text as the
+   register does — the two are the block's further lines rather than panels
+   arriving beside it. `ArcTroubleNotes` renders nothing when there is no
+   fact, so a quiet arc pays no row. */
+.session-changes-arc-row > .arc-trouble-notes {
+  padding-inline-start: var(--tugx-arc-stack-indent);
+}
+
 /* ---- The fold ---- */
 
 /* The fold hangs on the block's own left margin — the stacked lines' indent —

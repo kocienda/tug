@@ -92,6 +92,7 @@ import { SessionChangesArcDocuments } from "./session-changes-arc-documents";
 import { SessionChangesArcBrief } from "./session-changes-arc-brief";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
+import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
 import { arcMetaFacts } from "@/lib/arc-meta-facts";
 import { compareArcEntries } from "@/lib/arc-order";
@@ -445,6 +446,9 @@ function ArcRow({
           },
   });
   const model = arcTrackModelFromEntry(entry);
+  // What is in the arc's way, derived once and shown twice: as the line's
+  // mark, and in full under the block.
+  const facts = arcMetaFacts(entry);
 
   return (
     <div
@@ -474,7 +478,10 @@ function ArcRow({
           worker={entry.bound_session ?? null}
           model={model}
           stepTitle={entry.step_title ?? null}
-          facts={arcMetaFacts(entry)}
+          facts={facts}
+          // The sentences go under the block, so the line carries a mark
+          // ([B06]) — on the rail-width row where the elision was worst.
+          troublePlacement="mark"
           trailing={
           <span className="session-changes-arc-row-trailing">
             {/* The row's rare verbs, behind one opener. Bind/Unbind and
@@ -516,6 +523,14 @@ function ArcRow({
           }
         />
       </TugListRow>
+      {/* And what is in the arc's way, in full, under the block — NEVER
+          behind the fold ([B08]). These facts are about the checkout's
+          standing against the base, which is the subject of the join, and
+          Changes is the room a join is decided in; inside
+          `session-changes-arc-detail` a collapsed row would not render them
+          at all. That is why this host shares no fold logic with the placard
+          and the Arcs card row. */}
+      <ArcTroubleNotes facts={facts} />
       {/* What the JOIN is doing, in the one shared register — the same
           sentence the Arcs card row and the composer show, because all three call
           one derivation. It states and never asks: every act in the arc lives
@@ -617,6 +632,7 @@ function DocumentArcRow({
 }): React.ReactElement {
   const asEntry = documentArcAsEntry(entry);
   const model = documentArcTrackModel(entry);
+  const facts = arcMetaFacts(asEntry);
 
   return (
     <div
@@ -636,7 +652,10 @@ function DocumentArcRow({
           name={entry.display_name}
           worker={entry.bound_session ?? null}
           model={model}
-          facts={arcMetaFacts(asEntry)}
+          facts={facts}
+          // As on a branch row: the mark on the line, the sentences below
+          // the block and never behind the fold ([B08]).
+          troublePlacement="mark"
           trailing={
             binding !== null ? (
               <TugPushButton
@@ -652,6 +671,7 @@ function DocumentArcRow({
           }
         />
       </TugListRow>
+      <ArcTroubleNotes facts={facts} />
       <div className="session-changes-arc-detail">
         <SessionChangesArcDocuments
           documents={entry.documents}

@@ -30,8 +30,14 @@
  * owner key: a bit inside a cell would be lost the moment virtualization
  * recycled it or a changeset beat replaced the row, which on a card that
  * re-projects on every beat is a row folding itself shut while you read it.
- * An arc with no steps draws the cue disabled — present, never absent, so
- * every row's chevron sits at the same edge.
+ * The fold opens over the ledger AND over what is in the arc's way — the
+ * warning and error sentences the line used to paint, which took their width
+ * from the phase word beside them. The line carries a tone mark in their slot
+ * now, and the sentences get a row each below the steps. A row with neither
+ * a ledger nor a message draws the cue disabled — present, never absent, so
+ * every row's chevron sits at the same edge — but a message alone is enough
+ * to make a row expandable, because a mark whose text nobody can reach is
+ * half a reading.
  *
  * An arc with no branch yet — a brief being written, a plan being devised or
  * reviewed — is the SAME block, over `documentArcAsEntry`, with its track
@@ -103,6 +109,7 @@ import React, {
 import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentation";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
+import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
 import { arcMetaFacts } from "@/lib/arc-meta-facts";
 import { compareArcEntries } from "@/lib/arc-order";
@@ -708,8 +715,18 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   // drawn either way and disabled when there is nothing to fold, so every row
   // in the list ends at the same edge and the column never goes ragged.
   const steps = entry.steps ?? [];
-  // The fold's hover, in the plural the count actually takes.
-  const stepsWord = `${steps.length} step${steps.length === 1 ? "" : "s"}`;
+  // What is in the arc's way, derived once: the line wears it as a mark and
+  // the fold opens over the sentences ([B06]).
+  const facts = arcMetaFacts(entry);
+  // What the fold opens over, and its hover in the plural the count takes.
+  // An arc still being briefed has no steps and may still have something in
+  // its way, and a message is enough to make the row expandable ([B07]) — so
+  // the noun follows whichever of the two the fold would show.
+  const foldNoun = steps.length > 0 ? "steps" : "notes";
+  const foldWord =
+    steps.length > 0
+      ? `${steps.length} step${steps.length === 1 ? "" : "s"}`
+      : "what is in the way";
   const expanded = dataSource.expanded.has(row.ownerId);
   // Bind / Discard / Replay, on the row's second button — the eyebrow carries
   // no opener of its own any more.
@@ -774,7 +791,11 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           worker={worker}
           model={model}
           stepTitle={entry.step_title ?? null}
-          facts={arcMetaFacts(entry)}
+          facts={facts}
+          // The row folds open to the ledger and the notes, so the line
+          // carries a mark rather than a sentence it would take the phase
+          // word's width to paint ([B06]).
+          troublePlacement="mark"
           {...(ready && register !== null
             ? {
                 note: register.line,
@@ -828,12 +849,15 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
                 onToggle={() => dataSource.toggle(row.ownerId)}
                 collapsedLabel="Expand"
                 expandedLabel="Collapse"
-                ariaLabelExpand={`Expand steps for arc ${entry.display_name}`}
-                ariaLabelCollapse={`Collapse steps for arc ${entry.display_name}`}
-                tooltip={expanded ? `Hide ${stepsWord}` : `Show ${stepsWord}`}
+                ariaLabelExpand={`Expand ${foldNoun} for arc ${entry.display_name}`}
+                ariaLabelCollapse={`Collapse ${foldNoun} for arc ${entry.display_name}`}
+                tooltip={expanded ? `Hide ${foldWord}` : `Show ${foldWord}`}
                 size="xs"
                 subtype="icon"
-                disabled={steps.length === 0}
+                // Disabled only when the fold would open over nothing at all
+                // ([B07]): a message is a reading, and an arc with one is
+                // expandable whether or not it has a ledger yet.
+                disabled={steps.length === 0 && facts.length === 0}
                 data-slot="arcs-steps-fold"
               />
             </>
@@ -854,9 +878,14 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
             about one arc's steps. Structure rather than appearance: the rows
             mount while open and unmount when folded, so an arc nobody has
             opened costs no ledger DOM at all. */}
-        {expanded && steps.length > 0 ? (
+        {expanded && (steps.length > 0 || facts.length > 0) ? (
           <span className="arcs-steps" data-slot="arcs-steps">
-            <ArcStepItems steps={steps} live={model.live} />
+            {steps.length > 0 ? <ArcStepItems steps={steps} live={model.live} /> : null}
+            {/* Below the last step, in full, one per line ([B04]) — every
+                applicable fact rather than the loudest, because the width
+                that forced one clause on the line is not a constraint here
+                ([B05]). */}
+            <ArcTroubleNotes facts={facts} />
           </span>
         ) : null}
       </span>
@@ -911,6 +940,9 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           worker={entry.bound_session ?? null}
           model={model}
           facts={arcMetaFacts(documentArcAsEntry(entry))}
+          // No mark here: a plan row has no fold and nothing below it, so the
+          // sentence stays on the line rather than being demoted to a hover
+          // with nowhere to land ([B06]).
           trailing={
             <ArcTransportControl
               arc={entry.display_name}

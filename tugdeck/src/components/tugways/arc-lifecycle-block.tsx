@@ -104,6 +104,7 @@ export function ArcLifecycleBlock({
   stepTitle,
   mark,
   facts,
+  troublePlacement,
   layout = "stack",
 }: ArcLifecycleBlockProps): React.ReactElement {
   return (
@@ -127,6 +128,7 @@ export function ArcLifecycleBlock({
         {...(stepTitle !== undefined ? { stepTitle } : {})}
         {...(mark !== undefined ? { mark } : {})}
         {...(facts !== undefined ? { facts } : {})}
+        {...(troublePlacement !== undefined ? { troublePlacement } : {})}
       />
     </span>
   );

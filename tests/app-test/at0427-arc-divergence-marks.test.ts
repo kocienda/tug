@@ -21,6 +21,8 @@
  * scratch repository this file owns, not the developer's tree.
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
+ * @covers tugdeck/src/components/tugways/arc-trouble-notes.tsx
+ * @covers tugdeck/src/components/tugways/arc-lifecycle-line.tsx
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugrust/crates/tugarc-core/src/ops.rs
  * @covers tugrust/crates/tugcast/src/feeds/base_motion.rs
@@ -57,7 +59,10 @@ const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 
 const ARC_NAME = "at0427-marks";
 const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
-const OVERLAP_MARK = `${ROW} [data-slot="tug-arc-lifecycle-fact"][data-fact="overlap"]`;
+/** The line's mark — a fixed-width glyph, whose sentence is its aria-label. */
+const OVERLAP_MARK = `${ROW} [data-slot="tug-arc-lifecycle-fact-mark"][data-fact="overlap"]`;
+/** And the sentence itself, in full, under the block and never behind a fold. */
+const OVERLAP_NOTE = `${ROW} [data-slot="arc-trouble-note"][data-fact="overlap"]`;
 
 /** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -185,13 +190,18 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the arc lane's divergence marks", () => {
           `document.querySelector(${JSON.stringify(OVERLAP_MARK)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const mark = await app.evalJS<{ text: string; tip: string }>(
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(OVERLAP_NOTE)}) !== null`,
+          { timeoutMs: 30000 },
+        );
+        const mark = await app.evalJS<{ text: string; label: string; tone: string }>(
           `(() => {
              const el = document.querySelector(${JSON.stringify(OVERLAP_MARK)});
-             const tip = el.closest("[aria-describedby], [data-state]") ?? el;
+             const note = document.querySelector(${JSON.stringify(OVERLAP_NOTE)});
              return {
-               text: (el.textContent ?? "").trim(),
-               tip: tip.getAttribute("aria-label") ?? "",
+               text: (note.textContent ?? "").trim(),
+               label: el.getAttribute("aria-label") ?? "",
+               tone: el.getAttribute("data-tone") ?? "",
              };
            })()`,
         );
@@ -200,13 +210,17 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the arc lane's divergence marks", () => {
         // number agreeing with its verb and the base spelled as the entry
         // spells it ([B07]).
         expect(mark.text).toBe("1 file also edited on main");
+        // The line says the same thing as a mark: fixed width, so it cannot
+        // take the phase word's room, and the sentence is its accessible name.
+        expect(mark.label).toBe("1 file also edited on main");
+        expect(mark.tone).toBe("caution");
 
         // The conflicted and behind marks are absent: this arc is current
         // with its base, its own worktree is clean, and nothing has attempted
         // a replay on it.
         const others = await app.evalJS<number>(
           `document.querySelectorAll(${JSON.stringify(
-            `${ROW} [data-slot="tug-arc-lifecycle-fact"]:not([data-fact="overlap"])`,
+            `${ROW} [data-slot="arc-trouble-note"]:not([data-fact="overlap"])`,
           )}).length`,
         );
         expect(others).toBe(0);
@@ -217,7 +231,8 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the arc lane's divergence marks", () => {
         // nothing left to report.
         writeFileSync(basePath(), OVERLAP_BASE);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(OVERLAP_MARK)}) === null`,
+          `document.querySelector(${JSON.stringify(OVERLAP_MARK)}) === null &&
+           document.querySelector(${JSON.stringify(OVERLAP_NOTE)}) === null`,
           { timeoutMs: 30000 },
         );
       } finally {

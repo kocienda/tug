@@ -8,11 +8,21 @@
  * reader who sees red hovers it.
  *
  * Pure, so the rule is a table rather than a screenshot.
+ *
+ * The line has two faces of that one clause: the sentence, and — on a host
+ * that renders every sentence below its steps — a tone-colored mark in its
+ * slot with the same stacked hover. Both are read off the element tree the
+ * component returns, which is legitimate here because `ArcLifecycleLine`
+ * calls no hooks: reading its output is reading what the DOM would get,
+ * without a fake DOM to render into.
  */
 
 import { describe, expect, test } from "bun:test";
 
-import { arcTroubleClause } from "@/components/tugways/arc-lifecycle-line";
+import {
+  ArcLifecycleLine,
+  arcTroubleClause,
+} from "@/components/tugways/arc-lifecycle-line";
 import { arcCellTip, arcReading, arcTrackModel } from "@/components/tugways/tug-arc-track";
 import { arcMetaFacts, PLANNED_KIND_SENTENCE, type ArcMetaFact } from "@/lib/arc-meta-facts";
 import type { ArcChangesetEntry } from "@/lib/changeset-types";
@@ -124,5 +134,107 @@ describe("a planned arc stopped in its audit", () => {
     expect(arcCellTip(model, "review", "done")).toBe("Reviewed");
     const plain = arcTrackModel({ documents: entry.documents, arcKind: "plain", steps: ledger, stage: "ready" });
     expect(arcCellTip(plain, "devise", "pending")).toBe("Not yet devised");
+  });
+});
+
+/**
+ * The two faces of the one clause: a sentence on the line, or a mark with the
+ * sentences below the steps.
+ *
+ * The mechanism the second face fixes is the first face's packing, not its
+ * wording — the sentence is `flex: 0 0 auto` and the reading beside it is the
+ * line's only elastic run, so a long fact takes the phase word down to `I…`.
+ * What is checked here is what the line EMITS, which is the whole of what the
+ * placement prop decides: which run stands in the clause's slot, whether the
+ * `·` before it is there, and that the stacked hover survives either way.
+ */
+describe("the trouble clause's placement", () => {
+  const entry = {
+    kind: "arc",
+    owner_id: "tugarc/foo#1",
+    display_name: "foo",
+    base: "main",
+    rounds: 3,
+    worktree: "/tmp/foo",
+    worktree_dirty: false,
+    files: [],
+    replay_conflict_paths: ["src/a.ts", "src/b.ts"],
+    base_overlap: ["src/c.ts"],
+  } as unknown as ArcChangesetEntry;
+  const model = arcTrackModel({
+    documents: { brief: "/b" },
+    arcKind: "plain",
+    steps: [1, 2, 3].map((n) => ({ title: `s${n}`, status: "pending" })),
+    stage: "implementing",
+  });
+  const facts = arcMetaFacts(entry);
+
+  /**
+   * Every element's props in the tree the line returns.
+   *
+   * `ArcLifecycleLine` calls no hooks, so its output is an ordinary value and
+   * walking it is reading what the DOM would get — the idiom
+   * `atom-identity-attributes.test.tsx` uses, and not a fake-DOM render.
+   */
+  function propsInTree(node: unknown, out: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> {
+    if (Array.isArray(node)) {
+      for (const child of node) propsInTree(child, out);
+      return out;
+    }
+    if (node === null || typeof node !== "object") return out;
+    const props = (node as { props?: Record<string, unknown> }).props;
+    if (props === undefined) return out;
+    out.push(props);
+    return propsInTree(props["children"], out);
+  }
+
+  const slots = (placement?: "clause" | "mark"): Array<Record<string, unknown>> =>
+    propsInTree(
+      ArcLifecycleLine({
+        model,
+        facts,
+        ...(placement !== undefined ? { troublePlacement: placement } : {}),
+      }),
+    );
+
+  const bySlot = (
+    all: Array<Record<string, unknown>>,
+    slot: string,
+  ): Record<string, unknown> | undefined => all.find((p) => p["data-slot"] === slot);
+
+  test("by default the clause is a sentence, after the separator", () => {
+    const all = slots();
+    const clause = bySlot(all, "tug-arc-lifecycle-fact");
+    expect(clause?.["children"]).toBe("2 files conflict with main");
+    expect(clause?.["data-tone"]).toBe("danger");
+    expect(bySlot(all, "tug-arc-lifecycle-sep")).toBeDefined();
+    expect(bySlot(all, "tug-arc-lifecycle-fact-mark")).toBeUndefined();
+  });
+
+  test("opted in, the clause is a mark and the separator goes with the words", () => {
+    const all = slots("mark");
+    const mark = bySlot(all, "tug-arc-lifecycle-fact-mark");
+    expect(mark?.["data-tone"]).toBe("danger");
+    expect(mark?.["data-fact"]).toBe("conflicts");
+    // The sentence is not lost — it is the mark's accessible name, and the
+    // host paints it in full below its steps.
+    expect(mark?.["aria-label"]).toBe("2 files conflict with main");
+    expect(bySlot(all, "tug-arc-lifecycle-fact")).toBeUndefined();
+    expect(bySlot(all, "tug-arc-lifecycle-sep")).toBeUndefined();
+  });
+
+  test("either face wears every applicable sentence on its hover", () => {
+    const stacked = arcTroubleClause(facts)?.tooltip;
+    for (const all of [slots(), slots("mark")]) {
+      const hover = all.filter((p) => typeof p["content"] === "string" && p["content"] === stacked);
+      expect(hover.length).toBe(1);
+      expect(stacked).toContain("Uncommitted work on main touches files this arc changes:");
+    }
+  });
+
+  test("an arc with nothing in its way paints neither face", () => {
+    const quiet = propsInTree(ArcLifecycleLine({ model, facts: [], troublePlacement: "mark" }));
+    expect(bySlot(quiet, "tug-arc-lifecycle-fact-mark")).toBeUndefined();
+    expect(bySlot(quiet, "tug-arc-lifecycle-fact")).toBeUndefined();
   });
 });

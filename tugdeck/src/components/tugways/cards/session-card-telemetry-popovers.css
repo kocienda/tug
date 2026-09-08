@@ -366,6 +366,20 @@
   padding: var(--tug-space-xs) var(--tug-space-sm);
 }
 
+/* The trouble notes, at the head's own inset so a sentence starts under the
+   block's text rather than under the popup rows' lead column. Hidden when
+   empty: the box is rendered unconditionally so the arc with no ledger still
+   has somewhere to put its sentences, and an arc with nothing in its way must
+   not pay a gutter for the box it did not fill. */
+.session-arc-popover-notes {
+  padding-inline: var(--tug-space-sm);
+  padding-block-end: var(--tug-space-xs);
+}
+
+.session-arc-popover-notes:empty {
+  display: none;
+}
+
 
 [data-slot="session-arc-popover-body"] .tug-popup-list-item-lead {
   justify-content: center;

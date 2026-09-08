@@ -111,3 +111,34 @@
 .tug-arc-lifecycle-fact[data-tone="subtle"] {
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
+
+/* The clause as a mark, on a host that renders the sentences below its steps.
+
+   Fixed width and NOT part of the baseline run: it is a graphic, so it takes
+   the container's centring like the phase glyph beside it and lands on the
+   track's cap band rather than half a line under it. The tones are the
+   clause's own, and the glyph draws in `currentColor`, so one fact reads the
+   same colour whether it is a word or a mark. */
+.tug-arc-lifecycle-fact-mark {
+  flex: 0 0 auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.tug-arc-lifecycle-fact-mark[data-tone="danger"] {
+  color: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+.tug-arc-lifecycle-fact-mark[data-tone="caution"] {
+  color: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+
+.tug-arc-lifecycle-fact-mark[data-tone="muted"] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.tug-arc-lifecycle-fact-mark[data-tone="subtle"] {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}

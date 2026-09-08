@@ -26,6 +26,39 @@ export interface ArcMetaFact {
   tone: ArcMetaTone;
 }
 
+/**
+ * The lucide glyph a mark draws, named rather than imported.
+ *
+ * A name and not a component, because this module claims to be JSX-free and a
+ * surface that reads only the numbers should not pull lucide in behind them.
+ * The component the name stands for is resolved where the mark is drawn.
+ */
+export type ArcMetaGlyph = "circle-alert" | "triangle-alert" | "circle-check";
+
+/**
+ * Which glyph a tone wears when the line draws a mark instead of a sentence
+ * ([B01]).
+ *
+ * Two of the four tones are alerts and the mark says which — a conflict
+ * somebody has to resolve takes `CircleAlert`, a warning takes
+ * `TriangleAlert`. Everything quieter is a receipt rather than an
+ * interruption, so `subtle` (the verified fit) and `muted` alike take
+ * `CircleCheck`: the slot is occupied whenever there is a fact at all
+ * ([B02]), because an empty slot would mean either "nothing to report" or
+ * "verified, all fine" and those are different facts.
+ */
+const TONE_GLYPHS: Record<ArcMetaTone, ArcMetaGlyph> = {
+  danger: "circle-alert",
+  caution: "triangle-alert",
+  muted: "circle-check",
+  subtle: "circle-check",
+};
+
+/** {@link TONE_GLYPHS} as a total function — the mark's whole reading. */
+export function arcMetaGlyph(tone: ArcMetaTone): ArcMetaGlyph {
+  return TONE_GLYPHS[tone];
+}
+
 /** At most this many paths in a fact's tooltip; the count carries the rest. */
 const FACT_TOOLTIP_PATHS = 8;
 

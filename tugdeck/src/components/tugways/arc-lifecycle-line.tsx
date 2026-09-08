@@ -20,6 +20,16 @@
  * every applicable clause's sentence is stacked into the one clause's hover,
  * and nothing is lost by painting one.
  *
+ * **And on a host that has somewhere to put the sentences, the clause is a
+ * MARK** ([B06]). A sentence here is `flex: 0 0 auto` and the reading beside
+ * it is the line's only elastic run, so any width the trouble wants is taken
+ * from the phase word, down to `I…` — the precedence backwards, the
+ * subordinate clause outbidding the subject. `troublePlacement="mark"` puts a
+ * fixed-width, tone-colored glyph in the slot instead, which cannot bid for
+ * that width whatever the fact says, and the host renders every applicable
+ * sentence in full below its steps. It is an opt-in and not a flip: a host
+ * with nothing under its block would be demoting the reading to hover.
+ *
  * The line used to append three mechanisms in source order with no
  * connective: the phase's enum key, `arcMetaFacts`' tooltip-column labels,
  * and the kind as a bare adjective. The kind is the strip's own cell set, the
@@ -62,8 +72,13 @@
 import "./arc-lifecycle-line.css";
 
 import React from "react";
+import { CircleAlert, CircleCheck, TriangleAlert, type LucideIcon } from "lucide-react";
 
-import type { ArcMetaFact } from "@/lib/arc-meta-facts";
+import {
+  arcMetaGlyph,
+  type ArcMetaFact,
+  type ArcMetaGlyph,
+} from "@/lib/arc-meta-facts";
 import { ArcPhaseMark } from "./arc-phase-mark";
 import { arcReading, TugArcTrack, type ArcTrackModel } from "./tug-arc-track";
 import { TugStepFraction } from "./tug-step-fraction";
@@ -83,6 +98,17 @@ export function arcTroubleClause(facts: readonly ArcMetaFact[]): ArcMetaFact | n
   if (facts.length === 1) return loudest;
   return { ...loudest, tooltip: facts.map((fact) => fact.tooltip).join("\n\n") };
 }
+
+/** The glyph each {@link arcMetaGlyph} name stands for, resolved here. */
+const TROUBLE_MARK_GLYPHS: Record<ArcMetaGlyph, LucideIcon> = {
+  "circle-alert": CircleAlert,
+  "triangle-alert": TriangleAlert,
+  "circle-check": CircleCheck,
+};
+
+/** A hair under the phase glyph's 11px, so the mark reads as the smaller of
+ *  the two marks on the line rather than as a second phase. */
+const TROUBLE_MARK_SIZE = 10;
 
 export interface ArcLifecycleLineProps {
   model: ArcTrackModel;
@@ -117,6 +143,27 @@ export interface ArcLifecycleLineProps {
    */
   mark?: React.ReactNode;
   facts?: readonly ArcMetaFact[];
+  /**
+   * Where the host puts what is in the arc's way ([B06]).
+   *
+   * `clause` — the loudest fact's sentence, on the line, after a `·`. The
+   * default, and the only thing a host with nothing below its block can do.
+   *
+   * `mark` — a tone-colored glyph in the clause's slot, and the sentences
+   * rendered by the host underneath, in {@link ArcTroubleNotes}. A sentence
+   * on this line is incompressible and the reading beside it is not, so a
+   * host that paints one is spending the phase word's width on a fact about
+   * the checkout; a fixed-width glyph cannot bid for that width whatever the
+   * fact says.
+   *
+   * Opt-in rather than a flip, because it is only honest for a host that
+   * HAS somewhere to put the sentences: the transcript's stage notes and the
+   * arc receipt's header are single blocks with nothing under them, and
+   * turning the clause into a glyph there would demote the reading to hover.
+   * @selector [data-trouble="clause"] | [data-trouble="mark"]
+   * @default "clause"
+   */
+  troublePlacement?: "clause" | "mark";
 }
 
 export function ArcLifecycleLine({
@@ -125,6 +172,7 @@ export function ArcLifecycleLine({
   stepTitle = null,
   mark,
   facts = [],
+  troublePlacement = "clause",
 }: ArcLifecycleLineProps): React.ReactElement {
   const steps = model.steps;
   const reading = arcReading(model);
@@ -134,6 +182,7 @@ export function ArcLifecycleLine({
     <span
       className="tug-arc-lifecycle-line"
       data-slot="tug-arc-lifecycle-line"
+      data-trouble={troublePlacement}
       data-stopped={model.stopped !== null ? "true" : undefined}
     >
       <TugArcTrack model={model} />
@@ -169,27 +218,50 @@ export function ArcLifecycleLine({
           </TugTooltip>
         ) : null}
         {trouble !== null ? (
-          <>
-            {/* The mark the join register one line below uses, between the
-              two clauses and nowhere else. */}
-            <span
-              className="tug-arc-lifecycle-sep"
-              data-slot="tug-arc-lifecycle-sep"
-              aria-hidden="true"
-            >
-              ·
-            </span>
+          troublePlacement === "mark" ? (
+            // The whole clause as one glyph, and no separator: a `·` is a
+            // connective between two runs of words, and a mark needs none
+            // between itself and the fraction. The hover is the clause's
+            // verbatim — every applicable sentence, stacked — because a host
+            // that shows its notes folded shut still owes the reading ([B09]).
             <TugTooltip content={trouble.tooltip}>
               <span
-                className="tug-arc-lifecycle-fact"
-                data-slot="tug-arc-lifecycle-fact"
+                className="tug-arc-lifecycle-fact-mark"
+                data-slot="tug-arc-lifecycle-fact-mark"
                 data-fact={trouble.key}
                 data-tone={trouble.tone}
+                role="img"
+                aria-label={trouble.label}
               >
-                {trouble.label}
+                {React.createElement(TROUBLE_MARK_GLYPHS[arcMetaGlyph(trouble.tone)], {
+                  size: TROUBLE_MARK_SIZE,
+                  "aria-hidden": true,
+                })}
               </span>
             </TugTooltip>
-          </>
+          ) : (
+            <>
+              {/* The mark the join register one line below uses, between the
+                two clauses and nowhere else. */}
+              <span
+                className="tug-arc-lifecycle-sep"
+                data-slot="tug-arc-lifecycle-sep"
+                aria-hidden="true"
+              >
+                ·
+              </span>
+              <TugTooltip content={trouble.tooltip}>
+                <span
+                  className="tug-arc-lifecycle-fact"
+                  data-slot="tug-arc-lifecycle-fact"
+                  data-fact={trouble.key}
+                  data-tone={trouble.tone}
+                >
+                  {trouble.label}
+                </span>
+              </TugTooltip>
+            </>
+          )
         ) : null}
       </span>
     </span>
