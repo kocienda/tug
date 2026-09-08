@@ -57,7 +57,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
-import { RAIL_EDGE_INSET_PX } from "../../tugdeck/src/lib/layout-imposer";
+import {
+  RAIL_EDGE_INSET_PX,
+  RAIL_SEAM_PX,
+} from "../../tugdeck/src/lib/layout-imposer";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -68,9 +71,10 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
-/** The imposition gap (`lib/layout-imposer.ts`) — the air between two split
- *  members, which is the deck's own rhythm. */
-const GAP = 5;
+/** The rail seam (`RAIL_SEAM_PX` in `lib/layout-imposer.ts`) — the air
+ *  between two split members of a rail, which is nothing: a panel's members
+ *  touch and meet at one hairline. */
+const GAP = RAIL_SEAM_PX;
 /** Where a pinned rail's run begins: the rail edge inset, not the card gap
  *  (`RAIL_EDGE_INSET_PX` in `lib/layout-imposer.ts`). */
 const RAIL_TOP = RAIL_EDGE_INSET_PX;
@@ -413,7 +417,7 @@ describe.skipIf(!SHOULD_RUN)(
             ).toBeLessThanOrEqual(EPSILON);
             expect(
               Math.abs(lower.top - upper.bottom - GAP),
-              "one imposition gap of air between them — no overlap, no chasm",
+              "the rail seam between them — no overlap, no chasm",
             ).toBeLessThanOrEqual(EPSILON);
             expect(
               Math.abs(upper.width - lower.width),
@@ -516,7 +520,7 @@ describe.skipIf(!SHOULD_RUN)(
                 Math.abs(
                   orderedAfter[1].top - orderedAfter[0].bottom - GAP,
                 ),
-                "the members still meet at exactly one gap",
+                "the members still meet at exactly the rail seam",
               ).toBeLessThanOrEqual(EPSILON);
 
               await flushSave(app);

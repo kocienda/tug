@@ -11,6 +11,7 @@ import {
   RAIL_EDGE_INSET_PROPERTY,
   RAIL_GUTTER_PX,
   RAIL_GUTTER_PROPERTY,
+  RAIL_SEAM_PX,
   railGapBottomPx,
   railSpanInset,
   railSpanInsetPx,
@@ -739,15 +740,15 @@ describe("a split rail divides the run between its members", () => {
   const split = (side: "left" | "right", index: number, count: number) =>
     imposeSidebarStyle(side, 420, { member: { side, index, count } });
 
-  test("two members meet at one seam, half a gap each side of it", () => {
+  test("two members meet at one seam, and the rail seam is nothing", () => {
     const top = split("right", 0, 2);
     const bottom = split("right", 1, 2);
     expect(top.top).toBe(EDGE);
     expect(top.bottom).toBe(
-      `calc(${RAIL_BOTTOM} + (1 - ${seam("right", 0, 0.5)}) * ${RUN} + 2.5px)`,
+      `calc(${RAIL_BOTTOM} + (1 - ${seam("right", 0, 0.5)}) * ${RUN} + ${RAIL_SEAM_PX / 2}px)`,
     );
     expect(bottom.top).toBe(
-      `calc(${EDGE} + ${seam("right", 0, 0.5)} * ${RUN} + 2.5px)`,
+      `calc(${EDGE} + ${seam("right", 0, 0.5)} * ${RUN} + ${RAIL_SEAM_PX / 2}px)`,
     );
     expect(bottom.bottom).toBe(RAIL_BOTTOM);
   });
@@ -790,7 +791,7 @@ describe("a rail of three or more overflows instead of dividing", () => {
   const RUN = `(100% - ${EDGE} - ${RAIL_BOTTOM})`;
   const MEMBER = `(${RUN} / 2.5)`;
   const strip = (count: number): string =>
-    `(${count} * ${MEMBER} + ${(count - 1) * 5}px)`;
+    `(${count} * ${MEMBER} + ${(count - 1) * RAIL_SEAM_PX}px)`;
   const offset = (side: "left" | "right", count: number): string =>
     `min(var(--tug-rail-${side}-offset, 0px), ` +
     `max(0px, ${strip(count)} - ${RUN}))`;
@@ -829,22 +830,26 @@ describe("a rail of three or more overflows instead of dividing", () => {
     }
   });
 
-  test("members stack down the strip a member plus a gap apart", () => {
-    // The seam between stacked members is the card gap, not the rail's
-    // length: a strip's rhythm is the deck's.
+  test("members stack down the strip a member plus the rail seam apart", () => {
+    // The seam between stacked members is the rail's own — nothing, so the
+    // members of a panel touch — and never the card gap.
     expect(member("right", 1, 4).top).toBe(
-      `calc(${EDGE} + 1 * (${MEMBER} + 5px) - ${offset("right", 4)})`,
+      `calc(${EDGE} + 1 * (${MEMBER} + ${RAIL_SEAM_PX}px) - ${offset("right", 4)})`,
     );
     expect(member("right", 2, 4).top).toBe(
-      `calc(${EDGE} + 2 * (${MEMBER} + 5px) - ${offset("right", 4)})`,
+      `calc(${EDGE} + 2 * (${MEMBER} + ${RAIL_SEAM_PX}px) - ${offset("right", 4)})`,
     );
   });
 
   test("the strip a member's clamp is measured against grows with the count", () => {
     // Stated in CSS, so widening the window re-resolves the ceiling in reflow
     // with no JS ([L06]) — the reason the clamp is written here at all.
-    expect(String(member("left", 0, 3).top)).toContain(`3 * ${MEMBER} + 10px`);
-    expect(String(member("left", 0, 6).top)).toContain(`6 * ${MEMBER} + 25px`);
+    expect(String(member("left", 0, 3).top)).toContain(
+      `3 * ${MEMBER} + ${2 * RAIL_SEAM_PX}px`,
+    );
+    expect(String(member("left", 0, 6).top)).toContain(
+      `6 * ${MEMBER} + ${5 * RAIL_SEAM_PX}px`,
+    );
   });
 
   test("each side's strip slides on its own property", () => {

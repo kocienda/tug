@@ -327,8 +327,13 @@ body {
  * `panel`: the rail gives up the card's whole shape. Flush to the window's
  * top and outer edge (the rail edge inset is 0 — `RAIL_EDGE_INSET_PX`), square
  * corners, no shadow, on the SUNKEN surface rather than the content surface,
- * and one `strong` hairline on its inner edge is all the frame it keeps. The
- * gutter to the first card is `RAIL_GUTTER_PX`, wider than the card gap. The
+ * and a `strong` hairline on every edge but the window's — top, bottom, and
+ * the inner edge — is all the frame it keeps. The gutter to the first card is
+ * `RAIL_GUTTER_PX`, wider than the card gap. A split rail's members touch
+ * (`RAIL_SEAM_PX` is 0) and meet at ONE hairline: every member below a seam
+ * drops its top rule, read off `data-rail-member-index`, and the member above
+ * keeps its bottom one, so the seam is the same weight as the outer rules
+ * rather than two of them stacked. The
  * contrast is one of SHAPE: a rail that is part of the window against a card
  * that floats on the paper, which no tint achieves by degree — so the tint
  * strength is 0 here, stated so the block is the whole treatment. The bar's
@@ -359,12 +364,17 @@ body {
 [data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side] .tug-pane-chrome {
   border-radius: 0;
   box-shadow: none;
-  border-width: 0 1px 0 0;
+  border-width: 1px 1px 1px 0;
 }
 
 /* Mirrored: the inner edge of a right-hand rail is its left. */
 [data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side="right"] .tug-pane-chrome {
-  border-width: 0 0 0 1px;
+  border-width: 1px 0 1px 1px;
+}
+
+/* A member below a seam: the rule at that seam is its upper neighbour's. */
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side][data-rail-member-index]:not([data-rail-member-index="0"]) .tug-pane-chrome {
+  border-top-width: 0;
 }
 
 .tug-pane-title-bar {

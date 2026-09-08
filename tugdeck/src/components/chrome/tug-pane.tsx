@@ -4343,7 +4343,14 @@ export function TugPane({
       // Which card of the rail this frame is, so a reorder can name its
       // members the way the record does — by componentId, not by pane id.
       {...(railSplit && sidebarStack !== undefined
-        ? { "data-rail-member": sidebarStack.componentId }
+        ? {
+            "data-rail-member": sidebarStack.componentId,
+            // And where it stands, top to bottom, so the panel treatment can
+            // draw one hairline at a seam rather than two: the member below
+            // a seam drops its top rule and the member above keeps its
+            // bottom one.
+            "data-rail-member-index": String(sidebarStack.memberIndex),
+          }
         : {})}
       // A member of a column that is currently divided rather than stacked — the
       // content-side sibling of `data-rail-split`, and what the column seams

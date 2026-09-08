@@ -162,6 +162,7 @@ import {
   impositionGapBottomPx,
   RAIL_EDGE_INSET_PX,
   railGapBottomPx,
+  RAIL_SEAM_PX,
   RAIL_TREATMENT,
   RAIL_TREATMENT_ATTRIBUTE,
   railSpanInset,
@@ -579,6 +580,12 @@ function placeRunBottomPx(place: SeamPlace): number {
   return place.kind === "rail" ? railGapBottomPx() : impositionGapBottomPx();
 }
 
+/** The air two of `place`'s members keep between them, in px: a rail's
+ *  members meet at nothing, a column's at the card gap. */
+function placeSeamPx(place: SeamPlace): number {
+  return place.kind === "rail" ? RAIL_SEAM_PX : IMPOSITION_GAP_PX;
+}
+
 interface PlaceSeamProps {
   place: SeamPlace;
   /** Which gap this is: the boundary between members `index` and `index + 1`. */
@@ -657,14 +664,15 @@ function PlaceSeam({
 
       // How far this seam may travel before one of the two members it divides
       // is shorter than its own floor. Each member's height is the distance
-      // between its seams less the gap they take, so each bound is that floor
-      // plus one gap, expressed as a fraction of the run.
+      // between its seams less the air they take, so each bound is that floor
+      // plus one seam, expressed as a fraction of the run.
+      const seamPx = placeSeamPx(place);
       const lower =
         (index === 0 ? 0 : startFractions[index - 1]) +
-        ((mins[index] ?? 0) + IMPOSITION_GAP_PX) / run;
+        ((mins[index] ?? 0) + seamPx) / run;
       const upper =
         (index === startFractions.length - 1 ? 1 : startFractions[index + 1]) -
-        ((mins[index + 1] ?? 0) + IMPOSITION_GAP_PX) / run;
+        ((mins[index + 1] ?? 0) + seamPx) / run;
 
       seam.setPointerCapture(event.pointerId);
       seam.setAttribute("data-gesture", "seam");
@@ -3288,7 +3296,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             const memberHeight = railRun / PLACE_OVERFLOW_VISIBLE_MEMBERS;
             const strip =
               rail.members.length * memberHeight +
-              (rail.members.length - 1) * IMPOSITION_GAP_PX;
+              (rail.members.length - 1) * RAIL_SEAM_PX;
             return {
               kind: "rail",
               side: rail.side,

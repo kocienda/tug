@@ -932,6 +932,16 @@ export const RAIL_GUTTER_PX = 12;
 export const RAIL_GUTTER_PROPERTY = "--tug-rail-gutter";
 
 /**
+ * The **rail seam**: the air between two members of a split rail, in px. Zero:
+ * the members of a panel touch, meeting at one hairline, because a gap between
+ * them would be the card gap's rhythm, and that rhythm is what content cards
+ * have and a rail does not. A column's members keep {@link IMPOSITION_GAP_PX}
+ * at their seams; this is the one place the two kinds of place divide their
+ * run differently.
+ */
+export const RAIL_SEAM_PX = 0;
+
+/**
  * The inset a standing rail contributes to the span, in px — the numeric twin
  * of {@link railSpanInset}.
  *
@@ -2966,24 +2976,30 @@ interface PlaceRun {
   bottom: string;
   /** `(100% − top − bottom)`, as one CSS expression. */
   extent: string;
+  /** The air between two neighbouring members, in px. */
+  seam: number;
 }
 
 const RAIL_RUN: PlaceRun = {
   top: RAIL_EDGE_INSET,
   bottom: RAIL_GAP_BOTTOM,
   extent: `(100% - ${RAIL_EDGE_INSET} - ${RAIL_GAP_BOTTOM})`,
+  seam: RAIL_SEAM_PX,
 };
 
 const COLUMN_RUN: PlaceRun = {
   top: GAP,
   bottom: GAP_BOTTOM,
   extent: `(100% - ${GAP} - ${GAP_BOTTOM})`,
+  seam: IMPOSITION_GAP_PX,
 };
 
-/** Half an imposition gap — each seam takes one, half from each neighbour, so
- *  the air between two split members reads as the same rhythm as every other
- *  seam on the deck. */
-const RAIL_SEAM_HALF_GAP = `${IMPOSITION_GAP_PX / 2}px`;
+/** Half the place's seam — each seam takes one, half from each neighbour, so
+ *  a column's split members read as the same rhythm as every other seam on
+ *  the deck, and a rail's meet at nothing. */
+function seamHalf(run: PlaceRun): string {
+  return `${run.seam / 2}px`;
+}
 
 /**
  * A member's `top` and `bottom` — the rail's own endpoints for the first and
@@ -3040,11 +3056,11 @@ function memberPins(
     top:
       index === 0
         ? run.top
-        : `calc(${run.top} + ${seam(index - 1)} * ${run.extent} + ${RAIL_SEAM_HALF_GAP})`,
+        : `calc(${run.top} + ${seam(index - 1)} * ${run.extent} + ${seamHalf(run)})`,
     bottom:
       index === count - 1
         ? run.bottom
-        : `calc(${run.bottom} + (1 - ${seam(index)}) * ${run.extent} + ${RAIL_SEAM_HALF_GAP})`,
+        : `calc(${run.bottom} + (1 - ${seam(index)}) * ${run.extent} + ${seamHalf(run)})`,
   };
 }
 
@@ -3121,10 +3137,10 @@ function overflowMemberHeight(run: PlaceRun): string {
   return `(${run.extent} / ${PLACE_OVERFLOW_VISIBLE_MEMBERS})`;
 }
 
-/** The strip `count` overflowing members make: their heights plus the gap
+/** The strip `count` overflowing members make: their heights plus the seam
  *  standing between each neighbouring pair. */
 function overflowStripHeight(count: number, run: PlaceRun): string {
-  return `(${count} * ${overflowMemberHeight(run)} + ${(count - 1) * IMPOSITION_GAP_PX}px)`;
+  return `(${count} * ${overflowMemberHeight(run)} + ${(count - 1) * run.seam}px)`;
 }
 
 /**
@@ -3159,7 +3175,7 @@ function overflowPins(
   const advance =
     member.index === 0
       ? "0px"
-      : `${member.index} * (${height} + ${GAP})`;
+      : `${member.index} * (${height} + ${run.seam}px)`;
   // The bottom pin is the top pin's complement — `100% − top − height` — so
   // the run's own top is what it subtracts, not the deeper bottom gap.
   return {

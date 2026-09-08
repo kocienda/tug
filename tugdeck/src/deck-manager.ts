@@ -116,6 +116,7 @@ import {
   IMPOSITION_GAP_PX,
   RAIL_EDGE_INSET_PX,
   railGapBottomPx,
+  RAIL_SEAM_PX,
   railSpanInsetPx,
   stripRevealOffset,
   railModeOf,
@@ -3175,10 +3176,10 @@ export class DeckManager implements IDeckManagerStore {
     const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const standing = this.deckState.railOffsets?.[side] ?? 0;
     const next = stripRevealOffset({
-      stripStart: index * (memberHeight + IMPOSITION_GAP_PX),
+      stripStart: index * (memberHeight + RAIL_SEAM_PX),
       extent: memberHeight,
       stripLength:
-        order.length * memberHeight + (order.length - 1) * IMPOSITION_GAP_PX,
+        order.length * memberHeight + (order.length - 1) * RAIL_SEAM_PX,
       band: run,
       offset: standing,
     });
@@ -3238,7 +3239,7 @@ export class DeckManager implements IDeckManagerStore {
       }
       const clamped = clampStripOffset(
         offset,
-        count * memberHeight + (count - 1) * IMPOSITION_GAP_PX,
+        count * memberHeight + (count - 1) * RAIL_SEAM_PX,
         run,
       );
       if (clamped !== offset) changed = true;
@@ -3269,7 +3270,7 @@ export class DeckManager implements IDeckManagerStore {
     const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const clamped = clampStripOffset(
       offset,
-      count * memberHeight + (count - 1) * IMPOSITION_GAP_PX,
+      count * memberHeight + (count - 1) * RAIL_SEAM_PX,
       run,
     );
     const standing = this.deckState.railOffsets?.[side] ?? 0;
