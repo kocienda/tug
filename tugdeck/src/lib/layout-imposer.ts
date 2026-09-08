@@ -2362,12 +2362,23 @@ export function allocateSidebarWidths(input: AllocatorInput): RailWidths | null 
     if (still > 0) waterFill(widths, rails, still, false, (rail) => rail.floor);
   }
 
-  // Rounding leaves at most one pixel per rail on the table. It is left with
-  // the band's travel rather than redistributed: a pixel of seam slack is
-  // invisible, and a redistribution pass is complexity with no picture to buy.
+  // The rounding CONSERVES THE TOTAL. Two rails of equal rank split a tier's
+  // share evenly, so an odd total leaves each of them on a half — and rounding
+  // each on its own rounds both the same way, answering a pixel off the total
+  // the sweep chose. In fit a pixel of seam slack was invisible; in flow the
+  // total was chosen to land the band on a slot boundary, and a pixel off it
+  // is a hairline of a card, the exact thing the choice paid for. So each
+  // rail's rounding carries its fraction into the next: the sum of the answer
+  // is the sum of the widths, and the last rail's answer is the total less the
+  // rest, which lies within its bounds because those are integers and its
+  // exact width was inside them.
   const answer: RailWidths = {};
+  let carried = 0;
   for (const rail of rails) {
-    answer[rail.side] = Math.round(widths.get(rail.side) as number);
+    const exact = (widths.get(rail.side) as number) + carried;
+    const rounded = Math.round(exact);
+    carried = exact - rounded;
+    answer[rail.side] = rounded;
   }
   return answer;
 }
@@ -2438,11 +2449,20 @@ function waterFill(
  *
  * **In fit:** occlusion, then cramping, then the rails' comfort, then
  * raggedness, then distance from the widths the user chose. **In flow:** the
- * cut the band's far edge makes, then comfort, then that same distance. The
+ * cut the band's far edge leaves when the boundary is not paid for — zero for
+ * a candidate that ends the band on a boundary within
+ * {@link RAIL_BOUNDARY_BUDGET_PX} — then comfort, then that same distance. The
  * modes score different things because they can fail in different ways, and
  * each key ends on the same last term — which is what makes every answer
  * unique, and breaks every remaining tie toward leaving the rails where their
  * owner put them.
+ *
+ * Flow's first term is a PRICE decision, not a grade. A boundary is bought
+ * when it is within budget, whatever the cut it removes measures; a boundary
+ * beyond the budget is not bought, whatever the cut it would have removed
+ * measures. Comfort sits below it, so a boundary that costs a rail its
+ * comfort but not its hard floor is still bought — the floors bound the sweep
+ * and are never on the menu at all.
  *
  * ## The content cards are laid out first
  *
@@ -2484,10 +2504,16 @@ function scoreRailTotal(
   input: AllocatorInput,
   chain: readonly { slot: number; width: number }[],
   total: number,
-  sides: readonly SidebarSide[],
-  preferredTotal: number,
-  comfortTotal: number,
+  totals: {
+    sides: readonly SidebarSide[];
+    preferredTotal: number;
+    comfortTotal: number;
+    /** Flow only: the cut the band makes at Σ preferred — what the deck keeps
+     *  if no boundary is paid for. Read once by the chooser, not per candidate. */
+    unpaidCut: number;
+  },
 ): readonly number[] {
+  const { sides, preferredTotal, comfortTotal, unpaidCut } = totals;
   const widths: RailWidths = {};
   for (const side of sides) widths[side] = total / sides.length;
   const distance = Math.abs(total - preferredTotal);
@@ -2496,11 +2522,26 @@ function scoreRailTotal(
   // so a deck that reads well is decided by the last term alone.
   const discomfort = Math.max(0, comfortTotal - total);
   if (impositionLayout(input) === "flow") {
-    return [
-      hairlineOf(sliverOfChain(input, chain, widths).worstSliver),
-      discomfort,
-      distance,
-    ];
+    // A candidate that ends the band on a boundary, and does so within the
+    // budget, has PAID for it and reads 0. Every other candidate reads the cut
+    // the deck keeps when nothing is paid — the same number for all of them —
+    // so that among the unpaid the comfort and distance terms decide, and the
+    // rails stay where their owner put them.
+    //
+    // The unpaid reading is a DECK-LEVEL constant rather than each candidate's
+    // own sliver, and that is the whole of the budget's authority. A
+    // per-candidate residual, minimised or maximised, is the objective this
+    // replaced: it is nonzero at nearly every total, so it governs always, and
+    // it drags a rail across its range chasing a cut it can only ever move.
+    // With the term flat off the boundaries, the only thing rail width is ever
+    // spent on in flow is a boundary, and the only question is whether that
+    // boundary is within budget. There is no threshold: a 3px hairline and a
+    // 300px slice are the same kind of thing here, a cut, and each is repaired
+    // or left exactly as its boundary's price says.
+    const paid =
+      distance <= RAIL_BOUNDARY_BUDGET_PX &&
+      sliverOfChain(input, chain, widths).worstSliver === 0;
+    return [paid ? 0 : unpaidCut, discomfort, distance];
   }
   const picture = pictureOfChain(input, chain, widths);
   return [
@@ -2543,8 +2584,25 @@ function chooseRailTotal(
   },
 ): number {
   const { floorTotal, comfortTotal, ceilingTotal, preferredTotal, sides } = totals;
+  // Flow's rest reading: the cut the band makes at the widths the user chose,
+  // which is what every candidate that pays for no boundary is scored as.
+  // Read once here rather than once per candidate — the sweep below evaluates
+  // the strip several hundred times and this number is the same at each.
+  const unpaidCut =
+    impositionLayout(input) === "flow"
+      ? (() => {
+          const widths: RailWidths = {};
+          for (const side of sides) widths[side] = preferredTotal / sides.length;
+          return sliverOfChain(input, chain, widths).worstSliver;
+        })()
+      : 0;
   const score = (total: number): readonly number[] =>
-    scoreRailTotal(input, chain, total, sides, preferredTotal, comfortTotal);
+    scoreRailTotal(input, chain, total, {
+      sides,
+      preferredTotal,
+      comfortTotal,
+      unpaidCut,
+    });
 
   // EVERY integer total, in one ascending pass. A rail stands between its hard
   // floor and the shared ceiling, so the range is at most a thousand numbers
@@ -2759,8 +2817,57 @@ export function seamPicture(
 }
 
 /**
+ * How far the rails may move, in total width, to end the band on a slot
+ * boundary — the one tunable in the flow objective.
+ *
+ * A boundary whose price is within this many pixels of rail is paid for; one
+ * beyond it is left alone, and the cut the band makes is an honest slice of a
+ * card, never a manufactured one. The number answers a question a person can
+ * reason about — "how far may a rail move to end the band cleanly" — and it
+ * caps the spend absolutely: the pathology this replaced, a rail dragged from
+ * the 420px its owner set to its 675px ceiling to take a 316px cut down to
+ * 61px, cannot recur under a cap because that move is not inside any budget.
+ *
+ * Priced on the rails' TOTAL, which is the quantity the band depends on. In
+ * practice the greed order hands a surplus or a deficit to one rail at a time,
+ * so a total moved by this much is, on nearly every deck, one rail moved by
+ * this much.
+ *
+ * **Absolute, not a fraction of the rails' range**, and 120 — settled by
+ * sweeping the three-up and four-up decks at Slim and Comfy, with one rail and
+ * with two (each preferring 420 over a 320 floor under the 675 ceiling, so a
+ * rail's range is 355), every ten pixels of canvas from 1200 to 4000, and
+ * reading which boundaries each form of budget takes. The bar: take the 39px
+ * and 79px boundaries the clipped-card sweep found, refuse the 316px one.
+ *
+ * | form                          | budget one / two rails | takes ~39 | takes ~79 | refuses 316 | dearest taken |
+ * |-------------------------------|------------------------|-----------|-----------|-------------|---------------|
+ * | absolute 100                  | 100 / 100              | yes       | yes       | yes         | 98 / 99       |
+ * | absolute 120                  | 120 / 120              | yes       | yes       | yes         | 118 / 119     |
+ * | absolute 140                  | 140 / 140              | yes       | yes       | yes         | 138 / 139     |
+ * | ⅕ of Σ (ceiling − floor)      | 71 / 142               | yes       | one rail: NO | yes      | 68 / 141      |
+ * | ¼ of Σ (ceiling − floor)      | 89 / 178               | yes       | yes       | yes         | 88 / 176      |
+ *
+ * A fraction scales with the rail count, and that is the wrong axis: the band
+ * depends on the rails' TOTAL, so a boundary 78px away costs 78px of rail
+ * whether one rail stands or two, and a budget that refuses it on a one-rail
+ * deck and pays twice as much on a two-rail deck is answering a question about
+ * the rails when the question is about the cards. A fraction large enough to
+ * take the one-rail 78 (a quarter) pays up to 176px on two rails — half the
+ * distance to the 316px pathology. The absolute number reads the same in every
+ * golden row, and 120 sits where the sweep's price ladder has a clear step:
+ * every boundary under it is a few tens of pixels the eye reads as the rail
+ * settling, and the first refused ones are a hundred and more.
+ *
+ * Its feel in the app is the user's to confirm; the census holds it above the
+ * readable minimum either way.
+ */
+export const RAIL_BOUNDARY_BUDGET_PX = 120;
+
+/**
  * How the chain reads **in flow**: the smaller of the two pieces the band's far
- * edge cuts a slot into, and `0` when it cuts none.
+ * edge cuts a slot into, `0` when it cuts none — and, when it does cut one, the
+ * price of each of the two boundaries in rail width.
  *
  * Flow's failure is not the one the three readings above measure, and it cannot
  * be. Every flow seam is exactly {@link IMPOSITION_GAP_PX} by construction —
@@ -2772,19 +2879,22 @@ export function seamPicture(
  * edge falls wherever the rails' width leaves it. In fit it cannot go wrong at
  * all, because `imposeRect` pins every card inside the band.
  *
- * This is the raw measurement, and it is deliberately not the score:
+ * `worstSliver` is the raw measurement, and it is deliberately not the score:
  *
  *  - **`0` is a boundary.** The edge landed on a slot's near or far edge, or in
  *    the gap between two slots, or past the strip's end. Nothing is cut.
- *  - **A small reading is a hairline** — a sliver of a card peeking past the
- *    band, or a sliver of it hidden — and it is a few pixels of rail away from
- *    a boundary, which is exactly what the scan will find.
- *  - **The largest reading is a card cut near its middle**, the furthest from a
- *    boundary in either direction, and a perfectly good overflow affordance.
+ *  - **Any other reading is a cut**, and every cut has two boundaries in closed
+ *    form: `growPrice` is how much wider the rails' total must stand for the
+ *    band to end on the cut slot's near edge, and `shrinkPrice` how much
+ *    narrower for it to reach the far edge — which, on the last slot, is the
+ *    strip's own end, where the whole of it shows. The smaller of the two is
+ *    the sliver itself; the objective reads them as prices and the census reads
+ *    them as its oracle. Both are `null` when nothing is cut.
  *
- * {@link hairlineOf} is what grades it for the objective, and the reason the
- * grading exists is written there. Kept honest here so the golden tables and
- * the tests can read the real number rather than the judgement of it.
+ * The prices are raw: measured from `widths`, and bounded by nothing. Whether a
+ * boundary's total is one the rails may legally stand at is the sweep's
+ * business, and whether it is within budget is the score's
+ * ({@link RAIL_BOUNDARY_BUDGET_PX}).
  *
  * The measure is SYMMETRIC on purpose. Three pixels of a card showing and three
  * pixels of it hidden are the same ugliness and the same three pixels of rail
@@ -2797,52 +2907,23 @@ export function seamPicture(
  * revealed offset is a multiple of it, and an edge on a boundary at rest is on
  * a boundary at every revealed offset.
  */
-/**
- * The narrowest strip of a card that still reads as a card.
- *
- * Below this, what the band leaves showing is a pane's rounded corner and the
- * edge of its shadow — chrome, with no content in it — and it reads as a
- * rendering artifact rather than as the next card in the chain. That is the
- * thing worth spending rail width to remove, and it is the whole of it.
- *
- * A tunable, and the only number in the flow objective.
- */
-export const SLIVER_PX = 32;
-
-/**
- * The part of a cut that is worth moving the rails for: a hairline, and zero
- * for everything else.
- *
- * **This threshold is what keeps the objective honest, and it is not a fudge.**
- * The fit key's first three terms are BREAKAGE readings — a chain that is not
- * occluded and not cramped scores zero on all three — so the distance from the
- * widths the user chose governs every deck that already reads well, and the
- * rails stay where their owner put them. A raw sliver has no such rest state:
- * it is nonzero at nearly every candidate total, so it would govern always, and
- * the allocator would drag a rail across its whole range chasing a cut it can
- * only ever shrink. It did exactly that before this existed — a two-card wide
- * deck whose nearest boundary sat past the rail ceiling had the rail pushed
- * from the 420px its owner set to its 675px maximum, to take a 316px cut down
- * to 61px. Still cut, still not a boundary, and the user's rail gone.
- *
- * So the reading is graded rather than minimised, and it has a rest state like
- * fit's: a boundary is clean, an honest slice of a card is clean, and only the
- * hairline between them is a defect. That restores the property the fit key
- * relies on — the picture term is zero on a deck that reads well, so the last
- * term decides, and the answer is the width the user asked for.
- */
-export function hairlineOf(worstSliver: number): number {
-  return worstSliver > 0 && worstSliver < SLIVER_PX ? worstSliver : 0;
-}
-
 export function stripPicture(
   input: AllocatorInput,
   widths: RailWidths,
-): { worstSliver: number } {
+): StripPicture {
   const chain = chainOf(input);
-  if (chain === null || chain.length === 0) return { worstSliver: 0 };
+  if (chain === null || chain.length === 0) return UNCUT;
   return sliverOfChain(input, chain, widths);
 }
+
+/** What {@link stripPicture} reads: the cut, and the price of each way out. */
+export interface StripPicture {
+  worstSliver: number;
+  growPrice: number | null;
+  shrinkPrice: number | null;
+}
+
+const UNCUT: StripPicture = { worstSliver: 0, growPrice: null, shrinkPrice: null };
 
 /**
  * {@link stripPicture} with the chain already in hand — the form the total
@@ -2852,7 +2933,7 @@ function sliverOfChain(
   input: AllocatorInput,
   chain: readonly { slot: number; width: number }[],
   widths: RailWidths,
-): { worstSliver: number } {
+): StripPicture {
   // The band is the span less the gap the chain keeps at each of its ends —
   // the same derivation `DeckManager._flowBandWidth` makes from the same
   // `resolveSpan`, rather than a second one that would agree with it by luck.
@@ -2860,7 +2941,7 @@ function sliverOfChain(
     resolveSpan({ width: input.canvasWidth, height: 0 }, railsOf(widths))
       .width -
     IMPOSITION_GAP_PX * 2;
-  if (!Number.isFinite(band) || band <= 0) return { worstSliver: 0 };
+  if (!Number.isFinite(band) || band <= 0) return UNCUT;
 
   const strip = flowStripPositions(
     chain,
@@ -2869,7 +2950,7 @@ function sliverOfChain(
       : { count: slotCount(input.kind), extent: input.emptyExtent },
   );
   // A strip inside its band has no far edge to cut anything with.
-  if (strip.width <= band) return { worstSliver: 0 };
+  if (strip.width <= band) return UNCUT;
 
   for (const [slot, left] of strip.positions) {
     const extent = strip.extents.get(slot) as number;
@@ -2877,11 +2958,19 @@ function sliverOfChain(
     // before it, and one exactly on its far edge belongs to the next gap. Both
     // are boundaries, and both must read as 0 rather than as a zero-width cut.
     if (band > left && band < left + extent) {
-      return { worstSliver: Math.min(band - left, left + extent - band) };
+      // The band shrinks by exactly what the rails grow, so the distance from
+      // the edge to each boundary IS the rail movement that reaches it.
+      const growPrice = band - left;
+      const shrinkPrice = left + extent - band;
+      return {
+        worstSliver: Math.min(growPrice, shrinkPrice),
+        growPrice,
+        shrinkPrice,
+      };
     }
   }
   // The edge fell in a gap between two slots, or past the last one.
-  return { worstSliver: 0 };
+  return UNCUT;
 }
 
 /**

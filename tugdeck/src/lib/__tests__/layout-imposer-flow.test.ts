@@ -17,11 +17,14 @@
  *     MINIMAL move that brings the active card in, and no move at all when it
  *     is already there. The second half matters as much as the first — an
  *     activation that reveals nothing must commit no geometry.
- *  3. **The allocator degenerates.** Every flow seam is the imposition gap by
- *     construction, so the lexicographic objective collapses to its last term
- *     and every rail keeps its preferred width. The test below drives a
- *     configuration where fit drains a rail, so the short-circuit is asserted
- *     to be doing work rather than agreeing by luck.
+ *  3. **The allocator prices the band's far edge.** Every flow seam is the
+ *     imposition gap by construction, so the only thing the rails can get
+ *     wrong is where the band ends. A cut has two boundaries in closed form,
+ *     each with a price in rail width; one within `RAIL_BOUNDARY_BUDGET_PX` is
+ *     bought, and otherwise the rails stay where their owner put them and the
+ *     cut is an honest slice. The tests below drive a hairline that is bought,
+ *     a clipped card that the retired threshold manufactured and the price
+ *     repairs, and a wide cut whose boundary no budget reaches.
  *
  * Regenerate the golden deliberately:
  *
@@ -50,9 +53,8 @@ import {
   stripCenterOffset,
   flowStripPositions,
   vacancyExtent,
-  hairlineOf,
   imposeStyle,
-  SLIVER_PX,
+  RAIL_BOUNDARY_BUDGET_PX,
   impositionLayout,
   stripPicture,
   FLOW_OFFSET_PROPERTY,
@@ -783,13 +785,14 @@ describe("the allocator in flow", () => {
     expect(answer.left).toBeGreaterThanOrEqual(380);
   });
 
-  test("an honest slice of a card is not a defect, and costs the rails nothing", () => {
+  test("a boundary beyond the budget is not bought, and the slice it leaves is honest", () => {
     // Two WIDE cards (strip 2465) seen through a canvas whose nearest boundary
-    // needs a 736px rail — past the 675px ceiling, so no boundary is reachable
-    // at all. Minimising the cut would drag the rail from the 420 its owner set
-    // to its 675 maximum to take 316px down to 61px: still cut, still not a
-    // boundary, and the user's rail gone. A slice this size reads as the next
-    // card, so it is not a defect, and the rails stay where they were put.
+    // needs a 736px rail — 316px of rail away, past the 675px ceiling and far
+    // past the budget, so no boundary is affordable at all. Minimising the cut
+    // would drag the rail from the 420 its owner set to its 675 maximum to take
+    // 316px down to 61px: still cut, still not a boundary, and the user's rail
+    // gone. Under the budget that move is simply not on offer: the rails stay
+    // where they were put, and the slice reads as the next card.
     const wideDeck: AllocatorInput = {
       canvasWidth: 1986,
       kind: "two-up",
@@ -808,16 +811,54 @@ describe("the allocator in flow", () => {
       },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
     };
+    const picture = stripPicture(wideDeck, { left: 420 });
+    expect(
+      Math.min(picture.growPrice as number, picture.shrinkPrice as number),
+      "the premise: the cheapest boundary is beyond the budget",
+    ).toBeGreaterThan(RAIL_BOUNDARY_BUDGET_PX);
     const answer = allocateSidebarWidths(wideDeck) as RailWidths;
     expect(answer.left).toBe(420);
     expect(
-      hairlineOf(stripPicture(wideDeck, answer).worstSliver),
-      "graded clean: a slice this wide is a card, not an artifact",
-    ).toBe(0);
-    expect(
       stripPicture(wideDeck, answer).worstSliver,
-      "and the raw measurement still reports what it really is",
-    ).toBeGreaterThan(SLIVER_PX);
+      "the cut is reported as what it is, and it is wider than any budget",
+    ).toBeGreaterThan(RAIL_BOUNDARY_BUDGET_PX);
+  });
+
+  test("a boundary a few tens of pixels away is bought, whatever the cut measures", () => {
+    // The row that was clipping a card in the app. Three slim cards (strip
+    // 2035) behind two rails of 420: the band at those widths is 2006 and the
+    // strip runs 29px past it. Under the retired threshold a 29px cut was a
+    // "hairline" and the rails were WIDENED until it read 32 — the cheapest
+    // move that cleared the threshold, and a manufactured slice the reader
+    // sees as a clipped card. The boundary is 29px of rail the other way.
+    const clipping: AllocatorInput = {
+      canvasWidth: 2870,
+      kind: "three-up",
+      layout: "flow",
+      occupied: [0, 1, 2].map((slot) => ({ slot, width: CONTENT_WIDTH_SLIM_PX })),
+      rails: {
+        left: { preferredWidth: 420, minWidth: 320, comfortWidth: 380, greedRank: 1 },
+        right: { preferredWidth: 420, minWidth: 320, comfortWidth: 320, greedRank: 2 },
+      },
+      maxRailWidth: CONTENT_WIDTH_SLIM_PX,
+    };
+    const before = stripPicture(clipping, { left: 420, right: 420 });
+    expect(before.worstSliver, "the premise: 29px of the third card is cut").toBe(29);
+    expect(before.shrinkPrice, "and the strip fits if the rails give up 29px").toBe(29);
+    const answer = allocateSidebarWidths(clipping) as RailWidths;
+    expect(
+      (answer.left as number) + (answer.right as number),
+      "the rails give up exactly that",
+    ).toBe(840 - 29);
+    expect(stripPicture(clipping, answer).worstSliver).toBe(0);
+
+    // Ten pixels wider, the cut is 39: not a hairline by any threshold, and
+    // still 39px of rail from a boundary. The threshold left it; the price
+    // takes it.
+    const wider = { ...clipping, canvasWidth: 2860 };
+    expect(stripPicture(wider, { left: 420, right: 420 }).worstSliver).toBe(39);
+    const answerWider = allocateSidebarWidths(wider) as RailWidths;
+    expect(stripPicture(wider, answerWider).worstSliver).toBe(0);
   });
 
   test("flow surrenders comfort only to reach a boundary it otherwise cannot", () => {

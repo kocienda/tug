@@ -37,9 +37,8 @@ import {
   IMPOSITION_GAP_PX,
   IMPOSITION_KINDS,
   allocateSidebarWidths,
-  hairlineOf,
+  RAIL_BOUNDARY_BUDGET_PX,
   seamPicture,
-  SLIVER_PX,
   slotCount,
   solveSidebarWidths,
   stripPicture,
@@ -833,9 +832,10 @@ describe("the allocator's solution space", () => {
 
   test("the flow scan finds what a 1px exhaustive search finds", () => {
     // The fit cross-check above, run against flow's own objective. Flow scores
-    // one term rather than three — the cut the band's far edge makes — and
-    // ends on the same distance-from-preferred tiebreak, so the same
-    // coarse-to-fine stride has to be shown to find the same answer here too.
+    // one picture term rather than three — whether the candidate bought a
+    // boundary within budget — then comfort, then the same
+    // distance-from-preferred tiebreak, so the same exhaustive sweep has to be
+    // shown to find the same answer here too.
     let compared = 0;
     let repaired = 0;
     for (const kind of IMPOSITION_KINDS) {
@@ -868,20 +868,22 @@ describe("the allocator's solution space", () => {
             );
 
             const sliverAt = (total: number): number =>
-              hairlineOf(stripPicture(input, spread(total, sides)).worstSliver);
-            // Flow's two tiers: a boundary, or a cut. Comfort is surrendered
-            // only to cross between them — the same rule fit applies over its
-            // three, and the same domain choice made from it.
-            const domainLow =
-              sliverAt(comfortTotal) > 0 && sliverAt(floorTotal) === 0
-                ? floorTotal
-                : comfortTotal;
+              stripPicture(input, spread(total, sides)).worstSliver;
+            // The key as written down: a boundary bought within budget reads
+            // 0, everything else reads the cut the deck keeps at Σ preferred,
+            // then comfort, then distance. Written independently of the
+            // solver's own, over the whole legal range.
+            const unpaid = sliverAt(preferredTotal);
             const key = (total: number): readonly number[] => [
-              sliverAt(total),
+              Math.abs(total - preferredTotal) <= RAIL_BOUNDARY_BUDGET_PX &&
+              sliverAt(total) === 0
+                ? 0
+                : unpaid,
+              Math.max(0, comfortTotal - total),
               Math.abs(total - preferredTotal),
             ];
-            let best = key(domainLow);
-            for (let t = domainLow + 1; t <= ceilingTotal; t += 1) {
+            let best = key(floorTotal);
+            for (let t = floorTotal + 1; t <= ceilingTotal; t += 1) {
               const candidate = key(t);
               for (let i = 0; i < candidate.length; i += 1) {
                 if (candidate[i] === best[i]) continue;
@@ -891,31 +893,40 @@ describe("the allocator's solution space", () => {
             }
             const scored = key(chosen);
             const where = `${kind}/${occupancy.name}/${fixture.name}@${canvasWidth}`;
-            // Same rounding allowance the fit cross-check makes: the solver
-            // leaves at most a pixel per rail with the band's travel.
+            // The first term is a decision, not a measure, so no rounding
+            // allowance applies to it: the solver either bought the boundary
+            // the exhaustive sweep found or it did not. The rounding residual
+            // the solver leaves with the band's travel — at most a pixel per
+            // rail — can only move a boundary total by that much, and a paid
+            // boundary is read at the widths actually answered.
             expect(
-              scored[0],
-              `${where}: the flow scan's cut is no worse than exhaustive`,
-            ).toBeLessThanOrEqual(best[0] + sides.length);
-            if (best[0] === 0) repaired += 1;
+              scored[0] === 0 || best[0] !== 0,
+              `${where}: the exhaustive sweep bought a boundary (cut ${unpaid} at preferred) and the solver did not`,
+            ).toBe(true);
+            if (best[0] === 0 && unpaid > 0) repaired += 1;
             compared += 1;
           }
         }
       }
     }
     expect(compared).toBeGreaterThan(1_000);
-    // The premise: on most of this space a boundary IS reachable, so the
-    // assertion above is doing work rather than agreeing that nothing can be
-    // fixed anywhere.
-    expect(repaired).toBeGreaterThan(compared / 2);
+    // The premise: on thousands of these points a cut deck HAD a boundary
+    // within budget, so the assertion above is doing work rather than agreeing
+    // that nothing can be fixed anywhere. Roughly a fifth of the space at the
+    // starting budget; a fixed count rather than a share so a retune of the
+    // budget reads here as a number moving, not as a premise failing.
+    expect(repaired).toBeGreaterThan(2_000);
   }, 60_000);
 
-  test("flow never leaves a hairline it could have cleared", () => {
-    // The claim the whole milestone rests on, stated directly over the
-    // enumeration: wherever some total in the rails' range clears the hairline
-    // — by landing the band on a slot boundary, or by leaving an honest slice
-    // of a card rather than an artifact — the answer clears it too.
+  test("flow ends on a boundary it could afford, and otherwise leaves the rails alone", () => {
+    // The claim the whole objective rests on, stated directly over the
+    // enumeration: wherever some total within budget of Σ preferred — and
+    // inside the rails' legal range — lands the band on a slot boundary, the
+    // answer lands there too. And wherever none does, the rails stand at the
+    // widths the user chose: a cut the budget will not pay for is left as it
+    // is, never moved to make it look like something else.
     let checked = 0;
+    let declined = 0;
     for (const kind of IMPOSITION_KINDS) {
       for (const occupancy of occupanciesFor(kind)) {
         for (const fixture of RAIL_FIXTURES) {
@@ -934,25 +945,43 @@ describe("the allocator's solution space", () => {
             );
             const floorTotal = bounds.reduce((sum, b) => sum + b.floor, 0);
             const ceilingTotal = bounds.reduce((sum, b) => sum + b.ceiling, 0);
-            let reachable = false;
-            for (let t = floorTotal; t <= ceilingTotal && !reachable; t += 1) {
-              const cut = stripPicture(input, spread(t, sides)).worstSliver;
-              if (hairlineOf(cut) === 0) reachable = true;
+            const preferredTotal = bounds.reduce((sum, b) => sum + b.preferred, 0);
+            const lo = Math.max(floorTotal, preferredTotal - RAIL_BOUNDARY_BUDGET_PX);
+            const hi = Math.min(ceilingTotal, preferredTotal + RAIL_BOUNDARY_BUDGET_PX);
+            let affordable = false;
+            for (let t = lo; t <= hi && !affordable; t += 1) {
+              if (stripPicture(input, spread(t, sides)).worstSliver === 0) {
+                affordable = true;
+              }
             }
-            if (!reachable) continue;
             const answer = allocateSidebarWidths(input) as RailWidths;
             const where = `${kind}/${occupancy.name}/${fixture.name}@${canvasWidth}`;
             const cut = stripPicture(input, answer).worstSliver;
-            expect(
-              cut === 0 || cut >= SLIVER_PX - sides.length,
-              `${where}: a clean total was reachable, so nothing is left cut to ${cut}px`,
-            ).toBe(true);
-            checked += 1;
+            const chosen = sides.reduce(
+              (sum, side) => sum + (answer[side] as number),
+              0,
+            );
+            if (affordable) {
+              expect(
+                cut,
+                `${where}: a boundary was within budget, so nothing is left cut to ${cut}px`,
+              ).toBe(0);
+              checked += 1;
+            } else {
+              // The rounding residual the solver leaves with the band's travel
+              // is at most a pixel per rail.
+              expect(
+                Math.abs(chosen - preferredTotal),
+                `${where}: no boundary within budget, so the rails stay at Σ preferred`,
+              ).toBeLessThanOrEqual(sides.length);
+              declined += 1;
+            }
           }
         }
       }
     }
     expect(checked).toBeGreaterThan(500);
+    expect(declined).toBeGreaterThan(50);
   });
 
   test("no rail standing is the only shape with no answer", () => {
