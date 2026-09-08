@@ -60,6 +60,7 @@ import {
 import {
   SessionChangesArcLane,
   canDiscardFromHere,
+  orderArcLane,
   type ArcLaneBinding,
   type ArcLaneJoinFace,
   type ArcLaneDiscard,
@@ -356,12 +357,26 @@ export function SessionChangesView({
   const hasSessionFiles = sessionFiles.length > 0;
   // Arcs count against emptiness: a project whose only news is an arc is
   // not an all-clear, and "None" over a rendered arc lane would contradict
-  // the rows below it.
+  // the rows below it. What counts is what the lane will actually RENDER,
+  // not what arrived — the lane drops every arc a live session other than
+  // this card's holds, and a landing one is off the offer entirely. A
+  // project whose every arc drops out that way renders no rows at all, and
+  // read against `snap.arcs` it got neither "None" nor a lane: a shade
+  // empty of everything, including the word for empty.
+  const laneOrder = orderArcLane(
+    offeredArcs,
+    frontedArcId ?? boundArcId,
+    changesController.tugSessionId,
+  );
+  const laneRendersRows =
+    laneOrder.fronted !== null ||
+    laneOrder.rest.length > 0 ||
+    documentArc !== null;
   const isEmpty =
     !hasSessionFiles &&
     unattributedItem === null &&
     orphanedItem === null &&
-    snap.arcs.length === 0;
+    !laneRendersRows;
   // An empty view is only a verified all-clear once the aggregate has actually
   // composed this workspace ([P02]). Before the first emit `project` is the
   // pre-scan placeholder, so an empty-and-uncomposed view says "scanning"

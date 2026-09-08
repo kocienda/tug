@@ -132,6 +132,8 @@ const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-s
 const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 const FRONTED_LABEL = `${LANE} [data-slot="session-changes-arc-lane-fronted-label"]`;
 const REST_LABEL = `${LANE} [data-slot="session-changes-arc-lane-rest-label"]`;
+/** The shade's all-clear word. An emptied lane must not eat it. */
+const CLEAN = `${SHEET} .session-changes-clean`;
 
 const ARC_NAME = "at0405-lane";
 const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
@@ -372,12 +374,14 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
           rows: number;
           restLabels: number;
           arcsRows: number;
+          clean: number;
         }>(
           `(() => ({
              lanes: document.querySelectorAll(${JSON.stringify(LANE)}).length,
              rows: document.querySelectorAll(${JSON.stringify(ROW)}).length,
              restLabels: document.querySelectorAll(${JSON.stringify(REST_LABEL)}).length,
              arcsRows: document.querySelectorAll(${JSON.stringify(ARCS_ROW)}).length,
+             clean: document.querySelectorAll(${JSON.stringify(CLEAN)}).length,
            }))()`,
         );
         // This scratch project's only arc is the held one, so the lane has
@@ -388,6 +392,11 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         expect(held.rows, "a held arc is not a row in this shade").toBe(0);
         expect(held.restLabels, "and no label stands over an empty group").toBe(0);
         expect(held.arcsRows, "while the Arcs card still lists it").toBe(1);
+        // And the shade still says the word for empty. Emptiness is read off
+        // what the lane will RENDER, not off what arrived: an arc held
+        // elsewhere counted against the all-clear while drawing nothing, and
+        // the reader got a shade with neither rows nor "None" in it.
+        expect(held.clean, "an emptied lane leaves the all-clear standing").toBe(1);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
