@@ -786,14 +786,26 @@ describe.skipIf(!SHOULD_RUN)(
               return pane === undefined ? null : pane.id;
             })()`,
           );
-          const targetPane = await app.evalJS<string | null>(
+          // Slot 0 is the place dropped on, and what STANDS there depends on
+          // where the battery above left its cards — a card arriving from
+          // nowhere opens in the middle of what the deck is showing, so slot 0
+          // may be a frame or may be a vacancy. Both are the same drop zone,
+          // so the target is a selector for whichever one is there.
+          const targetSelector = await app.evalJS<string | null>(
             `(function () {
               var el = document.querySelector('.tug-pane[data-imposed="0"]');
-              return el === null ? null : el.getAttribute("data-pane-id");
+              if (el !== null) {
+                return '.tug-pane[data-pane-id="' + el.getAttribute("data-pane-id") + '"]';
+              }
+              var tile = document.querySelector('.tug-slot-vacancy[data-vacant-slot="0"]');
+              return tile === null ? null : '.tug-slot-vacancy[data-vacant-slot="0"]';
             })()`,
           );
           expect(moverPane).not.toBeNull();
-          expect(targetPane).not.toBeNull();
+          expect(
+            targetSelector,
+            "slot 0 is standing there to be dropped on, as a frame or as a vacancy",
+          ).not.toBeNull();
           // Driven as grab-then-release rather than as one atomic drag,
           // because the motion census below is about the RELEASE. The grab
           // raises the card, and that raise is its own arrangement change
@@ -801,9 +813,9 @@ describe.skipIf(!SHOULD_RUN)(
           // be measuring two gestures and calling it one.
           const dropPoint = await app.evalJS<{ x: number; y: number }>(
             `(function () {
-              var r = document.querySelector(
-                '.tug-pane[data-pane-id="' + ${JSON.stringify(targetPane)} + '"]'
-              ).getBoundingClientRect();
+              var r = document
+                .querySelector(${JSON.stringify(targetSelector)})
+                .getBoundingClientRect();
               return {
                 x: Math.round(r.left + r.width / 2),
                 y: Math.round(r.top + r.height / 2),

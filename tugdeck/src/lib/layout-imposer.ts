@@ -1287,6 +1287,19 @@ export function clampSlot(kind: ImpositionKind, slot: number): number {
   return Math.max(0, Math.min(last, Math.floor(slot)));
 }
 
+/**
+ * The kind's centermost slot, cheating LEFT when the count is even and no
+ * single slot is the middle one: `floor((N - 1) / 2)`.
+ *
+ * Two-up answers 0, three-up answers 1, four-up answers 1, six-up answers 2.
+ * The tie has to break somewhere and left is the side the deck already reads
+ * from — numbering runs left to right, so the left of the two middles is the
+ * earlier one, and a caller that wants the other can say so.
+ */
+export function centerSlot(kind: ImpositionKind): number {
+  return Math.floor((slotCount(kind) - 1) / 2);
+}
+
 /* ---------------------------------------------------------------------------
  * Placement
  * ---------------------------------------------------------------------------*/
@@ -1960,7 +1973,7 @@ export function flowCenterOffset(input: FlowCenterInput): number {
   });
 }
 
-/** What {@link firstVisibleFlowSlot} is asked over. */
+/** What {@link centerVisibleFlowSlot} is asked over. */
 export interface FlowVisibleInput {
   /** The deck's strip. */
   strip: FlowStrip;
@@ -1971,41 +1984,48 @@ export interface FlowVisibleInput {
 }
 
 /**
- * The leftmost slot the band is actually showing — where a card arriving from
+ * The centermost slot the band is actually showing — where a card arriving from
  * nowhere belongs.
  *
- * A slot is the answer when the band holds the WHOLE of it. Only when no
- * occupied slot is wholly on screen does a clipped one answer, and then it is
- * the leftmost slot the band touches at all: a deck scrolled to the middle of a
- * card that is wider than the band still has somewhere the eye is, and the
- * lowest occupied slot — which is what a caller falls back to otherwise — is
- * not it.
+ * A slot is a candidate when the band holds the WHOLE of it, and the answer is
+ * the middle candidate — cheating LEFT when there is an even number of them,
+ * for the reason {@link centerSlot} does. Only when no occupied slot is wholly
+ * on screen do the clipped ones answer, and then it is the middle slot the band
+ * touches at all: a deck scrolled to the middle of a card that is wider than
+ * the band still has somewhere the eye is, and the lowest occupied slot — which
+ * is what a caller falls back to otherwise — is not it.
  *
- * `undefined` for an empty strip, which is the one case with no leftmost
+ * `undefined` for an empty strip, which is the one case with no centermost
  * anything. The reveal arithmetic's mirror image: {@link flowRevealOffset}
  * moves the band to a slot, and this reads which slot the band already stands
  * over.
  */
-export function firstVisibleFlowSlot(
+export function centerVisibleFlowSlot(
   input: FlowVisibleInput,
 ): number | undefined {
   const { strip, band, offset } = input;
   const slots = [...strip.positions.keys()].sort((a, b) => a - b);
   if (slots.length === 0) return undefined;
   if (!Number.isFinite(band) || band <= 0 || !Number.isFinite(offset)) {
-    return slots[0];
+    return middleOf(slots);
   }
   const bandEnd = offset + band;
-  let touched: number | undefined;
+  const whole: number[] = [];
+  const touched: number[] = [];
   for (const slot of slots) {
     const left = strip.positions.get(slot) as number;
     const right = left + (strip.extents.get(slot) ?? 0);
-    if (left >= offset && right <= bandEnd) return slot;
-    if (touched === undefined && right > offset && left < bandEnd) {
-      touched = slot;
-    }
+    if (left >= offset && right <= bandEnd) whole.push(slot);
+    else if (right > offset && left < bandEnd) touched.push(slot);
   }
-  return touched ?? slots[0];
+  if (whole.length > 0) return middleOf(whole);
+  if (touched.length > 0) return middleOf(touched);
+  return middleOf(slots);
+}
+
+/** The middle member of a non-empty ascending list, cheating left on a tie. */
+function middleOf(slots: readonly number[]): number {
+  return slots[Math.floor((slots.length - 1) / 2)];
 }
 
 /* ---------------------------------------------------------------------------

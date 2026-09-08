@@ -97,6 +97,7 @@ import type {
 import {
   allocateSidebarWidths,
   clampSlot,
+  centerSlot,
   slotCount,
   isSidebarPinned,
   sidebarSide,
@@ -108,7 +109,7 @@ import {
   placeStanding,
   PLACE_OVERFLOW_VISIBLE_MEMBERS,
   effectiveRailOrder,
-  firstVisibleFlowSlot,
+  centerVisibleFlowSlot,
   flowRevealOffset,
   impositionLayout,
   FLOW_OFFSET_PROPERTY,
@@ -2964,15 +2965,20 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * The slot a card arriving from nowhere opens into: slot 0 in fit, and in
-   * flow the leftmost slot the band is currently showing.
+   * The slot a card arriving from nowhere opens into: the arrangement's
+   * centermost slot in fit, and in flow the centermost slot the band is
+   * currently showing.
    *
-   * In fit every slot is on screen, so the first one is as good an answer as
-   * any and the deck has always given it. Flow is where that answer went wrong:
-   * the strip is longer than the band, so slot 0 is routinely scrolled off the
-   * left, and a new card took it — opening somewhere the user could not see and
-   * saying nothing about it. The band is what "where the deck is" means in
-   * flow, so the card opens in it.
+   * In fit every slot is on screen, so the answer is a question of where the
+   * eye already is rather than of what is visible: the middle of the
+   * arrangement, which is where a reader looking at the whole deck is looking.
+   * Flow narrows the same rule to what the band is showing — the strip is
+   * longer than the band, so the middle of the ARRANGEMENT is routinely
+   * scrolled off screen, and a new card taking it would open somewhere the user
+   * could not see and say nothing about it. The band is what "where the deck
+   * is" means in flow, so the card opens in the middle of it.
+   *
+   * Both cheat LEFT when there is no exact middle ({@link centerSlot}).
    *
    * An explicit `options.slot` outranks this; an opener that names a slot has
    * said something about placement that a measurement should not overrule.
@@ -2980,13 +2986,16 @@ export class DeckManager implements IDeckManagerStore {
   private _openingSlot(): number {
     const state = this.deckState;
     const strip = deckFlowStrip(state);
-    if (strip === null) return 0;
+    const center = centerSlot(
+      (state.imposition.kind ?? DEFAULT_IMPOSITION_KIND) as ImpositionKind,
+    );
+    if (strip === null) return center;
     return (
-      firstVisibleFlowSlot({
+      centerVisibleFlowSlot({
         strip,
         band: this._flowBandWidth(state.panes, state.imposition),
         offset: state.flowOffset ?? 0,
-      }) ?? 0
+      }) ?? center
     );
   }
 
