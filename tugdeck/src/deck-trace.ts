@@ -118,6 +118,50 @@ export type SaveCallbackSource =
   | "hmr"
   | "hmr-full-reload";
 
+/**
+ * How a store commit lands — the mutation's own account of the motion it
+ * asks for, stamped at the call site and carried to the settle beside the
+ * caller tag ([B01], [B02]).
+ *
+ * `"cross"` is what every arrangement change does: the frames are where the
+ * previous state put them, and the settle carries each one from there to its
+ * new place. `"cut"` says the frames are already drawn where this commit puts
+ * them — a per-frame writer catching the store up after the fact — so there is
+ * nothing to carry and the settle declines.
+ *
+ * Here rather than on the store's own interface for the same reason
+ * {@link SaveCallbackSource} is: a tag the store stamps and the trace records
+ * belongs where the record it rides is declared, and this module imports
+ * nothing from the store.
+ *
+ * A drop needs no third value. The dragged frame is carried by
+ * `zone-drop-landing` and exempted from the settle by `data-pointer-owned`
+ * alone, in both the First pass and the Last, so a drop is a `"cross"` with
+ * one frame already spoken for.
+ */
+export type CommitLanding = "cross" | "cut";
+
+/**
+ * What a settle arm decided, and the term [B06]'s check is written over.
+ *
+ * `carried` — the arrangement changed, frames were measured, and the settle
+ * will tween them.
+ *
+ * `unarmed` — the arrangement changed but nothing will tween: reduced motion,
+ * or a deck with no measured frames. The move is uncarried and that is worth
+ * separating from "nothing moved".
+ *
+ * `declined` — the commit landed `"cut"`, so the frames are already drawn
+ * where it put them and there is nothing to carry ([B01]).
+ *
+ * `unchanged` — the signature did not move, so the commit changed nothing the
+ * imposer reads. Recorded rather than passed over in silence because it is
+ * what distinguishes a commit that legitimately armed nothing from a
+ * subscriber that never ran at all — the mount-gap defect, which is otherwise
+ * indistinguishable from a quiet commit.
+ */
+export type SettleArmOutcome = "carried" | "unarmed" | "declined" | "unchanged";
+
 /** Entry-point tag on `selection-restore` events. */
 export type SelectionRestoreVia =
   | "restoreCardDomSelection"
@@ -554,9 +598,16 @@ export type DeckTraceEvent = {
       //
       // `version` is the post-increment `stateVersion`, which pairs a
       // notify with the arm it provoked.
+      //
+      // `landing` is how the commit says it wants to land ([B02]). Inside a
+      // batch it resolves the same way the caller tag does — the outermost
+      // commit's, except that any `"cross"` in the batch wins, because
+      // crossing a frame already in place is a no-op tween while cutting one
+      // that is not is the defect.
       kind: "store-notify";
       caller: string;
       version: number;
+      landing: CommitLanding;
     }
   | {
       // Fired by the deck canvas when the arrangement signature changes.
@@ -564,10 +615,19 @@ export type DeckTraceEvent = {
       // when the subscriber saw a changed signature but declined to
       // animate (a first paint, a deck with no measured frames), which
       // separates "nothing moved" from "something moved without a tween".
+      //
+      // `landing` is the commit's own account of how it wanted to land and
+      // `outcome` is what this arm did about it. The pair is what [B06] is
+      // checked over: a `"cut"` that was carried, and a `"cross"` that was
+      // declined, are each the settle disagreeing with the commit that
+      // provoked it. `armed` is kept beside `outcome` because the census's
+      // "N arm(s) (M unarmed)" line is written over it.
       kind: "settle-arm";
       signature: string;
       panes: number;
       armed: boolean;
+      landing: CommitLanding;
+      outcome: SettleArmOutcome;
     }
   | {
       // Fired when an arm lands on a frame whose settle tween is still in
@@ -941,9 +1001,32 @@ export interface DeckTrace {
 export interface MotionCensus {
   notifies: number;
   byCaller: Record<string, number>;
+  /**
+   * Arms that found the arrangement changed — `carried` plus `unarmed`. An
+   * arm that declined a cut, or that found the signature unmoved, is not one:
+   * it armed no settle, and this is the count "the settle arms once, not once
+   * per commit" is written over.
+   */
   arms: number;
   /** Arms that saw a changed signature but animated nothing. */
   armsUnarmed: number;
+  /**
+   * Arms whose outcome contradicts the landing of the commit that provoked
+   * them ([B06]): a `"cut"` the settle carried, or a `"cross"` it declined.
+   * Zero is the bar — a settle that disagrees with its commit is a defect
+   * whichever way it leans, since one of the two is wrong about whether the
+   * frames are already drawn.
+   */
+  landingDisagreements: number;
+  /**
+   * Notifications that reached no arm at all. Distinct from an arm whose
+   * outcome was `"unchanged"`: that one says the subscriber ran and found
+   * nothing moved, while this one says the subscriber never ran — the
+   * mount-gap defect the arm's own registration comment describes.
+   */
+  notifiesUnobserved: number;
+  /** Every arm in the window, by what it decided. */
+  armOutcomes: Record<SettleArmOutcome, number>;
   retargets: { snap: number; matched: number };
 }
 
@@ -1001,19 +1084,41 @@ export const deckTrace: DeckTrace = {
       byCaller: {},
       arms: 0,
       armsUnarmed: 0,
+      landingDisagreements: 0,
+      notifiesUnobserved: 0,
+      armOutcomes: { carried: 0, unarmed: 0, declined: 0, unchanged: 0 },
       retargets: { snap: 0, matched: 0 },
     };
+    // One notify provokes at most one arm, and the arm records synchronously
+    // inside it, so a notify with no arm before the next one is a notify the
+    // subscriber never observed. Counted by carrying the open notify forward
+    // rather than by pairing after the fact, which would have to guess at
+    // interleavings the ring already puts in order.
+    let pendingNotify = false;
     for (const e of this.since(seq)) {
       if (e.kind === "store-notify") {
+        if (pendingNotify) out.notifiesUnobserved += 1;
+        pendingNotify = true;
         out.notifies += 1;
         out.byCaller[e.caller] = (out.byCaller[e.caller] ?? 0) + 1;
       } else if (e.kind === "settle-arm") {
-        out.arms += 1;
-        if (!e.armed) out.armsUnarmed += 1;
+        pendingNotify = false;
+        out.armOutcomes[e.outcome] += 1;
+        if (e.outcome === "carried" || e.outcome === "unarmed") {
+          out.arms += 1;
+          if (!e.armed) out.armsUnarmed += 1;
+        }
+        if (
+          (e.landing === "cut" && e.outcome !== "declined" && e.outcome !== "unchanged") ||
+          (e.landing === "cross" && e.outcome === "declined")
+        ) {
+          out.landingDisagreements += 1;
+        }
       } else if (e.kind === "settle-retarget") {
         out.retargets[e.mode] += 1;
       }
     }
+    if (pendingNotify) out.notifiesUnobserved += 1;
     return out;
   },
 };

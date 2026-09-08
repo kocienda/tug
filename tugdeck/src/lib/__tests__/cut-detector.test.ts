@@ -56,14 +56,24 @@ describe("classifySamples", () => {
     expect(classifySamples(before, after)).toEqual([]);
   });
 
-  test("a frame under a pointer gesture owns its own geometry", () => {
+  test("a frame under a pointer gesture is reported, not dropped", () => {
+    // It owns its own geometry, so its motion is not the promise broken — but
+    // dropping the record is how the detector stayed blind to the cut it
+    // exists to find ([F05]). It comes back as its own kind, which the census
+    // counts apart from a cut ([B05]).
     const before = frame(sample("p1", { x: 100, gesture: true }));
     const after = frame(sample("p1", { x: 400, gesture: true }));
-    expect(classifySamples(before, after)).toEqual([]);
+    expect(classifySamples(before, after).map((r) => r.kind)).toEqual([
+      "self-positioned",
+    ]);
 
-    // Still exempt when the gesture ended between the two samples.
+    // And still its own kind when the gesture ended between the two samples:
+    // a frame the hand was placing at the earlier sample is not one the
+    // imposer failed to carry.
     const released = frame(sample("p1", { x: 400, gesture: false }));
-    expect(classifySamples(before, released)).toEqual([]);
+    expect(classifySamples(before, released).map((r) => r.kind)).toEqual([
+      "self-positioned",
+    ]);
   });
 
   test("sub-threshold drift is the browser re-resolving calc(), not a jump", () => {

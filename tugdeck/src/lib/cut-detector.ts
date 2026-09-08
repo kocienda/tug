@@ -54,8 +54,18 @@ export interface PaneSample {
  * it. This is not a jump and no rect delta describes it: there is no earlier
  * sample to subtract. It is still the promise broken, because a card that
  * materializes at full opacity in one frame has not entered, it has cut.
+ *
+ * `self-positioned` — it moved with nothing animating it while wearing
+ * `data-pointer-owned`, so a hand rather than the imposer was placing it. This
+ * used to be dropped, and dropping it is how the detector stayed blind to the
+ * cut it exists to find ([F05]): a frame that jumps to its committed place at
+ * the end of a gesture is under the pointer at exactly that moment. It is not
+ * counted as a cut — a frame following a hand is doing its job, and every
+ * frame of every drag would otherwise report one — but it is reported, so a
+ * census can see a self-positioned frame that cut instead of never hearing
+ * about it ([B05]).
  */
-export type CutKind = "jump" | "appeared";
+export type CutKind = "jump" | "appeared" | "self-positioned";
 
 /** A frame that changed geometry, or arrived, with no animation to carry it. */
 export interface CutRecord {
@@ -68,8 +78,17 @@ export interface CutRecord {
   readonly dh: number;
   /** Animations running on the frame at the later sample — always 0 for a cut. */
   readonly animations: number;
-  /** Gesture state at the later sample — always false for a cut. */
+  /**
+   * Gesture state at the later sample. False for a `jump` or an `appeared`,
+   * and true for a `self-positioned` — which is the whole difference between
+   * them.
+   */
   readonly gesture: boolean;
+}
+
+/** The kinds that are the promise broken. `self-positioned` is not one. */
+export function isCut(record: CutRecord): boolean {
+  return record.kind !== "self-positioned";
 }
 
 /**
@@ -84,7 +103,11 @@ export interface CutRecord {
  *   animation that finished between the two samples leaves the later one at
  *   zero, and only the earlier sample still remembers that something was
  *   carrying the motion;
- * - neither sample was under a pointer gesture, which owns its own geometry.
+ * - neither sample was under a pointer gesture. One that was is reported as
+ *   `self-positioned` instead of being dropped: the frame owns its own
+ *   geometry, so the move is not the promise broken, but a reader who never
+ *   hears about it cannot tell a hand placing a frame from a commit cutting
+ *   one under the hand ([F05], [B05]).
  *
  * A pane present only in the later sample is reported as `appeared` when
  * nothing is animating it — the enter question, which has no delta to measure
@@ -117,7 +140,6 @@ export function classifySamples(
       });
       continue;
     }
-    if (before.gesture || after.gesture) continue;
     if (before.animations > 0 || after.animations > 0) continue;
     const dx = after.x - before.x;
     const dy = after.y - before.y;
@@ -130,7 +152,7 @@ export function classifySamples(
       Math.abs(dh) > CUT_THRESHOLD_PX;
     if (!moved) continue;
     records.push({
-      kind: "jump",
+      kind: before.gesture || after.gesture ? "self-positioned" : "jump",
       paneId,
       dx,
       dy,
@@ -200,7 +222,9 @@ class CutDetector {
               "cut-detector",
               record.kind === "appeared"
                 ? `pane ${record.paneId} appeared with no animation`
-                : `pane ${record.paneId} jumped with no animation`,
+                : record.kind === "self-positioned"
+                  ? `pane ${record.paneId} moved under a pointer with no animation`
+                  : `pane ${record.paneId} jumped with no animation`,
               record as unknown as Record<string, unknown>,
             );
           }

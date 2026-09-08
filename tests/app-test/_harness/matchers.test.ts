@@ -492,12 +492,15 @@ const EVENT_FIXTURES: Record<
     kind: "store-notify",
     caller: "_commitImposition",
     version: 42,
+    landing: "cross",
   },
   "settle-arm": {
     kind: "settle-arm",
     signature: "flow|0:p1|1:p2",
     panes: 2,
     armed: true,
+    landing: "cross",
+    outcome: "carried",
   },
   "settle-retarget": {
     kind: "settle-retarget",

@@ -41,6 +41,7 @@
 
 import { getFocusManager } from "@/components/tugways/focus-manager";
 import type { IDeckManagerStore } from "@/deck-manager-store";
+import { DRAG_MOVE_THRESHOLD_PX } from "@/lib/press-travel";
 
 /**
  * Target-identity marker for the deck canvas's background surface. A
@@ -513,8 +514,9 @@ export function installGestureInterpreter(
    * than the click threshold is a click, and a click's ending is when the
    * deck may reveal the card the press activated (`host.reveal`); a release
    * that travelled is a drag, and the drop answers for itself. The threshold
-   * is the pane drag's own (`DRAG_MOVE_THRESHOLD_PX` in `tug-pane.tsx`),
-   * restated here so the two gestures agree on where a click stops being one.
+   * is `DRAG_MOVE_THRESHOLD_PX` — the pane drag's own, and now the one copy
+   * both read (`lib/press-travel.ts`), so the two gestures cannot come to
+   * different answers about where a click stops being one ([B04]).
    */
   let press: {
     cardId: string;
@@ -522,7 +524,6 @@ export function installGestureInterpreter(
     y: number;
     travelled: boolean;
   } | null = null;
-  const CLICK_TRAVEL_PX = 3;
 
   function clearPendingActivation(): void {
     if (pendingActivation === null) return;
@@ -572,7 +573,10 @@ export function installGestureInterpreter(
 
   function onPointerMove(event: PointerEvent): void {
     if (press === null || press.travelled) return;
-    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) >= CLICK_TRAVEL_PX) {
+    if (
+      Math.hypot(event.clientX - press.x, event.clientY - press.y) >=
+      DRAG_MOVE_THRESHOLD_PX
+    ) {
       press.travelled = true;
     }
   }

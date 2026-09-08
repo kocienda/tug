@@ -323,14 +323,15 @@ export interface DropZoneHost {
   ): AutoscrollTarget | null;
   /**
    * Move a strip to `offset` imperatively — its custom property and nothing
-   * else. Never a store write: the offset is an `arrangementSignature` term
-   * ([P12]), so a per-frame commit would arm a FLIP settle on every frame of
-   * the drag and tween the column's other members under the user's hand.
+   * else, so the strip follows the hand at no measuring cost. The store write
+   * comes once, at the end, through {@link commitScroll} ([P12]).
    */
   applyScroll(target: AutoscrollTarget, offset: number): void;
   /** Commit where the gesture left a strip. One store write, at the end, and
    *  the number is real state — a cancelled drag returns the card, not the
-   *  view. */
+   *  view. It commits with `landing: "cut"` — the strip is already drawn at
+   *  this offset, so the settle declines rather than tweening the members
+   *  under the user's hand ([B01], [B03]). */
   commitScroll(target: AutoscrollTarget, offset: number): void;
 }
 

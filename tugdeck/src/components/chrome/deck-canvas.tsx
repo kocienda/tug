@@ -33,11 +33,11 @@ import { useResponderChain } from "@/components/tugways/responder-chain-provider
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { applyBagFocus, transferFocusForActivation } from "@/focus-transfer";
-import { deckTrace } from "@/deck-trace";
+import { deckTrace, type CommitLanding } from "@/deck-trace";
 import { toggleSidebarCard, toggleSidebarRail } from "@/sidebar-toggle";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/gesture-interpreter";
+import { DRAG_MOVE_THRESHOLD_PX } from "@/lib/press-travel";
 import {
-  DRAG_MOVE_THRESHOLD_PX,
   TugPane,
   type SidebarStackStanding,
 } from "./tug-pane";
@@ -603,6 +603,12 @@ interface PlaceSeamProps {
   fractions: readonly number[];
   /** Each member's minimum height, in the place's own order. */
   minHeights: readonly number[];
+  /**
+   * The pane id of every member of the place, in the same order. The two this
+   * seam divides are `[index]` and `[index + 1]`, and they are the frames the
+   * drag is positioning.
+   */
+  memberPaneIds: readonly string[];
   onCommit: (place: SeamPlace, fractions: readonly number[]) => void;
 }
 
@@ -634,12 +640,15 @@ function PlaceSeam({
   frameStyle,
   fractions,
   minHeights,
+  memberPaneIds,
   onCommit,
 }: PlaceSeamProps): React.ReactElement {
   const fractionsRef = useRef(fractions);
   fractionsRef.current = fractions;
   const minHeightsRef = useRef(minHeights);
   minHeightsRef.current = minHeights;
+  const memberPaneIdsRef = useRef(memberPaneIds);
+  memberPaneIdsRef.current = memberPaneIds;
 
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -677,6 +686,25 @@ function PlaceSeam({
 
       seam.setPointerCapture(event.pointerId);
       seam.setAttribute("data-gesture", "seam");
+      // The two members this seam divides are the hand's for the duration —
+      // they resize under it every frame, with nothing animating them, which
+      // is the same thing a dragged frame does and wants the same mark. A
+      // settle landing mid-drag must skip them for the reason it skips any
+      // pointer-owned frame (motion on top of a pointer lags the pointer),
+      // and the cut detector must read their motion as a hand placing them
+      // rather than as the imposer failing to carry them ([F05], [B05]).
+      const divided = [
+        memberPaneIdsRef.current[index],
+        memberPaneIdsRef.current[index + 1],
+      ]
+        .filter((id): id is string => id !== undefined)
+        .map((id) =>
+          document.querySelector<HTMLElement>(
+            `.tug-pane[data-pane-id="${id}"]`,
+          ),
+        )
+        .filter((el): el is HTMLElement => el !== null);
+      for (const el of divided) el.setAttribute("data-pointer-owned", "true");
 
       let fraction = startFractions[index];
       let latestY = startClientY;
@@ -722,22 +750,56 @@ function PlaceSeam({
         }
         seam.removeEventListener("pointermove", onPointerMove);
         seam.removeEventListener("pointerup", onPointerUp);
+        seam.removeEventListener("pointercancel", onPointerCancel);
         seam.releasePointerCapture(e.pointerId);
         seam.removeAttribute("data-gesture");
         latestY = e.clientY;
-        if (!latch(latestY)) return;
-        fraction = computeFraction();
-        // The property stays as the gesture left it: the commit re-renders at
-        // this fraction and the inset effect writes the same number back, so
-        // there is no frame where a member reads the pre-gesture seam.
-        container.style.setProperty(property, String(fraction));
-        const next = [...startFractions];
-        next[index] = fraction;
-        onCommit(place, next);
+        try {
+          if (!latch(latestY)) return;
+          fraction = computeFraction();
+          // The property stays as the gesture left it: the commit re-renders at
+          // this fraction and the inset effect writes the same number back, so
+          // there is no frame where a member reads the pre-gesture seam.
+          container.style.setProperty(property, String(fraction));
+          const next = [...startFractions];
+          next[index] = fraction;
+          onCommit(place, next);
+        } finally {
+          // Released after the commit, not before: the members are already
+          // drawn at their new heights when it lands, so they are still the
+          // hand's through it. Clearing first would offer the settle two frames
+          // to carry from where they are to where they already are.
+          //
+          // And on EVERY path out, which is what the `finally` is for. A press
+          // that never travelled commits nothing and returns above; a mark left
+          // standing there would exempt both members from every settle for the
+          // rest of the session, and the seam's own double-click equalize is
+          // two such presses — so the leak would land first on the gesture that
+          // most needs its members carried.
+          for (const el of divided) el.removeAttribute("data-pointer-owned");
+        }
+      };
+
+      // A gesture the system takes away never sees a `pointerup`, so the mark
+      // has no other way off. Nothing commits — a cancelled drag is not a
+      // placement — but the members stop being the hand's, because a mark that
+      // outlives the listener meant to clear it is a frame the settle skips
+      // for the rest of the session.
+      const onPointerCancel = (): void => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        seam.removeEventListener("pointermove", onPointerMove);
+        seam.removeEventListener("pointerup", onPointerUp);
+        seam.removeEventListener("pointercancel", onPointerCancel);
+        seam.removeAttribute("data-gesture");
+        for (const el of divided) el.removeAttribute("data-pointer-owned");
       };
 
       seam.addEventListener("pointermove", onPointerMove);
       seam.addEventListener("pointerup", onPointerUp);
+      seam.addEventListener("pointercancel", onPointerCancel);
     },
     [place, index, onCommit],
   );
@@ -2286,13 +2348,56 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     prevColumnModesRef.current = new Map(
       deckColumnsOf(store.getSnapshot()).map((c) => [c.slot, c.mode]),
     );
-    const arm = (): void => {
+    const arm = (landing: CommitLanding): void => {
       const el = containerRef.current;
       if (el === null) return;
       const state = store.getSnapshot();
       const next = arrangementSignature(state);
-      if (next === arrangementRef.current) return;
+      if (next === arrangementRef.current) {
+        // Nothing the imposer reads moved. Recorded rather than passed over,
+        // because "the subscriber ran and found nothing" and "the subscriber
+        // never ran" are the same silence otherwise, and only one of them is
+        // a defect ([B06]).
+        deckTrace.record({
+          kind: "settle-arm",
+          signature: next,
+          panes: 0,
+          armed: false,
+          landing,
+          outcome: "unchanged",
+        });
+        return;
+      }
       arrangementRef.current = next;
+
+      // The commit said the frames are already drawn where it puts them — a
+      // per-frame writer catching the store up after the fact ([B01]). There
+      // is nothing to carry, so this arm takes the new arrangement as its
+      // baseline and launches no settle. It is the whole of what the landing
+      // buys: the settle used to have to infer this from proxies, and the only
+      // way for a writer to say it was to stay out of the store entirely
+      // ([F03]).
+      //
+      // The mode records still advance, for the same reason they advance under
+      // reduced motion: they are the shore the NEXT flip is read against, and
+      // one left behind by a cut would read that flip against the wrong one.
+      if (landing === "cut") {
+        prevRailModesRef.current = new Map(
+          sidebarRailsOf(state).map((rail) => [rail.side, rail.mode]),
+        );
+        prevColumnModesRef.current = new Map(
+          deckColumnsOf(state).map((column) => [column.slot, column.mode]),
+        );
+        deckTrace.record({
+          kind: "settle-arm",
+          signature: next,
+          panes: 0,
+          armed: false,
+          landing,
+          outcome: "declined",
+        });
+        return;
+      }
 
       // The fastest thing this arm interrupts, in travels per second. Zero
       // when it interrupts nothing, which is the ordinary case now that a
@@ -2438,6 +2543,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         signature: next,
         panes: firstRects.size,
         armed: motion && firstRects.size > 0,
+        landing,
+        outcome: motion && firstRects.size > 0 ? "carried" : "unarmed",
       });
       // Handed to the crossing the Last pass builds.
       settleLaunchVelocityRef.current = retargetVelocity;
@@ -3445,10 +3552,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       },
 
       commitScroll(target, offset) {
-        if (target.kind === "column") store.setColumnOffset(target.slot ?? 0, offset);
+        // `"cut"`: `applyScroll` has been writing this strip's custom property
+        // every frame of the drag, so the deck is already drawn at this number
+        // and there is nothing for the settle to carry ([B01], [B03]).
+        if (target.kind === "column")
+          store.setColumnOffset(target.slot ?? 0, offset, "cut");
         else if (target.kind === "rail")
-          store.setRailOffset(target.side ?? "left", offset);
-        else store.setFlowOffset(offset);
+          store.setRailOffset(target.side ?? "left", offset, "cut");
+        else store.setFlowOffset(offset, "cut");
       },
     };
   }, [store]);
@@ -3809,6 +3920,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             }
             fractions={rail.seams}
             minHeights={railMemberMinHeights(deckState, rail)}
+            memberPaneIds={rail.members.map((member) => member.paneId)}
             onCommit={handleSeamCommit}
           />
         )),
@@ -3849,6 +3961,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             frameStyle={imposeStyle(placement, width)}
             fractions={column.seams}
             minHeights={columnMemberMinHeights(deckState, column)}
+            memberPaneIds={column.members}
             onCommit={handleSeamCommit}
           />
         ));

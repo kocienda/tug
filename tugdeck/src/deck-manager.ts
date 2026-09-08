@@ -187,7 +187,11 @@ import {
   CardStateOrchestrator,
   type CardAssembler,
 } from "./card-state-orchestrator";
-import { deckTrace, type SaveCallbackSource } from "./deck-trace";
+import {
+  deckTrace,
+  type CommitLanding,
+  type SaveCallbackSource,
+} from "./deck-trace";
 import { cardServicesStore } from "./lib/card-services-store";
 import type { CodeSessionStore } from "./lib/code-session-store";
 import {
@@ -714,7 +718,7 @@ export class DeckManager implements IDeckManagerStore {
 
   // ---- Subscribable store state (useSyncExternalStore contract) ----
 
-  private subscribers: Set<() => void> = new Set();
+  private subscribers: Set<(landing: CommitLanding) => void> = new Set();
 
   private stateVersion: number = 0;
 
@@ -759,7 +763,7 @@ export class DeckManager implements IDeckManagerStore {
 
   // ---- useSyncExternalStore arrow properties (stable identity, auto-bound this) ----
 
-  public subscribe = (callback: () => void): (() => void) => {
+  public subscribe = (callback: (landing: CommitLanding) => void): (() => void) => {
     this.subscribers.add(callback);
     return () => {
       this.subscribers.delete(callback);
@@ -1261,10 +1265,12 @@ export class DeckManager implements IDeckManagerStore {
       this.batchDepth -= 1;
       if (this.batchDepth === 0) {
         const caller = this.batchPendingNotify;
+        const landing = this.batchPendingLanding ?? "cross";
         const save = this.batchPendingSave;
         this.batchPendingNotify = null;
+        this.batchPendingLanding = null;
         this.batchPendingSave = false;
-        if (caller !== null) this.notify(caller);
+        if (caller !== null) this.notify(caller, landing);
         if (save) this.scheduleSave();
       }
     }
@@ -1275,9 +1281,16 @@ export class DeckManager implements IDeckManagerStore {
    * transaction is open. `batchPendingNotify` holds the caller tag of the
    * first deferred notify (the one that opened the gesture, which is the
    * useful attribution) or `null` when nothing has asked to notify.
+   *
+   * `batchPendingLanding` resolves the gesture's landing the same way, with
+   * one asymmetry: any `"cross"` in the batch wins, so a gesture stays `"cut"`
+   * only when every commit in it said so ([B02]). Crossing a frame that is
+   * already in place is a no-op tween; cutting one that is not is the defect,
+   * so the resolution errs toward the harmless answer.
    */
   private batchDepth = 0;
   private batchPendingNotify: string | null = null;
+  private batchPendingLanding: CommitLanding | null = null;
   private batchPendingSave = false;
 
   /**
@@ -1288,8 +1301,13 @@ export class DeckManager implements IDeckManagerStore {
    * `store-notify` record). A gesture is supposed to cost one notify;
    * when one costs more, the census names the contributors instead of
    * reporting an anonymous count.
+   *
+   * `landing` is how the commit says it wants to land, and it is the
+   * mutation's to declare rather than the settle's to reconstruct ([B01]).
+   * It defaults to `"cross"` — what every arrangement change does — so a call
+   * site that says nothing keeps the behaviour it had.
    */
-  private notify(caller = "untagged"): void {
+  private notify(caller = "untagged", landing: CommitLanding = "cross"): void {
     if (this.batchDepth > 0) {
       // Inside a gesture transaction: record that someone wants
       // subscribers told, and let the outermost batch tell them once.
@@ -1297,6 +1315,13 @@ export class DeckManager implements IDeckManagerStore {
       // the gesture, and the census reads better naming that than the
       // incidental last one.
       this.batchPendingNotify ??= caller;
+      // The landing is not simply first-wins: the opener seeds it, and any
+      // later `"cross"` takes it over, so the batch is `"cut"` only when every
+      // commit in it is. See `batchPendingLanding`.
+      this.batchPendingLanding =
+        this.batchPendingLanding === null || landing === "cross"
+          ? landing
+          : this.batchPendingLanding;
       return;
     }
     // Invariant 7, enforced rather than merely asserted: no pane commits with
@@ -1317,12 +1342,13 @@ export class DeckManager implements IDeckManagerStore {
       kind: "store-notify",
       caller,
       version: this.stateVersion,
+      landing,
     });
     // Host menu state rides the ordinary subscriber list: the
     // `host-menu-state` aggregator subscribes at boot (main.tsx) and
     // projects each notification into the `menuState` push the Swift
     // host validates its menus from.
-    this.subscribers.forEach((cb) => cb());
+    this.subscribers.forEach((cb) => cb(landing));
   }
 
   refresh(): void {
@@ -3177,18 +3203,26 @@ export class DeckManager implements IDeckManagerStore {
   /**
    * Commit where a drag left an overflowing column's strip ([P12], Spec S03).
    *
-   * ONE write, at the end of the gesture. The offset moved imperatively on its
-   * custom property while the hand was down, because it is an
-   * `arrangementSignature` term and a per-frame commit would arm a settle on
-   * every frame — measuring and tweening the column's other members under the
-   * user's hand. This is the frame where the store catches up with what the
-   * deck has been showing, and it changes no geometry: CSS was already drawing
-   * this number.
+   * ONE write, at the end of the gesture. The offset moves imperatively on its
+   * custom property while the hand is down, and this is the frame where the
+   * store catches up with what the deck has been showing — it changes no
+   * geometry, because CSS was already drawing this number.
+   *
+   * That is what `landing` says. A `"cut"` commit declares the frames are
+   * already where it puts them, so the settle declines rather than measuring
+   * and tweening the column's other members under the user's hand ([B01],
+   * [B03]). Staying out of the store used to be the only way to say it; the
+   * per-frame writer may still write per frame for cost reasons, but it is no
+   * longer forced to.
    *
    * Real state, not a preview, which is why a cancelled drag still commits it:
    * the card goes home, the view does not.
    */
-  setColumnOffset(slot: number, offset: number): void {
+  setColumnOffset(
+    slot: number,
+    offset: number,
+    landing: CommitLanding = "cross",
+  ): void {
     const run = this._placeRunHeight("column");
     if (!(run > 0)) return;
     const column = deckColumnsOf(this.deckState).find((c) => c.slot === slot);
@@ -3207,7 +3241,7 @@ export class DeckManager implements IDeckManagerStore {
       ...this.deckState,
       columnOffsets: { ...this.deckState.columnOffsets, [slot]: clamped },
     };
-    this.notify("setColumnOffset");
+    this.notify("setColumnOffset", landing);
   }
 
   /**
@@ -3329,9 +3363,14 @@ export class DeckManager implements IDeckManagerStore {
   /**
    * Commit where a drag left an overflowing rail's strip — the side-keyed twin
    * of {@link setColumnOffset}, and real state for the same reason: the card
-   * goes home when a drag is cancelled, the view does not.
+   * goes home when a drag is cancelled, the view does not. `landing` carries
+   * the same meaning it does there.
    */
-  setRailOffset(side: SidebarSide, offset: number): void {
+  setRailOffset(
+    side: SidebarSide,
+    offset: number,
+    landing: CommitLanding = "cross",
+  ): void {
     const run = this._placeRunHeight("rail");
     if (!(run > 0)) return;
     const imposition = this.deckState.imposition;
@@ -3350,7 +3389,7 @@ export class DeckManager implements IDeckManagerStore {
       ...this.deckState,
       railOffsets: { ...this.deckState.railOffsets, [side]: clamped },
     };
-    this.notify("setRailOffset");
+    this.notify("setRailOffset", landing);
   }
 
   /**
@@ -3379,8 +3418,11 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /** The flow strip's twin of {@link setColumnOffset} — the same one-write-at-
-   *  the-end rule, read across instead of down. */
-  setFlowOffset(offset: number): void {
+   *  the-end rule, read across instead of down, and the same `landing`. It is
+   *  the one of the three with a `"cross"` caller that matters: a strip
+   *  segment click and the Center Card chord both hand it a number the deck
+   *  was NOT drawing, and the settle tweens the crossing. */
+  setFlowOffset(offset: number, landing: CommitLanding = "cross"): void {
     const strip = deckFlowStrip(this.deckState);
     if (strip === null) return;
     const clamped = clampFlowOffset(
@@ -3390,7 +3432,7 @@ export class DeckManager implements IDeckManagerStore {
     );
     if (clamped === (this.deckState.flowOffset ?? 0)) return;
     this.deckState = { ...this.deckState, flowOffset: clamped };
-    this.notify("setFlowOffset");
+    this.notify("setFlowOffset", landing);
   }
 
   /**

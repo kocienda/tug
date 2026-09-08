@@ -37,7 +37,10 @@
 
 import type { DeckManager } from "./deck-manager";
 import type { DeckState, CardStateBag } from "./layout-tree";
-import { DEFAULT_SIDEBAR_SIDE } from "./lib/layout-imposer";
+import {
+  DEFAULT_SIDEBAR_SIDE,
+  columnOffsetProperty,
+} from "./lib/layout-imposer";
 import { deckTrace, type DeckTraceEvent } from "./deck-trace";
 import { labFlags } from "./lib/lab-flags";
 import { listViewProbeForScroller } from "./components/tugways/tug-list-view";
@@ -357,8 +360,16 @@ import {
  * streamed commit message without a live scribe behind it. The store, the
  * composer, the editor and the scroll are all the production ones; only the
  * transport is stood in for. Additive; major stays `2`.
+ *
+ * `2.16.0`: adds {@link TugTestSurface.probeStripCommit}. A commit now declares
+ * how it lands, and the settle declines a `"cut"` — but the gestures that pass
+ * one are pointer drags whose release also commits an arrangement change, so
+ * the batch resolves to `"cross"` and the lone-cut path never runs under them.
+ * The probe drives the two halves a scroll gesture is made of, a per-frame
+ * property write and one store commit, with the landing named, which is the
+ * only way to assert that a cut arms nothing. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.15.0" as const;
+export const SURFACE_VERSION = "2.16.0" as const;
 
 /**
  * A {@link TugTestSurface.dictionaryLookupProbe} reading: the payload Look Up
@@ -1521,6 +1532,29 @@ export interface TugTestSurface {
     notifies: number;
     threw: boolean;
   };
+
+  /**
+   * Drive a column strip's scroll gesture in miniature (SURFACE_VERSION
+   * 2.16.0), so a caller can census what the store told the deck.
+   *
+   * `landing` picks which of the two gestures this is, and the probe drives
+   * the whole of that gesture rather than only the flag. A `"cut"` first
+   * writes the offset onto the column's own custom property the way
+   * `applyScroll` writes it every frame of a drag, so the deck really is
+   * already drawn there when the commit lands. A `"cross"` writes no property:
+   * the store hands over a number CSS was not showing, which is the strip
+   * segment click's shape.
+   *
+   * Either way it is one `setColumnOffset` and nothing is batched around it,
+   * which is what no real gesture offers: a drag's release commits an
+   * arrangement change alongside the offset, so the batch resolves to
+   * `"cross"` ([B02]) and the lone-cut path never runs under it.
+   */
+  probeStripCommit(
+    slot: number,
+    offset: number,
+    landing: "cross" | "cut",
+  ): void;
 
   /**
    * Hand back every cut recorded since the last take and clear the buffer.
@@ -2872,6 +2906,30 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
 
     disarmCutDetector(): void {
       cutDetector.disarm();
+    },
+
+    probeStripCommit(
+      slot: number,
+      offset: number,
+      landing: "cross" | "cut",
+    ): void {
+      const store = getDeckStore();
+      if (store === null) return;
+      if (landing === "cut") {
+        // The per-frame half, exactly as `applyScroll` writes it. Without this
+        // the `"cut"` would be a lie and the frames really would jump — the
+        // claim under test is that the settle believes a commit that is
+        // telling the truth.
+        const el = document.querySelector<HTMLElement>(
+          "[data-deck-canvas-background]",
+        );
+        if (el === null) return;
+        el.style.setProperty(
+          columnOffsetProperty(slot),
+          `${Math.round(offset)}px`,
+        );
+      }
+      store.setColumnOffset(slot, offset, landing);
     },
 
     probeBatchGesture(

@@ -323,7 +323,7 @@ export function note(label: string, ...value: [unknown] | []): void {
  * a release that notifies three times reports which three.
  *
  * The bar a drop-zone release is held to: `notifies === 1`, `arms <= 1`,
- * `retargets.snap === 0`.
+ * `retargets.snap === 0`, and `landingDisagreements === 0`.
  */
 export interface MotionCensusReading {
   notifies: number;
@@ -331,6 +331,21 @@ export interface MotionCensusReading {
   arms: number;
   /** Arms that saw a changed signature but animated nothing. */
   armsUnarmed: number;
+  /**
+   * Arms whose outcome contradicts the landing of the commit that provoked
+   * them ([B06]) — a `"cut"` the settle carried, or a `"cross"` it declined.
+   * Zero is the bar for every gesture.
+   */
+  landingDisagreements: number;
+  /** Notifications that reached no arm at all — the subscriber never ran. */
+  notifiesUnobserved: number;
+  /** Every arm in the window, by what it decided. */
+  armOutcomes: {
+    carried: number;
+    unarmed: number;
+    declined: number;
+    unchanged: number;
+  };
   retargets: { snap: number; matched: number };
 }
 
@@ -347,6 +362,9 @@ export function summarizeMotionCensus(
   return (
     `${label}: ${c.notifies} notify(s) [${callers}], ` +
     `${c.arms} settle arm(s) (${c.armsUnarmed} unarmed), ` +
+    `outcomes carried=${c.armOutcomes.carried} unarmed=${c.armOutcomes.unarmed} ` +
+    `declined=${c.armOutcomes.declined} unchanged=${c.armOutcomes.unchanged}, ` +
+    `landing disagreements ${c.landingDisagreements}, unobserved ${c.notifiesUnobserved}, ` +
     `retargets snap=${c.retargets.snap} matched=${c.retargets.matched}`
   );
 }

@@ -218,12 +218,18 @@ export type DeckTraceEventShape = {
       kind: "store-notify";
       caller: string;
       version: number;
+      /** How the commit declared it wants to land ([B01], [B02]). */
+      landing: "cross" | "cut";
     }
   | {
       kind: "settle-arm";
       signature: string;
       panes: number;
       armed: boolean;
+      /** How the commit that provoked this arm declared it wanted to land. */
+      landing: "cross" | "cut";
+      /** What this arm did about it ([B06]). */
+      outcome: "carried" | "unarmed" | "declined" | "unchanged";
     }
   | {
       kind: "settle-retarget";
@@ -518,9 +524,9 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
     case "extent-rebase":
       return `extent-rebase ${e.from}→${e.to} (${e.to - e.from}) top=${e.scrollTop} client=${e.clientHeight} clamped=${e.clamped} following=${e.following}`;
     case "store-notify":
-      return `store-notify caller=${fmt(e.caller)} v=${e.version}`;
+      return `store-notify caller=${fmt(e.caller)} v=${e.version} landing=${e.landing}`;
     case "settle-arm":
-      return `settle-arm ${e.armed ? "armed" : "unarmed"} panes=${e.panes} sig=${fmt(e.signature)}`;
+      return `settle-arm ${e.outcome} landing=${e.landing} panes=${e.panes} sig=${fmt(e.signature)}`;
     case "settle-retarget":
       return `settle-retarget ${e.mode} pane=${fmt(e.paneId)}`;
     case "session-lifecycle":

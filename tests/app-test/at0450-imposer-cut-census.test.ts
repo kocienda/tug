@@ -47,6 +47,7 @@
  * is attributed to the gesture that caused it.
  *
  * @covers tugdeck/src/lib/cut-detector.ts
+ * @covers tugdeck/src/deck-trace.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/lib/pane-flip.ts
  * @covers tugdeck/src/lib/imposer-motion.ts
@@ -121,15 +122,37 @@ const ALLOWED_CUTS: Record<string, { max: number; why: string }> = {
     max: 0,
     why: "a drop is an arrangement change; the dragged frame keeps data-gesture and every other frame the commit moves is carried",
   },
+  "pointer:rail-click-reveal": {
+    max: 0,
+    why: "a press that never travelled leaves the frame the imposer's, so the click's release must carry the reveal rather than snap to it",
+  },
+  "pointer:seam-release": {
+    max: 0,
+    why: "the seam drew the members itself while the hand was down; the commit lands on geometry already on screen",
+  },
 };
 
 interface CutRecord {
-  kind: "jump" | "appeared";
+  kind: "jump" | "appeared" | "self-positioned";
   paneId: string;
   dx: number;
   dy: number;
   dw: number;
   dh: number;
+}
+
+/**
+ * A `self-positioned` record is a frame a hand was placing, not a cut ([B05]).
+ * The detector reports it rather than dropping it — dropping it is how the
+ * detector stayed blind to the cut it exists to find ([F05]) — and the
+ * allowlist below is written over the two kinds that are the promise broken.
+ */
+function isCut(record: CutRecord): boolean {
+  return record.kind !== "self-positioned";
+}
+
+function cutsIn(records: readonly CutRecord[]): CutRecord[] {
+  return records.filter(isCut);
 }
 
 function deckShape() {
@@ -179,6 +202,92 @@ function deckShape() {
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * The rail deck the pointer-driven cells run on.
+ *
+ * The right side takes three members, which is `PLACE_OVERFLOW_MIN_MEMBERS`:
+ * the run stops being divided and starts being scrolled, the last member hangs
+ * past the foot, and a click on it is the reveal. An overflowing rail has no
+ * seams to drag, so the seam cell sends one member to the other side first,
+ * which drops the run back to two and grows the seam between them.
+ */
+const RAIL_PANES: Record<string, string> = {
+  layout: "pLayout",
+  jots: "pJots",
+  overview: "pOverview",
+};
+
+function railDeckShape(): Record<string, unknown> {
+  const railPane = (componentId: string) => ({
+    id: RAIL_PANES[componentId],
+    position: { x: 0, y: 0 },
+    size: { width: 400, height: 900 },
+    cardIds: [componentId.toUpperCase()],
+    activeCardId: componentId.toUpperCase(),
+    title: componentId,
+    acceptsFamilies: [],
+  });
+  const railCard = (componentId: string) => ({
+    id: componentId.toUpperCase(),
+    componentId,
+    title: componentId,
+    closable: true,
+  });
+  return {
+    cards: [
+      { id: "A", componentId: "gallery-accordion", title: "Card A", closable: true },
+      railCard("layout"),
+      railCard("jots"),
+      railCard("overview"),
+    ],
+    panes: [
+      {
+        id: "p1",
+        position: { x: 40, y: 40 },
+        size: { width: PANE_WIDTH, height: 400 },
+        cardIds: ["A"],
+        activeCardId: "A",
+        title: "",
+        acceptsFamilies: ["maker"],
+        slot: 0,
+      },
+      railPane("layout"),
+      railPane("jots"),
+      railPane("overview"),
+    ],
+    activePaneId: "p1",
+    imposition: {
+      kind: "three-up",
+      sidebars: {
+        layout: { side: "right" },
+        jots: { side: "right" },
+        overview: { side: "right" },
+      },
+      rails: {
+        right: { mode: "split", order: ["layout", "jots", "overview"] },
+      },
+    },
+    hasFocus: true,
+  };
+}
+
+/** The one seam of the right rail once it is down to two, as a fraction of
+ *  the run it divides. The weights live on the imposition's own rail record —
+ *  `setRailShares` commits through `withRailShares` — and are absent until
+ *  something moves the seam, which is an equal division. */
+async function railSeamFraction(app: App): Promise<number> {
+  return app.evalJS<number>(
+    `(function () {
+      var rail = (window.tugdeck.diag.getDeckState().imposition.rails || {}).right;
+      var shares = rail === undefined ? undefined : rail.shares;
+      if (shares === undefined || shares === null) return 0.5;
+      var total = 0;
+      for (var k in shares) total += shares[k];
+      return total === 0 ? 0.5 : (shares["layout"] || 0) / total;
+    })()`,
+  );
+}
+
 async function armDetector(app: App): Promise<void> {
   await app.evalJS<null>(`(window.__tug.armCutDetector(), null)`);
 }
@@ -200,17 +309,22 @@ async function seedRailPreferred(app: App): Promise<void> {
 
 /**
  * Run one gesture with the detector draining before and after, and hand back
- * whatever cut during it. The pre-drain discards anything still settling from
- * the previous gesture, so a record is always attributed to its own cause.
+ * whatever cut during it, together with the motion census over the same
+ * window. The pre-drain discards anything still settling from the previous
+ * gesture, so a record is always attributed to its own cause.
+ *
+ * The motion reading is taken for every gesture rather than for the two this
+ * file used to single out, because [B06]'s check — a settle that disagrees
+ * with the landing of the commit that provoked it — is a bar every gesture
+ * answers to, not a property of the interesting ones.
  */
 async function census(
   app: App,
   gesture: () => Promise<void>,
-): Promise<CutRecord[]> {
+): Promise<{ cuts: CutRecord[]; motion: MotionCensusReading }> {
   await takeCuts(app);
-  await gesture();
-  await wait(AFTER_LAND_MS);
-  return takeCuts(app);
+  const motion = await app.motionCensus(gesture, AFTER_LAND_MS);
+  return { cuts: await takeCuts(app), motion };
 }
 
 function summarize(records: readonly CutRecord[]): string {
@@ -218,7 +332,9 @@ function summarize(records: readonly CutRecord[]): string {
     .map((r) =>
       r.kind === "appeared"
         ? `${r.paneId} appeared with nothing animating it`
-        : `${r.paneId} jumped (${Math.round(r.dx)}, ${Math.round(r.dy)}) and resized (${Math.round(r.dw)}, ${Math.round(r.dh)})`,
+        : r.kind === "self-positioned"
+          ? `${r.paneId} moved (${Math.round(r.dx)}, ${Math.round(r.dy)}) under a pointer`
+          : `${r.paneId} jumped (${Math.round(r.dx)}, ${Math.round(r.dy)}) and resized (${Math.round(r.dw)}, ${Math.round(r.dh)})`,
     )
     .join("; ");
 }
@@ -249,7 +365,7 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
           const atRest = await takeCuts(app);
           expect(
-            atRest.length,
+            cutsIn(atRest).length,
             `a settled deck cut: ${summarize(atRest)}`,
           ).toBe(0);
 
@@ -290,42 +406,51 @@ describe.skipIf(!SHOULD_RUN)(
           await takeCuts(app);
 
           const found: Record<string, CutRecord[]> = {};
+          const motions: Record<string, MotionCensusReading> = {};
+          const record = async (
+            name: string,
+            gesture: () => Promise<void>,
+          ): Promise<void> => {
+            const reading = await census(app, gesture);
+            found[name] = reading.cuts;
+            motions[name] = reading.motion;
+          };
 
-          found["slot-move"] = await census(app, async () => {
+          await record("slot-move", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("assign-slot", { cardId: "A", slot: 2 }), null)`,
             );
           });
 
-          found["content-width"] = await census(app, async () => {
+          await record("content-width", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-content-width", { preset: "slim" }), null)`,
             );
           });
 
-          found["rail-side"] = await census(app, async () => {
+          await record("rail-side", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: "layout", side: "left" }), null)`,
             );
           });
 
-          found["bullseye-in"] = await census(app, async () => {
+          await record("bullseye-in", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-bullseye", { paneId: "p2" }), null)`,
             );
           });
 
-          found["bullseye-out"] = await census(app, async () => {
+          await record("bullseye-out", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-bullseye", { paneId: "p2" }), null)`,
             );
           });
 
-          found["raise"] = await census(app, async () => {
+          await record("raise", async () => {
             await app.evalJS<null>(`(window.__tug.activateCard("C"), null)`);
           });
 
-          found["card-open"] = await census(app, async () => {
+          await record("card-open", async () => {
             await app.dispatchControlAction("show-component-gallery");
           });
 
@@ -335,7 +460,7 @@ describe.skipIf(!SHOULD_RUN)(
           // ghost is what makes the departure visible, so it is asserted
           // directly — present while the fade runs, gone afterwards.
           let ghostsMidFlight = 0;
-          found["card-close"] = await census(app, async () => {
+          await record("card-close", async () => {
             await app.evalJS<null>(`(window.__tug.closePane("p3"), null)`);
             ghostsMidFlight = await app.evalJS<number>(
               `document.querySelectorAll(".tug-pane-exit-ghost").length`,
@@ -356,7 +481,7 @@ describe.skipIf(!SHOULD_RUN)(
           // one's settle window. The second First measurement has to read the
           // running tween's transform, or the frame snaps back to its
           // untweened position before starting over.
-          found["retarget"] = await census(app, async () => {
+          await record("retarget", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("assign-slot", { cardId: "A", slot: 0 }), null)`,
             );
@@ -366,7 +491,7 @@ describe.skipIf(!SHOULD_RUN)(
             );
           });
 
-          found["imposition"] = await census(app, async () => {
+          await record("imposition", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-imposition", { kind: "two-up" }), null)`,
             );
@@ -398,7 +523,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).not.toBeNull();
           const [firstCard, secondCard] = stacked?.cardIds ?? [];
 
-          found["tab-switch"] = await census(app, async () => {
+          await record("tab-switch", async () => {
             await app.evalJS<null>(
               `(window.__tug.activateCard(${JSON.stringify(firstCard)}), null)`,
             );
@@ -407,7 +532,7 @@ describe.skipIf(!SHOULD_RUN)(
           // …then pulling one of them back out, which is the detach: the card
           // leaves the stack for a pane that did not exist a moment ago, and
           // `_detachCard` commits that inside `flushSync`.
-          found["detach"] = await census(app, async () => {
+          await record("detach", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("assign-slot", { cardId: ${JSON.stringify(secondCard)}, slot: 1 }), null)`,
             );
@@ -424,41 +549,41 @@ describe.skipIf(!SHOULD_RUN)(
           // Entering the mode is itself a gesture, and it is the first cell —
           // the toggle moves every pane while every pre-flow signature term
           // holds still, which is precisely the cut this pass exists to catch.
-          found["flow:enter"] = await census(app, async () => {
+          await record("flow:enter", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-imposition-layout", { layout: "flow" }), null)`,
             );
           });
 
-          found["flow:slot-move"] = await census(app, async () => {
+          await record("flow:slot-move", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("assign-slot", { cardId: "A", slot: 1 }), null)`,
             );
           });
 
-          found["flow:content-width"] = await census(app, async () => {
+          await record("flow:content-width", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-content-width", { preset: "comfy" }), null)`,
             );
           });
 
-          found["flow:raise"] = await census(app, async () => {
+          await record("flow:raise", async () => {
             await app.evalJS<null>(`(window.__tug.activateCard("B"), null)`);
           });
 
-          found["flow:bullseye-in"] = await census(app, async () => {
+          await record("flow:bullseye-in", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-bullseye", { paneId: "p1" }), null)`,
             );
           });
 
-          found["flow:bullseye-out"] = await census(app, async () => {
+          await record("flow:bullseye-out", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-bullseye", { paneId: "p1" }), null)`,
             );
           });
 
-          found["flow:leave"] = await census(app, async () => {
+          await record("flow:leave", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-imposition-layout", { layout: "fit" }), null)`,
             );
@@ -475,7 +600,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The gesture needs a slot with two cards in it, which the battery
           // above has already produced: `flow:slot-move` put A alongside B in
           // slot 1 and nothing since has separated them.
-          found["column-split"] = await census(app, async () => {
+          await record("column-split", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-column-mode", { slot: 1, mode: "split" }), null)`,
             );
@@ -490,7 +615,7 @@ describe.skipIf(!SHOULD_RUN)(
             "the column-split cell actually divided slot 1",
           ).toBeGreaterThan(1);
 
-          found["column-stack"] = await census(app, async () => {
+          await record("column-stack", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-column-mode", { slot: 1, mode: "stack" }), null)`,
             );
@@ -509,7 +634,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(AFTER_LAND_MS);
           await takeCuts(app);
-          found["flow:column-split"] = await census(app, async () => {
+          await record("flow:column-split", async () => {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-column-mode", { slot: 1, mode: "split" }), null)`,
             );
@@ -569,7 +694,7 @@ describe.skipIf(!SHOULD_RUN)(
             "the strip is at rest before the reveal cell",
           ).toBe(0);
           await takeCuts(app);
-          found["flow:column-overflow-reveal"] = await census(app, async () => {
+          await record("flow:column-overflow-reveal", async () => {
             await app.evalJS<null>(
               `(window.__tug.activateCard(${JSON.stringify(members[members.length - 1])}), null)`,
             );
@@ -591,6 +716,57 @@ describe.skipIf(!SHOULD_RUN)(
             ),
             "the overflow cell actually slid slot 1's strip",
           ).toBeGreaterThan(0);
+
+          // ---- A scroll commit that arms nothing ------------------------
+          //
+          // The reveal above is a `"cross"`: the store lands a number CSS was
+          // not drawing and the settle carries the slide. A scroll gesture is
+          // the other half of the same pair — it drew the strip itself, every
+          // frame, and the commit is only the store catching up. That commit
+          // says `landing: "cut"` and the settle declines ([B01]).
+          //
+          // Driven through the probe rather than a drag, because no real
+          // gesture isolates it: a drop's release commits an arrangement
+          // change alongside the offset, and a batch mixing the two resolves
+          // to `"cross"` ([B02]) — which is why `at0457`'s autoscrolled
+          // release correctly still arms once.
+          const restingOffset = await app.evalJS<number>(
+            `((window.tugdeck.diag.getDeckState().columnOffsets || {})[1] || 0)`,
+          );
+          // Back to the top of the strip: the reveal left it somewhere past
+          // zero, so this is a real change rather than a clamp to where it
+          // already stood — `setColumnOffset` returns early on those.
+          const cutCommit = await app.motionCensus(async () => {
+            await app.evalJS<null>(
+              `(window.__tug.probeStripCommit(1, 0, "cut"), null)`,
+            );
+          });
+          note(summarizeMotionCensus("strip commit (cut)", cutCommit));
+          expect(
+            cutCommit.notifies,
+            "the cut still tells the deck — it is a real state change",
+          ).toBe(1);
+          expect(
+            cutCommit.arms,
+            "but nothing is carried: the frames are already drawn there",
+          ).toBe(0);
+
+          // And the contrast, so the zero above is the landing's doing rather
+          // than the commit having been a no-op.
+          const crossCommit = await app.motionCensus(async () => {
+            await app.evalJS<null>(
+              `(window.__tug.probeStripCommit(1, ${restingOffset}, "cross"), null)`,
+            );
+          });
+          note(summarizeMotionCensus("strip commit (cross)", crossCommit));
+          expect(
+            crossCommit.notifies,
+            "the same commit under the default landing tells the deck too",
+          ).toBe(1);
+          expect(
+            crossCommit.arms,
+            "and this one arms the settle that carries the slide",
+          ).toBe(1);
 
           // ---- The drop-zone drag's commit ------------------------------
           //
@@ -635,7 +811,7 @@ describe.skipIf(!SHOULD_RUN)(
             })()`,
           );
           let releaseMotion: MotionCensusReading | null = null;
-          found["flow:drop-zone-commit"] = await census(app, async () => {
+          await record("flow:drop-zone-commit", async () => {
             await app.nativeDragElementWithoutRelease(
               `.tug-pane[data-pane-id="${moverPane}"] .tug-pane-title-bar`,
               dropPoint,
@@ -677,6 +853,140 @@ describe.skipIf(!SHOULD_RUN)(
             "and nothing is snapped to its end mid-flight",
           ).toBe(0);
 
+          // ---- The pointer-driven cells -------------------------------
+          //
+          // Every cell above this one, and the drop-zone drag apart, is
+          // dispatched. That is why the census was blind to the cut it exists
+          // to find for as long as it was ([F05]): the defects that keep
+          // surfacing at this seam are the ones where a hand is on the deck
+          // when a commit lands, and a dispatch never puts one there. These
+          // two put a real mouse on the two gestures a rail answers to
+          // ([B05]).
+          //
+          // A fresh deck, because both need a right rail deep enough to
+          // overflow its run, which is not the arrangement the battery above
+          // left behind.
+          await app.seedDeckState({ state: railDeckShape(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 3`,
+            { timeoutMs: 8_000 },
+          );
+          await wait(AFTER_LAND_MS);
+
+          // The click-reveal: a press on a member hanging past the foot of the
+          // run, released without travelling. The press activates and moves
+          // nothing; the release is what slides the strip. The frame is NOT
+          // pointer-owned through it — a press that never travelled leaves the
+          // frame the imposer's — so the reveal is the settle's to carry and a
+          // jump here is a plain cut, allowed zero.
+          const railOrder = await app.evalJS<string[]>(
+            `((window.tugdeck.diag.getDeckState().imposition.rails || {}).right || {}).order || []`,
+          );
+          const clipped = RAIL_PANES[railOrder[railOrder.length - 1]];
+          const restTop = await app.evalJS<number>(
+            `document.querySelector('.tug-pane[data-pane-id="${clipped}"]').getBoundingClientRect().top`,
+          );
+          const bar = await app.getElementBounds(
+            `.tug-pane[data-pane-id="${clipped}"] .tug-pane-title-bar`,
+          );
+          const pressAt = {
+            x: Math.round(bar.x + 40),
+            y: Math.round(bar.y + bar.height / 2),
+          };
+          await record("pointer:rail-click-reveal", async () => {
+            await app.nativeMouseDown(pressAt);
+            await wait(120);
+            await app.nativeMouseUp(pressAt);
+          });
+          // Engagement guard: a press that revealed nothing would report a
+          // clean census about a gesture that moved no frame.
+          const revealedTop = await app.evalJS<number>(
+            `document.querySelector('.tug-pane[data-pane-id="${clipped}"]').getBoundingClientRect().top`,
+          );
+          note(
+            `rail click-reveal: ${clipped} came up from ${restTop.toFixed(1)} to ${revealedTop.toFixed(1)}`,
+          );
+          expect(
+            restTop - revealedTop,
+            "the click-reveal cell actually brought the member in",
+          ).toBeGreaterThan(1);
+
+          // The seam release. First the rail has to have a seam at all: at
+          // three members it overflows, and an overflowing rail's run stops
+          // being divided and starts being scrolled, so no handle is drawn.
+          // Sending one member to the other side drops it back to two.
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: "overview", side: "left" }), null)`,
+          );
+          await app.waitForCondition<boolean>(
+            `document.querySelectorAll('.tug-place-seam[data-rail-seam="right:0"]').length === 1`,
+            { timeoutMs: 8_000 },
+          );
+          await wait(AFTER_LAND_MS);
+
+          // Now the gesture: a drag on the divider between the two members.
+          // It writes the seam fraction onto its custom property every frame
+          // and commits once at the release, so the members it divides are
+          // already drawn at their new heights when the commit lands. Nothing
+          // should tween, and nothing should jump.
+          const seamBox = await app.getElementBounds(
+            `.tug-place-seam[data-rail-seam="right:0"]`,
+          );
+          const seamFrom = {
+            x: Math.round(seamBox.x + seamBox.width / 2),
+            y: Math.round(seamBox.y + seamBox.height / 2),
+          };
+          const seamTo = { x: seamFrom.x, y: seamFrom.y + 90 };
+          const seamBefore = await railSeamFraction(app);
+          await record("pointer:seam-release", async () => {
+            await app.nativeDragElementWithoutRelease(
+              `.tug-place-seam[data-rail-seam="right:0"]`,
+              seamTo,
+            );
+            await app.nativeMouseUp(seamTo);
+          });
+          const seamAfter = await railSeamFraction(app);
+          note(
+            `seam release: right:0 moved ${seamBefore.toFixed(3)} → ${seamAfter.toFixed(3)}, dragged ${seamFrom.y} → ${seamTo.y}`,
+          );
+          expect(
+            Math.abs(seamAfter - seamBefore),
+            "the seam cell actually moved the seam it dragged",
+          ).toBeGreaterThan(0.01);
+
+          // And the seam press that is NOT a drag. The two members it divides
+          // are marked the hand's for the duration of a drag, and a press that
+          // never travels commits nothing — so the mark has to come off on that
+          // path too. One left standing exempts both members from every settle
+          // for the rest of the session, and the seam's own double-click
+          // equalize is two such presses.
+          const marked = (): Promise<string[]> =>
+            app.evalJS<string[]>(
+              `Array.prototype.map.call(
+                document.querySelectorAll('.tug-pane[data-pointer-owned]'),
+                function (el) { return el.getAttribute('data-pane-id'); }
+              )`,
+            );
+          note(`marked after the seam drag: ${JSON.stringify(await marked())}`);
+          const seamRestBox = await app.getElementBounds(
+            `.tug-place-seam[data-rail-seam="right:0"]`,
+          );
+          const seamRest = {
+            x: Math.round(seamRestBox.x + seamRestBox.width / 2),
+            y: Math.round(seamRestBox.y + seamRestBox.height / 2),
+          };
+          await app.nativeMouseDown(seamRest);
+          await wait(120);
+          await app.nativeMouseUp(seamRest);
+          await wait(AFTER_LAND_MS);
+          note(`marked after the seam press: ${JSON.stringify(await marked())}`);
+          expect(
+            await app.evalJS<number>(
+              `document.querySelectorAll('.tug-pane[data-pointer-owned]').length`,
+            ),
+            "a seam press that never travelled leaves no frame marked the hand's",
+          ).toBe(0);
+
           await disarmDetector(app);
 
           const over: string[] = [];
@@ -691,11 +1001,25 @@ describe.skipIf(!SHOULD_RUN)(
               continue;
             }
             note(
-              `${gesture}: ${records.length} cut(s), allowed ${allowed.max} — ${allowed.why}`,
+              `${gesture}: ${cutsIn(records).length} cut(s), allowed ${allowed.max}` +
+                `${records.length > cutsIn(records).length ? `, ${records.length - cutsIn(records).length} self-positioned` : ""}` +
+                ` — ${allowed.why}`,
             );
-            if (records.length > allowed.max) {
+            if (cutsIn(records).length > allowed.max) {
               over.push(
-                `${gesture}: ${records.length} cut(s) > ${allowed.max} allowed (${allowed.why}) — ${summarize(records)}`,
+                `${gesture}: ${cutsIn(records).length} cut(s) > ${allowed.max} allowed (${allowed.why}) — ${summarize(cutsIn(records))}`,
+              );
+            }
+            // [B06]: the commit says how it lands and the settle either agrees
+            // or is wrong. A `"cut"` the settle carried is a tween over frames
+            // already in place; a `"cross"` it declined is a move left
+            // uncarried. Zero for every gesture, with no allowlist entry — the
+            // allowance above is for cuts the deck is still known to have, and
+            // a settle contradicting its own commit was never one of those.
+            const motion = motions[gesture];
+            if (motion !== undefined && motion.landingDisagreements > 0) {
+              over.push(
+                `${gesture}: ${motion.landingDisagreements} settle(s) disagreed with the commit's landing — ${summarizeMotionCensus(gesture, motion)}`,
               );
             }
           }

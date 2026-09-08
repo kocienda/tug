@@ -21,6 +21,7 @@
  *
  * @covers tugdeck/src/components/chrome/pane-focus-controller.ts
  * @covers tugdeck/src/gesture-interpreter.ts
+ * @covers tugdeck/src/lib/press-travel.ts
  */
 
 import { describe, expect, test } from "bun:test";

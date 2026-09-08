@@ -20,6 +20,7 @@
  * stable screen coordinate to click.
  *
  * @covers tugdeck/src/gesture-interpreter.ts
+ * @covers tugdeck/src/lib/press-travel.ts
  * @covers tugdeck/src/components/chrome/pane-focus-controller.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  */

@@ -89,6 +89,7 @@ import {
   type ContentWidth,
 } from "@/lib/layout-imposer";
 import { motionKeyframes, velocityAlongTravel } from "@/lib/imposer-motion";
+import { DRAG_MOVE_THRESHOLD_PX } from "@/lib/press-travel";
 import { TugButton } from "@/components/tugways/internal/tug-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugActionTooltip } from "@/components/tugways/tug-action-tooltip";
@@ -1760,17 +1761,6 @@ function releaseImposedFrame(
   return released;
 }
 
-/**
- * How far the pointer must travel before a press becomes a gesture — on the
- * title bar (drag), on a resize handle, and on a rail's deck-facing edge.
- *
- * Under this, the press is a click: it focuses the pane and commits nothing.
- * The distinction matters most for a pane whose geometry is derived — a slotted
- * card, or a pinned rail — because committing a move or a resize is what
- * releases it from the arrangement, and that should take an actual drag.
- */
-export const DRAG_MOVE_THRESHOLD_PX = 3;
-
 /** Height of the title bar chrome inside `.tug-pane-body` (below the outer frame). */
 const HEADER_HEIGHT_PX = 28;
 const DEFAULT_MIN_CONTENT: { width: number; height: number } = { width: 100, height: 60 };
@@ -3033,11 +3023,12 @@ export function TugPane({
        *
        * On the gesture's own rAF ([D135] — no second clock), and imperatively:
        * the offset goes onto its custom property and nowhere near the store
-       * (Spec S03). A store write here would change `arrangementSignature`
-       * ([P12]) and arm a FLIP settle on every frame of the drag — the dragged
-       * frame is exempt for carrying `data-gesture`, but every OTHER member of
-       * that column would be measured and tweened under the user's hand. The
-       * number commits once, at the drop or the cancel.
+       * (Spec S03), so the strip follows the hand at no measuring cost. The
+       * number commits once, at the drop or the cancel, and it commits with
+       * `landing: "cut"` — the strip is already drawn there, so the settle
+       * declines instead of measuring and tweening the column's other members
+       * under the user's hand ([B01], [B03]). Per frame is a cost choice now
+       * rather than the only way to say what the commit means.
        *
        * Rescheduling itself while it is advancing is what makes a HELD pointer
        * keep scrolling: the drag's frames are otherwise driven by pointermove,

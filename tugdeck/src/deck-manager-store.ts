@@ -20,7 +20,7 @@ import type {
 import type { CardLifecycleObserver } from "./lib/card-lifecycle";
 import type { ComponentStatePreservationRegistry } from "./components/tugways/component-state-preservation-registry";
 import type { CardAssembler } from "./card-state-orchestrator";
-import type { SaveCallbackSource } from "./deck-trace";
+import type { CommitLanding, SaveCallbackSource } from "./deck-trace";
 import type { SlotAssignment } from "./deck-manager";
 
 /**
@@ -49,8 +49,14 @@ export interface IDeckManagerStore {
    * Subscribe to state changes. Returns an unsubscribe function.
    * Must be an arrow property (stable identity, auto-bound this)
    * so it can be passed directly to useSyncExternalStore without .bind().
+   *
+   * The callback receives the commit's {@link CommitLanding} — how the
+   * mutation says it wants to land, declared at the call site rather than
+   * reconstructed downstream ([B01]). A subscriber that only wants to know
+   * *that* something changed takes no argument and is unaffected, which is
+   * every subscriber but the settle.
    */
-  subscribe: (callback: () => void) => () => void;
+  subscribe: (callback: (landing: CommitLanding) => void) => () => void;
 
   /**
    * Return the current DeckState snapshot.
@@ -98,12 +104,27 @@ export interface IDeckManagerStore {
   /**
    * Commit where a drag left a scrolled strip — an overflowing column's
    * ([P12]), an overflowing rail's, and the flow strip's. One write at the end
-   * of the gesture, never per frame: the offset is an `arrangementSignature`
-   * term, so a per-frame commit would arm a settle on every frame of the drag.
+   * of the gesture, because the strip moved imperatively while the hand was
+   * down and this is where the store catches up with it.
+   *
+   * `landing` is how the commit lands ([B01]). A gesture that previewed per
+   * frame passes `"cut"` — the frames are already drawn there and the settle
+   * declines — which is what a per-frame writer had no way to say before
+   * ([B03]). A caller that hands over a number the deck was not drawing, the
+   * flow strip's segment click and the Center Card chord, leaves the default
+   * `"cross"` and the settle carries the crossing.
    */
-  setColumnOffset: (slot: number, offset: number) => void;
-  setRailOffset: (side: SidebarSide, offset: number) => void;
-  setFlowOffset: (offset: number) => void;
+  setColumnOffset: (
+    slot: number,
+    offset: number,
+    landing?: CommitLanding,
+  ) => void;
+  setRailOffset: (
+    side: SidebarSide,
+    offset: number,
+    landing?: CommitLanding,
+  ) => void;
+  setFlowOffset: (offset: number, landing?: CommitLanding) => void;
 
   /**
    * Draw the deck at a flow offset without committing it — the per-frame half
