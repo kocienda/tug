@@ -690,6 +690,8 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   // drawn either way and disabled when there is nothing to fold, so every row
   // in the list ends at the same edge and the column never goes ragged.
   const steps = entry.steps ?? [];
+  // The fold's hover, in the plural the count actually takes.
+  const stepsWord = `${steps.length} step${steps.length === 1 ? "" : "s"}`;
   const expanded = dataSource.expanded.has(row.ownerId);
   // Bind / Discard / Replay, on the row's second button — the eyebrow carries
   // no opener of its own any more.
@@ -794,7 +796,15 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
                   and the default scroll stabilization, because this list
                   scrolls exactly as the transcript does. No `stopPropagation`
                   and no selection guard — the list excuses any descendant that
-                  refuses focus, so a press here never picks the row. */}
+                  refuses focus, so a press here never picks the row.
+
+                  The hover names the fold in the count's own terms, because
+                  `subtype="icon"` means the chevron carries no label of its
+                  own and its direction is the only thing saying which way the
+                  press goes. An arc with no steps draws the cue DOM-disabled,
+                  which takes no pointer events — so that one row is the one
+                  with no bubble, and it is also the row with nothing to say
+                  beyond the emptiness the lifecycle line already states. */}
               <BlockFoldCue
                 collapsed={!expanded}
                 onToggle={() => dataSource.toggle(row.ownerId)}
@@ -802,6 +812,7 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
                 expandedLabel="Collapse"
                 ariaLabelExpand={`Expand steps for arc ${entry.display_name}`}
                 ariaLabelCollapse={`Collapse steps for arc ${entry.display_name}`}
+                tooltip={expanded ? `Hide ${stepsWord}` : `Show ${stepsWord}`}
                 size="xs"
                 subtype="icon"
                 disabled={steps.length === 0}

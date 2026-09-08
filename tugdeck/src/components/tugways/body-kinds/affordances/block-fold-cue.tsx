@@ -62,6 +62,7 @@ import React from "react";
 import { ChevronsDown, ChevronsUp } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useOuterScrollport } from "@/components/tugways/internal/outer-scrollport-context";
 import { useScroller } from "@/components/tugways/internal/scroller-context";
 import { usePositionStableClick } from "@/components/tugways/internal/use-position-stable-click";
@@ -158,6 +159,23 @@ export interface BlockFoldCueProps {
   focusOrder?: number;
   /** Optional className for cascade-scoped customization. */
   className?: string;
+  /**
+   * A hover phrase for the cue. Optional, and meant for the `icon` subtype:
+   * with no label beside it, the chevron's direction is the only thing saying
+   * which way a press goes, which is a lot to ask of an arrowhead. The
+   * `icon-text` form already carries its label and wants none.
+   *
+   * Rendered here rather than by the caller because the cue is a function
+   * component, not a `forwardRef` — a {@link TugTooltip} wrapped around it at
+   * the call site would clone a child that drops the trigger's ref and its
+   * hover handlers, and the bubble would never open. Inside, the tooltip
+   * wraps the {@link TugPushButton} itself, which does forward its ref.
+   *
+   * The phrase should say what the press WOULD do, so it changes with
+   * `collapsed` — the caller authors both faces. A `disabled` cue is
+   * DOM-disabled and takes no pointer events, so it shows no bubble.
+   */
+  tooltip?: React.ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +197,7 @@ export function BlockFoldCue({
   focusGroup,
   focusOrder,
   className,
+  tooltip,
 }: BlockFoldCueProps): React.ReactElement {
   const buttonRef = React.useRef<HTMLButtonElement | null>(null);
 
@@ -240,7 +259,7 @@ export function BlockFoldCue({
   const visibleLabel = collapsed ? collapsedLabel : resolvedExpandedLabel;
   const offStateLabel = collapsed ? resolvedExpandedLabel : collapsedLabel;
 
-  return (
+  const button = (
     <TugPushButton
       ref={buttonRef}
       className={className}
@@ -263,5 +282,15 @@ export function BlockFoldCue({
     >
       {visibleLabel}
     </TugPushButton>
+  );
+
+  // The bubble is the caller's to ask for, and it wraps the BUTTON rather than
+  // standing outside this component: the trigger has to be an element whose
+  // ref and hover handlers survive the clone, and `TugPushButton` is the
+  // forwardRef in this file.
+  return tooltip === undefined ? (
+    button
+  ) : (
+    <TugTooltip content={tooltip}>{button}</TugTooltip>
   );
 }

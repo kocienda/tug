@@ -20,7 +20,7 @@
  * and stops the click from reaching the row.
  *
  * **A refused control is never DOM-disabled** ([P07]). A `disabled` button
- * takes no pointer events, so the `title` carrying the reason could never be
+ * takes no pointer events, so the bubble carrying the reason could never be
  * read, and an `xs` icon has no label to put it in. So a refusal renders
  * `aria-disabled` with `data-refused`, keeps its pointer events, and answers a
  * press by posting the reason to the pane bulletin of the card the press would
@@ -29,6 +29,14 @@
  *
  * A *pending* press is `aria-disabled` too, and for the opposite reason: the
  * frame is out and a second one would be a second act.
+ *
+ * **The hover says the same sentence the screen reader hears.** The `icon`
+ * form is a bare glyph, and a Play glyph on an arc row is two questions at
+ * once — what it would start, and whether it may. So the button wears a
+ * {@link TugTooltip} whose content is the very string its `aria-label` is,
+ * refusal reason and all: one authored sentence, so the hover and the
+ * assistive reading cannot drift apart. It replaces a native `title`, which
+ * only ever appeared on a refusal and would have raced the bubble.
  *
  * Laws: [L02] the pending bit enters React through `useSyncExternalStore`;
  * [L06] refused and pending appearance ride `aria-disabled` and `data-*` with
@@ -44,6 +52,7 @@ import React, { useCallback, useSyncExternalStore } from "react";
 import { Play, Square } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { arcPressStore, type ArcTransportVerb } from "@/lib/arc-press-store";
 import {
   hasAnyDocument,
@@ -169,25 +178,26 @@ export function ArcTransportControl({
     : `${word} arc ${arc}`;
 
   return (
-    <TugPushButton
-      data-slot="arc-transport"
-      data-verb={verb}
-      data-form={form}
-      data-pending={pending ? "true" : undefined}
-      data-refused={refused ? "true" : undefined}
-      className="tug-arc-transport"
-      size={size}
-      emphasis={form === "icon" ? "ghost" : "outlined"}
-      subtype={form === "icon" ? "icon" : "text"}
-      {...(form === "icon"
-        ? { icon: verb === "stop" ? <Square /> : <Play /> }
-        : {})}
-      aria-disabled={refused || pending ? true : undefined}
-      aria-label={label}
-      {...(refused ? { title: actor.reason } : {})}
-      onClick={press}
-    >
-      {form === "word" ? word : null}
-    </TugPushButton>
+    <TugTooltip content={label}>
+      <TugPushButton
+        data-slot="arc-transport"
+        data-verb={verb}
+        data-form={form}
+        data-pending={pending ? "true" : undefined}
+        data-refused={refused ? "true" : undefined}
+        className="tug-arc-transport"
+        size={size}
+        emphasis={form === "icon" ? "ghost" : "outlined"}
+        subtype={form === "icon" ? "icon" : "text"}
+        {...(form === "icon"
+          ? { icon: verb === "stop" ? <Square /> : <Play /> }
+          : {})}
+        aria-disabled={refused || pending ? true : undefined}
+        aria-label={label}
+        onClick={press}
+      >
+        {form === "word" ? word : null}
+      </TugPushButton>
+    </TugTooltip>
   );
 }
