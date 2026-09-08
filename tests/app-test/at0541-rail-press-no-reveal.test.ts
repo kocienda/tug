@@ -1,0 +1,152 @@
+/**
+ * at0541-rail-press-no-reveal.test.ts — a press on a clipped rail member
+ * moves nothing.
+ *
+ * An activation reveals: raising a member of an overflowing rail slides the
+ * rail's strip by the least that shows it. The POINTER's activation is the
+ * exception. The hand is already on the card it named, and a strip that slid
+ * under the press would carry the title bar out from under a mouse that is
+ * still holding it — which is the one thing a press must never do. So the
+ * pointer path passes `reveal: false` to `activateCard`, and the strip stays
+ * where it stood for as long as the hand holds. A release that travelled
+ * nowhere is a click, and a click's ending is when the card may come fully
+ * in — so the release reveals, and a card merely clicked still arrives.
+ *
+ * Three members on the right rail put the rail under the overflow rule
+ * (`run / 2.5` each), so the third stands clipped past the window's foot at
+ * rest.
+ *
+ * @covers tugdeck/src/components/chrome/pane-focus-controller.ts
+ * @covers tugdeck/src/gesture-interpreter.ts
+ */
+
+import { describe, expect, test } from "bun:test";
+
+import { launchTugApp, note, type App } from "./_harness";
+
+const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+const TEST_TIMEOUT_MS = 180_000;
+const AFTER_LAND_MS = 900;
+const EPSILON = 1;
+
+const wait = (ms: number): Promise<void> =>
+  new Promise<void>((r) => setTimeout(r, ms));
+
+const PANES: Record<string, string> = { layout: "pLayout", jots: "pJots", overview: "pOverview" };
+const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
+
+function deckShape(): Record<string, unknown> {
+  const rail = (componentId: string) => ({
+    id: PANES[componentId],
+    position: { x: 0, y: 0 },
+    size: { width: 400, height: 900 },
+    cardIds: [componentId.toUpperCase()],
+    activeCardId: componentId.toUpperCase(),
+    title: componentId,
+    acceptsFamilies: [],
+  });
+  return {
+    cards: [
+      { id: "A", componentId: "gallery-accordion", title: "Card A", closable: true },
+      { id: "LAYOUT", componentId: "layout", title: "Layout", closable: true },
+      { id: "JOTS", componentId: "jots", title: "Jots", closable: true },
+      { id: "OVERVIEW", componentId: "overview", title: "Overview", closable: true },
+    ],
+    panes: [
+      {
+        id: "p1",
+        position: { x: 40, y: 40 },
+        size: { width: 400, height: 400 },
+        cardIds: ["A"],
+        activeCardId: "A",
+        title: "",
+        acceptsFamilies: ["maker"],
+        slot: 0,
+      },
+      rail("layout"),
+      rail("jots"),
+      rail("overview"),
+    ],
+    activePaneId: "p1",
+    imposition: {
+      kind: "three-up",
+      sidebars: {
+        layout: { side: "right" },
+        jots: { side: "right" },
+        overview: { side: "right" },
+      },
+      rails: { right: { mode: "split", order: ["layout", "jots", "overview"] } },
+    },
+    hasFocus: true,
+  };
+}
+
+async function railOffset(app: App): Promise<number> {
+  return app.evalJS<number>(
+    `((window.tugdeck.diag.getDeckState().railOffsets || {}).right || 0)`,
+  );
+}
+
+async function top(app: App, paneId: string): Promise<number> {
+  return app.evalJS<number>(
+    `document.querySelector('${frame(paneId)}').getBoundingClientRect().top`,
+  );
+}
+
+describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves nothing", () => {
+  test(
+    "the strip stays put under the press, and the click's release brings the member in",
+    async () => {
+      const app = await launchTugApp({ testName: "at0541-rail-press-no-reveal" });
+      try {
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 3`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        const order = await app.evalJS<string[]>(
+          `((window.tugdeck.diag.getDeckState().imposition.rails || {}).right || {}).order || []`,
+        );
+        const lastPane = PANES[order[order.length - 1]];
+        const vh = await app.evalJS<number>("window.innerHeight");
+        const restTop = await top(app, lastPane);
+        const restOffset = await railOffset(app);
+        note(`rail order ${JSON.stringify(order)}; last member top ${restTop.toFixed(1)} of ${vh}, offset ${restOffset}`);
+        expect(restOffset, "the strip starts at rest").toBe(0);
+        expect(restTop, "the last member is clipped past the foot at rest").toBeGreaterThan(vh * 0.6);
+
+        // ── The press. ──
+        const bar = await app.getElementBounds(`${frame(lastPane)} .tug-pane-title-bar`);
+        const pt = { x: Math.round(bar.x + 40), y: Math.round(bar.y + bar.height / 2) };
+        await app.nativeMouseDown(pt);
+        await wait(AFTER_LAND_MS);
+        const heldTop = await top(app, lastPane);
+        const heldOffset = await railOffset(app);
+        note(`pressed at ${pt.x},${pt.y}: top ${heldTop.toFixed(1)}, offset ${heldOffset}`);
+        expect(
+          await app.evalJS<string | undefined>(`window.tugdeck.diag.getDeckState().activePaneId`),
+          "the press activated the member",
+        ).toBe(lastPane);
+        expect(heldOffset, "and slid nothing").toBe(0);
+        expect(Math.abs(heldTop - restTop), "the title bar is where the mouse pressed it").toBeLessThanOrEqual(EPSILON);
+        await app.nativeMouseUp(pt);
+        await wait(AFTER_LAND_MS);
+        // ── The release of a click is when the card comes in. ──
+        const clickedOffset = await railOffset(app);
+        const clickedTop = await top(app, lastPane);
+        note(`released without travel: offset ${clickedOffset.toFixed(1)}, top ${clickedTop.toFixed(1)}`);
+        expect(clickedOffset, "the click's release reveals the member").toBeGreaterThan(0);
+        expect(clickedTop, "which brings it up the run").toBeLessThan(restTop - EPSILON);
+        const clickedBottom = await app.evalJS<number>(
+          `document.querySelector('${frame(lastPane)}').getBoundingClientRect().bottom`,
+        );
+        expect(clickedBottom, "fully in: its foot is inside the window").toBeLessThanOrEqual(vh + EPSILON);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+});

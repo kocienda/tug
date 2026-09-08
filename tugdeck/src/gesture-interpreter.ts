@@ -124,6 +124,14 @@ export interface GestureInterpreterHost {
     outgoingCardId: string | null;
     incomingCardId: string;
   }) => void;
+  /**
+   * Bring the card a CLICK activated fully into view. Called at the release
+   * of a press that activated and then travelled under the click threshold;
+   * never for a press that became a drag, whose drop answers for itself.
+   * The press itself activates without moving anything (the hand is on the
+   * card), so this is the reveal's other half, at the moment the hand lets go.
+   */
+  reveal: (cardId: string) => void;
   /** Clear the active card. Called synchronously for `deselect`. */
   deselect: () => void;
 }
@@ -500,6 +508,22 @@ export function installGestureInterpreter(
     incomingCardId: string;
   } | null = null;
 
+  /**
+   * The press that activated, until it ends. A release that travelled less
+   * than the click threshold is a click, and a click's ending is when the
+   * deck may reveal the card the press activated (`host.reveal`); a release
+   * that travelled is a drag, and the drop answers for itself. The threshold
+   * is the pane drag's own (`DRAG_MOVE_THRESHOLD_PX` in `tug-pane.tsx`),
+   * restated here so the two gestures agree on where a click stops being one.
+   */
+  let press: {
+    cardId: string;
+    x: number;
+    y: number;
+    travelled: boolean;
+  } | null = null;
+  const CLICK_TRAVEL_PX = 3;
+
   function clearPendingActivation(): void {
     if (pendingActivation === null) return;
     pendingActivation = null;
@@ -511,6 +535,9 @@ export function installGestureInterpreter(
     pendingActivation = null;
     if (pending === null) return;
     host.activate(pending);
+    // A deferred activation commits only at a release no drag claimed — a
+    // click — so it reveals as a click does.
+    host.reveal(pending.incomingCardId);
     // Closed AFTER the transfer: the transfer's own focus writes are the legal
     // outcome, and the browser-default churn window ends with them.
     getFocusManager()?.endDeferredGesture();
@@ -518,6 +545,7 @@ export function installGestureInterpreter(
 
   function onPointerDown(event: PointerEvent): void {
     clearPendingActivation();
+    press = null;
     current = classify(event, host, []);
     if (current.activation === "deselect") {
       host.deselect();
@@ -533,6 +561,19 @@ export function installGestureInterpreter(
     }
     if (current.activation === "activate" && current.activationTransfer !== null) {
       host.activate(current.activationTransfer);
+      press = {
+        cardId: current.activationTransfer.incomingCardId,
+        x: event.clientX,
+        y: event.clientY,
+        travelled: false,
+      };
+    }
+  }
+
+  function onPointerMove(event: PointerEvent): void {
+    if (press === null || press.travelled) return;
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) >= CLICK_TRAVEL_PX) {
+      press.travelled = true;
     }
   }
 
@@ -585,14 +626,19 @@ export function installGestureInterpreter(
 
   function onDragStart(): void {
     clearPendingActivation();
+    press = null;
     current = null;
   }
   function onPointerUp(): void {
+    const ended = press;
+    press = null;
     commitPendingActivation();
+    if (ended !== null && !ended.travelled) host.reveal(ended.cardId);
     current = null;
   }
   function onGestureAbandoned(): void {
     clearPendingActivation();
+    press = null;
     current = null;
   }
 
@@ -607,6 +653,7 @@ export function installGestureInterpreter(
   document.addEventListener("pointerdown", onPointerDown, { capture: true });
   document.addEventListener("mousedown", onMouseDown, { capture: true });
   document.addEventListener("dragstart", onDragStart, { capture: true });
+  document.addEventListener("pointermove", onPointerMove, { capture: true });
   document.addEventListener("pointerup", onPointerUp, { capture: true });
   document.addEventListener("pointercancel", onGestureAbandoned, { capture: true });
   document.addEventListener("dragend", onGestureAbandoned, { capture: true });
@@ -619,6 +666,7 @@ export function installGestureInterpreter(
     document.removeEventListener("pointerdown", onPointerDown, { capture: true });
     document.removeEventListener("mousedown", onMouseDown, { capture: true });
     document.removeEventListener("dragstart", onDragStart, { capture: true });
+    document.removeEventListener("pointermove", onPointerMove, { capture: true });
     document.removeEventListener("pointerup", onPointerUp, { capture: true });
     document.removeEventListener("pointercancel", onGestureAbandoned, {
       capture: true,
@@ -626,6 +674,7 @@ export function installGestureInterpreter(
     document.removeEventListener("dragend", onGestureAbandoned, { capture: true });
     current = null;
     pendingActivation = null;
+    press = null;
     installedHost = null;
   };
 }

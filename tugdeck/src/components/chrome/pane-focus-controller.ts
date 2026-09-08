@@ -107,13 +107,23 @@ export function usePaneFocusController(
       // same-bit branch short-circuits the will/didActivate events, and the
       // reactive effect above restores `data-focused="true"` — which is how a
       // click back onto the only pane leaves a deselected deck.
+      //
+      // `reveal: false`: this is the POINTER's activation, and the hand is
+      // already on the card it named. A strip reveal here would slide an
+      // overflowing rail or column under the press, carrying the title bar
+      // out from under a mouse that is still holding it.
       activate: ({ outgoingCardId, incomingCardId }) => {
         transferFocusForActivation({
           outgoingCardId,
           incomingCardId,
           store,
-          commitMutation: () => store.activateCard(incomingCardId),
+          commitMutation: () => store.activateCard(incomingCardId, { reveal: false }),
         });
+      },
+      // The click's other half: a release that travelled nowhere is when the
+      // hand has let go, and the card it clicked may come fully into view.
+      reveal: (cardId) => {
+        store.revealCard(cardId);
       },
       // Clear the active card so no pane is the first responder; the store
       // notify repaints every title bar through the reactive effect above.

@@ -149,8 +149,17 @@ export interface IDeckManagerStore {
    * restoration. No-op when `cardId` is already the first responder
    * (same-bit calls still refresh the persisted pointer and the
    * responder chain in case it drifted).
+   *
+   * `reveal: false` declines the strip reveal the commit would otherwise
+   * ride — the minimal slide of a flow band, an overflowing column, or an
+   * overflowing rail that brings the member fully in. The POINTER passes
+   * it: the hand is already on the card it named, and a strip that slides
+   * under a press moves the title bar out from under the mouse that is
+   * still holding it. Every other arrival (keyboard, a chord, a
+   * programmatic raise) reveals, because there the reader asked to be
+   * taken to a card they may not be looking at.
    */
-  activateCard: (cardId: string) => void;
+  activateCard: (cardId: string, opts?: { reveal?: boolean }) => void;
 
   /**
    * Deselect — clear the composite first-responder bit so no card is
@@ -159,6 +168,17 @@ export interface IDeckManagerStore {
    * click. No-op when nothing is active.
    */
   deselectActiveCard: () => void;
+
+  /**
+   * Slide whatever strip the pane hosting `cardId` rides by the least that
+   * shows the pane fully — the reveal an activation commits, on its own, and
+   * nothing when the pane is already fully in. The pointer's CLICK ends here:
+   * the press activated with `reveal: false` so nothing moved under the
+   * hand, and a release that travelled nowhere is the moment the reader has
+   * let go and the deck may bring the card in. A release that travelled is a
+   * drag, and the drop's own commit answers for it instead.
+   */
+  revealCard: (cardId: string) => void;
 
   /**
    * Read the composite first-responder bit: the active pane's

@@ -785,10 +785,14 @@ export class DeckManager implements IDeckManagerStore {
 
   // ---- CardLifecycle pass-throughs ----
 
-  public activateCard = (cardId: string): void => {
+  public activateCard = (
+    cardId: string,
+    opts?: { reveal?: boolean },
+  ): void => {
+    const reveal = opts?.reveal ?? true;
     this._flipFirstResponder(
       cardId,
-      () => this._commitStandardFirstResponderFlip(cardId),
+      () => this._commitStandardFirstResponderFlip(cardId, reveal),
       "activateCard",
     );
     // Same-bit refresh: re-clicking the already-active card re-syncs
@@ -806,6 +810,39 @@ export class DeckManager implements IDeckManagerStore {
    * pointerdown promotion, so this only clears the deck-level bit; the two
    * systems then agree that nothing is selected. No-op when nothing is active.
    */
+  /**
+   * The reveal an activation would have committed, on its own — see
+   * `IDeckManagerStore.revealCard`. Reads the panes standing rather than a
+   * commit's next panes, because nothing else is changing. Offsets are
+   * session state and never serialized, so no save is scheduled.
+   */
+  public revealCard = (cardId: string): void => {
+    const panes = this.deckState.panes;
+    const pane = panes.find((p) => p.cardIds.includes(cardId));
+    if (pane === undefined) return;
+    const flowNext = this._flowRevealOffsetFor(pane.id, panes);
+    const flowOffset =
+      flowNext === undefined || flowNext === (this.deckState.flowOffset ?? 0)
+        ? undefined
+        : flowNext;
+    const columnReveal = this._columnRevealOffsetFor(pane.id, panes);
+    const railReveal = this._railRevealOffsetFor(pane.id, panes);
+    if (
+      flowOffset === undefined &&
+      columnReveal === undefined &&
+      railReveal === undefined
+    ) {
+      return;
+    }
+    this.deckState = {
+      ...this.deckState,
+      ...(flowOffset !== undefined ? { flowOffset } : {}),
+      ...this._withColumnReveal(columnReveal),
+      ...this._withRailReveal(railReveal),
+    };
+    this.notify("revealCard");
+  };
+
   public deselectActiveCard = (): void => {
     if (this.deckState.activePaneId === undefined) return;
     this._flipFirstResponder(
@@ -2757,8 +2794,16 @@ export class DeckManager implements IDeckManagerStore {
    * Designed to be passed as the `commit` closure to
    * `_flipFirstResponder`. Use for promote-to-active transitions
    * where the caller has no other state mutation to bundle.
+   *
+   * `reveal` is whether the raise may slide a strip to bring the member
+   * fully in. A pointer activation passes `false` (see
+   * `IDeckManagerStore.activateCard`): the hand is on the card, and the
+   * one thing a press must never do is move the thing it is pressing.
    */
-  private _commitStandardFirstResponderFlip(newFR: string | null): void {
+  private _commitStandardFirstResponderFlip(
+    newFR: string | null,
+    reveal = true,
+  ): void {
     if (newFR === null) {
       this.deckState = { ...this.deckState, activePaneId: undefined };
       this.notify("_commitStandardFirstResponderFlip");
@@ -2799,14 +2844,20 @@ export class DeckManager implements IDeckManagerStore {
     // activation that reveals nothing returns the offset it was given, and the
     // commit stays z-only — which is what keeps a click on an already-visible
     // card from arming a settle it does not owe.
-    const flowOffset = this._flowRevealOffsetFor(updatedHost.id, newStacks);
+    const flowOffset = reveal
+      ? this._flowRevealOffsetFor(updatedHost.id, newStacks)
+      : undefined;
     // And the same rule down the other axis: raising a member of an
     // overflowing column slides that column's strip by the least that shows
     // it, in this commit, so the settle sees one arrangement change ([P12]).
-    const columnReveal = this._columnRevealOffsetFor(updatedHost.id, newStacks);
+    const columnReveal = reveal
+      ? this._columnRevealOffsetFor(updatedHost.id, newStacks)
+      : undefined;
     // And the rail's half of it: raising a member of an overflowing rail slides
     // that side's strip by the least that shows it, in this commit.
-    const railReveal = this._railRevealOffsetFor(updatedHost.id, newStacks);
+    const railReveal = reveal
+      ? this._railRevealOffsetFor(updatedHost.id, newStacks)
+      : undefined;
 
     this.deckState = {
       ...this.deckState,
