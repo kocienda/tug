@@ -18,7 +18,10 @@ const INDICATOR_CLASS = "tug-drop-zone-indicator";
 
 /**
  * How far inside a zone's tile the outline is drawn, in layout px — a feel
- * number ([Q01]), and the one of them that lives outside `drop-zones.ts`.
+ * number ([Q01]), and the one of them that lives outside `drop-zones.ts`. It
+ * is 0: the outline's outer edge IS the tile's edge, so a square outline
+ * over a flush panel lies on the panel's own hairline rather than standing
+ * a few px inside it, where the gap read as a misalignment.
  *
  * It is here because this is the only code that reads it, and because an
  * app-test asserting the outline's rect against the tile it promised has to
@@ -28,7 +31,7 @@ const INDICATOR_CLASS = "tug-drop-zone-indicator";
  * side-effect declarations. This module's own graph is one type import, so
  * a test may name it.
  */
-export const ZONE_INDICATOR_INSET_PX = 3;
+export const ZONE_INDICATOR_INSET_PX = 0;
 
 /**
  * Show the indicator at `rect` inside `canvas`, or take it away when `rect` is

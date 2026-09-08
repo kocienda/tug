@@ -329,9 +329,9 @@ body {
  * from the lift until the landing animation finishes (`landZoneDrop`), which
  * is exactly the window in which the card is a thing being carried; the
  * rail's own width resize stamps `"resize"` and stays a panel. For that
- * window the chrome falls through to the card's frame — a rule on every
- * edge, the card radius, the card shadow — and takes the panel's back the
- * moment it has landed. The afloat rail and the in-flight member are one
+ * window the chrome takes a rule on every edge and the card's shadow — never
+ * the card's radius, because a lifted panel is still a panel — and takes the
+ * panel's rules back the moment it has landed. The afloat rail and the in-flight member are one
  * statement, not two.
  *
  * `panel`: the rail gives up the card's whole shape. Flush to the window's
@@ -376,8 +376,14 @@ body {
   );
 }
 
-[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side]:not([data-gesture="true"]) .tug-pane-chrome {
+/* A pinned rail keeps its square corners in flight as well: a panel lifted
+   off its edge is still a panel, and what it takes for the carry is a rule
+   on every edge and the card's shadow, not the card's radius. */
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side] .tug-pane-chrome {
   border-radius: 0;
+}
+
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side]:not([data-gesture="true"]) .tug-pane-chrome {
   box-shadow: none;
   border-width: 0 1px 0 0;
 }
@@ -392,6 +398,17 @@ body {
    boundary, and draws none. */
 [data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side][data-rail-member-index]:not([data-rail-member-last]):not([data-gesture="true"]) .tug-pane-chrome {
   border-bottom-width: 1px;
+}
+
+/* While a card is in the air (`data-carrying`, written on the canvas by
+   `gaugeDragFrame`), every seated member fills in its whole frame. The rule
+   above is "a hairline marks a boundary", and a carry makes new ones: the
+   place the lifted member left is a gap the members beside it now border, and
+   every rail place is somewhere the drop could land. Rather than compute
+   which edge faces the vacancy, the seated members take the full rule set for
+   the carry and give it back at the landing, when `data-carrying` clears. */
+[data-carrying] [data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side]:not([data-gesture="true"]) .tug-pane-chrome {
+  border-width: 1px;
 }
 
 .tug-pane-title-bar {

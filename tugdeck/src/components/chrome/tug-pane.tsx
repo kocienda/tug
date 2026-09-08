@@ -4552,6 +4552,13 @@ export function TugPane({
  * - Top: title bar top stays at or below y = 0 (cannot move above canvas).
  * - Bottom: at least TITLE_BAR_VISIBLE_MIN_Y of the title bar stays visible.
  * - Left/Right: at least TITLE_BAR_VISIBLE_MIN_X of the title bar stays visible.
+ *
+ * The envelope always contains where the card STARTED. A card can rest
+ * outside it — the window shrank, a layout put it there — and the first
+ * frame of a drag must not yank it into view: a grab moves a card by the
+ * hand's travel and nothing else. So on each axis the bound is relaxed to the
+ * start position when the start lies beyond it; the card can come inward
+ * freely and can never be pushed further out than it already was.
  */
 function clampedPosition(
   pointer: { x: number; y: number },
@@ -4571,11 +4578,14 @@ function clampedPosition(
     const canvasWidth = canvasBounds.width / zoom;
     const canvasHeight = canvasBounds.height / zoom;
     // Left/right: card can hang off either side, but TITLE_BAR_VISIBLE_MIN_X must stay visible.
-    x = Math.max(-(frameSize.width - TITLE_BAR_VISIBLE_MIN_X),
-                 Math.min(x, canvasWidth - TITLE_BAR_VISIBLE_MIN_X));
+    const minX = Math.min(startPosition.x, -(frameSize.width - TITLE_BAR_VISIBLE_MIN_X));
+    const maxX = Math.max(startPosition.x, canvasWidth - TITLE_BAR_VISIBLE_MIN_X);
+    x = Math.max(minX, Math.min(x, maxX));
     // Top: title bar stays at or below CANVAS_PADDING (matches resize top constraint).
     // Bottom: at least TITLE_BAR_VISIBLE_MIN_Y of title bar stays visible.
-    y = Math.max(CANVAS_PADDING, Math.min(y, canvasHeight - TITLE_BAR_VISIBLE_MIN_Y));
+    const minY = Math.min(startPosition.y, CANVAS_PADDING);
+    const maxY = Math.max(startPosition.y, canvasHeight - TITLE_BAR_VISIBLE_MIN_Y);
+    y = Math.max(minY, Math.min(y, maxY));
   }
 
   return { x, y };
