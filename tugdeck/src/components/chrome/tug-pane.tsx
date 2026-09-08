@@ -2710,6 +2710,7 @@ export function TugPane({
     const dy = (from.top - to.top) / zoom;
     if (dx === 0 && dy === 0) {
       el.removeAttribute("data-gesture");
+      el.removeAttribute("data-pointer-owned");
       return;
     }
     // The `landing` recipe, seeded with whatever the hand was still doing at
@@ -2742,7 +2743,10 @@ export function TugPane({
         key: "zone-drop-landing",
       },
     );
-    const done = () => el.removeAttribute("data-gesture");
+    const done = () => {
+      el.removeAttribute("data-gesture");
+      el.removeAttribute("data-pointer-owned");
+    };
     landing.finished.then(done, done);
   }, []);
 
@@ -2904,6 +2908,14 @@ export function TugPane({
       // Disable height transition during drag so the collapse animation does not
       // conflict with pointer-driven position updates. [D07, chrome.css]
       frame.setAttribute("data-gesture", "true");
+      // `data-gesture` says a hand is on the frame: the lifted livery, the
+      // suspended height transition, the held completion repaint. It does NOT
+      // say the frame positions itself — that is `data-pointer-owned`, written
+      // only once the drag latches (below), because a press that never
+      // travels keeps the imposer's geometry and the settle must still carry
+      // it. A commit landing inside the press — the click's reveal — would
+      // otherwise find the frame wearing a mark that means "skip me" and cut
+      // it while every neighbour crossed.
 
       // === PHASE 1: SNAPSHOT ===
       // Capture all state needed for the drag gesture. Everything below runs
@@ -3212,6 +3224,9 @@ export function TugPane({
           );
           if (travelled < DRAG_MOVE_THRESHOLD_PX) return;
           dragMoved.current = true;
+          // From here the pointer writes `left`/`top` every frame, and the
+          // settle and the cut detector must leave the frame alone.
+          frame.setAttribute("data-pointer-owned", "true");
           // The move is about to expose whatever this frame was covering,
           // without a store commit; reveal every occluded pane before the
           // first moved paint and hold hides until the gesture ends.
@@ -3381,6 +3396,7 @@ export function TugPane({
 
         frame.style.transform = "";
         frame.removeAttribute("data-gesture");
+        frame.removeAttribute("data-pointer-owned");
         clearGuideElements(dragGuideEls);
         setDragDropTarget(null);
         for (const entry of dragTabBarCache.current) {
@@ -3490,7 +3506,10 @@ export function TugPane({
         // landing is the arrangement change's rather than the offset's. This
         // one moves no frame: CSS has been drawing the number all along.
         commitAutoscroll();
-        if (zoneDrop === null) frame.removeAttribute("data-gesture");
+        if (zoneDrop === null) {
+          frame.removeAttribute("data-gesture");
+          frame.removeAttribute("data-pointer-owned");
+        }
 
         // Remove snap guides immediately on drop. [D03]
         // Must happen before any early return (e.g. merge) to prevent guide leaks.
@@ -3562,6 +3581,7 @@ export function TugPane({
             if (onCardMerged && activeCardId && barEl !== null) {
               frame.style.transform = "";
               frame.removeAttribute("data-gesture");
+              frame.removeAttribute("data-pointer-owned");
               onCardMerged(id, live.paneId, computeMergeInsertIndex(barEl, e.clientX));
               dragTabBarCache.current = [];
               dragOtherRects.current = [];
@@ -3778,6 +3798,7 @@ export function TugPane({
         const travelled = Math.hypot(pointer.x - startX, pointer.y - startY);
         if (travelled < DRAG_MOVE_THRESHOLD_PX) return false;
         resizeMoved = true;
+        frame.setAttribute("data-pointer-owned", "true");
         // A shrinking edge exposes what this frame was covering, without a
         // store commit; reveal occluded panes now and hold hides until the
         // gesture ends.
@@ -3888,6 +3909,7 @@ export function TugPane({
 
         // Re-enable height transition now that the resize gesture is complete. [D07]
         frame.removeAttribute("data-gesture");
+        frame.removeAttribute("data-pointer-owned");
 
         // The pointer never travelled, so this was a click on a resize handle.
         // Nothing was resized and nothing is committed — in particular a
@@ -4027,6 +4049,7 @@ export function TugPane({
         if (railResizeMoved) return true;
         if (Math.abs(clientX - startClientX) < DRAG_MOVE_THRESHOLD_PX) return false;
         railResizeMoved = true;
+        frame.setAttribute("data-pointer-owned", "true");
         // A rail is a coverer like any other pane; a shrinking rail
         // exposes what it hid, without a store commit until pointer-up.
         paneOcclusionGesture.begin();
@@ -4089,6 +4112,7 @@ export function TugPane({
         frame.removeEventListener("pointerup", onPointerUp);
         frame.releasePointerCapture(e.pointerId);
         frame.removeAttribute("data-gesture");
+        frame.removeAttribute("data-pointer-owned");
         latestX = e.clientX;
         latestAlt = e.altKey;
         if (!latchSidebarResizeMove(latestX)) {

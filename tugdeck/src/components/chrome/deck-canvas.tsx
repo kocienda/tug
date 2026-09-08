@@ -2329,9 +2329,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       for (const frame of el.querySelectorAll<HTMLElement>(
         ".tug-pane[data-pane-id]",
       )) {
-        // A pane under the pointer writes its own `left`/`top` every frame;
-        // motion on top of a pointer lags the pointer.
-        if (frame.hasAttribute("data-gesture")) continue;
+        // A pane the pointer positions writes its own `left`/`top` every
+        // frame; motion on top of a pointer lags the pointer. The mark is
+        // `data-pointer-owned`, not `data-gesture`: the latter goes on at the
+        // press, and a press that never travels leaves the frame the
+        // imposer's, so a commit landing during it — the click's reveal —
+        // must still carry the frame rather than cut it.
+        if (frame.hasAttribute("data-pointer-owned")) continue;
         const paneId = frame.getAttribute("data-pane-id");
         if (paneId === null) continue;
         if (motion) firstRects.set(paneId, frame.getBoundingClientRect());
@@ -2580,7 +2584,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       const paneId = frame.getAttribute("data-pane-id");
       if (paneId === null) continue;
       survivors.add(paneId);
-      // A gesture-owned frame is never the settle's to carry, whatever the
+      // A pointer-owned frame is never the settle's to carry, whatever the
       // First pass knew about it. Checked before the entrance test because a
       // zone drop is the case where the two collide: the arm skipped the
       // frame (no First rect, exactly like an arrival), but it is not
@@ -2589,7 +2593,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // card to its tile and fading it in for no reason. The drag or the
       // landing owns its geometry, and its own episode owns the scroll
       // under it.
-      if (frame.hasAttribute("data-gesture")) {
+      if (frame.hasAttribute("data-pointer-owned")) {
         endEpisode(paneId);
         continue;
       }

@@ -10,7 +10,10 @@
  * pointer path passes `reveal: false` to `activateCard`, and the strip stays
  * where it stood for as long as the hand holds. A release that travelled
  * nowhere is a click, and a click's ending is when the card may come fully
- * in — so the release reveals, and a card merely clicked still arrives.
+ * in — so the release reveals, and a card merely clicked still arrives. It
+ * arrives by CROSSING: the reveal commits while the frame still wears
+ * `data-gesture`, and the settle must not take that as "skip me" — it reads
+ * `data-pointer-owned`, which a press that never travelled never wrote.
  *
  * Three members on the right rail put the rail under the overflow rule
  * (`run / 2.5` each), so the third stands clipped past the window's foot at
@@ -131,6 +134,22 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
         ).toBe(lastPane);
         expect(heldOffset, "and slid nothing").toBe(0);
         expect(Math.abs(heldTop - restTop), "the title bar is where the mouse pressed it").toBeLessThanOrEqual(EPSILON);
+        // Sample the frame across the release so a cut and a crossing can be
+        // told apart — both land in the same place.
+        await app.evalJS<boolean>(`(() => {
+          window.__tops = [];
+          const el = document.querySelector('${frame(lastPane)}');
+          document.addEventListener('pointerup', () => {
+            const t0 = performance.now();
+            const tick = () => {
+              window.__tops.push(el.getBoundingClientRect().top);
+              if (performance.now() - t0 < 500) requestAnimationFrame(tick);
+            };
+            window.__tops.push(el.getBoundingClientRect().top);
+            requestAnimationFrame(tick);
+          }, { capture: true, once: true });
+          return true;
+        })()`);
         await app.nativeMouseUp(pt);
         await wait(AFTER_LAND_MS);
         // ── The release of a click is when the card comes in. ──
@@ -143,6 +162,11 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
           `document.querySelector('${frame(lastPane)}').getBoundingClientRect().bottom`,
         );
         expect(clickedBottom, "fully in: its foot is inside the window").toBeLessThanOrEqual(vh + EPSILON);
+        // ── And it crossed rather than cut. ──
+        const tops = await app.evalJS<number[]>(`window.__tops`);
+        const between = tops.filter((t) => t < restTop - EPSILON && t > clickedTop + EPSILON);
+        note(`release sampled ${tops.length} frames; ${between.length} strictly between rest and landed`);
+        expect(between.length, "the member travelled through intermediate positions").toBeGreaterThanOrEqual(3);
       } finally {
         await app.close();
       }

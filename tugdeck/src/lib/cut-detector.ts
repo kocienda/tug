@@ -159,7 +159,10 @@ export function sampleFrames(root: ParentNode): Map<string, PaneSample> {
       width: rect.width,
       height: rect.height,
       animations: frame.getAnimations({ subtree: false }).length,
-      gesture: frame.hasAttribute("data-gesture"),
+      // `data-pointer-owned`, not `data-gesture`: a frame under a press that
+      // never travelled is still the settle's to carry, and a cut it suffers
+      // there is a cut the detector exists to report.
+      gesture: frame.hasAttribute("data-pointer-owned"),
     });
   }
   return samples;
