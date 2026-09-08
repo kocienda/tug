@@ -31,7 +31,7 @@
  */
 
 import { isSidebarCard } from "@/card-registry";
-import { columnMoveOrder, deckColumnsOf } from "@/deck-store-selectors";
+import { columnMembersOf, columnMoveOrder } from "@/deck-store-selectors";
 import { clampSlot } from "@/lib/layout-imposer";
 import {
   getLayoutCursorCard,
@@ -100,11 +100,13 @@ export function resolveColumnMenuFact(
   const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
   if (host?.slot === undefined) return null;
   const slot = clampSlot(state.imposition.kind, host.slot);
-  const column = deckColumnsOf(state).find((c) => c.slot === slot);
+  // Membership alone decides whether a slot can split, so no run is measured
+  // and no allocation is asked for.
+  const members = columnMembersOf(state, slot);
   const order = columnMoveOrder(state, host.id);
   const at = order.indexOf(host.id);
   return {
-    canSplit: (column?.members.length ?? 0) >= 2,
+    canSplit: members.length >= 2,
     canMoveUp: at > 0,
     canMoveDown: at !== -1 && at < order.length - 1,
   };

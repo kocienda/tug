@@ -456,10 +456,31 @@ describe.skipIf(!SHOULD_RUN)(
               Math.abs(upper.left - lower.left),
               "and one left edge",
             ).toBeLessThanOrEqual(EPSILON);
+            note(
+              `split heights: upper ${Math.round(upper.height)}, lower ${Math.round(lower.height)} of a ${Math.round(vp.h - RAIL_TOP - RAIL_BOTTOM)}px run`,
+            );
             expect(
-              Math.abs(upper.height - lower.height),
-              "an untouched split divides the run equally",
+              Math.abs(
+                upper.height + lower.height + GAP - (vp.h - RAIL_TOP - RAIL_BOTTOM),
+              ),
+              "the two heights and the seam are the run, with nothing left over",
             ).toBeLessThanOrEqual(EPSILON * 2);
+            // NOT equal halves. An untouched split divides by what its members
+            // asked for: a card that declared a comfort height above its floor
+            // is served before the leftover is shared out, so the Layout card —
+            // which asks for the one size its drawing wants — and the Jots card
+            // stand at different heights with no drag having happened. What
+            // holds either way is that neither is squeezed below the height it
+            // said it could not go below.
+            for (const [name, rect] of [
+              ["the upper member", upper],
+              ["the lower member", lower],
+            ] as const) {
+              expect(
+                rect.height,
+                `${name} stands at or above its own floor`,
+              ).toBeGreaterThanOrEqual(MEMBER_MIN_HEIGHT - EPSILON);
+            }
 
             // ── 1b. Hairlines mark boundaries, and nothing else. ──
             // A rail's rule means "something else is on the other side": the

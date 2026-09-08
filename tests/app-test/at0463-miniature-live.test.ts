@@ -56,14 +56,21 @@ const wait = (ms: number): Promise<void> =>
 const COMMITTED_MINI =
   '[data-testid="layout-card-plan"] [data-plan-layer="committed"] .layout-mini';
 
-/** Five content cards and the Layout card on the right, six-up so slot 1 exists. */
+/**
+ * Five content cards and the Layout card on the right, six-up so slot 1 exists.
+ *
+ * `fixture-tall-floor` rather than an ordinary card because this test needs an
+ * overflowing column, and a place overflows when its members' floors no longer
+ * fit in the run ([P01]) rather than when it passes a member count. Five 400px
+ * floors are twice the run this canvas gives a column.
+ */
 function deckShape(): Record<string, unknown> {
   const ids = ["A", "B", "C", "D", "E"];
   return {
     cards: [
       ...ids.map((id) => ({
         id,
-        componentId: "hello",
+        componentId: "fixture-tall-floor",
         title: `Card ${id}`,
         closable: true,
       })),

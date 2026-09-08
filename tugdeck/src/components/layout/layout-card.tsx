@@ -144,12 +144,14 @@ import {
   type ImpositionLayout,
   type RailMode,
   type SidebarSide,
+  type PlaceAllocation,
 } from "@/lib/layout-imposer";
 import {
   deckColumnsOf,
   deckFlowStrip,
   deckSlotStrip,
   type DeckColumn,
+  railAllocationOf,
 } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
@@ -159,6 +161,8 @@ import type { TugChoiceItem } from "@/components/tugways/tug-choice-group";
 import { useResponder } from "@/components/tugways/use-responder";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { useCardAppetite } from "@/lib/card-appetite-store";
+import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 
 /** The card's focus group — every stop it offers lives here.
  *
@@ -175,6 +179,18 @@ const KIND_SENDER_ID = "layout-card-kind";
 const LAYOUT_SENDER_ID = "layout-card-layout";
 const WIDTH_SENDER_ID = "layout-card-width";
 const SIDE_SENDER_PREFIX = "layout-card-side:";
+
+/**
+ * The Layout card's whole content, in pixels ([Q02]): the pane's 36px title
+ * bar, the drawing at the aspect `.layout-picture` gives it inside
+ * `.layout-card`'s `6px 8px 8px` padding, and the preset row under it. One
+ * number rather than a measurement — a card that measured its own drawing to
+ * decide the box the drawing is laid out in is the metric loop [B03] refuses.
+ *
+ * TUNE HERE: it is both what the card asks for and the ceiling the allocator
+ * will not push it past, so a taller drawing is one edit.
+ */
+const LAYOUT_NATURAL_HEIGHT_PX = 300;
 const RAIL_SENDER_PREFIX = "layout-card-rail:";
 const COLUMN_SENDER_PREFIX = "layout-card-column:";
 
@@ -371,7 +387,45 @@ function useImposition(): DeckImposition {
  */
 function useDeckColumns(): readonly DeckColumn[] {
   const deck = useDeck();
-  return useMemo(() => (deck === null ? [] : deckColumnsOf(deck)), [deck]);
+  const store = getDeckStore();
+  return useMemo(
+    () =>
+      deck === null
+        ? []
+        : deckColumnsOf(deck, store?.getColumnRunHeight() ?? null),
+    [deck, store],
+  );
+}
+
+/**
+ * How the committed deck's places actually divide their runs — what the
+ * committed miniature draws its member spans from ([P09]).
+ *
+ * Only the committed drawing gets them: a proposal is an arrangement nobody
+ * has stood in, so its members have no heights to read and the miniature draws
+ * the anonymous division instead.
+ */
+function useCommittedAllocations(columns: readonly DeckColumn[]): {
+  rails: Partial<Record<SidebarSide, PlaceAllocation | null>>;
+  columns: Record<number, PlaceAllocation | null>;
+} {
+  const deck = useDeck();
+  const store = getDeckStore();
+  return useMemo(() => {
+    const railRun = store?.getRailRunHeight() ?? null;
+    const bySlot: Record<number, PlaceAllocation | null> = {};
+    for (const column of columns) bySlot[column.slot] = column.allocation;
+    return {
+      rails:
+        deck === null
+          ? {}
+          : {
+              left: railAllocationOf(deck, "left", railRun),
+              right: railAllocationOf(deck, "right", railRun),
+            },
+      columns: bySlot,
+    };
+  }, [deck, store, columns]);
 }
 
 /** The deck's live flow truth, in the numbers the committed miniature draws
@@ -649,6 +703,11 @@ export interface LayoutContentProps {
 export function LayoutContent(
   _props: LayoutContentProps,
 ): React.ReactElement {
+  // The Layout card is the one rail card whose appetite is not a row count: its
+  // content is a picture of the deck, and a picture is one size ([Q02]). It
+  // asks for that size and nothing beyond it, so a rail that has room to spare
+  // spends it on the cards that can use it rather than on a bigger drawing.
+  useCardAppetite(LAYOUT_CARD_ID, LAYOUT_NATURAL_HEIGHT_PX, LAYOUT_NATURAL_HEIGHT_PX);
   const imposition = useImposition();
   const kind = imposition.kind ?? DEFAULT_IMPOSITION_KIND;
   const contentWidth = imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH;
@@ -669,6 +728,8 @@ export function LayoutContent(
   // Every occupied slot, whatever its membership (see `useDeckColumns` for
   // why one card deep still counts).
   const columns = useDeckColumns();
+  // The committed places' own divisions, for the committed drawing alone.
+  const committedAllocations = useCommittedAllocations(columns);
   // The committed drawing alone gets the live strip; every preview layer below
   // draws at rest ([P06]).
   const committedFlow = useCommittedFlow();
@@ -1161,6 +1222,8 @@ export function LayoutContent(
               flowStripPx={committedFlow?.stripPx}
               flowSlots={committedFlow?.slots}
               columnOffsets={committedColumnOffsets ?? undefined}
+              railAllocations={committedAllocations.rails}
+              columnAllocations={committedAllocations.columns}
             />
           </div>
           {layers.map((layer) => (

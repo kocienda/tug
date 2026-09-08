@@ -79,6 +79,9 @@ import { TugFilterField } from "@/components/tugways/tug-filter-field";
 import { useAttachedFilter } from "@/components/tugways/attached-filter";
 import { setCardsFilterBinding, shrinkCardsState } from "./cards-escape";
 import { useResponder } from "@/components/tugways/use-responder";
+import { useCardAppetite } from "@/lib/card-appetite-store";
+import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
+import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
@@ -144,6 +147,26 @@ const GROUP_RUN_ATTR = "data-cards-group-run";
  *  within-row ordering. ArrowRight on the cursor row descends onto it, ahead of
  *  the slot picker. */
 const ROW_ACTION_FOCUS_GROUP = "cards-row-actions";
+
+// ---- Vertical appetite ([B02]) ----
+
+/**
+ * One row's height, group headers included — `.cards-empty`'s `min-block-size`
+ * in `cards-card.css`, "the same measure every rail card's empty label uses",
+ * which stands in for the list's first row at that row's height. A header row
+ * takes the same list-row density, so one number answers for both.
+ */
+const CARDS_ROW_HEIGHT_PX = 28;
+
+/**
+ * Everything above the first row: the pane's title bar, plus `.cards-toolbar` —
+ * a `--tugx-toolheader-line` filter field (`--tug-font-size-sm` × 1.6 ≈ 21px)
+ * inside `--tug-space-sm` (6px) of block padding.
+ */
+const CARDS_HEADER_PX = CARD_TITLE_BAR_HEIGHT + 33;
+
+/** A group's header and three of its rows — enough to read as a list. */
+const CARDS_COMFORT_ROWS = 4;
 
 // The section's remembered selection — the last-touched row id, mapped to a
 // cursor seed on the next Cmd-L / Tab. Module-level so it outlives a collapse
@@ -654,6 +677,7 @@ function useOpenBindings(): ReturnType<
 /** Feed the data source from every store the projection reads. */
 function useCardsInputs(filterQuery: string): {
   dataSource: CardsDataSource;
+  collapsedGroups: readonly string[];
 } {
   const bindings = useOpenBindings();
   const cardsRowOrder = useSyncExternalStore(
@@ -695,7 +719,7 @@ function useCardsInputs(filterQuery: string): {
     nameVersion,
     changesets,
   });
-  return { dataSource };
+  return { dataSource, collapsedGroups };
 }
 
 export interface CardsContentProps {
@@ -708,13 +732,36 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // one component, so nothing has to cross a module store to pair them — which
   // is what the section's filter store existed to do.
   const [filterQuery, setFilterQuery] = useState("");
-  const { dataSource } = useCardsInputs(filterQuery);
+  const { dataSource, collapsedGroups } = useCardsInputs(filterQuery);
   const focusManager = useFocusManager();
   const count = dataSource.numberOfItems();
   const filtering = dataSource.isFiltering();
 
   const hasContent = count > 0;
   const hasItems = dataSource.unfilteredCount() > 0;
+
+  // What the card would like of its rail's run ([B02]). The rows are the
+  // UNFILTERED projection — a filter is a way of looking at the list right now,
+  // not a change in what it holds — but a COLLAPSED group really is fewer rows
+  // to draw, so a folded group costs its header alone. A group with nothing in
+  // it draws no header and asks for nothing.
+  const appetiteRows = useMemo(() => {
+    const census = dataSource.censusByGroup();
+    const folded = new Set(collapsedGroups);
+    let rows = 0;
+    for (const [group, inGroup] of Object.entries(census)) {
+      if (inGroup === 0) continue;
+      rows += 1 + (folded.has(group) ? 0 : inGroup);
+    }
+    return rows;
+    // The census is a function of the projection, which `count` versions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataSource, count, collapsedGroups]);
+  useCardAppetite(
+    CARDS_CARD_ID,
+    CARDS_HEADER_PX + CARDS_COMFORT_ROWS * CARDS_ROW_HEIGHT_PX,
+    CARDS_HEADER_PX + appetiteRows * CARDS_ROW_HEIGHT_PX,
+  );
 
   // The opening key view lands on a real row rather than on the chrome; an
   // empty list is not a focus stop, and `useSeedKeyView` re-arms while the key

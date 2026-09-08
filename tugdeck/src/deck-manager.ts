@@ -55,11 +55,16 @@ import { LAYOUT_CARD_ID } from "./lib/layout-card-id";
 import { TRIPWIRES_CARD_ID } from "./lib/tripwires-card-id";
 import {
   bullseyePaneIdOf,
+  columnAllocationOf,
+  columnMembersOf,
   columnMoveOrder,
   deckColumnsOf,
   deckFlowStrip,
   findSidebarPanes,
   paneRenderWidthOf,
+  railAllocationOf,
+  placeRunsMoved,
+  type PlaceRuns,
 } from "./deck-store-selectors";
 import { getTugbankClient } from "./lib/tugbank-singleton";
 import { sidebarWidthStore } from "./lib/sidebar-width-store";
@@ -106,8 +111,7 @@ import {
   clampFlowOffset,
   clampStripOffset,
   columnModeOf,
-  placeStanding,
-  PLACE_OVERFLOW_VISIBLE_MEMBERS,
+  type PlaceAllocation,
   effectiveRailOrder,
   centerVisibleFlowSlot,
   flowRevealOffset,
@@ -120,6 +124,7 @@ import {
   RAIL_SEAM_PX,
   railSpanInsetPx,
   stripRevealOffset,
+  RESIZE_RETUNE_QUIET_MS,
   railModeOf,
   withRailMode,
   withRailOrder,
@@ -153,6 +158,7 @@ import {
   type SidebarSide,
 } from "./lib/layout-imposer";
 import { getTugZoom } from "./components/tugways/scale-timing";
+import { cardAppetiteStore, sameAppetites } from "./lib/card-appetite-store";
 import { DeckManagerContext } from "./deck-manager-context";
 import { BASE_THEME_NAME } from "./theme-constants";
 import {
@@ -713,6 +719,33 @@ export class DeckManager implements IDeckManagerStore {
   /** Single React root for the canvas */
   private reactRoot: Root | null = null;
 
+  /**
+   * The two place runs the last committed imposition was allocated against —
+   * `null` on each until the first retune measures it.
+   *
+   * [P11]'s whole state. A place's standing and its shared heights are both
+   * functions of the run now, and non-proportional ones, so a window resize
+   * that changes only the height changes the answer while nothing else in the
+   * deck moves. This is what {@link retuneSidebarAllocation} compares against
+   * to notice.
+   */
+  private _lastPlaceRuns: PlaceRuns = { rail: null, column: null };
+
+  /**
+   * The pending appetite settle's timer handle, or `null` when none is armed.
+   *
+   * A card publishes as its content changes, which during a burst — a jots
+   * file loading, a list filtering as the user types — is many times a second.
+   * Each publish restarts this timer, so the deck re-allocates once the
+   * publishing stops rather than once per publish. The quiet period is the
+   * width retune's own ({@link RESIZE_RETUNE_QUIET_MS}), which is the same
+   * question asked of a different axis.
+   */
+  private _appetiteSettleTimer: number | null = null;
+
+  /** Drops the subscription to `cardAppetiteStore`; called from `destroy`. */
+  private _appetiteUnsubscribe: (() => void) | null = null;
+
   private initialLayout: object | null;
 
   private initialTheme: ThemeName;
@@ -1194,6 +1227,16 @@ export class DeckManager implements IDeckManagerStore {
 
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
     window.addEventListener("beforeunload", this.handleBeforeUnload);
+
+    // Cards declare their vertical appetites from an effect of their own
+    // ([P05]), which is after the render above and after this constructor. The
+    // subscription is the whole of the wiring: nothing is settled eagerly here,
+    // because a settle with nothing published would write an empty `appetites`
+    // and spend the synchronous-first-settle that Risk R02 reserves for the
+    // boot's real numbers.
+    this._appetiteUnsubscribe = cardAppetiteStore.subscribe(() => {
+      this._scheduleAppetiteSettle();
+    });
   }
 
   // ---- App-foreground tracking ([A1]) ----
@@ -1850,16 +1893,21 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * Set `side`'s height weights — the seam drag's commit. Weights that are not
-   * positive finite numbers are dropped rather than stored: an unnamed member
-   * already weighs 1, so a dropped weight means exactly what a missing one
-   * does, and nothing downstream has to defend against a `NaN` height.
+   * finite non-negative numbers are dropped rather than stored: an unnamed
+   * member already weighs 1, so a dropped weight means exactly what a missing
+   * one does, and nothing downstream has to defend against a `NaN` height.
+   *
+   * ZERO IS A WEIGHT. A weight divides the discretionary pool rather than the
+   * run ([P04]), and a member dragged down to its comfort height took none of
+   * that pool — the honest record of which is `0`, not the `1` a dropped
+   * weight would mean. Only negatives and non-numbers are refusals.
    */
   setRailShares(side: SidebarSide, shares: Record<string, number>): void {
     const weights: Record<string, number> = {};
     for (const [componentId, weight] of Object.entries(shares)) {
       if (!isSidebarCard(componentId)) continue;
       if (typeof weight !== "number") continue;
-      if (!Number.isFinite(weight) || weight <= 0) continue;
+      if (!Number.isFinite(weight) || weight < 0) continue;
       weights[componentId] = weight;
     }
     this._reimpose(withRailShares(this.deckState.imposition, side, weights));
@@ -1885,10 +1933,7 @@ export class DeckManager implements IDeckManagerStore {
    * another member's pins.
    */
   private _columnOrder(slot: number): readonly string[] {
-    return (
-      deckColumnsOf(this.deckState).find((column) => column.slot === slot)
-        ?.members ?? []
-    );
+    return columnMembersOf(this.deckState, slot);
   }
 
   /**
@@ -2024,8 +2069,9 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * Set `slot`'s height weights — the column seam drag's commit. Weights that
-   * are not positive finite numbers are dropped rather than stored, exactly as
-   * {@link setRailShares} drops them: an unnamed member already weighs 1.
+   * are not finite non-negative numbers are dropped rather than stored,
+   * exactly as {@link setRailShares} drops them — zero included as a weight,
+   * for {@link setRailShares}'s own reason.
    */
   setColumnShares(slot: number, shares: Record<string, number>): void {
     const standing = new Set(
@@ -2035,7 +2081,7 @@ export class DeckManager implements IDeckManagerStore {
     for (const [paneId, weight] of Object.entries(shares)) {
       if (!standing.has(paneId)) continue;
       if (typeof weight !== "number") continue;
-      if (!Number.isFinite(weight) || weight <= 0) continue;
+      if (!Number.isFinite(weight) || weight < 0) continue;
       weights[paneId] = weight;
     }
     this._reimpose(withColumnShares(this.deckState.imposition, slot, weights));
@@ -2398,19 +2444,87 @@ export class DeckManager implements IDeckManagerStore {
     this._retuneFlowOffset(panes, imposition);
     this._retuneColumnOffsets(panes, imposition);
     this._retuneRailOffsets(panes, imposition);
+    // [P11]. The run each place was last allocated against, against the run it
+    // stands in now. This is read BEFORE the width allocator's own `moves`
+    // check and before the `panesBySide.size === 0` return, because a deck
+    // whose rails did not move — or which has no rails at all, and only
+    // columns — still has to re-derive its columns when the window's height
+    // changed. That early return was written when neither answer depended on
+    // the run and the pure-CSS resize path was the whole of the story.
+    const runs: PlaceRuns = {
+      rail: this._placeRunHeight("rail"),
+      column: this._placeRunHeight("column"),
+    };
+    const runMoved = placeRunsMoved(this._lastPlaceRuns, runs);
+    this._lastPlaceRuns = runs;
     const { panesBySide } = this._sidebarRails(panes, imposition);
-    if (panesBySide.size === 0) return;
-    const allocated = this._allocatedRailWidths(panes, imposition);
-    if (allocated === null) return;
-    const moves = [...panesBySide].some(([side, sidePanes]) => {
-      const width = allocated[side];
-      return (
-        width !== undefined &&
-        sidePanes.some((pane) => Math.abs(width - pane.size.width) >= 1)
-      );
+    const allocated =
+      panesBySide.size === 0
+        ? null
+        : this._allocatedRailWidths(panes, imposition);
+    const moves =
+      allocated !== null &&
+      [...panesBySide].some(([side, sidePanes]) => {
+        const width = allocated[side];
+        return (
+          width !== undefined &&
+          sidePanes.some((pane) => Math.abs(width - pane.size.width) >= 1)
+        );
+      });
+    if (moves) {
+      this._commitImposition(imposition, panes);
+      return;
+    }
+    // Exactly one notify either way: the width commit above already re-derives
+    // every allocation, so the run's own commit is the case where no width
+    // moved and it carries `retuneRails: false` — there is nothing to re-solve
+    // in the widths, only heights to re-allocate.
+    if (!runMoved) return;
+    this._commitImposition(imposition, panes, { retuneRails: false });
+  }
+
+  /**
+   * A card's appetite changed. Re-allocate once the publishing stops.
+   *
+   * The FIRST settle runs synchronously, and that is the whole of Risk R02:
+   * every card publishes on its first render, so a deferred first settle would
+   * paint the deck at floor-based heights and then tween every rail member to
+   * its appetite-based one a fifth of a second later, in front of the user.
+   * `appetites === undefined` is exactly "nothing has settled yet", so the
+   * boot's answer lands before the first commit anybody sees. Every later
+   * publish is a content change, and those wait out the quiet period.
+   */
+  private _scheduleAppetiteSettle(): void {
+    if (this.deckState.appetites === undefined) {
+      this._settleAppetites();
+      return;
+    }
+    if (this._appetiteSettleTimer !== null) {
+      window.clearTimeout(this._appetiteSettleTimer);
+    }
+    this._appetiteSettleTimer = window.setTimeout(() => {
+      this._appetiteSettleTimer = null;
+      this._settleAppetites();
+    }, RESIZE_RETUNE_QUIET_MS);
+  }
+
+  /**
+   * Copy the appetite store's snapshot into deck state and re-allocate.
+   *
+   * The commit carries `retuneRails: false`: an appetite is a claim on the
+   * vertical run, and a rail's WIDTH is the user's — a card's list growing may
+   * not spend it. `_commitImposition` notifies unconditionally and lands as
+   * `"cross"`, which is the landing a settled content change wants ([B10]), so
+   * there is no second notify here.
+   */
+  private _settleAppetites(): void {
+    const next = cardAppetiteStore.snapshot();
+    const prev = this.deckState.appetites;
+    if (prev !== undefined && sameAppetites(prev, next)) return;
+    this.deckState = { ...this.deckState, appetites: next };
+    this._commitImposition(this.deckState.imposition, this.deckState.panes, {
+      retuneRails: false,
     });
-    if (!moves) return;
-    this._commitImposition(imposition, panes);
   }
 
   /**
@@ -3066,6 +3180,49 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
+   * How one side's rail divides the run it is standing in right now — the
+   * manager's one door to {@link railAllocationOf}, with the run measured off
+   * its own container.
+   *
+   * `panes` and `imposition` are the ones a commit is ABOUT TO WRITE rather
+   * than the ones it is replacing, which is why they are parameters at all:
+   * a reveal computed from the state it is leaving would reveal the member
+   * that used to be at that index.
+   */
+  private _railAllocation(
+    side: SidebarSide,
+    panes?: readonly TugPaneState[],
+    imposition?: DeckImposition,
+  ): PlaceAllocation | null {
+    return railAllocationOf(
+      {
+        ...this.deckState,
+        ...(panes !== undefined ? { panes } : {}),
+        ...(imposition !== undefined ? { imposition } : {}),
+      },
+      side,
+      this._placeRunHeight("rail"),
+    );
+  }
+
+  /** {@link _railAllocation}'s slot-keyed twin. */
+  private _columnAllocation(
+    slot: number,
+    panes?: readonly TugPaneState[],
+    imposition?: DeckImposition,
+  ): PlaceAllocation | null {
+    return columnAllocationOf(
+      {
+        ...this.deckState,
+        ...(panes !== undefined ? { panes } : {}),
+        ...(imposition !== undefined ? { imposition } : {}),
+      },
+      slot,
+      this._placeRunHeight("column"),
+    );
+  }
+
+  /**
    * The run a column's members stand in, in px, or `null` when the canvas has
    * no height to speak of.
    *
@@ -3097,10 +3254,11 @@ export class DeckManager implements IDeckManagerStore {
    * same way: a bullseyed pane supersedes the arrangement, so it does not
    * slide its column under the user for a card that did not move.
    *
-   * The strip it measures against is a pure function of the run — every
-   * overflowing member is `run / 2.5` tall by construction — so no pane is
-   * measured here, which is what lets the answer be computed inside a commit
-   * rather than after a layout.
+   * The strip it measures against is the allocation's own — every overflowing
+   * member's height is `max(floor, comfort · weight)`, which the allocator
+   * answers from the members' declarations rather than from any frame — so no
+   * pane is measured here, which is what lets the answer be computed inside a
+   * commit rather than after a layout.
    */
   private _columnRevealOffsetFor(
     paneId: string,
@@ -3116,22 +3274,22 @@ export class DeckManager implements IDeckManagerStore {
     const pane = panes.find((p) => p.id === paneId);
     if (pane === undefined || pane.slot === undefined) return undefined;
     if (this._sidebarComponentIdOfPane(pane.id) !== undefined) return undefined;
-    const column = deckColumnsOf(state).find((c) =>
-      c.members.includes(paneId),
-    );
-    if (column === undefined || column.mode !== "split") return undefined;
-    if (placeStanding(column.members.length) !== "overflow") return undefined;
     const run = this._placeRunHeight("column");
     if (!(run > 0)) return undefined;
-    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+    const column = deckColumnsOf(state, run).find((c) =>
+      c.members.includes(paneId),
+    );
+    if (column === undefined) return undefined;
+    const allocation = column.allocation;
+    if (allocation === null || allocation.standing !== "overflow") {
+      return undefined;
+    }
     const index = column.members.indexOf(paneId);
     const standing = state.columnOffsets?.[column.slot] ?? 0;
     const next = stripRevealOffset({
-      stripStart: index * (memberHeight + IMPOSITION_GAP_PX),
-      extent: memberHeight,
-      stripLength:
-        column.members.length * memberHeight +
-        (column.members.length - 1) * IMPOSITION_GAP_PX,
+      stripStart: allocation.tops[index],
+      extent: allocation.heights[index],
+      stripLength: allocation.stripLength,
       band: run,
       offset: standing,
     });
@@ -3174,28 +3332,18 @@ export class DeckManager implements IDeckManagerStore {
     if (standing === undefined) return;
     const state = { ...this.deckState, panes, imposition };
     const run = this._placeRunHeight("column");
-    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
-    const columns = deckColumnsOf(state);
+    const columns = deckColumnsOf(state, run);
     const next: Record<number, number> = {};
     let changed = false;
     for (const [key, offset] of Object.entries(standing)) {
       const slot = Number(key);
       const column = columns.find((c) => c.slot === slot);
-      const overflowing =
-        column !== undefined &&
-        column.mode === "split" &&
-        placeStanding(column.members.length) === "overflow" &&
-        run > 0;
-      if (!overflowing) {
+      const allocation = column?.allocation ?? null;
+      if (allocation === null || allocation.standing !== "overflow") {
         changed = true;
         continue;
       }
-      const clamped = clampStripOffset(
-        offset,
-        column.members.length * memberHeight +
-          (column.members.length - 1) * IMPOSITION_GAP_PX,
-        run,
-      );
+      const clamped = clampStripOffset(offset, allocation.stripLength, run);
       if (clamped !== offset) changed = true;
       next[slot] = clamped;
     }
@@ -3234,16 +3382,9 @@ export class DeckManager implements IDeckManagerStore {
   ): void {
     const run = this._placeRunHeight("column");
     if (!(run > 0)) return;
-    const column = deckColumnsOf(this.deckState).find((c) => c.slot === slot);
-    if (column === undefined || column.mode !== "split") return;
-    if (placeStanding(column.members.length) !== "overflow") return;
-    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
-    const clamped = clampStripOffset(
-      offset,
-      column.members.length * memberHeight +
-        (column.members.length - 1) * IMPOSITION_GAP_PX,
-      run,
-    );
+    const allocation = this._columnAllocation(slot);
+    if (allocation === null || allocation.standing !== "overflow") return;
+    const clamped = clampStripOffset(offset, allocation.stripLength, run);
     const standing = this.deckState.columnOffsets?.[slot] ?? 0;
     if (clamped === standing) return;
     this.deckState = {
@@ -3280,20 +3421,18 @@ export class DeckManager implements IDeckManagerStore {
     const arrangement = imposition ?? this.deckState.imposition;
     if (!isSidebarPinned(arrangement, componentId)) return undefined;
     const side = sidebarSide(arrangement, componentId);
-    if (railModeOf(arrangement, side) !== "split") return undefined;
-    const order = this._railOrder(arrangement, side, panes);
-    if (placeStanding(order.length) !== "overflow") return undefined;
-    const index = order.indexOf(componentId);
+    const allocation = this._railAllocation(side, panes, arrangement);
+    if (allocation === null || allocation.standing !== "overflow") {
+      return undefined;
+    }
+    const index = allocation.ids.indexOf(componentId);
     if (index < 0) return undefined;
-    const run = this._placeRunHeight("rail");
-    if (!(run > 0)) return undefined;
-    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+    const run = allocation.run;
     const standing = this.deckState.railOffsets?.[side] ?? 0;
     const next = stripRevealOffset({
-      stripStart: index * (memberHeight + RAIL_SEAM_PX),
-      extent: memberHeight,
-      stripLength:
-        order.length * memberHeight + (order.length - 1) * RAIL_SEAM_PX,
+      stripStart: allocation.tops[index],
+      extent: allocation.heights[index],
+      stripLength: allocation.stripLength,
       band: run,
       offset: standing,
     });
@@ -3337,25 +3476,16 @@ export class DeckManager implements IDeckManagerStore {
     const standing = this.deckState.railOffsets;
     if (standing === undefined) return;
     const run = this._placeRunHeight("rail");
-    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
     const next: Partial<Record<SidebarSide, number>> = {};
     let changed = false;
     for (const [key, offset] of Object.entries(standing)) {
       const side = key as SidebarSide;
-      const count = this._railOrder(imposition, side, panes).length;
-      const overflowing =
-        railModeOf(imposition, side) === "split" &&
-        placeStanding(count) === "overflow" &&
-        run > 0;
-      if (!overflowing) {
+      const allocation = this._railAllocation(side, panes, imposition);
+      if (allocation === null || allocation.standing !== "overflow") {
         changed = true;
         continue;
       }
-      const clamped = clampStripOffset(
-        offset,
-        count * memberHeight + (count - 1) * RAIL_SEAM_PX,
-        run,
-      );
+      const clamped = clampStripOffset(offset, allocation.stripLength, run);
       if (clamped !== offset) changed = true;
       next[side] = clamped;
     }
@@ -3382,16 +3512,9 @@ export class DeckManager implements IDeckManagerStore {
   ): void {
     const run = this._placeRunHeight("rail");
     if (!(run > 0)) return;
-    const imposition = this.deckState.imposition;
-    if (railModeOf(imposition, side) !== "split") return;
-    const count = this._railOrder(imposition, side).length;
-    if (placeStanding(count) !== "overflow") return;
-    const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
-    const clamped = clampStripOffset(
-      offset,
-      count * memberHeight + (count - 1) * RAIL_SEAM_PX,
-      run,
-    );
+    const allocation = this._railAllocation(side);
+    if (allocation === null || allocation.standing !== "overflow") return;
+    const clamped = clampStripOffset(offset, allocation.stripLength, run);
     const standing = this.deckState.railOffsets?.[side] ?? 0;
     if (clamped === standing) return;
     this.deckState = {
@@ -3951,20 +4074,19 @@ export class DeckManager implements IDeckManagerStore {
   ): DeckImposition {
     const imposition = this.deckState.imposition;
     if (index === undefined) return imposition;
-    const column = deckColumnsOf({ ...this.deckState, panes }).find(
-      (c) => c.slot === slot,
-    );
-    if (column === undefined) return imposition;
+    const projected = { ...this.deckState, panes };
+    const members = columnMembersOf(projected, slot);
+    if (members.length === 0) return imposition;
     // `panes` already carries the arrival, so a slot that held one pane reads
     // back as a column of two: the arrival plus the sitter it divides with.
-    if (column.mode !== "split" && column.members.length !== 2) {
+    if (columnModeOf(imposition, slot) !== "split" && members.length !== 2) {
       return imposition;
     }
-    const others = column.members.filter((id) => id !== paneId);
+    const others = members.filter((id) => id !== paneId);
     const order = [...others];
     order.splice(Math.max(0, Math.min(index, others.length)), 0, paneId);
     const divided =
-      column.mode === "split"
+      columnModeOf(imposition, slot) === "split"
         ? imposition
         : withColumnMode(imposition, slot, "split");
     return withColumnOrder(divided, slot, order);
@@ -5808,6 +5930,13 @@ export class DeckManager implements IDeckManagerStore {
     }
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener("beforeunload", this.handleBeforeUnload);
+
+    if (this._appetiteSettleTimer !== null) {
+      window.clearTimeout(this._appetiteSettleTimer);
+      this._appetiteSettleTimer = null;
+    }
+    this._appetiteUnsubscribe?.();
+    this._appetiteUnsubscribe = null;
 
     this.lifecycleCascade.dispose();
   }

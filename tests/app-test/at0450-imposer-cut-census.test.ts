@@ -205,16 +205,21 @@ const wait = (ms: number): Promise<void> =>
 /**
  * The rail deck the pointer-driven cells run on.
  *
- * The right side takes three members, which is `PLACE_OVERFLOW_MIN_MEMBERS`:
- * the run stops being divided and starts being scrolled, the last member hangs
- * past the foot, and a click on it is the reveal. An overflowing rail has no
- * seams to drag, so the seam cell sends one member to the other side first,
- * which drops the run back to two and grows the seam between them.
+ * The right side takes five members, which is what it takes: the standing is
+ * the allocator's call rather than the count's ([P01]), and five 240px floors
+ * are the first number that will not fit the run this harness's canvas gives.
+ * Past it the run stops being divided and starts being scrolled, the last
+ * member hangs past the foot, and a click on it is the reveal. An overflowing
+ * rail has no seams to drag, so the seam cell sends the surplus members to the
+ * other side first, which drops the run back to two and grows the seam between
+ * them.
  */
 const RAIL_PANES: Record<string, string> = {
   layout: "pLayout",
   jots: "pJots",
   overview: "pOverview",
+  cards: "pCards",
+  tripwires: "pTripwires",
 };
 
 function railDeckShape(): Record<string, unknown> {
@@ -239,6 +244,8 @@ function railDeckShape(): Record<string, unknown> {
       railCard("layout"),
       railCard("jots"),
       railCard("overview"),
+      railCard("cards"),
+      railCard("tripwires"),
     ],
     panes: [
       {
@@ -254,6 +261,8 @@ function railDeckShape(): Record<string, unknown> {
       railPane("layout"),
       railPane("jots"),
       railPane("overview"),
+      railPane("cards"),
+      railPane("tripwires"),
     ],
     activePaneId: "p1",
     imposition: {
@@ -262,9 +271,14 @@ function railDeckShape(): Record<string, unknown> {
         layout: { side: "right" },
         jots: { side: "right" },
         overview: { side: "right" },
+        cards: { side: "right" },
+        tripwires: { side: "right" },
       },
       rails: {
-        right: { mode: "split", order: ["layout", "jots", "overview"] },
+        right: {
+          mode: "split",
+          order: ["layout", "jots", "overview", "cards", "tripwires"],
+        },
       },
     },
     hasFocus: true,
@@ -880,7 +894,7 @@ describe.skipIf(!SHOULD_RUN)(
           // left behind.
           await app.seedDeckState({ state: railDeckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
-            `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 3`,
+            `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 5`,
             { timeoutMs: 8_000 },
           );
           await wait(AFTER_LAND_MS);
@@ -891,10 +905,23 @@ describe.skipIf(!SHOULD_RUN)(
           // pointer-owned through it — a press that never travelled leaves the
           // frame the imposer's — so the reveal is the settle's to carry and a
           // jump here is a plain cut, allowed zero.
-          const railOrder = await app.evalJS<string[]>(
-            `((window.tugdeck.diag.getDeckState().imposition.rails || {}).right || {}).order || []`,
+          // The clipped member a pointer can reach: the lowest one whose title
+          // bar is still inside the window while its foot hangs past it. That
+          // hanging foot is the affordance, and a click below it is a
+          // coordinate the harness rightly refuses. WHICH member it is follows
+          // from the members' own heights rather than from a constant, so it is
+          // read off the live frames.
+          const clipped = await app.evalJS<string>(
+            `(function () {
+              var pressable = Array.prototype.slice
+                .call(document.querySelectorAll('.tug-pane[data-rail-side="right"]'))
+                .filter(function (el) {
+                  var r = el.getBoundingClientRect();
+                  return r.top + 40 < window.innerHeight && r.bottom > window.innerHeight;
+                });
+              return pressable[pressable.length - 1].getAttribute("data-pane-id");
+            })()`,
           );
-          const clipped = RAIL_PANES[railOrder[railOrder.length - 1]];
           const restTop = await app.evalJS<number>(
             `document.querySelector('.tug-pane[data-pane-id="${clipped}"]').getBoundingClientRect().top`,
           );
@@ -924,12 +951,16 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBeGreaterThan(1);
 
           // The seam release. First the rail has to have a seam at all: at
-          // three members it overflows, and an overflowing rail's run stops
-          // being divided and starts being scrolled, so no handle is drawn.
-          // Sending one member to the other side drops it back to two.
-          await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: "overview", side: "left" }), null)`,
-          );
+          // five members its floors are past the run, and an overflowing
+          // rail's run stops being divided and starts being scrolled, so no
+          // handle is drawn. Sending the surplus to the other side drops it
+          // back to two.
+          for (const componentId of ["overview", "cards", "tripwires"]) {
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: ${JSON.stringify(componentId)}, side: "left" }), null)`,
+            );
+            await wait(120);
+          }
           await app.waitForCondition<boolean>(
             `document.querySelectorAll('.tug-place-seam[data-rail-seam="right:0"]').length === 1`,
             { timeoutMs: 8_000 },

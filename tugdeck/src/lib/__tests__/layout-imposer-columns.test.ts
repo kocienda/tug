@@ -10,9 +10,9 @@
  *     shares, so a re-split lands where the user left it; equalizing removes
  *     the weights and keeps everything else; and each wither touches one slot,
  *     never its neighbours.
- *  2. **The seam math is genuinely shared.** `railSeamFractions` and
- *     `railSharesFromFractions` take an arrangement's parts, not a side, so a
- *     column calls them unchanged. Asserted over column-shaped inputs, and
+ *  2. **The division math is genuinely shared.** `allocatePlaceHeights` and
+ *     `placeSharesFromHeights` take a place's members, not a side, so a column
+ *     calls them unchanged. Asserted over column-shaped inputs, and
  *     round-tripped, so a later "let me specialize this for rails" shows up
  *     here rather than in a crooked split.
  *  3. **`effectiveColumnOrder` tolerates residue.** A column is keyed by pane
@@ -34,7 +34,8 @@ import {
   columnModeOf,
   columnOffsetProperty,
   columnSeamProperty,
-  placeStanding,
+  allocatePlaceHeights,
+  type PlaceAllocation,
   effectiveColumnOrder,
   flowRevealOffset,
   IMPOSITION_GAP_BOTTOM_MAKER_PX,
@@ -42,8 +43,9 @@ import {
   imposeStyle,
   isColumnMode,
   stripRevealOffset,
-  railSeamFractions,
-  railSharesFromFractions,
+  placeSharesFromHeights,
+  railWeightOf,
+  type PlaceMemberAppetite,
   sweptColumnOrders,
   withColumnMode,
   withColumnOrder,
@@ -175,57 +177,101 @@ describe("the column withers", () => {
   });
 });
 
-describe("the seam math is shared, not forked {#member-keys}", () => {
-  // Column members are PANE ids. `railSeamFractions` and
-  // `railSharesFromFractions` never look at what an id names — they take the
-  // order and the weights — which is exactly why one implementation serves
-  // both places. These assertions are over column-shaped inputs so a change
-  // that quietly makes the pair side-specific fails here.
+describe("the division math is shared, not forked {#member-keys}", () => {
+  // Column members are PANE ids. `allocatePlaceHeights` and
+  // `placeSharesFromHeights` never look at what an id names — they take the
+  // members and their appetites — which is exactly why one implementation
+  // serves both places. These assertions are over column-shaped inputs so a
+  // change that quietly makes the pair side-specific fails here.
+  //
+  // The members here declare no appetite of their own, which is what a pane
+  // that has published nothing looks like: no floor to feed and no natural to
+  // stop at, so the whole run reaches the water-fill and the division IS the
+  // weights. That is the case these claims are about.
+  const paneMembers = (
+    ids: readonly string[],
+    shares?: Readonly<Record<string, number>>,
+  ): PlaceMemberAppetite[] =>
+    ids.map((id) => ({
+      id,
+      floor: 0,
+      comfort: 0,
+      natural: Number.POSITIVE_INFINITY,
+      greedRank: 5,
+      weight: railWeightOf(shares, id),
+    }));
+  const divide = (
+    ids: readonly string[],
+    shares?: Readonly<Record<string, number>>,
+    run = 100,
+  ): readonly number[] =>
+    allocatePlaceHeights(paneMembers(ids, shares), run, 0).heights;
+
   test("an absent shares record divides the column equally", () => {
-    expect(railSeamFractions(["pane-a", "pane-b"], undefined)).toEqual([0.5]);
+    expect(divide(["pane-a", "pane-b"])).toEqual([50, 50]);
   });
 
   test("weights over pane ids set the division", () => {
-    expect(
-      railSeamFractions(["pane-a", "pane-b"], { "pane-a": 3, "pane-b": 1 }),
-    ).toEqual([0.75]);
+    expect(divide(["pane-a", "pane-b"], { "pane-a": 3, "pane-b": 1 })).toEqual([
+      75, 25,
+    ]);
   });
 
   test("a member the column does not name weighs 1", () => {
     // What `setColumnShares` dropping a bad weight has to mean downstream: an
     // unnamed member is a full share, so a dropped weight and a missing one
     // are the same thing.
-    expect(railSeamFractions(["pane-a", "pane-b"], { "pane-a": 1 })).toEqual([
-      0.5,
-    ]);
+    expect(divide(["pane-a", "pane-b"], { "pane-a": 1 })).toEqual([50, 50]);
   });
 
-  test("fractions and shares round-trip over a column", () => {
+  test("heights and shares round-trip over a column", () => {
+    // The allocator's fixed point ([P10]), over pane ids: the weights read back
+    // out of a division reproduce that division exactly, which is what makes a
+    // committed drag land where the hand let go of it.
     const order = ["pane-a", "pane-b", "pane-c"];
     const shares = { "pane-a": 2, "pane-b": 1, "pane-c": 1 };
-    const fractions = railSeamFractions(order, shares);
-    const recovered = railSharesFromFractions(order, fractions);
+    const heights = divide(order, shares, 400);
+    expect(heights).toEqual([200, 100, 100]);
+    const recovered = placeSharesFromHeights(
+      paneMembers(order, shares),
+      heights,
+      "shared",
+    );
     // Scaled to average 1 per member, so the ratios are what round-trips.
-    const ratio = recovered["pane-a"] / recovered["pane-b"];
-    expect(ratio).toBeCloseTo(2, 10);
-    expect(railSeamFractions(order, recovered)).toEqual(fractions);
+    expect(recovered["pane-a"] / recovered["pane-b"]).toBeCloseTo(2, 10);
+    const again = allocatePlaceHeights(
+      paneMembers(order, recovered),
+      400,
+      0,
+    ).heights;
+    for (let i = 0; i < heights.length; i += 1) {
+      expect(again[i]).toBeCloseTo(heights[i], 9);
+    }
   });
 
   test("a drag on one seam leaves the members it did not touch in ratio", () => {
-    // The [P02] property, restated over a column: segment lengths ARE the
-    // weights, so moving ONE seam changes only the two members it sits
-    // between. Four members and an uneven division, so there are two members
-    // the drag did not touch and their ratio is not 1 — either alone would let
-    // a broken implementation pass.
+    // The [P02] property, restated over a column: a drag moves ONE boundary, so
+    // it changes only the two members that boundary sits between. Four members
+    // and an uneven division, so there are two members the drag did not touch
+    // and their ratio is not 1 — either alone would let a broken implementation
+    // pass.
     const order = ["pane-a", "pane-b", "pane-c", "pane-d"];
     const shares = { "pane-a": 1, "pane-b": 1, "pane-c": 3, "pane-d": 1 };
-    const before = railSeamFractions(order, shares);
-    const dragged = [0.05, before[1], before[2]];
-    const after = railSharesFromFractions(order, dragged);
+    const before = divide(order, shares, 600);
+    expect(before).toEqual([100, 100, 300, 100]);
+    // The hand takes 60px off the first member and the second takes it — the
+    // whole of what moving one boundary can do.
+    const dragged = [40, 160, before[2], before[3]];
+    const after = placeSharesFromHeights(
+      paneMembers(order, shares),
+      dragged,
+      "shared",
+    );
     expect(after["pane-c"] / after["pane-d"]).toBeCloseTo(3, 10);
-    // And the drag did what it was asked: the first member shrank.
     expect(after["pane-a"]).toBeLessThan(
-      railSharesFromFractions(order, before)["pane-a"],
+      placeSharesFromHeights(paneMembers(order, shares), before, "shared")[
+        "pane-a"
+      ],
     );
   });
 });
@@ -306,7 +352,7 @@ describe("columnMemberPins", () => {
     // A slot the user split and then closed a card out of is a column of one,
     // and it must look exactly like a slot that was never split — otherwise
     // closing a card would leave the survivor pinned to a seam nothing draws.
-    expect(columnMemberPins({ slot: 2, index: 0, count: 1 })).toEqual(
+    expect(columnMemberPins({ slot: 2, index: 0, count: 1, standing: "shared" })).toEqual(
       columnMemberPins(undefined),
     );
   });
@@ -315,8 +361,8 @@ describe("columnMemberPins", () => {
     // Not to fractions. This is what makes a split read as a division of the
     // card the eye already knew: the top member and a stacked card share a top
     // edge to the pixel.
-    const first = columnMemberPins({ slot: 0, index: 0, count: 2 });
-    const last = columnMemberPins({ slot: 0, index: 1, count: 2 });
+    const first = columnMemberPins({ slot: 0, index: 0, count: 2, standing: "shared" });
+    const last = columnMemberPins({ slot: 0, index: 1, count: 2, standing: "shared" });
     expect(first.top).toBe("5px");
     expect(last.bottom).toBe(GAP_BOTTOM);
     expect(first.bottom).toContain("--tug-slot-0-seam-0");
@@ -327,42 +373,90 @@ describe("columnMemberPins", () => {
     // The property is unregistered and is written by an effect, so a frame can
     // render before it lands. Without the fallback that frame would collapse
     // rather than tile evenly.
-    const lower = columnMemberPins({ slot: 0, index: 1, count: 2 });
+    const lower = columnMemberPins({ slot: 0, index: 1, count: 2, standing: "shared" });
     expect(lower.top).toContain("var(--tug-slot-0-seam-0, 0.5)");
   });
 
   test("each member takes half a gap at the seam it meets", () => {
     // The air between two split members reads as the same rhythm as every
     // other seam on the deck: one gap total, half from each neighbour.
-    const upper = columnMemberPins({ slot: 0, index: 0, count: 2 });
-    const lower = columnMemberPins({ slot: 0, index: 1, count: 2 });
+    const upper = columnMemberPins({ slot: 0, index: 0, count: 2, standing: "shared" });
+    const lower = columnMemberPins({ slot: 0, index: 1, count: 2, standing: "shared" });
     expect(upper.bottom).toContain("2.5px");
     expect(lower.top).toContain("2.5px");
   });
 });
 
-describe("a column of three or more overflows instead of dividing", () => {
+describe("a column whose floors no longer fit overflows instead of dividing", () => {
   const RUN = `(100% - 5px - ${GAP_BOTTOM})`;
-  const MEMBER = `(${RUN} / 2.5)`;
-  const strip = (count: number): string =>
-    `(${count} * ${MEMBER} + ${(count - 1) * 5}px)`;
-  const offset = (slot: number, count: number): string =>
+  // A strip whose members are all different heights — 300, 360, 420, … — which
+  // is the whole of the new rule: a member's height is what the member asked
+  // for, so no two of them need be the same.
+  const stripOf = (count: number): number[] => {
+    const coords = [0];
+    for (let i = 0; i < count; i += 1) {
+      coords.push(coords[i] + 300 + 60 * i + (i < count - 1 ? 5 : 0));
+    }
+    return coords;
+  };
+  const at = (slot: number, j: number, strip: number[]): string =>
+    `var(--tug-slot-${slot}-strip-${j}, ${strip[j]}px)`;
+  const offset = (slot: number, count: number, strip: number[]): string =>
     `min(var(--tug-slot-${slot}-column-offset, 0px), ` +
-    `max(0px, ${strip(count)} - ${RUN}))`;
+    `max(0px, ${at(slot, count, strip)} - ${RUN}))`;
+  const member = (
+    slot: number,
+    index: number,
+    count: number,
+    strip: number[] = stripOf(count),
+  ) => columnMemberPins({ slot, index, count, standing: "overflow", strip });
 
-  test("the standing turns over at three", () => {
-    expect(placeStanding(0)).toBe("shared");
-    expect(placeStanding(1)).toBe("shared");
-    expect(placeStanding(2)).toBe("shared");
-    expect(placeStanding(3)).toBe("overflow");
-    expect(placeStanding(6)).toBe("overflow");
+  // The standing is the allocator's answer now, and it is about ROOM rather
+  // than about the count ([P01]). These say so from both directions: the same
+  // count stands both ways depending on the run, and the boundary is exactly
+  // where the floors and the seams stop fitting.
+  const columnOf = (floors: readonly number[], run: number): PlaceAllocation =>
+    allocatePlaceHeights(
+      floors.map((floor, index) => ({
+        id: `pane-${index}`,
+        floor,
+        comfort: floor,
+        natural: floor,
+        greedRank: 5,
+        weight: 1,
+      })),
+      run,
+      5,
+    );
+
+  test("the standing is decided by the floors against the run, not by the count", () => {
+    // Two members can overflow and six can share. The old rule could say
+    // neither: it saw the count and nothing else.
+    expect(columnOf([600, 600], 900).standing).toBe("overflow");
+    expect(columnOf([100, 100, 100, 100, 100, 100], 2000).standing).toBe(
+      "shared",
+    );
+  });
+
+  test("the boundary is exactly where the floors and the seams stop fitting", () => {
+    // Three floors of 240 and two 5px seams need 730. At 730 the column
+    // divides with nothing left over; a pixel short and it stacks.
+    expect(columnOf([240, 240, 240], 730).standing).toBe("shared");
+    expect(columnOf([240, 240, 240], 729).standing).toBe("overflow");
+  });
+
+  test("a place of one or none never overflows", () => {
+    // Nothing to divide and no strip to scroll: the undivided member IS the
+    // run, however tall it says it must be.
+    expect(columnOf([], 100).standing).toBe("shared");
+    expect(columnOf([9000], 100).standing).toBe("shared");
   });
 
   test("two members are byte-identical to what a column has always drawn", () => {
     // The whole promise of the boundary: nothing a user has ever seen changes
     // shape. Shares, seams and drags at N <= 2 are the code they always were.
     for (const index of [0, 1]) {
-      const pins = columnMemberPins({ slot: 1, index, count: 2 });
+      const pins = columnMemberPins({ slot: 1, index, count: 2, standing: "shared" });
       expect(String(pins.top) + String(pins.bottom)).toContain(
         "--tug-slot-1-seam-0",
       );
@@ -373,53 +467,78 @@ describe("a column of three or more overflows instead of dividing", () => {
     // Division has stopped meaning anything, so the seam properties are not
     // read — and step 12 stops writing them and stops drawing their handles.
     for (const index of [0, 1, 2]) {
-      const pins = columnMemberPins({ slot: 0, index, count: 3 });
+      const pins = columnMemberPins({ slot: 0, index, count: 3, standing: "overflow" });
       expect(String(pins.top) + String(pins.bottom)).not.toContain("seam");
     }
   });
 
-  test("every member takes the same height: the run over 2.5", () => {
-    // Two whole members and the half that says there is more below. The height
-    // is stated as `bottom` against `100%`, so it is the run's own fraction and
-    // re-resolves on reflow rather than on a measurement.
+  test("every member stands between its own two strip coordinates", () => {
+    // Not a height the frame solves for — a height is `max(floor, comfort ·
+    // weight)` now, which CSS cannot express — but the two coordinates the
+    // allocator already put either side of the member.
     for (const count of [3, 4, 6]) {
-      const first = columnMemberPins({ slot: 0, index: 0, count });
-      expect(first.top).toBe(`calc(5px + 0px - ${offset(0, count)})`);
+      const strip = stripOf(count);
+      const first = member(0, 0, count, strip);
+      expect(first.top).toBe(
+        `calc(5px + ${at(0, 0, strip)} - ${offset(0, count, strip)})`,
+      );
       expect(first.bottom).toBe(
-        `calc(100% - 5px - 0px - ${MEMBER} + ${offset(0, count)})`,
+        `calc(100% - 5px - ${at(0, 1, strip)} + 5px + ${offset(0, count, strip)})`,
       );
     }
   });
 
-  test("members stack down the strip a member plus a gap apart", () => {
-    const second = columnMemberPins({ slot: 2, index: 1, count: 4 });
-    const third = columnMemberPins({ slot: 2, index: 2, count: 4 });
-    expect(second.top).toBe(
-      `calc(5px + 1 * (${MEMBER} + 5px) - ${offset(2, 4)})`,
-    );
-    expect(third.top).toBe(
-      `calc(5px + 2 * (${MEMBER} + 5px) - ${offset(2, 4)})`,
+  test("the last member's bottom carries no gap: its coordinate is the strip's end", () => {
+    // Every other member's lower coordinate is the NEXT member's top, a gap
+    // below its own bottom edge, so the gap is added back. The last one has no
+    // next member: coordinate `n` is the strip's own end.
+    const strip = stripOf(4);
+    expect(member(2, 3, 4, strip).bottom).toBe(
+      `calc(100% - 5px - ${at(2, 4, strip)} + 0px + ${offset(2, 4, strip)})`,
     );
   });
 
-  test("the strip a member's clamp is measured against grows with the count", () => {
-    // The clamp's ceiling is `strip - run`, and the strip is N heights plus
-    // N-1 gaps. A column of three can slide by half a member; a column of six
-    // by three and a half. Both are stated in CSS, so widening the window
-    // re-resolves the ceiling in reflow with no JS ([L06]).
-    expect(columnMemberPins({ slot: 0, index: 0, count: 3 }).top).toContain(
-      `3 * ${MEMBER} + 10px`,
+  test("members stack down the strip by their own heights, not by a multiple of one", () => {
+    // The claim the old rule could not make: member 2 does not begin at twice
+    // member 1's advance, because the members above it are not the same size.
+    const strip = stripOf(4);
+    expect(member(2, 1, 4, strip).top).toBe(
+      `calc(5px + ${at(2, 1, strip)} - ${offset(2, 4, strip)})`,
     );
-    expect(columnMemberPins({ slot: 0, index: 0, count: 6 }).top).toContain(
-      `6 * ${MEMBER} + 25px`,
+    expect(member(2, 2, 4, strip).top).toBe(
+      `calc(5px + ${at(2, 2, strip)} - ${offset(2, 4, strip)})`,
+    );
+    expect(strip[2]).not.toBe(2 * strip[1]);
+  });
+
+  test("the clamp is measured against the strip's own end coordinate", () => {
+    // The clamp's ceiling is `strip - run`, and the strip's length is now a
+    // published number rather than N heights plus N-1 gaps — because the N
+    // heights are no longer one height. Still stated in CSS, so widening the
+    // window re-resolves the ceiling in reflow with no JS ([L06]).
+    for (const count of [3, 6]) {
+      const strip = stripOf(count);
+      expect(member(0, 0, count, strip).top).toContain(
+        `max(0px, var(--tug-slot-0-strip-${count}, ${strip[count]}px) - ${RUN})`,
+      );
+    }
+  });
+
+  test("a coordinate falls back to the number the allocation resolved it at", () => {
+    // The strip properties are unregistered and an effect writes them, so a
+    // frame can render before they land. It renders where the allocation put
+    // it, which is the same discipline the seam fallbacks hold.
+    const strip = stripOf(3);
+    expect(member(1, 1, 3, strip).top).toContain(
+      `var(--tug-slot-1-strip-1, ${strip[1]}px)`,
     );
   });
 
   test("each slot's strip slides on its own property", () => {
-    expect(columnMemberPins({ slot: 0, index: 1, count: 3 }).top).toContain(
+    expect(columnMemberPins({ slot: 0, index: 1, count: 3, standing: "overflow" }).top).toContain(
       "var(--tug-slot-0-column-offset, 0px)",
     );
-    expect(columnMemberPins({ slot: 3, index: 1, count: 3 }).top).toContain(
+    expect(columnMemberPins({ slot: 3, index: 1, count: 3, standing: "overflow" }).top).toContain(
       "var(--tug-slot-3-column-offset, 0px)",
     );
     expect(columnOffsetProperty(5)).toBe("--tug-slot-5-column-offset");
@@ -429,7 +548,7 @@ describe("a column of three or more overflows instead of dividing", () => {
     // Same contract the seam fallbacks hold: the property is unregistered and
     // an effect writes it, so a frame can render first. It must render at the
     // strip's top rather than collapse.
-    expect(columnMemberPins({ slot: 0, index: 0, count: 3 }).top).toContain(
+    expect(columnMemberPins({ slot: 0, index: 0, count: 3, standing: "overflow" }).top).toContain(
       ", 0px)",
     );
   });
@@ -450,7 +569,7 @@ describe("imposeStyle takes a column member", () => {
     // produces exactly the frame it always did.
     expect(
       imposeStyle(placement, 800, undefined, {
-        member: { slot: 1, index: 0, count: 1 },
+        member: { slot: 1, index: 0, count: 1, standing: "shared" },
       }),
     ).toEqual(imposeStyle(placement, 800));
   });
@@ -458,7 +577,7 @@ describe("imposeStyle takes a column member", () => {
   test("a split member takes its share of the run and none of the width", () => {
     const whole = imposeStyle(placement, 800);
     const member = imposeStyle(placement, 800, undefined, {
-      member: { slot: 1, index: 1, count: 2 },
+      member: { slot: 1, index: 1, count: 2, standing: "shared" },
     });
     // The horizontal pin is the slot's, untouched: a split divides the run,
     // never the band.
@@ -473,7 +592,7 @@ describe("imposeStyle takes a column member", () => {
     // the share it was given — centring it down the whole run would put it
     // through the seam and over its neighbour.
     const member = imposeStyle(placement, 800, { width: 320, height: 360 }, {
-      member: { slot: 1, index: 1, count: 2 },
+      member: { slot: 1, index: 1, count: 2, standing: "shared" },
     });
     expect(member.height).toBe("360px");
     expect(String(member.top)).toContain("--tug-slot-1-seam-0");
@@ -577,12 +696,16 @@ describe("sweptColumnOrders", () => {
 
 describe("the reveal rule is one rule, read on either axis", () => {
   /** The run an overflowing column is seen through, and the strip of members
-   *  behind it — a 900px canvas, so `run = 863` and `member = 345.2`. */
-  const MEMBER = (900 - 5 - 32) / 2.5;
+   *  behind it — a 900px canvas, so `run = 863` — over four members standing at
+   *  their own comfort heights rather than at one shared one, which is what an
+   *  overflowing strip is made of. */
+  const HEIGHTS = [300, 360, 420, 480];
   const RUN = 900 - 5 - 32;
   const stripOf = (count: number): number =>
-    count * MEMBER + (count - 1) * 5;
-  const startOf = (index: number): number => index * (MEMBER + 5);
+    HEIGHTS.slice(0, count).reduce((sum, height) => sum + height, 0) +
+    (count - 1) * 5;
+  const startOf = (index: number): number =>
+    HEIGHTS.slice(0, index).reduce((sum, height) => sum + height, 0) + index * 5;
 
   test("flowRevealOffset is stripRevealOffset under flow's names", () => {
     // The extraction's whole claim. Asserted over the cases that separate the
@@ -614,7 +737,7 @@ describe("the reveal rule is one rule, read on either axis", () => {
     const at = (index: number, offset: number): number =>
       stripRevealOffset({
         stripStart: startOf(index),
-        extent: MEMBER,
+        extent: HEIGHTS[index],
         stripLength: stripOf(4),
         band: RUN,
         offset,
@@ -624,23 +747,23 @@ describe("the reveal rule is one rule, read on either axis", () => {
   });
 
   test("a member below the run slides the strip by the least that shows it", () => {
-    // Member 2 of four starts at 700.4 and ends at 1045.6; the run is 863, so
-    // it needs 182.6 of slide and takes exactly that — its bottom edge lands
-    // flush and its top stays as low as it can.
+    // Member 2 of four starts at 670 and ends at 1090; the run is 863, so it
+    // needs 227 of slide and takes exactly that — its bottom edge lands flush
+    // and its top stays as low as it can.
     const offset = stripRevealOffset({
       stripStart: startOf(2),
-      extent: MEMBER,
+      extent: HEIGHTS[2],
       stripLength: stripOf(4),
       band: RUN,
       offset: 0,
     });
-    expect(offset).toBeCloseTo(startOf(2) + MEMBER - RUN, 6);
+    expect(offset).toBeCloseTo(startOf(2) + HEIGHTS[2] - RUN, 6);
   });
 
   test("a member above the run pins to its own top", () => {
     const offset = stripRevealOffset({
       stripStart: startOf(0),
-      extent: MEMBER,
+      extent: HEIGHTS[0],
       stripLength: stripOf(4),
       band: RUN,
       offset: 400,
@@ -665,7 +788,7 @@ describe("the reveal rule is one rule, read on either axis", () => {
   test("the answer is always inside the strip's own travel", () => {
     const tall = stripRevealOffset({
       stripStart: startOf(3),
-      extent: MEMBER,
+      extent: HEIGHTS[3],
       stripLength: stripOf(4),
       band: RUN,
       offset: 0,
@@ -675,7 +798,7 @@ describe("the reveal rule is one rule, read on either axis", () => {
     expect(
       stripRevealOffset({
         stripStart: 0,
-        extent: MEMBER,
+        extent: HEIGHTS[0],
         stripLength: stripOf(2),
         band: RUN,
         offset: 200,
@@ -687,7 +810,7 @@ describe("the reveal rule is one rule, read on either axis", () => {
     expect(
       stripRevealOffset({
         stripStart: Number.NaN,
-        extent: MEMBER,
+        extent: HEIGHTS[0],
         stripLength: stripOf(4),
         band: RUN,
         offset: 5000,

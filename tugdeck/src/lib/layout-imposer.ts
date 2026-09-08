@@ -103,6 +103,7 @@
 
 import type React from "react";
 
+import { DEFAULT_GREED_RANK } from "../card-registry";
 
 /** The active N-up rule. */
 export type ImpositionKind =
@@ -239,9 +240,9 @@ export interface RailArrangement {
  * Deliberately the same shape as {@link RailArrangement}, because a slot and a
  * rail are the same kind of place — a run of vertical space several cards may
  * either take turns in or divide. Sharing the shape is what lets
- * {@link railSeamFractions} and {@link railSharesFromFractions} serve both
- * without a fork; they take an arrangement's parts rather than a side, so they
- * were already place-agnostic before a column existed.
+ * {@link allocatePlaceHeights} and {@link placeSharesFromHeights} serve both
+ * without a fork; they take a place's members rather than a side, so they were
+ * place-agnostic before a column existed.
  *
  * The one real difference is what a member is called. A rail keys its members
  * by `componentId`, because a sidebar card is a singleton: one componentId, one
@@ -558,91 +559,24 @@ export function withoutRailShares(
 /**
  * How much of the run a member is worth: its stored weight, or 1.
  *
- * A weight that is not a positive finite number reads as 1 rather than as an
- * error. These arrive from a JSON blob and from gesture arithmetic, and a rail
- * that refuses to lay itself out because one number is `NaN` is worse than a
- * rail that divides evenly.
+ * A weight that is not a finite non-negative number reads as 1 rather than as
+ * an error. These arrive from a JSON blob and from gesture arithmetic, and a
+ * rail that refuses to lay itself out because one number is `NaN` is worse
+ * than a rail that divides evenly.
+ *
+ * Zero is a weight, not an absence: a member a drag pushed down to its floor
+ * has no share of the discretionary pool and says so with a zero ([P04]).
+ * {@link sharedHeightsOf} divides evenly when every weight is zero, which is
+ * the only reading a total of nothing has.
  */
-function railWeightOf(
+export function railWeightOf(
   shares: Readonly<Record<string, number>> | undefined,
   componentId: string,
 ): number {
   const weight = shares?.[componentId];
-  return typeof weight === "number" && Number.isFinite(weight) && weight > 0
+  return typeof weight === "number" && Number.isFinite(weight) && weight >= 0
     ? weight
     : 1;
-}
-
-/** The narrowest a seam segment may be, as a fraction of the run. Keeps the
- *  fractions strictly increasing and every derived weight positive. */
-const RAIL_SEAM_EPSILON = 1e-6;
-
-/**
- * Where the seams fall in a rail of `order`, as cumulative fractions of the
- * vertical run: N members give N−1 strictly increasing values in (0, 1), and
- * `fractions[j]` is where the gap between member `j` and member `j+1` sits.
- *
- * Renormalized over the members actually in `order`, so a rail that lost a
- * member divides what it has rather than leaving a hole where that member was.
- * Computed, never stored — the record holds weights ([P02]), and a fraction is
- * what those weights mean for the members standing right now.
- */
-export function railSeamFractions(
-  order: readonly string[],
-  shares: Readonly<Record<string, number>> | undefined,
-): readonly number[] {
-  if (order.length < 2) return [];
-  const weights = order.map((id) => railWeightOf(shares, id));
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
-  const fractions: number[] = [];
-  let running = 0;
-  for (let i = 0; i < weights.length - 1; i += 1) {
-    running += weights[i];
-    const fraction = running / total;
-    const floor = (i + 1) * RAIL_SEAM_EPSILON;
-    const ceiling = 1 - (weights.length - 1 - i) * RAIL_SEAM_EPSILON;
-    fractions.push(Math.min(Math.max(fraction, floor), ceiling));
-  }
-  return fractions;
-}
-
-/**
- * The inverse of {@link railSeamFractions}: the weights a set of seam fractions
- * means.
- *
- * Segment lengths *are* the weights, so every member the drag did not touch
- * keeps its ratio to every other untouched member by construction — which is
- * the [P02] property, and the reason a seam drag commits through a named pure
- * function rather than through arithmetic inlined in a pointer handler.
- *
- * Scaled to average 1 per member, so an equal division round-trips to the
- * all-ones record that an absent `shares` already means.
- */
-export function railSharesFromFractions(
-  order: readonly string[],
-  fractions: readonly number[],
-): Record<string, number> {
-  const shares: Record<string, number> = {};
-  if (order.length === 0) return shares;
-  if (order.length === 1) return { [order[0]]: 1 };
-  // Sanitized on the way in: a non-finite or out-of-order fraction would give a
-  // zero-or-negative segment, and a weight of zero is not a height.
-  const bounded: number[] = [];
-  for (let i = 0; i < order.length - 1; i += 1) {
-    const raw = fractions[i];
-    const floor = (bounded[i - 1] ?? 0) + RAIL_SEAM_EPSILON;
-    const ceiling = 1 - (order.length - 1 - i) * RAIL_SEAM_EPSILON;
-    const value = typeof raw === "number" && Number.isFinite(raw) ? raw : floor;
-    bounded.push(Math.min(Math.max(value, floor), ceiling));
-  }
-  const scale = order.length;
-  let previous = 0;
-  for (let i = 0; i < order.length; i += 1) {
-    const upper = i === order.length - 1 ? 1 : bounded[i];
-    shares[order[i]] = (upper - previous) * scale;
-    previous = upper;
-  }
-  return shares;
 }
 
 /**
@@ -672,12 +606,40 @@ export function railOffsetProperty(side: SidebarSide): string {
   return `--tug-rail-${side}-offset`;
 }
 
+/**
+ * The custom property carrying strip coordinate `index` on `side`'s overflowing
+ * rail, in px — the top of member `index`, and for `index === n` the length of
+ * the whole strip.
+ *
+ * There are `n + 1` of these for `n` members because the strip's own end is a
+ * coordinate the frames read: the last member's bottom is it, and the offset
+ * clamp is it less the run. The values are absolute px rather than fractions
+ * because an overflowing strip is longer than the run and a fraction of the run
+ * would say nothing about where the strip ends.
+ *
+ * Unregistered, the same discipline {@link railSeamProperty} holds: every
+ * expression reading one supplies the coordinate it was rendered against as its
+ * `var()` fallback, so a frame that renders before the properties land stands
+ * where the allocation put it.
+ */
+export function railStripProperty(side: SidebarSide, index: number): string {
+  return `--tug-rail-${side}-strip-${index}`;
+}
+
 /** One split member's place in its rail: which side, which position, and how
  *  many members it divides the run with. */
 export interface RailMemberPlacement {
   side: SidebarSide;
   index: number;
   count: number;
+  /** How the place stands — {@link allocatePlaceHeights}'s own answer, carried
+   *  here because the pins fork on it and a member cannot see the run its
+   *  place was allocated against. */
+  standing: PlaceStanding;
+  /** The overflowing place's strip coordinates, `n + 1` of them, as the
+   *  allocation resolved them: the `var()` fallbacks the frame stands at
+   *  before the canvas publishes the properties. Absent while sharing. */
+  strip?: readonly number[];
 }
 
 /** Narrow an unknown (a parsed blob field, an action payload) to a side. */
@@ -1881,7 +1843,7 @@ export interface StripRevealInput {
  * was flush would hide the side the eye goes to first.
  *
  * The rule has no axis in it, which is why a column's overflowing strip of
- * `run / 2.5` members reveals by exactly this arithmetic over heights.
+ * members at their own comfort heights reveals by exactly this arithmetic.
  */
 export function stripRevealOffset(input: StripRevealInput): number {
   const { stripStart, extent, stripLength, band, offset } = input;
@@ -3158,19 +3120,29 @@ function seamHalf(run: PlaceRun): string {
  * a top member and a stacked card share a top edge to the pixel, and the eye
  * reads a split as a division of the card it already knew.
  *
- * At three members or more the rail overflows ({@link placeStanding}) and
- * {@link overflowPins} takes over, against the side's own offset property — the
- * same rule a column stands under, because a rail and a column are the same
- * kind of place. Without it a four-member rail would divide its run into four
- * slivers; with it the members take a fixed height and the strip scrolls, and
- * the half-visible member at the bottom edge says there is more below.
+ * When the place overflows — the members' floors no longer fit in the run
+ * ([P01]) — {@link overflowPins} takes over, against the side's own offset
+ * property. That is the same rule a column stands under, because a rail and a
+ * column are the same kind of place. Without it a rail with no room left would
+ * divide its run into slivers below its members' floors; with it the members
+ * take their own height and the strip scrolls, and the half-visible member at
+ * the bottom edge says there is more below.
+ *
+ * The standing arrives on the placement rather than being decided here: it is
+ * a fact about the run the place was allocated against, and the pins cannot
+ * see the run.
  */
 function railMemberPins(
   member: RailMemberPlacement | undefined,
 ): { top: string; bottom: string } {
   if (member === undefined) return { top: RAIL_RUN.top, bottom: RAIL_RUN.bottom };
-  if (placeStanding(member.count) === "overflow") {
-    return overflowPins(member, railOffsetProperty(member.side), RAIL_RUN);
+  if (member.standing === "overflow") {
+    return overflowPins(
+      member,
+      railOffsetProperty(member.side),
+      (j) => railStripProperty(member.side, j),
+      RAIL_RUN,
+    );
   }
   return memberPins(member, (j) => railSeamProperty(member.side, j), RAIL_RUN);
 }
@@ -3239,35 +3211,455 @@ export function columnOffsetProperty(slot: number): string {
 }
 
 /**
- * How a place of `count` members divides its run — the rule a rail and a
- * column both stand under, because they are the same kind of place.
+ * The custom property carrying strip coordinate `index` of slot `slot`'s
+ * overflowing column, in px.
  *
- * `"shared"` — two members or fewer: the run is divided between them at a
- * draggable seam, which is what both have always done.
+ * The place-keyed twin of {@link railStripProperty}, and the same `n + 1`
+ * coordinates for the same reason: a rail and a column are the same kind of
+ * place, and an overflowing one is a strip either way.
+ */
+export function columnStripProperty(slot: number, index: number): string {
+  return `--tug-slot-${slot}-strip-${index}`;
+}
+
+/**
+ * How a place divides its run among the members standing in it — the rule a
+ * rail and a column both stand under, because they are the same kind of place.
  *
- * `"overflow"` — three or more: division stops being useful past about two and
- * a half visible members, so the members stop dividing and start stacking down
- * a strip of fixed-height cards that scrolls behind the run. The half-visible
- * member at the bottom edge IS the affordance, the way flow's half-visible
- * card at the band edge is.
+ * `"shared"` — every member's floor fits in the run at once: the run is
+ * divided between them at draggable seams, which is what both have always
+ * done.
  *
- * The rule was written for columns and is stated over the count alone, so
- * lifting it to rails cost nothing but the name: a four-member rail dividing
- * its run would draw four slivers, which is the same picture a four-member
- * column drew before this existed.
+ * `"overflow"` — they do not: division has run out of run to divide, so the
+ * members stop dividing and start stacking down a strip longer than the run,
+ * which scrolls behind it. The half-visible member at the bottom edge IS the
+ * affordance, the way flow's half-visible card at the band edge is.
+ *
+ * The rule was a member COUNT once — three members or more overflowed — which
+ * was a proxy for "is there room" that could not see the room ([P01]). Two
+ * tall-floored members overflow on a short window and five short-floored ones
+ * share a tall one, and the standing is now decided where the floors and the
+ * run are both in hand: inside {@link allocatePlaceHeights}, which returns it
+ * as a field rather than offering it as a function anybody may call.
  */
 export type PlaceStanding = "shared" | "overflow";
 
-/** The member count at which a place stops dividing and starts stacking. */
-export const PLACE_OVERFLOW_MIN_MEMBERS = 3;
+/**
+ * One member's appetite for vertical run: what it cannot go below, what it is
+ * comfortable at, what it would take if the run were endless, how greedy it is
+ * against its neighbours, and the weight the user's own seam drags stored.
+ *
+ * A rail member is a card (`id` is its componentId); a column member is a pane
+ * (`id` is the pane id). The two are the same kind of member in the same kind
+ * of place, which is why one allocator answers for both.
+ */
+export interface PlaceMemberAppetite {
+  /** componentId for a rail member, pane id for a column member. */
+  id: string;
+  /** Hard floor, px: `getStackSizePolicy(componentIds).min.height`. */
+  floor: number;
+  /** ≥ floor; equals floor when the card declares none. */
+  comfort: number;
+  /** ≥ comfort; equals floor when undeclared; may be `Infinity`. */
+  natural: number;
+  /** Lower is greedier; `getGreedRank` folded with `Math.min` over a pane's
+   *  cards. */
+  greedRank: number;
+  /** The stored weight, {@link railWeightOf}: finite, ≥ 0, default 1. */
+  weight: number;
+}
 
-/** How many members an overflowing place shows at once — two whole ones and
- *  the half that says there is more below. */
-export const PLACE_OVERFLOW_VISIBLE_MEMBERS = 2.5;
+/**
+ * How a place divides its run among the members standing in it — the one shape
+ * every consumer reads, so that no site derives a member height for itself.
+ *
+ * `heights` and `tops` are strip coordinates: a shared place's strip IS its
+ * run, so `stripLength` equals `run` and the last member's bottom sits at the
+ * run's bottom; an overflowing place's strip is longer than the run and slides
+ * behind it by the place's offset.
+ */
+export interface PlaceAllocation {
+  standing: PlaceStanding;
+  ids: readonly string[];
+  /** One per member, px, each ≥ its floor. */
+  heights: readonly number[];
+  /** Strip coordinate of each member's top: Σ_{j<i} heights[j] + i · seam. */
+  tops: readonly number[];
+  /** Σ heights + (n − 1) · seam. Equals `run` (±1e-6) in shared. */
+  stripLength: number;
+  run: number;
+  seam: number;
+}
 
-/** @see {@link PlaceStanding} */
-export function placeStanding(count: number): PlaceStanding {
-  return count >= PLACE_OVERFLOW_MIN_MEMBERS ? "overflow" : "shared";
+/** The tolerance every comparison in this arithmetic is made at: a px of run
+ *  divided by a weight is never exact, and a member a millionth of a px below
+ *  its natural height is at its natural height. */
+const PLACE_HEIGHT_EPSILON = 1e-6;
+
+/**
+ * The appetites as the allocator may rely on them: floors non-negative and
+ * finite, `floor ≤ comfort ≤ natural`, weight finite and non-negative, greed a
+ * rank.
+ *
+ * Sanitized rather than rejected for the reason {@link railWeightOf} reads a
+ * `NaN` weight as 1 — these numbers arrive from a stored blob, from gesture
+ * arithmetic, and from cards that declare their own appetites, and a rail that
+ * refuses to lay itself out because one card published a `NaN` is worse than a
+ * rail that lays itself out from the numbers it can read.
+ */
+function sanitizedAppetites(
+  members: readonly PlaceMemberAppetite[],
+): PlaceMemberAppetite[] {
+  return members.map((member) => {
+    const floor =
+      Number.isFinite(member.floor) && member.floor > 0 ? member.floor : 0;
+    const comfort = Number.isFinite(member.comfort)
+      ? Math.max(floor, member.comfort)
+      : floor;
+    const natural =
+      member.natural === Infinity
+        ? Infinity
+        : Number.isFinite(member.natural)
+          ? Math.max(comfort, member.natural)
+          : comfort;
+    const weight =
+      Number.isFinite(member.weight) && member.weight >= 0 ? member.weight : 1;
+    const greedRank = Number.isFinite(member.greedRank)
+      ? member.greedRank
+      : DEFAULT_GREED_RANK;
+    return { id: member.id, floor, comfort, natural, greedRank, weight };
+  });
+}
+
+/**
+ * The `n + 1` strip coordinates an OVERFLOWING place publishes — every member's
+ * top, then the strip's own end — or `undefined` for a place that has no strip.
+ *
+ * One derivation, read by the canvas's property writer and by the placements it
+ * hands the panes, so the numbers a frame falls back to and the numbers the
+ * properties carry are the same numbers ([P02]). A shared place answers
+ * `undefined` rather than its tops: it publishes seams, and a strip coordinate
+ * standing beside them would be a second, staler account of the same run.
+ */
+export function stripCoordinatesOf(
+  allocation: PlaceAllocation | null | undefined,
+): readonly number[] | undefined {
+  if (allocation === null || allocation === undefined) return undefined;
+  if (allocation.standing !== "overflow") return undefined;
+  return [...allocation.tops, allocation.stripLength];
+}
+
+/** The allocation `heights` make: tops accumulate the heights a seam apart, and
+ *  the strip is the last top plus the last height. */
+function placeAllocationOf(
+  standing: PlaceStanding,
+  members: readonly PlaceMemberAppetite[],
+  heights: readonly number[],
+  run: number,
+  seam: number,
+): PlaceAllocation {
+  const tops: number[] = [];
+  let running = 0;
+  for (let i = 0; i < heights.length; i += 1) {
+    tops.push(running);
+    running += heights[i] + seam;
+  }
+  const stripLength = heights.length === 0 ? 0 : running - seam;
+  return {
+    standing,
+    ids: members.map((member) => member.id),
+    heights,
+    tops,
+    stripLength,
+    run,
+    seam,
+  };
+}
+
+/** An overflowing place's heights, from what its members want: comfort scaled
+ *  by the weight the drags stored, never below the floor. */
+function overflowHeightsOf(members: readonly PlaceMemberAppetite[]): number[] {
+  return members.map((member) =>
+    Math.max(member.floor, member.comfort * member.weight),
+  );
+}
+
+/** The tolerance the ladder's own pool arithmetic is done at, finer than
+ *  {@link PLACE_HEIGHT_EPSILON} because a pool of a millionth of a px is still
+ *  a pool to be handed out rather than a rounding error to be reported. */
+const PLACE_POOL_EPSILON = 1e-9;
+
+/**
+ * A shared place's heights: the allocation ladder ([P03]), which is the whole
+ * of how a run that fits its members gets divided among them.
+ *
+ * Four stages, each spending what the one before it left:
+ *
+ * 1. **Floors.** Every member starts at the height it cannot go below, and the
+ *    seams take theirs. What is left over is the pool.
+ * 2. **Comfort, greediest first.** Members are visited in `greedRank` order
+ *    (ties by position) and each takes the pool up to its comfort height. This
+ *    is the stage that runs out: a run with room for the floors but not for
+ *    every comfort leaves the last-ranked members at their floors, which is
+ *    the honest answer — somebody has to be short, and the greed rank is the
+ *    card registry's statement about who it should be.
+ * 3. **Toward natural, by weight.** What is still left is the DISCRETIONARY
+ *    pool, and the stored weights divide it — each member capped at its
+ *    natural height, with the surplus a capped member could not take poured
+ *    back over the members still below theirs. That is why this is a loop
+ *    rather than one division: capping one member changes every other
+ *    member's share, and the water has to find its level.
+ * 4. **Past natural, by weight, uncapped.** Once everybody is at natural there
+ *    is no cap left to bind, and the remainder is divided by weight so the run
+ *    is filled exactly ([D181]). A place whose members all fit twice over
+ *    still fills its run, because a shared place's strip IS its run.
+ *
+ * A weight of zero is legal and means what it says at each stage: no share of
+ * the pool. It is what a member dragged down to its comfort height stores, and
+ * a place whose weights are ALL zero divides its pool equally rather than not
+ * at all — the only reading a total of nothing has.
+ */
+function sharedHeightsOf(
+  members: readonly PlaceMemberAppetite[],
+  run: number,
+  seam: number,
+): number[] {
+  const n = members.length;
+  const heights = members.map((member) => member.floor);
+  const floors = heights.reduce((sum, height) => sum + height, 0);
+  let pool = run - floors - (n - 1) * seam;
+
+  const byGreed = members
+    .map((member, index) => ({ member, index }))
+    .sort((a, b) => a.member.greedRank - b.member.greedRank || a.index - b.index);
+  for (const { member, index } of byGreed) {
+    if (pool <= PLACE_POOL_EPSILON) break;
+    const take = Math.min(member.comfort - member.floor, pool);
+    if (take <= 0) continue;
+    heights[index] += take;
+    pool -= take;
+  }
+
+  let active = members
+    .map((_, index) => index)
+    .filter((i) => heights[i] < members[i].natural - PLACE_POOL_EPSILON);
+  while (pool > PLACE_POOL_EPSILON && active.length > 0) {
+    const total = active.reduce((sum, i) => sum + members[i].weight, 0);
+    const give = active.map((i) =>
+      total > 0 ? (pool * members[i].weight) / total : pool / active.length,
+    );
+    const capped = active.filter(
+      (i, k) => give[k] >= members[i].natural - heights[i] - PLACE_POOL_EPSILON,
+    );
+    if (capped.length === 0) {
+      active.forEach((i, k) => {
+        heights[i] += give[k];
+      });
+      pool = 0;
+      break;
+    }
+    for (const i of capped) {
+      pool -= members[i].natural - heights[i];
+      heights[i] = members[i].natural;
+    }
+    const held = new Set(capped);
+    active = active.filter((i) => !held.has(i));
+  }
+
+  if (pool > PLACE_POOL_EPSILON) {
+    const total = members.reduce((sum, member) => sum + member.weight, 0);
+    for (let i = 0; i < n; i += 1) {
+      heights[i] += total > 0 ? (pool * members[i].weight) / total : pool / n;
+    }
+  }
+  return heights;
+}
+
+/**
+ * How a place divides `run` among `members`, seams included — the single
+ * derivation of a member height ([P02]).
+ *
+ * The standing is decided first and from the floors alone ([P01]): a place
+ * whose members' floors and seams fit inside the run divides it, and one whose
+ * do not stacks down a strip. Then the heights follow from the standing — the
+ * ladder in {@link sharedHeightsOf} for a shared place, and each member's own
+ * comfort height, weighted, for an overflowing one.
+ *
+ * Neither branch reads a number about the run rather than about the member.
+ * An overflowing member takes `max(floor, comfort · weight)` — what it said it
+ * wanted, scaled by what the user's own seam drags stored — so a strip is
+ * built out of its members instead of out of a constant, and a member whose
+ * floor exceeds any share of the run still stands at its floor. The count-based
+ * standing and the fixed fraction-of-the-run height were the two halves of the
+ * same proxy ([P01], [B07]), and neither is left.
+ *
+ * The census in `src/lib/__tests__/layout-imposer-heights-census.test.ts` is
+ * the statement of what this must be true of, overflow rows included: every
+ * height is at or above its floor, and `allocate(sharesFromHeights(h)) == h`
+ * for every reachable `h`.
+ */
+export function allocatePlaceHeights(
+  members: readonly PlaceMemberAppetite[],
+  run: number,
+  seam: number,
+): PlaceAllocation {
+  const sane = sanitizedAppetites(members);
+  const gap = Number.isFinite(seam) && seam > 0 ? seam : 0;
+  if (sane.length === 0) {
+    return placeAllocationOf("shared", sane, [], run, gap);
+  }
+  if (sane.length === 1) {
+    // The undivided member IS the run, as today, even below its floor: a place
+    // with one member has nothing to divide and no strip to scroll.
+    return placeAllocationOf("shared", sane, [run], run, gap);
+  }
+  if (!Number.isFinite(run) || run <= 0) {
+    return placeAllocationOf("overflow", sane, overflowHeightsOf(sane), run, gap);
+  }
+  const required =
+    sane.reduce((sum, member) => sum + member.floor, 0) +
+    (sane.length - 1) * gap;
+  if (required > run) {
+    return placeAllocationOf("overflow", sane, overflowHeightsOf(sane), run, gap);
+  }
+  return placeAllocationOf(
+    "shared",
+    sane,
+    sharedHeightsOf(sane, run, gap),
+    run,
+    gap,
+  );
+}
+
+/**
+ * The allocation a place of `count` ANONYMOUS members gets: the equal
+ * division, over members nobody has measured.
+ *
+ * This is what a *proposal* is: a picture of an arrangement nobody has stood
+ * in, whose members have no appetites because they are not standing anywhere
+ * yet. The Layout card's miniature draws its preview layers from it, which is
+ * how the drawing keeps one span arithmetic for the committed picture and the
+ * proposed ones alike while only the committed picture reads real heights.
+ *
+ * It answers the equal division because that is what the allocator answers for
+ * members with no floor to fit and no appetite to feed, and the equal division
+ * is what [P09] asks a proposal to draw. It is here rather than at the drawing
+ * so that the miniature still derives no member height of its own ([P02]).
+ */
+export function nominalPlaceAllocation(
+  count: number,
+  run: number,
+  seam: number,
+): PlaceAllocation {
+  const members: PlaceMemberAppetite[] = Array.from(
+    { length: Math.max(0, count) },
+    (_, index) => ({
+      id: `${index}`,
+      floor: 0,
+      comfort: 0,
+      natural: 0,
+      greedRank: DEFAULT_GREED_RANK,
+      weight: 1,
+    }),
+  );
+  return allocatePlaceHeights(members, run, seam);
+}
+
+/**
+ * The weights a set of heights means — the inverse of
+ * {@link allocatePlaceHeights}, and what a committed seam drag stores ([P04]).
+ *
+ * A weight means a different thing in each standing, so the inverse does too:
+ * in overflow it is the multiplier on comfort the height implies; in shared it
+ * is the share of the discretionary pool the member took, measured from
+ * whichever floor of that pool the place is standing above — comfort while
+ * anybody is still below their natural height, natural once everybody is past
+ * it. Scaled to average 1 per member, so an equal division round-trips to the
+ * all-ones record that an absent `shares` already means.
+ */
+export function placeSharesFromHeights(
+  members: readonly PlaceMemberAppetite[],
+  heights: readonly number[],
+  standing: PlaceStanding,
+): Record<string, number> {
+  const sane = sanitizedAppetites(members);
+  if (sane.length < 2) return {};
+  const shares: Record<string, number> = {};
+  if (standing === "overflow") {
+    for (let i = 0; i < sane.length; i += 1) {
+      const height = heights[i] ?? 0;
+      shares[sane[i].id] = sane[i].comfort > 0 ? height / sane[i].comfort : 1;
+    }
+    return shares;
+  }
+  const pastNatural = sane.every(
+    (member, i) => (heights[i] ?? 0) >= member.natural - PLACE_HEIGHT_EPSILON,
+  );
+  const weights = sane.map((member, i) =>
+    Math.max(0, (heights[i] ?? 0) - (pastNatural ? member.natural : member.comfort)),
+  );
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  if (total <= PLACE_HEIGHT_EPSILON) return {};
+  for (let i = 0; i < sane.length; i += 1) {
+    shares[sane[i].id] = (weights[i] * sane.length) / total;
+  }
+  return shares;
+}
+
+/**
+ * How far the seam between members `index` and `index + 1` may be dragged,
+ * as the range of `heights[index]` — the clamp the gesture holds every frame,
+ * and the reason a drag can never write a height the allocator would refuse to
+ * give back ([P10]).
+ *
+ * The bounds are the regime's (Table T02): overflow lets both members range
+ * between their floors, because an overflowing strip is as long as it needs to
+ * be; a shared place whose comfort no longer fits has no discretionary pool to
+ * move, so its seams are immovable; a shared place still below natural trades
+ * between comfort and natural; and one past natural trades above natural. A
+ * range that comes out inverted — or collapsed, which regime A reaches
+ * honestly ([Q01]) — is reported as the height standing exactly where it is.
+ */
+export function seamDragBounds(
+  allocation: PlaceAllocation,
+  members: readonly PlaceMemberAppetite[],
+  index: number,
+): { lower: number; upper: number } {
+  const sane = sanitizedAppetites(members);
+  const heights = allocation.heights;
+  const held = heights[index] ?? 0;
+  if (index < 0 || index + 1 >= sane.length) return { lower: held, upper: held };
+  const a = sane[index];
+  const b = sane[index + 1];
+  const span = (heights[index] ?? 0) + (heights[index + 1] ?? 0);
+  let lower: number;
+  let upper: number;
+  if (allocation.standing === "overflow") {
+    lower = a.floor;
+    upper = span - b.floor;
+  } else {
+    const comfortRequired =
+      sane.reduce((sum, member) => sum + member.comfort, 0) +
+      (sane.length - 1) * allocation.seam;
+    const pastNatural = sane.every(
+      (member, i) => (heights[i] ?? 0) >= member.natural - PLACE_HEIGHT_EPSILON,
+    );
+    if (comfortRequired > allocation.run + PLACE_HEIGHT_EPSILON) {
+      // Regime C: the pool is empty, so there is nothing to trade.
+      return { lower: held, upper: held };
+    }
+    if (pastNatural) {
+      lower = a.natural;
+      upper = span - b.natural;
+    } else {
+      lower = Math.max(a.comfort, span - b.natural);
+      upper = Math.min(a.natural, span - b.comfort);
+    }
+  }
+  if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower > upper) {
+    return { lower: held, upper: held };
+  }
+  return { lower, upper };
 }
 
 /** One split member's place in its column: which slot, which position, and how
@@ -3276,59 +3668,58 @@ export interface ColumnMemberPlacement {
   slot: number;
   index: number;
   count: number;
-}
-
-/** An overflowing member's height: the run over the number of members meant to
- *  be visible in it. A pure function of the run, so no pane is measured and the
- *  browser re-resolves it on reflow. */
-function overflowMemberHeight(run: PlaceRun): string {
-  return `(${run.extent} / ${PLACE_OVERFLOW_VISIBLE_MEMBERS})`;
-}
-
-/** The strip `count` overflowing members make: their heights plus the seam
- *  standing between each neighbouring pair. */
-function overflowStripHeight(count: number, run: PlaceRun): string {
-  return `(${count} * ${overflowMemberHeight(run)} + ${(count - 1) * run.seam}px)`;
+  /** How the place stands — the rail twin's own field, for the rail twin's own
+   *  reason. */
+  standing: PlaceStanding;
+  /** The rail twin's own field, for the rail twin's own reason: the strip
+   *  coordinates this frame's `var()` fallbacks are read from. */
+  strip?: readonly number[];
 }
 
 /**
- * An overflowing member's `top` and `bottom`: the same fixed height for every
- * member, stacked a gap apart down a strip, with the whole strip slid up by the
- * place's own offset.
+ * An overflowing member's `top` and `bottom`: the two strip coordinates either
+ * side of it, with the whole strip slid up by the place's own offset.
+ *
+ * A member's height is no longer expressible in CSS — it is `max(floor,
+ * comfort · weight)`, which is a fact about the member rather than about the
+ * run — so the frame reads the allocation's own coordinates instead of solving
+ * for a height. That is why there are `n + 1` strip properties for `n` members:
+ * a frame pins to the coordinate above it and the one below it, exactly as a
+ * shared frame pins to the seam above it and the one below it, and neither ever
+ * multiplies an index by a height.
  *
  * The offset is CLAMPED HERE, in CSS, for the reason flow's is clamped inside
  * its `left`: make the window taller and the run grows while the stored number
  * stands still, and without the clamp the place would hold a stale slide until
- * the settled-resize retune fired. Both terms are expressible over `100%`, so a
- * resize costs no JavaScript ([L06]).
+ * the settled-resize retune fired. The clamp reads the strip's own end —
+ * property `n` — so a strip that got shorter because a member's comfort fell
+ * re-resolves in the same reflow ([L06]).
  *
- * `bottom` is not a pin the eye reads — it is `100%` less the top and the
- * height, which is how a fixed-height member is stated in a `top`/`bottom`
- * frame. The last members of a long strip resolve it negative, and that is the
- * point: they hang below the run and the canvas clips them.
+ * `bottom` is `100%` less the coordinate below the member, plus the seam that
+ * coordinate stands above (the last member has none: its lower coordinate IS
+ * the strip's end). The last members of a long strip resolve it negative, and
+ * that is the point: they hang below the run and the canvas clips them.
  *
  * The place enters only as `offsetProperty`, which is the whole of what a rail
- * and a column differ by here — the rest of the arithmetic is the run, and both
- * stand in the same one.
+ * and `stripProperty`, which is the whole of what a rail and a column differ by
+ * here — the rest of the arithmetic is the run, and both stand in the same one.
  */
 function overflowPins(
-  member: { index: number; count: number },
+  member: { index: number; count: number; strip?: readonly number[] },
   offsetProperty: string,
+  stripProperty: (index: number) => string,
   run: PlaceRun,
 ): { top: string; bottom: string } {
-  const height = overflowMemberHeight(run);
+  const at = (index: number): string =>
+    `var(${stripProperty(index)}, ${Math.round(member.strip?.[index] ?? 0)}px)`;
   const offset =
     `min(var(${offsetProperty}, 0px), ` +
-    `max(0px, ${overflowStripHeight(member.count, run)} - ${run.extent}))`;
-  const advance =
-    member.index === 0
-      ? "0px"
-      : `${member.index} * (${height} + ${run.seam}px)`;
-  // The bottom pin is the top pin's complement — `100% − top − height` — so
-  // the run's own top is what it subtracts, not the deeper bottom gap.
+    `max(0px, ${at(member.count)} - ${run.extent}))`;
+  const seam = member.index < member.count - 1 ? run.seam : 0;
   return {
-    top: `calc(${run.top} + ${advance} - ${offset})`,
-    bottom: `calc(100% - ${run.top} - ${advance} - ${height} + ${offset})`,
+    top: `calc(${run.top} + ${at(member.index)} - ${offset})`,
+    bottom:
+      `calc(100% - ${run.top} - ${at(member.index + 1)} + ${seam}px + ${offset})`,
   };
 }
 
@@ -3340,21 +3731,27 @@ function overflowPins(
  * holds one member, which is what lets {@link imposeStyle} take the option
  * unconditionally.
  *
- * At three members or more the column overflows ({@link placeStanding}) and
- * {@link overflowPins} takes over, against the slot's own offset property.
+ * When the place overflows — the members' floors no longer fit in the run
+ * ([P01]) — {@link overflowPins} takes over, against the slot's own offset
+ * property.
  */
 export function columnMemberPins(
   member: ColumnMemberPlacement | undefined,
 ): { top: string; bottom: string } {
   if (member === undefined)
     return { top: COLUMN_RUN.top, bottom: COLUMN_RUN.bottom };
-  if (placeStanding(member.count) === "shared") {
+  if (member.standing === "shared") {
     return memberPins(
       member,
       (j) => columnSeamProperty(member.slot, j),
       COLUMN_RUN,
     );
   }
-  return overflowPins(member, columnOffsetProperty(member.slot), COLUMN_RUN);
+  return overflowPins(
+    member,
+    columnOffsetProperty(member.slot),
+    (j) => columnStripProperty(member.slot, j),
+    COLUMN_RUN,
+  );
 }
 

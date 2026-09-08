@@ -15,9 +15,12 @@
  * `data-gesture`, and the settle must not take that as "skip me" — it reads
  * `data-pointer-owned`, which a press that never travelled never wrote.
  *
- * Three members on the right rail put the rail under the overflow rule
- * (`run / 2.5` each), so the third stands clipped past the window's foot at
- * rest.
+ * Five members on the right rail put its floors past the run, which is what
+ * puts the rail under the overflow rule — a sidebar card's floor is 240px and
+ * this harness's canvas is a little over 1000px tall, so it takes five before
+ * they stop fitting ([P01]). Past it each member stands at the height its own
+ * appetite asks for and the strip runs off the window's foot, so the members at
+ * the bottom of it stand clipped at rest.
  *
  * @covers tugdeck/src/components/chrome/pane-focus-controller.ts
  * @covers tugdeck/src/gesture-interpreter.ts
@@ -36,7 +39,13 @@ const EPSILON = 1;
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
-const PANES: Record<string, string> = { layout: "pLayout", jots: "pJots", overview: "pOverview" };
+const PANES: Record<string, string> = {
+  layout: "pLayout",
+  jots: "pJots",
+  overview: "pOverview",
+  cards: "pCards",
+  tripwires: "pTripwires",
+};
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
 
 function deckShape(): Record<string, unknown> {
@@ -55,6 +64,8 @@ function deckShape(): Record<string, unknown> {
       { id: "LAYOUT", componentId: "layout", title: "Layout", closable: true },
       { id: "JOTS", componentId: "jots", title: "Jots", closable: true },
       { id: "OVERVIEW", componentId: "overview", title: "Overview", closable: true },
+      { id: "CARDS", componentId: "cards", title: "Cards", closable: true },
+      { id: "TRIPWIRES", componentId: "tripwires", title: "Tripwires", closable: true },
     ],
     panes: [
       {
@@ -70,6 +81,8 @@ function deckShape(): Record<string, unknown> {
       rail("layout"),
       rail("jots"),
       rail("overview"),
+      rail("cards"),
+      rail("tripwires"),
     ],
     activePaneId: "p1",
     imposition: {
@@ -78,8 +91,15 @@ function deckShape(): Record<string, unknown> {
         layout: { side: "right" },
         jots: { side: "right" },
         overview: { side: "right" },
+        cards: { side: "right" },
+        tripwires: { side: "right" },
       },
-      rails: { right: { mode: "split", order: ["layout", "jots", "overview"] } },
+      rails: {
+        right: {
+          mode: "split",
+          order: ["layout", "jots", "overview", "cards", "tripwires"],
+        },
+      },
     },
     hasFocus: true,
   };
@@ -105,7 +125,7 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 3`,
+          `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 5`,
           { timeoutMs: 8_000 },
         );
         await wait(AFTER_LAND_MS);
@@ -113,11 +133,33 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
         const order = await app.evalJS<string[]>(
           `((window.tugdeck.diag.getDeckState().imposition.rails || {}).right || {}).order || []`,
         );
-        const lastPane = PANES[order[order.length - 1]];
         const vh = await app.evalJS<number>("window.innerHeight");
+        // The clipped member a pointer can actually press: the lowest one whose
+        // title bar is still inside the window while its foot hangs past it.
+        // WHICH member that is follows from the members' own heights now rather
+        // than from a constant, so it is read off the live frames — the deck's
+        // answer to the same question the pointer would ask.
+        const lastPane = await app.evalJS<string>(
+          `(function () {
+            var frames = Array.prototype.slice.call(
+              document.querySelectorAll('.tug-pane[data-rail-side="right"]'),
+            );
+            var pressable = frames.filter(function (el) {
+              var r = el.getBoundingClientRect();
+              return r.top + 40 < window.innerHeight && r.bottom > window.innerHeight;
+            });
+            return pressable[pressable.length - 1].getAttribute("data-pane-id");
+          })()`,
+        );
+        expect(
+          order.indexOf(
+            Object.keys(PANES).find((c) => PANES[c] === lastPane) as string,
+          ),
+          "the pressable clipped member is one the rail's own order knows",
+        ).toBeGreaterThan(0);
         const restTop = await top(app, lastPane);
         const restOffset = await railOffset(app);
-        note(`rail order ${JSON.stringify(order)}; last member top ${restTop.toFixed(1)} of ${vh}, offset ${restOffset}`);
+        note(`rail order ${JSON.stringify(order)}; pressing ${lastPane}, top ${restTop.toFixed(1)} of ${vh}, offset ${restOffset}`);
         expect(restOffset, "the strip starts at rest").toBe(0);
         expect(restTop, "the last member is clipped past the foot at rest").toBeGreaterThan(vh * 0.6);
 

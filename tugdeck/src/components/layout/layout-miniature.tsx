@@ -42,8 +42,8 @@ import {
 } from "@/lib/imposer-gauges";
 
 import {
-  placeStanding,
-  PLACE_OVERFLOW_VISIBLE_MEMBERS,
+  nominalPlaceAllocation,
+  type PlaceAllocation,
   CONTENT_WIDTH_PX,
   CONTENT_WIDTH_WIDE_PX,
   CONTENT_WIDTH_COMFY_PX,
@@ -195,6 +195,16 @@ export interface LayoutMiniatureProps {
    * alone is given the flow offset ([P06]).
    */
   columnOffsets?: Readonly<Record<number, number>>;
+  /**
+   * How each side's rail actually divides its run, when this drawing is the
+   * committed one ([P09]). Absent — on every proposal layer — the side is
+   * drawn from the anonymous allocation a place of that many members gets,
+   * which is the equal division these drew before heights were a fact about
+   * an arrangement.
+   */
+  railAllocations?: Partial<Record<SidebarSide, PlaceAllocation | null>>;
+  /** {@link LayoutMiniatureProps.railAllocations}' slot-keyed twin. */
+  columnAllocations?: Readonly<Record<number, PlaceAllocation | null>>;
   /** Draw the cards. `false` draws the deck's frame and rails alone — the
    *  picture for a question that is only about which edge a sidebar holds. */
   cards?: boolean;
@@ -256,6 +266,47 @@ export interface LayoutMiniatureProps {
  *  height — the seam's share, exaggerated for the same reason the card gap is. */
 const RAIL_SEAM_PCT = 2.5;
 
+/** The run an anonymous allocation is taken against. Any positive number does:
+ *  the drawing reads the heights as proportions of it and never in pixels. */
+const NOMINAL_RUN = 1000;
+
+/**
+ * Where each of a place's first `drawn` members stands in the drawing, in
+ * percent of the field — the one span arithmetic both the rail and the column
+ * blocks draw from.
+ *
+ * The members divide the field in proportion to the heights the allocator gave
+ * them, with the seam air taken out first: a sharing place surrenders one
+ * seam per interior edge it draws, and an overflowing one surrenders the two
+ * that stand between the members inside the run, which is what leaves its last
+ * drawn member cut by the field's bottom edge — the affordance saying there is
+ * more below.
+ *
+ * The proportions are heights against the RUN in overflow and against the
+ * members' own total when sharing, because those are the two things being
+ * divided: an overflowing strip is longer than the run and a sharing place is
+ * exactly it.
+ */
+function placeSpanPcts(
+  place: PlaceAllocation,
+  drawn: number,
+): readonly { top: number; span: number }[] {
+  const overflow = place.standing === "overflow";
+  const field = 100 - RAIL_SEAM_PCT * (overflow ? 2 : Math.max(0, drawn - 1));
+  const heights = place.heights.slice(0, drawn);
+  const total = overflow
+    ? place.run
+    : heights.reduce((sum, height) => sum + height, 0);
+  const spans: { top: number; span: number }[] = [];
+  let top = 0;
+  for (const height of heights) {
+    const span = total > 0 ? (height / total) * field : field / heights.length;
+    spans.push({ top, span });
+    top += span + RAIL_SEAM_PCT;
+  }
+  return spans;
+}
+
 /**
  * The deviation from a committed offset, written as the drawing's own motion.
  *
@@ -308,15 +359,36 @@ function Rail({
   widthPct,
   mode = "stack",
   committed = false,
+  allocation,
 }: {
   count: number;
   widthPct: number;
   mode?: RailMode;
   committed?: boolean;
+  allocation?: PlaceAllocation | null;
 }): React.ReactElement {
   const depth = mode !== "split" && committed ? Math.min(count - 1, 2) : 0;
-  const overflow = mode === "split" && placeStanding(count) === "overflow";
-  const members = mode === "split" ? Math.min(count, 3) : depth + 1;
+  // The side's own allocation when there is one; the anonymous one a proposal
+  // gets otherwise ([P09]). Either way ONE arithmetic draws the spans, and the
+  // drawing derives no member height of its own.
+  const place =
+    mode === "split"
+      ? (allocation ?? nominalPlaceAllocation(count, NOMINAL_RUN, 0))
+      : null;
+  const overflow = place?.standing === "overflow";
+  // Every split member is drawn, not the first three: an overflowing rail's
+  // members no longer share one height, so which of them the cut falls on is a
+  // fact about their comfort heights rather than a constant the drawing could
+  // know in advance. The run clips whatever hangs below it, exactly as the
+  // column blocks are clipped, and the half-visible member at the bottom edge
+  // is the same affordance either way.
+  const spans = place === null ? [] : placeSpanPcts(place, count);
+  // …and exactly as many as the place HAS, which is not the same number as the
+  // side's card count: a card dragged loose off the rail keeps its side — so it
+  // is still counted here — and stops being a member of the rail, so the
+  // allocation has no height for it. Drawing `count` members would index a span
+  // nobody allocated.
+  const members = mode === "split" ? spans.length : depth + 1;
   return (
     <span
       className="layout-mini-rail"
@@ -329,21 +401,15 @@ function Rail({
           // Two members divide: equal segments with a seam between them, the
           // first flush with the top of the strip and the last with its bottom,
           // exactly as the real rail's endpoints are the pins an unsplit rail
-          // has. Past two the side overflows and the drawing follows: every
-          // member the same run/2.5 span, stacked a seam apart, the third one
-          // cut in half by the strip's bottom edge — the same picture the
-          // column blocks below draw, and the same affordance.
+          // has. When the floors stop fitting the side overflows and the
+          // drawing follows: every member at its own comfort span, stacked a
+          // seam apart down a strip that runs off the bottom of the run — the
+          // same picture the column blocks below draw, and the same affordance.
           //
           // Drawn AT REST, unlike a column's, which slides by its live offset:
           // no rail offset rides the gauge channel, and a rail's question here
           // is how the side is arranged rather than where its viewport stands.
-          // Members past the third are not drawn at all, for the reason the
-          // split cap has always been three — a fourth would be entirely below
-          // the cut.
-          const span = overflow
-            ? (100 - RAIL_SEAM_PCT * 2) / PLACE_OVERFLOW_VISIBLE_MEMBERS
-            : (100 - RAIL_SEAM_PCT * (members - 1)) / members;
-          const top = i * (span + RAIL_SEAM_PCT);
+          const { top, span } = spans[i];
           return (
             <span
               key={i}
@@ -578,6 +644,8 @@ export function LayoutMiniature({
   railModes,
   columnSplits,
   columnOffsets,
+  railAllocations,
+  columnAllocations,
   cards = true,
   width,
   layout = "fit",
@@ -655,7 +723,14 @@ export function LayoutMiniature({
     : blocks
         .filter(
           (block) =>
-            placeStanding(columnSplits?.[block.slot] ?? 1) === "overflow",
+            (
+              columnAllocations?.[block.slot] ??
+              nominalPlaceAllocation(
+                columnSplits?.[block.slot] ?? 1,
+                NOMINAL_RUN,
+                0,
+              )
+            ).standing === "overflow",
         )
         .map((block) => block.slot);
   const root = useRef<HTMLSpanElement | null>(null);
@@ -696,6 +771,7 @@ export function LayoutMiniature({
           widthPct={railPct}
           mode={railModes?.left}
           committed={committed}
+          allocation={railAllocations?.left}
         />
       ) : null}
       <span className="layout-mini-field">
@@ -729,31 +805,37 @@ export function LayoutMiniature({
             }
             // Past two members the column stops dividing and starts scrolling
             // ([P08]), and the drawing says so rather than capping at three: EVERY
-            // member is drawn, each the same height, stacked down a strip that
-            // runs off the bottom of the field. The span is solved so the third
-            // member is cut exactly in half — `(100 - 2 * gap) / 2.5` puts two
-            // whole members and half of a third inside the run for any gap — which
-            // is the geometry the deck itself resolves, and the half-visible card
-            // IS the affordance saying there is more below.
-            const overflow = placeStanding(members) === "overflow";
-            const span = overflow
-              ? (100 - RAIL_SEAM_PCT * 2) / PLACE_OVERFLOW_VISIBLE_MEMBERS
-              : (100 - RAIL_SEAM_PCT * (members - 1)) / members;
+            // member is drawn, each at its own comfort span, stacked down a strip
+            // that runs off the bottom of the field. The spans are the deck's own
+            // heights against the run — the geometry the deck itself resolves —
+            // and the card the run's bottom edge cuts IS the affordance saying
+            // there is more below.
+            const place =
+              columnAllocations?.[block.slot] ??
+              nominalPlaceAllocation(members, NOMINAL_RUN, 0);
+            const overflow = place.standing === "overflow";
+            const spans = placeSpanPcts(place, members);
             const fraction = overflow ? (columnOffsets?.[block.slot] ?? 0) : 0;
             const slide = fraction * 100;
-            // A fraction of the RUN is the whole field's height; the member is
-            // `span` percent of it, and a translation is stated in percent of the
-            // element being translated. Negative because sliding the strip UP is
-            // what a positive offset means. ([P08])
-            const slideExpr = overflow
-              ? slideExpression(
-                  columnOffsetSignal(block.slot),
-                  fraction,
-                  -10000 / span,
-                )
-              : null;
             return Array.from({ length: members }, (_, m) => {
-              const top = m * (span + RAIL_SEAM_PCT) - slide;
+              const { top: memberTop, span } = spans[m];
+              const top = memberTop - slide;
+              // A fraction of the RUN is the whole field's height; the member is
+              // `span` percent of it, and a translation is stated in percent of
+              // the element being translated. Negative because sliding the strip
+              // UP is what a positive offset means. ([P08])
+              //
+              // THIS member's span, not the strip's first: an overflowing place
+              // sizes its members from their own appetites, so they no longer
+              // share one height, and one scale over all of them would slide a
+              // taller member by less than the strip it belongs to.
+              const slideExpr = overflow
+                ? slideExpression(
+                    columnOffsetSignal(block.slot),
+                    fraction,
+                    -10000 / span,
+                  )
+                : null;
               return (
                 <span
                   key={`${block.slot}:${m}`}
@@ -802,6 +884,7 @@ export function LayoutMiniature({
           widthPct={railPct}
           mode={railModes?.right}
           committed={committed}
+          allocation={railAllocations?.right}
         />
       ) : null}
       {/*

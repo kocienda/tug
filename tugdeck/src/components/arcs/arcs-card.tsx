@@ -153,6 +153,24 @@ import type {
   ProjectChangeset,
   WorkspacesChangesetSnapshot,
 } from "@/lib/changeset-types";
+import { useCardAppetite } from "@/lib/card-appetite-store";
+import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
+import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
+
+// ---- Vertical appetite ([B02]) ----
+
+/**
+ * One arc row's height. An arc is a two-line block inside `.arcs-block`'s
+ * `--tug-space-md` (8px) of block padding — "8px each side, the 16px the
+ * design settled on" — over two ~14px lines and their 3px gap.
+ */
+const ARCS_ROW_HEIGHT_PX = 48;
+
+/** The pane's title bar; the arcs list carries no chrome of its own. */
+const ARCS_HEADER_PX = CARD_TITLE_BAR_HEIGHT;
+
+/** Three blocks read as a list of arcs rather than as one arc and a hint. */
+const ARCS_COMFORT_ROWS = 3;
 
 /** The card's focus group — every stop it offers lives here. */
 const ARCS_FOCUS_GROUP = "arcs-card";
@@ -976,6 +994,16 @@ function ArcsBody(): React.ReactElement {
   // state — so a project with plans and no arcs would otherwise render
   // "No arcs" over rows that never mounted.
   const populated = rows.length + plans.length > 0;
+
+  // What the card would like of its rail's run ([B02]): a block per arc and per
+  // plan. The EXPANDED set is card-local view scope — a reading of one row, not
+  // a change in how many there are — so folding steps open does not move the
+  // ask and a rail does not re-divide itself under a disclosure triangle.
+  useCardAppetite(
+    ARCS_CARD_ID,
+    ARCS_HEADER_PX + ARCS_COMFORT_ROWS * ARCS_ROW_HEIGHT_PX,
+    ARCS_HEADER_PX + (rows.length + plans.length) * ARCS_ROW_HEIGHT_PX,
+  );
 
   const discardVerb = useChangesetDiscard(ARCS_VERB_KEY);
   // One replay round trip for the section, for the reason the discard has one:

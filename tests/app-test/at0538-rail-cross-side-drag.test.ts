@@ -210,9 +210,10 @@ describe.skipIf(!SHOULD_RUN)(
           };
 
           // ── 1. Carry the left rail's top member over the right rail's middle. ──
-          // With three members the destination overflows into a run/2.5
-          // strip, so the middle of the run is inside the second tile —
-          // index 1, between layout and jots.
+          // The middle of the run is inside the second tile — index 1, between
+          // layout and jots — whichever way the destination stands, because
+          // three equal members put their second tile across the run's middle
+          // in a shared division and in a strip alike.
           const target = {
             x: Math.round(rightRail.left + rightRail.width / 2),
             y: Math.round((rightRail.top + rightRail.bottom) / 2),

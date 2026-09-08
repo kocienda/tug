@@ -72,7 +72,7 @@ describe("card taxonomy", () => {
     const fixtures = allRegistrations().filter((reg) =>
       reg.componentId.startsWith("fixture-"),
     );
-    expect(fixtures.length).toBe(5);
+    expect(fixtures.length).toBe(6);
     for (const reg of fixtures) {
       expect(reg.hidden, `${reg.componentId} must be hidden`).toBe(true);
       expect(reg.family).toBe("fixture");

@@ -88,6 +88,26 @@ import {
 
 import "./tripwires-card.css";
 
+import { useCardAppetite } from "@/lib/card-appetite-store";
+import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
+import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
+
+// ---- Vertical appetite ([B02]) ----
+
+/**
+ * One tripwire row's height — `.tripwires-empty`'s `min-block-size` in
+ * `tripwires-card.css`, which "stands in for the list's first row, at that
+ * row's height".
+ */
+const TRIPWIRES_ROW_HEIGHT_PX = 28;
+
+/** The pane's title bar over `.tripwires-head`, a line inside its `6px 8px` of
+ *  block padding. */
+const TRIPWIRES_HEADER_PX = CARD_TITLE_BAR_HEIGHT + 32;
+
+/** Four rows read as a roster rather than as a sample of one. */
+const TRIPWIRES_COMFORT_ROWS = 4;
+
 /**
  * The card's focus group — every stop it offers lives here, so the Tab walk
  * runs the roster and then, at the detail level, that tripwire's log.
@@ -426,6 +446,16 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
   const dataSource = useTripwiresDataSource(snapshot.tripwires);
   const tripwires = snapshot.tripwires;
   const populated = tripwires.length > 0;
+
+  // What the card would like of its rail's run ([B02]): its whole roster. The
+  // DETAIL level is a way of looking at one of those rows rather than a
+  // different amount of content, so it does not move the ask — the card would
+  // otherwise grow and shrink every time a row was opened and closed.
+  useCardAppetite(
+    TRIPWIRES_CARD_ID,
+    TRIPWIRES_HEADER_PX + TRIPWIRES_COMFORT_ROWS * TRIPWIRES_ROW_HEIGHT_PX,
+    TRIPWIRES_HEADER_PX + tripwires.length * TRIPWIRES_ROW_HEIGHT_PX,
+  );
 
   // The opening key view lands on a real row, never on emptiness: an empty list
   // is not a focus stop, and seeding one would arm a pending restore that paints

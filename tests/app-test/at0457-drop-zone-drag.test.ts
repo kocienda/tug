@@ -133,11 +133,11 @@ function deckShape() {
     cards: [
       ...members.map(([, cardId]) => ({
         id: cardId,
-        componentId: "hello",
+        componentId: "fixture-tall-floor",
         title: `Card ${cardId}`,
         closable: true,
       })),
-      { id: "E", componentId: "hello", title: "Card E", closable: true },
+      { id: "E", componentId: "fixture-tall-floor", title: "Card E", closable: true },
       { id: "L", componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [

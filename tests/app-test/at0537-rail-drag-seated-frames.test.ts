@@ -65,6 +65,8 @@ const PANES: Record<string, string> = {
   layout: "pLayout",
   jots: "pJots",
   overview: "pOverview",
+  cards: "pCards",
+  tripwires: "pTripwires",
 };
 
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
@@ -81,7 +83,16 @@ interface Rect {
   height: number;
 }
 
-/** Three sidebar cards on the right rail, split, so the rail overflows. */
+/**
+ * Five sidebar cards on the right rail, split, so the rail overflows.
+ *
+ * Five rather than three because the standing is decided by the members'
+ * floors against the run ([P01]): a sidebar card's floor is 240px and this
+ * harness opens a canvas a little over 1000px tall, so three of them share it
+ * comfortably and it takes five before the floors stop fitting. The count was
+ * never what made a rail overflow — it only used to be what the code looked
+ * at.
+ */
 function deckShape() {
   const pane = (id: string, cardId: string, title: string) => ({
     id,
@@ -97,11 +108,15 @@ function deckShape() {
       { id: "L", componentId: "layout", title: "Layout", closable: true },
       { id: "J", componentId: "jots", title: "Jots", closable: true },
       { id: "O", componentId: "overview", title: "Overview", closable: true },
+      { id: "C", componentId: "cards", title: "Cards", closable: true },
+      { id: "R", componentId: "tripwires", title: "Tripwires", closable: true },
     ],
     panes: [
       pane(PANES.layout, "L", "Layout"),
       pane(PANES.jots, "J", "Jots"),
       pane(PANES.overview, "O", "Overview"),
+      pane(PANES.cards, "C", "Cards"),
+      pane(PANES.tripwires, "R", "Tripwires"),
     ],
     activePaneId: PANES.layout,
     imposition: {
@@ -110,9 +125,14 @@ function deckShape() {
         layout: { side: "right" },
         jots: { side: "right" },
         overview: { side: "right" },
+        cards: { side: "right" },
+        tripwires: { side: "right" },
       },
       rails: {
-        right: { mode: "split", order: ["layout", "jots", "overview"] },
+        right: {
+          mode: "split",
+          order: ["layout", "jots", "overview", "cards", "tripwires"],
+        },
       },
     },
     hasFocus: true,
@@ -193,23 +213,23 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "L" });
           await app.waitForCondition<boolean>(
-            `document.querySelectorAll('.tug-pane[data-rail-split]').length === 3`,
+            `document.querySelectorAll('.tug-pane[data-rail-split]').length === 5`,
             { timeoutMs: 8_000 },
           );
           await settled(app);
 
           const orderBefore = await railOrderOnScreen(app);
-          expect(orderBefore, "three members stand split on the right rail").toHaveLength(3);
+          expect(orderBefore, "five members stand split on the right rail").toHaveLength(5);
           const topComponent = orderBefore[0];
           const topPane = PANES[topComponent];
           const seatedPanes = orderBefore.slice(1).map((c) => PANES[c]);
           const before = await railRects(app);
           note(`rail order ${JSON.stringify(orderBefore)}; dragging ${topComponent} from the top`);
 
-          const canvas = await app.evalJS<{ bottom: number }>(
+          const canvas = await app.evalJS<{ top: number; bottom: number }>(
             `(function () {
               var r = document.querySelector("[data-deck-canvas-background]").getBoundingClientRect();
-              return { bottom: r.bottom };
+              return { top: r.top, bottom: r.bottom };
             })()`,
           );
           // Inside the run's bottom autoscroll margin — a rail's run ends at
@@ -254,28 +274,34 @@ describe.skipIf(!SHOULD_RUN)(
             "which is nowhere near the card under the hand",
           ).toBeGreaterThan(INWARD_PX / 2);
 
-          // ── 2. The outline's tile is on the seated grid, at the last position. ──
-          // Under overflow every member is `run / 2.5` tall and stands
-          // `index` strides down the strip; a seated member at order index j
-          // pins the grid, offset and all.
-          const stride = seated.height + RAIL_SEAM_PX;
-          const j = orderBefore.indexOf(
-            Object.keys(PANES).find((c) => PANES[c] === seatedPanes[0]) as string,
-          );
-          const stripTop = seated.top - j * stride;
-          const lastIndex = orderBefore.length - 1;
-          const tileTop = stripTop + lastIndex * stride;
+          // ── 2. The outline is the card's own box, inside the run. ──
+          // The tile the outline draws is the DRAGGED card's box in the
+          // allocation the drop would make — a strip of one more member, with
+          // its own longer length and therefore its own offset clamp. Its top
+          // is therefore not a landmark on the seated strip and cannot be one:
+          // reproducing it here would be a second copy of `placeTiles`, and two
+          // derivations of a tile agree only by luck.
+          //
+          // What IS the claim, and what the retired stride arithmetic was
+          // standing in for: the outline is the size of the card that would
+          // land there, and it stands inside the run rather than off its ends.
+          // Part 3 closes the loop by releasing and checking that the card
+          // landed where the outline said.
           note(
-            `seated grid: strip top ${stripTop.toFixed(1)}, stride ${stride.toFixed(1)}; outline top ${drawn!.top.toFixed(1)} vs tile top ${tileTop.toFixed(1)}`,
+            `outline ${drawn!.top.toFixed(1)}..${drawn!.bottom.toFixed(1)} (h ${drawn!.height.toFixed(1)}) vs card h ${live[topPane].height.toFixed(1)}, run ${canvas.top.toFixed(1)}..${canvas.bottom.toFixed(1)}`,
           );
           expect(
-            Math.abs(drawn!.top - tileTop),
-            "the outline stands on the last tile of the strip as it is drawn now",
+            Math.abs(drawn!.height - live[topPane].height),
+            "the outline is the size of the card that would land there",
           ).toBeLessThanOrEqual(slack);
           expect(
-            Math.abs(drawn!.bottom - (tileTop + seated.height)),
-            "and its bottom edge is that tile's",
-          ).toBeLessThanOrEqual(slack);
+            drawn!.top,
+            "and it stands inside the run, not off its top",
+          ).toBeGreaterThanOrEqual(canvas.top - slack);
+          expect(
+            drawn!.bottom,
+            "nor off its foot",
+          ).toBeLessThanOrEqual(canvas.bottom + slack);
 
           // ── 3. The release lands where the outline said. ──
           await app.nativeMouseUp(edge);
@@ -283,12 +309,28 @@ describe.skipIf(!SHOULD_RUN)(
           const orderAfter = await railOrderOnScreen(app);
           const stored = await railOrderInStore(app);
           note(`after the drop: on screen ${JSON.stringify(orderAfter)}, stored ${JSON.stringify(stored)}`);
-          expect(orderAfter, "the rail is still split with all three members").toHaveLength(3);
+          expect(orderAfter, "the rail is still split with all five members").toHaveLength(5);
+          // The outline is a promise the commit keeps BY CONSTRUCTION — the
+          // tile was drawn from the same allocation, over the same appetites
+          // and weights, that the drop then commits ([P06]). So the promise is
+          // checkable directly, without naming a position: the card's landed
+          // frame IS the box the outline drew.
+          const landed = (await railRects(app))[topPane];
+          note(
+            `landed ${landed.top.toFixed(1)}..${landed.bottom.toFixed(1)} against the outline's ${drawn!.top.toFixed(1)}..${drawn!.bottom.toFixed(1)}`,
+          );
           expect(
-            orderAfter[lastIndex],
-            "the dragged card landed at the last position — the tile the outline drew",
-          ).toBe(topComponent);
-          expect(stored[lastIndex], "and the store agrees").toBe(topComponent);
+            Math.abs(landed.top - drawn!.top),
+            "the dragged card landed exactly where the outline drew it",
+          ).toBeLessThanOrEqual(slack);
+          expect(
+            Math.abs(landed.bottom - drawn!.bottom),
+            "and its foot is the outline's too",
+          ).toBeLessThanOrEqual(slack);
+          expect(
+            stored,
+            "and the store's order is the one on screen",
+          ).toEqual(orderAfter);
         } finally {
           await app.close();
         }

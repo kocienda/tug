@@ -77,6 +77,7 @@ import {
   imposeSidebarStyle,
   sidebarWidthProperty,
   type PinnedFrame,
+  type PlaceStanding,
   type RailMode,
   type SidebarSide,
   IMPOSITION_GAP_PX,
@@ -1793,6 +1794,20 @@ export interface SidebarStackStanding {
   mode: RailMode;
   /** This pane's place in the rail's vertical order, top to bottom. */
   memberIndex: number;
+  /**
+   * How the rail's members stand against one another — the allocation's own
+   * answer, resolved by the canvas because it is a fact about the run the
+   * whole rail was allocated against rather than about this pane. A stacked
+   * rail and a rail of one read `"shared"`: neither divides anything.
+   */
+  standing: PlaceStanding;
+  /**
+   * The overflowing rail's strip coordinates, `n + 1` of them, resolved by the
+   * canvas from the same allocation the `standing` came from — the `var()`
+   * fallbacks this member's frame stands at before the properties land. Absent
+   * while the rail shares its run.
+   */
+  strip?: readonly number[];
 }
 
 /**
@@ -2047,6 +2062,10 @@ export function TugPane({
             side: sidebarStack.side,
             index: sidebarStack.memberIndex,
             count: sidebarStack.count,
+            standing: sidebarStack.standing,
+            ...(sidebarStack.strip === undefined
+              ? {}
+              : { strip: sidebarStack.strip }),
           },
         }
       : undefined;

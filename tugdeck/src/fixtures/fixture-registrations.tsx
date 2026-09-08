@@ -148,4 +148,32 @@ export function registerFixtureCards(): void {
     sizePolicy: FIXTURE_SIZE,
     category: FIXTURE_CATEGORY,
   });
+
+  // A card that declares a TALL FLOOR and nothing else: 400px of vertical run
+  // it cannot go below, and no opinion about width.
+  //
+  // What a place stands under is decided by its members' floors against the
+  // run ([P01]) — two of these share the run a column gets on this harness's
+  // canvas and three cannot, so a fixture that needs to cross the standing
+  // boundary crosses it with three members rather than with a member count
+  // some other rule used to read. Purpose-built rather than borrowed: the
+  // shipped card with a floor this tall is the Text card, and that one also
+  // takes the deck's content width, which makes its panes wider than the slots
+  // they stand in — geometry a drop-zone test cannot tell from a bug.
+  // Seeded by: at0456, at0457, at0463.
+  registerCard({
+    componentId: "fixture-tall-floor",
+    hidden: true,
+    contentFactory: (_cardId) => (
+      <div style={{ padding: 12 }}>fixture-tall-floor</div>
+    ),
+    defaultMeta: { title: "Tall Floor", icon: "MoveVertical", closable: true },
+    family: FIXTURE_FAMILY,
+    acceptsFamilies: [FIXTURE_FAMILY],
+    sizePolicy: {
+      min: { width: 400, height: 400 },
+      preferred: { width: 640, height: 520 },
+    },
+    category: FIXTURE_CATEGORY,
+  });
 }

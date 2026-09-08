@@ -101,6 +101,9 @@ import {
   useSeedKeyView,
 } from "@/components/tugways/use-focusable";
 import { useResponder } from "@/components/tugways/use-responder";
+import { useCardAppetite } from "@/lib/card-appetite-store";
+import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
+import { JOTS_CARD_ID } from "@/lib/jots-card-id";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { JotsDataSource, useJotsDataSource } from "./jots-data-source";
@@ -119,6 +122,25 @@ const JOTS_ADD_FOCUS_ORDER = -0.75;
 
 const ROW_SELECTOR = ".jot-row-content[data-jot-id]";
 const ROW_KIND_ATTR = "data-jot-id";
+
+// ---- Vertical appetite ([B02]) ----
+
+/**
+ * One jot row's height — `--tugx-jots-empty-block-size` in `jots-card.css`,
+ * which the empty label carries because it "stands in for the list's first row,
+ * at that row's height".
+ */
+const JOTS_ROW_HEIGHT_PX = 28;
+
+/**
+ * Everything above the first row: the pane's title bar, plus `.jots-toolbar` —
+ * a `--tugx-toolheader-line` filter field (`--tug-font-size-sm` × 1.6 ≈ 21px)
+ * inside `--tug-space-sm` (6px) of block padding.
+ */
+const JOTS_HEADER_PX = CARD_TITLE_BAR_HEIGHT + 33;
+
+/** Three rows read as a list; fewer reads as a strip with something cut off. */
+const JOTS_COMFORT_ROWS = 3;
 
 // Space is reserved so the card's key-view delegate can create a new jot below
 // the cursor (Things-style) rather than the engine's default item-container
@@ -950,6 +972,16 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
   // …and what it holds BEFORE the filter, the separate question the filter
   // field's enablement turns on: a card filtered to zero still has items.
   const hasItems = dataSource.unfilteredCount() > 0;
+
+  // What the card would like of its rail's run ([B02]): every jot it holds,
+  // whether or not the current filter is showing them — the filter is a way of
+  // looking at the list right now, not a change in what the list holds, and a
+  // rail that re-divided itself per keystroke would be the worse surface.
+  useCardAppetite(
+    JOTS_CARD_ID,
+    JOTS_HEADER_PX + JOTS_COMFORT_ROWS * JOTS_ROW_HEIGHT_PX,
+    JOTS_HEADER_PX + jots.length * JOTS_ROW_HEIGHT_PX,
+  );
 
   // A card with nothing in it holds no query either — otherwise the disabled
   // field's text and the list's actual filter drift apart while items are away.

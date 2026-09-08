@@ -19,10 +19,9 @@
  * A zone's rect is **the tile the card would occupy if released there**, not a
  * hit-target drawn around a boundary. That is what lets the indicator be
  * honest: what it shows is what the release does. Tiles are derived with the
- * commit's own arithmetic — the post-drop order's weights through
- * `railSeamFractions`, cut into the run with half-seam edges ([P06]) — and a
- * place that would end up with three or more members — a column or a rail —
- * lands under the overflow rule rather than dividing ([P08]). The seam is a
+ * commit's own arithmetic — the post-drop order's appetites and weights through
+ * `allocatePlaceHeights` ([P06]) — and a place whose floors would no longer fit
+ * the run lands under the overflow rule rather than dividing ([P08]). The seam is a
  * value the place supplies, exactly as the imposer's `PlaceRun.seam` is: a
  * column divides at `IMPOSITION_GAP_PX`, a rail at `RAIL_SEAM_PX`, and the
  * tile arithmetic never reads either constant itself, so the two sides agree
@@ -33,13 +32,13 @@ import type { DeckState } from "../layout-tree";
 import type { Rect } from "../snap";
 import { deckColumnsOf } from "../deck-store-selectors";
 import {
-  PLACE_OVERFLOW_VISIBLE_MEMBERS,
+  allocatePlaceHeights,
   IMPOSITION_GAP_PX,
   RAIL_SEAM_PX,
   clampSlot,
-  placeStanding,
-  railSeamFractions,
+  railWeightOf,
   slotCount,
+  type PlaceMemberAppetite,
   type RailMode,
   type SidebarSide,
 } from "./layout-imposer";
@@ -173,6 +172,19 @@ export interface DropZoneMeasurements {
   tabBars: ReadonlyMap<string, Rect>;
   /** The rails standing on the deck's edges. */
   rails: readonly DropZoneRail[];
+  /**
+   * What every member of every place wants of its run, by PANE ID — the
+   * host's `placeMemberAppetites` over each sidebar and slotted pane, with a
+   * rail's members re-keyed from componentId at the same boundary its shares
+   * are.
+   *
+   * One map for both kinds of place rather than one per rail and one per
+   * column: a tile is the allocator's answer either way, and the allocator
+   * asks the same question of a rail member and a column member. A member
+   * missing from it contributes no appetite at all, which the allocator reads
+   * as a floorless member of whatever the place decides.
+   */
+  appetites: ReadonlyMap<string, PlaceMemberAppetite>;
   /**
    * The run each kind of place divides, in layout px — the deck's own
    * measurement (`getColumnRunHeight` and `getRailRunHeight`), never a sum
@@ -386,6 +398,7 @@ function seatedPlace(
   order: readonly string[],
   rects: readonly Rect[],
   shares: Readonly<Record<string, number>> | undefined,
+  appetites: ReadonlyMap<string, PlaceMemberAppetite>,
   draggedId: string,
   draggedAtStart: Rect,
   run: number,
@@ -394,14 +407,15 @@ function seatedPlace(
   const seatedIndex = order.findIndex((id) => id !== draggedId);
   const index = seatedIndex === -1 ? 0 : seatedIndex;
   const seated = seatedIndex === -1 ? draggedAtStart : rects[seatedIndex];
-  let advance: number;
-  if (placeStanding(order.length) === "overflow") {
-    advance = index * (run / PLACE_OVERFLOW_VISIBLE_MEMBERS + seam);
-  } else if (index === 0) {
-    advance = 0;
-  } else {
-    advance = railSeamFractions(order, shares)[index - 1] * run + seam / 2;
-  }
+  // How far down the strip the seated member stands, read off the place's own
+  // allocation over its CURRENT order — the same arithmetic the pins wrote for
+  // it, inverted. One reading for both standings: a strip's member is at its
+  // top, and so is a shared one.
+  const advance = allocatePlaceHeights(
+    placeAppetites(order, appetites, shares),
+    run,
+    seam,
+  ).tops[index];
   return {
     run: { top: seated.y - advance, height: run },
     x: seated.x,
@@ -410,72 +424,51 @@ function seatedPlace(
 }
 
 /**
- * Tiles for a place of `count` members standing under the overflow rule: every
- * member `run / 2.5` tall, stacked a seam apart down a strip that runs past the
- * run's bottom edge ([P08]).
+ * The appetites a place's `order` carries, in the order's own order: each
+ * member's measured appetite, wearing the weight THIS place stores for it.
+ *
+ * The weight is re-read here rather than taken from the map because a card's
+ * share is a fact about the place it stands in, and the map is keyed by pane
+ * across every place at once. Weights travel with cards — a member absent from
+ * `shares` weighs 1, which is `railWeightOf`'s rule — so a foreign arrival
+ * previews the re-division its extra member forces, and a member reordering
+ * its own place previews its share standing wherever it lands.
+ *
+ * A member the measurement never saw contributes no appetite: floors of zero,
+ * and a greed rank of `NaN`, which the allocator sanitizes to the default rank
+ * rather than reaching for a registry this module cannot see.
  */
-function overflowTiles(
-  count: number,
-  run: { top: number; height: number },
-  x: number,
-  width: number,
-  seam: number,
-): Rect[] {
-  const height = run.height / PLACE_OVERFLOW_VISIBLE_MEMBERS;
-  return Array.from({ length: count }, (_, i) => ({
-    x,
-    width,
-    y: run.top + i * (height + seam),
-    height,
-  }));
+function placeAppetites(
+  order: readonly string[],
+  appetites: ReadonlyMap<string, PlaceMemberAppetite>,
+  shares: Readonly<Record<string, number>> | undefined,
+): PlaceMemberAppetite[] {
+  return order.map((id) => {
+    const measured = appetites.get(id);
+    const weight = railWeightOf(shares, id);
+    return measured === undefined
+      ? { id, floor: 0, comfort: 0, natural: 0, greedRank: Number.NaN, weight }
+      : { ...measured, weight };
+  });
 }
 
 /**
- * The tile member `index` of a divided place takes, given where the seams
- * fall: the run cut at the cumulative fractions, half the place's seam
- * surrendered at each interior edge.
+ * One tile per position the dragged card could take in a place: for each
+ * candidate index, the post-drop order is the sitting members with the dragged
+ * card inserted there, and the tile is what the allocator gives that member of
+ * the run.
  *
- * This is `memberPins`' arithmetic with the run resolved to measured pixels —
- * the same fractions, the same half-seam edges, the same bare-run endpoints —
- * which is what makes the tile a promise the commit keeps by construction
- * ([P06]): both sides compute the landing from `railSeamFractions`, so they
- * cannot drift — and the seam arrives as a value here for the same reason it
+ * This is the pins' own arithmetic with the run resolved to measured pixels —
+ * the same allocation, over the same appetites and weights the commit will
+ * allocate from — which is what makes the tile a promise the commit keeps by
+ * construction ([P06]). The seam arrives as a value for the same reason it
  * rides `PlaceRun.seam` there, so a rail's 0 seam and a column's gap are one
- * arithmetic rather than two.
+ * arithmetic rather than two, and the standing is the allocator's rather than
+ * a count the caller forked on.
  */
-function divisionTile(
-  fractions: readonly number[],
-  index: number,
-  count: number,
-  run: { top: number; height: number },
-  x: number,
-  width: number,
-  seam: number,
-): Rect {
-  const half = seam / 2;
-  const top =
-    index === 0 ? run.top : run.top + fractions[index - 1] * run.height + half;
-  const bottom =
-    index === count - 1
-      ? run.top + run.height
-      : run.top + fractions[index] * run.height - half;
-  return { x, width, y: top, height: bottom - top };
-}
-
-/**
- * One tile per position the dragged card could take in a divided place: for
- * each candidate index, the post-drop order is the sitting members with the
- * dragged card inserted there, the seams are `railSeamFractions` over that
- * order's weights, and the tile is the dragged card's cut of the run.
- *
- * Weights travel with cards — a member's share is keyed by its id, and a card
- * absent from `shares` weighs 1, which is exactly `railWeightOf`'s rule. So a
- * foreign arrival previews the re-division its extra member forces (equal,
- * when nobody carries a share), and a member reordering its own place
- * previews its share standing wherever it lands.
- */
-function divisionTiles(
+function placeTiles(
   others: readonly string[],
+  appetites: ReadonlyMap<string, PlaceMemberAppetite>,
   shares: Readonly<Record<string, number>> | undefined,
   draggedId: string,
   run: { top: number; height: number },
@@ -486,15 +479,17 @@ function divisionTiles(
   const count = others.length + 1;
   return Array.from({ length: count }, (_, i) => {
     const order = [...others.slice(0, i), draggedId, ...others.slice(i)];
-    return divisionTile(
-      railSeamFractions(order, shares),
-      i,
-      count,
-      run,
-      x,
-      width,
+    const allocation = allocatePlaceHeights(
+      placeAppetites(order, appetites, shares),
+      run.height,
       seam,
     );
+    return {
+      x,
+      width,
+      y: run.top + allocation.tops[i],
+      height: allocation.heights[i],
+    };
   });
 }
 
@@ -549,6 +544,7 @@ function columnPlaces(
   order: readonly string[],
   rects: readonly Rect[],
   shares: Readonly<Record<string, number>> | undefined,
+  appetites: ReadonlyMap<string, PlaceMemberAppetite>,
   draggedPaneId: string,
   draggedAtStart: Rect,
   columnRun: number | null,
@@ -559,17 +555,23 @@ function columnPlaces(
     order,
     rects,
     shares,
+    appetites,
     draggedPaneId,
     draggedAtStart,
     columnRun,
     seam,
   );
   const others = order.filter((id) => id !== draggedPaneId);
-  const count = others.length + 1;
-  const tiles =
-    placeStanding(count) === "overflow"
-      ? overflowTiles(count, run, x, width, seam)
-      : divisionTiles(others, shares, draggedPaneId, run, x, width, seam);
+  const tiles = placeTiles(
+    others,
+    appetites,
+    shares,
+    draggedPaneId,
+    run,
+    x,
+    width,
+    seam,
+  );
   const hits = tileHitBands(
     tiles,
     { top: run.top, bottom: run.top + run.height },
@@ -629,10 +631,10 @@ function railZonesOf(
   }
   const draggedIndex = rail.members.indexOf(draggedPaneId);
   const others = rail.members.filter((id) => id !== draggedPaneId);
-  // A rail stands under the same overflow rule a column does ({@link
-  // placeStanding}), so its tiles take the same fork: at three members or more
-  // the post-drop rail is the run/2.5 strip, and below that it is the fraction
-  // path, division-true the way a column's is ([P06]). The run is the deck's
+  // A rail stands under the same overflow rule a column does, so its tiles
+  // take the same fork: the post-drop rail is a strip when the members' floors
+  // no longer fit in the run and a division when they do ([P01]), and the
+  // allocator decides which without being asked. The run is the deck's
   // own measurement and the strip is read off a member that is not moving
   // ({@link seatedPlace}), so the dragged card's travel — and the strip's
   // autoscroll under it — never move the tiles it is choosing between. The
@@ -643,6 +645,7 @@ function railZonesOf(
     rail.members,
     members,
     rail.shares,
+    measured.appetites,
     draggedPaneId,
     measured.draggedAtStart,
     railRun,
@@ -650,19 +653,16 @@ function railZonesOf(
   );
   // The post-drop rail: the sitters other than the dragged card, plus the
   // dragged card itself — N for its own rail, N + 1 for the other one.
-  const count = others.length + 1;
-  const tiles =
-    placeStanding(count) === "overflow"
-      ? overflowTiles(count, run, x, width, seam)
-      : divisionTiles(
-          others,
-          rail.shares,
-          draggedPaneId,
-          run,
-          x,
-          width,
-          seam,
-        );
+  const tiles = placeTiles(
+    others,
+    measured.appetites,
+    rail.shares,
+    draggedPaneId,
+    run,
+    x,
+    width,
+    seam,
+  );
   const hits = tileHitBands(
     tiles,
     { top: run.top, bottom: run.top + run.height },
@@ -756,7 +756,7 @@ export function enumerateDropZones(
   if (dragged?.slot === undefined) return { zones: [], origin: null };
   const ownSlot = clampSlot(kind, dragged.slot);
 
-  const columns = deckColumnsOf(state);
+  const columns = deckColumnsOf(state, measured.runs.column);
   const zones: DropZone[] = [];
   let origin: DropZone | null = null;
 
@@ -777,6 +777,7 @@ export function enumerateDropZones(
         column.members,
         members,
         state.imposition.columns?.[slot]?.shares,
+        measured.appetites,
         draggedPaneId,
         measured.draggedAtStart,
         measured.runs.column,
@@ -815,6 +816,7 @@ export function enumerateDropZones(
           column.members,
           [sitterRect],
           state.imposition.columns?.[slot]?.shares,
+          measured.appetites,
           draggedPaneId,
           measured.draggedAtStart,
           measured.runs.column,

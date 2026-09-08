@@ -62,6 +62,7 @@ import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { getJotsStore } from "@/lib/jots-store";
 import {
   bullseyePaneIdOf,
+  columnAllocationOf,
   columnDrawsSplit,
   deckColumnsOf,
   deckFlowStrip,
@@ -69,6 +70,12 @@ import {
   type DeckColumn,
   findSidebarPanes,
   paneRenderWidthOf,
+  placeMemberAppetites,
+  placeSeamFractions,
+  placeAllocationTerm,
+  type PlaceRuns,
+  railAllocationOf,
+  railMembersOf,
 } from "@/deck-store-selectors";
 import type { SlotStackEntry } from "@/deck-store-selectors";
 import { stepCardRing } from "@/lib/card-ring";
@@ -132,9 +139,11 @@ import {
   resolveContentWidthPx,
   clampSlot,
   columnOffsetProperty,
-  PLACE_OVERFLOW_VISIBLE_MEMBERS,
+  type PlaceAllocation,
+  type PlaceMemberAppetite,
   columnSeamProperty,
-  placeStanding,
+  columnStripProperty,
+  placeSharesFromHeights,
   railOffsetProperty,
   imposeStyle,
   isColumnMoveTarget,
@@ -157,9 +166,10 @@ import {
   imposeSidebarStyle,
   impositionLayout,
   railModeOf,
-  railSeamFractions,
   railSeamProperty,
-  railSharesFromFractions,
+  railStripProperty,
+  seamDragBounds,
+  stripCoordinatesOf,
   impositionGapBottomPx,
   RAIL_EDGE_INSET_PX,
   railGapBottomPx,
@@ -300,6 +310,9 @@ interface SidebarRail {
   /** Where the gaps fall, as fractions of the run: `members.length - 1` values
    *  in split mode, empty in a stack (a stack has no gaps to place). */
   seams: readonly number[];
+  /** How the rail divides its run among its members, or `null` when it has
+   *  nothing to divide — a stack, or a canvas with no measured run. */
+  allocation: PlaceAllocation | null;
 }
 
 /**
@@ -318,47 +331,90 @@ interface SidebarRail {
  * raise — click the lower member and the two would swap places. Registration is
  * a boot step, so the order this sorts into is fixed for the session.
  */
-function sidebarRailsOf(state: DeckState): readonly SidebarRail[] {
-  const pinned = findSidebarPanes(state).filter(({ componentId }) =>
-    isSidebarPinned(state.imposition, componentId),
-  );
-  if (pinned.length === 0) return [];
-  const paneByComponentId = new Map(
-    pinned.map(({ componentId, pane }) => [componentId, pane]),
-  );
-  const registered = [...getAllRegistrations().keys()].filter((componentId) =>
-    paneByComponentId.has(componentId),
-  );
+function sidebarRailsOf(
+  state: DeckState,
+  runs: PlaceRuns,
+): readonly SidebarRail[] {
+  const paneById = new Map(state.panes.map((pane) => [pane.id, pane]));
   const rails: SidebarRail[] = [];
   for (const side of ["left", "right"] as const) {
-    const order = effectiveRailOrder(state.imposition, side, registered);
+    const order = railMembersOf(state, side);
     if (order.length === 0) continue;
     let width = 0;
     const members: SidebarRailMember[] = [];
-    for (const componentId of order) {
-      const pane = paneByComponentId.get(componentId);
+    for (const { componentId, paneId } of order) {
+      const pane = paneById.get(paneId);
       if (pane === undefined) continue;
       width = Math.max(width, paneRenderWidthOf(state, pane));
       members.push({ componentId, paneId: pane.id });
     }
     if (members.length === 0) continue;
     const mode = railModeOf(state.imposition, side);
+    const shares = state.imposition.rails?.[side]?.shares;
+    const allocation =
+      mode === "split" ? railAllocationOf(state, side, runs.rail) : null;
     rails.push({
       side,
       width,
       mode,
       members,
+      allocation,
       seams:
         mode === "split"
-          ? railSeamFractions(
+          ? placeSeamFractions(
+              allocation,
               members.map((member) => member.componentId),
-              state.imposition.rails?.[side]?.shares,
             )
           : [],
     });
   }
   return rails;
 }
+
+/**
+ * What every member of every place wants of its run, keyed by PANE ID — the
+ * map the drop-zone engine allocates its tiles from.
+ *
+ * The engine keys everything by pane, so a rail member's appetite is re-keyed
+ * here from its componentId, at the same boundary its shares are: this is the
+ * one place that can see both names for a member. The weight each appetite
+ * carries is immaterial — the engine re-reads it from the place's own shares
+ * for whichever candidate order it is allocating.
+ */
+function appetitesByPaneId(
+  state: DeckState,
+  rails: readonly SidebarRail[],
+): ReadonlyMap<string, PlaceMemberAppetite> {
+  const map = new Map<string, PlaceMemberAppetite>();
+  for (const rail of rails) {
+    const appetites = placeMemberAppetites(
+      state,
+      "rail",
+      rail.members.map((member) => member.componentId),
+      state.imposition.rails?.[rail.side]?.shares,
+    );
+    appetites.forEach((appetite, index) => {
+      const paneId = rail.members[index].paneId;
+      map.set(paneId, { ...appetite, id: paneId });
+    });
+  }
+  for (const column of deckColumnsOf(state, null)) {
+    for (const appetite of placeMemberAppetites(
+      state,
+      "column",
+      column.members,
+      state.imposition.columns?.[column.slot]?.shares,
+    )) {
+      map.set(appetite.id, appetite);
+    }
+  }
+  return map;
+}
+
+/** The runs of a caller that is asking about membership or mode alone — a
+ *  place with no run has no allocation, and asking for one would measure the
+ *  canvas for an answer nobody reads. */
+const UNMEASURED_RUNS: PlaceRuns = { rail: null, column: null };
 
 /**
  * Everything the imposer reads, as one string: the imposition record, which
@@ -397,13 +453,16 @@ function sidebarRailsOf(state: DeckState): readonly SidebarRail[] {
  * frame to move in it. The same fix that keeps a split rail's members from
  * trading places on a click is what finally makes the claim above true here.
  *
- * A side's MODE and its SEAM FRACTIONS are terms because both move frames: a
+ * A side's MODE and its ALLOCATED HEIGHTS are terms because both move frames: a
  * mode flip changes every member's height, and a seam drag changes two. The
- * fractions are rounded to three decimals so sub-pixel share arithmetic cannot
- * arm a settle nobody can see. A seam drag's own commit arms a window whose
- * tweens are all no-ops — the drag wrote the properties live, so each frame's
- * first and last rects are the same one — which is the coexistence the rail
- * width terms already have.
+ * heights are rounded to the pixel so sub-pixel allocation arithmetic cannot
+ * arm a settle nobody can see — and they are the heights themselves rather
+ * than the weights behind them, because that is what the frames are pinned at:
+ * a rail crossing between sharing its run and stacking a strip moves every
+ * member without any weight changing at all. A seam drag's own commit arms a
+ * window whose tweens are all no-ops — the drag wrote the properties live, so
+ * each frame's first and last rects are the same one — which is the
+ * coexistence the rail width terms already have.
  *
  * A side's OFFSET is a term for the reason a column's is: past two members a
  * rail stops dividing and starts scrolling, and a reveal that slides its strip
@@ -420,19 +479,19 @@ function sidebarRailsOf(state: DeckState): readonly SidebarRail[] {
  * term only moves while bullseye is actually on, which is exactly when there
  * is a frame to move.
  */
-function arrangementSignature(state: DeckState): string {
+function arrangementSignature(state: DeckState, runs: PlaceRuns): string {
   const panes = state.panes
     .map((pane) => `${pane.id}:${pane.slot ?? ""}:${pane.size.width}`)
     .sort();
   const bullseye = bullseyePaneIdOf(state) ?? "";
-  const rails = sidebarRailsOf(state)
+  const rails = sidebarRailsOf(state, runs)
     .map(
       (rail) =>
         `${rail.side}:${rail.width}:${rail.mode}:${rail.members
           .map((m) => m.componentId)
-          .join("+")}:${rail.seams
-          .map((f) => f.toFixed(3))
-          .join("+")}:${Math.round(state.railOffsets?.[rail.side] ?? 0)}`,
+          .join("+")}:${placeAllocationTerm(rail.allocation)}:${Math.round(
+          state.railOffsets?.[rail.side] ?? 0,
+        )}`,
     )
     .join(";");
   // The layout MODE is a term of its own, and the offset does not cover it.
@@ -445,7 +504,7 @@ function arrangementSignature(state: DeckState): string {
   // The offset, rounded to the pixel it is written at. Sub-pixel churn is not
   // an arrangement change, and the property carries the rounded value anyway.
   const flow = `${layout}:${Math.round(state.flowOffset ?? 0)}`;
-  // A slot's MODE and its SEAM FRACTIONS are terms for exactly the reasons a
+  // A slot's MODE and its ALLOCATED HEIGHTS are terms for exactly the reasons a
   // rail's are: a split flip changes every member's height, and a seam drag
   // changes two. The pane terms above would not cover either — a flip moves no
   // pane between slots and changes no stored width, so without this the one
@@ -460,13 +519,13 @@ function arrangementSignature(state: DeckState): string {
   // reveals a member by sliding its strip, which moves every member's `top`
   // while slot, width and order all hold still. Rounded to the pixel it is
   // written at, so a reveal that computes no move arms nothing ([P12]).
-  const columns = deckColumnsOf(state)
+  const columns = deckColumnsOf(state, runs.column)
     .filter((column) => column.mode === "split")
     .map(
       (column) =>
-        `${column.slot}:${column.members.join("+")}:${column.seams
-          .map((f) => f.toFixed(3))
-          .join("+")}:${Math.round(state.columnOffsets?.[column.slot] ?? 0)}`,
+        `${column.slot}:${column.members.join("+")}:${placeAllocationTerm(
+          column.allocation,
+        )}:${Math.round(state.columnOffsets?.[column.slot] ?? 0)}`,
     )
     .join(";");
   return `${state.imposition.kind ?? ""}|${flow}|${bullseye}|${rails}|${columns}|${panes.join(",")}`;
@@ -522,35 +581,6 @@ function railFrontmostPaneId(
   return frontmost;
 }
 
-/** The shortest the pane named by `paneId` may be — read through the same stack
- *  policy the pane's own chrome uses, so a multi-card pane cannot disagree with
- *  itself about its floor. */
-function paneMinHeight(state: DeckState, paneId: string): number {
-  const pane = state.panes.find((p) => p.id === paneId);
-  if (pane === undefined) return 0;
-  return getStackSizePolicy(
-    state.cards
-      .filter((card) => pane.cardIds.includes(card.id))
-      .map((card) => card.componentId),
-  ).min.height;
-}
-
-/** The shortest each member of `rail` may be, in the rail's own order. */
-function railMemberMinHeights(
-  state: DeckState,
-  rail: SidebarRail,
-): readonly number[] {
-  return rail.members.map((member) => paneMinHeight(state, member.paneId));
-}
-
-/** The shortest each member of `column` may be, in the column's own order. */
-function columnMemberMinHeights(
-  state: DeckState,
-  column: DeckColumn,
-): readonly number[] {
-  return column.members.map((paneId) => paneMinHeight(state, paneId));
-}
-
 /**
  * Which place a seam divides. The deck has two kinds — a side's rail and a
  * numbered slot's column — and the seam between two members is the same object
@@ -566,6 +596,23 @@ function seamPropertyOf(place: SeamPlace, index: number): string {
   return place.kind === "rail"
     ? railSeamProperty(place.side, index)
     : columnSeamProperty(place.slot, index);
+}
+
+/** The custom property carrying strip coordinate `index` of `place` — the
+ *  overflowing twin of {@link seamPropertyOf}, and the property an overflowing
+ *  seam drag writes. */
+function stripPropertyOf(place: SeamPlace, index: number): string {
+  return place.kind === "rail"
+    ? railStripProperty(place.side, index)
+    : columnStripProperty(place.slot, index);
+}
+
+/** The custom property carrying how far `place`'s strip has slid up behind its
+ *  run. Read by an overflowing seam so the handle rides the strip it divides. */
+function offsetPropertyOf(place: SeamPlace): string {
+  return place.kind === "rail"
+    ? railOffsetProperty(place.side)
+    : columnOffsetProperty(place.slot);
 }
 
 /** Where `place`'s run begins, in px: a rail keeps the rail edge inset at its
@@ -587,6 +634,42 @@ function placeSeamPx(place: SeamPlace): number {
   return place.kind === "rail" ? RAIL_SEAM_PX : IMPOSITION_GAP_PX;
 }
 
+/**
+ * The heights `allocation` would have if boundary `index` stood at `value` —
+ * the drag's whole arithmetic, and the one place the property's unit is read
+ * back out of.
+ *
+ * The boundary is put where the hand left it and the strip is differenced: the
+ * `n + 1` coordinates become `n` heights, each the distance to the next
+ * coordinate less the seam standing in it. Only the two members either side of
+ * `index` change, because only their shared coordinate moved — which is what
+ * makes a seam drag **zero-sum** on both axes. An overflowing strip keeps its
+ * length (coordinate `n` is untouched) and a shared run keeps its run, so no
+ * member the hand did not touch is resized by one it did.
+ *
+ * `value` arrives in the property's own unit, so a shared place's fraction is
+ * turned back into a strip coordinate first — the exact inverse of what the
+ * gesture wrote, so the round trip is the identity the fixed point needs.
+ */
+function draggedHeights(
+  allocation: PlaceAllocation,
+  index: number,
+  value: number,
+): readonly number[] {
+  const count = allocation.ids.length;
+  const strip = [...allocation.tops, allocation.stripLength];
+  const seam = allocation.seam;
+  strip[index + 1] =
+    allocation.standing === "overflow"
+      ? value
+      : value * allocation.run + seam / 2;
+  const heights: number[] = [];
+  for (let i = 0; i < count; i += 1) {
+    heights.push(strip[i + 1] - strip[i] - (i < count - 1 ? seam : 0));
+  }
+  return heights;
+}
+
 interface PlaceSeamProps {
   place: SeamPlace;
   /** Which gap this is: the boundary between members `index` and `index + 1`. */
@@ -599,17 +682,34 @@ interface PlaceSeamProps {
    * than a second expression that says the same thing.
    */
   frameStyle: React.CSSProperties;
-  /** Every seam of the place, so a drag can clamp against its neighbours. */
-  fractions: readonly number[];
-  /** Each member's minimum height, in the place's own order. */
-  minHeights: readonly number[];
+  /**
+   * How the place divides its run right now — the heights the seam sits
+   * between, the strip coordinates it writes when the place overflows, and the
+   * standing the whole gesture forks on. The LIVE one: a commit reads it again
+   * rather than trusting the pointer-down snapshot, so a seam dragged while the
+   * window was resizing still commits against the division on screen.
+   */
+  allocation: PlaceAllocation;
+  /**
+   * What every member of the place wants of it — floors, comfort heights,
+   * naturals, greed and stored weights, in the place's own order. The drag's
+   * bounds are a function of these and nothing else, so the clamp a hand meets
+   * is the same rule the allocator would apply to the height it left behind.
+   */
+  appetites: readonly PlaceMemberAppetite[];
   /**
    * The pane id of every member of the place, in the same order. The two this
    * seam divides are `[index]` and `[index + 1]`, and they are the frames the
    * drag is positioning.
    */
   memberPaneIds: readonly string[];
-  onCommit: (place: SeamPlace, fractions: readonly number[]) => void;
+  /**
+   * The boundary the hand moved and where it left it, in the property's own
+   * unit — a fraction of the run while the place shares it, strip px while it
+   * overflows. One value rather than the whole array, because the array the
+   * commit needs is the LIVE one and only this entry came from the gesture.
+   */
+  onCommit: (place: SeamPlace, index: number, value: number) => void;
 }
 
 /**
@@ -638,15 +738,15 @@ function PlaceSeam({
   place,
   index,
   frameStyle,
-  fractions,
-  minHeights,
+  allocation,
+  appetites,
   memberPaneIds,
   onCommit,
 }: PlaceSeamProps): React.ReactElement {
-  const fractionsRef = useRef(fractions);
-  fractionsRef.current = fractions;
-  const minHeightsRef = useRef(minHeights);
-  minHeightsRef.current = minHeights;
+  const allocationRef = useRef(allocation);
+  allocationRef.current = allocation;
+  const appetitesRef = useRef(appetites);
+  appetitesRef.current = appetites;
   const memberPaneIdsRef = useRef(memberPaneIds);
   memberPaneIdsRef.current = memberPaneIds;
 
@@ -659,30 +759,45 @@ function PlaceSeam({
       const container = seam.parentElement;
       if (container === null) return;
 
-      const property = seamPropertyOf(place, index);
       const zoom = getTugZoom() || 1;
       const startClientY = event.clientY;
-      const startFractions = [...fractionsRef.current];
-      const mins = minHeightsRef.current;
-      // The run the fractions are fractions OF, in layout pixels — measured
-      // once, because a window resize mid-drag is not a thing a hand does.
-      const run =
-        container.getBoundingClientRect().height / zoom -
-        placeRunTopPx(place) -
-        placeRunBottomPx(place);
-      if (run <= 0) return;
-
-      // How far this seam may travel before one of the two members it divides
-      // is shorter than its own floor. Each member's height is the distance
-      // between its seams less the air they take, so each bound is that floor
-      // plus one seam, expressed as a fraction of the run.
+      // The division the gesture starts from, and the run it is stated against
+      // — the allocator's own, never a re-measure of the container. A seam
+      // measuring its own run would be a second opinion about a number the
+      // allocation already carries, and the two would disagree the moment a
+      // rounding differed.
+      const start = allocationRef.current;
+      const run = start.run;
       const seamPx = placeSeamPx(place);
-      const lower =
-        (index === 0 ? 0 : startFractions[index - 1]) +
-        ((mins[index] ?? 0) + seamPx) / run;
-      const upper =
-        (index === startFractions.length - 1 ? 1 : startFractions[index + 1]) -
-        ((mins[index + 1] ?? 0) + seamPx) / run;
+      const startTop = start.tops[index] ?? 0;
+      const startHeight = start.heights[index] ?? 0;
+      if (!(run > 0) || start.heights.length < 2) return;
+
+      // How far this seam may travel, as the range of the upper member's
+      // HEIGHT: the allocator's own bounds, so a drag can never write a height
+      // the allocator would refuse to give back ([P10]). They fork by regime
+      // rather than by axis — an overflowing strip is as long as it needs to
+      // be, a shared run with no discretionary pool left cannot move at all —
+      // and a collapsed range is legal ([Q01]): the clamp simply holds the
+      // height where it stands, which is what "nothing to trade" looks like to
+      // a hand.
+      const { lower, upper } = seamDragBounds(
+        start,
+        appetitesRef.current,
+        index,
+      );
+      const overflowing = start.standing === "overflow";
+      // Where the height the hand is setting is published: the boundary BELOW
+      // the upper member, which a shared place spells as a fraction of the run
+      // and an overflowing one as the strip coordinate of the next member's
+      // top. One boundary, two units.
+      const property = overflowing
+        ? stripPropertyOf(place, index + 1)
+        : seamPropertyOf(place, index);
+      const valueOf = (height: number): number =>
+        overflowing
+          ? startTop + height + seamPx
+          : (startTop + height + seamPx / 2) / run;
 
       seam.setPointerCapture(event.pointerId);
       seam.setAttribute("data-gesture", "seam");
@@ -706,7 +821,6 @@ function PlaceSeam({
         .filter((el): el is HTMLElement => el !== null);
       for (const el of divided) el.setAttribute("data-pointer-owned", "true");
 
-      let fraction = startFractions[index];
       let latestY = startClientY;
       let rafId: number | null = null;
       let moved = false;
@@ -720,22 +834,24 @@ function PlaceSeam({
         return true;
       };
 
-      const computeFraction = (): number => {
-        const next =
-          startFractions[index] + (latestY - startClientY) / zoom / run;
-        // On a window too short to hold both floors the bounds cross. The
-        // squeeze is proportional and honest ([P05]) — the drag simply has
-        // nowhere to put the seam, so it holds the middle rather than
-        // snapping to a bound that would starve one member outright.
-        if (lower > upper) return (lower + upper) / 2;
+      // The height the pointer is asking for, clamped into the range the
+      // allocator will honour. `seamDragBounds` never returns an inverted range
+      // — it reports the height standing where it is instead — so a clamp is
+      // the whole of it, and a collapsed range holds the current height rather
+      // than snapping anywhere.
+      const computeHeight = (): number => {
+        const next = startHeight + (latestY - startClientY) / zoom;
         return Math.min(upper, Math.max(lower, next));
       };
 
       const apply = (): void => {
         rafId = null;
         if (!latch(latestY)) return;
-        fraction = computeFraction();
-        container.style.setProperty(property, String(fraction));
+        const value = valueOf(computeHeight());
+        container.style.setProperty(
+          property,
+          overflowing ? `${Math.round(value)}px` : String(value),
+        );
       };
 
       const onPointerMove = (e: PointerEvent): void => {
@@ -756,14 +872,15 @@ function PlaceSeam({
         latestY = e.clientY;
         try {
           if (!latch(latestY)) return;
-          fraction = computeFraction();
+          const value = valueOf(computeHeight());
           // The property stays as the gesture left it: the commit re-renders at
           // this fraction and the inset effect writes the same number back, so
           // there is no frame where a member reads the pre-gesture seam.
-          container.style.setProperty(property, String(fraction));
-          const next = [...startFractions];
-          next[index] = fraction;
-          onCommit(place, next);
+          container.style.setProperty(
+            property,
+            overflowing ? `${Math.round(value)}px` : String(value),
+          );
+          onCommit(place, index, value);
         } finally {
           // Released after the commit, not before: the members are already
           // drawn at their new heights when it lands, so they are still the
@@ -812,12 +929,27 @@ function PlaceSeam({
     }
   }, [place]);
 
-  // Only the vertical placement is the seam's own: its centre is the same
-  // expression the frames either side of it read.
+  // Only the vertical placement is the seam's own, and it is the same
+  // expression the frames either side of it read — forked the way their pins
+  // are. A shared place states the boundary as a fraction of the run; an
+  // overflowing one states it as the strip coordinate of the lower member's
+  // top, less the half-seam the boundary sits in the middle of, slid by the
+  // strip's own offset. That last term is what makes a sash on an overflowing
+  // place ride the strip it divides instead of standing still while the members
+  // scroll behind it.
+  const runTop = placeRunTopPx(place);
+  const runExtent = `(100% - ${runTop}px - ${placeRunBottomPx(place)}px)`;
+  const strip = stripCoordinatesOf(allocation);
   const centre =
-    `calc(${placeRunTopPx(place)}px + var(${seamPropertyOf(place, index)}, ` +
-    `${(index + 1) / (fractions.length + 1)})` +
-    ` * (100% - ${placeRunTopPx(place)}px - ${placeRunBottomPx(place)}px))`;
+    strip === undefined
+      ? `calc(${runTop}px + var(${seamPropertyOf(place, index)}, ` +
+        `${(index + 1) / allocation.ids.length})` +
+        ` * ${runExtent})`
+      : `calc(${runTop}px + var(${stripPropertyOf(place, index + 1)}, ` +
+        `${Math.round(strip[index + 1] ?? 0)}px) - ${placeSeamPx(place) / 2}px` +
+        ` - min(var(${offsetPropertyOf(place)}, 0px), max(0px, ` +
+        `var(${stripPropertyOf(place, allocation.ids.length)}, ` +
+        `${Math.round(strip[allocation.ids.length] ?? 0)}px) - ${runExtent})))`;
 
   return (
     <div
@@ -934,7 +1066,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // sidebar pane derives its frame from. A closed or unpinned sidebar card
   // holds no side and is absent: the arrangement spans what its rail is not
   // taking, which when nothing is pinned is the whole canvas.
-  const sidebarRails = sidebarRailsOf(deckState);
+  // The runs the deck's two kinds of place divide, measured off the store —
+  // the one pair every allocation on this canvas is derived against ([P06]).
+  // Read at render rather than stored: a run is a measurement, and the store
+  // is the one reader of it.
+  const placeRuns: PlaceRuns = {
+    rail: store.getRailRunHeight(),
+    column: store.getColumnRunHeight(),
+  };
+  const sidebarRails = sidebarRailsOf(deckState, placeRuns);
   // The strip, when the deck is in flow — the deck's ONE resolution of it
   // ([P09]). Declared up here rather than beside the placements memo it feeds
   // because the inset effect below publishes its width, and the effect order
@@ -945,7 +1085,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // of its columns ([P11]). Declared here for the same reason the strip is: the
   // inset effect below publishes the seam fractions, and the effect order in
   // this file is load-bearing.
-  const deckColumns = useMemo(() => deckColumnsOf(deckState), [deckState]);
+  const deckColumns = useMemo(
+    () => deckColumnsOf(deckState, placeRuns.column),
+    [deckState, placeRuns.column],
+  );
   // How far each overflowing column has slid its strip up behind the run
   // ([P12]) — the vertical twin of `flowOffset`, and per-slot because each
   // column scrolls on its own. Published by the inset effect below.
@@ -960,11 +1103,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const map = new Map<string, ColumnMemberPlacement>();
     for (const column of deckColumns) {
       if (!columnDrawsSplit(column)) continue;
+      const strip = stripCoordinatesOf(column.allocation);
       column.members.forEach((paneId, index) => {
         map.set(paneId, {
           slot: column.slot,
           index,
           count: column.members.length,
+          standing: column.allocation?.standing ?? "shared",
+          ...(strip === undefined ? {} : { strip }),
         });
       });
     }
@@ -999,6 +1145,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // index's share of the run.
   const stackByPaneId = new Map<string, SidebarStackStanding>();
   for (const rail of sidebarRails) {
+    const strip = stripCoordinatesOf(rail.allocation);
     rail.members.forEach((member, index) => {
       stackByPaneId.set(member.paneId, {
         side: rail.side,
@@ -1006,6 +1153,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         count: rail.members.length,
         mode: rail.mode,
         memberIndex: index,
+        standing: rail.allocation?.standing ?? "shared",
+        ...(strip === undefined ? {} : { strip }),
       });
     });
   }
@@ -1067,7 +1216,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // front-to-back stacks of full-size panes, so both get the same badge and
     // the same picker — the rail was the one that had to be taught, because a
     // rail's members are found through the imposition rather than off the pane.
-    const rails = sidebarRailsOf(deckState);
+    // Membership and mode only, so the places' runs are beside the point and
+    // no allocation is asked for.
+    const rails = sidebarRailsOf(deckState, UNMEASURED_RUNS);
     const railSideOf = new Map<string, SidebarSide>();
     for (const { componentId, pane } of findSidebarPanes(deckState)) {
       if (!isSidebarPinned(imposition, componentId)) continue;
@@ -1385,7 +1536,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
         if (host?.slot === undefined) return;
         const slot = clampSlot(state.imposition.kind, host.slot);
-        const column = deckColumnsOf(state).find((c) => c.slot === slot);
+        const column = deckColumnsOf(state, null).find((c) => c.slot === slot);
         // A slot with one card is already unsplit and has nothing to divide.
         // The refusal is VISIBLE — the pane flashes — because a chord that
         // does nothing and says nothing is indistinguishable from one that
@@ -1940,14 +2091,22 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       (rail) =>
         `${rail.side}:${rail.width}:${rail.mode}:${rail.seams
           .map((f) => f.toFixed(4))
-          .join("+")}:${Math.round(railOffsets[rail.side] ?? 0)}`,
+          .join("+")}:${Math.round(railOffsets[rail.side] ?? 0)}:${(
+          stripCoordinatesOf(rail.allocation) ?? []
+        )
+          .map((c) => Math.round(c))
+          .join("+")}`,
     )
     .join(";")}|${flowStrip === null ? "" : `${flowStrip.width}:${Math.round(flowOffset)}`}|${deckColumns
     .map(
       (column) =>
         `${column.slot}:${column.mode}:${column.seams
           .map((f) => f.toFixed(4))
-          .join("+")}:${Math.round(columnOffsets[column.slot] ?? 0)}`,
+          .join("+")}:${Math.round(columnOffsets[column.slot] ?? 0)}:${(
+          stripCoordinatesOf(column.allocation) ?? []
+        )
+          .map((c) => Math.round(c))
+          .join("+")}`,
     )
     .join(";")}`;
   useLayoutEffect(() => {
@@ -1973,10 +2132,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // boundary in either direction must not leave a stale number a frame
       // could still pin itself against.
       const rail = sidebarRails.find((r) => r.side === side);
-      const railOverflows =
-        rail !== undefined &&
-        rail.mode === "split" &&
-        placeStanding(rail.members.length) === "overflow";
+      const railOverflows = rail?.allocation?.standing === "overflow";
       const seams = railOverflows ? [] : (rail?.seams ?? []);
       seams.forEach((fraction, index) => {
         el.style.setProperty(railSeamProperty(side, index), String(fraction));
@@ -1998,6 +2154,26 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       } else {
         el.style.removeProperty(railOffsetProperty(side));
       }
+      // The strip coordinates ride with the offset, for the same reason and on
+      // the same terms: an overflowing member's frame pins to the coordinate
+      // above it and the one below it, so a side that stops overflowing must
+      // not leave one standing. There are `n + 1` of them for `n` members —
+      // every top, then the strip's own end, which the offset clamp reads — so
+      // the sweep runs one index further than the seams' does.
+      const railStrip = stripCoordinatesOf(rail?.allocation) ?? [];
+      railStrip.forEach((coordinate, index) => {
+        el.style.setProperty(
+          railStripProperty(side, index),
+          `${Math.round(coordinate)}px`,
+        );
+      });
+      for (
+        let index = railStrip.length;
+        index <= SIDEBAR_PANE_ZINDEX_MAX_RANK + 1;
+        index += 1
+      ) {
+        el.style.removeProperty(railStripProperty(side, index));
+      }
     }
     // The column seams, written per slot and swept the same way the rails' are:
     // every index past a column's live seam count is removed, and every slot
@@ -2011,8 +2187,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // is what keeps a column crossing the boundary in either direction from
     // holding a stale number a frame could still pin itself against.
     const overflowing = (column: DeckColumn): boolean =>
-      column.mode === "split" &&
-      placeStanding(column.members.length) === "overflow";
+      column.allocation?.standing === "overflow";
     const seamsBySlot = new Map(
       deckColumns.map((column) => [
         column.slot,
@@ -2023,6 +2198,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       deckColumns
         .filter(overflowing)
         .map((column) => [column.slot, columnOffsets[column.slot] ?? 0]),
+    );
+    const stripBySlot = new Map(
+      deckColumns.map((column) => [
+        column.slot,
+        stripCoordinatesOf(column.allocation) ?? [],
+      ]),
     );
     const columnRun = store.getColumnRunHeight();
     for (let slot = 0; slot <= COLUMN_SEAM_MAX_SLOT; slot += 1) {
@@ -2045,6 +2226,23 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           columnOffsetProperty(slot),
           `${Math.round(offset)}px`,
         );
+      }
+      // The slot's strip coordinates, on the rails' terms exactly: written for
+      // an overflowing column, swept for a sharing one, and swept one index
+      // past the seams because `n` members make `n + 1` coordinates.
+      const columnStrip = stripBySlot.get(slot) ?? [];
+      columnStrip.forEach((coordinate, index) => {
+        el.style.setProperty(
+          columnStripProperty(slot, index),
+          `${Math.round(coordinate)}px`,
+        );
+      });
+      for (
+        let index = columnStrip.length;
+        index <= COLUMN_SEAM_MAX_INDEX + 1;
+        index += 1
+      ) {
+        el.style.removeProperty(columnStripProperty(slot, index));
       }
       // The gauge channel carries the same number to instruments outside the
       // canvas ([P08]). It rides the COMMITTED write as well as the per-frame
@@ -2179,7 +2377,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // What `animate()` is handed is that RAW number, because TugAnimator scales
   // its own durations by `getTugTiming()`; the window timer is handed the
   // scaled product, so the two can never disagree.
-  const arrangement = arrangementSignature(deckState);
+  const arrangement = arrangementSignature(deckState, placeRuns);
   const arrangementRef = useRef(arrangement);
   const settleTimerRef = useRef<number | null>(null);
   /** Where each non-gesturing frame sat before the commit, by pane id. */
@@ -2343,16 +2541,22 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   useLayoutEffect(() => {
     const clearFlip = clearFlipRef.current;
     prevRailModesRef.current = new Map(
-      sidebarRailsOf(store.getSnapshot()).map((rail) => [rail.side, rail.mode]),
+      sidebarRailsOf(store.getSnapshot(), UNMEASURED_RUNS).map((rail) => [
+        rail.side,
+        rail.mode,
+      ]),
     );
     prevColumnModesRef.current = new Map(
-      deckColumnsOf(store.getSnapshot()).map((c) => [c.slot, c.mode]),
+      deckColumnsOf(store.getSnapshot(), null).map((c) => [c.slot, c.mode]),
     );
     const arm = (landing: CommitLanding): void => {
       const el = containerRef.current;
       if (el === null) return;
       const state = store.getSnapshot();
-      const next = arrangementSignature(state);
+      const next = arrangementSignature(state, {
+        rail: store.getRailRunHeight(),
+        column: store.getColumnRunHeight(),
+      });
       if (next === arrangementRef.current) {
         // Nothing the imposer reads moved. Recorded rather than passed over,
         // because "the subscriber ran and found nothing" and "the subscriber
@@ -2383,10 +2587,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // one left behind by a cut would read that flip against the wrong one.
       if (landing === "cut") {
         prevRailModesRef.current = new Map(
-          sidebarRailsOf(state).map((rail) => [rail.side, rail.mode]),
+          sidebarRailsOf(state, UNMEASURED_RUNS).map((rail) => [
+            rail.side,
+            rail.mode,
+          ]),
         );
         prevColumnModesRef.current = new Map(
-          deckColumnsOf(state).map((column) => [column.slot, column.mode]),
+          deckColumnsOf(state, null).map((column) => [column.slot, column.mode]),
         );
         deckTrace.record({
           kind: "settle-arm",
@@ -2487,7 +2694,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // shore.
       const fadePlan = settleFadePlanRef.current;
       fadePlan.clear();
-      const rails = sidebarRailsOf(state);
+      const rails = sidebarRailsOf(state, UNMEASURED_RUNS);
       const prevModes = prevRailModesRef.current;
       if (motion && prevModes !== null) {
         for (const rail of rails) {
@@ -2511,7 +2718,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // column's order, so that is the one that moves and every other one
       // fades. Picking the top member instead would grow a frame that ends up
       // hidden while the card the stack goes on to display arrived by a cut.
-      const columns = deckColumnsOf(state);
+      const columns = deckColumnsOf(state, null);
       const prevColumnModes = prevColumnModesRef.current;
       if (motion && prevColumnModes !== null) {
         for (const column of columns) {
@@ -3120,12 +3327,24 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     [store],
   );
 
-  // A seam drag's commit: the fractions the hand left the rail at, converted
-  // back to the weights the record stores. The conversion is the imposer's
-  // named pure function rather than arithmetic inlined here — it is the one
-  // piece of new math on the persistence path, and every member the drag did
-  // not touch keeps its ratio to its untouched neighbours by construction
-  // ([P02]).
+  // A seam drag's commit: the ONE boundary the hand moved, put back into the
+  // place's live division and converted to the HEIGHTS it means and then to the
+  // weights the record stores.
+  //
+  // The array is read here rather than handed in from the gesture, because the
+  // array a pointer-down snapshot holds is a division that may have moved under
+  // the drag — a resize, a settle, a member arriving. Only the dragged entry is
+  // the hand's; every other boundary is whatever the place says it is at the
+  // moment of the release.
+  //
+  // Two conversions rather than one because a weight is no longer a share of
+  // the run ([P04]) — it is a share of the discretionary pool, which is what
+  // the run has left once the floors and the comforts are fed. Only a height
+  // can be read off a seam, and only the appetites can say what share of the
+  // pool that height took, so the fractions become px first and the imposer's
+  // own inverse takes it from there. That inverse is the allocator's fixed
+  // point ([P10]): allocating from what it returns reproduces the heights the
+  // hand left, so the commit re-renders at the pixel the hand let go of.
   //
   // The commit arms a settle whose tweens are all no-ops: the drag wrote the
   // property live, so each frame's first and last rects are the same one. Same
@@ -3134,28 +3353,47 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   railMembersRef.current = sidebarRails;
   const deckColumnsRef = useRef(deckColumns);
   deckColumnsRef.current = deckColumns;
+  const deckStateRef = useRef(deckState);
+  deckStateRef.current = deckState;
   const handleSeamCommit = useCallback(
-    (place: SeamPlace, fractions: readonly number[]) => {
+    (place: SeamPlace, index: number, value: number) => {
       // One handler for both places, because one component raises both. The
       // fork is the record the weights land in and the ids they are keyed by —
       // componentIds on a rail, pane ids in a column — and nothing else.
+      const state = deckStateRef.current;
       if (place.kind === "rail") {
         const rail = railMembersRef.current.find((r) => r.side === place.side);
-        if (rail === undefined) return;
+        if (rail === undefined || rail.allocation === null) return;
+        const ids = rail.members.map((member) => member.componentId);
         store.setRailShares(
           place.side,
-          railSharesFromFractions(
-            rail.members.map((member) => member.componentId),
-            fractions,
+          placeSharesFromHeights(
+            placeMemberAppetites(
+              state,
+              "rail",
+              ids,
+              state.imposition.rails?.[place.side]?.shares,
+            ),
+            draggedHeights(rail.allocation, index, value),
+            rail.allocation.standing,
           ),
         );
         return;
       }
       const column = deckColumnsRef.current.find((c) => c.slot === place.slot);
-      if (column === undefined) return;
+      if (column === undefined || column.allocation === null) return;
       store.setColumnShares(
         place.slot,
-        railSharesFromFractions(column.members, fractions),
+        placeSharesFromHeights(
+          placeMemberAppetites(
+            state,
+            "column",
+            column.members,
+            state.imposition.columns?.[place.slot]?.shares,
+          ),
+          draggedHeights(column.allocation, index, value),
+          column.allocation.standing,
+        ),
       );
     },
     [store],
@@ -3291,6 +3529,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           if (!isSidebarSide(side)) continue;
           railVacancies[side] = toCanvas(el.getBoundingClientRect());
         }
+        // The rails, read once: the engine needs their membership, their
+        // shares and their appetites, and three readings of one rail would
+        // agree only by luck.
+        const railsForZones = sidebarRailsOf(state, UNMEASURED_RUNS);
         return enumerateDropZones(state, draggedPaneId, {
           slots,
           panes,
@@ -3304,7 +3546,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           },
           draggedAtStart,
           railVacancies,
-          rails: sidebarRailsOf(state).map((rail) => {
+          // What every member of every place wants of its run, by pane id:
+          // the engine allocates its tiles from these, and it keys everything
+          // by pane, so a rail member's appetite is re-keyed here beside its
+          // shares — the one boundary that can see both names for a member.
+          appetites: appetitesByPaneId(state, railsForZones),
+          rails: railsForZones.map((rail) => {
             // The engine keys everything by pane id; the rail's stored shares
             // are keyed by componentId, so they re-key here, at the one place
             // that can see both names for a member.
@@ -3381,7 +3628,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             return store.movePaneToSlot(draggedPaneId, zone.slot).ok;
           }
           case "column-index": {
-            const column = deckColumnsOf(state).find(
+            const column = deckColumnsOf(state, null).find(
               (c) => c.slot === zone.slot,
             );
             if (column === undefined) return false;
@@ -3402,7 +3649,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             // survives its card being closed and reopened, which a pane id
             // could never do. The zone counts positions, so the mapping back to
             // componentIds happens here, where the rail's own reading is.
-            const rails = sidebarRailsOf(state);
+            const rails = sidebarRailsOf(state, UNMEASURED_RUNS);
             const from = rails.find((r) =>
               r.members.some((m) => m.paneId === draggedPaneId),
             );
@@ -3442,13 +3689,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // coincidence.
         const railRun = store.getRailRunHeight();
         if (railRun !== null) {
-          for (const rail of sidebarRailsOf(state)) {
-            if (rail.mode !== "split") continue;
-            if (placeStanding(rail.members.length) !== "overflow") continue;
+          for (const rail of sidebarRailsOf(state, { rail: railRun, column: null })) {
+            const allocation = rail.allocation;
+            if (allocation === null || allocation.standing !== "overflow") {
+              continue;
+            }
             // The band is read off a member that STAYED PUT: the dragged
             // card's frame carries its drag transform, so a place read
-            // through it walks off with the hand ([B07]). An overflowing
-            // place has three members, so there is always a seated one.
+            // through it walks off with the hand ([B07]). An overflowing place
+            // has at least two members — the floors of one always fit — so
+            // there is always a seated one to read.
             const seated =
               rail.members.find((m) => m.paneId !== draggedPaneId) ??
               rail.members[0];
@@ -3462,10 +3712,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             const left = (rect.left - canvasRect.left) / zoom;
             const width = rect.width / zoom;
             if (pointer.x < left || pointer.x > left + width) continue;
-            const memberHeight = railRun / PLACE_OVERFLOW_VISIBLE_MEMBERS;
-            const strip =
-              rail.members.length * memberHeight +
-              (rail.members.length - 1) * RAIL_SEAM_PX;
             return {
               kind: "rail",
               side: rail.side,
@@ -3473,7 +3719,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               bandStart: RAIL_EDGE_INSET_PX,
               bandEnd: RAIL_EDGE_INSET_PX + railRun,
               offset: state.railOffsets?.[rail.side] ?? 0,
-              maxOffset: Math.max(0, strip - railRun),
+              maxOffset: Math.max(0, allocation.stripLength - railRun),
             };
           }
         }
@@ -3483,9 +3729,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // about the band it happens to sit in.
         const run = store.getColumnRunHeight();
         if (run !== null) {
-          for (const column of deckColumnsOf(state)) {
-            if (column.mode !== "split") continue;
-            if (placeStanding(column.members.length) !== "overflow") continue;
+          for (const column of deckColumnsOf(state, run)) {
+            const allocation = column.allocation;
+            if (allocation === null || allocation.standing !== "overflow") {
+              continue;
+            }
             // Off a seated member, for the reason the rail's is ([B07]).
             const seated =
               column.members.find((id) => id !== draggedPaneId) ??
@@ -3500,10 +3748,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             const left = (rect.left - canvasRect.left) / zoom;
             const width = rect.width / zoom;
             if (pointer.x < left || pointer.x > left + width) continue;
-            const memberHeight = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
-            const strip =
-              column.members.length * memberHeight +
-              (column.members.length - 1) * IMPOSITION_GAP_PX;
             return {
               kind: "column",
               slot: column.slot,
@@ -3511,7 +3755,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               bandStart: IMPOSITION_GAP_PX,
               bandEnd: IMPOSITION_GAP_PX + run,
               offset: state.columnOffsets?.[column.slot] ?? 0,
-              maxOffset: Math.max(0, strip - run),
+              maxOffset: Math.max(0, allocation.stripLength - run),
             };
           }
         }
@@ -3899,18 +4143,24 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           and because the two frames it divides must not disagree about where
           it is.
 
-          An overflowing rail has no seams to drag, exactly as an overflowing
-          column has none: past two and a half visible members the run stops
-          being divided and starts being scrolled, so a handle would offer a
-          division that no longer decides anything ([P08]). The stored `shares`
-          are left untouched and resume meaning the moment the side drops back
-          to two. */}
-      {sidebarRails.flatMap((rail) =>
-        (rail.mode === "split" &&
-        placeStanding(rail.members.length) === "overflow"
-          ? []
-          : rail.seams
-        ).map((_fraction, index) => (
+          A sash stands between EVERY pair of members, in both standings. An
+          overflowing rail used to offer none, on the reading that a place which
+          had stopped dividing had no division to drag — but a strip's members
+          still stand against one another, and the drag there is simply
+          zero-sum in px rather than in fractions of a run ([B06], [P04]). The
+          handle is the same object either way; only the property it writes
+          changes. */}
+      {sidebarRails.flatMap((rail) => {
+        const allocation = rail.allocation;
+        if (allocation === null || allocation.ids.length < 2) return [];
+        const ids = rail.members.map((member) => member.componentId);
+        const appetites = placeMemberAppetites(
+          deckState,
+          "rail",
+          ids,
+          deckState.imposition.rails?.[rail.side]?.shares,
+        );
+        return allocation.ids.slice(1).map((_id, index) => (
           <PlaceSeam
             key={`rail:${rail.side}:${index}`}
             place={{ kind: "rail", side: rail.side }}
@@ -3918,29 +4168,22 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             frameStyle={
               imposeSidebarStyle(rail.side, rail.width) as React.CSSProperties
             }
-            fractions={rail.seams}
-            minHeights={railMemberMinHeights(deckState, rail)}
+            allocation={allocation}
+            appetites={appetites}
             memberPaneIds={rail.members.map((member) => member.paneId)}
             onCommit={handleSeamCommit}
           />
-        )),
-      )}
+        ));
+      })}
       {/* And one per gap of every split COLUMN. Its horizontal pins are the
           slot's own — through `placementFor`, so on a flow deck the seam rides
           the strip with the frames it divides rather than standing at a fit
           anchor nothing is at. */}
       {deckColumns.flatMap((column) => {
-        // An overflowing column has no seams to drag: past two and a half
-        // visible members the run stops being divided and starts being
-        // scrolled, so a handle would be offering a division that no longer
-        // decides anything ([P08]). The stored `shares` are left untouched and
-        // resume meaning the moment the column drops back to two.
-        if (
-          column.mode === "split" &&
-          placeStanding(column.members.length) === "overflow"
-        ) {
-          return [];
-        }
+        // A sash between every pair, in both standings — the rail's rule above,
+        // for the reason a rail and a column are the same kind of place.
+        const allocation = column.allocation;
+        if (allocation === null || allocation.ids.length < 2) return [];
         const pane = panes.find((p) => p.id === column.members[0]);
         const placement = pane === undefined ? undefined : placementFor(pane);
         if (placement === undefined) return [];
@@ -3953,14 +4196,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               panes.find((p) => p.id === paneId)?.size.width ?? 0,
           ),
         );
-        return column.seams.map((_fraction, index) => (
+        const appetites = placeMemberAppetites(
+          deckState,
+          "column",
+          column.members,
+          deckState.imposition.columns?.[column.slot]?.shares,
+        );
+        return allocation.ids.slice(1).map((_id, index) => (
           <PlaceSeam
             key={`column:${column.slot}:${index}`}
             place={{ kind: "column", slot: column.slot }}
             index={index}
             frameStyle={imposeStyle(placement, width)}
-            fractions={column.seams}
-            minHeights={columnMemberMinHeights(deckState, column)}
+            allocation={allocation}
+            appetites={appetites}
             memberPaneIds={column.members}
             onCommit={handleSeamCommit}
           />

@@ -208,6 +208,15 @@ describe("bullseyePaneIdOf", () => {
   });
 });
 
+/** The run these fixtures' columns divide. Any positive number does: the
+ *  assertions below are about membership, order and where the seams fall, and
+ *  a seam fraction is the same fraction of any run. */
+const COLUMN_RUN = 1000;
+
+/** `deckColumnsOf` at that run — the one measurement these fixtures make. */
+const columnsOf = (state: DeckState): ReturnType<typeof deckColumnsOf> =>
+  deckColumnsOf(state, COLUMN_RUN);
+
 describe("deckColumnsOf", () => {
   /** A three-up deck whose slots hold the panes named, at the widths named. */
   function slottedState(
@@ -235,11 +244,11 @@ describe("deckColumnsOf", () => {
     // A slot is a place in an arrangement, and a deck with no imposition has
     // none — not even for the panes carrying a stale slot from a previous one.
     const state = slottedState({ "pane-a": { slot: 0, width: 800 } });
-    expect(deckColumnsOf({ ...state, imposition: { sidebars: {} } })).toEqual([]);
+    expect(columnsOf({ ...state, imposition: { sidebars: {} } })).toEqual([]);
   });
 
   test("one column per OCCUPIED slot, in slot order", () => {
-    const columns = deckColumnsOf(
+    const columns = columnsOf(
       slottedState({
         "pane-c": { slot: 2, width: 800 },
         "pane-a": { slot: 0, width: 800 },
@@ -253,7 +262,7 @@ describe("deckColumnsOf", () => {
   test("a stacked column has no seams", () => {
     // A stack has no gaps to place: every member draws the same rect and
     // z-order decides which you see.
-    const columns = deckColumnsOf(
+    const columns = columnsOf(
       slottedState({
         "pane-a": { slot: 0, width: 800 },
         "pane-b": { slot: 0, width: 800 },
@@ -264,8 +273,8 @@ describe("deckColumnsOf", () => {
     expect(columns[0].members.length).toBe(2);
   });
 
-  test("a split column divides at its stored weights", () => {
-    const columns = deckColumnsOf(
+  test("a split column's seam sits where the ladder put its members", () => {
+    const columns = columnsOf(
       slottedState(
         {
           "pane-a": { slot: 0, width: 800 },
@@ -283,7 +292,12 @@ describe("deckColumnsOf", () => {
       ),
     );
     expect(columns[0].members).toEqual(["pane-a", "pane-b"]);
-    expect(columns[0].seams).toEqual([0.75]);
+    // Not 0.75. A weight divides the DISCRETIONARY POOL ([P04]), which is the
+    // 1000px run less two default floors of 180 and the 5px gap: 635px, of
+    // which the upper member takes three quarters. Its bottom edge lands at
+    // 656.25px, the gap's centre half a gap past that, and the fraction the
+    // seam property carries is what is left when that half gap comes off.
+    expect(columns[0].seams).toEqual([0.65875]);
   });
 
   test("the fallback order is NOT the panes array's order", () => {
@@ -299,13 +313,13 @@ describe("deckColumnsOf", () => {
       { columns: { 0: { mode: "split" } } },
     );
     const raised: DeckState = { ...state, panes: [...state.panes].reverse() };
-    expect(deckColumnsOf(state)[0].members).toEqual(
-      deckColumnsOf(raised)[0].members,
+    expect(columnsOf(state)[0].members).toEqual(
+      columnsOf(raised)[0].members,
     );
   });
 
   test("a stored order governs, and residue leaves no hole", () => {
-    const columns = deckColumnsOf(
+    const columns = columnsOf(
       slottedState(
         {
           "pane-a": { slot: 0, width: 800 },
@@ -327,7 +341,7 @@ describe("deckColumnsOf", () => {
     // `clampSlot` is what places the pane, so the column has to be keyed by
     // the same clamped number or a pulled-in pane would arrange under a slot
     // it does not stand in.
-    const columns = deckColumnsOf(
+    const columns = columnsOf(
       slottedState({
         "pane-a": { slot: 2, width: 800 },
         "pane-b": { slot: 9, width: 800 },

@@ -11,8 +11,9 @@ import { describe, expect, it } from "bun:test";
 import type { DeckState } from "../../layout-tree";
 import type { Rect } from "../../snap";
 import {
-  PLACE_OVERFLOW_VISIBLE_MEMBERS,
+  allocatePlaceHeights,
   IMPOSITION_GAP_PX,
+  type PlaceMemberAppetite,
   RAIL_SEAM_PX,
 } from "../layout-imposer";
 import {
@@ -89,12 +90,75 @@ function splitRects(
   return rects;
 }
 
+/**
+ * The appetites that put a place of THREE past the run it stands in, while
+ * leaving a place of two comfortably inside it.
+ *
+ * The standing is decided by the floors now ([P01]), so a fixture that wants
+ * an overflowing place has to declare members that cannot fit — a count no
+ * longer says anything. A floor of `run / 2.6` is the smallest round number
+ * that separates the two cases: three of them need more than the run, two of
+ * them need less than four fifths of it.
+ */
+function overflowFloors(
+  ids: readonly string[],
+  run: number,
+): Map<string, PlaceMemberAppetite> {
+  const floor = run / 2.6;
+  return new Map(
+    ids.map((id) => [
+      id,
+      { id, floor, comfort: floor, natural: floor, greedRank: 5, weight: 1 },
+    ]),
+  );
+}
+
+/** What an overflowing place of three such members gives each of them, at
+ *  `run` — read back out of the allocator rather than restated here, so a
+ *  fixture cannot drift from the arithmetic the engine tiles with. These three
+ *  ask for the same height, which is why one number answers for all of them;
+ *  the allocator would give three different ones to three different appetites. */
+function overflowHeightOf(run: number, seam = IMPOSITION_GAP_PX): number {
+  const ids = ["a", "b", "c"];
+  return allocatePlaceHeights(
+    ids.map((id) => overflowFloors(ids, run).get(id)!),
+    run,
+    seam,
+  ).heights[0];
+}
+
+/** The heights the ladder gives a floorless place of `weights` at `run` — the
+ *  geometry the imposer draws for a shared place whose cards declare nothing,
+ *  which is every fixture here that is not about overflow. */
+function sharedHeights(
+  weights: readonly number[],
+  run: number,
+  seam: number,
+): readonly number[] {
+  return allocatePlaceHeights(
+    weights.map((weight, index) => ({
+      id: `${index}`,
+      floor: 0,
+      comfort: 0,
+      natural: 0,
+      greedRank: 5,
+      weight,
+    })),
+    run,
+    seam,
+  ).heights;
+}
+
 function measured(overrides: Partial<DropZoneMeasurements> = {}): DropZoneMeasurements {
   return {
     slots: new Map(),
     panes: new Map(),
     tabBars: new Map(),
     rails: [],
+    // No appetites: the fixtures' members declare nothing, so every one of
+    // them is floorless and the allocator answers from the standing and the
+    // stored weights alone — which is what these tests are about.
+    appetites: new Map(),
     // The deck's own run measurement, which the engine reads instead of
     // summing frames. The fixtures' places are tiled to fill RUN_HEIGHT
     // unless a test says otherwise.
@@ -284,6 +348,10 @@ describe("a card only ever sees the places its own kind can stand in", () => {
       state,
       "tripwires",
       measured({
+        appetites: overflowFloors(
+          ["tripwires", "notes", "cards", "jots"],
+          RUN_HEIGHT,
+        ),
         panes: new Map([
           ["tripwires", right[0]],
           ["notes", right[1]],
@@ -304,12 +372,15 @@ describe("a card only ever sees the places its own kind can stand in", () => {
       "rail:right:1",
     ]);
     expect(dropZoneKey(set.origin!)).toBe("rail:right:0");
-    // Three arrivals on a two-member rail overflow it, so the left tiles are
-    // the run/2.5 strip down the LEFT rail's own column.
+    // A third member on the left rail puts its floors past the run, so the
+    // left tiles are the overflowing strip down the LEFT rail's own column.
     const arrivals = set.zones.filter((zone) => zone.kind === "rail-index" && zone.side === "left");
     for (const zone of arrivals) {
       expect(zone.rect.x).toBeCloseTo(SLOT_X[0], 6);
-      expect(zone.rect.height).toBeCloseTo(RUN_HEIGHT / PLACE_OVERFLOW_VISIBLE_MEMBERS, 6);
+      expect(zone.rect.height).toBeCloseTo(
+        overflowHeightOf(RUN_HEIGHT, RAIL_SEAM_PX),
+        6,
+      );
     }
   });
 
@@ -467,18 +538,15 @@ describe("a split column advertises one position per place a member can stand", 
   });
 
   it("the tiles are the division the commit would produce, shares travelling with the card", () => {
-    // p1 holds a quarter share, p2 three quarters. The measured rects are what
-    // `memberPins` draws for those shares: fractions of the 600 run, half a
-    // gap surrendered at the seam.
+    // p1 holds a quarter share, p2 three quarters. Neither declares a floor,
+    // so the whole run less its gap is the pool the two of them divide, and
+    // the measured rects are what the ladder gives those weights.
     const state = deck([pane("p1", 0), pane("p2", 0)], {
       kind: "three-up",
       columns: { 0: { mode: "split", shares: { p1: 0.5, p2: 1.5 } } },
     });
-    const half = IMPOSITION_GAP_PX / 2;
-    const rects = splitRects(0, [
-      RUN_HEIGHT / 4 - half,
-      (RUN_HEIGHT * 3) / 4 - half,
-    ]);
+    const heights = sharedHeights([0.5, 1.5], RUN_HEIGHT, IMPOSITION_GAP_PX);
+    const rects = splitRects(0, heights);
     const { zones } = enumerateDropZones(
       state,
       "p1",
@@ -489,30 +557,30 @@ describe("a split column advertises one position per place a member can stand", 
         ]),
       } as Partial<DropZoneMeasurements>),
     );
-    // Position 0 is where p1 already stands — the fraction arithmetic lands
-    // on the measured rect to the pixel, because both come from the same
-    // seam fractions.
+    // Position 0 is where p1 already stands — the tile lands on the measured
+    // rect to the pixel, because both come from the same allocation.
     expect(zones[0].rect.y).toBeCloseTo(rects[0].y, 6);
     expect(zones[0].rect.height).toBeCloseTo(rects[0].height, 6);
     // Position 1 puts p1 below p2, and p1's QUARTER share travels with it:
-    // the seam of the candidate order [p2, p1] falls at three quarters of the
-    // run, so the tile is quarter-height at the bottom — never p1's place cut
+    // the candidate order [p2, p1] gives p2 three quarters of the pool, so
+    // the tile is the remaining quarter at the bottom — never p1's place cut
     // at p2's measured height.
     expect(zones[1].rect.y).toBeCloseTo(
-      RUN_TOP + (RUN_HEIGHT * 3) / 4 + half,
+      RUN_TOP + heights[1] + IMPOSITION_GAP_PX,
       6,
     );
-    expect(zones[1].rect.height).toBeCloseTo(RUN_HEIGHT / 4 - half, 6);
+    expect(zones[1].rect.height).toBeCloseTo(heights[0], 6);
   });
 
-  it("an overflowing column's positions are the run/2.5 strip", () => {
+  it("an overflowing column's positions are the strip its floors force", () => {
     const state = deck([pane("p1", 0), pane("p2", 0), pane("p3", 0)], split);
-    const memberH = RUN_HEIGHT / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+    const memberH = overflowHeightOf(RUN_HEIGHT);
     const rects = splitRects(0, [memberH, memberH, memberH]);
     const { zones } = enumerateDropZones(
       state,
       "p1",
       measured({
+        appetites: overflowFloors(["p1", "p2", "p3"], RUN_HEIGHT),
         panes: new Map([
           ["p1", rects[0]],
           ["p2", rects[1]],
@@ -556,8 +624,9 @@ describe("a split column advertises one position per place a member can stand", 
 
   it("arriving in a two-member column makes it three, so the tiles overflow", () => {
     // The column divides its run between two members today. A third arriving
-    // stops the division ([P08]), so the zones must be drawn against the rule
-    // that will govern after the drop — not the one governing before it.
+    // puts their floors past the run and stops the division ([P08]), so the
+    // zones must be drawn against the standing that will govern after the
+    // drop — not the one governing before it.
     const state = deck([pane("p1", 0), pane("p2", 1), pane("p3", 1)], {
       kind: "three-up",
       columns: { 1: { mode: "split" } },
@@ -567,6 +636,7 @@ describe("a split column advertises one position per place a member can stand", 
       state,
       "p1",
       measured({
+        appetites: overflowFloors(["p1", "p2", "p3"], RUN_HEIGHT),
         slots: new Map([[0, slotRect(0)]]),
         panes: new Map([
           ["p1", slotRect(0)],
@@ -576,7 +646,7 @@ describe("a split column advertises one position per place a member can stand", 
       }),
     );
     const run = 300 + IMPOSITION_GAP_PX + 295;
-    const memberH = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+    const memberH = overflowHeightOf(run);
     const columnZones = zones.filter((zone) => zone.kind === "column-index");
     expect(columnZones).toHaveLength(3);
     for (const zone of columnZones) {
@@ -630,10 +700,10 @@ describe("a split column advertises one position per place a member can stand", 
 describe("a position is asked for at the tile the preview draws", () => {
   // The column p2 (300 tall from RUN_TOP) over p3 (295 tall), and p1 arriving
   // from slot 0. Three positions under the overflow rule, whose tiles stack
-  // the run/2.5 strip — and the run divides at each tile's top edge, so the
+  // the overflowing strip — and the run divides at each tile's top edge, so the
   // region that asks for a position is the region the indicator draws for it.
   const RUN = 300 + IMPOSITION_GAP_PX + 295;
-  const MEMBER_H = RUN / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+  const MEMBER_H = overflowHeightOf(RUN);
   const STRIDE = MEMBER_H + IMPOSITION_GAP_PX;
 
   function arriving() {
@@ -646,6 +716,7 @@ describe("a position is asked for at the tile the preview draws", () => {
       state,
       "p1",
       measured({
+        appetites: overflowFloors(["p1", "p2", "p3"], RUN),
         slots: new Map([[0, slotRect(0)]]),
         panes: new Map([
           ["p1", slotRect(0)],
@@ -732,20 +803,22 @@ describe("a position is asked for at the tile the preview draws", () => {
     expect(bands[1].y + bands[1].height).toBeCloseTo(RUN_TOP + run, 6);
   });
 
-  it("an overflowing rail's positions are the run/2.5 strip", () => {
-    // Three members, so the side stands under the overflow rule a column has
-    // always stood under: every tile the same height, stacked a rail seam
-    // apart down a strip that runs past the run's bottom edge.
+  it("an overflowing rail's positions are the strip its floors force", () => {
+    // Three members whose floors no longer fit, so the side stands under the
+    // overflow rule a column stands under too: every tile the same height,
+    // stacked a rail seam apart down a strip that runs past the run's bottom
+    // edge.
     const state = deck([pane("s1"), pane("s2"), pane("s3")], {
       kind: "three-up",
     });
     const run = 200 + 150 + 180 + 2 * RAIL_SEAM_PX;
-    const memberH = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+    const memberH = overflowHeightOf(run, RAIL_SEAM_PX);
     const rects = splitRects(0, [memberH, memberH, memberH], RAIL_SEAM_PX);
     const { zones } = enumerateDropZones(
       state,
       "s1",
       measured({
+        appetites: overflowFloors(["s1", "s2", "s3"], run),
         panes: new Map([
           ["s1", rects[0]],
           ["s2", rects[1]],
@@ -849,7 +922,7 @@ describe("a position is asked for at the tile the preview draws", () => {
       kind: "three-up",
     });
     const run = 530;
-    const memberH = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+    const memberH = overflowHeightOf(run, RAIL_SEAM_PX);
     const stride = memberH + RAIL_SEAM_PX;
     const offset = 40;
     const seatedTop = RUN_TOP - offset;
@@ -863,6 +936,7 @@ describe("a position is asked for at the tile the preview draws", () => {
       state,
       "s1",
       measured({
+        appetites: overflowFloors(["s1", "s2", "s3"], run),
         panes: new Map([
           ["s1", { ...at(0), x: SLOT_X[0] - 80, y: at(0).y + 300 }],
           ["s2", at(1)],

@@ -26,21 +26,36 @@
  */
 
 import type { DeckState, TugPaneState } from "./layout-tree";
-import { getStackSizePolicy, isSidebarCard } from "./card-registry";
 import {
+  DEFAULT_GREED_RANK,
+  getAllRegistrations,
+  getGreedRank,
+  getStackSizePolicy,
+  isSidebarCard,
+} from "./card-registry";
+import {
+  allocatePlaceHeights,
   clampSlot,
   columnModeOf,
   DEFAULT_CONTENT_WIDTH,
   effectiveColumnOrder,
+  effectiveRailOrder,
+  IMPOSITION_GAP_PX,
+  isSidebarPinned,
+  railModeOf,
+  RAIL_SEAM_PX,
+  railWeightOf,
   stripPositions,
   impositionLayout,
-  railSeamFractions,
   resolveContentWidthPx,
   slotCount,
   vacancyExtent,
   type ColumnMode,
   type FlowSlotExtent,
   type FlowStrip,
+  type PlaceAllocation,
+  type PlaceMemberAppetite,
+  type SidebarSide,
 } from "./lib/layout-imposer";
 
 /**
@@ -344,6 +359,9 @@ export interface DeckColumn {
   /** Where the gaps fall, as fractions of the run: `members.length - 1` values
    *  in split mode, empty in a stack (a stack has no gaps to place). */
   seams: readonly number[];
+  /** How the column divides its run among its members, or `null` when it has
+   *  nothing to divide — a stack, or a canvas with no measured run. */
+  allocation: PlaceAllocation | null;
 }
 
 /**
@@ -373,35 +391,307 @@ export interface DeckColumn {
  * writes the split, so the members land in the front-to-back order they stood
  * in at the moment of the split, and the stored order governs from there.
  */
-export function deckColumnsOf(state: DeckState): readonly DeckColumn[] {
+export function deckColumnsOf(
+  state: DeckState,
+  columnRun: number | null,
+): readonly DeckColumn[] {
   const kind = state.imposition.kind;
   if (kind === undefined) return [];
+  const bySlot = columnStandingBySlot(state, kind);
+  const columns: DeckColumn[] = [];
+  for (const slot of [...bySlot.keys()].sort((a, b) => a - b)) {
+    const members = effectiveColumnOrder(
+      state.imposition,
+      slot,
+      [...(bySlot.get(slot) ?? [])].sort(),
+    );
+    const mode = columnModeOf(state.imposition, slot);
+    const shares = state.imposition.columns?.[slot]?.shares;
+    const allocation =
+      mode === "split" ? columnAllocationOf(state, slot, columnRun) : null;
+    columns.push({
+      slot,
+      mode,
+      members,
+      allocation,
+      seams:
+        mode === "split" ? placeSeamFractions(allocation, members) : [],
+    });
+  }
+  return columns;
+}
+
+/** Every occupied slot's panes, keyed by the slot they actually stand in —
+ *  clamped exactly as the strip and `resolvePlacement` clamp it, so a column
+ *  and a placement never disagree about which slot a pane is in. */
+function columnStandingBySlot(
+  state: DeckState,
+  kind: NonNullable<DeckState["imposition"]["kind"]>,
+): Map<number, string[]> {
   const bySlot = new Map<number, string[]>();
   for (const pane of state.panes) {
     if (pane.slot === undefined) continue;
-    // Clamped exactly as the strip and `resolvePlacement` clamp it, so a
-    // column is keyed by the slot its panes actually stand in.
     const slot = clampSlot(kind, pane.slot);
     const members = bySlot.get(slot);
     if (members) members.push(pane.id);
     else bySlot.set(slot, [pane.id]);
   }
-  const columns: DeckColumn[] = [];
-  for (const slot of [...bySlot.keys()].sort((a, b) => a - b)) {
-    const standing = [...(bySlot.get(slot) ?? [])].sort();
-    const members = effectiveColumnOrder(state.imposition, slot, standing);
-    const mode = columnModeOf(state.imposition, slot);
-    columns.push({
-      slot,
-      mode,
-      members,
-      seams:
-        mode === "split"
-          ? railSeamFractions(members, state.imposition.columns?.[slot]?.shares)
-          : [],
-    });
+  return bySlot;
+}
+
+/** One slot's members in the column's own top-to-bottom order — what
+ *  {@link deckColumnsOf} reads for that slot, without building the rest. */
+export function columnMembersOf(
+  state: DeckState,
+  slot: number,
+): readonly string[] {
+  const kind = state.imposition.kind;
+  if (kind === undefined) return [];
+  const standing = columnStandingBySlot(state, kind).get(slot);
+  if (standing === undefined) return [];
+  return effectiveColumnOrder(state.imposition, slot, [...standing].sort());
+}
+
+/**
+ * The runs the deck's two kinds of place divide, measured — the pair every
+ * allocation is derived against ([P06]).
+ *
+ * `null` is a canvas with no height to speak of: a place with no run has no
+ * allocation, and the frames fall back to the equal division their `var()`
+ * fallbacks have always carried.
+ */
+export interface PlaceRuns {
+  rail: number | null;
+  column: number | null;
+}
+
+/**
+ * Whether a place's run has moved far enough since `last` that the deck has to
+ * re-derive its allocations — [P11]'s decision, in one place so it can be
+ * stated once and tested.
+ *
+ * A run of `null` on either side means nobody has measured that place yet, and
+ * an unmeasured run is not a MOVED one — on either side of the comparison. The
+ * answer at boot is that nothing has changed, and the first measurement is
+ * what a later comparison is against.
+ *
+ * The threshold is a whole pixel, the same one the width allocator's own
+ * `moves` check uses, because a sub-pixel run change moves nothing anybody
+ * draws and re-allocating for it would arm a settle over frames that are
+ * already where they belong.
+ */
+export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
+  const moved = (was: number | null, is: number | null): boolean =>
+    was !== null && is !== null && Math.abs(is - was) >= 1;
+  return moved(last.rail, next.rail) || moved(last.column, next.column);
+}
+
+/**
+ * What each member of a place wants of its run: its floor from the stack size
+ * policy, its comfort and natural heights, its greed rank, and the weight the
+ * user's own seam drags stored.
+ *
+ * A rail member is named by componentId and a column member by pane id, which
+ * is the one thing the two places differ by here — a sidebar card is a
+ * singleton, and a slot holds panes that may each be a tab stack.
+ *
+ * Comfort and natural come from `state.appetites` — the settled mirror of
+ * `cardAppetiteStore` ([P05]) — folded across the componentIds a member's pane
+ * hosts by `Math.max`, because a tab stack is one box and the box has to suit
+ * whichever tab is forward. A componentId that declared nothing reads its
+ * floor for both, so a card that never publishes asks for nothing beyond what
+ * it needs to paint.
+ *
+ * `natural` is raised to `comfort` here rather than trusted from the
+ * publisher: the ladder's water-fill reads `natural` as the ceiling on
+ * `comfort`'s step, and a member whose ceiling sat below its own comfort would
+ * make the two rungs disagree about the same member.
+ */
+export function placeMemberAppetites(
+  state: DeckState,
+  kind: "rail" | "column",
+  memberIds: readonly string[],
+  shares: Readonly<Record<string, number>> | undefined,
+): PlaceMemberAppetite[] {
+  return memberIds.map((id) => {
+    const pane =
+      kind === "rail"
+        ? findSidebarPane(state, id)
+        : state.panes.find((p) => p.id === id);
+    const componentIds =
+      pane === undefined
+        ? []
+        : state.cards
+            .filter((card) => pane.cardIds.includes(card.id))
+            .map((card) => card.componentId);
+    const floor = getStackSizePolicy(componentIds).min.height;
+    let greedRank = DEFAULT_GREED_RANK;
+    let comfort = floor;
+    let natural = floor;
+    for (const componentId of componentIds) {
+      greedRank = Math.min(greedRank, getGreedRank(componentId));
+      const appetite = state.appetites?.[componentId];
+      if (appetite === undefined) continue;
+      comfort = Math.max(comfort, appetite.comfort);
+      natural = Math.max(natural, appetite.natural);
+    }
+    return {
+      id,
+      floor,
+      comfort,
+      natural: Math.max(comfort, natural),
+      greedRank,
+      weight: railWeightOf(shares, id),
+    };
+  });
+}
+
+/**
+ * `railMembersOf(state, side)` — the members standing on one edge, in the
+ * rail's own vertical order, each paired with the pane hosting it.
+ *
+ * The componentIds are sorted into **registration** order before the
+ * imposition's stored order is applied. That is `effectiveRailOrder`'s caller
+ * contract, and it cannot be met by accident: `findSidebarPanes` walks
+ * `state.panes`, the array `activateCard` reorders, so handing its order
+ * straight in would make a split rail with no stored order follow the last
+ * raise — click the lower member and the two would swap places. Registration
+ * is a boot step, so the order this sorts into is fixed for the session.
+ *
+ * It lives here rather than in the canvas because the allocation needs it and
+ * the canvas is not its only reader: a rail's membership is a fact about the
+ * deck, and two derivations of it would agree only by luck.
+ */
+export function railMembersOf(
+  state: DeckState,
+  side: SidebarSide,
+): readonly { componentId: string; paneId: string }[] {
+  const pinned = findSidebarPanes(state).filter(({ componentId }) =>
+    isSidebarPinned(state.imposition, componentId),
+  );
+  if (pinned.length === 0) return [];
+  const paneByComponentId = new Map(
+    pinned.map(({ componentId, pane }) => [componentId, pane]),
+  );
+  const registered = [...getAllRegistrations().keys()].filter((componentId) =>
+    paneByComponentId.has(componentId),
+  );
+  const members: { componentId: string; paneId: string }[] = [];
+  const order = effectiveRailOrder(state.imposition, side, registered);
+  for (const componentId of order) {
+    const pane = paneByComponentId.get(componentId);
+    if (pane === undefined) continue;
+    members.push({ componentId, paneId: pane.id });
   }
-  return columns;
+  return members;
+}
+
+/**
+ * How one side's rail divides `run` among its members, or `null` when there is
+ * nothing to divide: no rail on that side, a stacked one, or a canvas with no
+ * run.
+ *
+ * A stacked rail has no allocation because every member takes the whole run —
+ * that is what a stack IS — and answering with heights would invite a caller
+ * to draw a division nobody asked for.
+ */
+export function railAllocationOf(
+  state: DeckState,
+  side: SidebarSide,
+  run: number | null,
+): PlaceAllocation | null {
+  if (run === null || !(run > 0)) return null;
+  if (railModeOf(state.imposition, side) !== "split") return null;
+  const members = railMembersOf(state, side);
+  if (members.length === 0) return null;
+  return allocatePlaceHeights(
+    placeMemberAppetites(
+      state,
+      "rail",
+      members.map((member) => member.componentId),
+      state.imposition.rails?.[side]?.shares,
+    ),
+    run,
+    RAIL_SEAM_PX,
+  );
+}
+
+/** {@link railAllocationOf}'s slot-keyed twin, over a column's panes and the
+ *  gap a column divides at. */
+export function columnAllocationOf(
+  state: DeckState,
+  slot: number,
+  run: number | null,
+): PlaceAllocation | null {
+  if (run === null || !(run > 0)) return null;
+  if (columnModeOf(state.imposition, slot) !== "split") return null;
+  const members = columnMembersOf(state, slot);
+  if (members.length === 0) return null;
+  return allocatePlaceHeights(
+    placeMemberAppetites(
+      state,
+      "column",
+      members,
+      state.imposition.columns?.[slot]?.shares,
+    ),
+    run,
+    IMPOSITION_GAP_PX,
+  );
+}
+
+/**
+ * A place's allocation as one string — how it stands, and the heights it gave
+ * its members, rounded to the pixel they are drawn at.
+ *
+ * The arrangement signature's rail and column terms, and the reason they are
+ * the HEIGHTS rather than the weights behind them: what a settle interpolates
+ * is frames, and a place crossing between sharing its run and stacking a strip
+ * moves every one of them without any weight changing at all. Rounding is what
+ * keeps sub-pixel allocation arithmetic from arming a settle nobody can see.
+ *
+ * A place with no allocation — a stack, or an unmeasured run — contributes the
+ * empty term, which is what it contributed before allocations existed.
+ */
+export function placeAllocationTerm(
+  allocation: PlaceAllocation | null,
+): string {
+  return `${allocation?.standing ?? "-"}:${
+    allocation?.heights.map((height) => Math.round(height)).join("+") ?? ""
+  }`;
+}
+
+/** The equal division's seam fractions for `count` members: `j + 1` of `count`,
+ *  which is exactly the `var()` fallback every member pin already carries. It
+ *  is what a place with no measured run has to answer — there is no run to take
+ *  the members' floors and weights against yet, and the frame the browser draws
+ *  before the properties land is drawn from the fallbacks anyway. */
+function equalSeamFractions(count: number): readonly number[] {
+  if (count < 2) return [];
+  return Array.from({ length: count - 1 }, (_, j) => (j + 1) / count);
+}
+
+/**
+ * The seam fractions an allocation means: boundary `j` sits where member
+ * `j + 1`'s top is, less the half-seam that member surrendered.
+ *
+ * The inverse of the pins' own arithmetic, so a fraction published from an
+ * allocation lands the frame exactly where the allocation put it ([P07]). An
+ * overflowing place has no fractions at all — it publishes strip coordinates
+ * instead — and a place with no allocation because its run is not measured yet
+ * falls back to the equal division, which is what the frames' `var()` fallbacks
+ * draw in that frame anyway.
+ */
+export function placeSeamFractions(
+  allocation: PlaceAllocation | null,
+  members: readonly string[],
+): readonly number[] {
+  if (allocation === null) return equalSeamFractions(members.length);
+  if (allocation.standing !== "shared") return [];
+  const fractions: number[] = [];
+  for (let i = 1; i < allocation.tops.length; i += 1) {
+    fractions.push((allocation.tops[i] - allocation.seam / 2) / allocation.run);
+  }
+  return fractions;
 }
 
 /**
@@ -472,9 +762,13 @@ export function columnBadgeFactsOf(
 ): ColumnBadgeFacts | null {
   const host = state.panes.find((pane) => pane.cardIds.includes(cardId));
   if (host === undefined) return null;
-  const column = deckColumnsOf(state).find((c) => c.members.includes(host.id));
-  if (column === undefined) return null;
-  const count = column.members.length;
+  // The badge is about membership and standing, never about heights, so it
+  // reads the members alone rather than allocating a run it does not have.
+  const kind = state.imposition.kind;
+  if (kind === undefined || host.slot === undefined) return null;
+  const members = columnMembersOf(state, clampSlot(kind, host.slot));
+  if (!members.includes(host.id)) return null;
+  const count = members.length;
   // Where the card stands in its place, for BOTH kinds. A stack answered 0
   // flat once, which meant every row of a three-deep slot drew the same badge
   // and the one thing a reader of a list wants to know — which of these is in
@@ -487,7 +781,10 @@ export function columnBadgeFactsOf(
   // walks, so the marked end and the direction that verb travels agree by
   // construction rather than by two functions happening to match.
   const index = Math.max(columnMoveOrder(state, host.id).indexOf(host.id), 0);
-  if (!columnDrawsSplit(column)) return { kind: "stack", count, index };
+  const drawsSplit =
+    columnModeOf(state.imposition, clampSlot(kind, host.slot)) === "split" &&
+    count >= 2;
+  if (!drawsSplit) return { kind: "stack", count, index };
   return { kind: "split", count, index };
 }
 
@@ -515,7 +812,7 @@ export function columnMoveOrder(
   if (pane?.slot === undefined) return [];
   const slot = clampSlot(kind, pane.slot);
   if (columnModeOf(state.imposition, slot) === "split") {
-    return deckColumnsOf(state).find((column) => column.slot === slot)?.members ?? [];
+    return columnMembersOf(state, slot);
   }
   return state.panes
     .filter((p) => p.slot !== undefined && clampSlot(kind, p.slot) === slot)
