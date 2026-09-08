@@ -13,9 +13,22 @@
  */
 
 import type { Rect } from "../snap";
-import { ZONE_INDICATOR_INSET_PX } from "./drop-zones";
 
 const INDICATOR_CLASS = "tug-drop-zone-indicator";
+
+/**
+ * How far inside a zone's tile the outline is drawn, in layout px — a feel
+ * number ([Q01]), and the one of them that lives outside `drop-zones.ts`.
+ *
+ * It is here because this is the only code that reads it, and because an
+ * app-test asserting the outline's rect against the tile it promised has to
+ * read the real number rather than repeat it. `drop-zones.ts` reaches the
+ * card registry and the protocol through `deck-store-selectors`, and the
+ * `tests/app-test` project cannot typecheck that graph — no `jsx`, no CSS
+ * side-effect declarations. This module's own graph is one type import, so
+ * a test may name it.
+ */
+export const ZONE_INDICATOR_INSET_PX = 3;
 
 /**
  * Show the indicator at `rect` inside `canvas`, or take it away when `rect` is

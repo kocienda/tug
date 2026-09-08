@@ -322,18 +322,33 @@ body {
  * rail dragged off its pin is afloat over cards and needs a card's frame to
  * read as a thing that can be dropped, so it regains the frame while it is
  * afloat and keeps its bar, stripes, label, and glyph throughout. A panel is a
- * shape a rail has AT AN EDGE, not a property of the card.
+ * shape a rail has AT AN EDGE, not a property of the card. And a member
+ * reordered within its own rail is afloat for the same reason while it keeps
+ * its side, so the frame rules below are keyed on BOTH: pinned, and not in
+ * the air. `data-gesture="true"` is the title-bar drag's mark on the frame,
+ * from the lift until the landing animation finishes (`landZoneDrop`), which
+ * is exactly the window in which the card is a thing being carried; the
+ * rail's own width resize stamps `"resize"` and stays a panel. For that
+ * window the chrome falls through to the card's frame — a rule on every
+ * edge, the card radius, the card shadow — and takes the panel's back the
+ * moment it has landed. The afloat rail and the in-flight member are one
+ * statement, not two.
  *
  * `panel`: the rail gives up the card's whole shape. Flush to the window's
  * top and outer edge (the rail edge inset is 0 — `RAIL_EDGE_INSET_PX`), square
  * corners, no shadow, on the SUNKEN surface rather than the content surface,
- * and a `strong` hairline on every edge but the window's — top, bottom, and
- * the inner edge — is all the frame it keeps. The gutter to the first card is
- * `RAIL_GUTTER_PX`, wider than the card gap. A split rail's members touch
- * (`RAIL_SEAM_PX` is 0) and meet at ONE hairline: every member below a seam
- * drops its top rule, read off `data-rail-member-index`, and the member above
- * keeps its bottom one, so the seam is the same weight as the outer rules
- * rather than two of them stacked. The
+ * and a `strong` hairline only where the rail BORDERS SOMETHING ELSE is all
+ * the frame it keeps. The rule: a hairline marks a boundary — the inner edge,
+ * where the gutter to the first card begins (`RAIL_GUTTER_PX`, wider than the
+ * card gap), and the seam between two members of a split rail. The window's
+ * own top and bottom are boundaries with nothing, so no member draws a top
+ * rule and the last member draws no bottom one; a stacked rail — one frame,
+ * no seams — reads as one flush panel from window top to window foot. A
+ * split rail's members touch (`RAIL_SEAM_PX` is 0) and meet at ONE hairline,
+ * which is the UPPER member's bottom rule: every member with a member below
+ * it keeps its bottom rule, read off `data-rail-member-last`, so the seam is
+ * the same weight as the inner rule rather than two stacked, and the two
+ * window edges stand on the same footing without a case for index 0. The
  * contrast is one of SHAPE: a rail that is part of the window against a card
  * that floats on the paper, which no tint achieves by degree — so the tint
  * strength is 0 here, stated so the block is the whole treatment. The bar's
@@ -361,20 +376,22 @@ body {
   );
 }
 
-[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side] .tug-pane-chrome {
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side]:not([data-gesture="true"]) .tug-pane-chrome {
   border-radius: 0;
   box-shadow: none;
-  border-width: 1px 1px 1px 0;
+  border-width: 0 1px 0 0;
 }
 
 /* Mirrored: the inner edge of a right-hand rail is its left. */
-[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side="right"] .tug-pane-chrome {
-  border-width: 1px 0 1px 1px;
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side="right"]:not([data-gesture="true"]) .tug-pane-chrome {
+  border-width: 0 0 0 1px;
 }
 
-/* A member below a seam: the rule at that seam is its upper neighbour's. */
-[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side][data-rail-member-index]:not([data-rail-member-index="0"]) .tug-pane-chrome {
-  border-top-width: 0;
+/* A member with a member below it draws the seam's one hairline as its
+   bottom rule. The last member borders the window's foot, which is no
+   boundary, and draws none. */
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side][data-rail-member-index]:not([data-rail-member-last]):not([data-gesture="true"]) .tug-pane-chrome {
+  border-bottom-width: 1px;
 }
 
 .tug-pane-title-bar {

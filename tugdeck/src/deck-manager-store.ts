@@ -303,6 +303,13 @@ export interface IDeckManagerStore {
   setRailOrder: (side: SidebarSide, order: readonly string[]) => void;
 
   /**
+   * Land a sidebar card at a position of a rail from whichever rail it stands
+   * on — the cross-side drop's commit: side and both orders in one
+   * imposition, so the gesture arms one settle.
+   */
+  moveSidebarToRail: (componentId: string, side: SidebarSide, index: number) => void;
+
+  /**
    * Set a slot's height weights — the column seam drag's commit, and a
    * gesture's commit for the same reason {@link setRailShares} is. Weights are
    * per PANE id: a slot holds panes, and a pane may itself be a tab stack, so

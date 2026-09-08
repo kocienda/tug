@@ -2641,6 +2641,10 @@ export function TugPane({
      *  back onto it commits nothing, and a drop that commits nothing is the one
      *  the landing has to animate itself. */
     origin: DropZone | null;
+    /** The frame's own rect at the latch, in canvas layout px, before any
+     *  transform — what the engine measures a place from when this card is
+     *  the place's sole member, since a frame in flight defines nothing. */
+    startRect: Rect;
   } | null>(null);
   // Whether ⌘ was held at the most recent frame. Read like `latestAltKey` and
   // for the same reason — the modifier's meaning is decided by where the hand
@@ -2980,6 +2984,7 @@ export function TugPane({
         zones: readonly DropZone[];
         live: DropZone | null;
         origin: DropZone | null;
+        startRect: Rect;
       } | null {
         const host = dropZonesRef.current;
         if (host === undefined) return null;
@@ -2994,9 +2999,20 @@ export function TugPane({
           });
         }
         zoneTabBarsRef.current = tabBars;
-        const set = host.enumerate(id, tabBars);
+        // The latch runs before the first transform is written, so this is
+        // the frame where the arrangement put it — the one rect of its own
+        // the dragged card can vouch for once it is moving.
+        const canvas = dragCanvasBounds.current;
+        const seated = frame.getBoundingClientRect();
+        const startRect: Rect = {
+          x: (seated.left - (canvas?.left ?? 0)) / dragZoom,
+          y: (seated.top - (canvas?.top ?? 0)) / dragZoom,
+          width: seated.width / dragZoom,
+          height: seated.height / dragZoom,
+        };
+        const set = host.enumerate(id, tabBars, startRect);
         if (set.zones.length === 0) return null;
-        return { zones: set.zones, live: set.origin, origin: set.origin };
+        return { zones: set.zones, live: set.origin, origin: set.origin, startRect };
       }
 
       /**
@@ -3021,7 +3037,7 @@ export function TugPane({
         const now = performance.now();
         const last = autoscrollClockRef.current;
         autoscrollClockRef.current = now;
-        const target = host.autoscrollTargetFor(pointer);
+        const target = host.autoscrollTargetFor(pointer, id);
         if (target === null || last === null) return false;
 
         const key = autoscrollKey(target);
@@ -3136,6 +3152,7 @@ export function TugPane({
       function applyZoneDragFrame(state: {
         zones: readonly DropZone[];
         live: DropZone | null;
+        startRect: Rect;
       }): void {
         const pointer = latestDragPointer.current;
         const start = dragStartPointer.current;
@@ -3165,7 +3182,9 @@ export function TugPane({
           // than translate the cached rects: the browser has already reflowed
           // against the property this frame wrote, and reading it back is the
           // one answer that cannot drift from what the user is looking at.
-          state.zones = dropZonesRef.current?.enumerate(id, zoneTabBarsRef.current).zones ?? state.zones;
+          state.zones =
+            dropZonesRef.current?.enumerate(id, zoneTabBarsRef.current, state.startRect)
+              .zones ?? state.zones;
         }
         state.live = pickLiveZone(state.zones, pointerOnCanvas(pointer), state.live);
         dropZonesRef.current?.indicate(state.live);
@@ -4345,11 +4364,17 @@ export function TugPane({
       {...(railSplit && sidebarStack !== undefined
         ? {
             "data-rail-member": sidebarStack.componentId,
-            // And where it stands, top to bottom, so the panel treatment can
-            // draw one hairline at a seam rather than two: the member below
-            // a seam drops its top rule and the member above keeps its
-            // bottom one.
+            // And where it stands, top to bottom, plus whether it is the
+            // LAST member — a fact the pane has and the stylesheet needs,
+            // since an index alone cannot say it. The panel treatment draws
+            // a rail's hairlines only where they mark a boundary with
+            // something else: no member draws a top rule, every member with
+            // a member below it draws a bottom one, and the last draws none,
+            // so the window's own edges carry no rule.
             "data-rail-member-index": String(sidebarStack.memberIndex),
+            ...(sidebarStack.memberIndex === sidebarStack.count - 1
+              ? { "data-rail-member-last": "" }
+              : {}),
           }
         : {})}
       // A member of a column that is currently divided rather than stacked — the

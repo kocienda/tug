@@ -13,6 +13,7 @@ import type { Rect } from "../../snap";
 import {
   PLACE_OVERFLOW_VISIBLE_MEMBERS,
   IMPOSITION_GAP_PX,
+  RAIL_SEAM_PX,
 } from "../layout-imposer";
 import {
   AUTOSCROLL_MARGIN_PX,
@@ -71,13 +72,19 @@ function slotRect(slot: number): Rect {
 }
 
 /** Members of a split column, stacked down the slot's run at the given
- *  heights — the geometry the imposer would have produced. */
-function splitRects(slot: number, heights: readonly number[]): Rect[] {
+ *  heights — the geometry the imposer would have produced. A rail's members
+ *  stack at the rail's own seam instead, so a rail fixture passes
+ *  `RAIL_SEAM_PX`. */
+function splitRects(
+  slot: number,
+  heights: readonly number[],
+  seam: number = IMPOSITION_GAP_PX,
+): Rect[] {
   const rects: Rect[] = [];
   let y = RUN_TOP;
   for (const height of heights) {
     rects.push({ x: SLOT_X[slot], y, width: SLOT_WIDTH, height });
-    y += height + IMPOSITION_GAP_PX;
+    y += height + seam;
   }
   return rects;
 }
@@ -88,6 +95,15 @@ function measured(overrides: Partial<DropZoneMeasurements> = {}): DropZoneMeasur
     panes: new Map(),
     tabBars: new Map(),
     rails: [],
+    // The deck's own run measurement, which the engine reads instead of
+    // summing frames. The fixtures' places are tiled to fill RUN_HEIGHT
+    // unless a test says otherwise.
+    runs: { column: RUN_HEIGHT, rail: RUN_HEIGHT },
+    // Only read when the dragged card is the sole member of its place; a
+    // test that exercises that case supplies the real rect.
+    draggedAtStart: { x: 0, y: 0, width: 0, height: 0 },
+    // A side with no rail holds nothing open unless a test renders the tile.
+    railVacancies: {},
     ...overrides,
   };
 }
@@ -218,7 +234,7 @@ describe("a card only ever sees the places its own kind can stand in", () => {
           ["notes", railRects[1]],
         ]),
         tabBars: new Map([["p1", { x: 0, y: RUN_TOP, width: SLOT_WIDTH, height: 30 }]]),
-        rails: [{ side: "right", members: ["tripwires", "notes"] }],
+        rails: [{ side: "right", mode: "split", members: ["tripwires", "notes"] }],
       }),
     );
     expect(keys(set.zones)).toEqual(["rail:right:0", "rail:right:1"]);
@@ -249,10 +265,180 @@ describe("a card only ever sees the places its own kind can stand in", () => {
         slots: new Map([[1, slotRect(1)]]),
         panes,
         tabBars,
-        rails: [{ side: "right", members: ["tripwires"] }],
+        rails: [{ side: "right", mode: "split", members: ["tripwires"] }],
+        draggedAtStart: slotRect(2),
       }),
     );
     expect(keys(sidebar.zones)).toEqual(["rail:right:0"]);
+  });
+
+  it("a rail card sees both rails: N positions on its own, N+1 on the other", () => {
+    // tripwires stands on a two-member right rail; the left rail holds two
+    // more. Its own rail offers the two places it could stand (it is already
+    // one of them); the left rail offers three, because there it would be an
+    // arrival. The origin is still its own current position.
+    const state = deck([pane("tripwires"), pane("notes"), pane("cards"), pane("jots")]);
+    const right = splitRects(2, [RUN_HEIGHT / 2, RUN_HEIGHT / 2], RAIL_SEAM_PX);
+    const left = splitRects(0, [RUN_HEIGHT / 2, RUN_HEIGHT / 2], RAIL_SEAM_PX);
+    const set = enumerateDropZones(
+      state,
+      "tripwires",
+      measured({
+        panes: new Map([
+          ["tripwires", right[0]],
+          ["notes", right[1]],
+          ["cards", left[0]],
+          ["jots", left[1]],
+        ]),
+        rails: [
+          { side: "left", mode: "split", members: ["cards", "jots"] },
+          { side: "right", mode: "split", members: ["tripwires", "notes"] },
+        ],
+      }),
+    );
+    expect(keys(set.zones)).toEqual([
+      "rail:left:0",
+      "rail:left:1",
+      "rail:left:2",
+      "rail:right:0",
+      "rail:right:1",
+    ]);
+    expect(dropZoneKey(set.origin!)).toBe("rail:right:0");
+    // Three arrivals on a two-member rail overflow it, so the left tiles are
+    // the run/2.5 strip down the LEFT rail's own column.
+    const arrivals = set.zones.filter((zone) => zone.kind === "rail-index" && zone.side === "left");
+    for (const zone of arrivals) {
+      expect(zone.rect.x).toBeCloseTo(SLOT_X[0], 6);
+      expect(zone.rect.height).toBeCloseTo(RUN_HEIGHT / PLACE_OVERFLOW_VISIBLE_MEMBERS, 6);
+    }
+  });
+
+  it("a stacked other rail offers itself whole: one zone, index 0", () => {
+    // What a stack offers is the stack itself — one rect front to back —
+    // and the arrival goes to the front of the stored order ([B11]).
+    const state = deck([pane("tripwires"), pane("notes"), pane("cards")]);
+    const right = splitRects(2, [RUN_HEIGHT / 2, RUN_HEIGHT / 2], RAIL_SEAM_PX);
+    const set = enumerateDropZones(
+      state,
+      "tripwires",
+      measured({
+        panes: new Map([
+          ["tripwires", right[0]],
+          ["notes", right[1]],
+          ["cards", slotRect(0)],
+        ]),
+        rails: [
+          { side: "left", mode: "stack", members: ["cards"] },
+          { side: "right", mode: "split", members: ["tripwires", "notes"] },
+        ],
+      }),
+    );
+    expect(keys(set.zones)).toEqual(["rail:left:0", "rail:right:0", "rail:right:1"]);
+    const stack = set.zones.find((z) => z.kind === "rail-index" && z.side === "left");
+    expect(stack?.rect).toEqual(slotRect(0));
+    expect(stack?.hit).toBeUndefined();
+  });
+
+  it("a stacked other rail of two is one rect, not two", () => {
+    const state = deck([pane("tripwires"), pane("notes"), pane("cards")]);
+    const left = slotRect(0);
+    const set = enumerateDropZones(
+      state,
+      "tripwires",
+      measured({
+        panes: new Map([
+          ["tripwires", slotRect(2)],
+          ["notes", left],
+          ["cards", left],
+        ]),
+        rails: [
+          { side: "left", mode: "stack", members: ["notes", "cards"] },
+          { side: "right", mode: "split", members: ["tripwires"] },
+        ],
+      }),
+    );
+    expect(keys(set.zones).filter((k) => k.startsWith("rail:left"))).toEqual(["rail:left:0"]);
+  });
+
+  it("the card's OWN stacked rail is one rect too, and it is the origin", () => {
+    // A stack's members share one frame, so there are no positions to divide
+    // it into — the fork is on the rail's mode, not on whose rail it is. Read
+    // as a division instead, the seated member's pin would be inverted with
+    // arithmetic that never wrote it, and the run would come back half a run
+    // above the canvas ([B07], [B11]).
+    const state = deck([pane("cards"), pane("jots")]);
+    const frame = slotRect(0);
+    const set = enumerateDropZones(
+      state,
+      "cards",
+      measured({
+        panes: new Map([
+          ["cards", { ...frame, y: frame.y - 400 }], // in flight, under the hand
+          ["jots", frame],
+        ]),
+        rails: [{ side: "left", mode: "stack", members: ["cards", "jots"] }],
+      }),
+    );
+    expect(keys(set.zones)).toEqual(["rail:left:0"]);
+    expect(set.zones[0]?.rect, "the rail's own rect, off the seated member").toEqual(frame);
+    expect(set.origin?.rect, "and a release over it asks for the place it holds").toEqual(frame);
+  });
+
+  it("a stacked rail's sole member reads its own gesture-start rect", () => {
+    // Nothing stayed put, so the one rect the card can still vouch for is the
+    // frame it had at the latch — never the live one, which carries the drag.
+    const state = deck([pane("cards")]);
+    const frame = slotRect(0);
+    const set = enumerateDropZones(
+      state,
+      "cards",
+      measured({
+        panes: new Map([["cards", { ...frame, y: frame.y - 400 }]]),
+        rails: [{ side: "left", mode: "stack", members: ["cards"] }],
+        draggedAtStart: frame,
+      }),
+    );
+    expect(keys(set.zones)).toEqual(["rail:left:0"]);
+    expect(set.zones[0]?.rect).toEqual(frame);
+  });
+
+  it("a side with no rail advertises its vacancy tile as index 0", () => {
+    // The empty side holds open a landing strip while a rail card is in the
+    // air ([B10]); the tile's box is the zone, and the card arrives alone.
+    const state = deck([pane("tripwires"), pane("notes")]);
+    const right = splitRects(2, [RUN_HEIGHT / 2, RUN_HEIGHT / 2], RAIL_SEAM_PX);
+    const vacancy = { x: 0, y: 0, width: 320, height: RUN_HEIGHT };
+    const set = enumerateDropZones(
+      state,
+      "tripwires",
+      measured({
+        panes: new Map([
+          ["tripwires", right[0]],
+          ["notes", right[1]],
+        ]),
+        rails: [{ side: "right", mode: "split", members: ["tripwires", "notes"] }],
+        railVacancies: { left: vacancy },
+      }),
+    );
+    expect(keys(set.zones)).toEqual(["rail:right:0", "rail:right:1", "rail:left:0"]);
+    expect(set.zones[2]?.rect).toEqual(vacancy);
+  });
+
+  it("a side with neither a rail nor a tile advertises nothing", () => {
+    const state = deck([pane("tripwires"), pane("notes")]);
+    const right = splitRects(2, [RUN_HEIGHT / 2, RUN_HEIGHT / 2], RAIL_SEAM_PX);
+    const set = enumerateDropZones(
+      state,
+      "tripwires",
+      measured({
+        panes: new Map([
+          ["tripwires", right[0]],
+          ["notes", right[1]],
+        ]),
+        rails: [{ side: "right", mode: "split", members: ["tripwires", "notes"] }],
+      }),
+    );
+    expect(keys(set.zones)).toEqual(["rail:right:0", "rail:right:1"]);
   });
 });
 
@@ -263,7 +449,8 @@ describe("a split column advertises one position per place a member can stand", 
 
   it("a two-member column offers both positions and starts on the card's own", () => {
     const state = deck([pane("p1", 0), pane("p2", 0)], split);
-    const rects = splitRects(0, [250, 345]);
+    const half = IMPOSITION_GAP_PX / 2;
+    const rects = splitRects(0, [RUN_HEIGHT / 2 - half, RUN_HEIGHT / 2 - half]);
     const { zones, origin } = enumerateDropZones(
       state,
       "p1",
@@ -509,13 +696,16 @@ describe("a position is asked for at the tile the preview draws", () => {
 
   it("a rail's positions are asked for the same way", () => {
     // No shares, so every candidate order divides the measured run in half —
-    // a two-member rail is division-true like a two-member column.
+    // a two-member rail is division-true like a two-member column. The seam
+    // is the rail's own, `RAIL_SEAM_PX`, not the column gap: the tiles pin
+    // at the 0 seam the imposer divides a rail with. The fixture is the
+    // geometry the imposer draws for that division: equal halves of the run.
     const state = deck([pane("s1"), pane("s2")], {
       kind: "three-up",
     });
-    const rects = splitRects(0, [200, 180]);
-    const run = 200 + 180 + IMPOSITION_GAP_PX;
-    const half = IMPOSITION_GAP_PX / 2;
+    const run = 380;
+    const half = RAIL_SEAM_PX / 2;
+    const rects = splitRects(0, [run / 2 - half, run / 2 - half], RAIL_SEAM_PX);
     const { zones } = enumerateDropZones(
       state,
       "s1",
@@ -524,31 +714,34 @@ describe("a position is asked for at the tile the preview draws", () => {
           ["s1", rects[0]],
           ["s2", rects[1]],
         ]),
-        rails: [{ side: "left", members: ["s1", "s2"] }],
+        rails: [{ side: "left", mode: "split", members: ["s1", "s2"] }],
+        runs: { column: RUN_HEIGHT, rail: run },
       }),
     );
     const bands = zones.map(hitRectOf);
     expect(bands).toHaveLength(2);
     // The bands divide at the drawn tiles' top edges: half the run plus the
-    // seam's half gap.
+    // seam's half — which for a rail is nothing at all.
     expect(bands[0].y + bands[0].height).toBeCloseTo(
       RUN_TOP + run / 2 + half,
       6,
     );
+    // The two tiles meet at the seam with no gap surrendered on either side.
+    expect(zones[0].rect.y + zones[0].rect.height).toBeCloseTo(zones[1].rect.y, 6);
     // And the last band's end is the run's own bottom edge — nothing hangs.
     expect(bands[1].y + bands[1].height).toBeCloseTo(RUN_TOP + run, 6);
   });
 
   it("an overflowing rail's positions are the run/2.5 strip", () => {
     // Three members, so the side stands under the overflow rule a column has
-    // always stood under: every tile the same height, stacked a gap apart down
-    // a strip that runs past the run's bottom edge.
+    // always stood under: every tile the same height, stacked a rail seam
+    // apart down a strip that runs past the run's bottom edge.
     const state = deck([pane("s1"), pane("s2"), pane("s3")], {
       kind: "three-up",
     });
-    const run = 200 + 150 + 180 + 2 * IMPOSITION_GAP_PX;
+    const run = 200 + 150 + 180 + 2 * RAIL_SEAM_PX;
     const memberH = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
-    const rects = splitRects(0, [memberH, memberH, memberH]);
+    const rects = splitRects(0, [memberH, memberH, memberH], RAIL_SEAM_PX);
     const { zones } = enumerateDropZones(
       state,
       "s1",
@@ -558,14 +751,15 @@ describe("a position is asked for at the tile the preview draws", () => {
           ["s2", rects[1]],
           ["s3", rects[2]],
         ]),
-        rails: [{ side: "left", members: ["s1", "s2", "s3"] }],
+        rails: [{ side: "left", mode: "split", members: ["s1", "s2", "s3"] }],
+        runs: { column: RUN_HEIGHT, rail: run },
       }),
     );
     expect(zones).toHaveLength(3);
     zones.forEach((zone, index) => {
       expect(zone.rect.height).toBeCloseTo(memberH, 6);
       expect(zone.rect.y).toBeCloseTo(
-        RUN_TOP + index * (memberH + IMPOSITION_GAP_PX),
+        RUN_TOP + index * (memberH + RAIL_SEAM_PX),
         6,
       );
     });
@@ -577,13 +771,14 @@ describe("a position is asked for at the tile the preview draws", () => {
   it("a rail member's share travels with it to every previewed position", () => {
     // s2 carries a double weight. Dragging s1 (weight 1), the last position's
     // tile begins where s2's two thirds leave off, and the tile is s1's own
-    // third.
+    // third, with the rail's 0 seam between them. The fixture is what the
+    // imposer draws for those weights: a third over two thirds.
     const state = deck([pane("s1"), pane("s2")], {
       kind: "three-up",
     });
-    const rects = splitRects(0, [200, 180]);
-    const run = 200 + 180 + IMPOSITION_GAP_PX;
-    const half = IMPOSITION_GAP_PX / 2;
+    const run = 380;
+    const half = RAIL_SEAM_PX / 2;
+    const rects = splitRects(0, [run / 3 - half, (run * 2) / 3 - half], RAIL_SEAM_PX);
     const { zones } = enumerateDropZones(
       state,
       "s1",
@@ -595,15 +790,115 @@ describe("a position is asked for at the tile the preview draws", () => {
         rails: [
           {
             side: "left",
+            mode: "split",
             members: ["s1", "s2"],
             shares: { s1: 1, s2: 2 },
           },
         ],
+        runs: { column: RUN_HEIGHT, rail: run },
       }),
     );
     const last = zones[1].rect;
     expect(last.y).toBeCloseTo(RUN_TOP + (run * 2) / 3 + half, 6);
     expect(last.y + last.height).toBeCloseTo(RUN_TOP + run, 6);
+  });
+
+  it("a place is measured from the member that stayed put, never the one in flight", () => {
+    // s1 is being dragged: its measured rect carries the drag transform, so
+    // it stands well away from where the arrangement put it. s2 is seated.
+    // Every tile must be drawn against s2 and the deck's run — a run read
+    // off s1 would move with the hand, and re-measured on every autoscroll
+    // frame the error would grow for as long as the pointer held.
+    const state = deck([pane("s1"), pane("s2")], {
+      kind: "three-up",
+    });
+    const run = 380;
+    const seated = splitRects(0, [run / 2, run / 2], RAIL_SEAM_PX);
+    const inFlight: Rect = {
+      ...seated[0],
+      x: seated[0].x + 120,
+      y: seated[0].y + 90,
+    };
+    const { zones } = enumerateDropZones(
+      state,
+      "s1",
+      measured({
+        panes: new Map([
+          ["s1", inFlight],
+          ["s2", seated[1]],
+        ]),
+        rails: [{ side: "left", mode: "split", members: ["s1", "s2"] }],
+        runs: { column: RUN_HEIGHT, rail: run },
+      }),
+    );
+    expect(zones).toHaveLength(2);
+    for (const zone of zones) {
+      expect(zone.rect.x).toBeCloseTo(seated[1].x, 6);
+      expect(zone.rect.width).toBeCloseTo(seated[1].width, 6);
+    }
+    expect(zones[0].rect.y).toBeCloseTo(RUN_TOP, 6);
+    expect(zones[1].rect.y).toBeCloseTo(RUN_TOP + run / 2, 6);
+  });
+
+  it("a scrolled strip reads back scrolled, off its seated members", () => {
+    // Three members under the overflow rule, with the strip advanced 40px:
+    // the seated members carry the offset in their measured rects. The
+    // tiles follow the seated grid — shifted by the same 40px — while the
+    // dragged s1, displaced by the hand, moves nothing.
+    const state = deck([pane("s1"), pane("s2"), pane("s3")], {
+      kind: "three-up",
+    });
+    const run = 530;
+    const memberH = run / PLACE_OVERFLOW_VISIBLE_MEMBERS;
+    const stride = memberH + RAIL_SEAM_PX;
+    const offset = 40;
+    const seatedTop = RUN_TOP - offset;
+    const at = (index: number): Rect => ({
+      x: SLOT_X[0],
+      y: seatedTop + index * stride,
+      width: SLOT_WIDTH,
+      height: memberH,
+    });
+    const { zones } = enumerateDropZones(
+      state,
+      "s1",
+      measured({
+        panes: new Map([
+          ["s1", { ...at(0), x: SLOT_X[0] - 80, y: at(0).y + 300 }],
+          ["s2", at(1)],
+          ["s3", at(2)],
+        ]),
+        rails: [{ side: "left", mode: "split", members: ["s1", "s2", "s3"] }],
+        runs: { column: RUN_HEIGHT, rail: run },
+      }),
+    );
+    expect(zones).toHaveLength(3);
+    zones.forEach((zone, index) => {
+      expect(zone.rect.x).toBeCloseTo(SLOT_X[0], 6);
+      expect(zone.rect.y).toBeCloseTo(seatedTop + index * stride, 6);
+      expect(zone.rect.height).toBeCloseTo(memberH, 6);
+    });
+  });
+
+  it("a sole member's place is its own frame at gesture start", () => {
+    // Nothing else stands in the rail, so there is no seated frame to read.
+    // The rect the card had when the gesture began stands in — never its
+    // live rect, which is wherever the hand has taken it.
+    const state = deck([pane("s1")], { kind: "three-up" });
+    const atStart: Rect = { x: SLOT_X[0], y: RUN_TOP, width: SLOT_WIDTH, height: 380 };
+    const { zones, origin } = enumerateDropZones(
+      state,
+      "s1",
+      measured({
+        panes: new Map([["s1", { ...atStart, x: atStart.x + 200, y: atStart.y + 150 }]]),
+        rails: [{ side: "left", mode: "split", members: ["s1"] }],
+        runs: { column: RUN_HEIGHT, rail: 380 },
+        draggedAtStart: atStart,
+      }),
+    );
+    expect(zones).toHaveLength(1);
+    expect(zones[0].rect).toEqual(atStart);
+    expect(origin).toBe(zones[0]);
   });
 });
 

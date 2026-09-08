@@ -1,0 +1,39 @@
+/**
+ * rail-vacancy.css — a deck edge with no rail on it, held open while a rail
+ * card is in the air.
+ *
+ * A side with no pinned sidebar cards has no DOM box: its inset is 0 and
+ * nothing stands in it, so the drop-zone engine, which reads every place off
+ * the frames, has nothing to read a zone from. This tile is what closes that —
+ * the third application of the vacancy pattern `slot-vacancy.css` set, and
+ * the same contract: **a drawing and a measurement, and nothing else.** It
+ * stands at the rail's anchor and the width the card would take, inert to the
+ * pointer, and the engine reads its box through `[data-vacant-rail]`. A drop
+ * lands here through the engine rather than through any event of its own.
+ *
+ * At rest it draws nothing at all. It exists on every frame because the
+ * measurement has to, but an empty deck edge is not something a reader wants
+ * announced. While a card is in the air (`data-carrying`, written on the
+ * canvas by the drag's own lifecycle verb) it shows a hairline ring at the
+ * strip's edge — the quietest statement that the edge is a place — and the
+ * drop-zone indicator draws the real outline over it when the hand arrives.
+ *
+ * @tug-pairings
+ * | Element                                          | Surface                                          | Role          | Context |
+ * |--------------------------------------------------|--------------------------------------------------|---------------|---------|
+ * | --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-canvas-rest | informational | .tug-rail-vacancy ring |
+ */
+
+.tug-rail-vacancy {
+  /* @tug-renders-on: --tug7-surface-global-primary-normal-canvas-rest */
+  position: absolute;
+  /* Behind every pane, beside the slot vacancies. */
+  z-index: 0;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+/* A card is in the air: the held-open edge shows itself for the duration. */
+[data-carrying] .tug-rail-vacancy {
+  box-shadow: inset 0 0 0 1px var(--tug7-element-global-border-normal-default-rest);
+}

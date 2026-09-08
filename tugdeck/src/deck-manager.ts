@@ -122,6 +122,7 @@ import {
   railModeOf,
   withRailMode,
   withRailOrder,
+  withSidebarMovedToRail,
   withColumnMode,
   sweptColumnOrders,
   withColumnOrder,
@@ -1762,6 +1763,25 @@ export class DeckManager implements IDeckManagerStore {
       if (current.every((id, i) => id === members[i])) return;
     }
     this._reimpose(withRailOrder(this.deckState.imposition, side, members));
+  }
+
+  /**
+   * Land `componentId` at position `index` of `side`'s rail, from whichever
+   * rail it stands on — the cross-side drop's commit. One `_reimpose`
+   * carrying the side and both rails' orders, on {@link setRailMode}'s own
+   * reasoning: a second commit would arm a second settle under the same
+   * gesture, and `setSidebarSide` alone would append the card at the side's
+   * default position and tween it there before the order moved it again.
+   */
+  moveSidebarToRail(componentId: string, side: SidebarSide, index: number): void {
+    if (!isSidebarCard(componentId)) return;
+    const imposition = this.deckState.imposition;
+    this._reimpose(
+      withSidebarMovedToRail(imposition, componentId, side, index, {
+        left: this._railOrder(imposition, "left"),
+        right: this._railOrder(imposition, "right"),
+      }),
+    );
   }
 
   /**

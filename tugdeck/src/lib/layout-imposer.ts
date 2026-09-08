@@ -472,6 +472,45 @@ export function withRailOrder(
   return withRailField(imposition, side, { order: [...order] });
 }
 
+/**
+ * The imposition with `componentId` moved from the rail it stands on to
+ * position `index` of `side`'s rail — its side, the origin's order, and the
+ * destination's order in ONE imposition, so a cross-side drop arms exactly
+ * one settle. The precedent is a split: {@link withRailMode}'s caller writes
+ * the mode and the order it materializes in one commit, never two, because a
+ * second commit under the same gesture is a second settle under the user's
+ * hand. Changing the side alone would first land the card at the side's
+ * default position and tween it there, and only then move it to `index`.
+ *
+ * `standing` is each side's members in the vertical order they hold, the
+ * caller's to supply for the reason {@link effectiveRailOrder} states: a pure
+ * module cannot see the registry. The card is removed from wherever it appears
+ * in either list, inserted at `index` of the destination (clamped to the
+ * list's ends), and the origin's order is written without it — the same
+ * standing-members order a same-side reorder stores.
+ */
+export function withSidebarMovedToRail(
+  imposition: DeckImposition,
+  componentId: string,
+  side: SidebarSide,
+  index: number,
+  standing: Readonly<Record<SidebarSide, readonly string[]>>,
+): DeckImposition {
+  const from = sidebarSide(imposition, componentId);
+  const destination = standing[side].filter((id) => id !== componentId);
+  const at = Math.max(0, Math.min(index, destination.length));
+  destination.splice(at, 0, componentId);
+  let next = withSidebarSide(imposition, componentId, side);
+  if (from !== side) {
+    next = withRailOrder(
+      next,
+      from,
+      standing[from].filter((id) => id !== componentId),
+    );
+  }
+  return withRailOrder(next, side, destination);
+}
+
 /** The members `side` held when its rail was last hidden whole, or an empty
  *  list when there is no such memory — the rail has never been hidden that way,
  *  or the show that consumed the memory has already run. */

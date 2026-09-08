@@ -20,9 +20,13 @@
  * hit-target drawn around a boundary. That is what lets the indicator be
  * honest: what it shows is what the release does. Tiles are derived with the
  * commit's own arithmetic — the post-drop order's weights through
- * `railSeamFractions`, cut into the run with half-gap seams ([P06]) — and a
+ * `railSeamFractions`, cut into the run with half-seam edges ([P06]) — and a
  * place that would end up with three or more members — a column or a rail —
- * lands under the overflow rule rather than dividing ([P08]).
+ * lands under the overflow rule rather than dividing ([P08]). The seam is a
+ * value the place supplies, exactly as the imposer's `PlaceRun.seam` is: a
+ * column divides at `IMPOSITION_GAP_PX`, a rail at `RAIL_SEAM_PX`, and the
+ * tile arithmetic never reads either constant itself, so the two sides agree
+ * by construction.
  */
 
 import type { DeckState } from "../layout-tree";
@@ -31,10 +35,12 @@ import { deckColumnsOf } from "../deck-store-selectors";
 import {
   PLACE_OVERFLOW_VISIBLE_MEMBERS,
   IMPOSITION_GAP_PX,
+  RAIL_SEAM_PX,
   clampSlot,
   placeStanding,
   railSeamFractions,
   slotCount,
+  type RailMode,
   type SidebarSide,
 } from "./layout-imposer";
 
@@ -54,8 +60,10 @@ import {
  */
 export const ZONE_HYSTERESIS_PX = 24;
 
-/** How far inside a zone's tile the indicator is drawn, in layout px. */
-export const ZONE_INDICATOR_INSET_PX = 3;
+// The indicator's inset is the one feel number that lives elsewhere:
+// `ZONE_INDICATOR_INSET_PX`, in `drop-zone-indicator.ts`, which is the only
+// code that reads it and is a leaf a test can import without dragging this
+// module's graph behind it. Tune it there.
 
 /**
  * How close to a scrollable strip's edge the pointer must hold before the strip
@@ -135,6 +143,10 @@ export function hitRectOf(zone: DropZone): Rect {
  *  cannot see a registry. */
 export interface DropZoneRail {
   side: SidebarSide;
+  /** Stacked or split. A rail card arriving from the other side lands in a
+   *  split rail at a position; what a stacked destination advertises is its
+   *  own question, answered where the vocabulary is assembled. */
+  mode: RailMode;
   /** The rail's member pane ids, top to bottom. */
   members: readonly string[];
   /** The members' division weights, keyed by pane id — the rail's stored
@@ -161,6 +173,30 @@ export interface DropZoneMeasurements {
   tabBars: ReadonlyMap<string, Rect>;
   /** The rails standing on the deck's edges. */
   rails: readonly DropZoneRail[];
+  /**
+   * The run each kind of place divides, in layout px — the deck's own
+   * measurement (`getColumnRunHeight` and `getRailRunHeight`), never a sum
+   * of frames. A frame in flight defines nothing, and the store is the one
+   * reader that cannot be moved by a hand ({@link seatedPlace}). `null` is
+   * a canvas with no height to speak of, and that kind of place then
+   * advertises nothing.
+   */
+  runs: { column: number | null; rail: number | null };
+  /**
+   * The dragged card's own frame at gesture start, before any transform —
+   * the one rect of its own it can still vouch for. Read only when the card
+   * is the sole member of its place, so there is no seated frame to measure
+   * the place from; every other place is read off a member that stayed put.
+   */
+  draggedAtStart: Rect;
+  /**
+   * The landing strip a side with no rail holds open while a rail card is
+   * in the air, by side — the `.tug-rail-vacancy` tile's box, at the rail's
+   * anchor and the width the card would take ([B10]). A side with a rail
+   * standing on it has members to measure and is absent here; a side with
+   * neither advertises nothing.
+   */
+  railVacancies: Partial<Record<SidebarSide, Rect>>;
 }
 
 /** The zones a gesture may land in, and the one it starts indicating. */
@@ -250,11 +286,13 @@ export function autoscrollDelta(input: {
  * canvas, all called from the pane.
  */
 export interface DropZoneHost {
-  /** Measure the canvas and enumerate, given the tab bars the gesture already
-   *  snapshotted at its start. */
+  /** Measure the canvas and enumerate, given what the gesture snapshotted at
+   *  its start: the tab bars, and the dragged frame's own rect before it
+   *  moved. */
   enumerate(
     draggedPaneId: string,
     tabBars: ReadonlyMap<string, Rect>,
+    draggedAtStart: Rect,
   ): DropZoneSet;
   /** Show the live zone, or take the indication away. Imperative DOM [L06]. */
   indicate(zone: DropZone | null): void;
@@ -271,8 +309,18 @@ export interface DropZoneHost {
   /** Commit the zone's mutation in one deck-manager call. False is a refusal
    *  the drop must make visible ([P09]) — never a quiet no-op. */
   commit(zone: DropZone, draggedPaneId: string): boolean;
-  /** The strip the pointer is over, or null when nothing there scrolls. */
-  autoscrollTargetFor(pointer: { x: number; y: number }): AutoscrollTarget | null;
+  /** The strip the pointer is over, or null when nothing there scrolls.
+   *
+   *  `draggedPaneId` is handed in because a place's band is read off one of
+   *  its members' frames, and that member may be the one under the hand —
+   *  the same hazard {@link seatedPlace} closes for the tiles, at the site
+   *  that decides which strip is being asked about. Without it a card carried
+   *  across the deck takes its old place's band with it, so the place it left
+   *  never scrolls and the one it is over may answer for it ([B07]). */
+  autoscrollTargetFor(
+    pointer: { x: number; y: number },
+    draggedPaneId: string,
+  ): AutoscrollTarget | null;
   /**
    * Move a strip to `offset` imperatively — its custom property and nothing
    * else. Never a store write: the offset is an `arrangementSignature` term
@@ -307,28 +355,62 @@ export function dropZoneKey(zone: DropZone): string {
 // ---- Tiles ----
 
 /**
- * The run a place's measured members are standing in: where their strip
- * begins, and how tall the place they divide is.
+ * Where a place stands on the canvas — its run's top and height, and its
+ * strip's `x` and `width` — read from ONE SEATED FRAME and the deck's own run
+ * height, never from the frame in flight.
  *
- * An overflowing place's members do not fill their run — the last one hangs
- * off its bottom edge, which is the affordance ([P08]) — so the run is read
- * back through the rule that set the member height rather than summed from the
- * tiles. A shared place does fill it, so there the sum is the run.
+ * A dragged card's rect carries its drag transform, so a run measured from it
+ * moves with the hand — and the gesture re-enumerates on every autoscroll
+ * frame, so the error grows for as long as the pointer holds at the edge.
+ * The run's height is therefore the deck's measurement (`getRailRunHeight`
+ * and its column twin, handed in as `run`), and its top is recovered from a
+ * member that is not being dragged by inverting the pin the imposer wrote for
+ * it: under overflow that member stands `index` strides down the strip
+ * (`overflowPins`), and shared it stands at its seam fraction plus half a
+ * seam (`memberPins`). The seated frame carries the strip's live offset, so a
+ * scrolled place reads back scrolled, which is what the tiles are drawn
+ * against.
+ *
+ * Only when the dragged card is the place's sole member is there no seated
+ * frame, and then the rect it had at gesture start stands in. Subtracting the
+ * transform back out of a live measurement would fix this site and leave the
+ * next re-measure to make the same mistake, so no path here reads the dragged
+ * card's live rect at all.
+ *
+ * `seam` is the place's own: the gap between a column's members, the 0 seam
+ * between a rail's. `order` is the place's CURRENT member order, dragged card
+ * included when it is a member, with `rects` indexed the same way.
  */
-function runOf(members: readonly Rect[]): { top: number; height: number } {
-  const top = Math.min(...members.map((rect) => rect.y));
-  if (placeStanding(members.length) === "overflow") {
-    return { top, height: members[0].height * PLACE_OVERFLOW_VISIBLE_MEMBERS };
+function seatedPlace(
+  order: readonly string[],
+  rects: readonly Rect[],
+  shares: Readonly<Record<string, number>> | undefined,
+  draggedId: string,
+  draggedAtStart: Rect,
+  run: number,
+  seam: number,
+): { run: { top: number; height: number }; x: number; width: number } {
+  const seatedIndex = order.findIndex((id) => id !== draggedId);
+  const index = seatedIndex === -1 ? 0 : seatedIndex;
+  const seated = seatedIndex === -1 ? draggedAtStart : rects[seatedIndex];
+  let advance: number;
+  if (placeStanding(order.length) === "overflow") {
+    advance = index * (run / PLACE_OVERFLOW_VISIBLE_MEMBERS + seam);
+  } else if (index === 0) {
+    advance = 0;
+  } else {
+    advance = railSeamFractions(order, shares)[index - 1] * run + seam / 2;
   }
-  const height =
-    members.reduce((sum, rect) => sum + rect.height, 0) +
-    IMPOSITION_GAP_PX * (members.length - 1);
-  return { top, height };
+  return {
+    run: { top: seated.y - advance, height: run },
+    x: seated.x,
+    width: seated.width,
+  };
 }
 
 /**
  * Tiles for a place of `count` members standing under the overflow rule: every
- * member `run / 2.5` tall, stacked a gap apart down a strip that runs past the
+ * member `run / 2.5` tall, stacked a seam apart down a strip that runs past the
  * run's bottom edge ([P08]).
  */
 function overflowTiles(
@@ -336,26 +418,29 @@ function overflowTiles(
   run: { top: number; height: number },
   x: number,
   width: number,
+  seam: number,
 ): Rect[] {
   const height = run.height / PLACE_OVERFLOW_VISIBLE_MEMBERS;
   return Array.from({ length: count }, (_, i) => ({
     x,
     width,
-    y: run.top + i * (height + IMPOSITION_GAP_PX),
+    y: run.top + i * (height + seam),
     height,
   }));
 }
 
 /**
  * The tile member `index` of a divided place takes, given where the seams
- * fall: the run cut at the cumulative fractions, half an imposition gap
+ * fall: the run cut at the cumulative fractions, half the place's seam
  * surrendered at each interior edge.
  *
  * This is `memberPins`' arithmetic with the run resolved to measured pixels —
- * the same fractions, the same half-gap seams, the same bare-run endpoints —
+ * the same fractions, the same half-seam edges, the same bare-run endpoints —
  * which is what makes the tile a promise the commit keeps by construction
  * ([P06]): both sides compute the landing from `railSeamFractions`, so they
- * cannot drift.
+ * cannot drift — and the seam arrives as a value here for the same reason it
+ * rides `PlaceRun.seam` there, so a rail's 0 seam and a column's gap are one
+ * arithmetic rather than two.
  */
 function divisionTile(
   fractions: readonly number[],
@@ -364,8 +449,9 @@ function divisionTile(
   run: { top: number; height: number },
   x: number,
   width: number,
+  seam: number,
 ): Rect {
-  const half = IMPOSITION_GAP_PX / 2;
+  const half = seam / 2;
   const top =
     index === 0 ? run.top : run.top + fractions[index - 1] * run.height + half;
   const bottom =
@@ -394,11 +480,20 @@ function divisionTiles(
   run: { top: number; height: number },
   x: number,
   width: number,
+  seam: number,
 ): Rect[] {
   const count = others.length + 1;
   return Array.from({ length: count }, (_, i) => {
     const order = [...others.slice(0, i), draggedId, ...others.slice(i)];
-    return divisionTile(railSeamFractions(order, shares), i, count, run, x, width);
+    return divisionTile(
+      railSeamFractions(order, shares),
+      i,
+      count,
+      run,
+      x,
+      width,
+      seam,
+    );
   });
 }
 
@@ -445,23 +540,35 @@ function tileHitBands(
  * and both the standing and the seams are read off that post-drop world: a
  * two-member column about to take a third stacks the overflow strip, and a
  * column that will still share divides at the fractions the commit's own
- * arithmetic will write ([P06]).
+ * arithmetic will write ([P06]). The place itself — run and strip — is read
+ * off a seated frame and the deck's `columnRun` ({@link seatedPlace}), so
+ * the dragged card's travel never moves the tiles it is choosing between.
  */
 function columnPlaces(
   order: readonly string[],
   rects: readonly Rect[],
   shares: Readonly<Record<string, number>> | undefined,
   draggedPaneId: string,
+  draggedAtStart: Rect,
+  columnRun: number | null,
 ): { tile: Rect; hit: Rect }[] {
-  if (rects.length === 0) return [];
-  const run = runOf(rects);
-  const { x, width } = rects[0];
+  if (rects.length === 0 || columnRun === null) return [];
+  const seam = IMPOSITION_GAP_PX;
+  const { run, x, width } = seatedPlace(
+    order,
+    rects,
+    shares,
+    draggedPaneId,
+    draggedAtStart,
+    columnRun,
+    seam,
+  );
   const others = order.filter((id) => id !== draggedPaneId);
   const count = others.length + 1;
   const tiles =
     placeStanding(count) === "overflow"
-      ? overflowTiles(count, run, x, width)
-      : divisionTiles(others, shares, draggedPaneId, run, x, width);
+      ? overflowTiles(count, run, x, width, seam)
+      : divisionTiles(others, shares, draggedPaneId, run, x, width, seam);
   const hits = tileHitBands(
     tiles,
     { top: run.top, bottom: run.top + run.height },
@@ -473,32 +580,79 @@ function columnPlaces(
 
 // ---- Enumeration ----
 
+/** A stacked rail's one rect: the union of its SEATED members' frames, which
+ *  under a stack are the same frame drawn front to back ([F09]). The dragged
+ *  card is left out for the reason {@link seatedPlace} leaves it out — its
+ *  rect carries the drag transform, so a rail read through it would follow
+ *  the hand — and only when it is the rail's sole member does its own
+ *  gesture-start rect stand in ([B07]). Null when a seated member is missing
+ *  from the measurement, so a rail that cannot be read whole advertises
+ *  nothing. */
+function stackRect(
+  rail: DropZoneRail,
+  measured: DropZoneMeasurements,
+  draggedPaneId: string,
+): Rect | null {
+  let union: Rect | null = null;
+  for (const paneId of rail.members) {
+    if (paneId === draggedPaneId) continue;
+    const rect = measured.panes.get(paneId);
+    if (rect === undefined) return null;
+    if (union === null) {
+      union = { ...rect };
+      continue;
+    }
+    const left = Math.min(union.x, rect.x);
+    const top = Math.min(union.y, rect.y);
+    const right = Math.max(union.x + union.width, rect.x + rect.width);
+    const bottom = Math.max(union.y + union.height, rect.y + rect.height);
+    union = { x: left, y: top, width: right - left, height: bottom - top };
+  }
+  return union ?? { ...measured.draggedAtStart };
+}
+
 function railZonesOf(
   rail: DropZoneRail,
   draggedPaneId: string,
-  panes: ReadonlyMap<string, Rect>,
+  measured: DropZoneMeasurements,
 ): DropZoneSet {
   const members: Rect[] = [];
   for (const paneId of rail.members) {
-    const rect = panes.get(paneId);
+    const rect = measured.panes.get(paneId);
     if (rect === undefined) return { zones: [], origin: null };
     members.push(rect);
   }
-  if (members.length === 0) return { zones: [], origin: null };
+  const railRun = measured.runs.rail;
+  if (members.length === 0 || railRun === null) {
+    return { zones: [], origin: null };
+  }
   const draggedIndex = rail.members.indexOf(draggedPaneId);
-  const { x, width } = members[0];
   const others = rail.members.filter((id) => id !== draggedPaneId);
   // A rail stands under the same overflow rule a column does ({@link
   // placeStanding}), so its tiles take the same fork: at three members or more
   // the post-drop rail is the run/2.5 strip, and below that it is the fraction
-  // path, division-true the way a column's is ([P06]). The run is read back
-  // through `runOf` rather than summed off the measured members, because an
-  // overflowing rail's members do not fill it — the last one hangs off the
-  // bottom edge, which is the affordance.
-  const run = runOf(members);
+  // path, division-true the way a column's is ([P06]). The run is the deck's
+  // own measurement and the strip is read off a member that is not moving
+  // ({@link seatedPlace}), so the dragged card's travel — and the strip's
+  // autoscroll under it — never move the tiles it is choosing between. The
+  // seam is the rail's own — `RAIL_SEAM_PX`, the value the imposer divides a
+  // rail with — so the tiles pin at the seams the commit will actually write.
+  const seam = RAIL_SEAM_PX;
+  const { run, x, width } = seatedPlace(
+    rail.members,
+    members,
+    rail.shares,
+    draggedPaneId,
+    measured.draggedAtStart,
+    railRun,
+    seam,
+  );
+  // The post-drop rail: the sitters other than the dragged card, plus the
+  // dragged card itself — N for its own rail, N + 1 for the other one.
+  const count = others.length + 1;
   const tiles =
-    placeStanding(rail.members.length) === "overflow"
-      ? overflowTiles(rail.members.length, run, x, width)
+    placeStanding(count) === "overflow"
+      ? overflowTiles(count, run, x, width, seam)
       : divisionTiles(
           others,
           rail.shares,
@@ -506,6 +660,7 @@ function railZonesOf(
           run,
           x,
           width,
+          seam,
         );
   const hits = tileHitBands(
     tiles,
@@ -513,9 +668,10 @@ function railZonesOf(
     x,
     width,
   );
-  // A rail of N members advertises N positions, not N+1: the dragged card is
-  // already one of them, so stacking the other N−1 around it yields exactly the
-  // N places it could stand.
+  // The card's own rail of N members advertises N positions, not N+1: the
+  // dragged card is already one of them, so stacking the other N−1 around it
+  // yields exactly the N places it could stand. The other rail advertises
+  // N+1, because there the card is an arrival ([B08]); its origin is null.
   const zones: DropZone[] = tiles.map((rect, index) => ({
     kind: "rail-index",
     side: rail.side,
@@ -530,10 +686,12 @@ function railZonesOf(
  * The zones a drag of `draggedPaneId` may land in, and the one it starts on.
  *
  * The vocabulary depends on what kind of card is moving ([P10]): a pinned
- * sidebar card sees its own rail's positions and nothing else, and a content
- * card sees content slots, split-column positions, and tab bars — never a
- * rail. Cross-place drops are a later feature, and the way this stays a later
- * feature is that neither vocabulary can name the other's places.
+ * sidebar card sees BOTH rails' positions — N on its own, N+1 on the other,
+ * where it would be an arrival — and nothing else; a content card sees
+ * content slots, split-column positions, and tab bars — never a rail. The
+ * vocabularies stay disjoint across KINDS of card: neither can name the
+ * other's places, which is what keeps a content card off a rail and a rail
+ * card out of a slot.
  *
  * A card that is arrangeable in neither sense — a free pane on an unimposed
  * deck, an unpinned sidebar card — gets no zones at all. That is the signal
@@ -545,9 +703,50 @@ export function enumerateDropZones(
   draggedPaneId: string,
   measured: DropZoneMeasurements,
 ): DropZoneSet {
-  const rail = measured.rails.find((r) => r.members.includes(draggedPaneId));
-  if (rail !== undefined) {
-    return railZonesOf(rail, draggedPaneId, measured.panes);
+  const ownRail = measured.rails.find((r) => r.members.includes(draggedPaneId));
+  if (ownRail !== undefined) {
+    const zones: DropZone[] = [];
+    let origin: DropZone | null = null;
+    for (const rail of measured.rails) {
+      if (rail.mode !== "split") {
+        // A stacked rail is one rect front to back, and what it offers is the
+        // stack itself rather than a position in a division: one zone, the
+        // rail's whole rect, and an arrival goes to the front — index 0 of
+        // the stored order — with the mode untouched ([B11]). The fork is on
+        // the rail's MODE alone and not on whose rail it is, because the
+        // shape is the same fact either way: a stack's members share one
+        // frame, so there are no positions to divide it into, and reading a
+        // division out of them would put the tiles wherever the arithmetic
+        // for a split rail happened to land. A stacked own rail therefore
+        // advertises its one rect as its own origin, and a release over it
+        // asks for the place the card already holds.
+        const stack = stackRect(rail, measured, draggedPaneId);
+        if (stack !== null) {
+          const zone: DropZone = {
+            kind: "rail-index",
+            side: rail.side,
+            index: 0,
+            rect: stack,
+          };
+          zones.push(zone);
+          if (rail === ownRail) origin = zone;
+        }
+        continue;
+      }
+      const set = railZonesOf(rail, draggedPaneId, measured);
+      zones.push(...set.zones);
+      if (rail === ownRail) origin = set.origin;
+    }
+    // A side with no rail holds open a landing strip while the card is in
+    // the air ([B10]): the vacancy tile is the promise the indicator draws,
+    // the same way a slot's is, and the card arrives alone at index 0.
+    for (const side of ["left", "right"] as const) {
+      if (measured.rails.some((rail) => rail.side === side)) continue;
+      const vacancy = measured.railVacancies[side];
+      if (vacancy === undefined) continue;
+      zones.push({ kind: "rail-index", side, index: 0, rect: vacancy });
+    }
+    return { zones, origin };
   }
 
   const kind = state.imposition.kind;
@@ -578,6 +777,8 @@ export function enumerateDropZones(
         members,
         state.imposition.columns?.[slot]?.shares,
         draggedPaneId,
+        measured.draggedAtStart,
+        measured.runs.column,
       );
       // The card's own column keeps its member count; a foreign one grows by
       // the arriving card, so it advertises one more position than it has
@@ -614,6 +815,8 @@ export function enumerateDropZones(
           [sitterRect],
           state.imposition.columns?.[slot]?.shares,
           draggedPaneId,
+          measured.draggedAtStart,
+          measured.runs.column,
         );
         for (const [index, place] of places.entries()) {
           zones.push({

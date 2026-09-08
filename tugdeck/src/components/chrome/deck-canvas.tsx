@@ -122,6 +122,7 @@ import {
 import type { Rect } from "@/snap";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import "./slot-vacancy.css";
+import "./rail-vacancy.css";
 import "./margin-cap.css";
 import {
   isSidebarPinned,
@@ -909,6 +910,27 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   }, [deckColumns]);
   const railWidthOf = (side: SidebarSide): number =>
     sidebarRails.find((rail) => rail.side === side)?.width ?? 0;
+  // The held-open deck edge ([B10]). A side with no rail has no frame the
+  // drop-zone engine could read a zone from, so while exactly one rail
+  // stands — the only shape in which a rail card can be in the air over an
+  // empty side — a tile stands at the other side's anchor, at the width the
+  // dragged card's own rail takes. That is the standing rail's width: with
+  // one rail on the deck, every rail card in the air came from it, and the
+  // tile reads that rail's live width property so a width drag moves it in
+  // the same reflow. Nothing in the imposition remembers a width for an
+  // empty side (a rail's width is its widest member's, [F08]), so there is
+  // no stored width to prefer over the card's own.
+  const vacantRails: { side: SidebarSide; style: React.CSSProperties }[] = [];
+  if (sidebarRails.length === 1) {
+    const standing = sidebarRails[0];
+    const side: SidebarSide = standing.side === "left" ? "right" : "left";
+    vacantRails.push({
+      side,
+      style: imposeSidebarStyle(side, standing.width, {
+        widthProperty: sidebarWidthProperty(standing.side),
+      }),
+    });
+  }
   // Each member's standing on its rail: which side, how many share it, how they
   // stand against one another, and where this one is in that order. The pane
   // renders its own frame from these ([L09]) — a split member's pins are its
@@ -3080,7 +3102,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       };
     };
     return {
-      enumerate(draggedPaneId, tabBars) {
+      enumerate(draggedPaneId, tabBars, draggedAtStart) {
         const canvas = containerRef.current;
         if (canvas === null) return { zones: [], origin: null };
         const zoom = getTugZoom() || 1;
@@ -3148,10 +3170,29 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             slots.set(slot, toCanvas(el.getBoundingClientRect()));
           }
         }
+        // The held-open deck edge, read the same way: the tile IS the promise
+        // the indicator draws for a side with no rail ([B10]).
+        const railVacancies: Partial<Record<SidebarSide, Rect>> = {};
+        for (const el of canvas.querySelectorAll<HTMLElement>(
+          ".tug-rail-vacancy[data-vacant-rail]",
+        )) {
+          const side = el.getAttribute("data-vacant-rail");
+          if (!isSidebarSide(side)) continue;
+          railVacancies[side] = toCanvas(el.getBoundingClientRect());
+        }
         return enumerateDropZones(state, draggedPaneId, {
           slots,
           panes,
           tabBars,
+          // The runs are the deck's own measurement rather than a sum of the
+          // frames above: a frame in flight is one of those frames, and the
+          // store is the one reader a hand cannot move.
+          runs: {
+            column: store.getColumnRunHeight(),
+            rail: store.getRailRunHeight(),
+          },
+          draggedAtStart,
+          railVacancies,
           rails: sidebarRailsOf(state).map((rail) => {
             // The engine keys everything by pane id; the rail's stored shares
             // are keyed by componentId, so they re-key here, at the one place
@@ -3166,6 +3207,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             }
             return {
               side: rail.side,
+              mode: rail.mode,
               members: rail.members.map((member) => member.paneId),
               shares,
             };
@@ -3249,11 +3291,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             // survives its card being closed and reopened, which a pane id
             // could never do. The zone counts positions, so the mapping back to
             // componentIds happens here, where the rail's own reading is.
-            const rail = sidebarRailsOf(state).find((r) => r.side === zone.side);
-            if (rail === undefined) return false;
-            const dragged = rail.members.find((m) => m.paneId === draggedPaneId);
-            if (dragged === undefined) return false;
-            const order = rail.members
+            const rails = sidebarRailsOf(state);
+            const from = rails.find((r) =>
+              r.members.some((m) => m.paneId === draggedPaneId),
+            );
+            const dragged = from?.members.find((m) => m.paneId === draggedPaneId);
+            if (from === undefined || dragged === undefined) return false;
+            if (from.side !== zone.side) {
+              // Crossing the deck: side and both orders in one commit, so the
+              // gesture arms one settle and the card lands where the zone
+              // said rather than at the side's default position first.
+              store.moveSidebarToRail(dragged.componentId, zone.side, zone.index);
+              return true;
+            }
+            const order = from.members
               .filter((m) => m.paneId !== draggedPaneId)
               .map((m) => m.componentId);
             order.splice(zone.index, 0, dragged.componentId);
@@ -3267,7 +3318,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         }
       },
 
-      autoscrollTargetFor(pointer) {
+      autoscrollTargetFor(pointer, draggedPaneId) {
         const canvas = containerRef.current;
         if (canvas === null) return null;
         const state = store.getSnapshot();
@@ -3283,8 +3334,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           for (const rail of sidebarRailsOf(state)) {
             if (rail.mode !== "split") continue;
             if (placeStanding(rail.members.length) !== "overflow") continue;
+            // The band is read off a member that STAYED PUT: the dragged
+            // card's frame carries its drag transform, so a place read
+            // through it walks off with the hand ([B07]). An overflowing
+            // place has three members, so there is always a seated one.
+            const seated =
+              rail.members.find((m) => m.paneId !== draggedPaneId) ??
+              rail.members[0];
             const first = canvas.querySelector<HTMLElement>(
-              `.tug-pane[data-pane-id="${rail.members[0].paneId}"]`,
+              `.tug-pane[data-pane-id="${seated.paneId}"]`,
             );
             if (first === null) continue;
             const zoom = getTugZoom() || 1;
@@ -3317,8 +3375,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           for (const column of deckColumnsOf(state)) {
             if (column.mode !== "split") continue;
             if (placeStanding(column.members.length) !== "overflow") continue;
+            // Off a seated member, for the reason the rail's is ([B07]).
+            const seated =
+              column.members.find((id) => id !== draggedPaneId) ??
+              column.members[0];
             const first = canvas.querySelector<HTMLElement>(
-              `.tug-pane[data-pane-id="${column.members[0]}"]`,
+              `.tug-pane[data-pane-id="${seated}"]`,
             );
             if (first === null) continue;
             const zoom = getTugZoom() || 1;
@@ -3593,6 +3655,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               responds to a pointer. */}
           <TugSlot number={vacancy.slot + 1} size="md" />
         </div>
+      ))}
+      {/* The held-open deck edge: one tile for the side with no rail while
+          the other side has one, at the rail's anchor and the width a rail
+          card landing there would take. Inert and empty — a measurement the
+          drop-zone engine reads, and a hairline while a card is in the air. */}
+      {vacantRails.map((vacancy) => (
+        <div
+          key={`rail-vacancy:${vacancy.side}`}
+          className="tug-rail-vacancy"
+          data-vacant-rail={vacancy.side}
+          aria-hidden="true"
+          style={vacancy.style}
+        />
       ))}
       {/* TugPanes: one per pane in deckState.panes.
           Rendered in stable ID order (no DOM reordering on focus change).

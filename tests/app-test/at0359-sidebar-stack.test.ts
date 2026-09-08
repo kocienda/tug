@@ -35,6 +35,7 @@
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
+ * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugdeck/src/components/layout/layout-miniature.tsx
  * @covers tugdeck/src/serialization.ts
  */
@@ -175,6 +176,34 @@ describe.skipIf(!SHOULD_RUN)(
             layout!.height,
             "the rail is as tall as it was before the second card joined",
           ).toBe(layoutAlone!.height);
+
+          // 2b. One flush panel. A stacked rail has no seams, so its members
+          // draw no rule at the window's top or foot — a hairline marks a
+          // boundary with something else, and the only one here is the inner
+          // edge at the gutter.
+          const rules = await app.evalJS<Record<string, Record<string, number>>>(
+            `(function () {
+              var out = {};
+              document.querySelectorAll('.tug-pane[data-rail-side="right"]').forEach(function (el) {
+                var cs = getComputedStyle(el.querySelector(".tug-pane-chrome"));
+                out[el.getAttribute("data-pane-id")] = {
+                  top: parseFloat(cs.borderTopWidth),
+                  right: parseFloat(cs.borderRightWidth),
+                  bottom: parseFloat(cs.borderBottomWidth),
+                  left: parseFloat(cs.borderLeftWidth),
+                };
+              });
+              return out;
+            })()`,
+          );
+          note("stacked hairlines", JSON.stringify(rules));
+          expect(Object.keys(rules), "both members are pinned right").toHaveLength(2);
+          for (const [paneId, rule] of Object.entries(rules)) {
+            expect(rule.top, `${paneId} draws no rule at the window's top`).toBe(0);
+            expect(rule.bottom, `${paneId} draws no rule at the window's foot`).toBe(0);
+            expect(rule.right, `${paneId} draws no rule at the window's edge`).toBe(0);
+            expect(rule.left, `${paneId} draws its inner-edge rule at the gutter`).toBe(1);
+          }
 
           // 3. The badge, on both, reading the stack's depth.
           await app.waitForCondition<boolean>(

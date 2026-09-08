@@ -50,6 +50,7 @@
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
+ * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugdeck/src/components/tugways/tug-column-badge.tsx
  * @covers tugdeck/src/components/layout/layout-card.tsx
  */
@@ -172,6 +173,34 @@ async function railRects(app: App): Promise<Record<string, Rect>> {
 function splitFrameCount(app: App): Promise<number> {
   return app.evalJS<number>(
     `document.querySelectorAll('.tug-pane[data-rail-split]').length`,
+  );
+}
+
+interface Rules {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/** Each right-rail member's computed hairlines — the chrome's border widths,
+ *  in px — keyed by pane id. Read from the computed style because what is
+ *  claimed is which edges the browser paints a rule on. */
+async function railRules(app: App): Promise<Record<string, Rules>> {
+  return app.evalJS<Record<string, Rules>>(
+    `(function () {
+      var out = {};
+      document.querySelectorAll('.tug-pane[data-rail-side="right"]').forEach(function (el) {
+        var cs = getComputedStyle(el.querySelector(".tug-pane-chrome"));
+        out[el.getAttribute("data-pane-id")] = {
+          top: parseFloat(cs.borderTopWidth),
+          right: parseFloat(cs.borderRightWidth),
+          bottom: parseFloat(cs.borderBottomWidth),
+          left: parseFloat(cs.borderLeftWidth),
+        };
+      });
+      return out;
+    })()`,
   );
 }
 
@@ -432,6 +461,28 @@ describe.skipIf(!SHOULD_RUN)(
               "an untouched split divides the run equally",
             ).toBeLessThanOrEqual(EPSILON * 2);
 
+            // ── 1b. Hairlines mark boundaries, and nothing else. ──
+            // A rail's rule means "something else is on the other side": the
+            // gutter at the inner edge, or a fellow member at a seam. The
+            // window's top and foot are boundaries with nothing, so the top
+            // member draws no top rule and the bottom member no bottom one;
+            // the seam is ONE hairline, the upper member's bottom rule.
+            {
+              const rules = await railRules(app);
+              const upperId = Object.keys(split).find((id) => split[id].top === upper.top)!;
+              const lowerId = Object.keys(split).find((id) => split[id].top === lower.top)!;
+              note(
+                `hairlines: upper ${JSON.stringify(rules[upperId])}, lower ${JSON.stringify(rules[lowerId])}`,
+              );
+              for (const id of [upperId, lowerId]) {
+                expect(rules[id].top, `${id} draws no top rule — no member does`).toBe(0);
+                expect(rules[id].left, `${id} draws its inner-edge rule at the gutter`).toBe(1);
+                expect(rules[id].right, `${id} draws nothing at the window's edge`).toBe(0);
+              }
+              expect(rules[upperId].bottom, "the seam is the upper member's bottom rule").toBe(1);
+              expect(rules[lowerId].bottom, "and the window's foot gets none").toBe(0);
+            }
+
             // The split materialized an explicit order rather than leaving it
             // to be derived from something that moves.
             await flushSave(app);
@@ -528,6 +579,54 @@ describe.skipIf(!SHOULD_RUN)(
                 railOnDisk(tugbankPath)?.shares,
                 "the drag committed weights, not pixels — and they reached disk",
               ).toBeDefined();
+            }
+
+            // ── 3b. A member in the air wears the card frame, and lands
+            //    back into the panel's. ──
+            // A panel's hairlines say where the rail borders something else;
+            // a card being carried borders nothing yet, and needs a card's
+            // frame to read as a thing that can be dropped. So from the lift
+            // to the landing's end the member draws a rule on every edge, and
+            // takes the panel's rules back the moment it has landed.
+            {
+              const rest = await railRects(app);
+              const lifted =
+                rest[LAYOUT_PANE].top < rest[JOTS_PANE].top ? LAYOUT_PANE : JOTS_PANE;
+              const grab = {
+                x: Math.round(rest[lifted].left + rest[lifted].width / 2),
+                y: Math.round(rest[lifted].top + 44),
+              };
+              await app.nativeDragElementWithoutRelease(
+                `${frame(lifted)} .tug-pane-title-bar`,
+                grab,
+              );
+              const inFlight = (await railRules(app))[lifted];
+              note(`in flight: ${lifted} rules ${JSON.stringify(inFlight)}`);
+              for (const edge of ["top", "right", "bottom", "left"] as const) {
+                expect(
+                  inFlight[edge],
+                  `a rail member in the air draws its ${edge} rule — the whole card frame`,
+                ).toBe(1);
+              }
+              await app.nativeMouseUp(grab);
+              // The frame keeps `data-gesture` until the landing finishes,
+              // and that is when the panel's rules come back.
+              await app.waitForCondition<boolean>(
+                `document.querySelector(${JSON.stringify(
+                  `${frame(lifted)}[data-gesture]`,
+                )}) === null`,
+                { timeoutMs: 5_000 },
+              );
+              await settled(app);
+              const landed = (await railRules(app))[lifted];
+              note(`landed: ${lifted} rules ${JSON.stringify(landed)}`);
+              expect(landed.top, "landed, the top rule is gone again").toBe(0);
+              expect(landed.right, "and the window's edge draws none").toBe(0);
+              expect(landed.left, "the inner-edge rule is back").toBe(1);
+              expect(
+                landed.bottom,
+                "and the seam is the upper member's bottom rule once more",
+              ).toBe(1);
             }
 
             // ── 4. Reorder, through the real gesture: a title-bar drag that
@@ -803,9 +902,11 @@ describe.skipIf(!SHOULD_RUN)(
             // enough sideways stopped being a reorder and became a free drag,
             // so leaving the rail was something you discovered rather than
             // something you asked for. On the engine a rail member's only
-            // advertised places are its own rail's, so no amount of wandering
-            // takes it off — and the way out is stated instead, on the same key
-            // that frees an imposed content card.
+            // advertised places are the rails' — its own, the other rail, and
+            // the other deck edge held open while it is in the air — so no
+            // amount of wandering through the content band takes it off, and
+            // the way out is stated instead, on the same key that frees an
+            // imposed content card.
             {
               const standing = await railRects(app);
               // Case 6 just re-stacked the rail, and a stack is two frames the
@@ -822,9 +923,18 @@ describe.skipIf(!SHOULD_RUN)(
               )[0];
               const rect = standing[paneId];
               note(`⌘ way out: dragging ${paneId}, the front of the stack`);
-              // Deep into the content band, which under the corridor's rule was
-              // as far outside as a pointer could get.
-              const away = { x: 200, y: Math.round(rect.top + 200) };
+              // Deep into the content band — the middle of the canvas, which
+              // is off both rails and off the empty left edge's held-open
+              // strip (the deck's edges are a rail card's places now, so the
+              // left margin is no longer "as far outside as a pointer could
+              // get").
+              const canvasMid = await app.evalJS<number>(
+                `(function () {
+                  var r = document.querySelector("[data-deck-canvas-background]").getBoundingClientRect();
+                  return Math.round(r.left + r.width / 2);
+                })()`,
+              );
+              const away = { x: canvasMid, y: Math.round(rect.top + 200) };
 
               await app.nativeDragElement(
                 `${frame(paneId)} .tug-pane-title-bar`,
@@ -835,7 +945,7 @@ describe.skipIf(!SHOULD_RUN)(
                 await app.evalJS<number>(
                   `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length`,
                 ),
-                "a plain drag keeps a pinned card on its rail, wherever the pointer goes",
+                "a plain drag keeps a pinned card on its rail — the content band is not a rail card's place",
               ).toBe(2);
 
               await app.withModifiersHeld(["cmd"], async () => {

@@ -26,6 +26,7 @@ import {
   railSharesFromFractions,
   withRailMode,
   withRailOrder,
+  withSidebarMovedToRail,
   withRailShares,
   withoutRailShares,
   seamPicture,
@@ -1104,6 +1105,49 @@ describe("effectiveRailOrder", () => {
       "jots",
       "cards",
     ]);
+  });
+});
+
+describe("withSidebarMovedToRail carries a cross-side move in one imposition", () => {
+  const base: DeckImposition = {
+    sidebars: {
+      cards: { side: "left", pinned: true },
+      jots: { side: "left", pinned: true },
+      layout: { side: "right", pinned: true },
+      overview: { side: "right", pinned: true },
+    },
+    rails: { right: { mode: "split", order: ["layout", "overview"] } },
+  };
+  const standing = {
+    left: ["cards", "jots"],
+    right: ["layout", "overview"],
+  } as const;
+
+  test("the side changes and both orders are written, the card inserted at the index", () => {
+    const moved = withSidebarMovedToRail(base, "cards", "right", 1, standing);
+    expect(moved.sidebars.cards).toEqual({ side: "right", pinned: true });
+    expect(moved.rails?.right?.order).toEqual(["layout", "cards", "overview"]);
+    expect(moved.rails?.left?.order).toEqual(["jots"]);
+    expect(moved.rails?.right?.mode, "the destination's mode is untouched").toBe("split");
+    expect(base.rails?.right?.order, "pure: the input is not mutated").toEqual([
+      "layout",
+      "overview",
+    ]);
+  });
+
+  test("the index clamps to the destination's ends", () => {
+    expect(
+      withSidebarMovedToRail(base, "cards", "right", 99, standing).rails?.right?.order,
+    ).toEqual(["layout", "overview", "cards"]);
+    expect(
+      withSidebarMovedToRail(base, "cards", "right", -3, standing).rails?.right?.order,
+    ).toEqual(["cards", "layout", "overview"]);
+  });
+
+  test("a same-side move is a reorder and leaves the other side alone", () => {
+    const moved = withSidebarMovedToRail(base, "layout", "right", 1, standing);
+    expect(moved.rails?.right?.order).toEqual(["overview", "layout"]);
+    expect(moved.rails?.left, "no order was written for a side that did not move").toBeUndefined();
   });
 });
 
