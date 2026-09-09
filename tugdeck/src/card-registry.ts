@@ -74,6 +74,17 @@ export type LayoutRole = "content" | "sidebar";
 export const DEFAULT_LAYOUT_ROLE: LayoutRole = "content";
 
 /**
+ * Where a card type's natural HEIGHT comes from: measured off a content
+ * element the card names, or not measured at all because the card is a stream.
+ * See {@link CardRegistration.heightSource} for the test that decides which.
+ */
+export type CardHeightSource = "content" | "stream";
+
+/** What a registration that declares none is: a card whose height is a fact
+ *  about its content, which is nearly every card. */
+export const DEFAULT_HEIGHT_SOURCE: CardHeightSource = "content";
+
+/**
  * Metadata describing a card's default appearance and behavior.
  *
  * **Authoritative reference:** CardMeta.
@@ -253,8 +264,9 @@ export interface CardRegistration {
    *
    * One rank, read on both axes. Across the deck it orders the rails competing
    * for WIDTH; down a place it orders the members competing for the RUN — who
-   * reaches comfort first when the run is short, and who takes fit's slack
-   * whole when it is long ([B06]).
+   * takes fit's slack whole when the run is long ([B06]). It decides nothing
+   * while a member is still short of its own natural: that run is divided
+   * evenly ([B03]).
    *
    * The six sidebar cards are ranked as a single order rather than left tied,
    * because a tie leaves the slack rule with nobody to give to: Overview 1 (the
@@ -293,6 +305,33 @@ export interface CardRegistration {
    * the allocator's input.
    */
   comfortWidth?: number;
+  /**
+   * Where this card's `natural` HEIGHT comes from ([B05]).
+   *
+   * `"content"` — the default, and what nearly every card is: the card names a
+   * content element and its measured border-box height is its natural. That
+   * only works when the element cannot depend on the height it feeds, which
+   * at0542 asserts per card at two pane heights ([B02]/[B07]).
+   *
+   * `"stream"` — the card's content is as tall as its pane by nature, so
+   * there is no finished height to measure and measuring would close the loop
+   * ([F06]). A stream publishes nothing: its natural is read as endless, flow
+   * stands it at one screen of the run, and a fitting place's seed hands it
+   * the discretionary pool.
+   *
+   * A card is a stream when ANY of these is true: its rows are virtualized
+   * against its own viewport; it follows its content's tail (a transcript, a
+   * log, a feed); or it has no finished height at all. A card that merely
+   * SCROLLS is not a stream — every list card scrolls when its rail is short.
+   *
+   * It belongs here rather than in the card because whether a card's content
+   * depends on its height is a fact about the KIND of card, not about any
+   * instance of it — which is what makes it a neighbour of `layoutRole` and
+   * the size policy's floor.
+   *
+   * Read only through {@link getHeightSource}.
+   */
+  heightSource?: CardHeightSource;
 }
 
 /**
@@ -462,6 +501,20 @@ export function getGreedRank(componentId: string): number {
  */
 export function getComfortWidth(componentId: string): number {
   return registry.get(componentId)?.comfortWidth ?? getSizePolicy(componentId).min.width;
+}
+
+/**
+ * Where a card type's natural height comes from — what the registration
+ * declares, or `"content"` when it declares none. An unregistered componentId
+ * answers `"content"` too: an unknown card is measured like every other one,
+ * and a card that cannot be measured has to say so.
+ *
+ * The one read of {@link CardRegistration.heightSource}, by the fold that
+ * builds the allocator's input. The allocators themselves see numbers and know
+ * nothing about cards.
+ */
+export function getHeightSource(componentId: string): CardHeightSource {
+  return registry.get(componentId)?.heightSource ?? DEFAULT_HEIGHT_SOURCE;
 }
 
 /**

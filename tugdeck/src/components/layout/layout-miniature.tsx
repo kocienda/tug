@@ -387,7 +387,7 @@ function Rail({
   const overflow = place?.standing === "overflow";
   // Every split member is drawn, not the first three: an overflowing rail's
   // members no longer share one height, so which of them the cut falls on is a
-  // fact about their comfort heights rather than a constant the drawing could
+  // fact about their natural heights rather than a constant the drawing could
   // know in advance. The run clips whatever hangs below it, exactly as the
   // column blocks are clipped, and the half-visible member at the bottom edge
   // is the same affordance either way.
@@ -411,7 +411,7 @@ function Rail({
           // first flush with the top of the strip and the last with its bottom,
           // exactly as the real rail's endpoints are the pins an unsplit rail
           // has. When the floors stop fitting the side overflows and the
-          // drawing follows: every member at its own comfort span, stacked a
+          // drawing follows: every member at its own natural span, stacked a
           // seam apart down a strip that runs off the bottom of the run — the
           // same picture the column blocks below draw, and the same affordance.
           //
@@ -814,7 +814,7 @@ export function LayoutMiniature({
             }
             // Past two members the column stops dividing and starts scrolling
             // ([P08]), and the drawing says so rather than capping at three: EVERY
-            // member is drawn, each at its own comfort span, stacked down a strip
+            // member is drawn, each at its own natural span, stacked down a strip
             // that runs off the bottom of the field. The spans are the deck's own
             // heights against the run — the geometry the deck itself resolves —
             // and the card the run's bottom edge cuts IS the affordance saying

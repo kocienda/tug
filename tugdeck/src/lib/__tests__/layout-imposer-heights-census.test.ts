@@ -49,15 +49,14 @@ const EPSILON = 1e-6;
 const MIXES: readonly {
   name: string;
   floor: number;
-  comfort: number;
   natural: number;
   greedRank: number;
 }[] = [
-  { name: "floor-only", floor: 240, comfort: 240, natural: 240, greedRank: 2 },
-  { name: "comfortable", floor: 240, comfort: 320, natural: 400, greedRank: 3 },
-  { name: "hungry", floor: 240, comfort: 320, natural: Infinity, greedRank: 1 },
-  { name: "tall-floor", floor: 600, comfort: 600, natural: 600, greedRank: 9 },
-  { name: "fixed", floor: 180, comfort: 400, natural: 400, greedRank: 2 },
+  { name: "floor-only", floor: 240, natural: 240, greedRank: 2 },
+  { name: "modest", floor: 240, natural: 400, greedRank: 3 },
+  { name: "hungry", floor: 240, natural: Infinity, greedRank: 1 },
+  { name: "tall-floor", floor: 600, natural: 600, greedRank: 9 },
+  { name: "fixed", floor: 180, natural: 400, greedRank: 2 },
 ];
 
 /** No record at all (the seed), an equal division, one member the user made
@@ -107,7 +106,6 @@ function membersFor(
     members.push({
       id: `m${i}`,
       floor: mix.floor,
-      comfort: mix.comfort,
       natural: mix.natural,
       greedRank: mix.greedRank,
       ...(weights[i] === undefined ? {} : { weight: weights[i] }),
@@ -348,9 +346,9 @@ describe("the vertical census", () => {
 
   test("(k) a recorded fit place's heights do not move when its appetites do", () => {
     // Content never moves a seam ([B01]). The same shares over members whose
-    // comforts and naturals have all changed allocate to the same heights —
-    // which is the whole of what makes a collapse inside a card, or a fold,
-    // leave the control that was pressed where it was.
+    // naturals have all changed allocate to the same heights — which is the
+    // whole of what makes a collapse inside a card, or a fold, leave the
+    // control that was pressed where it was.
     const failures: string[] = [];
     for (const row of DIVIDED) {
       if (row.layout !== "fit" || row.expected !== "shared" || !row.recorded) {
@@ -358,7 +356,6 @@ describe("the vertical census", () => {
       }
       const grown = row.members.map((member) => ({
         ...member,
-        comfort: member.floor + 50,
         natural: Number.isFinite(member.natural) ? member.natural * 3 : 700,
       }));
       const again = allocatePlaceHeights(grown, row.run, row.seam, "fit");
@@ -511,8 +508,8 @@ describe("the vertical census", () => {
   test("(m) a shared seam trades between the floors and nothing narrower", () => {
     // The division is the hand's, so the only thing that bounds a drag is a
     // floor ([B01]): the upper member may go down to its own and up to what
-    // leaves its neighbour at its own. A comfort or a natural narrowing that
-    // range would be the allocator holding a seam the user is dragging.
+    // leaves its neighbour at its own. A natural narrowing that range would be
+    // the allocator holding a seam the user is dragging.
     const failures: string[] = [];
     for (const row of DIVIDED) {
       if (row.allocation.standing !== "shared") continue;
@@ -549,11 +546,10 @@ describe("the vertical census", () => {
 function appetite(
   id: string,
   floor: number,
-  comfort: number,
   natural: number,
   greedRank: number,
 ): PlaceMemberAppetite {
-  return { id, floor, comfort, natural, greedRank };
+  return { id, floor, natural, greedRank };
 }
 
 describe("the seed fills a shared run stage by stage", () => {
@@ -578,27 +574,33 @@ describe("the seed fills a shared run stage by stage", () => {
     expect(reportOf(failures)).toEqual([]);
   });
 
-  test("(f) comfort goes to the greedier member first", () => {
+  test("(f) greed decides nothing while anybody is still short of natural", () => {
+    // The retired comfort stage ([B03]) was the one place greed picked winners
+    // BELOW a member's natural: it fed the greediest to a readable height and
+    // left the last-ranked at its floor. With one tier, the run short of every
+    // natural is divided EVENLY among the members still under theirs, and greed
+    // is read only for the slack past them all. So a member above its floor
+    // while a neighbour sits at its floor, with neither at its natural, is now
+    // a defect wherever the ranks fall.
     const failures: string[] = [];
     for (const row of DIVIDED) {
       if (row.layout !== "fit" || row.expected !== "shared") continue;
-      const required =
-        row.members.reduce((sum, member) => sum + member.floor, 0) +
-        (row.members.length - 1) * row.seam;
-      const pool = row.run - required;
-      const wanted = row.members.reduce(
-        (sum, member) => sum + (member.comfort - member.floor),
-        0,
-      );
-      if (pool >= wanted) continue;
       const heights = seedSharedHeights(row.members, row.run, row.seam);
+      const anyShort = row.members.some(
+        (member, i) => heights[i] < member.natural - EPSILON,
+      );
+      if (!anyShort) continue;
       for (let i = 0; i < row.members.length; i += 1) {
+        // A member AT its natural stopped there because its own content did,
+        // not because anybody ranked it — that is the cap, not a preference.
+        if (heights[i] >= row.members[i].natural - EPSILON) continue;
+        if (heights[i] <= row.members[i].floor + EPSILON) continue;
         for (let j = 0; j < row.members.length; j += 1) {
-          if (row.members[i].greedRank >= row.members[j].greedRank) continue;
-          if (heights[j] <= row.members[j].floor + EPSILON) continue;
-          if (heights[i] >= row.members[i].comfort - EPSILON) continue;
+          if (j === i) continue;
+          if (heights[j] > row.members[j].floor + EPSILON) continue;
+          if (row.members[j].natural <= row.members[j].floor + EPSILON) continue;
           failures.push(
-            `${row.label}: member ${j} (rank ${row.members[j].greedRank}) rose above its floor while member ${i} (rank ${row.members[i].greedRank}) sits at ${heights[i].toFixed(2)} under comfort ${row.members[i].comfort}`,
+            `${row.label}: member ${i} rose to ${heights[i].toFixed(2)} above its floor while member ${j} sits at its floor ${row.members[j].floor}, and neither is at its natural`,
           );
         }
       }
@@ -629,16 +631,16 @@ describe("the seed fills a shared run stage by stage", () => {
   });
 
   test("floors first, and the slack whole to the greediest when nothing wants more", () => {
-    // Three cards declaring only a floor: the ladder's middle two stages have
-    // nothing to do, and stage 4 hands the whole remainder to one of them.
+    // Three cards declaring only a floor: the ladder's fill toward natural has
+    // nothing to do, and the last stage hands the whole remainder to one of them.
     // Every rank is 5, so position breaks the tie and the first card takes it;
     // the other two stand at exactly the natural they declared, which is what
     // puts both seams on a content boundary.
     const heights = seedSharedHeights(
       [
-        appetite("a", 240, 240, 240, 5),
-        appetite("b", 240, 240, 240, 5),
-        appetite("c", 240, 240, 240, 5),
+        appetite("a", 240, 240, 5),
+        appetite("b", 240, 240, 5),
+        appetite("c", 240, 240, 5),
       ],
       2000,
       0,
@@ -653,9 +655,9 @@ describe("the seed fills a shared run stage by stage", () => {
     // card takes the whole of it wherever it stands in the place.
     const heights = seedSharedHeights(
       [
-        appetite("a", 240, 240, 240, 5),
-        appetite("b", 240, 240, 240, 2),
-        appetite("c", 240, 240, 240, 5),
+        appetite("a", 240, 240, 5),
+        appetite("b", 240, 240, 2),
+        appetite("c", 240, 240, 5),
       ],
       2000,
       0,
@@ -667,13 +669,13 @@ describe("the seed fills a shared run stage by stage", () => {
 
   test("a member at its natural height takes no more, and the rest split the surplus", () => {
     // The fixed member's natural height is 400 and it gets exactly 400. The
-    // two whose naturals are endless divide everything above their comforts
-    // evenly, which is the whole of what stage 3 is for.
+    // two whose naturals are endless divide everything above their floors
+    // evenly, which is the whole of what the fill toward natural is for.
     const heights = seedSharedHeights(
       [
-        appetite("fixed", 240, 400, 400, 2),
-        appetite("hungry-1", 240, 320, Infinity, 1),
-        appetite("hungry-2", 240, 320, Infinity, 1),
+        appetite("fixed", 240, 400, 2),
+        appetite("hungry-1", 240, Infinity, 1),
+        appetite("hungry-2", 240, Infinity, 1),
       ],
       2000,
       0,
@@ -683,34 +685,35 @@ describe("the seed fills a shared run stage by stage", () => {
     expect(heights[2]).toBeCloseTo(800, 6);
   });
 
-  test("comfort goes to the greediest first, and the last rank takes what is left", () => {
-    // A 900px run over three floors of 240 leaves 180 of comfort to hand out
-    // and 480 of comfort asked for. Rank 1 is fed to its 400, rank 2 takes the
-    // 20 that remain, and rank 3 stands at its floor — somebody has to be
-    // short, and the registry's greed rank is the statement of who.
+  test("a run short of every natural is divided evenly, whatever the ranks", () => {
+    // A 900px run over three floors of 240 leaves 180 to hand out and 480
+    // asked for, so nobody reaches their natural. The retired comfort stage
+    // ([B03]) would have fed rank 1 to its 400 and left rank 3 at its floor;
+    // with one tier the 180 is divided evenly and every member stands at 300.
+    // Greed is read for the slack PAST every natural and nowhere else.
     const heights = seedSharedHeights(
       [
-        appetite("mid", 240, 400, 400, 2),
-        appetite("last", 240, 400, 400, 3),
-        appetite("first", 240, 400, 400, 1),
+        appetite("mid", 240, 400, 2),
+        appetite("last", 240, 400, 3),
+        appetite("first", 240, 400, 1),
       ],
       900,
       0,
     );
-    expect(heights[2]).toBeCloseTo(400, 6);
-    expect(heights[0]).toBeCloseTo(260, 6);
-    expect(heights[1]).toBeCloseTo(240, 6);
+    expect(heights[0]).toBeCloseTo(300, 6);
+    expect(heights[1]).toBeCloseTo(300, 6);
+    expect(heights[2]).toBeCloseTo(300, 6);
   });
 
   test("seedPlaceShares is empty where there is nothing to divide", () => {
     // One member has no division; floors that do not fit the run stand the
     // place as a strip, and a strip has no seed to write.
-    expect(seedPlaceShares([appetite("a", 240, 240, 240, 5)], 900, 0)).toEqual(
+    expect(seedPlaceShares([appetite("a", 240, 240, 5)], 900, 0)).toEqual(
       {},
     );
     expect(
       seedPlaceShares(
-        [appetite("a", 500, 500, 500, 5), appetite("b", 500, 500, 500, 5)],
+        [appetite("a", 500, 500, 5), appetite("b", 500, 500, 5)],
         900,
         0,
       ),
@@ -728,7 +731,6 @@ describe("a recorded fit place divides its run by its shares", () => {
   ): PlaceMemberAppetite => ({
     id,
     floor,
-    comfort: floor,
     natural: floor,
     greedRank: 5,
     weight,

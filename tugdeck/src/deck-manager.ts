@@ -44,6 +44,7 @@ import {
   getRegistration,
   getComfortWidth,
   getGreedRank,
+  getHeightSource,
   getSizePolicy,
   getStackSizePolicy,
   isSidebarCard,
@@ -1983,8 +1984,9 @@ export class DeckManager implements IDeckManagerStore {
    * Re-seed `side`'s division from its members' naturals as they stand now —
    * what the badge's "Fit to Content" and a double-click on the seam ask for
    * ([B04]). Under fit it WRITES the seed: every member at its natural,
-   * comfort by greed rank if the naturals do not fit, the slack whole to the
-   * greediest ([B03]'s ladder, run once at the hand's request). Under flow
+   * the run divided evenly among those still short of theirs if the naturals
+   * do not fit, the slack whole to the greediest (the ladder, run once at the
+   * hand's request). Under flow
    * it drops the weights, which puts every member at exactly its natural —
    * the same sentence, "fit to content", answered by the layout the place is
    * on.
@@ -2720,10 +2722,11 @@ export class DeckManager implements IDeckManagerStore {
    * members have not ALL declared is deferred for the same reason: the first
    * settle runs synchronously at the first card's publish, and a seed taken
    * then would stand every card still to come at an endless natural. Every
-   * sidebar card declares, so the deferral ends at the quiet-period settle
-   * that follows the last publish. Content cards declare nothing, so a column
-   * has nothing to wait for and seeds at once — to the equal division, which
-   * no later declaration would move.
+   * measured sidebar card publishes one and a stream declares itself at
+   * registration instead ({@link _railMembersDeclared}), so the deferral ends
+   * at the quiet-period settle that follows the last publish. Content cards
+   * declare nothing, so a column has nothing to wait for and seeds at once —
+   * to the equal division, which no later declaration would move.
    *
    * Called from `_commitImposition`, from the settle, and from the three
    * membership moves that write state directly — a sidebar pane created,
@@ -2787,13 +2790,27 @@ export class DeckManager implements IDeckManagerStore {
     return next;
   }
 
-  /** Whether every one of `componentIds` has a settled appetite — the
-   *  condition a rail's seed waits for, since every sidebar card declares one
-   *  and a seed taken before the last publish would be a seed of nothing. */
+  /**
+   * Whether every one of `componentIds` has said what it wants of the run —
+   * the condition a rail's seed waits for, since a seed taken before the last
+   * publish would be a seed of nothing.
+   *
+   * A CONTENT card says it by publishing a measured natural, so the answer is
+   * whether its entry has reached the settled mirror. A STREAM says it at
+   * REGISTRATION and publishes nothing, ever ([B05]): waiting for an entry
+   * that cannot arrive would leave a rail carrying one unseeded for the life
+   * of the app — its record dropped at every membership change and never
+   * written back, so every later settle would re-derive the division from the
+   * live naturals and the seams would follow content instead of the hand.
+   */
   private _railMembersDeclared(componentIds: readonly string[]): boolean {
     const appetites = this.deckState.appetites;
     if (appetites === undefined) return false;
-    return componentIds.every((componentId) => appetites[componentId] !== undefined);
+    return componentIds.every(
+      (componentId) =>
+        getHeightSource(componentId) === "stream" ||
+        appetites[componentId] !== undefined,
+    );
   }
 
   /** Whether any split place stands as a strip under `imposition` — flow by
@@ -3557,7 +3574,7 @@ export class DeckManager implements IDeckManagerStore {
    * slide its column under the user for a card that did not move.
    *
    * The strip it measures against is the allocation's own — every overflowing
-   * member's height is `max(floor, comfort · weight)`, which the allocator
+   * member's height is `max(floor, natural · weight)`, which the allocator
    * answers from the members' declarations rather than from any frame — so no
    * pane is measured here, which is what lets the answer be computed inside a
    * commit rather than after a layout.

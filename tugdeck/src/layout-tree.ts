@@ -406,8 +406,8 @@ export interface DeckState {
    * What each card would like of the vertical run it shares, keyed by
    * componentId — the SETTLED mirror of `cardAppetiteStore` ([P05]).
    *
-   * A card publishes its comfort and natural heights into the store as its
-   * content changes; the deck manager copies the store's snapshot here once
+   * A card publishes its natural height into the store as its content
+   * changes; the deck manager copies the store's snapshot here once
    * the publishing stops, and the height allocator reads it from here. The
    * indirection is the point: layout reads a settled fact rather than a live
    * one, so a list being typed into does not re-allocate its rail per

@@ -160,29 +160,9 @@ import type {
   ProjectChangeset,
   WorkspacesChangesetSnapshot,
 } from "@/lib/changeset-types";
-import { useCardAppetite } from "@/lib/card-appetite-store";
+import { useMeasuredCardAppetite } from "@/lib/card-appetite-store";
 import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
 import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
-
-// ---- Vertical appetite ([B02]) ----
-
-/**
- * One arc row's height.
- *
- * From `.arcs-block` in `arcs-card.css`: `padding-block: var(--tug-space-md)` —
- * "8px each side, the 16px the design settled on" — over the block's own two
- * lines and the `gap: 3px` the same rule sets between them, each line at
- * `--tug-font-size-sm` × `--tug-line-height-tight`. Derived from those rules
- * rather than measured: the app-test fixture that reads a card's declaration
- * against its content stands no arc.
- */
-const ARCS_ROW_HEIGHT_PX = 48;
-
-/** The pane's title bar; the arcs list carries no chrome of its own. */
-const ARCS_HEADER_PX = CARD_TITLE_BAR_HEIGHT;
-
-/** Three blocks read as a list of arcs rather than as one arc and a hint. */
-const ARCS_COMFORT_ROWS = 3;
 
 /** The card's focus group — every stop it offers lives here. */
 const ARCS_FOCUS_GROUP = "arcs-card";
@@ -1032,14 +1012,13 @@ function ArcsBody(): React.ReactElement {
   // "No arcs" over rows that never mounted.
   const populated = rows.length + plans.length > 0;
 
-  // What the card would like of its rail's run ([B02]): a block per arc and per
-  // plan. The EXPANDED set is card-local view scope — a reading of one row, not
-  // a change in how many there are — so folding steps open does not move the
-  // ask and a rail does not re-divide itself under a disclosure triangle.
-  useCardAppetite(
+  // What the card would like of its rail's run ([B01]): the measured height of
+  // its content element, plus the pane's title bar, which the column below the
+  // scroller cannot see. A block per arc used to be a constant derived from
+  // the CSS by hand; a row that grows a line now says so by being taller.
+  const contentRef = useMeasuredCardAppetite(
     ARCS_CARD_ID,
-    ARCS_HEADER_PX + ARCS_COMFORT_ROWS * ARCS_ROW_HEIGHT_PX,
-    ARCS_HEADER_PX + (rows.length + plans.length) * ARCS_ROW_HEIGHT_PX,
+    CARD_TITLE_BAR_HEIGHT,
   );
 
   const discardVerb = useChangesetDiscard(ARCS_VERB_KEY);
@@ -1126,8 +1105,16 @@ function ArcsBody(): React.ReactElement {
   // way in to name — the card is a fixed address to glance at, not a door.
   if (!populated) {
     return (
-      <div className="arcs-empty" data-slot="arcs-empty">
-        None
+      <div className="arcs-section" data-slot="arcs-section">
+        <div
+          className="arcs-card-content"
+          data-testid="arcs-card-content"
+          ref={contentRef}
+        >
+          <div className="arcs-empty" data-slot="arcs-empty">
+            None
+          </div>
+        </div>
       </div>
     );
   }
@@ -1135,6 +1122,13 @@ function ArcsBody(): React.ReactElement {
   return (
     <ArcVerbsContext value={verbs}>
       <div className="arcs-section" data-slot="arcs-section">
+        {/* The content element ([B01]): everything the card draws, as one
+            in-flow column inside the scroller ([B02]). */}
+        <div
+          className="arcs-card-content"
+          data-testid="arcs-card-content"
+          ref={contentRef}
+        >
         <TugListView<CockpitRowsDataSource>
           dataSource={dataSource}
           delegate={delegate}
@@ -1146,6 +1140,7 @@ function ArcsBody(): React.ReactElement {
           {...RAIL_LIST_PRESENTATION}
           className="arcs-list"
         />
+        </div>
         {/* One controlled confirm for the whole card, anchored to whichever
             row armed it. `confirmRole="danger"` puts default focus on Cancel,
             so a reflexive Return can never destroy an arc. */}

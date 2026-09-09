@@ -1,6 +1,6 @@
 /**
  * at0499-arcs-scroll.test.ts — the Arcs card hands its overflow to its own
- * list's scroller rather than growing past its rail.
+ * scroller rather than growing past its rail.
  *
  * A rail card takes its pane's height and its list carries the overflow. The
  * Arcs surface did not take part: its inner shell carried an automatic block
@@ -8,6 +8,12 @@
  * min-content — so the column stood at the full intrinsic height of its rows
  * however many there were, and a checkout with more arcs than the rail can
  * show simply ran the last ones off the bottom with no way to reach them.
+ *
+ * The scroller is the CARD ROOT, not the list. A sidebar card's height is
+ * measured from a content element holding everything the card draws, and an
+ * element whose own list scrolled would stand at the height of the pane it
+ * was measured for ([B01], [B02]) — so the list stands at the sum of its rows
+ * and the card root carries what does not fit.
  *
  * The fixture makes that real rather than arguing it: forty arcs, each a
  * document-only arc (a directory under `.tug/arcs/` holding a brief), which
@@ -17,12 +23,13 @@
  *
  * Three marks, and the first two are what failed before:
  *
- *   - the list is a live scroller — its scroll height exceeds its client
- *     height, so there is something to scroll and a way to scroll it;
- *   - the card does not spill — the list's bottom edge lands inside the card,
- *     not past it;
+ *   - the card is a live scroller — its scroll height exceeds its client
+ *     height, so there is something to scroll and a way to scroll it, and the
+ *     list inside it scrolls nothing of its own;
+ *   - the card does not spill — the list's bottom edge lands inside the card's
+ *     scrollable content, not past what the card can reach;
  *   - the bottom row is reachable — scrolled to the end, the last row sits
- *     inside the list's own viewport.
+ *     inside the card's own viewport.
  *
  * @covers tugdeck/src/components/arcs/arcs-card.css
  * @covers tugdeck/src/components/arcs/arcs-card.tsx
@@ -159,7 +166,7 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () =>
              const list = document.querySelector(${JSON.stringify(LIST)});
              const card = document.querySelector(${JSON.stringify(CARD)});
              return {
-               overflowY: getComputedStyle(list).overflowY,
+               overflowY: getComputedStyle(card).overflowY,
                listScrollHeight: list.scrollHeight,
                listClientHeight: list.clientHeight,
                cardScrollHeight: card.scrollHeight,
@@ -175,17 +182,19 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () =>
         // are more than the card can show. If this ever fails the rail grew,
         // and the fixture owes it more arcs — everything below is vacuous
         // without it.
-        expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
-        // The list is the scroller, and the card is not: the overflow belongs
-        // to one place, which is what makes the scrollbar land around the rows
-        // rather than around the card. `scroll` rather than `auto`, because a
-        // sidebar list reserves the bar's lane at all times ([D182]).
+        expect(geometry.cardScrollHeight).toBeGreaterThan(geometry.cardClientHeight);
+        // The card root is the scroller, and the list is not: the overflow
+        // belongs to one place, and that place has to hold everything the card
+        // draws so the column inside it can be measured ([B01]). `scroll`
+        // rather than `auto`, because a sidebar scroller reserves the bar's
+        // lane at all times ([D182]).
         expect(geometry.overflowY).toBe("scroll");
-        expect(geometry.cardScrollHeight).toBeLessThanOrEqual(
-          geometry.cardClientHeight + 1,
+        // The list stands at the sum of its rows — nothing of its own to
+        // scroll, which is what keeps the card's content column independent of
+        // the run the card was given ([B02]).
+        expect(geometry.listScrollHeight).toBeLessThanOrEqual(
+          geometry.listClientHeight + 1,
         );
-        // And the list stays inside the card instead of running past its foot.
-        expect(geometry.listBottom).toBeLessThanOrEqual(geometry.cardBottom + 1);
 
         note("at0499 the Arcs card overflowing", (await app.screenshot()).path);
 
@@ -199,10 +208,10 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () =>
           viewBottom: number;
         }>(
           `(() => {
-             const list = document.querySelector(${JSON.stringify(LIST)});
-             list.scrollTop = list.scrollHeight;
+             const card = document.querySelector(${JSON.stringify(CARD)});
+             card.scrollTop = card.scrollHeight;
              const row = document.querySelector(${JSON.stringify(LAST_ROW)});
-             const view = list.getBoundingClientRect();
+             const view = card.getBoundingClientRect();
              const rect = row.getBoundingClientRect();
              return {
                rowTop: rect.top,

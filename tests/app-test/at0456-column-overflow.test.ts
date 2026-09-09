@@ -6,7 +6,7 @@
  * floor cannot all stand in the ~1040px run this canvas gives a column, so
  * division stops being possible and the column takes a different geometry
  * entirely ([P01], [P08]). Every member takes the height IT asked for —
- * `max(floor, comfort · weight)` — and they stack down a virtual strip that
+ * `max(floor, natural · weight)` — and they stack down a virtual strip that
  * slides up behind the run on a per-slot offset. The strip is longer than the
  * run, so the card the run's bottom edge cuts IS the affordance, the vertical
  * twin of flow's card half-hidden at the band edge.
@@ -23,7 +23,7 @@
  * user chose is governing again, unrewritten.
  *
  *   1. **The strip is built from the members.** Each frame stands at the height
- *      the allocator gives it from its own floor, comfort and stored weight,
+ *      the allocator gives it from its own floor, natural and stored weight,
  *      stacked one imposition gap apart from the run's own top — and the last
  *      running PAST the run's bottom edge rather than being squeezed above it.
  *      That overhang is the affordance, and the coordinates the frames pin to
@@ -72,8 +72,8 @@ const GAP = 5;
  * one.
  */
 const GAP_BOTTOM = GAP;
-/** The floor `fixture-tall-floor` declares, which is also its comfort height:
- *  it declares no other appetite, so `comfort = floor` ([P02], Spec S05). */
+/** The floor `fixture-tall-floor` declares. It declares no appetite above it,
+ *  so its natural is endless ([P02], Spec S05). */
 const FLOOR = 400;
 /** Geometry tolerance. A shade wider than at0455's, because the offset is
  *  published rounded to the pixel and every member's top carries that

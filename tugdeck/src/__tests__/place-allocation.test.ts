@@ -11,10 +11,10 @@
  * is stated.
  *
  * The probe cards declare no size policy, so each takes the default floor of
- * 180px and no comfort or natural height above it. That is deliberately the
- * state every card is in until the appetite declarations land: the seed's
- * middle two stages have nothing to do, and the whole of the run above the
- * floors divides evenly.
+ * 180px and no natural height above it. That is deliberately the state every
+ * card is in until the appetite declarations land: the seed's fill toward
+ * natural has nothing to cap, and the whole of the run above the floors
+ * divides evenly.
  *
  * The signature term is pinned beside them for the reason it exists: what a
  * settle interpolates is frames, so a term that missed a height change would
@@ -276,8 +276,8 @@ describe("a member's appetite is what its cards declared, folded", () => {
   // The settled mirror of `cardAppetiteStore` ([P05]) — the same shape
   // `DeckState.appetites` carries, keyed by componentId.
   const appetites = {
-    "probe-a": { comfort: 300, natural: 700 },
-    "probe-b": { comfort: 400, natural: 500 },
+    "probe-a": { natural: 700 },
+    "probe-b": { natural: 500 },
   };
 
   function stateWithAppetites(): DeckState {
@@ -300,7 +300,6 @@ describe("a member's appetite is what its cards declared, folded", () => {
       undefined,
     );
     expect(third.floor).toBe(DEFAULT_FLOOR);
-    expect(third.comfort).toBe(DEFAULT_FLOOR);
     expect(third.natural).toBe(Infinity);
   });
 
@@ -311,8 +310,8 @@ describe("a member's appetite is what its cards declared, folded", () => {
       [...RAIL_IDS],
       undefined,
     );
-    expect(first).toMatchObject({ floor: DEFAULT_FLOOR, comfort: 300, natural: 700 });
-    expect(second).toMatchObject({ floor: DEFAULT_FLOOR, comfort: 400, natural: 500 });
+    expect(first).toMatchObject({ floor: DEFAULT_FLOOR, natural: 700 });
+    expect(second).toMatchObject({ floor: DEFAULT_FLOOR, natural: 500 });
   });
 
   test("a pane's cards fold by max, because a stack is one box", () => {
@@ -330,33 +329,51 @@ describe("a member's appetite is what its cards declared, folded", () => {
       appetites,
     } as unknown as DeckState;
     const [first] = placeMemberAppetites(state, "rail", [...RAIL_IDS], undefined);
-    expect(first.comfort).toBe(400);
     expect(first.natural).toBe(700);
   });
 
-  test("a natural below its own comfort is raised to it", () => {
-    // The ladder reads `natural` as the ceiling on `comfort`'s step, so the two
-    // rungs would otherwise disagree about the same member. A publisher that
-    // got them the wrong way round costs a taller box, never an invalid
-    // allocation.
+  test("a natural below the floor is raised to it", () => {
+    // A card that measures less than the box it needs to paint in still needs
+    // that box: the floor is the one number the declaration cannot argue with.
     const state = {
       ...railState([...RAIL_IDS]),
-      appetites: { "probe-a": { comfort: 500, natural: 200 } },
+      appetites: { "probe-a": { natural: 20 } },
     } as unknown as DeckState;
     const [first] = placeMemberAppetites(state, "rail", [...RAIL_IDS], undefined);
-    expect(first.comfort).toBe(500);
-    expect(first.natural).toBe(500);
+    expect(first.natural).toBe(DEFAULT_FLOOR);
   });
 
   test("a stream's Infinity natural survives the fold", () => {
-    // The Overview declares one: it is never finished, so there is no height at
-    // which it wants nothing more. The water-fill's cap must never bind on it.
+    // Endless is what a member reads when it declared nothing — it is never
+    // finished, so there is no height at which it wants nothing more. The
+    // water-fill's cap must never bind on it.
     const state = {
       ...railState([...RAIL_IDS]),
-      appetites: { "probe-a": { comfort: 300, natural: Infinity } },
+      appetites: { "probe-a": { natural: Infinity } },
     } as unknown as DeckState;
     const [first] = placeMemberAppetites(state, "rail", [...RAIL_IDS], undefined);
     expect(first.natural).toBe(Infinity);
+  });
+
+  test("a card the registry calls a stream reads endless whatever it published", () => {
+    // The carve-out ([B05]): a stream is never measured, so it publishes
+    // nothing — but a registration is the fact, not the silence. Even handed a
+    // finite declaration, a stream's member reads endless, so a card that
+    // becomes a stream cannot be pinned by a stale number in deck state.
+    registerCard({
+      componentId: "probe-stream",
+      contentFactory: () => null,
+      defaultMeta: { title: "probe-stream", closable: true },
+      layoutRole: "sidebar",
+      heightSource: "stream",
+    });
+    const ids = ["probe-stream"] as const;
+    const state = {
+      ...railState([...ids]),
+      appetites: { "probe-stream": { natural: 250 } },
+    } as unknown as DeckState;
+    const [only] = placeMemberAppetites(state, "rail", [...ids], undefined);
+    expect(only.natural).toBe(Infinity);
   });
 
   test("the allocation caps a member at its natural and gives the rest away", () => {
@@ -368,9 +385,9 @@ describe("a member's appetite is what its cards declared, folded", () => {
         // Declared at its floor, so it is satisfied there: an undeclared
         // member would be endless and would take a share of what `probe-b`
         // left, which is a different claim.
-        "probe-a": { comfort: DEFAULT_FLOOR, natural: DEFAULT_FLOOR },
-        "probe-b": { comfort: 200, natural: 250 },
-        "probe-c": { comfort: 200, natural: Infinity },
+        "probe-a": { natural: DEFAULT_FLOOR },
+        "probe-b": { natural: 250 },
+        "probe-c": { natural: Infinity },
       },
     } as unknown as DeckState;
     const allocation = railAllocationOf(state, "right", RUN);

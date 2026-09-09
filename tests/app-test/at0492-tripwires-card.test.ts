@@ -244,15 +244,20 @@ describe.skipIf(!SHOULD_RUN)(
               "Diagnose the failure and say whether the tool or the caller was wrong.",
             );
 
-            // The detail carries its own overflow. Whatever the trip log grows
-            // to, the card hands the rail a scroller instead of a column
-            // that pushes its siblings off the bottom.
+            // The CARD carries the overflow, at both levels. Whatever the trip
+            // log grows to, the card hands the rail a scroller instead of a
+            // column that pushes its siblings off the bottom — and the detail
+            // itself stands at its full content height inside that scroller,
+            // which is what makes the card's height measurable ([B01]/[B02])
+            // rather than a reading of the run it was given.
             expect(
               await app.evalJS<boolean>(
                 `(() => { const d = document.querySelector(".tripwires-detail");
-                    return getComputedStyle(d).overflowY === "auto"
+                    const card = document.querySelector(${JSON.stringify(CARD)});
+                    return getComputedStyle(card).overflowY === "scroll"
+                      && getComputedStyle(d).overflowY === "visible"
                       && d.getBoundingClientRect().height
-                         <= document.querySelector(${JSON.stringify(CARD)}).getBoundingClientRect().height + 1; })()`,
+                         <= card.scrollHeight + 1; })()`,
               ),
             ).toBe(true);
 

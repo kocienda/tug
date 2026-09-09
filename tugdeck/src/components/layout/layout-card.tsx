@@ -181,7 +181,7 @@ import type { TugChoiceItem } from "@/components/tugways/tug-choice-group";
 import { useResponder } from "@/components/tugways/use-responder";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { useCardAppetite } from "@/lib/card-appetite-store";
+import { useMeasuredCardAppetite } from "@/lib/card-appetite-store";
 import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
 import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
@@ -210,109 +210,12 @@ const WIDTH_SENDER_ID = "layout-card-width";
 const SIDE_SENDER_PREFIX = "layout-card-side:";
 
 /**
- * The Layout card's appetite, box by box ([B01], [B02]).
- *
- * The card used to declare one number for the whole of itself, and that number
- * described the plate alone: it named the title bar, the drawing and the preset
- * strip, and said nothing about the caption above the drawing or the control
- * rows below it — which are most of the card. A rail that honoured it as a
- * ceiling therefore cut the rows off, which is exactly what it was asked to do.
- *
- * So the comfort height is the PLATE — everything above the first control row,
- * because the picture is the card's job and the rows under it may scroll — and
- * the natural height is that plus the rows, which is the only part that varies:
- * three deck-wide rows and one per registered sidebar card. Every term below
- * names the rule in `layout-card.css` it comes from, and none of them measures
- * anything at run time — a card that measured its own drawing to decide the box
- * the drawing is laid out in is the metric loop the previous brief's [B03]
- * refuses.
- */
-
-/** `.layouts-section`'s own `padding: 6px 8px 8px`, block only. */
-const LAYOUT_SECTION_PADDING_PX = 6 + 8;
-
-/** `.layouts-plan-summary`: the caption at `--tugx-header-title-size` /
- *  `--tugx-header-title-lh` over the note at `--tug-font-size-sm` /
- *  `--tug-line-height-normal`, `--tug-space-sm` between them. */
-const LAYOUT_CAPTION_PX = 42;
-
-/** `.layouts-plan-layer`'s `gap: var(--tug-space-lg)`, which stands the summary
- *  off the drawing. */
-const LAYOUT_SUMMARY_GAP_PX = 12;
-
-/** The drawing: `--tugx-layouts-plan-mini-width` at `.layout-mini`'s
- *  `aspect-ratio: 16 / 10`. Both numbers are stated together in
- *  `layout-card.css`, beside the width knob, so tuning the width moves this. */
-const LAYOUT_MINI_WIDTH_PX = 300;
-const LAYOUT_DRAWING_PX = (LAYOUT_MINI_WIDTH_PX * 10) / 16;
-
-/** `.layouts-plate`'s own `gap: 4px`, between the drawing and its legend. */
-const LAYOUT_PLATE_GAP_PX = 4;
-
-/** The preset strip: `.flow-strip`, one line of numbered segments inside its
- *  own `padding-inline: 3px` box and transparent border. */
-const LAYOUT_STRIP_PX = 19;
-
-/** `.layouts-section`'s `gap: 10px`, between the plate and the first control
- *  row. It belongs to comfort because it is air the plate has to stand in. */
-const LAYOUT_SECTION_GAP_PX = 10;
-
-/** The fold cue and the seam under it: one `2xs` `TugPushButton`
- *  (`--tug-button-2xs-height`, 20px) on its own line, over another
- *  `.layouts-section` gap. Both belong to comfort — the cue because it is the
- *  door to the rows and a card cut to comfort still has to offer the way back
- *  to them, the seam because it is air the cue stands in rather than air a row
- *  brings with it. Keeping the seam here is also what leaves the pitch below
- *  the card's ONE per-row term. */
-const LAYOUT_CUE_PX = 20 + LAYOUT_SECTION_GAP_PX;
-
-/** One control row's pitch: the row's own 28px control against
- *  `.layouts-section-rows`'s `row-gap: 6px`. */
-const LAYOUT_ROW_PITCH_PX = 28 + 6;
-
-/** The rows that are there whatever the registry holds: Cards, Layout and Card
- *  Width. Every other row is one registered sidebar card. */
-const LAYOUT_DECK_ROWS = 3;
-
-/** The two rail rows, one per side, present whatever the sides hold: a split
+ * The two rail rows, one per side, present whatever the sides hold: a split
  *  side dropping to one card would otherwise take the only way to un-split it
  *  away with it ([B08]). Disabled rather than absent, which is why they count
  *  toward the natural unconditionally. */
 const LAYOUT_RAIL_ROWS = 2;
 
-/** Comfort: the plate and the fold cue, and nothing below them. */
-const LAYOUT_COMFORT_HEIGHT_PX = Math.ceil(
-  CARD_TITLE_BAR_HEIGHT +
-    LAYOUT_SECTION_PADDING_PX +
-    LAYOUT_CAPTION_PX +
-    LAYOUT_SUMMARY_GAP_PX +
-    LAYOUT_DRAWING_PX +
-    LAYOUT_PLATE_GAP_PX +
-    LAYOUT_STRIP_PX +
-    LAYOUT_SECTION_GAP_PX +
-    LAYOUT_CUE_PX,
-);
-
-/** Natural: comfort plus every control row the card will draw — and, when the
- *  mixer is folded away, comfort itself, because a folded card draws no rows
- *  and asking its rail for room to draw them would leave the run empty under
- *  the cue. The fold is therefore an appetite change as much as a visual one —
- *  but an appetite is read at the hand's moments, not on every change: in flow
- *  the strip shortens, and in fit the plate stands over the room it was given
- *  until a drag, a membership change or Fit to Content reads the folded card.
- *  A seam moves only when the hand moves it. */
-function layoutNaturalHeightPx(
-  sidebarCount: number,
-  columnRowCount: number,
-  mixerOpen: boolean,
-): number {
-  if (!mixerOpen) return LAYOUT_COMFORT_HEIGHT_PX;
-  return (
-    LAYOUT_COMFORT_HEIGHT_PX +
-    LAYOUT_ROW_PITCH_PX *
-      (LAYOUT_DECK_ROWS + LAYOUT_RAIL_ROWS + columnRowCount + sidebarCount)
-  );
-}
 const RAIL_SENDER_PREFIX = "layout-card-rail:";
 const COLUMN_SENDER_PREFIX = "layout-card-column:";
 /** The per-place ROWS' senders, apart from the marks' above: a row's Fit and
@@ -901,25 +804,25 @@ export function LayoutContent(
     (entry) => !(entry?.kind === "bool" && entry.value === false),
     true,
   );
-  // What the card would like of its rail's run ([B02]). Comfort is the plate —
-  // the picture is the card's job and the rows beneath it may scroll — and
-  // natural is the plate plus every control row, which is the three deck-wide
-  // ones and one per registered sidebar card. `sidebarEntries()` reads the
-  // registry, which is fixed at boot, so this is a pure function of state and
-  // the section's height does not move as cards come and go. The fold is the
-  // one thing that moves it, and it moves it because the reader asked.
   // Every occupied slot, whatever its membership (see `useDeckColumns` for
-  // why one card deep still counts) — read here, ahead of the appetite,
-  // because the slots with something to arrange each add a row to it.
+  // why one card deep still counts): each slot with something to arrange draws
+  // a control row.
   const columns = useDeckColumns();
   const columnRowSlots: number[] = columns
     .filter((column) => column.members.length > 1)
     .map((column) => column.slot)
     .sort((a, b) => a - b);
-  useCardAppetite(
+  // What the card would like of its rail's run ([B01]): the measured height of
+  // its content element, plus the pane's title bar, which the column below the
+  // scroller cannot see. This is the card whose sum was hardest to keep honest
+  // — a plate of nine terms, each naming a rule in `layout-card.css`, plus a
+  // pitch per control row — and the one whose drift was most visible, because
+  // the caption and the OPTIONS header the sum did not carry were drawn all
+  // the same and then cut off. Folding the mixer takes the rows out of the
+  // DOM, so the fold is still an appetite change; nothing has to say so.
+  const contentRef = useMeasuredCardAppetite(
     LAYOUT_CARD_ID,
-    LAYOUT_COMFORT_HEIGHT_PX,
-    layoutNaturalHeightPx(sidebars.length, columnRowSlots.length, mixerOpen),
+    CARD_TITLE_BAR_HEIGHT,
   );
   // The open ones are what the picture draws and what the overlay marks;
   // the full registry is what the sidebar rows list, because a hidden card's
@@ -1463,6 +1366,16 @@ export function LayoutContent(
         data-testid="layout-card-section"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
+        {/* The content element ([B01]): the column of everything the card
+            draws. The root above is the scroller and holds no padding or
+            rhythm of its own, so this element's border-box height is exactly
+            what the card paints — which is what the rail measures and stands
+            it at. */}
+        <div
+          className="layouts-content"
+          data-testid="layout-card-content"
+          ref={contentRef}
+        >
         {/* The figure: the drawing, and the places standing on it. They are
             siblings rather than nested because the drawing is `aria-hidden` —
             it is a picture of facts stated in words elsewhere — and an
@@ -1834,6 +1747,7 @@ export function LayoutContent(
           })}
         </div>
         ) : null}
+        </div>
       </div>
     </ResponderScope>
   );

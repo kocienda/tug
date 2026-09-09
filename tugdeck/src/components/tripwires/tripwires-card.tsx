@@ -88,33 +88,9 @@ import {
 
 import "./tripwires-card.css";
 
-import { useCardAppetite } from "@/lib/card-appetite-store";
+import { useMeasuredCardAppetite } from "@/lib/card-appetite-store";
 import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
 import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
-
-// ---- Vertical appetite ([B02]) ----
-
-/**
- * One tripwire row's height — a TWO-line row, which the empty label's
- * `min-block-size` never was.
- *
- * The roster mounts its rows at `density="compact"`, so
- * `.tug-list-row[data-density="compact"]` in `tug-list-row.css` gives them
- * `--tugx-list-row-padding-block: 1px` each side. Inside that stand the name at
- * `titleSize="sm"` and the trigger line under it, each at `--tug-font-size-sm`
- * × `--tug-line-height-tight`, with `--tugx-list-row-content-gap`
- * (`--tug-space-2xs`, 2px) between them. Derived from those rules rather than
- * measured: the app-test fixture that reads a card's declaration against its
- * content stands no tripwire.
- */
-const TRIPWIRES_ROW_HEIGHT_PX = 36;
-
-/** The pane's title bar over `.tripwires-head` — one compact row inside that
- *  rule's own `padding-block: 6px 8px`. */
-const TRIPWIRES_HEADER_PX = CARD_TITLE_BAR_HEIGHT + 32;
-
-/** Four rows read as a roster rather than as a sample of one. */
-const TRIPWIRES_COMFORT_ROWS = 4;
 
 /**
  * The card's focus group — every stop it offers lives here, so the Tab walk
@@ -455,14 +431,14 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
   const tripwires = snapshot.tripwires;
   const populated = tripwires.length > 0;
 
-  // What the card would like of its rail's run ([B02]): its whole roster. The
-  // DETAIL level is a way of looking at one of those rows rather than a
-  // different amount of content, so it does not move the ask — the card would
-  // otherwise grow and shrink every time a row was opened and closed.
-  useCardAppetite(
+  // What the card would like of its rail's run ([B01]): the measured height of
+  // whichever level's content element is standing, plus the pane's title bar,
+  // which neither column can see. The two levels are two different columns and
+  // the ref follows the one that mounted, so opening a tripwire asks for the
+  // detail's height rather than for the roster it replaced.
+  const contentRef = useMeasuredCardAppetite(
     TRIPWIRES_CARD_ID,
-    TRIPWIRES_HEADER_PX + TRIPWIRES_COMFORT_ROWS * TRIPWIRES_ROW_HEIGHT_PX,
-    TRIPWIRES_HEADER_PX + tripwires.length * TRIPWIRES_ROW_HEIGHT_PX,
+    CARD_TITLE_BAR_HEIGHT,
   );
 
   // The opening key view lands on a real row, never on emptiness: an empty list
@@ -502,13 +478,21 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
   if (open !== null) {
     return (
       <div className="tripwires-card" data-tripwires-level="detail">
-        <TripwireDetail
-          tripwire={open}
-          trips={snapshot.trips[open.name] ?? []}
-          focusGroup={TRIPWIRES_FOCUS_GROUP}
-          onBack={back}
-        />
-        {errorStrip}
+        {/* The content element ([B01]): everything the level draws, as one
+            in-flow column inside the scroller ([B02]). */}
+        <div
+          className="tripwires-card-content"
+          data-testid="tripwires-card-content"
+          ref={contentRef}
+        >
+          <TripwireDetail
+            tripwire={open}
+            trips={snapshot.trips[open.name] ?? []}
+            focusGroup={TRIPWIRES_FOCUS_GROUP}
+            onBack={back}
+          />
+          {errorStrip}
+        </div>
       </div>
     );
   }
@@ -516,6 +500,13 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
   return (
     <OpenTripwireContext.Provider value={setOpenTripwire}>
       <div className="tripwires-card" data-tripwires-level="list">
+        {/* The content element ([B01]): everything the level draws, as one
+            in-flow column inside the scroller ([B02]). */}
+        <div
+          className="tripwires-card-content"
+          data-testid="tripwires-card-content"
+          ref={contentRef}
+        >
         {!populated ? (
           // No list until there is a row for it. A `TugListView` over zero rows
           // still registers its stop, and a stop that appears at mount and
@@ -543,6 +534,7 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
           />
         )}
         {errorStrip}
+        </div>
       </div>
     </OpenTripwireContext.Provider>
   );

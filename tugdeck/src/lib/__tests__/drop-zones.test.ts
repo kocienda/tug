@@ -108,7 +108,7 @@ function overflowFloors(
   return new Map(
     ids.map((id) => [
       id,
-      { id, floor, comfort: floor, natural: floor, greedRank: 5, weight: 1 },
+      { id, floor, natural: floor, greedRank: 5, weight: 1 },
     ]),
   );
 }
@@ -139,7 +139,6 @@ function sharedHeights(
     weights.map((weight, index) => ({
       id: `${index}`,
       floor: 0,
-      comfort: 0,
       natural: 0,
       greedRank: 5,
       weight,

@@ -6,7 +6,7 @@
  * member of an overflowing rail used to be the same fixed fraction of the run,
  * whatever it asked for. Both were proxies for a question neither could see
  * ([P01], [B07]): is there room, and how much does this member want. One
- * allocator answers both now, from the members' own floors, comfort heights and
+ * allocator answers both now, from the members' own floors, natural heights and
  * stored weights, and a rail and a column stand under it alike.
  *
  * What this file pins, against a live deck:
@@ -32,13 +32,16 @@
  *      there is nothing for a drag to trade. The rail's offset does not move:
  *      a drag resizes, it does not scroll.
  *   5. **What a card declares is what the rail divides by.** Each declaration
- *      is read against the content it claims to measure: the Jots card's
- *      natural is its list a row at a time, and the two decks differ by exactly
- *      the five jots between them; the Layout card's is its plate plus a pitch
- *      for every control row it actually drew. No member is pushed past what it
- *      asked for, and the Cards card — which asks for less than its floor —
- *      stands at that floor. `DeckState.appetites` carries the declarations,
- *      which is the settle having run.
+ *      is read against the content it claims to measure — the same content,
+ *      off the screen: a card's natural is its content element's border-box
+ *      height plus the pane's title bar, which is the one part of the member's
+ *      box that element cannot see ([B01]). And the two decks differ by
+ *      exactly the five jots between them, at a row pitch read off each deck's
+ *      own list rather than named here, because no card carries that number
+ *      any more. No member is pushed past what it asked for, and the Cards
+ *      card — which asks for less than its floor — stands at that floor.
+ *      `DeckState.appetites` carries the declarations, which is the settle
+ *      having run.
  *   6. **And what a card declares is TRUE of the card.** Parts 1–5 all ask
  *      whether the allocator honours the declarations; this one asks whether
  *      the declarations are honest. Standing at exactly its natural height,
@@ -76,6 +79,18 @@
  *      asks for Fit to Content — which re-seeds the division from the
  *      naturals as they stand, so the card that grew has no internal scroll
  *      and the others stand at what they asked for or less.
+ *  10. **A content card's content element cannot see its pane.** Every part
+ *      above reads a card's height as a number the card DECLARED. This one is
+ *      about the element that number is going to be MEASURED from ([B01]):
+ *      each content card names one in-flow column holding everything it draws,
+ *      inside the card's one scroller with nothing stretched between them, and
+ *      at a fixed rail width that column's border-box height is the SAME at a
+ *      short pane and at a tall one. That is the whole safety argument for
+ *      measuring at all ([B02]): a height that cannot move with the run it
+ *      feeds has only one leg of the loop the no-measurement rule was written
+ *      against, and cannot oscillate. A card that cannot pass it is a stream
+ *      and says so in the registry ([B07]); Overview, the one stream today, is
+ *      not asked.
  *
  * The standing is read off the CANVAS rather than out of the store: a shared
  * rail publishes seam fractions and an overflowing one publishes strip
@@ -100,6 +115,7 @@
  * selectors' — at0347 and at0359 are the badge menu's own tests.
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
+ * @covers tugdeck/src/card-registry.ts
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/lib/card-appetite-store.ts
  * @covers tugdeck/src/components/layout/layout-card.tsx
@@ -128,8 +144,7 @@ const AFTER_LAND_MS = 900;
 /** Geometry tolerance: the strip coordinates are published rounded to the
  *  pixel, so every frame's edge carries that rounding. */
 const EPSILON = 2;
-/** The floor every sidebar card declares, which is also its comfort height —
- *  none of them declares any other appetite yet. */
+/** The floor every sidebar card declares. */
 const FLOOR = 240;
 const RAIL_WIDTH = 420;
 /** How far the sash drag travels, in px — well past the move threshold, and
@@ -148,18 +163,17 @@ const RAIL_GAP_BOTTOM = RAIL_EDGE_INSET_PX;
 // ---- What the cards declare (part 5) ----
 
 /**
- * `LAYOUT_ROW_PITCH_PX` in `layout-card.tsx` — one control row's 28px control
- * against `.layouts-section-rows`'s `row-gap: 6px`. The Layout card's natural
- * is its plate plus one of these for every row it draws, which is what part 5
- * checks against the rows on screen.
+ * `CARD_TITLE_BAR_HEIGHT` in `tug-pane.tsx` — the pane chrome standing above
+ * every card's scroller.
+ *
+ * The one number part 5 still names, and it is not a card's: a card's natural
+ * is its content element MEASURED plus this, because the title bar is the
+ * piece of the member's own box the column below the scroller cannot see
+ * ([B01]). Every per-card pixel constant this file used to carry — a jot row,
+ * a control row's pitch — is gone from the cards, so naming one here would be
+ * naming a number nothing states any more.
  */
-const LAYOUT_ROW_PITCH = 34;
-
-/** `JOTS_HEADER_PX` and `JOTS_ROW_HEIGHT_PX` in `jots-card.tsx` — the Jots
- *  card's natural height is its whole list, a row at a time, under the pane's
- *  title bar and the card's own toolbar. */
-const JOTS_HEADER = 76;
-const JOTS_ROW = 28;
+const CARD_TITLE_BAR_PX = 36;
 
 /**
  * How many jots the fixture opens with, and how many it then adds.
@@ -211,11 +225,18 @@ const FILE_CARD_ID = "F";
 interface Reading {
   rects: Rect[];
   run: { top: number; bottom: number; height: number };
-  settled: Record<string, { comfort: number; natural: number }> | null;
+  settled: Record<string, { natural: number }> | null;
   standing: string;
   /** How many control rows the Layout card drew — the count its own natural
    *  height is a function of. */
   layoutRows: number;
+  /** Each content card's content element, measured off the screen — the
+   *  border-box height its declaration is now made of ([B01]). */
+  contents: Record<string, number>;
+  /** The Jots list's own height and the rows in it, which is where the five
+   *  jots between the two decks have to show up. */
+  jotsList: number;
+  jotsRows: number;
 }
 
 const wait = (ms: number): Promise<void> =>
@@ -451,14 +472,16 @@ async function seed(
 
 /**
  * What every card in the deck declared, as `DeckState.appetites` holds it —
- * `natural: null` where the card declares none.
+ * absent where the card declares nothing at all, which is what a stream does
+ * ([B05]).
  *
- * `Infinity` is what a stream publishes and no JSON value can carry it, so the
- * read below projects it to `null` rather than letting the RPC refuse the whole
- * object. Part 5 never met this because its three cards all declare a finite
- * natural.
+ * `natural: null` stands for an endless one: no JSON value carries `Infinity`,
+ * so the read below projects it rather than letting the RPC refuse the whole
+ * object. Nothing publishes an endless natural today — the selector reads one
+ * from the registry — but the projection stays, because a store that could
+ * carry the value once could carry it again.
  */
-type Declarations = Record<string, { comfort: number; natural: number | null }>;
+type Declarations = Record<string, { natural: number | null }>;
 
 /** The settled mirror of what the cards declared, read off the deck's own
  *  diagnostic surface — the publish → quiet period → deck state path having
@@ -472,7 +495,6 @@ async function readAppetites(app: App): Promise<Declarations | null> {
       var out = {};
       Object.keys(live).forEach(function (key) {
         out[key] = {
-          comfort: live[key].comfort,
           natural: Number.isFinite(live[key].natural) ? live[key].natural : null,
         };
       });
@@ -496,8 +518,9 @@ interface Scroller {
  * Found by the property rather than by a per-card selector, because the whole
  * claim is about a card's content against the height it asked for, and a table
  * of six selectors would be six more things to keep true. Every sidebar card
- * hands its overflow to exactly one such element — the list's own scroller for
- * the list cards, the content column for Layout.
+ * hands its overflow to exactly one such element: its own root, which is the
+ * card's one scroller and holds nothing but the content element part 10
+ * measures ([B01]).
  *
  * `null` when a card has none, which a card with an empty list really does not:
  * an empty roster draws its placeholder and no scroller, and there is then
@@ -526,6 +549,86 @@ async function cardScroller(app: App, cardId: string): Promise<Scroller | null> 
         };
       }
       return null;
+    })()`,
+  );
+}
+
+/**
+ * The content cards and the element each one names as its content element
+ * ([B01]): the in-flow column of everything it draws, from its toolbar to its
+ * last row, standing inside the card's one scroller.
+ *
+ * Overview is deliberately absent. Its transcript is virtualized against its
+ * own viewport, so its rendered height IS a function of the height it would
+ * feed — the stream carve-out ([B05]/[B06]), and the one card the invariant
+ * below cannot be asked of.
+ *
+ * A per-card selector rather than a shared class, because naming the element
+ * is the point: the card decides which of its boxes is the one to measure, and
+ * a class every card wears would let a card pass by wearing it on the wrong
+ * box.
+ */
+const CONTENT_CARDS: readonly { componentId: string; selector: string }[] = [
+  { componentId: "layout", selector: "[data-testid='layout-card-content']" },
+  { componentId: "jots", selector: "[data-testid='jots-card-content']" },
+  { componentId: "cards", selector: "[data-testid='cards-card-content']" },
+  { componentId: "dashes", selector: "[data-testid='arcs-card-content']" },
+  {
+    componentId: "tripwires",
+    selector: "[data-testid='tripwires-card-content']",
+  },
+];
+
+/**
+ * The share the card under test takes of the fitting rail in the TALL reading;
+ * the SHORT one is its complement, so one seed pair gives both extremes.
+ *
+ * Not nearer the ends than this: a share that puts either member under its
+ * 240px floor stops the rail sharing at all, and the pair would then be two
+ * readings of the same overflowing standing.
+ */
+const CONTENT_TALL_SHARE = 0.68;
+
+/** How far apart the two pane heights must stand for the reading to mean
+ *  anything, in px. Asserted rather than assumed — equal content measured at
+ *  one pane height twice is a vacuous pass. */
+const CONTENT_PANE_SPREAD = 200;
+
+/** One content card's two numbers: the border-box height of its content
+ *  element, and the height of the pane that element is standing in. */
+interface ContentReading {
+  content: number;
+  pane: number;
+}
+
+/**
+ * The card's content element and its pane, measured together so the pair is
+ * read from one layout rather than from two.
+ *
+ * `null` when the card is not on screen or names no content element, which the
+ * caller asserts against: a card with no content element is a card nothing can
+ * measure, and that is a failure rather than a skip.
+ */
+async function contentReading(
+  app: App,
+  card: { componentId: string; selector: string },
+): Promise<ContentReading | null> {
+  return app.evalJS<ContentReading | null>(
+    `(function () {
+      var host = document.querySelector(
+        '[data-card-host][data-card-id="${card.componentId.toUpperCase()}"]',
+      );
+      if (host === null) return null;
+      var el = host.querySelector(${JSON.stringify(card.selector)});
+      if (el === null) return null;
+      var pane = document.querySelector(
+        '.tug-pane[data-pane-id="${paneOf(card.componentId)}"]',
+      );
+      if (pane === null) return null;
+      return {
+        content: el.getBoundingClientRect().height,
+        pane: pane.getBoundingClientRect().height,
+      };
     })()`,
   );
 }
@@ -701,7 +804,7 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
         // The Layout card carries a stored weight of 2, which is what a seam
         // drag would have left behind. It is what gives the strip a member with
         // room above its floor, and it is read: an overflowing member's height
-        // is `max(floor, comfort · weight)`.
+        // is `max(floor, natural · weight)`.
         const all = [...MODEST, ...REST];
         const last = all.length - 1;
         const HEAVY = "layout";
@@ -863,7 +966,7 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
           const rects = await memberRects(app, MODEST);
           const settled = await app.evalJS<Record<
             string,
-            { comfort: number; natural: number }
+            { natural: number }
           > | null>(
             `(window.tugdeck.diag.getDeckState().appetites || null)`,
           );
@@ -871,12 +974,45 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
           const layoutRows = await app.evalJS<number>(
             `document.querySelectorAll(".layouts-section-row").length`,
           );
+          // The content elements, off the screen: this is what the cards are
+          // now measuring, so the declarations are read against it rather than
+          // against a second copy of a formula the cards no longer carry.
+          const contents = await app.evalJS<Record<string, number>>(
+            `(function () {
+              var out = {};
+              ${JSON.stringify(
+                CONTENT_CARDS.map((card) => [card.componentId, card.selector]),
+              )}.forEach(function (pair) {
+                var el = document.querySelector(pair[1]);
+                if (el !== null) out[pair[0]] = el.getBoundingClientRect().height;
+              });
+              return out;
+            })()`,
+          );
+          const jotsList = await app.evalJS<number>(
+            `(function () {
+              var el = document.querySelector(".tug-list-view.jots-list");
+              return el === null ? 0 : el.getBoundingClientRect().height;
+            })()`,
+          );
+          const jotsRows = await app.evalJS<number>(
+            `document.querySelectorAll(".jot-row-content[data-jot-id]").length`,
+          );
           note(
             `${jots} jots: ${rects
               .map((r, i) => `${MODEST[i]} ${Math.round(r.height)}`)
               .join(", ")} — the rail stands ${how}, run ${run.height.toFixed(1)}px`,
           );
-          return { rects, run, settled, standing: how, layoutRows };
+          return {
+            rects,
+            run,
+            settled,
+            standing: how,
+            layoutRows,
+            contents,
+            jotsList,
+            jotsRows,
+          };
         } finally {
           await app.close();
           rmSync(dir, { recursive: true, force: true });
@@ -892,37 +1028,62 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
       // one claim about the settle that does not depend on catching it in the
       // act.
       //
-      // Each declaration is then read against the content it claims to measure.
-      // The Jots card's is its list, a row at a time, and the two decks differ
-      // by exactly the five jots between them. The Layout card's is its plate
-      // plus a pitch for every control row it drew — counted off the card's own
-      // rendered rows, so the declaration is checked against the picture rather
-      // than against a second copy of the formula.
+      // Each declaration is then read against the content it claims to measure
+      // — and it is the SAME content, off the screen, rather than a second copy
+      // of a formula. A card's natural is its content element's border-box
+      // height plus the pane's title bar, which is the only part of the
+      // member's box the column below the scroller cannot see ([B01]).
+      for (const componentId of MODEST) {
+        const content = many.contents[componentId];
+        expect(
+          content,
+          `${componentId} drew a content element to measure`,
+        ).toBeGreaterThan(0);
+        note(
+          `${componentId}: content element ${content.toFixed(1)}px, declared ${many.settled?.[componentId]?.natural}`,
+        );
+        expect(
+          Math.abs(
+            (many.settled?.[componentId]?.natural ?? 0) -
+              (CARD_TITLE_BAR_PX + content),
+          ),
+          `${componentId} asks for the height its content element actually stands at, under the pane's title bar`,
+        ).toBeLessThan(EPSILON);
+      }
+
+      // And the five jots between the two decks are five rows of the list, so
+      // the declaration moved by the content and by nothing else. The pitch is
+      // read off each deck's own list rather than named here — a row whose
+      // padding is retuned moves both readings together, which is the whole
+      // reason the cards stopped carrying the number.
+      const pitchOf = (reading: Reading): number =>
+        reading.jotsList / reading.jotsRows;
+      expect(many.jotsRows, "the Jots card drew its rows").toBe(JOTS_MANY);
+      expect(few.jotsRows, "and the shorter deck drew its own").toBe(JOTS_FEW);
+      note(
+        `jots row pitch: ${pitchOf(few).toFixed(2)}px at ${JOTS_FEW} rows, ${pitchOf(many).toFixed(2)}px at ${JOTS_MANY}`,
+      );
       expect(
-        many.settled?.jots.natural,
-        "the Jots card's natural is its whole list, a row at a time",
-      ).toBe(JOTS_HEADER + JOTS_MANY * JOTS_ROW);
+        Math.abs(pitchOf(many) - pitchOf(few)),
+        "the two decks agree on what a jot row is tall",
+      ).toBeLessThan(1);
       expect(
-        few.settled?.jots.natural,
-        "and a shorter list asks for exactly the rows it has",
-      ).toBe(JOTS_HEADER + JOTS_FEW * JOTS_ROW);
-      const layout = many.settled?.layout;
+        Math.abs(
+          (many.settled?.jots.natural ?? 0) -
+            (few.settled?.jots.natural ?? 0) -
+            (JOTS_MANY - JOTS_FEW) * pitchOf(many),
+        ),
+        "and the Jots card's declaration grew by exactly the five jots between them",
+      ).toBeLessThan(EPSILON);
+
       expect(
-        layout,
+        many.settled?.layout,
         "the Layout card's declaration reached deck state",
       ).toBeDefined();
-      const declaredLayout = layout as { comfort: number; natural: number };
-      note(
-        `layout declared comfort ${declaredLayout.comfort}, natural ${declaredLayout.natural}, over ${many.layoutRows} control rows`,
-      );
       expect(
         many.layoutRows,
         "the Layout card drew control rows to count",
       ).toBeGreaterThan(0);
-      expect(
-        declaredLayout.natural - declaredLayout.comfort,
-        "and its natural is its comfort plus a pitch for every row it drew",
-      ).toBe(LAYOUT_ROW_PITCH * many.layoutRows);
 
       // Both stand the same way — this is about how a shared run is divided,
       // not about which standing it takes.
@@ -983,15 +1144,16 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
   // Nothing has to be arranged for a member to stand at its natural: a flowing
   // place's heights ARE `max(floor, natural · weight)` ([B08]), so a rail
   // nobody has dragged stands every member at exactly what it declared. This
-  // used to need a stored weight of `natural / comfort` and a second app to
-  // seed it into, because the tier was comfort. The declarations come out of
+  // used to need a stored weight and a second app to seed it into, because
+  // flow's tier was a rung below natural. The declarations come out of
   // the deck's own settled mirror rather than being recomputed here, so the
   // height under test is the height the card asked for rather than one this
   // file agreed with itself about.
   //
   // Two members are not askable, and both are skipped by RULE rather than by
   // name, with a `note()` each so a skip is visible rather than silent:
-  // Overview declares `Infinity` — a stream is never finished — and a card
+  // Overview declares nothing at all — it is a stream, and a stream is never
+  // measured ([B05]) — and a card
   // whose natural falls below the 240px floor cannot be stood at it, so it is
   // measured at the floor, which is more room than it asked for and therefore
   // a weaker reading of the same claim.
@@ -1072,7 +1234,9 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
           `declared: ${all
             .map((componentId) => {
               const appetite = declared[componentId];
-              return `${componentId} comfort ${appetite?.comfort} natural ${appetite?.natural ?? "none"}`;
+              return `${componentId} natural ${
+                appetite === undefined ? "none — a stream" : (appetite.natural ?? "endless")
+              }`;
             })
             .join("; ")}`,
         );
@@ -1090,11 +1254,11 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
         const short: string[] = [];
         for (const [index, componentId] of all.entries()) {
           const appetite = declared[componentId];
-          expect(
-            appetite,
-            `${componentId} declared an appetite at all`,
-          ).toBeDefined();
-          if (appetite.natural === null) {
+          // A card that declared NOTHING is a stream: the registry says so and
+          // the card publishes nothing at all ([B05]), so there is no height
+          // to check it at. Overview is the one today, and it is skipped by
+          // that rule rather than by name.
+          if (appetite === undefined || appetite.natural === null) {
             note(
               `${componentId}: declares no natural — a stream is never finished, so there is no height to check it at`,
             );
@@ -1362,7 +1526,7 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
   // Parts 1–8 ask how a rail divides its run. This asks what the division may
   // NOT do: move while the user is pressing something inside it. Collapsing
   // the FILES group in the Cards card takes a row out of its census, and
-  // folding the Layout card's mixer drops its natural to its comfort; both are
+  // folding the Layout card's mixer drops its natural to its plate; both are
   // appetite changes, and an allocation that follows content answers each by
   // moving a seam — which carries the control that was just pressed off the
   // edge it stood at, and is the complaint this part exists to pin. A fitting
@@ -1379,7 +1543,7 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
   // its floor would hold still under either rule and prove nothing.
   //
   // Each press is followed by a read of the declarations, and the case asserts
-  // that they MOVED — the collapse asks for less, the fold asks for comfort.
+  // that they MOVED — the collapse asks for less, the fold asks for its plate.
   // Without that, a pass could be an appetite that never changed rather than a
   // seam that held against one.
   test(
@@ -1501,11 +1665,11 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
   );
 
   // The same question of the Layout card's own fold. The mixer folding is the
-  // larger of the two appetite changes — a folded card asks for its comfort
-  // and nothing above it — and the cue that folds it is the control the user
-  // is pressing. The plate stands over the run it was given until the hand
-  // says otherwise; the declared natural still falls, so a later re-seed
-  // reads the folded card correctly.
+  // larger of the two appetite changes — a folded card asks for its plate and
+  // nothing below it — and the cue that folds it is the control the user is
+  // pressing. The plate stands over the run it was given until the hand says
+  // otherwise; the declared natural still falls, by exactly one pitch per row
+  // the fold took away, so a later re-seed reads the folded card correctly.
   test(
     "folding the Layout mixer inside a fitting rail moves no seam, and the cue stays put",
     async () => {
@@ -1534,18 +1698,39 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
         const declared = await readAppetites(app);
         expect(declared, "the cards' declarations reached deck state").not.toBeNull();
         const layoutDeclared = (declared as Declarations).layout;
+        // The rows the fold is about to take away. The plate — what the card
+        // asks for once they are gone — is not arithmetic here any more: it is
+        // the content element MEASURED after the fold, read below. The card
+        // carries no sum to restate.
+        const foldRows = await app.evalJS<number>(
+          `document.querySelectorAll(".layouts-section-row").length`,
+        );
+        expect(
+          foldRows,
+          "the mixer stands open over rows the fold can take away",
+        ).toBeGreaterThan(0);
+        const layoutContent = async (): Promise<number> =>
+          app.evalJS<number>(
+            `(function () {
+              var el = document.querySelector("[data-testid='layout-card-content']");
+              return el === null ? 0 : el.getBoundingClientRect().height;
+            })()`,
+          );
+        const contentBefore = await layoutContent();
+        expect(
+          Math.abs(
+            (layoutDeclared.natural ?? 0) - (CARD_TITLE_BAR_PX + contentBefore),
+          ),
+          "the open card asks for the height its content element stands at",
+        ).toBeLessThan(EPSILON);
         const before = await memberRects(app, MODEST);
         note(
           `fold fixture: run ${(await railRun(app)).height.toFixed(1)}px; ${MODEST.map(
             (componentId, i) => `${componentId} ${Math.round(before[i].height)}`,
-          ).join(", ")}; layout comfort ${layoutDeclared.comfort}, natural ${
+          ).join(", ")}; layout natural ${
             layoutDeclared.natural
-          }`,
+          } over ${foldRows} rows, content element ${contentBefore.toFixed(1)}px`,
         );
-        expect(
-          before[2].height,
-          "the Layout card stands above its comfort, so a fold has something to hand back",
-        ).toBeGreaterThan(layoutDeclared.comfort + EPSILON);
 
         const mixerCue = `.tug-pane[data-pane-id="${paneOf(
           "layout",
@@ -1568,6 +1753,10 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
         await wait(settleMs);
 
         const folded = await readAppetites(app);
+        const contentAfter = await layoutContent();
+        // The plate: what the folded card actually draws, measured. Nothing
+        // reconstructs it from a pitch any more, on either side.
+        const plate = CARD_TITLE_BAR_PX + contentAfter;
         const after = await memberRects(app, MODEST);
         const cueAfter = await elementBox(app, mixerCue);
         note(
@@ -1580,9 +1769,17 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
           }`,
         );
         expect(
-          (folded as Declarations).layout.natural,
-          "the fold dropped the Layout card's natural to its comfort — the declaration still moves",
-        ).toBe(layoutDeclared.comfort);
+          Math.abs(((folded as Declarations).layout.natural ?? 0) - plate),
+          "the folded card asks for the plate it now draws — the declaration still moves, and it moves to what is on screen",
+        ).toBeLessThan(EPSILON);
+        expect(
+          plate,
+          "and the fold really took the rows away, so the ask fell",
+        ).toBeLessThan((layoutDeclared.natural ?? 0) - EPSILON);
+        expect(
+          before[2].height,
+          "the Layout card stood above its plate, so the fold had something to hand back",
+        ).toBeGreaterThan(plate + EPSILON);
         expect(cueAfter, "the fold cue is still on screen").not.toBeNull();
         expectSameBox(
           cueBefore as Box,
@@ -1783,6 +1980,188 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
             `${componentId} stands at what it asked for or less — the slack went to the card that grew, not to it`,
           ).toBeLessThan(asked + EPSILON);
         }
+      } finally {
+        await app.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // ── 10. A content card's content element cannot see its pane. ──
+  //
+  // The claim every part above rests on is that a card's declared height is
+  // true of the card. This one is about the element the declaration is about
+  // to be MEASURED from, and it is asked BEFORE any observer is wired ([B02]):
+  // a content element whose height moves with the pane's would close the loop
+  // the no-measurement rule was written against, and no ResizeObserver may be
+  // put on one until this passes.
+  //
+  // The two pane heights come from the fitting rail's own stored shares — the
+  // weights a seam drag writes — so the card is read at two heights it really
+  // stands at rather than at two the test arranged. The spread between them is
+  // asserted as a precondition: two readings at the same pane height would
+  // pass this vacuously.
+  //
+  // One test per card, so a failure names the card that cannot be measured —
+  // which is the verdict that admits a card as `"content"` or sends it to the
+  // registry as a stream ([B07]).
+  for (const card of CONTENT_CARDS) {
+    test(
+      `the ${card.componentId} card's content element measures the same at a short pane and a tall one`,
+      async () => {
+        const dir = mkdtempSync(join(tmpdir(), "tug-at0542-content-"));
+        const jotsPath = join(dir, "jots.json");
+        writeFileSync(
+          jotsPath,
+          `${JSON.stringify(
+            {
+              version: 1,
+              jots: Array.from({ length: JOTS_MANY }, (_, i) => ({
+                id: `j${i}`,
+                text: `jot ${i}`,
+              })),
+            },
+            null,
+            2,
+          )}\n`,
+        );
+        const app = await launchTugApp({
+          testName: `at0542-content-element-${card.componentId}`,
+          env: { TUG_JOTS_PATH: jotsPath },
+        });
+        try {
+          // The fixed rail width the invariant is stated at: a content
+          // element's height IS a function of its width, so a reading at two
+          // widths would be a different claim.
+          await app.evalJS<null>(
+            `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+          );
+          // Overview is the partner because it is the one card this part does
+          // not ask about — a stream, never measured — so whatever the shares
+          // do to it is not a reading.
+          const pair = [card.componentId, "overview"];
+          const readings: ContentReading[] = [];
+          for (const share of [CONTENT_TALL_SHARE, 1 - CONTENT_TALL_SHARE]) {
+            await seed(
+              app,
+              pair,
+              { [card.componentId]: share, overview: 1 - share },
+              EXTRA_MAKER_CARDS,
+            );
+            const reading = await contentReading(app, card);
+            expect(
+              reading,
+              `the ${card.componentId} card names a content element and stands in a pane`,
+            ).not.toBeNull();
+            readings.push(reading as ContentReading);
+          }
+          const [tall, short] = readings;
+          note(
+            `${card.componentId}: pane ${Math.round(tall.pane)} → content ${
+              Math.round(tall.content)
+            }; pane ${Math.round(short.pane)} → content ${Math.round(short.content)}`,
+          );
+          expect(
+            Math.abs(tall.pane - short.pane),
+            `the two shares really did stand the ${card.componentId} card at two different heights — equal content at one pane height proves nothing`,
+          ).toBeGreaterThan(CONTENT_PANE_SPREAD);
+          expect(
+            Math.abs(tall.content - short.content),
+            `the ${card.componentId} card's content element measures the same in both — a column that grows with its pane measures the height it feeds, which is the loop the no-measurement rule was written against ([B02])`,
+          ).toBeLessThan(EPSILON);
+        } finally {
+          await app.close();
+          rmSync(dir, { recursive: true, force: true });
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  // ── 11. A stream declares by being registered as one. ──
+  //
+  // A fitting rail's division is SEEDED once, into a stored record, and every
+  // settle afterwards reads that record rather than the naturals — which is
+  // what "a seam belongs to the hand" comes to in code. The seed waits until
+  // every member has said what it wants of the run, because a seed taken at
+  // the first card's publish would stand every card still to come at an
+  // endless natural.
+  //
+  // A stream never publishes anything: it says what it wants at REGISTRATION
+  // and the selector reads its natural as endless from there ([B05]). So a
+  // wait for a published entry is a wait that never ends, and a rail carrying
+  // the Overview would go unseeded for the life of the app — its record
+  // dropped at every membership change and never written back, leaving every
+  // later settle to re-derive the division from whatever the other cards'
+  // content had grown to. The case is the pair that shows it: the stream
+  // publishes nothing, the content card publishes, and the record is written
+  // all the same.
+  test(
+    "a fitting rail carrying the one stream still seeds its division",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "tug-at0542-stream-seed-"));
+      const jotsPath = join(dir, "jots.json");
+      writeFileSync(
+        jotsPath,
+        `${JSON.stringify(
+          {
+            version: 1,
+            jots: Array.from({ length: JOTS_FEW }, (_, i) => ({
+              id: `j${i}`,
+              text: `jot ${i}`,
+            })),
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      const app = await launchTugApp({
+        testName: "at0542-stream-seed",
+        env: { TUG_JOTS_PATH: jotsPath },
+      });
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+        );
+        // No shares: the record is absent, which is exactly the state the seed
+        // exists to fill. Two members, so there is a division to write at all.
+        const pair = ["jots", "overview"];
+        await seed(app, pair);
+        await wait(RESIZE_RETUNE_QUIET_MS + AFTER_LAND_MS);
+        expect(
+          await standing(app),
+          "the two fit, which is the standing whose division is a stored record",
+        ).toBe("shared");
+
+        // The premise, asserted rather than assumed: the stream really did
+        // publish nothing, and the content card really did publish. Without
+        // both halves the case would pass on a rail where nothing was being
+        // waited for.
+        const declared = await readAppetites(app);
+        expect(declared, "the settle ran at all").not.toBeNull();
+        note(`declared: ${JSON.stringify(declared)}`);
+        expect(
+          (declared as Declarations).overview,
+          "the Overview is a stream and publishes no appetite ([B05])",
+        ).toBeUndefined();
+        expect(
+          (declared as Declarations).jots,
+          "and the Jots card, which is measured, published one",
+        ).toBeDefined();
+
+        const record = await app.evalJS<Record<string, number> | null>(
+          `((window.tugdeck.diag.getDeckState().imposition.rails || {}).right || {}).shares || null`,
+        );
+        note(`seeded record: ${JSON.stringify(record)}`);
+        expect(
+          record,
+          "the rail's division was seeded — a stream's silence is a declaration, not a card the seed is still waiting on",
+        ).not.toBeNull();
+        expect(
+          Object.keys(record as Record<string, number>).sort(),
+          "and the record names exactly the members standing on the rail",
+        ).toEqual([...pair].sort());
       } finally {
         await app.close();
         rmSync(dir, { recursive: true, force: true });

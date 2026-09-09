@@ -467,7 +467,6 @@ function placeAppetites(
       ? {
           id,
           floor: 0,
-          comfort: 0,
           natural: Infinity,
           greedRank: Number.NaN,
           weight,

@@ -8,17 +8,25 @@
    beneath it, and the trailing verb cluster. */
 
 .arcs-section {
+  min-width: 0;
+  /* The card root is the SCROLLER, and everything the card draws stands in
+     `.arcs-card-content` inside it — the card's content element, whose
+     border-box height is its natural height ([B01]). The list no longer
+     scrolls itself. */
+  box-sizing: border-box;
+  block-size: 100%;
+  min-block-size: 0;
+  /* The bar's lane is always reserved, never `scrollbar-gutter` ([D182]). */
+  overflow-y: scroll;
+}
+
+/* The content element: everything the card draws as one in-flow column, inside
+   the scroller with nothing stretched between them ([B02]). A taller pane
+   cannot make it taller. */
+.arcs-card-content {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  /* Fills the card's pane, and the list inside is the scroller. Without the
-     flattened block min-content the column stands at the full intrinsic height
-     of its rows — a scroll container does NOT shrink an ancestor's min-content
-     — so a card holding more arcs than the rail can show ran them off the
-     bottom with no way to reach them. Flattened here, the column takes the
-     pane's height and the list's own `overflow-y: auto` carries the rest. */
-  block-size: 100%;
-  min-block-size: 0;
 }
 
 /* Stands in for the list's first row, at that row's height: a card with nothing
@@ -33,17 +41,20 @@
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
-/* The card's scroller. `height: auto` hands the sizing to flex — the
-   primitive's own `height: 100%` resolves against an auto-height parent and
-   would give the list its full content height back. Doubled selector so this
-   beats the base `.tug-list-view` rules regardless of bundle order. */
+/* The list stands at the sum of its rows and hands its overflow to the card
+   root, which is the card's one scroller. `height: auto` hands the sizing to
+   flex — the primitive's own `height: 100%` resolves against an auto-height
+   parent and would give the list its full content height back. Doubled
+   selector so this beats the base `.tug-list-view` rules regardless of bundle
+   order. */
 .tug-list-view.arcs-list {
-  flex: 1 1 auto;
-  min-block-size: 0;
+  flex: 0 0 auto;
   height: auto;
-  /* The bar's lane is always reserved, never `scrollbar-gutter` — see the
-     Cards list ([D182]). */
-  overflow-y: scroll;
+  /* A scroller here would absorb the card's run and the content element's
+     height would follow the pane's. */
+  /* Both axes: `overflow-y: visible` beside a clipped x computes back to
+     `auto`, which would make this a scroll container again. */
+  overflow: visible;
 }
 
 /* The `[data-slot]` is carried for the specificity, not for the match: the

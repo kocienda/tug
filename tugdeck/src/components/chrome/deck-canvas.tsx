@@ -703,8 +703,8 @@ interface PlaceSeamProps {
    */
   allocation: PlaceAllocation;
   /**
-   * What every member of the place wants of it — floors, comfort heights,
-   * naturals, greed and stored weights, in the place's own order. The drag's
+   * What every member of the place wants of it — floors, naturals, greed and
+   * stored weights, in the place's own order. The drag's
    * bounds are a function of these and nothing else, so the clamp a hand meets
    * is the same rule the allocator would apply to the height it left behind.
    */
@@ -3356,7 +3356,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   //
   // Two conversions rather than one because a weight is no longer a share of
   // the run ([P04]) — it is a share of the discretionary pool, which is what
-  // the run has left once the floors and the comforts are fed. Only a height
+  // the run has left once the floors are fed. Only a height
   // can be read off a seam, and only the appetites can say what share of the
   // pool that height took, so the fractions become px first and the imposer's
   // own inverse takes it from there. That inverse is the allocator's fixed

@@ -198,18 +198,6 @@ import {
 } from "@/protocol";
 import "./overview-card.css";
 
-import { useCardAppetite } from "@/lib/card-appetite-store";
-import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
-
-// ---- Vertical appetite ([B02]) ----
-
-/**
- * The height at which the Overview reads well: the pane's title bar over about
- * three posts' worth of transcript ([Q02]). Declared rather than counted from
- * `posts.length`, because a post is not a row — it is markdown of any length,
- * and the number of them says nothing about the room they want.
- */
-const OVERVIEW_COMFORT_HEIGHT_PX = CARD_TITLE_BAR_HEIGHT + 324;
 
 /** How close to the bottom still counts as "following", in px. Slack for a
  *  sub-pixel scroll height and for the reader who nudged the wheel once. */
@@ -956,11 +944,11 @@ export function OverviewContent({
   cardId,
 }: OverviewContentProps): React.ReactElement {
   const { posts, status, pendingRequestId } = useOverview();
-  // The Overview is a stream: it is never finished, so there is no height at
-  // which it wants nothing more ([B02]). `Infinity` says exactly that — the
-  // allocator's water-fill gives it whatever the run has left over once every
-  // other member has reached its own natural, and the ladder's cap never binds.
-  useCardAppetite(OVERVIEW_CARD_ID, OVERVIEW_COMFORT_HEIGHT_PX, Infinity);
+  // The Overview declares no appetite at all. It is a stream, and the registry
+  // is where that is said ([B05]): whether a card's content depends on its own
+  // height is a fact about the kind of card, and the selector reads a stream's
+  // natural as endless without the card publishing anything. Measuring one
+  // would close the loop the no-measurement rule was written against.
   const formats = useTimeFormats();
   const rootFor = useOverviewRefRoots(posts);
   const scrollRef = useRef<HTMLDivElement | null>(null);

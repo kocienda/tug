@@ -137,8 +137,8 @@ export type ImpositionLayout = "fit" | "flow";
  * twin of {@link ImpositionLayout}, and deliberately a distinct type ([B05]).
  *
  * `"fit"` — the run is the constraint. The members divide it by the allocation
- * ladder: floors, comfort in greed order, and the discretionary pool by weight
- * under each member's natural height. Nobody overflows and the run is filled.
+ * ladder: floors, an even fill toward the naturals, and the discretionary pool
+ * past them by greed. Nobody overflows and the run is filled.
  *
  * `"flow"` — the content is the constraint. Every member stands at its own
  * height, the strip is as long as that makes it, and it scrolls behind the run.
@@ -1941,7 +1941,7 @@ export interface StripRevealInput {
  * was flush would hide the side the eye goes to first.
  *
  * The rule has no axis in it, which is why a column's overflowing strip of
- * members at their own comfort heights reveals by exactly this arithmetic.
+ * members at their own natural heights reveals by exactly this arithmetic.
  */
 export function stripRevealOffset(input: StripRevealInput): number {
   const { stripStart, extent, stripLength, band, offset } = input;
@@ -3344,21 +3344,24 @@ export type PlaceStanding = "shared" | "overflow";
 
 /**
  * One member's appetite for vertical run: what it cannot go below, what it is
- * comfortable at, what it would take if the run were endless, how greedy it is
- * against its neighbours, and the weight the user's own seam drags stored.
+ * would take if the run were endless, how greedy it is against its
+ * neighbours, and the weight the user's own seam drags stored.
  *
  * A rail member is a card (`id` is its componentId); a column member is a pane
  * (`id` is the pane id). The two are the same kind of member in the same kind
  * of place, which is why one allocator answers for both.
+ *
+ * There is ONE tier above the floor ([B03]). There were two, and the second —
+ * comfort — was the rung a fitting place's ladder held every member at before
+ * dividing the rest. The ladder no longer has that rung, and the tier it read
+ * was a per-card sum of pixel constants nothing in the build could check.
  */
 export interface PlaceMemberAppetite {
   /** componentId for a rail member, pane id for a column member. */
   id: string;
   /** Hard floor, px: `getStackSizePolicy(componentIds).min.height`. */
   floor: number;
-  /** ≥ floor; equals floor when the card declares none. */
-  comfort: number;
-  /** ≥ comfort; equals floor when undeclared; may be `Infinity`. */
+  /** ≥ floor; `Infinity` for a stream and for a member that declared nothing. */
   natural: number;
   /** Lower is greedier; `getGreedRank` folded with `Math.min` over a pane's
    *  cards. */
@@ -3402,7 +3405,7 @@ const PLACE_HEIGHT_EPSILON = 1e-6;
 
 /**
  * The appetites as the allocator may rely on them: floors non-negative and
- * finite, `floor ≤ comfort ≤ natural`, weight finite and non-negative, greed a
+ * finite, `floor ≤ natural`, weight finite and non-negative, greed a
  * rank.
  *
  * Sanitized rather than rejected for the reason {@link railWeightOf} reads a
@@ -3417,15 +3420,12 @@ function sanitizedAppetites(
   return members.map((member) => {
     const floor =
       Number.isFinite(member.floor) && member.floor > 0 ? member.floor : 0;
-    const comfort = Number.isFinite(member.comfort)
-      ? Math.max(floor, member.comfort)
-      : floor;
     const natural =
       member.natural === Infinity
         ? Infinity
         : Number.isFinite(member.natural)
-          ? Math.max(comfort, member.natural)
-          : comfort;
+          ? Math.max(floor, member.natural)
+          : floor;
     const weight =
       member.weight === undefined
         ? undefined
@@ -3435,7 +3435,7 @@ function sanitizedAppetites(
     const greedRank = Number.isFinite(member.greedRank)
       ? member.greedRank
       : DEFAULT_GREED_RANK;
-    return { id: member.id, floor, comfort, natural, greedRank, weight };
+    return { id: member.id, floor, natural, greedRank, weight };
   });
 }
 
@@ -3502,7 +3502,8 @@ function placeAllocationOf(
  * That is the only number in this function about the place rather than about
  * the member, and it is here because `Infinity · weight` is not a height. A
  * place with no run to speak of has no screen to offer either, so a stream
- * there falls back to the comfort height it declared.
+ * there falls back to its floor — the only height about the member that is
+ * still known when its content's is not.
  *
  * Greed ranks play no part: flow divides nothing, so there is nothing to be
  * first in line for.
@@ -3515,7 +3516,7 @@ function flowHeightsOf(
   return members.map((member) => {
     const natural = Number.isFinite(member.natural)
       ? member.natural
-      : (screen ?? member.comfort);
+      : (screen ?? member.floor);
     return Math.max(member.floor, natural * (member.weight ?? 1));
   });
 }
@@ -3534,9 +3535,9 @@ const PLACE_POOL_EPSILON = 1e-9;
  * the floor instead, giving the difference up to the others in proportion to
  * their shares — repeated until every member is at or above its floor, which
  * a place standing as shared guarantees terminates, since its floors fit. The
- * appetites' comforts and naturals enter nowhere here: a card whose content
- * outgrows its share scrolls inside itself, as a split pane does in every
- * editor, and a seam moves only when the hand moves it.
+ * appetites' naturals enter nowhere here: a card whose content outgrows its
+ * share scrolls inside itself, as a split pane does in every editor, and a
+ * seam moves only when the hand moves it.
  *
  * A place with NO record — every weight `undefined`, which is what an absent
  * `shares` reads as — has not been divided yet, and its division is the seed:
@@ -3595,27 +3596,28 @@ function sharedHeightsOf(
  * The seed: what a fitting place stands at before any hand has divided it —
  * the appetite ladder, run once over the members' declarations.
  *
- * Four stages, each spending what the one before it left:
+ * Three stages, each spending what the one before it left:
  *
  * 1. **Floors.** Every member starts at the height it cannot go below, and the
  *    seams take theirs. What is left over is the pool.
- * 2. **Comfort, greediest first.** Members are visited in `greedRank` order
- *    (ties by position) and each takes the pool up to its comfort height. This
- *    is the stage that runs out: a run with room for the floors but not for
- *    every comfort leaves the last-ranked members at their floors, which is
- *    the honest answer — somebody has to be short, and the greed rank is the
- *    card registry's statement about who it should be.
- * 3. **Toward natural, evenly.** What is still left is divided evenly among
+ * 2. **Toward natural, evenly.** What is still left is divided evenly among
  *    the members still below their naturals, each capped at its own, with the
  *    surplus a capped member could not take poured back over the rest. A loop
  *    rather than one division, because capping one member changes every other
  *    member's share and the water has to find its level.
- * 4. **Past natural, whole, to the greediest.** Once everybody is at natural
+ * 3. **Past natural, whole, to the greediest.** Once everybody is at natural
  *    the remainder goes ENTIRELY to the lowest `greedRank` — position as
  *    tiebreak — so the run is still filled exactly while every other member
  *    stands at precisely its natural, every seam sits on a content boundary,
  *    and the one stretch of empty space is at the foot of the card that will
  *    grow into it first.
+ *
+ * There was a stage between the first and the second — comfort, greediest
+ * first, each member drawn up to a readable height before anything was
+ * divided. It is gone with the tier ([B03]): a member's natural is now
+ * measured from its own content, so the even fill toward natural is already
+ * the fill toward what the card actually paints, and a rung between the floor
+ * and that is a number nobody could check.
  *
  * This is a function of the appetites and nothing else: the stored weights are
  * not read, because a seed is what a place gets when there are none, or when
@@ -3636,13 +3638,6 @@ export function seedSharedHeights(
   const byGreed = members
     .map((member, index) => ({ member, index }))
     .sort((a, b) => a.member.greedRank - b.member.greedRank || a.index - b.index);
-  for (const { member, index } of byGreed) {
-    if (pool <= PLACE_POOL_EPSILON) break;
-    const take = Math.min(member.comfort - member.floor, pool);
-    if (take <= 0) continue;
-    heights[index] += take;
-    pool -= take;
-  }
 
   let active = members
     .map((_, index) => index)
@@ -3746,11 +3741,11 @@ function placeStandingOf(
  * the choice existed allocates exactly as it did.
  *
  * Then the heights follow from the standing — the ladder in
- * {@link sharedHeightsOf} for a shared place, and each member's own comfort
+ * {@link sharedHeightsOf} for a shared place, and each member's own natural
  * height, weighted, for an overflowing one.
  *
  * Neither branch reads a number about the run rather than about the member.
- * An overflowing member takes `max(floor, comfort · weight)` — what it said it
+ * An overflowing member takes `max(floor, natural · weight)` — what it said it
  * wanted, scaled by what the user's own seam drags stored — so a strip is
  * built out of its members instead of out of a constant, and a member whose
  * floor exceeds any share of the run still stands at its floor. The count-based
@@ -3830,7 +3825,6 @@ export function nominalPlaceAllocation(
     (_, index) => ({
       id: `${index}`,
       floor: 0,
-      comfort: 0,
       natural: Infinity,
       greedRank: DEFAULT_GREED_RANK,
       weight: 1,
@@ -3882,7 +3876,7 @@ export function placeSharesFromHeights(
       const height = heights[i] ?? 0;
       const natural = Number.isFinite(sane[i].natural)
         ? sane[i].natural
-        : (screen ?? sane[i].comfort);
+        : (screen ?? sane[i].floor);
       shares[sane[i].id] = natural > 0 ? height / natural : 1;
     }
     return shares;
@@ -3983,7 +3977,7 @@ export interface ColumnMemberPlacement {
  * side of it, with the whole strip slid up by the place's own offset.
  *
  * A member's height is no longer expressible in CSS — it is `max(floor,
- * comfort · weight)`, which is a fact about the member rather than about the
+ * natural · weight)`, which is a fact about the member rather than about the
  * run — so the frame reads the allocation's own coordinates instead of solving
  * for a height. That is why there are `n + 1` strip properties for `n` members:
  * a frame pins to the coordinate above it and the one below it, exactly as a
@@ -3994,7 +3988,7 @@ export interface ColumnMemberPlacement {
  * its `left`: make the window taller and the run grows while the stored number
  * stands still, and without the clamp the place would hold a stale slide until
  * the settled-resize retune fired. The clamp reads the strip's own end —
- * property `n` — so a strip that got shorter because a member's comfort fell
+ * property `n` — so a strip that got shorter because a member's natural fell
  * re-resolves in the same reflow ([L06]).
  *
  * `bottom` is `100%` less the coordinate below the member, plus the seam that

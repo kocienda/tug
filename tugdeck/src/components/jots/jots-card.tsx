@@ -101,7 +101,7 @@ import {
   useSeedKeyView,
 } from "@/components/tugways/use-focusable";
 import { useResponder } from "@/components/tugways/use-responder";
-import { useCardAppetite } from "@/lib/card-appetite-store";
+import { useMeasuredCardAppetite } from "@/lib/card-appetite-store";
 import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -122,30 +122,6 @@ const JOTS_ADD_FOCUS_ORDER = -0.75;
 
 const ROW_SELECTOR = ".jot-row-content[data-jot-id]";
 const ROW_KIND_ATTR = "data-jot-id";
-
-// ---- Vertical appetite ([B02]) ----
-
-/**
- * One jot row's height.
- *
- * From `.tug-list-view.jots-list` in `jots-card.css`, which states the row
- * metric on the list itself: `--tugx-list-row-padding-block: 2px` over a
- * one-line row that bottoms out on its 24px close box — the same number the
- * Cards list carries on `.cards-list .cards-oneline`, "so a jot row and a
- * Cards row read as one measure".
- */
-const JOTS_ROW_HEIGHT_PX = 28;
-
-/**
- * Everything above the first row: the pane's title bar, plus `.jots-toolbar` —
- * a 28px filter field inside that rule's own `padding: var(--tug-space-sm)
- * var(--tug-space-md)`, which is 6px of block padding each side.
- */
-const JOTS_TOOLBAR_PX = 40;
-const JOTS_HEADER_PX = CARD_TITLE_BAR_HEIGHT + JOTS_TOOLBAR_PX;
-
-/** Three rows read as a list; fewer reads as a strip with something cut off. */
-const JOTS_COMFORT_ROWS = 3;
 
 // Space is reserved so the card's key-view delegate can create a new jot below
 // the cursor (Things-style) rather than the engine's default item-container
@@ -978,14 +954,14 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
   // field's enablement turns on: a card filtered to zero still has items.
   const hasItems = dataSource.unfilteredCount() > 0;
 
-  // What the card would like of its rail's run ([B02]): every jot it holds,
-  // whether or not the current filter is showing them — the filter is a way of
-  // looking at the list right now, not a change in what the list holds, and a
-  // rail that re-divided itself per keystroke would be the worse surface.
-  useCardAppetite(
+  // What the card would like of its rail's run ([B01]): the height its content
+  // element actually stands at, measured, plus the pane's title bar — the one
+  // piece of the member's box the column below the scroller cannot see. The
+  // filter is inside the measurement rather than argued around: a filtered list
+  // really is a shorter column, and the card asks for what it draws.
+  const contentRef = useMeasuredCardAppetite(
     JOTS_CARD_ID,
-    JOTS_HEADER_PX + JOTS_COMFORT_ROWS * JOTS_ROW_HEIGHT_PX,
-    JOTS_HEADER_PX + jots.length * JOTS_ROW_HEIGHT_PX,
+    CARD_TITLE_BAR_HEIGHT,
   );
 
   // A card with nothing in it holds no query either — otherwise the disabled
@@ -1260,6 +1236,15 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
         // a target to land the ring on when the card is focused.
         tabIndex={-1}
       >
+        {/* The content element ([B01]): the toolbar and the list as one
+            in-flow column. Its border-box height is what the rail measures,
+            and nothing above it inside the scroller stretches, so the pane's
+            run cannot move it ([B02]). */}
+        <div
+          className="jots-card-content"
+          data-testid="jots-card-content"
+          ref={contentRef}
+        >
         <JotsToolbar
           query={filterQuery}
           onQueryChange={setFilterQuery}
@@ -1313,6 +1298,7 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
             </JotsCellContext>
           </div>
         )}
+        </div>
         {/* One controlled confirm popover serves every row — it sits over the ✕
             the question is about and points down at it, anchored to the ✕'s
             COLUMN measured off the row rather than to the hover-revealed button

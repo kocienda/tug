@@ -466,12 +466,12 @@ describe.skipIf(!SHOULD_RUN)(
               "the two heights and the seam are the run, with nothing left over",
             ).toBeLessThanOrEqual(EPSILON * 2);
             // NOT equal halves. An untouched split divides by what its members
-            // asked for: a card that declared a comfort height above its floor
-            // is served before the leftover is shared out, so the Layout card —
-            // which asks for the one size its drawing wants — and the Jots card
-            // stand at different heights with no drag having happened. What
-            // holds either way is that neither is squeezed below the height it
-            // said it could not go below.
+            // asked for: the run above the floors fills toward each member's
+            // natural and stops at it, so the Layout card — which asks for the
+            // one size its drawing wants — and the Jots card stand at
+            // different heights with no drag having happened. What holds
+            // either way is that neither is squeezed below the height it said
+            // it could not go below.
             for (const [name, rect] of [
               ["the upper member", upper],
               ["the lower member", lower],

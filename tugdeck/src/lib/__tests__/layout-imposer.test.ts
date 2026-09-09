@@ -852,7 +852,7 @@ describe("a rail whose floors no longer fit overflows instead of dividing", () =
   });
 
   test("every member stands between its own two strip coordinates", () => {
-    // Not a height the frame solves for — a height is `max(floor, comfort ·
+    // Not a height the frame solves for — a height is `max(floor, natural ·
     // weight)` now, which CSS cannot express — but the two coordinates the
     // allocator already put either side of the member.
     for (const count of [3, 4, 6]) {
@@ -944,22 +944,21 @@ describe("a rail whose floors no longer fit overflows instead of dividing", () =
 });
 
 describe("an overflowing place is built out of what its members asked for", () => {
-  /** Three members whose comfort heights differ, in a run too short for their
+  /** Three members whose natural heights differ, in a run too short for their
    *  floors — the shape the whole rule exists for. */
   const members = (
-    comforts: readonly number[],
-    weights: readonly number[] = comforts.map(() => 1),
+    naturals: readonly number[],
+    weights: readonly number[] = naturals.map(() => 1),
   ) =>
-    comforts.map((comfort, index) => ({
+    naturals.map((natural, index) => ({
       id: `m${index}`,
       floor: 240,
-      comfort,
-      natural: comfort,
+      natural,
       greedRank: 5,
       weight: weights[index],
     }));
 
-  test("each member takes its own comfort height, and the strip is their sum", () => {
+  test("each member takes its own natural height, and the strip is their sum", () => {
     // The claim in one row: `240, 400, 600` in a run of 300 gives back exactly
     // `240, 400, 600` — three different numbers, none of them about the run —
     // and a strip of their sum with a seam between each neighbouring pair.
@@ -970,7 +969,7 @@ describe("an overflowing place is built out of what its members asked for", () =
     expect(place.stripLength).toBe(1240 + 2 * 4);
   });
 
-  test("a stored weight scales a member's comfort, and its floor still holds", () => {
+  test("a stored weight scales a member's natural, and its floor still holds", () => {
     // The overflow branch reads the weight a seam drag stored, which is what
     // makes an overflowing drag land where the user let go of it. The floor is
     // the one thing the weight cannot argue with: half of 600 is 300 and stands
@@ -1018,11 +1017,11 @@ describe("railSeamProperty", () => {
 
 describe("a place's stored weights set how it divides its run", () => {
   /**
-   * Members that want nothing in particular: no floor, no comfort, and an
-   * endless natural. The ladder's first two stages have nothing to spend on
-   * them, so the whole run reaches the water-fill and the division IS the
-   * weights — which is what makes these the right members for asking what a
-   * weight means. A card with real appetites is asked elsewhere.
+   * Members that want nothing in particular: no floor, and an endless natural.
+   * The ladder's floor stage has nothing to spend on them, so the whole run
+   * reaches the water-fill and the division IS the weights — which is what
+   * makes these the right members for asking what a weight means. A card with
+   * real appetites is asked elsewhere.
    */
   const floorless = (
     ids: readonly string[],
@@ -1031,7 +1030,6 @@ describe("a place's stored weights set how it divides its run", () => {
     ids.map((id) => ({
       id,
       floor: 0,
-      comfort: 0,
       natural: Number.POSITIVE_INFINITY,
       greedRank: 5,
       weight: railWeightOf(shares, id),
@@ -1070,7 +1068,7 @@ describe("a place's stored weights set how it divides its run", () => {
   });
 
   test("a zero weight is a weight, and a place of them divides evenly", () => {
-    // Zero is not degenerate: a member a drag pushed down to its comfort height
+    // Zero is not degenerate: a member a drag pushed down to its floor
     // has no share of the discretionary pool and says so with a zero. A place
     // whose weights are ALL zero has no ratio to read, so it divides evenly —
     // the only reading a total of nothing has.
@@ -1095,7 +1093,6 @@ describe("a place's stored weights set how it divides its run", () => {
       ids.map((id) => ({
         id,
         floor: 0,
-        comfort: 0,
         natural: 10,
         greedRank: 5,
         weight: railWeightOf(shares, id),
@@ -1114,7 +1111,6 @@ describe("placeSharesFromHeights", () => {
     ids.map((id) => ({
       id,
       floor: 0,
-      comfort: 0,
       natural: Number.POSITIVE_INFINITY,
       greedRank: 5,
       weight: 1,
@@ -1141,15 +1137,14 @@ describe("placeSharesFromHeights", () => {
     expect((uneven.a + uneven.b) / 2).toBeCloseTo(1, 9);
   });
 
-  test("a shared place's shares are its heights over the run, whatever its comforts", () => {
+  test("a shared place's shares are its heights over the run, whatever it asked for", () => {
     // Two members at 200 apiece in a run of 400 is the equal division and
-    // nothing else — their comforts, which they happen to stand at, are not a
-    // term. Under the retired rule this was the all-zero record, on the
-    // reading that a weight was a claim on the pool ABOVE comfort.
+    // nothing else — the naturals they are short of are not a term. Under the
+    // retired rule this was the all-zero record, on the reading that a weight
+    // was a claim on the pool above a second tier.
     const members: PlaceMemberAppetite[] = ["a", "b"].map((id) => ({
       id,
       floor: 100,
-      comfort: 200,
       natural: 600,
       greedRank: 5,
       weight: 1,
@@ -1167,7 +1162,6 @@ describe("placeSharesFromHeights", () => {
     const members: PlaceMemberAppetite[] = ["a", "b"].map((id) => ({
       id,
       floor: 0,
-      comfort: 400,
       natural: 400,
       greedRank: 5,
       weight: 1,
@@ -1191,8 +1185,8 @@ describe("placeSharesFromHeights", () => {
     // members somewhere else stored that division instead, and it comes back
     // exactly too ([P10]): the record IS the heights, scaled to average 1.
     const appetites: PlaceMemberAppetite[] = [
-      { id: "a", floor: 100, comfort: 100, natural: 200, greedRank: 1 },
-      { id: "b", floor: 100, comfort: 100, natural: 200, greedRank: 5 },
+      { id: "a", floor: 100, natural: 200, greedRank: 1 },
+      { id: "b", floor: 100, natural: 200, greedRank: 5 },
     ];
     const place = allocatePlaceHeights(appetites, 900, 0);
     expect(place.heights).toEqual([700, 200]);
@@ -1221,7 +1215,7 @@ describe("placeSharesFromHeights", () => {
 describe("seamDragBounds gives each regime its own room", () => {
   const members = (
     count: number,
-    appetite: { floor: number; comfort: number; natural: number },
+    appetite: { floor: number; natural: number },
     greedRanks?: readonly number[],
   ): PlaceMemberAppetite[] =>
     Array.from({ length: count }, (_, i) => ({
@@ -1237,7 +1231,7 @@ describe("seamDragBounds gives each regime its own room", () => {
     // member's own: its floor below, and one screen of it above, which is the
     // run. Its neighbour's floor is not a term, because its neighbour is not
     // giving anything up.
-    const appetites = members(2, { floor: 240, comfort: 400, natural: 400 });
+    const appetites = members(2, { floor: 240, natural: 400 });
     const place = allocatePlaceHeights(appetites, 300, 0);
     expect(place.standing).toBe("overflow");
     expect(seamDragBounds(place, appetites, 0)).toEqual({
@@ -1247,13 +1241,13 @@ describe("seamDragBounds gives each regime its own room", () => {
   });
 
   test("shared: the trade is between the floors, whatever the appetites", () => {
-    const appetites = members(2, { floor: 100, comfort: 200, natural: 600 });
+    const appetites = members(2, { floor: 100, natural: 600 });
     const place = allocatePlaceHeights(appetites, 900, 0);
     expect(place.standing).toBe("shared");
     expect(place.heights).toEqual([450, 450]);
     // The division is the hand's ([B01]): the upper member may go down to its
     // own floor and up to what leaves its neighbour at its own, and neither
-    // comfort nor natural narrows that — a card made shorter than its content
+    // floor nor natural narrows that — a card made shorter than its content
     // scrolls inside itself.
     expect(seamDragBounds(place, appetites, 0)).toEqual({
       lower: 100,
@@ -1261,11 +1255,11 @@ describe("seamDragBounds gives each regime its own room", () => {
     });
   });
 
-  test("shared: a run too short for the comforts still trades down to the floors", () => {
-    // The comfort heights no longer fit, and under the retired rule that was
-    // a seam that did not move. The floors fit, so there is a division, and a
+  test("shared: a run too short for the naturals still trades down to the floors", () => {
+    // The naturals no longer fit, and under the retired rule that was a seam
+    // that did not move. The floors fit, so there is a division, and a
     // division is the hand's to move.
-    const appetites = members(2, { floor: 100, comfort: 400, natural: 600 });
+    const appetites = members(2, { floor: 100, natural: 600 });
     const place = allocatePlaceHeights(appetites, 500, 0);
     expect(place.standing).toBe("shared");
     expect(place.heights).toEqual([250, 250]);
@@ -1278,7 +1272,7 @@ describe("seamDragBounds gives each regime its own room", () => {
   test("shared with both members at their floors: the seam does not move", () => {
     // The floors exactly fill the run, so there is nothing to trade. A drag
     // holds where it is rather than starving one member to feed the other.
-    const appetites = members(2, { floor: 250, comfort: 400, natural: 600 });
+    const appetites = members(2, { floor: 250, natural: 600 });
     const place = allocatePlaceHeights(appetites, 500, 0);
     expect(place.standing).toBe("shared");
     expect(place.heights).toEqual([250, 250]);
@@ -1292,7 +1286,7 @@ describe("seamDragBounds gives each regime its own room", () => {
     // Three members, and the seam between the first two can trade only their
     // span: the third member's height is not a term above or below, whatever
     // it holds. The upper bound is the span less the neighbour's floor.
-    const appetites = members(3, { floor: 100, comfort: 100, natural: 200 });
+    const appetites = members(3, { floor: 100, natural: 200 });
     const place = allocatePlaceHeights(appetites, 900, 0);
     expect(place.heights).toEqual([300, 300, 300]);
     expect(seamDragBounds(place, appetites, 0)).toEqual({
@@ -1302,7 +1296,7 @@ describe("seamDragBounds gives each regime its own room", () => {
   });
 
   test("a boundary that is not one reports the height standing where it is", () => {
-    const appetites = members(2, { floor: 100, comfort: 200, natural: 600 });
+    const appetites = members(2, { floor: 100, natural: 600 });
     const place = allocatePlaceHeights(appetites, 900, 0);
     for (const index of [-1, 1, 7]) {
       const bounds = seamDragBounds(place, appetites, index);

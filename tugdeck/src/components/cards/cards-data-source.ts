@@ -686,20 +686,6 @@ export function buildCardsRows(
   return rows;
 }
 
-/**
- * The rows the Cards card will draw, by the kind each is drawn at — the shape
- * {@link CardsDataSource.censusByRowKind} answers with, and the input to the
- * card's vertical appetite.
- */
-export interface CardsRowCensus {
-  /** One per group with anything in it, folded or not. */
-  readonly headers: number;
-  /** Three-line session monitor rows — the `session-pane` kind. */
-  readonly sessionRows: number;
-  /** Every other row: one-line pane rows and a stack's card subrows. */
-  readonly oneLineRows: number;
-}
-
 /** A per-group census of pane rows, for the band's collapsed summary. */
 export type CardsCensus = Readonly<Record<CardsGroup, number>>;
 
@@ -877,38 +863,6 @@ export class CardsDataSource implements TugListViewDataSource {
       if (row.type === "pane") out[row.group] += 1;
     }
     return out;
-  }
-
-  /**
-   * The rows this card will DRAW, counted by the kind each is drawn at — what
-   * the vertical appetite sums ([B03]).
-   *
-   * The filter is ignored for the reason the appetite ignores it: a filter is a
-   * way of looking at the list right now, not a change in what the list holds.
-   * The folds are honoured, because a collapsed group really is fewer rows to
-   * draw and contributes its header alone.
-   *
-   * Three kinds, because the card draws three: a group header, the three-line
-   * session monitor row a `session-pane` gets, and the one-line row everything
-   * else gets — a file or tool pane, a stack's pane row, and each of that
-   * stack's card subrows. The heights are the card's to know; this only says
-   * how many of each there are.
-   */
-  censusByRowKind(): CardsRowCensus {
-    const unfiltered = buildCardsRows(
-      { ...this.inputs, filterQuery: "" },
-      this.resolvers,
-    );
-    let headers = 0;
-    let sessionRows = 0;
-    let oneLineRows = 0;
-    for (const row of unfiltered) {
-      if (row.type === "group-header") headers += 1;
-      else if (row.type === "pane" && row.rowKind === "session-pane") {
-        sessionRows += 1;
-      } else oneLineRows += 1;
-    }
-    return { headers, sessionRows, oneLineRows };
   }
 
   /** How many pane rows exist, filter or no filter. */

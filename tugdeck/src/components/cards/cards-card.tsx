@@ -79,7 +79,7 @@ import { TugFilterField } from "@/components/tugways/tug-filter-field";
 import { useAttachedFilter } from "@/components/tugways/attached-filter";
 import { setCardsFilterBinding, shrinkCardsState } from "./cards-escape";
 import { useResponder } from "@/components/tugways/use-responder";
-import { useCardAppetite } from "@/lib/card-appetite-store";
+import { useMeasuredCardAppetite } from "@/lib/card-appetite-store";
 import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
@@ -147,54 +147,6 @@ const GROUP_RUN_ATTR = "data-cards-group-run";
  *  within-row ordering. ArrowRight on the cursor row descends onto it, ahead of
  *  the slot picker. */
 const ROW_ACTION_FOCUS_GROUP = "cards-row-actions";
-
-// ---- Vertical appetite ([B02]) ----
-
-/**
- * A one-line row's height: a file or tool pane row, a stack's pane row, and
- * each of that stack's card subrows.
- *
- * From `.cards-list .cards-oneline` in `cards-card.css` — the rule that states
- * THE DENSE ROW METRIC: `--tugx-list-row-padding-block: 2px` over a row that
- * "bottoms out on its 24px close box".
- */
-const CARDS_ONE_LINE_ROW_PX = 28;
-
-/**
- * A group header's height.
- *
- * `.cards-header` takes no density rule of its own, so it keeps the row
- * primitive's default `--tugx-list-row-padding-block: 8px` (`tug-list-row.css`)
- * over one line — which the `.cards-list` comment says outright, that the
- * headers "keep theirs so a group reads as separated from the one above it".
- */
-const CARDS_GROUP_HEADER_PX = 36;
-
-/**
- * A session monitor row's height — the three-line block a `session-pane` gets.
- *
- * From `tug-session-row.css`: `--tugx-session-identity-row-pad` (12px) of block
- * padding each side, three lines each at `--tug-font-size-sm` ×
- * `--tug-line-height-tight`, with `--tugx-session-identity-lead-gap` (3px)
- * under the name line and `--tugx-session-identity-line-gap` (1px) inside the
- * pair beneath it. Derived from those rules rather than measured: the app-test
- * fixture that reads a card's declaration against its content stands no
- * session, so this is the one row kind the check cannot confirm.
- */
-const CARDS_SESSION_ROW_PX = 76;
-
-/**
- * Everything above the first row: the pane's title bar, plus `.cards-toolbar` —
- * a 28px filter field inside that rule's own `padding: var(--tug-space-sm)
- * var(--tug-space-md)`, which is 6px of block padding each side.
- */
-const CARDS_TOOLBAR_PX = 40;
-const CARDS_HEADER_PX = CARD_TITLE_BAR_HEIGHT + CARDS_TOOLBAR_PX;
-
-/** A group's header and three of its one-line rows — enough to read as a
- *  list. */
-const CARDS_COMFORT_PX =
-  CARDS_GROUP_HEADER_PX + 3 * CARDS_ONE_LINE_ROW_PX;
 
 // The section's remembered selection — the last-touched row id, mapped to a
 // cursor seed on the next Cmd-L / Tab. Module-level so it outlives a collapse
@@ -703,10 +655,7 @@ function useOpenBindings(): ReturnType<
 // ---------------------------------------------------------------------------
 
 /** Feed the data source from every store the projection reads. */
-function useCardsInputs(filterQuery: string): {
-  dataSource: CardsDataSource;
-  collapsedGroups: readonly string[];
-} {
+function useCardsInputs(filterQuery: string): CardsDataSource {
   const bindings = useOpenBindings();
   const cardsRowOrder = useSyncExternalStore(
     cardsStore.subscribe,
@@ -747,7 +696,7 @@ function useCardsInputs(filterQuery: string): {
     nameVersion,
     changesets,
   });
-  return { dataSource, collapsedGroups };
+  return dataSource;
 }
 
 export interface CardsContentProps {
@@ -760,7 +709,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // one component, so nothing has to cross a module store to pair them — which
   // is what the section's filter store existed to do.
   const [filterQuery, setFilterQuery] = useState("");
-  const { dataSource, collapsedGroups } = useCardsInputs(filterQuery);
+  const dataSource = useCardsInputs(filterQuery);
   const focusManager = useFocusManager();
   const count = dataSource.numberOfItems();
   const filtering = dataSource.isFiltering();
@@ -768,30 +717,15 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   const hasContent = count > 0;
   const hasItems = dataSource.unfilteredCount() > 0;
 
-  // What the card would like of its rail's run ([B02]). The rows are the
-  // UNFILTERED projection — a filter is a way of looking at the list right now,
-  // not a change in what it holds — but a COLLAPSED group really is fewer rows
-  // to draw, so a folded group costs its header alone. A group with nothing in
-  // it draws no header and asks for nothing.
-  //
-  // The census is by row KIND ([B03]), because the card draws three heights:
-  // a group header, a three-line session monitor row, and the one-line row
-  // everything else takes. Summing a single row height over every row was what
-  // put the card's declaration at little over half its content.
-  const appetitePx = useMemo(() => {
-    const census = dataSource.censusByRowKind();
-    return (
-      census.headers * CARDS_GROUP_HEADER_PX +
-      census.sessionRows * CARDS_SESSION_ROW_PX +
-      census.oneLineRows * CARDS_ONE_LINE_ROW_PX
-    );
-    // The census is a function of the projection, which `count` versions.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataSource, count, collapsedGroups]);
-  useCardAppetite(
+  // What the card would like of its rail's run ([B01]): the measured height of
+  // its content element, plus the pane's title bar — the one piece of the
+  // member's box the column below the scroller cannot see. Three row kinds at
+  // three heights used to be summed from a census, and a row whose padding
+  // moved put the declaration at little over half the content; the column
+  // stands at whatever it stands at, and nothing here has to know why.
+  const contentRef = useMeasuredCardAppetite(
     CARDS_CARD_ID,
-    CARDS_HEADER_PX + CARDS_COMFORT_PX,
-    CARDS_HEADER_PX + appetitePx,
+    CARD_TITLE_BAR_HEIGHT,
   );
 
   // The opening key view lands on a real row rather than on the chrome; an
@@ -1173,6 +1107,14 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       // target to land the ring on when the card is focused.
       tabIndex={-1}
     >
+      {/* The content element ([B01]): the toolbar and the list as one in-flow
+          column. Its border-box height is what the rail measures, and nothing
+          between it and the scroller stretches ([B02]). */}
+      <div
+        className="cards-card-content"
+        data-testid="cards-card-content"
+        ref={contentRef}
+      >
       <div className="cards-toolbar" data-testid="cards-toolbar">
         <TugFilterField
           key={hasItems ? "live" : "inert"}
@@ -1228,6 +1170,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           </CardsCellContext>
         </div>
       )}
+      </div>
     </div>
     </ResponderScope>
   );

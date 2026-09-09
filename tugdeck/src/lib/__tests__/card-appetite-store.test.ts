@@ -24,37 +24,36 @@ describe("cardAppetiteStore", () => {
   });
 
   test("a card's declaration is what the snapshot carries", () => {
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 405 });
+    cardAppetiteStore.set("jots", { natural: 405 });
     expect(cardAppetiteStore.get("jots")).toEqual({
-      comfort: 153,
       natural: 405,
     });
     expect(cardAppetiteStore.snapshot()).toEqual({
-      jots: { comfort: 153, natural: 405 },
+      jots: { natural: 405 },
     });
   });
 
-  test("the same two numbers notify nobody", () => {
+  test("the same number notifies nobody", () => {
     let notifies = 0;
     cardAppetiteStore.subscribe(() => {
       notifies += 1;
     });
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 405 });
+    cardAppetiteStore.set("jots", { natural: 405 });
     expect(notifies).toBe(1);
-    // A publisher's effect re-running with an unchanged pair — the ordinary
+    // A publisher's effect re-running with an unchanged number — the ordinary
     // case, and the one that must cost nothing.
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 405 });
+    cardAppetiteStore.set("jots", { natural: 405 });
     expect(notifies).toBe(1);
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 433 });
+    cardAppetiteStore.set("jots", { natural: 433 });
     expect(notifies).toBe(2);
   });
 
   test("the snapshot's identity is stable across a no-op set", () => {
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 405 });
+    cardAppetiteStore.set("jots", { natural: 405 });
     const first = cardAppetiteStore.snapshot();
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 405 });
+    cardAppetiteStore.set("jots", { natural: 405 });
     expect(cardAppetiteStore.snapshot()).toBe(first);
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 433 });
+    cardAppetiteStore.set("jots", { natural: 433 });
     expect(cardAppetiteStore.snapshot()).not.toBe(first);
   });
 
@@ -64,14 +63,14 @@ describe("cardAppetiteStore", () => {
     // already had, and nothing downstream would recompute.
     const seen: number[] = [];
     cardAppetiteStore.subscribe(() => seen.push(cardAppetiteStore.version()));
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 405 });
-    cardAppetiteStore.set("cards", { comfort: 148, natural: 300 });
+    cardAppetiteStore.set("jots", { natural: 405 });
+    cardAppetiteStore.set("cards", { natural: 300 });
     expect(seen).toEqual([1, 2]);
   });
 
   test("clearing withdraws the declaration, and only when there was one", () => {
     let notifies = 0;
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 405 });
+    cardAppetiteStore.set("jots", { natural: 405 });
     cardAppetiteStore.subscribe(() => {
       notifies += 1;
     });
@@ -85,7 +84,7 @@ describe("cardAppetiteStore", () => {
   });
 
   test("reset empties the store", () => {
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 405 });
+    cardAppetiteStore.set("jots", { natural: 405 });
     cardAppetiteStore.reset();
     expect(cardAppetiteStore.snapshot()).toEqual({});
     expect(cardAppetiteStore.version()).toBe(0);
@@ -96,15 +95,15 @@ describe("cardAppetiteStore", () => {
     const drop = cardAppetiteStore.subscribe(() => {
       notifies += 1;
     });
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 405 });
+    cardAppetiteStore.set("jots", { natural: 405 });
     drop();
-    cardAppetiteStore.set("jots", { comfort: 153, natural: 433 });
+    cardAppetiteStore.set("jots", { natural: 433 });
     expect(notifies).toBe(1);
   });
 });
 
 describe("sameAppetites", () => {
-  const jots: CardAppetite = { comfort: 153, natural: 405 };
+  const jots: CardAppetite = { natural: 405 };
 
   test("two different objects of the same shape are the same appetites", () => {
     expect(sameAppetites({ jots }, { jots: { ...jots } })).toBe(true);
@@ -125,10 +124,13 @@ describe("sameAppetites", () => {
   });
 
   test("an Infinity natural compares equal to itself", () => {
-    // The Overview declares one, so this is the ordinary case rather than an
-    // edge: `Infinity === Infinity` holds, and nothing here goes through
-    // arithmetic that would turn it into a NaN.
-    const stream: CardAppetite = { comfort: 360, natural: Infinity };
+    // A stream is never measured and so publishes nothing here — the selector
+    // reads its natural as endless from the registry ([B05]). Endless still
+    // has to compare equal to itself, because a member that declared NOTHING
+    // reads endless too, and that is a value this store's own consumers hold.
+    // `Infinity === Infinity` holds, and nothing here goes through arithmetic
+    // that would turn it into a NaN.
+    const stream: CardAppetite = { natural: Infinity };
     expect(sameAppetites({ overview: stream }, { overview: { ...stream } })).toBe(
       true,
     );

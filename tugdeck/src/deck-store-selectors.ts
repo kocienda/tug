@@ -30,6 +30,7 @@ import {
   DEFAULT_GREED_RANK,
   getAllRegistrations,
   getGreedRank,
+  getHeightSource,
   getStackSizePolicy,
   isSidebarCard,
 } from "./card-registry";
@@ -490,21 +491,21 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
 
 /**
  * What each member of a place wants of its run: its floor from the stack size
- * policy, its comfort and natural heights, its greed rank, and the weight the
- * user's own seam drags stored.
+ * policy, its natural height, its greed rank, and the weight the user's own
+ * seam drags stored.
  *
  * A rail member is named by componentId and a column member by pane id, which
  * is the one thing the two places differ by here — a sidebar card is a
  * singleton, and a slot holds panes that may each be a tab stack.
  *
- * Comfort and natural come from `state.appetites` — the settled mirror of
+ * The natural comes from `state.appetites` — the settled mirror of
  * `cardAppetiteStore` ([P05]) — folded across the componentIds a member's pane
  * hosts by `Math.max`, because a tab stack is one box and the box has to suit
  * whichever tab is forward.
  *
- * A member NO card of which declared anything reads its floor for comfort and
- * an ENDLESS natural: it needs the floor to paint and it has said nothing
- * about the height its content is finished at. Endless is what "it did not
+ * A member NO card of which declared anything reads an ENDLESS natural: it
+ * needs the floor to paint and it has said nothing about the height its
+ * content is finished at. Endless is what "it did not
  * say" means, and saying instead that it is satisfied at its floor would be a
  * declaration nobody made — one that the seed's slack rule would then act on
  * by handing every spare pixel of the run to somebody else ([B06]). A column
@@ -512,10 +513,11 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
  * neither is finished, so the seed's fill toward natural divides what is over
  * evenly rather than one of them taking it.
  *
- * `natural` is raised to `comfort` here rather than trusted from the
- * publisher: the seed's water-fill reads `natural` as the ceiling on
- * `comfort`'s step, and a member whose ceiling sat below its own comfort would
- * make the two rungs disagree about the same member.
+ * A member hosting a card the registry calls a STREAM reads endless too, and
+ * for the stronger reason ([B05]): a stream's content is as tall as its pane
+ * by nature, so there is no finished height for it to have declared and none
+ * for anything to measure. It is read from `getHeightSource` rather than from
+ * anything the card publishes, because a stream publishes nothing at all.
  */
 export function placeMemberAppetites(
   state: DeckState,
@@ -536,22 +538,21 @@ export function placeMemberAppetites(
             .map((card) => card.componentId);
     const floor = getStackSizePolicy(componentIds).min.height;
     let greedRank = DEFAULT_GREED_RANK;
-    let comfort = floor;
     let natural = floor;
     let declared = false;
+    let stream = false;
     for (const componentId of componentIds) {
       greedRank = Math.min(greedRank, getGreedRank(componentId));
+      if (getHeightSource(componentId) === "stream") stream = true;
       const appetite = state.appetites?.[componentId];
       if (appetite === undefined) continue;
       declared = true;
-      comfort = Math.max(comfort, appetite.comfort);
       natural = Math.max(natural, appetite.natural);
     }
     return {
       id,
       floor,
-      comfort,
-      natural: declared ? Math.max(comfort, natural) : Infinity,
+      natural: stream || !declared ? Infinity : Math.max(floor, natural),
       greedRank,
       weight: railWeightOf(shares, id),
     };
