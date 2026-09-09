@@ -1800,7 +1800,11 @@ index 1111111..2222222 100644
 
         assert_eq!(snapshot.file_count, 1, "the pathspec names one file");
         let paths: Vec<&str> = snapshot.files.iter().map(|f| f.path.as_str()).collect();
-        assert_eq!(paths, ["keep.txt"], "and it is the one asked for: {paths:?}");
+        assert_eq!(
+            paths,
+            ["keep.txt"],
+            "and it is the one asked for: {paths:?}"
+        );
         assert_eq!(
             snapshot.base, "main...tugarc/demo",
             "a scoped diff is still against the whole range"

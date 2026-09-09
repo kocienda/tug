@@ -144,7 +144,7 @@ describe("the accepted-fan-out ratchet", () => {
                 cwd: join(bare, "tests", "app-test"),
             });
             const err = new TextDecoder().decode(p.stderr);
-            expect(err).toContain("ratchet is not enforced this run");
+            expect(err).toContain("ratchets against history stand down this run");
             expect(p.exitCode).toBe(0);
         } finally {
             rmSync(bare, { recursive: true, force: true });

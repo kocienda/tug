@@ -970,12 +970,23 @@ mod tests {
         let _watcher =
             dev_rust_source_watcher(crates_dir.clone(), tracker.clone(), client_action_tx).unwrap();
 
-        // Create a .rs file
         let rs_file = crates_dir.join("main.rs");
-        fs::write(&rs_file, "fn main() {}").unwrap();
 
-        // Wait for notification (100ms debounce + buffer)
-        match tokio::time::timeout(Duration::from_secs(2), rx.recv()).await {
+        // Keep touching the file until the notification lands. The watcher's
+        // FSEvents stream is not necessarily delivering by the time watch()
+        // returns, so a single write can be missed outright — and under a full
+        // nextest run the debounce task is competing for the CPU besides.
+        let writer = tokio::spawn(async move {
+            loop {
+                fs::write(&rs_file, "fn main() {}").unwrap();
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        });
+
+        let received = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await;
+        writer.abort();
+
+        match received {
             Ok(Ok(frame)) => {
                 assert_eq!(frame.feed_id, FeedId::CONTROL);
                 let json: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
@@ -985,7 +996,7 @@ mod tests {
                 // Verify tracker was marked
                 let guard = tracker.lock().unwrap();
                 assert!(guard.backend_dirty);
-                assert_eq!(guard.code_count, 1);
+                assert!(guard.code_count >= 1);
             }
             Ok(Err(e)) => panic!("broadcast recv error: {}", e),
             Err(_) => panic!("Timeout waiting for rust source watcher notification"),
@@ -1126,12 +1137,21 @@ mod tests {
         let _watcher =
             dev_app_watcher(app_sources_dir.clone(), tracker.clone(), client_action_tx).unwrap();
 
-        // Create a .swift file
         let swift_file = app_sources_dir.join("Test.swift");
-        fs::write(&swift_file, "struct Test {}").unwrap();
 
-        // Wait for notification (100ms debounce + buffer)
-        match tokio::time::timeout(Duration::from_secs(2), rx.recv()).await {
+        // Keep touching the file until the notification lands — see the rust
+        // source watcher test for why one write is not enough.
+        let writer = tokio::spawn(async move {
+            loop {
+                fs::write(&swift_file, "struct Test {}").unwrap();
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        });
+
+        let received = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await;
+        writer.abort();
+
+        match received {
             Ok(Ok(frame)) => {
                 assert_eq!(frame.feed_id, FeedId::CONTROL);
                 let json: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
@@ -1141,7 +1161,7 @@ mod tests {
                 // Verify tracker was marked
                 let guard = tracker.lock().unwrap();
                 assert!(guard.app_dirty);
-                assert_eq!(guard.app_count, 1);
+                assert!(guard.app_count >= 1);
             }
             Ok(Err(e)) => panic!("broadcast recv error: {}", e),
             Err(_) => panic!("Timeout waiting for app watcher notification"),
