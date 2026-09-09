@@ -70,6 +70,18 @@
  * reason: the picture states, the marks act, and the two never argue about
  * which one a click was meant for.
  *
+ * **The rows fold.** The card is a statement and an instrument in one box —
+ * the plate on top says what the deck is doing and draws it, the rows beneath
+ * are how that is changed — and once a reader has set their deck the
+ * instrument is the part they are done with. So a cue between the two halves
+ * puts the rows away and leaves the plate: the caption, its note, the drawing
+ * and the numbered strip, which is the whole of what the card SAYS. The cue
+ * itself never folds, because the one thing a fold must not do is hide its own
+ * way back. The state is deck-wide tugbank rather than a React cell, so it
+ * survives a relaunch; and it is an appetite change too — a folded card asks
+ * its rail for the plate alone and hands the difference back, rather than
+ * standing over an empty run.
+ *
  * The previews are pre-rendered: React renders one hidden plan layer per
  * offerable option from the same store read as the committed layer, and the
  * cursor observer only toggles DOM attributes to choose which layer shows. A
@@ -168,6 +180,14 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useCardAppetite } from "@/lib/card-appetite-store";
 import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
 import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
+import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
+import { getTugbankClient } from "@/lib/tugbank-singleton";
+import { useTugbankValue } from "@/lib/use-tugbank-value";
+import {
+  LAYOUT_MIXER_OPEN_DOMAIN,
+  LAYOUT_MIXER_OPEN_KEY,
+  putLayoutMixerOpen,
+} from "@/settings-api";
 
 /** The card's focus group — every stop it offers lives here.
  *
@@ -233,6 +253,15 @@ const LAYOUT_STRIP_PX = 19;
  *  row. It belongs to comfort because it is air the plate has to stand in. */
 const LAYOUT_SECTION_GAP_PX = 10;
 
+/** The fold cue and the seam under it: one `2xs` `TugPushButton`
+ *  (`--tug-button-2xs-height`, 20px) on its own line, over another
+ *  `.layouts-section` gap. Both belong to comfort — the cue because it is the
+ *  door to the rows and a card cut to comfort still has to offer the way back
+ *  to them, the seam because it is air the cue stands in rather than air a row
+ *  brings with it. Keeping the seam here is also what leaves the pitch below
+ *  the card's ONE per-row term. */
+const LAYOUT_CUE_PX = 20 + LAYOUT_SECTION_GAP_PX;
+
 /** One control row's pitch: the row's own 28px control against
  *  `.layouts-section-rows`'s `row-gap: 6px`. */
 const LAYOUT_ROW_PITCH_PX = 28 + 6;
@@ -241,7 +270,7 @@ const LAYOUT_ROW_PITCH_PX = 28 + 6;
  *  Width. Every other row is one registered sidebar card. */
 const LAYOUT_DECK_ROWS = 3;
 
-/** Comfort: the plate, and nothing below it. */
+/** Comfort: the plate and the fold cue, and nothing below them. */
 const LAYOUT_COMFORT_HEIGHT_PX = Math.ceil(
   CARD_TITLE_BAR_HEIGHT +
     LAYOUT_SECTION_PADDING_PX +
@@ -250,11 +279,20 @@ const LAYOUT_COMFORT_HEIGHT_PX = Math.ceil(
     LAYOUT_DRAWING_PX +
     LAYOUT_PLATE_GAP_PX +
     LAYOUT_STRIP_PX +
-    LAYOUT_SECTION_GAP_PX,
+    LAYOUT_SECTION_GAP_PX +
+    LAYOUT_CUE_PX,
 );
 
-/** Natural: comfort plus every control row the card will draw. */
-function layoutNaturalHeightPx(sidebarCount: number): number {
+/** Natural: comfort plus every control row the card will draw — and, when the
+ *  mixer is folded away, comfort itself, because a folded card draws no rows
+ *  and asking its rail for room to draw them would leave the run empty under
+ *  the cue. The fold is therefore an appetite change as much as a visual one:
+ *  press it and the card gives its slack back to the rail. */
+function layoutNaturalHeightPx(
+  sidebarCount: number,
+  mixerOpen: boolean,
+): number {
+  if (!mixerOpen) return LAYOUT_COMFORT_HEIGHT_PX;
   return (
     LAYOUT_COMFORT_HEIGHT_PX +
     LAYOUT_ROW_PITCH_PX * (LAYOUT_DECK_ROWS + sidebarCount)
@@ -288,15 +326,20 @@ const WIDTH_CAPTION_ID = "layout-card-width-caption";
  *  `set-slot-window` action it dispatched are untouched, so the size is still
  *  switchable; what is gone is a row asking the reader to choose in a card
  *  otherwise entirely about the deck. */
-const LAYOUTS_KIND_FOCUS_ORDER = 0;
-const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
-const LAYOUTS_WIDTH_FOCUS_ORDER = 2;
+/** The fold cue leads them, because it is the door they stand behind: a walk
+ *  that reached the rows before the control that hides them would step through
+ *  a set the reader may have just asked to be rid of. It is also the ONE stop
+ *  the rows' side of the card keeps when the mixer is folded. */
+const LAYOUTS_MIXER_CUE_FOCUS_ORDER = 0;
+const LAYOUTS_KIND_FOCUS_ORDER = 1;
+const LAYOUTS_LAYOUT_FOCUS_ORDER = 2;
+const LAYOUTS_WIDTH_FOCUS_ORDER = 3;
 
 /** The first sidebar row's order; each further registered card takes the next.
  *  These rows are the registry's size, which is fixed at boot — they list every
  *  sidebar card the deck HAS, open or not, because a hidden card's row is the
  *  one door that shows it. The deck-wide rows above never move. */
-const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 3;
+const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 4;
 
 /** The picture's own stop. One stop for the whole drawing rather than one per
  *  mark: a stop per affordance would make Tab crawl the picture, and the marks
@@ -792,16 +835,28 @@ export function LayoutContent(
   const contentWidth = imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH;
   const layout = impositionLayout(imposition);
   const sidebars = sidebarEntries();
+  // Whether the mixer rows stand open. Deck-wide tugbank state, read through
+  // `useTugbankValue` ([L02]) rather than held in a `useState` cell, so the
+  // fold survives a reload and a card remount alike. Absent means open: the
+  // card's shape before the fold existed is the shape a reader who has never
+  // pressed it should still find.
+  const mixerOpen = useTugbankValue(
+    LAYOUT_MIXER_OPEN_DOMAIN,
+    LAYOUT_MIXER_OPEN_KEY,
+    (entry) => !(entry?.kind === "bool" && entry.value === false),
+    true,
+  );
   // What the card would like of its rail's run ([B02]). Comfort is the plate —
   // the picture is the card's job and the rows beneath it may scroll — and
   // natural is the plate plus every control row, which is the three deck-wide
   // ones and one per registered sidebar card. `sidebarEntries()` reads the
   // registry, which is fixed at boot, so this is a pure function of state and
-  // the section's height does not move as cards come and go.
+  // the section's height does not move as cards come and go. The fold is the
+  // one thing that moves it, and it moves it because the reader asked.
   useCardAppetite(
     LAYOUT_CARD_ID,
     LAYOUT_COMFORT_HEIGHT_PX,
-    layoutNaturalHeightPx(sidebars.length),
+    layoutNaturalHeightPx(sidebars.length, mixerOpen),
   );
   // The open ones are what the picture draws and what the overlay marks;
   // the full registry is what the sidebar rows list, because a hidden card's
@@ -1119,7 +1174,35 @@ export function LayoutContent(
       attributeFilter: ["data-key-cursor", "data-key-view-kbd"],
     });
     return () => observer.disconnect();
-  }, [setPreview]);
+    // `mixerOpen` is a dependency because the rows are what this observes and
+    // the fold mounts and unmounts them: without it the effect would keep an
+    // observer on a detached node after a fold and register none on the fresh
+    // rows after an unfold, so the keyboard would stop auditioning.
+  }, [setPreview, mixerOpen]);
+
+  // Folding away the rows takes the audition with them: the cursored segment
+  // that raised a layer is gone, and nothing left on the card would ever clear
+  // the attribute it set. So the plan returns to its committed face here,
+  // rather than being left showing a proposal nobody can still see the origin
+  // of. Layout-effect so the drawing never paints one frame of the orphan.
+  useLayoutEffect(() => {
+    if (!mixerOpen) setPreview(null);
+  }, [mixerOpen, setPreview]);
+
+  // The fold itself. Optimistic tugbank write first so the card answers the
+  // press, then the fire-and-forget PUT that makes it survive the launch —
+  // the same pairing `writePersistedCardSettings` uses.
+  const toggleMixer = useCallback((collapsed: boolean) => {
+    const open = !collapsed;
+    const client = getTugbankClient();
+    if (client !== null) {
+      client.setLocalValue(LAYOUT_MIXER_OPEN_DOMAIN, LAYOUT_MIXER_OPEN_KEY, {
+        kind: "bool",
+        value: open,
+      });
+    }
+    putLayoutMixerOpen(open);
+  }, []);
 
   // ---- The layers: the committed plan and every offerable answer ----
 
@@ -1444,6 +1527,34 @@ export function LayoutContent(
       ) : null}
       </div>
 
+        {/* The fold: the door to the mixer, and the only part of it that is
+            always drawn. The plate above it is the card's statement — what the
+            deck is doing, drawn — and it never folds; the rows below are the
+            instrument, and a reader who has set their deck and wants the
+            picture back can put the instrument away without closing the card.
+
+            `stabilizeScroll` is off: the machinery it names holds a cue under
+            the cursor inside a scrolling transcript, and this card is its own
+            scrollport with the cue near the top of it — there is nothing above
+            to hold in place, and the `flushSync` it costs is pure. */}
+        <div className="layouts-mixer-cue">
+          <BlockFoldCue
+            collapsed={!mixerOpen}
+            onToggle={toggleMixer}
+            collapsedLabel="Options"
+            expandedLabel="Hide Options"
+            ariaLabelExpand="Show the layout options"
+            ariaLabelCollapse="Hide the layout options"
+            tooltip={mixerOpen ? "Hide the layout options" : "Show the layout options"}
+            size="2xs"
+            stabilizeScroll={false}
+            focusGroup={LAYOUT_FOCUS_GROUP}
+            focusOrder={LAYOUTS_MIXER_CUE_FOCUS_ORDER}
+            data-slot="layout-card-mixer-cue"
+          />
+        </div>
+
+        {mixerOpen ? (
         <div className="layouts-section-rows" ref={rowsRef}>
           <div className="layouts-section-row" data-preview-axis="kind">
             <TugLabel
@@ -1549,6 +1660,7 @@ export function LayoutContent(
             );
           })}
         </div>
+        ) : null}
       </div>
     </ResponderScope>
   );

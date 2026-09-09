@@ -424,6 +424,29 @@ export function putHostToolsSkipped(skipped: boolean): void {
   });
 }
 
+/** tugbank domain/key holding whether the Layout card's mixer rows stand open. */
+export const LAYOUT_MIXER_OPEN_DOMAIN = "dev.tugapp.app";
+export const LAYOUT_MIXER_OPEN_KEY = "layout-card-mixer-open";
+
+/**
+ * Persist whether the Layout card draws its control rows. Deck-wide rather
+ * than per-card: there is one Layout card, and the fold is a statement about
+ * how the user wants that picker to read rather than about a particular
+ * pane's instance of it. Fire-and-forget, mirroring `putHostToolsSkipped`;
+ * the caller writes the tugbank cache optimistically so the fold answers the
+ * press rather than the round-trip. Stored as `Value::Bool`; an absent key
+ * means open, which is the shape the card has always had.
+ */
+export function putLayoutMixerOpen(open: boolean): void {
+  fetch(`/api/defaults/${LAYOUT_MIXER_OPEN_DOMAIN}/${LAYOUT_MIXER_OPEN_KEY}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "bool", value: open }),
+  }).catch((err) => {
+    console.warn("[settings] PUT layout-card-mixer-open failed:", err);
+  });
+}
+
 /** tugbank domain/key holding the app-wide default project directory. */
 export const DEFAULT_PROJECT_PATH_DOMAIN = "dev.tugapp.app";
 export const DEFAULT_PROJECT_PATH_KEY = "default-project-path";

@@ -178,6 +178,17 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
+/* The fold cue's line. Centered, because the plate above it is centered and a
+   cue pushed to one edge would read as chrome hung off the card rather than as
+   the seam between the card's two halves. It is a line of its own rather than
+   a trailing affordance on the last row, so the same control is in the same
+   place whether the rows below it are drawn or not — the one thing a fold must
+   never do is move the button that unfolds it. */
+.layouts-mixer-cue {
+  display: flex;
+  justify-content: center;
+}
+
 /* The deck-wide axes: two columns — captions and controls — sized to their
    content and CENTERED under the plan as one block. The captions right-align
    and the controls left-align, so the two columns meet at one straight seam and
