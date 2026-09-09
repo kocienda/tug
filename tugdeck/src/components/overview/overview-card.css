@@ -94,6 +94,13 @@
 
 .overview-transcript .tug-transcript-entry {
   --tugx-transcript-controls-margin-top: var(--tug-space-2xs);
+  /* The sticky attribution's opaque backing. It must stay opaque — the pin
+     hides body content scrolling under it — but the primitive's default is
+     the `content` surface, which is the Session card's transcript ground and
+     a shade lighter than THIS card's. Unretargeted it read as a band across
+     every attribution line. The Overview renders on the `default` surface,
+     so that is what the pin paints. */
+  --tugx-transcript-header-bg: var(--tug7-surface-global-primary-normal-default-rest);
   /* TUNE HERE — see the gutter note above. */
   --tugx-transcript-icon-column-width: 2.2em;
   /* The last pixel between the glyph and the text column, taken off the grid
