@@ -842,26 +842,9 @@ export class DeckManager implements IDeckManagerStore {
     const panes = this.deckState.panes;
     const pane = panes.find((p) => p.cardIds.includes(cardId));
     if (pane === undefined) return;
-    const flowNext = this._flowRevealOffsetFor(pane.id, panes);
-    const flowOffset =
-      flowNext === undefined || flowNext === (this.deckState.flowOffset ?? 0)
-        ? undefined
-        : flowNext;
-    const columnReveal = this._columnRevealOffsetFor(pane.id, panes);
-    const railReveal = this._railRevealOffsetFor(pane.id, panes);
-    if (
-      flowOffset === undefined &&
-      columnReveal === undefined &&
-      railReveal === undefined
-    ) {
-      return;
-    }
-    this.deckState = {
-      ...this.deckState,
-      ...(flowOffset !== undefined ? { flowOffset } : {}),
-      ...this._withColumnReveal(columnReveal),
-      ...this._withRailReveal(railReveal),
-    };
+    const terms = this._revealTerms(pane.id, panes);
+    if (Object.keys(terms).length === 0) return;
+    this.deckState = { ...this.deckState, ...terms };
     this.notify("revealCard");
   };
 
@@ -1558,6 +1541,20 @@ export class DeckManager implements IDeckManagerStore {
           cards: [...this.deckState.cards, ...seededCards],
           panes: [...this.deckState.panes, win],
           activePaneId: paneId,
+        };
+        // A card ARRIVING owes the reader the same reveal a card raised does.
+        // An opener that names a slot — a file link naming the one beside the
+        // card that cited it — can name a slot the band is not showing, and
+        // without this the card lands half under a rail, or off the end of the
+        // strip entirely, with nothing but its flash to say where it went.
+        //
+        // Computed against the state just written, so the new pane is standing
+        // when the rail rule asks whether it is a sidebar member, and folded in
+        // before the notify so the arrival and the slide reach the settle as
+        // one arrangement change ([P10]).
+        this.deckState = {
+          ...this.deckState,
+          ...this._revealTerms(paneId, this.deckState.panes),
         };
         this.notify("addCard");
         this.scheduleSave();
@@ -2952,28 +2949,15 @@ export class DeckManager implements IDeckManagerStore {
     // activation that reveals nothing returns the offset it was given, and the
     // commit stays z-only — which is what keeps a click on an already-visible
     // card from arming a settle it does not owe.
-    const flowOffset = reveal
-      ? this._flowRevealOffsetFor(updatedHost.id, newStacks)
-      : undefined;
-    // And the same rule down the other axis: raising a member of an
-    // overflowing column slides that column's strip by the least that shows
-    // it, in this commit, so the settle sees one arrangement change ([P12]).
-    const columnReveal = reveal
-      ? this._columnRevealOffsetFor(updatedHost.id, newStacks)
-      : undefined;
-    // And the rail's half of it: raising a member of an overflowing rail slides
-    // that side's strip by the least that shows it, in this commit.
-    const railReveal = reveal
-      ? this._railRevealOffsetFor(updatedHost.id, newStacks)
-      : undefined;
+    const revealTerms = reveal
+      ? this._revealTerms(updatedHost.id, newStacks)
+      : {};
 
     this.deckState = {
       ...this.deckState,
       panes: newStacks,
       activePaneId: updatedHost.id,
-      ...(flowOffset !== undefined ? { flowOffset } : {}),
-      ...this._withColumnReveal(columnReveal),
-      ...this._withRailReveal(railReveal),
+      ...revealTerms,
     };
     this.putFocusedCardIdGuarded(newFR);
     this.notify("_commitStandardFirstResponderFlip");
@@ -3078,6 +3062,35 @@ export class DeckManager implements IDeckManagerStore {
         offset: state.flowOffset ?? 0,
       }) ?? center
     );
+  }
+
+  /**
+   * Everything it costs to show `paneId` whole, as the terms a commit spreads
+   * into the state it is about to write: the deck's flow offset, the offset of
+   * the column it stands in, and the offset of the rail it stands on.
+   *
+   * Each of the three slides its own strip by the least that shows the member
+   * ([P12]), and each answers `undefined` for a pane already whole in its band
+   * — so a commit that reveals nothing spreads nothing and stays
+   * byte-identical.
+   *
+   * One helper rather than the same three questions written out at each site,
+   * because the three moments that ask them owe the reader the same thing: a
+   * raise, a bare reveal, and a card ARRIVING all mean "show me this card",
+   * and the deck has one answer to what that costs. `panes` is what the commit
+   * is about to write rather than what it is replacing, for the reason each of
+   * the three underneath takes them.
+   */
+  private _revealTerms(
+    paneId: string,
+    panes: readonly TugPaneState[],
+  ): Partial<DeckState> {
+    const flowOffset = this._flowRevealOffsetFor(paneId, panes);
+    return {
+      ...(flowOffset !== undefined ? { flowOffset } : {}),
+      ...this._withColumnReveal(this._columnRevealOffsetFor(paneId, panes)),
+      ...this._withRailReveal(this._railRevealOffsetFor(paneId, panes)),
+    };
   }
 
   /**

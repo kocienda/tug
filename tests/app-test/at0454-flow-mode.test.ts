@@ -37,6 +37,11 @@
  *     card still answers inside the band, and that what answers there is the
  *     cap, carrying the canvas-background marker so the press it takes still
  *     deselects.
+ *  6. **A card that ARRIVES is revealed too.** An opener that names a slot —
+ *     a file link naming the one beside the card that cited it — can name a
+ *     slot the band is only half showing. The raise reveals; for a while the
+ *     arrival did not, and the file the reader had just clicked landed with
+ *     its near edge under the rail.
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
@@ -48,6 +53,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import {
@@ -65,6 +73,10 @@ const AFTER_LAND_MS = 900;
 const TOL = 1.5;
 const RAIL_WIDTH = 420;
 const PANE_WIDTH = 420;
+/** Part 6's cards. Wide enough that the band — three 420s across — holds one
+ *  and a bit, which is the crowding that leaves a neighbouring slot straddling
+ *  its near edge. */
+const WIDE_PANE_WIDTH = 800;
 const SLOTS = 5;
 const KIND_TILES = '[data-testid="layout-card-kind"] [data-choice-value]';
 const LAYOUT_TILES = '[data-testid="layout-card-layout"] [data-choice-value]';
@@ -84,11 +96,11 @@ interface CutRecord {
 
 /** Five cards in a six-up, plus the Layout card on the right — a strip comfortably
  *  longer than the band on any window this harness opens. */
-function deckShape() {
+function deckShape(paneWidth: number = PANE_WIDTH) {
   const pane = (id: string, slot: number, cardId: string) => ({
     id,
     position: { x: 40, y: 40 },
-    size: { width: PANE_WIDTH, height: 400 },
+    size: { width: paneWidth, height: 400 },
     cardIds: [cardId],
     activeCardId: cardId,
     title: "",
@@ -180,6 +192,32 @@ async function flowOffset(app: App): Promise<number> {
     `(window.tugdeck.diag.getDeckState().flowOffset || 0)`,
   );
 }
+
+/** The ids of every Text card the deck holds, for catching the one an open
+ *  adds. */
+const textCardIds = (app: App): Promise<string[]> =>
+  app.evalJS<string[]>(
+    `window.tugdeck.diag.getDeckState().cards
+      .filter(function (c) { return c.componentId === "text"; })
+      .map(function (c) { return c.id; })`,
+  );
+
+/** The painted frame of the pane holding `cardId`, in viewport coordinates. */
+const cardRect = (
+  app: App,
+  cardId: string,
+): Promise<{ left: number; right: number }> =>
+  app.evalJS<{ left: number; right: number }>(
+    `(function () {
+      var pane = window.tugdeck.diag.getDeckState().panes.find(function (p) {
+        return p.cardIds.indexOf(${JSON.stringify(cardId)}) !== -1;
+      });
+      var box = document
+        .querySelector('.tug-pane[data-pane-id="' + pane.id + '"]')
+        .getBoundingClientRect();
+      return { left: box.left, right: box.right };
+    })()`,
+  );
 
 async function setLayout(app: App, layout: "fit" | "flow"): Promise<void> {
   await app.evalJS<null>(
@@ -729,6 +767,107 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         ).toBe("flow");
       } finally {
         await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // ── 6. A card that arrives is revealed too ─────────────────────────────────
+  //
+  // The strip is parked at its far end, which leaves the slot BESIDE the
+  // active card straddling the band's near edge — the arrangement a reader
+  // gets whenever the band is wider than one card and narrower than two, which
+  // is most of them. A file opened from that card lands in that slot, and the
+  // question is whether the deck brings it in.
+  //
+  // The pin is the card's NEAR edge against the band's, because that is what
+  // the reader lost: a card wider than the band cannot come wholly in, and the
+  // reveal pins the edge reading starts at instead. A card narrower than the
+  // band lands flush there too, having been slid in from the same side.
+  test(
+    "a card that arrives is revealed, not merely placed",
+    async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0454-"));
+      const file = path.join(dir, "arrival.txt");
+      fs.writeFileSync(file, "arrival\n");
+
+      const app = await launchTugApp({ testName: "at0454-flow-mode-arrival" });
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+        );
+        await app.seedDeckState({
+          state: deckShape(WIDE_PANE_WIDTH),
+          focusCardId: "A",
+        });
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+        await setLayout(app, "flow");
+        await wait(AFTER_LAND_MS);
+
+        // Park the strip at its far end by raising the last card.
+        await app.evalJS<null>(`(window.__tug.activateCard("E"), null)`);
+        await wait(AFTER_LAND_MS);
+
+        // The fixture earns its assertion: the slot the open is about to name
+        // is half off the band's near edge before the open runs.
+        const bandBefore = await band(app);
+        const neighbor = (await slotRects(app))[SLOTS - 2];
+        note(
+          `before the open: slot 4 spans ${Math.round(
+            neighbor.left,
+          )}..${Math.round(neighbor.right)}, band starts ${Math.round(
+            bandBefore.left,
+          )}`,
+        );
+        expect(
+          neighbor.left,
+          "the fixture must leave the neighbouring slot straddling the band",
+        ).toBeLessThan(bandBefore.left - TOL);
+        expect(
+          neighbor.right,
+          "and still partly showing, or the open would be off-screen entirely",
+        ).toBeGreaterThan(bandBefore.left + TOL);
+
+        // Open a file from the active card. `neighborSlot` names the slot to
+        // its left — the straddling one — and the arrival owes the reveal.
+        const before = await textCardIds(app);
+        await app.dispatchControlAction("open-file", { path: file });
+        await app.waitForCondition<boolean>(
+          `window.tugdeck.diag.getDeckState().cards.filter(function (c) {
+            return c.componentId === "text";
+          }).length === ${before.length + 1}`,
+          { timeoutMs: 15_000 },
+        );
+        const fresh = (await textCardIds(app)).filter(
+          (id) => !before.includes(id),
+        );
+        expect(fresh, "exactly one card answered the open").toHaveLength(1);
+        await wait(AFTER_LAND_MS);
+
+        const bandAfter = await band(app);
+        const arrived = await cardRect(app, fresh[0]);
+        note(
+          `after the open: card spans ${Math.round(arrived.left)}..${Math.round(
+            arrived.right,
+          )}, band ${Math.round(bandAfter.left)}..${Math.round(
+            bandAfter.right,
+          )}, offset ${await flowOffset(app)}`,
+        );
+        expect(
+          arrived.left,
+          "the arrived card's near edge is not under the rail",
+        ).toBeGreaterThanOrEqual(bandAfter.left - TOL);
+        expect(
+          arrived.left,
+          "and no further in than it had to come — the move is minimal",
+        ).toBeLessThanOrEqual(bandAfter.left + TOL);
+      } finally {
+        await app.close();
+        fs.rmSync(dir, { recursive: true, force: true });
       }
     },
     TEST_TIMEOUT_MS,
