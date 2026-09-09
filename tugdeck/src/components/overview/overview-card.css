@@ -45,7 +45,9 @@
 }
 
 .overview-transcript {
-  overflow-y: auto;
+  /* The bar's lane is always reserved, never `scrollbar-gutter` — see the
+     Cards list ([D182]). */
+  overflow-y: scroll;
   overflow-x: hidden;
   min-block-size: 0;
   display: flex;

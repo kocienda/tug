@@ -41,6 +41,9 @@
   flex: 1 1 auto;
   min-block-size: 0;
   height: auto;
+  /* The bar's lane is always reserved, never `scrollbar-gutter` — see the
+     Cards list ([D182]). */
+  overflow-y: scroll;
 }
 
 /* The `[data-slot]` is carried for the specificity, not for the match: the

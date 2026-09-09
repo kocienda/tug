@@ -68,6 +68,9 @@
   flex: 1 1 auto;
   min-block-size: 0;
   height: auto;
+  /* The bar's lane is always reserved, never `scrollbar-gutter` — see the
+     Cards list ([D182]). */
+  overflow-y: scroll;
   --tugx-list-view-padding-inline: 0;
   --tugx-list-view-padding-block: 0;
   /* Row height. The other rail cards' one-line lists carry the same number on

@@ -321,9 +321,14 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
               var tr = tape.getBoundingClientRect();
               var declared = getComputedStyle(row)
                 .getPropertyValue("--tugx-session-row-trailing-inset").trim();
+              // The trailing frame is the SCROLLPORT's edge, not the border
+              // box's: the list reserves its scrollbar's lane at all times
+              // ([D182]), so under classic scrollbars the rows end one track
+              // short of the border and that track is the lane, not an inset.
+              var scrollportRight = lr.left + parseFloat(cs.borderLeftWidth) + list.clientWidth;
               return {
                 leading: cr.left - (lr.left + parseFloat(cs.borderLeftWidth)),
-                trailing: (lr.right - parseFloat(cs.borderRightWidth)) - cr.right,
+                trailing: scrollportRight - cr.right,
                 tapeInset: cr.right - tr.right,
                 trailingInset: parseFloat(declared) || 0,
               };

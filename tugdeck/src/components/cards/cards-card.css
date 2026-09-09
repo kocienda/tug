@@ -52,6 +52,13 @@
   flex: 1 1 auto;
   min-block-size: 0;
   height: auto;
+  /* The scrollbar's lane is reserved at all times ([D182]): a sidebar card
+     never relays out its rows to make room for a bar that comes and goes.
+     `overflow-y: scroll` is the whole guarantee in both scrollbar modes —
+     the classic track is always drawn, an overlay bar takes no space either
+     way. Never `scrollbar-gutter: stable`, which flickers on overlay Macs;
+     see the session transcript's rule in `session-card.css`. */
+  overflow-y: scroll;
   --tugx-list-view-padding-inline: 0;
   --tugx-list-view-padding-block: 0;
   /* The band header's inline padding, so the row content and the section title

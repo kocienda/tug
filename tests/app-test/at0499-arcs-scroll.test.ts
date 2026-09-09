@@ -178,8 +178,9 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () =>
         expect(geometry.listScrollHeight).toBeGreaterThan(geometry.listClientHeight);
         // The list is the scroller, and the card is not: the overflow belongs
         // to one place, which is what makes the scrollbar land around the rows
-        // rather than around the card.
-        expect(geometry.overflowY).toBe("auto");
+        // rather than around the card. `scroll` rather than `auto`, because a
+        // sidebar list reserves the bar's lane at all times ([D182]).
+        expect(geometry.overflowY).toBe("scroll");
         expect(geometry.cardScrollHeight).toBeLessThanOrEqual(
           geometry.cardClientHeight + 1,
         );

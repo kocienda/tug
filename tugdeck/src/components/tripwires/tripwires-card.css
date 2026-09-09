@@ -35,6 +35,15 @@
   min-height: 0;
 }
 
+/* The roster and the detail column are the card's two scrollers, one per
+   level. The bar's lane is always reserved, never `scrollbar-gutter` — see
+   the Cards list ([D182]). Doubled selector on the roster so this beats the
+   base `.tug-list-view` rule regardless of bundle order. */
+.tug-list-view.tripwires-list,
+.tripwires-detail {
+  overflow-y: scroll;
+}
+
 /* The roster's second line is the Cards card's session description, and it
    has to read as that line rather than as a heavier relative of it: a plain
    run at the row's own color, not `TugLabel`'s medium weight over muted ink.
