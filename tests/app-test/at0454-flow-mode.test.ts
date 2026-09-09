@@ -52,6 +52,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
 import {
   IMPOSITION_GAP_PX,
+  RAIL_EDGE_INSET_PX,
   RAIL_GUTTER_PX,
 } from "../../tugdeck/src/lib/layout-imposer";
 
@@ -391,33 +392,37 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
           "an offset past the strip's end still lands its last place on the band's edge",
         ).toBeLessThanOrEqual(TOL);
 
-        // ── 5. The band's edge is real ink ──────────────────────────────────
-        // A card that straddles the band's far edge paints on into the gutter
-        // between the band and the rail, where it would show as a sliver no
-        // rail width can cover: the rail stands flush to the window edge and
-        // occludes only what is under it. The gutter is covered by the rail
-        // margin — the layer that paints the whole band the rail stands in —
-        // so no card ink answers there, and what answers instead is the
-        // margin. The straddling card must still answer inside the band — the
-        // margin covers the overhang, never the card.
+        // ── 5. The band's edge is occlusion, not a cut ──────────────────────
+        // A card that straddles the band's far edge keeps painting: across the
+        // rail's gutter in plain sight, and then behind the rail, which is
+        // opaque and outranks every free card. **That visible crossing is the
+        // point.** It is what says *there is more, behind this*, and a deck
+        // that hid it would be cutting the card with paint instead of with a
+        // `clip-path` — which is exactly the regression this part now pins.
+        // The gutter is air the card crosses, never a leak to be covered.
+        //
+        // So: the gutter shows CARD, the rail's own band shows RAIL, and the
+        // only capped strip is the one no rail stands in. This deck's rail is
+        // flush to the right window edge, so that side is uncapped and the
+        // bare left side carries a cap exactly one card gap wide.
         const ink = await app.evalJS<{
-          marginPane: string | null;
-          marginCap: string | null;
-          marginTag: string;
-          marginCanvas: boolean;
-          marginReach: number;
+          gutterPane: string | null;
+          overRailPane: string | null;
           inBand: string | null;
+          rightCap: boolean;
+          leftCapWidth: number | null;
+          leftCapCanvas: boolean;
         }>(
           `(function () {
             // At rest the strip runs 2120px into a ~1550px band, so a card is
             // guaranteed to straddle the far edge — the reveal above parked
-            // the strip on a boundary, where the margin is clean with or
-            // without the cap and the assertion would prove nothing.
+            // the strip on a boundary, where nothing crosses the gutter and
+            // the assertion would prove nothing.
             //
-            // The caps carry the canvas-background marker too, so this
-            // selector matches three elements now rather than one — but
-            // document order puts the container first, and the container is
-            // the one the frames inherit the offset from.
+            // A cap carries the canvas-background marker too, so this selector
+            // can match more than one element — but document order puts the
+            // container first, and the container is the one the frames inherit
+            // the offset from.
             var host = document.querySelector("[data-deck-canvas-background]");
             host.style.setProperty("--tug-imposer-flow-offset", "0px");
             function paneAt(x, y) {
@@ -428,48 +433,55 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
             var rail = document
               .querySelector('.tug-pane[data-pane-id="pRail"]')
               .getBoundingClientRect();
-            // The gutter's middle: clear of the rail's own edge affordance,
-            // which hangs a few pixels past its frame.
-            var gutterX = rail.left - ${RAIL_GUTTER_PX} / 2;
-            var marginEl = document.elementFromPoint(gutterX, 600);
-            var cap = document.querySelector('[data-margin-cap="right"]');
+            var left = document.querySelector('[data-margin-cap="left"]');
             return {
-              marginPane: paneAt(gutterX, 600),
-              marginCap: marginEl === null ? null : marginEl.getAttribute("data-margin-cap"),
-              marginTag: marginEl === null ? "(none)" : marginEl.tagName + "." + String(marginEl.className),
-              marginCanvas:
-                marginEl !== null && marginEl.hasAttribute("data-deck-canvas-background"),
-              // How far the margin reaches in from the rail's near edge: the
-              // margin spans the whole band the rail stands in, so its own
-              // edge is one gutter past the rail, at the band's edge.
-              marginReach: rail.left - cap.getBoundingClientRect().left,
+              // The gutter's middle: clear of the rail's own edge affordance,
+              // which hangs a few pixels past its frame.
+              gutterPane: paneAt(rail.left - ${RAIL_GUTTER_PX} / 2, 600),
+              // Well inside the rail, where the card behind it must not show.
+              overRailPane: paneAt(rail.left + 40, 600),
               inBand: paneAt(rail.left - ${RAIL_GUTTER_PX} - 40, 600),
+              rightCap:
+                document.querySelector('[data-margin-cap="right"]') !== null,
+              leftCapWidth:
+                left === null ? null : left.getBoundingClientRect().width,
+              leftCapCanvas:
+                left !== null &&
+                left.hasAttribute("data-deck-canvas-background"),
             };
           })()`,
         );
         note(
-          `gutter beside the rail: ${ink.marginTag} cap=${String(ink.marginCap)} canvas=${ink.marginCanvas} | pane there ${String(ink.marginPane)}`,
+          `gutter ${String(ink.gutterPane)} | over rail ${String(ink.overRailPane)} | in band ${String(ink.inBand)} | caps right=${ink.rightCap} left=${String(ink.leftCapWidth)}`,
         );
         expect(
-          ink.marginPane,
-          "the gutter beside the rail shows no card ink",
-        ).toBeNull();
+          ink.gutterPane,
+          "a straddling card crosses the rail's gutter in plain sight",
+        ).not.toBeNull();
         expect(
-          ink.marginCap,
-          "and the element answering there is the right-hand margin cap",
-        ).toBe("right");
+          ink.gutterPane,
+          "and it is a card standing there, not the rail reaching in",
+        ).not.toBe("pRail");
         expect(
-          ink.marginCanvas,
-          "which carries the canvas-background marker, so a press there still deselects",
-        ).toBe(true);
+          ink.overRailPane,
+          "the rail is what paints over the card, which is the whole occlusion",
+        ).toBe("pRail");
         expect(
           ink.inBand,
           "the straddling card still paints inside the band",
         ).not.toBeNull();
         expect(
-          Math.round(ink.marginReach),
-          "the margin spans the rail's whole band, from the window edge to the gutter's far side",
-        ).toBe(RAIL_GUTTER_PX);
+          ink.rightCap,
+          "a rail flush to the window leaves nothing bare, so that side is uncapped",
+        ).toBe(RAIL_EDGE_INSET_PX > 0);
+        expect(
+          ink.leftCapWidth === null ? null : Math.round(ink.leftCapWidth),
+          "the bare side is capped at exactly the band's own gap, and no wider",
+        ).toBe(IMPOSITION_GAP_PX);
+        expect(
+          ink.leftCapCanvas,
+          "and that cap carries the canvas-background marker, so a press there still deselects",
+        ).toBe(true);
       } finally {
         await app.close();
       }

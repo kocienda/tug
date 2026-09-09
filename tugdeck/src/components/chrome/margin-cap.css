@@ -1,17 +1,33 @@
 /**
- * margin-cap.css — the rail margin: the band a rail stands in.
+ * margin-cap.css — the strip no rail can cover, and nothing more.
  *
  * A flow card's ink used to stop at the band edge because a `clip-path` cut
  * it there. It stops by occlusion now: the rails are opaque, they outrank
- * every free card, and a card travelling toward one slides behind it. These
- * two elements are the ground under and beside the rail — from the window
- * edge, across the rail's edge inset, the rail itself, and its gutter, to the
- * band the cards stand in; on a side with no rail, the band's own gap. They
- * sit one z step below the rails, so the rail paints over its margin and the
- * margin paints over every free card. Being the one layer that paints the
- * rail's band, they are also where a treatment that wants to draw in the
- * gutter or tint the margin does it: one block under `data-rail-treatment`,
- * on this element, and no second component.
+ * every free card, and a card travelling toward one crosses the gutter in
+ * plain sight and then disappears behind it. These elements cover the strip
+ * a rail leaves BARE and nothing more: the rail edge inset on a side where a
+ * rail stands — which is nothing at all while a panel stands flush to the
+ * window — and the band's own gap on a side where none does. They sit one z
+ * step below the rails and above every free card, so a cap covers a card and
+ * a rail covers a cap.
+ *
+ * **A cap that reaches the band edge IS the razor.** This is the sentence to
+ * hold onto, because it has been got wrong once already: a cap widened to
+ * paint the whole band a rail stands in — window edge, rail, gutter and all —
+ * cuts every straddling card at the band's edge with graph paper instead of a
+ * `clip-path`, and the pixels are the same pixels. Worse, the card then never
+ * reaches the rail, so there is nothing for it to be seen sliding behind and
+ * the occlusion this file exists for never happens once. The gutter between a
+ * rail's inner edge and the band is **air the card crosses**, not a leak to
+ * be covered ([B04]) — a card standing in it on its way behind the panel is
+ * the whole of what makes the occlusion legible.
+ *
+ * **A treatment that wants to paint the rail's band cannot be this element.**
+ * These stand above the cards, and ground that paints over a card is not
+ * ground. A tinted gutter or a ruled margin is a layer BELOW
+ * `CARD_ZINDEX_BASE`, where the card crossing it paints over it — which is
+ * what would make it ground rather than a cut. The tint declarations below
+ * reach only the bare strip, because that is all a cap is.
  *
  * **Each cap paints the body's own ground, grid included.** The canvas is not
  * a flat colour: `globals.css` paints `body` with the canvas token plus two
@@ -31,13 +47,14 @@
  * multiple of 24. The repair for that would be a `background-position` phrased
  * against `100vw`, which is exactly the algebra the occlusion change retired.
  *
- * The width is the one moving part, and it moves with the rail: the deck
- * canvas writes it as the side's span inset plus the band gap, over the same
- * `--tug-imposer-inset-*` property the frames read, so a rail drag re-resolves
- * the margin in the same reflow with no measurement. The pattern's phase
- * inherits the retired clip's one premise — the deck canvas spans the window —
- * but inherits it far more weakly. What a violation cost the clip was a sliver
- * of card in the margin; what it costs a cap is a grid line out of phase.
+ * The width is what the rail leaves bare, and the deck canvas decides it from
+ * the same `railWidthOf` the inset effect reads, so a cap and the band can
+ * never disagree about whether a rail stands on that side. Nothing bare, no
+ * element at all: a cap of no width is a claim in the DOM that something is
+ * being covered. The pattern's phase inherits the retired clip's one premise —
+ * the deck canvas spans the window — but inherits it far more weakly. What a
+ * violation cost the clip was a sliver of card in the margin; what it costs a
+ * cap is a grid line out of phase.
  *
  * **The cap swallows the press.** `clip-path` clipped hit-testing as well as
  * paint, so the cut-away part of a card took no clicks. A cap transparent to
@@ -64,8 +81,9 @@
   /* The canvas and grid, each declared once as a mix toward the rail tint
      hue at the rail tint strength (`tug-pane.css` declares both on `body`).
      At strength 0 — the shipped treatment — the mix is the bare token and the
-     margin IS the ground; a treatment that tints the margin sets a strength
-     under `data-rail-treatment` and touches neither declaration. */
+     cap IS the ground. A strength set under `data-rail-treatment` tints only
+     what a cap covers, which is the bare strip; tinting the rail's gutter is
+     a layer under the cards, not this one. */
   --tugx-rail-margin-canvas: color-mix(
     in oklch,
     var(--tug7-surface-global-primary-normal-canvas-rest),

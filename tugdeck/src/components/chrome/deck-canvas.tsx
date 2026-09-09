@@ -4200,33 +4200,44 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           />
         );
       })}
-      {/* The rail margins: the band a rail stands in on each side, from the
-          window edge through the rail's gutter, and the bare band gap on a
-          side with no rail. A flow card's ink stops at the band edge by
-          occlusion rather than by a cut, and these two are the ground it
-          slides behind — under the rail in z, so the rail still paints over
-          them. Each paints the body's own ground, grid and all, so it reads
-          as canvas rather than as a stripe; each takes the press so no card
-          the user cannot see receives it; and each carries the
+      {/* The margin caps: what no rail can cover, and nothing else. A flow
+          card's ink stops at the band's edge by occlusion rather than by a
+          cut — the rail is opaque and outranks every free card, so a card
+          travelling toward one crosses the gutter in plain sight and then
+          disappears behind it. The cap is only for the strip a rail leaves
+          bare, because a cap wide enough to reach the band would BE the cut:
+          painting ground over a card at the band edge is the razor again in
+          another material, and the card would never be seen arriving at the
+          rail at all. Each paints the body's own ground, grid and all, so it
+          reads as canvas rather than as a stripe; each takes the press so no
+          card the user cannot see receives it; and each carries the
           canvas-background marker so the press it took still deselects, which
-          is what a press in that margin does today. The width is the side's
-          span inset plus the band gap — `edge inset + rail + gutter` with a
-          rail standing, one gap without — read from the same property the
-          frames read, so a rail drag moves the margin in the same reflow. See
-          margin-cap.css for the whole argument. [B02] [B03] */}
-      {(["left", "right"] as const).map((side) => (
-        <div
-          key={`margin-cap:${side}`}
-          className={`tug-margin-cap tug-margin-cap--${side}`}
-          data-margin-cap={side}
-          aria-hidden="true"
-          style={{
-            width: `calc(var(--tug-imposer-inset-${side}, 0px) + ${IMPOSITION_GAP_PX}px)`,
-            zIndex: MARGIN_CAP_ZINDEX,
-          }}
-          {...{ [CANVAS_BACKGROUND_ATTRIBUTE]: "" }}
-        />
-      ))}
+          is what a press there does today. See margin-cap.css for the whole
+          argument. [B02] [B03] [B04] */}
+      {(["left", "right"] as const).map((side) => {
+        // A pinned rail keeps the rail edge inset off the window and covers
+        // every pixel inboard of it, so what it leaves bare is that inset —
+        // nothing at all while a panel stands flush. A side with no rail
+        // leaves the band's own gap. The same `railWidthOf` the inset effect
+        // reads, so the cap and the band can never disagree about whether a
+        // rail stands there.
+        const bare =
+          railWidthOf(side) > 0 ? RAIL_EDGE_INSET_PX : IMPOSITION_GAP_PX;
+        // Nothing bare, no cap. An element of no width is not harmless here:
+        // it is a claim in the DOM that something is being covered, and the
+        // pin in at0454 reads these by their boxes.
+        if (bare === 0) return null;
+        return (
+          <div
+            key={`margin-cap:${side}`}
+            className={`tug-margin-cap tug-margin-cap--${side}`}
+            data-margin-cap={side}
+            aria-hidden="true"
+            style={{ width: `${bare}px`, zIndex: MARGIN_CAP_ZINDEX }}
+            {...{ [CANVAS_BACKGROUND_ATTRIBUTE]: "" }}
+          />
+        );
+      })}
       </div>
       {/*
         * CanvasOverlayRoot: single deck-level container for popup-class
