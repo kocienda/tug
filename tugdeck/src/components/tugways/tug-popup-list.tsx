@@ -199,6 +199,13 @@ export interface TugPopupListGridProps {
   summary?: ReadonlyArray<React.ReactElement>;
   /** Rendered when both `rows` and `summary` are empty. */
   empty?: React.ReactNode;
+  /**
+   * Open the row list at its newest entry and keep it there as rows
+   * append, unless the reader has scrolled away. For the chronological
+   * logs, whose newest row is their last.
+   * @default false
+   */
+  stickToBottom?: boolean;
 }
 
 /**
@@ -211,6 +218,7 @@ export function TugPopupListGrid({
   rows,
   summary,
   empty,
+  stickToBottom = false,
 }: TugPopupListGridProps): React.ReactElement {
   const summaryRows = summary ?? [];
   const hasRows = rows.length > 0;
@@ -221,7 +229,10 @@ export function TugPopupListGrid({
   return (
     <div className="tug-popup-list-grid" data-slot="tug-popup-list-grid">
       {hasRows ? (
-        <TugPopupListScroller className="tug-popup-list-grid-scroller">
+        <TugPopupListScroller
+          className="tug-popup-list-grid-scroller"
+          stickToBottom={stickToBottom}
+        >
           {rows}
         </TugPopupListScroller>
       ) : (

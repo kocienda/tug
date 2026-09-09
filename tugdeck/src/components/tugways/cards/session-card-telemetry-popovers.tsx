@@ -19,6 +19,17 @@
  * CLEAR (a deck-local wipe of terminal rows). Every action is the
  * standard popup-list footer shape (2xs outlined push-button chrome).
  *
+ * **Every popup opens on its newest reading.** A Z2 cell is a live
+ * number, so the popup behind it is opened to see what that number is
+ * saying *now* — and a scroller left at the top is the one place a
+ * long list does not say it. The two chronological logs (STATE, TIME)
+ * take the scroller's `stickToBottom`, whose newest row is always its
+ * last; the item lists (TASKS, JOBS, ARC) take {@link useRevealRow},
+ * which brings the row under way into view and falls back to the last
+ * row when nothing is under way. CONTEXT is exempt for the only reason
+ * that exempts anything here: it is a gauge, not a list, and has no
+ * newest row to find.
+ *
  * **End-state badge consistency.** Per-turn rows display the badge
  * produced by `endStateBadgeFor(turn.turnEndReason)` — the same
  * dispatch the Z1B end-state display uses, so the two surfaces always
@@ -493,6 +504,9 @@ export function TimePopoverContent({
         rows={rows}
         summary={summaryRows}
         empty={<EmptyTranscriptBody />}
+        // A turn log appends, so its newest row is its last one, and a
+        // session of any length opens with that row below the fold.
+        stickToBottom
       />
     </TugPopupListFrame>
   );
@@ -707,6 +721,76 @@ export function StateChangeLogPopoverContent({
 }
 
 // ---------------------------------------------------------------------------
+// Revealing the row a reader opened the popup for
+// ---------------------------------------------------------------------------
+
+/**
+ * The index of the row a reader opens a placard to find: the first one whose
+ * status cell says it is under way, and — when nothing is — the last, which is
+ * where an append-ordered list keeps whatever it learned most recently. `-1` on
+ * an empty list.
+ *
+ * "First" rather than "only" because a ledger may legitimately carry two
+ * `in progress` rows — a run that stopped mid-step leaves its cell written —
+ * and the earliest is the one the fraction counts against. Both spellings are
+ * matched because the ledger writes `in progress` and a task writes
+ * `in_progress`, and a placard may show either list.
+ */
+function newestRowIndex(statuses: ReadonlyArray<string>): number {
+  const active = statuses.findIndex(
+    (s) => s === "in progress" || s === "in_progress",
+  );
+  return active >= 0 ? active : statuses.length - 1;
+}
+
+/**
+ * Bring the named row into the scroller's view when the placard opens, and
+ * again whenever a different row becomes the one to show while it is open.
+ *
+ * Every Z2 popup opens on its newest reading, and a scroller left at the top
+ * is the one place that reading is not: by step 14 of 15 the row the reader
+ * opened the placard for is below the fold, and every row that is visible is
+ * struck through. The reveal is the scroller's own `scrollTop`, never
+ * `scrollIntoView` — a placard sits inside the deck's scrollports and
+ * `scrollIntoView` reasons about all of them, which is the argument
+ * `focus-reveal.ts` already makes.
+ *
+ * A row already comfortably in view is left where it is, so a reader who has
+ * scrolled the list themselves is not yanked back by an unrelated re-render.
+ * The item-row lists take this route; the two chronological logs (STATE, TIME)
+ * take the scroller's own `stickToBottom`, which says the same thing about a
+ * list whose newest row is always its last.
+ */
+function useRevealRow(
+  scrollerRef: React.RefObject<HTMLDivElement | null>,
+  revealIndex: number,
+): void {
+  React.useLayoutEffect(() => {
+    if (revealIndex < 0) return;
+    const root = scrollerRef.current;
+    if (root === null) return;
+    const rows = root.querySelectorAll<HTMLElement>(".tug-popup-list-item");
+    const row: HTMLElement | undefined = rows[revealIndex];
+    if (row === undefined) return;
+
+    const rootRect = root.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const margin = rowRect.height;
+    if (
+      rowRect.top >= rootRect.top + margin &&
+      rowRect.bottom <= rootRect.bottom - margin
+    ) {
+      return;
+    }
+    // Centred, so the rows on either side of the revealed one are readable;
+    // the browser clamps the result at both ends, which is what puts a first
+    // or last revealed row flush against its edge.
+    root.scrollTop +=
+      rowRect.top - rootRect.top - (root.clientHeight - rowRect.height) / 2;
+  }, [scrollerRef, revealIndex]);
+}
+
+// ---------------------------------------------------------------------------
 // Tasks popover
 // ---------------------------------------------------------------------------
 
@@ -800,6 +884,11 @@ export function TasksPopoverContent({
   state: TaskListState;
   idle: boolean;
 }): React.ReactElement {
+  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
+  // The row under way, or the last one on a finished checklist — the same
+  // reveal the ARC placard makes over the same rows. Hooks run before the
+  // empty-list return so the order holds across a list that fills up.
+  useRevealRow(scrollerRef, newestRowIndex(state.tasks.map((t) => t.status)));
   if (state.tasks.length === 0) {
     return (
       <TugPopupListFrame kind="item">
@@ -823,7 +912,10 @@ export function TasksPopoverContent({
         </TugPopupListFooter>
       }
     >
-      <TugPopupListScroller data-slot="session-tasks-popover-body">
+      <TugPopupListScroller
+        ref={scrollerRef}
+        data-slot="session-tasks-popover-body"
+      >
         <TaskListItems tasks={state.tasks} idle={idle} />
       </TugPopupListScroller>
     </TugPopupListFrame>
@@ -1150,6 +1242,18 @@ export function JobsPopoverContent({
 }): React.ReactElement {
   const hasGoal = goal !== null;
   const hasJobs = jobs.length > 0;
+  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
+  // Row order is goal, running, scheduled, finished, and jobs append within
+  // each group. So a surface with anything live on it already opens on its
+  // newest reading at row zero, and one that is nothing but finished rows
+  // keeps that reading at the very bottom. Hooks run before the empty return.
+  const liveCount =
+    (hasGoal ? 1 : 0) +
+    jobs.filter((j) => !isTerminalJobStatus(j.status)).length;
+  useRevealRow(
+    scrollerRef,
+    liveCount > 0 ? 0 : (hasGoal ? 1 : 0) + jobs.length - 1,
+  );
   if (!hasGoal && !hasJobs) {
     return (
       <TugPopupListFrame kind="item">
@@ -1248,7 +1352,10 @@ export function JobsPopoverContent({
         </TugPopupListFooter>
       }
     >
-      <TugPopupListScroller data-slot="session-jobs-popover-body">
+      <TugPopupListScroller
+        ref={scrollerRef}
+        data-slot="session-jobs-popover-body"
+      >
         {group("Goal", goalRow, goalRow === null)}
         {group(
           "Running",
@@ -1273,63 +1380,6 @@ export function JobsPopoverContent({
 // ---------------------------------------------------------------------------
 // Arc popover
 // ---------------------------------------------------------------------------
-
-/**
- * The index of the row a reader opens this placard to find: the first one
- * whose status cell says it is under way. `-1` when nothing is.
- *
- * "First" rather than "only" because a ledger may legitimately carry two
- * `in progress` rows — a run that stopped mid-step leaves its cell written —
- * and the earliest is the one the fraction counts against. Both spellings are
- * matched because the ledger writes `in progress` and a task writes
- * `in_progress`, and this placard may show either list.
- */
-function activeRowIndex(statuses: ReadonlyArray<string>): number {
-  return statuses.findIndex((s) => s === "in progress" || s === "in_progress");
-}
-
-/**
- * Bring the active row into the scroller's view when the placard opens, and
- * again whenever a different row becomes the active one while it is open.
- *
- * A long ledger opens scrolled to the top, which is the one place the running
- * step is not: by step 14 of 15 the row the reader opened the placard for is
- * below the fold, and every row that is visible is struck through. The reveal
- * is the scroller's own `scrollTop`, never `scrollIntoView` — a placard sits
- * inside the deck's scrollports and `scrollIntoView` reasons about all of
- * them, which is the argument `focus-reveal.ts` already makes.
- *
- * A row already comfortably in view is left where it is, so a reader who has
- * scrolled the list themselves is not yanked back by an unrelated re-render.
- */
-function useRevealActiveRow(
-  scrollerRef: React.RefObject<HTMLDivElement | null>,
-  activeIndex: number,
-): void {
-  React.useLayoutEffect(() => {
-    if (activeIndex < 0) return;
-    const root = scrollerRef.current;
-    if (root === null) return;
-    const rows = root.querySelectorAll<HTMLElement>(".tug-popup-list-item");
-    const row: HTMLElement | undefined = rows[activeIndex];
-    if (row === undefined) return;
-
-    const rootRect = root.getBoundingClientRect();
-    const rowRect = row.getBoundingClientRect();
-    const margin = rowRect.height;
-    if (
-      rowRect.top >= rootRect.top + margin &&
-      rowRect.bottom <= rootRect.bottom - margin
-    ) {
-      return;
-    }
-    // Centred, so the steps on either side of the running one are readable;
-    // the browser clamps the result at both ends, which is what puts a first
-    // or last active row flush against its edge.
-    root.scrollTop +=
-      rowRect.top - rootRect.top - (root.clientHeight - rowRect.height) / 2;
-  }, [scrollerRef, activeIndex]);
-}
 
 /**
  * `ARC` popup — opened from the status row's fourth cell while the session is
@@ -1392,9 +1442,9 @@ export function ArcPopoverContent({
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   // The list below is the ledger when there is one and the task list when
   // there is not, so the row to reveal is read off whichever is rendered.
-  useRevealActiveRow(
+  useRevealRow(
     scrollerRef,
-    activeRowIndex(
+    newestRowIndex(
       steps.length > 0
         ? steps.map((s) => s.status)
         : tasks.map((t) => t.status),
