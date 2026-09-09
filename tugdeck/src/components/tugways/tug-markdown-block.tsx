@@ -65,6 +65,12 @@
  *  - [L22] streaming-binding observes the `PropertyStore` directly
  *    and writes DOM imperatively, bypassing the React render cycle
  *    for per-delta updates.
+ *    The annotation pass's portal hosts are the one thing a delta
+ *    cannot finish in DOM alone — a portal is a React render by
+ *    construction — so that render is forced into the delta's own
+ *    frame ({@link announceAnnotated}) rather than left to the
+ *    scheduler. Same law, read the same way: no React scheduling
+ *    between the store's change and what the reader sees.
  *  - [L23] streaming mode preserves user scroll position by routing
  *    every delta through the incremental reconciler ([#step-18-8]),
  *    which preserves the DOM element identity that browser scroll
@@ -80,6 +86,7 @@
 import "./tug-markdown-block.css";
 
 import React from "react";
+import { flushSync } from "react-dom";
 
 import type { PropertyStore } from "@/components/tugways/property-store";
 import { ensureParsed } from "@/lib/markdown/parse-cache";
@@ -94,6 +101,48 @@ import {
   renderIncremental,
   renderIncrementalFromBlocks,
 } from "@/lib/markdown/render-incremental";
+
+/**
+ * Hand a freshly annotated container to `onAnnotated`, and — unless React is
+ * already committing — make the portals it schedules mount in *this* frame.
+ *
+ * The portal hooks (`useAnnotationPortals`) do two things when they meet a
+ * marked run: they EMPTY the host span, and they `setState` so a portal fills
+ * it. Emptying is a DOM write and lands at once; the fill is a React render.
+ * Called from a layout effect those are one frame — React flushes an update
+ * scheduled during the commit phase before the browser paints. Called from
+ * the streaming rAF they are not: the scheduler's task cannot run until after
+ * this turn's rendering step, so the frame that empties the host is a frame
+ * the reader sees empty, and the portal arrives in the next one.
+ *
+ * That is a flicker per delta, and a streaming paragraph is dozens of deltas.
+ * It is worst on the commit pill, which is the widest of the marks and takes
+ * the sentence's width with it as it goes — `( )` collapsing and re-opening
+ * around a hole while the rest of the paragraph streams in.
+ *
+ * So the empty host is an intermediate state of one frame's work, and this is
+ * where that is enforced: the pass writes the DOM, the portals fill it, and
+ * only then is there a paint. Cheap by construction — the state lives in the
+ * leaf that owns the portals (`AssistantTextBody`), so the synchronous render
+ * is that component and its portal list, not the transcript.
+ */
+function announceAnnotated(
+  el: HTMLElement,
+  onAnnotated: ((container: HTMLElement) => void) | undefined,
+  /** True when the caller is React's own commit phase, which already
+   *  guarantees the pre-paint flush — and where `flushSync` is a no-op that
+   *  warns. */
+  duringCommit: boolean,
+): void {
+  if (onAnnotated === undefined) return;
+  if (duringCommit) {
+    onAnnotated(el);
+    return;
+  }
+  flushSync(() => {
+    onAnnotated(el);
+  });
+}
 
 const DEFAULT_STREAMING_PATH = "text";
 
@@ -275,8 +324,13 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
     // found in: wrapped and underlined in the transcript, but never replaced
     // by its `commit:<8ch>` label, because the tip portal was never told the
     // host existed.
+    //
+    // The pass and the portals it earns are one frame — see
+    // {@link announceAnnotated}. `inCommit` is true only for the G1 render
+    // below, which runs in this effect's own body.
+    let inCommit = true;
     const announce = (): void => {
-      onAnnotatedRef.current?.(el);
+      announceAnnotated(el, onAnnotatedRef.current, inCommit);
     };
 
     const reconcile = (text: string): void => {
@@ -312,6 +366,7 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
     // blocks on a remount → all stable, a no-op).
     const initial = (streamingStore.get(streamingPath) as string | undefined) ?? "";
     reconcile(initial);
+    inCommit = false;
 
     let pendingRaf: number | null = null;
     const flush = () => {
@@ -380,7 +435,10 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
         return;
       }
       annotateElement(target, annotation);
-      onAnnotatedRef.current?.(target);
+      // A verdict batch arrives on a timer, outside React — so the host this
+      // pass empties has to be filled before the paint, exactly as a delta's
+      // does.
+      announceAnnotated(target, onAnnotatedRef.current, false);
     });
   }, [annotation]);
 

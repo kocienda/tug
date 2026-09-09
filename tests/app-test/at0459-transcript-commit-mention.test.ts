@@ -222,11 +222,11 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 15_000 },
           );
 
-          // Waited for, not read: the portal refills the span it emptied on
-          // the next React commit, so the settled state is the contract and a
-          // read taken between the two catches a frame nobody sees. A run
-          // that never gets its label back times out here, which is the
-          // regression this test exists for.
+          // Waited for, not read: this test's subject is the SETTLED state,
+          // and a run that never gets its label back times out here — the
+          // regression it exists for. That the refill also lands inside the
+          // delta's own frame, so no frame is ever painted with a hole where
+          // the pill was, is at0544's subject and is asserted there.
           await app.waitForCondition<boolean>(
             `JSON.parse(${RUN_STATE_JS}).text === ${JSON.stringify(LABEL)}`,
             { timeoutMs: 15_000 },
