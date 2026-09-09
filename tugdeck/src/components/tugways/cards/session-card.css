@@ -739,8 +739,8 @@
 }
 /* The wake-trigger chip's text renders through `TugMarkdownBlock` so a
    background-agent answer formats as real markdown. It rides the quiet
-   line's `subject` slot (an `inline-flex` item), so give the block full
-   row width and cancel the primitive's stand-alone horizontal padding —
+   line's `subject` slot (an inline run), so make it a block, give it full
+   row width, and cancel the primitive's stand-alone horizontal padding —
    the quiet line's icon gutter already provides the indent. Color stays
    the muted subject tone the slot inherits. */
 .session-card-transcript-wake-trigger .tug-quiet-line-subject:has(
@@ -775,10 +775,25 @@
 .session-card-transcript-notice + .tug-markdown-block {
   margin-top: var(--tug-space-xs);
 }
+/* The notice carries the same markdown block, but WITH a label beside it —
+   and a block subject in the head's inline flow would drop to its own line
+   under the label. This one row keeps the old two-column head: the origin
+   sits at the left, the rendered markdown fills the rest. Every other quiet
+   line wants the flow, which is why this is a `:has` on the one shape that
+   does not. */
+.session-card-transcript-notice .tug-quiet-line-head:has(
+    .session-card-transcript-notice-md
+  ) {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tugx-quiet-line-gap);
+}
 .session-card-transcript-notice .tug-quiet-line-subject:has(
     > .session-card-transcript-notice-md
   ) {
   display: block;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .session-card-transcript-notice-md {
   --tugx-md-block-padding-x: 0;

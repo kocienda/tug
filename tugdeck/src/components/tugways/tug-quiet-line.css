@@ -19,12 +19,17 @@
  * tug-quiet-line.css — the shared Voice-3 event row.
  *
  * Layout: `[icon] [content column]`. The content column carries the
- * label + subject on row 1 (`head`) and the meta on a second line — a
- * right-aligned trailing value reads as unenclosed drift on a line with
- * no frame, so the meta lives inside the column instead. Every first-row
- * part rides the tool-call header's one-line box (`sm * 1.6`) so a
- * single-line row reads centered and a wrapped subject keeps the icon +
- * label pinned to row 1.
+ * label + subject as ONE inline flow on row 1 (`head`) and the meta on a
+ * second line — a right-aligned trailing value reads as unenclosed drift
+ * on a line with no frame, so the meta lives inside the column instead.
+ *
+ * The head is a text block rather than a flex pair, and that is the whole
+ * of how a long subject sets: it wraps back to the head's own left edge.
+ * A flex pair made the subject a second column, so every line after the
+ * first began at the label's far edge — on a narrow card, most of the row
+ * given up to a margin holding nothing. The head's line box is the
+ * tool-call header's (`sm * 1.6`), so a single-line row reads centered
+ * beside the icon and a wrapped subject keeps the icon on row 1.
  *
  * Tone is carried by the `--tugx-quiet-line-*` alias family ([L20]): the
  * base rules read the aliases, and each `data-tone` re-points them. Only
@@ -53,9 +58,10 @@ body {
   font-size: var(--tug-font-size-sm);
 }
 
-/* Icon + label ride the one-line box and center in it; `min-height`
-   (not `height`) keeps a single-line row centered without clipping. The
-   1px optical drop matches the tool-call header's dot + name nudge. */
+/* The icon rides the one-line box and centers in it; `min-height` (not
+   `height`) keeps a single-line row centered without clipping. The 1px
+   optical drop matches the tool-call header's dot + name nudge, and the
+   head takes the same drop so the two stay level. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .tug-quiet-line-icon {
   flex: 0 0 auto;
@@ -78,20 +84,20 @@ body {
 }
 
 .tug-quiet-line-head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--tugx-quiet-line-gap);
   min-width: 0;
+  /* One text flow, not two columns. The label and the subject are inline
+     runs in the same block, so a subject that wraps returns to the head's
+     own left edge instead of hanging under the column the label opened.
+     The line box is the tool-call header's, set once here rather than on
+     each run — and it carries the 1px optical drop the icon beside it
+     takes, which the runs used to carry one at a time. */
+  position: relative;
+  top: 1px;
+  line-height: var(--tugx-quiet-line-box);
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .tug-quiet-line-label {
-  flex: 0 0 auto;
-  min-height: var(--tugx-quiet-line-box);
-  display: inline-flex;
-  align-items: center;
-  position: relative;
-  top: 1px;
   font-weight: var(--tugx-quiet-line-label-weight);
   color: var(--tugx-quiet-line-label-color);
   white-space: nowrap;
@@ -99,16 +105,15 @@ body {
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .tug-quiet-line-subject {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: var(--tugx-quiet-line-box);
-  display: inline-flex;
-  align-items: center;
-  position: relative;
-  top: 1px;
-  line-height: var(--tugx-quiet-line-box);
   color: var(--tugx-quiet-line-subject-color);
   overflow-wrap: break-word;
+}
+
+/* The gap between the two runs, spent only when both are present — an
+   inline label with a trailing margin would widen a subject-less row's
+   box for nothing. */
+.tug-quiet-line-label + .tug-quiet-line-subject {
+  margin-left: var(--tugx-quiet-line-gap);
 }
 
 /* The second line — exit code, elapsed, token count. Sits under the
