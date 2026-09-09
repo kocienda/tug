@@ -37,11 +37,14 @@
  *     card still answers inside the band, and that what answers there is the
  *     cap, carrying the canvas-background marker so the press it takes still
  *     deselects.
- *  6. **A card that ARRIVES is revealed too.** An opener that names a slot —
- *     a file link naming the one beside the card that cited it — can name a
- *     slot the band is only half showing. The raise reveals; for a while the
- *     arrival did not, and the file the reader had just clicked landed with
- *     its near edge under the rail.
+ *  6. **A card that ARRIVES is revealed too, and in TWO MOVES.** An opener
+ *     that names a slot — a file link naming the one beside the card that
+ *     cited it — can name a slot the band is only half showing. The raise
+ *     reveals; for a while the arrival did not, and the file the reader had
+ *     just clicked landed with its near edge under the rail. The card lands
+ *     first and the deck travels to it second, as two commits: folded into
+ *     one they are one render, and a card that materializes already in view
+ *     never shows the reader that the deck moved to find it.
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
@@ -834,6 +837,12 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
 
         // Open a file from the active card. `neighborSlot` names the slot to
         // its left — the straddling one — and the arrival owes the reveal.
+        //
+        // The deck's own trace records every commit under the mutation that
+        // made it, which is how the two moves below are counted. Enabled here
+        // rather than at the top so the ring holds this gesture and nothing
+        // before it.
+        await app.evalJS<null>(`(window.__deckTrace.enable(true), null)`);
         const before = await textCardIds(app);
         await app.dispatchControlAction("open-file", { path: file });
         await app.waitForCondition<boolean>(
@@ -865,6 +874,24 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
           arrived.left,
           "and no further in than it had to come — the move is minimal",
         ).toBeLessThanOrEqual(bandAfter.left + TOL);
+
+        // TWO MOVES, NOT ONE. The card lands in its slot, and the deck then
+        // travels to it — two commits, in that order. Folded into one they
+        // would be one render, and the card would materialise already in
+        // view: the deck would have moved and the reader would not have seen
+        // it go.
+        const commits = await app.evalJS<string[]>(
+          `window.__deckTrace.dump()
+            .filter(function (e) { return e.kind === "store-notify"; })
+            .map(function (e) { return e.caller; })`,
+        );
+        const arrival = commits.lastIndexOf("addCard");
+        const slide = commits.lastIndexOf("revealCard");
+        note(`commits after the open: ${commits.join(" → ")}`);
+        expect(arrival, "the arrival is a commit of its own").toBeGreaterThanOrEqual(0);
+        expect(slide, "and the slide is a second one, after it").toBeGreaterThan(
+          arrival,
+        );
       } finally {
         await app.close();
         fs.rmSync(dir, { recursive: true, force: true });

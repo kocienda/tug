@@ -848,6 +848,35 @@ export class DeckManager implements IDeckManagerStore {
     this.notify("revealCard");
   };
 
+  /**
+   * The second of an arrival's two moves: the slide that brings a card that
+   * has just been added into the band, on the frame AFTER the one it landed
+   * on.
+   *
+   * The deferral is the whole point of the method. Two notifies inside one
+   * task are batched into one React render, and a batched arrival-plus-slide
+   * is the single move again: the card materializes already in view, and the
+   * reader — who watched the deck travel nowhere — is left to work out that it
+   * moved. Standing the reveal off by a task makes it its own commit, its own
+   * arrangement signature, and therefore its own crossing ([P10]): the card
+   * lands, and then the deck goes to it. `flashPaneBorder` stands off the same
+   * commit for the same reason.
+   *
+   * Everything conditional about it belongs to {@link revealCard}, which is
+   * the whole of the move: it commits nothing when the band already shows the
+   * card whole, and answers silence for a card closed before the frame
+   * arrived. A window-less host — a manager driven with no DOM — takes the
+   * reveal synchronously instead, since there is no render for it to be
+   * batched with and a deferred commit would never arrive at all.
+   */
+  private _revealAfterArrival(cardId: string): void {
+    if (typeof window === "undefined") {
+      this.revealCard(cardId);
+      return;
+    }
+    window.setTimeout(() => this.revealCard(cardId), 0);
+  }
+
   public deselectActiveCard = (): void => {
     if (this.deckState.activePaneId === undefined) return;
     this._flipFirstResponder(
@@ -1542,20 +1571,6 @@ export class DeckManager implements IDeckManagerStore {
           panes: [...this.deckState.panes, win],
           activePaneId: paneId,
         };
-        // A card ARRIVING owes the reader the same reveal a card raised does.
-        // An opener that names a slot — a file link naming the one beside the
-        // card that cited it — can name a slot the band is not showing, and
-        // without this the card lands half under a rail, or off the end of the
-        // strip entirely, with nothing but its flash to say where it went.
-        //
-        // Computed against the state just written, so the new pane is standing
-        // when the rail rule asks whether it is a sidebar member, and folded in
-        // before the notify so the arrival and the slide reach the settle as
-        // one arrangement change ([P10]).
-        this.deckState = {
-          ...this.deckState,
-          ...this._revealTerms(paneId, this.deckState.panes),
-        };
         this.notify("addCard");
         this.scheduleSave();
         for (const c of seededCards) {
@@ -1565,6 +1580,17 @@ export class DeckManager implements IDeckManagerStore {
       },
       "addCard",
     );
+
+    // The card has landed; now the deck goes to it. An opener that names a
+    // slot — a file link naming the one beside the card that cited it — can
+    // name a slot the band is not showing, and without a reveal the card
+    // arrives half under a rail, or off the end of the strip entirely, with
+    // nothing but its flash to say where it went.
+    //
+    // TWO MOVES, NOT ONE. Opening is one act and travelling to what was opened
+    // is another, and the deck performs them in that order rather than
+    // arriving pre-scrolled.
+    this._revealAfterArrival(firstCardId);
 
     return firstCardId;
   }
