@@ -178,15 +178,40 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-/* The fold cue's line. Centered, because the plate above it is centered and a
-   cue pushed to one edge would read as chrome hung off the card rather than as
-   the seam between the card's two halves. It is a line of its own rather than
-   a trailing affordance on the last row, so the same control is in the same
-   place whether the rows below it are drawn or not — the one thing a fold must
-   never do is move the button that unfolds it. */
-.layouts-mixer-cue {
+/* The mixer's header line, on a tool-call block header's plan: the subject
+   named at the leading edge, the fold at the trailing one, and — because a
+   fold has to say what it folds — the house eyebrow's hairline running the
+   whole way between them. The rule is what draws the lid: everything under it
+   is what the chevron puts away, and a label with nothing but air beside it
+   would have left that to be inferred.
+
+   Inset from the card's own padding rather than pinned to it. The rows below
+   stand in a centered column with air on both sides, and a header slammed into
+   both edges of the card reads as chrome bolted to the pane instead of as the
+   heading of the block it names.
+
+   It is a line of its own rather than a trailing affordance on the last row,
+   so the same control is in the same place whether the rows are drawn or not —
+   the one thing a fold must never do is move the control that unfolds it. */
+.layouts-mixer-header {
   display: flex;
-  justify-content: center;
+  align-items: center;
+  gap: var(--tug-space-md);
+  min-block-size: 20px;
+  padding-inline: var(--tug-space-md);
+}
+
+/* The eyebrow takes the whole line but the cue's width, so its trailing
+   hairline runs from the word to the chevron. Its own vertical air is dropped:
+   `.layouts-section`'s gap already stands this row off the plate, and the
+   label's stock `margin-top` would double it and drag the rule off the
+   chevron's centre. */
+.layouts-mixer-caption.tug-section-label {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  margin-top: 0;
+  padding-block: 0;
+  padding-inline: 0;
 }
 
 /* The deck-wide axes: two columns — captions and controls — sized to their

@@ -73,9 +73,12 @@
  * **The rows fold.** The card is a statement and an instrument in one box —
  * the plate on top says what the deck is doing and draws it, the rows beneath
  * are how that is changed — and once a reader has set their deck the
- * instrument is the part they are done with. So a cue between the two halves
- * puts the rows away and leaves the plate: the caption, its note, the drawing
- * and the numbered strip, which is the whole of what the card SAYS. The cue
+ * instrument is the part they are done with. So the rows stand under an
+ * eyebrow — `Options` at the leading edge, its hairline running out to the
+ * fold cue at the trailing one, which is a tool-call block's header at this
+ * card's scale — and pressing it puts them away, leaving the plate: the
+ * caption, its note, the drawing and the numbered strip, which is the whole of
+ * what the card SAYS. The rule is what says how far the fold reaches. The header
  * itself never folds, because the one thing a fold must not do is hide its own
  * way back. The state is deck-wide tugbank rather than a React cell, so it
  * survives a relaunch; and it is an appetite change too — a folded card asks
@@ -172,6 +175,7 @@ import {
 import type { DeckState } from "@/layout-tree";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { TugLabel } from "@/components/tugways/tug-label";
+import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { TugChoiceGroup } from "@/components/tugways/tug-choice-group";
 import type { TugChoiceItem } from "@/components/tugways/tug-choice-group";
 import { useResponder } from "@/components/tugways/use-responder";
@@ -326,20 +330,28 @@ const WIDTH_CAPTION_ID = "layout-card-width-caption";
  *  `set-slot-window` action it dispatched are untouched, so the size is still
  *  switchable; what is gone is a row asking the reader to choose in a card
  *  otherwise entirely about the deck. */
-/** The fold cue leads them, because it is the door they stand behind: a walk
- *  that reached the rows before the control that hides them would step through
- *  a set the reader may have just asked to be rid of. It is also the ONE stop
- *  the rows' side of the card keeps when the mixer is folded. */
-const LAYOUTS_MIXER_CUE_FOCUS_ORDER = 0;
-const LAYOUTS_KIND_FOCUS_ORDER = 1;
-const LAYOUTS_LAYOUT_FOCUS_ORDER = 2;
-const LAYOUTS_WIDTH_FOCUS_ORDER = 3;
+const LAYOUTS_KIND_FOCUS_ORDER = 0;
+const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
+const LAYOUTS_WIDTH_FOCUS_ORDER = 2;
 
 /** The first sidebar row's order; each further registered card takes the next.
  *  These rows are the registry's size, which is fixed at boot — they list every
  *  sidebar card the deck HAS, open or not, because a hidden card's row is the
  *  one door that shows it. The deck-wide rows above never move. */
-const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 4;
+const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 3;
+
+/** The fold cue's stop, PAST every row rather than ahead of them. The card
+ *  engages KBF at rest ([P10]), so whatever holds order 0 wears the cursor's
+ *  ring the whole time the card is the key card — and a lid drawn lit, from
+ *  the first frame, in a card whose subject is a picture, is the loudest thing
+ *  on the surface saying the least. The resting cursor belongs on `Cards`, the
+ *  first thing a reader comes here to change; the cue is what they reach for
+ *  after, so it is where reaching-after lands. Its order is a sort key rather
+ *  than a count, set past every row the registry can grow AND past the
+ *  picture's own stop — because folded, the rows are gone and the lowest order
+ *  still standing is what wears the ring, and the answer there has to be the
+ *  drawing rather than the lid over what is no longer drawn. */
+const LAYOUTS_MIXER_CUE_FOCUS_ORDER = 21;
 
 /** The picture's own stop. One stop for the whole drawing rather than one per
  *  mark: a stop per affordance would make Tab crawl the picture, and the marks
@@ -1527,26 +1539,40 @@ export function LayoutContent(
       ) : null}
       </div>
 
-        {/* The fold: the door to the mixer, and the only part of it that is
-            always drawn. The plate above it is the card's statement — what the
-            deck is doing, drawn — and it never folds; the rows below are the
-            instrument, and a reader who has set their deck and wants the
-            picture back can put the instrument away without closing the card.
+        {/* The mixer's header: the door to the rows, and the only part of them
+            that is always drawn. The plate above it is the card's statement —
+            what the deck is doing, drawn — and it never folds; the rows below
+            are the instrument, and a reader who has set their deck and wants
+            the picture back can put the instrument away without closing the
+            card.
+
+            It is a tool-call block's header at this card's scale: the house
+            eyebrow (`TugSectionLabel`) naming the subject at the leading edge
+            with its hairline running out from the word, and the fold at the
+            trailing edge as an icon alone, which is where every disclosure in
+            the app lives. The rule is not decoration — it is the lid, and what
+            it draws is the extent of what the chevron puts away.
 
             `stabilizeScroll` is off: the machinery it names holds a cue under
             the cursor inside a scrolling transcript, and this card is its own
-            scrollport with the cue near the top of it — there is nothing above
-            to hold in place, and the `flushSync` it costs is pure. */}
-        <div className="layouts-mixer-cue">
+            scrollport with the header near the top of it — there is nothing
+            above to hold in place, and the `flushSync` it costs is pure. */}
+        <div className="layouts-mixer-header">
+          <TugSectionLabel
+            label={{ name: "Options" }}
+            slot="layout-card-mixer-label"
+            className="layouts-mixer-caption"
+          />
           <BlockFoldCue
             collapsed={!mixerOpen}
             onToggle={toggleMixer}
-            collapsedLabel="Options"
-            expandedLabel="Hide Options"
+            collapsedLabel="Expand"
+            expandedLabel="Collapse"
             ariaLabelExpand="Show the layout options"
             ariaLabelCollapse="Hide the layout options"
             tooltip={mixerOpen ? "Hide the layout options" : "Show the layout options"}
             size="2xs"
+            subtype="icon"
             stabilizeScroll={false}
             focusGroup={LAYOUT_FOCUS_GROUP}
             focusOrder={LAYOUTS_MIXER_CUE_FOCUS_ORDER}
