@@ -1077,6 +1077,36 @@ describe("a place's stored weights set how it divides its run", () => {
     expect(divide(["cards", "jots"], { cards: 0 })).toEqual([0, 100]);
     expect(divide(["cards", "jots"], { cards: 0, jots: 0 })).toEqual([50, 50]);
   });
+
+  test("an all-zero record divides fit's slack evenly too", () => {
+    // The same reading, at the OTHER stage of the ladder. These members have
+    // finite naturals, so a tall run puts them past every one of them and the
+    // division of what is left is the slack rule's — which reads the weights
+    // only when a hand has stored some. An all-zero record is a hand's by that
+    // test and has no ratio in it, so the pool divides evenly rather than
+    // resolving to nothing at all. A record of them is reachable while nobody
+    // has dragged the members still standing: weights outlive the members they
+    // name ([L23]), so closing the one member a drag left a positive weight on
+    // leaves the zeros behind it.
+    const satisfied = (
+      ids: readonly string[],
+      shares: Readonly<Record<string, number>>,
+    ): PlaceMemberAppetite[] =>
+      ids.map((id) => ({
+        id,
+        floor: 0,
+        comfort: 0,
+        natural: 10,
+        greedRank: 5,
+        weight: railWeightOf(shares, id),
+      }));
+    const heights = allocatePlaceHeights(
+      satisfied(["cards", "jots"], { cards: 0, jots: 0 }),
+      100,
+      0,
+    ).heights;
+    expect(heights).toEqual([50, 50]);
+  });
 });
 
 describe("placeSharesFromHeights", () => {
@@ -1097,13 +1127,15 @@ describe("placeSharesFromHeights", () => {
     const shares = placeSharesFromHeights(
       floorless(["a", "b", "c"]),
       [30, 30, 30],
-      "shared",
+      "fit",
+      90,
     );
     for (const id of ["a", "b", "c"]) expect(shares[id]).toBeCloseTo(1, 9);
     const uneven = placeSharesFromHeights(
       floorless(["a", "b"]),
       [75, 25],
-      "shared",
+      "fit",
+      100,
     );
     expect(uneven.a / uneven.b).toBeCloseTo(3, 9);
     expect((uneven.a + uneven.b) / 2).toBeCloseTo(1, 9);
@@ -1122,13 +1154,13 @@ describe("placeSharesFromHeights", () => {
       greedRank: 5,
       weight: 1,
     }));
-    expect(placeSharesFromHeights(members, [200, 200], "shared")).toEqual({});
+    expect(placeSharesFromHeights(members, [200, 200], "fit", 400)).toEqual({});
   });
 
-  test("an overflowing place's weights are NOT normalized: each is its own multiple of comfort", () => {
+  test("a strip's weights are NOT normalized: each is its own multiple of natural", () => {
     // A shared weight is a claim on a pool the members compete for, so it only
     // means anything relative to its neighbours. An overflowing weight is a
-    // claim on nothing but the member's own comfort height — the strip is as
+    // claim on nothing but the member's own natural height — the strip is as
     // long as it needs to be — so scaling the set would change every height.
     const members: PlaceMemberAppetite[] = ["a", "b"].map((id) => ({
       id,
@@ -1138,15 +1170,44 @@ describe("placeSharesFromHeights", () => {
       greedRank: 5,
       weight: 1,
     }));
-    expect(placeSharesFromHeights(members, [400, 800], "overflow")).toEqual({
+    expect(placeSharesFromHeights(members, [400, 800], "flow", 400)).toEqual({
       a: 1,
       b: 2,
     });
   });
 
   test("a place of fewer than two members has no division to record", () => {
-    expect(placeSharesFromHeights(floorless(["a"]), [100], "shared")).toEqual({});
-    expect(placeSharesFromHeights([], [], "overflow")).toEqual({});
+    expect(placeSharesFromHeights(floorless(["a"]), [100], "fit", 100)).toEqual(
+      {},
+    );
+    expect(placeSharesFromHeights([], [], "flow", 100)).toEqual({});
+  });
+
+  test("fit's greedy default wears no record, and any other slack division does", () => {
+    // Past every natural the default is not the equal division but the greedy
+    // one ([B06]), so the heights it makes invert to `{}` — the record a place
+    // nobody has dragged already has, which allocates straight back to them.
+    // A hand that put the slack somewhere else stored a real division, and it
+    // overrides the default for that place ([B12]).
+    const appetites: PlaceMemberAppetite[] = [
+      { id: "a", floor: 100, comfort: 100, natural: 200, greedRank: 1, weight: 1 },
+      { id: "b", floor: 100, comfort: 100, natural: 200, greedRank: 5, weight: 1 },
+    ];
+    const place = allocatePlaceHeights(appetites, 900, 0);
+    expect(place.heights).toEqual([700, 200]);
+    expect(placeSharesFromHeights(appetites, place.heights, "fit", 900)).toEqual(
+      {},
+    );
+
+    const dragged = placeSharesFromHeights(appetites, [450, 450], "fit", 900);
+    expect(dragged).toEqual({ a: 2, b: 2 });
+    expect(
+      allocatePlaceHeights(
+        appetites.map((member) => ({ ...member, weight: dragged[member.id] })),
+        900,
+        0,
+      ).heights,
+    ).toEqual([450, 450]);
   });
 });
 
@@ -1163,16 +1224,18 @@ describe("seamDragBounds gives each regime its own room", () => {
       weight: 1,
     }));
 
-  test("overflow: both members range between their own floors", () => {
-    // An overflowing strip is as long as it needs to be, so the only thing a
-    // drag can take from a member is the room below its floor — which it may
-    // not. The span the two share is what the trade is against.
+  test("flow: the seam takes from nobody, and reaches a screen", () => {
+    // A flowing strip is as long as it needs to be, and its drag takes nothing
+    // from the member below the seam ([B08]) — so the range is the dragged
+    // member's own: its floor below, and one screen of it above, which is the
+    // run. Its neighbour's floor is not a term, because its neighbour is not
+    // giving anything up.
     const appetites = members(2, { floor: 240, comfort: 400, natural: 400 });
     const place = allocatePlaceHeights(appetites, 300, 0);
     expect(place.standing).toBe("overflow");
     expect(seamDragBounds(place, appetites, 0)).toEqual({
       lower: 240,
-      upper: 800 - 240,
+      upper: 400,
     });
   });
 
@@ -1193,9 +1256,11 @@ describe("seamDragBounds gives each regime its own room", () => {
     // Everyone has what they asked for and the run has surplus left over. The
     // floor of the trade is a member's natural rather than its comfort: nobody
     // goes back below what they said they wanted while there is surplus about.
+    // The surplus itself stands in one member — the greediest, which with
+    // equal ranks is the first ([B06]) — and the seam can trade it away.
     const appetites = members(2, { floor: 100, comfort: 200, natural: 250 });
     const place = allocatePlaceHeights(appetites, 900, 0);
-    expect(place.heights).toEqual([450, 450]);
+    expect(place.heights).toEqual([650, 250]);
     expect(seamDragBounds(place, appetites, 0)).toEqual({
       lower: 250,
       upper: 900 - 250,

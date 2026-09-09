@@ -126,18 +126,23 @@ const ROW_KIND_ATTR = "data-jot-id";
 // ---- Vertical appetite ([B02]) ----
 
 /**
- * One jot row's height — `--tugx-jots-empty-block-size` in `jots-card.css`,
- * which the empty label carries because it "stands in for the list's first row,
- * at that row's height".
+ * One jot row's height.
+ *
+ * From `.tug-list-view.jots-list` in `jots-card.css`, which states the row
+ * metric on the list itself: `--tugx-list-row-padding-block: 2px` over a
+ * one-line row that bottoms out on its 24px close box — the same number the
+ * Cards list carries on `.cards-list .cards-oneline`, "so a jot row and a
+ * Cards row read as one measure".
  */
 const JOTS_ROW_HEIGHT_PX = 28;
 
 /**
  * Everything above the first row: the pane's title bar, plus `.jots-toolbar` —
- * a `--tugx-toolheader-line` filter field (`--tug-font-size-sm` × 1.6 ≈ 21px)
- * inside `--tug-space-sm` (6px) of block padding.
+ * a 28px filter field inside that rule's own `padding: var(--tug-space-sm)
+ * var(--tug-space-md)`, which is 6px of block padding each side.
  */
-const JOTS_HEADER_PX = CARD_TITLE_BAR_HEIGHT + 33;
+const JOTS_TOOLBAR_PX = 40;
+const JOTS_HEADER_PX = CARD_TITLE_BAR_HEIGHT + JOTS_TOOLBAR_PX;
 
 /** Three rows read as a list; fewer reads as a strip with something cut off. */
 const JOTS_COMFORT_ROWS = 3;

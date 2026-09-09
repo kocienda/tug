@@ -36,8 +36,11 @@ import {
   IMPOSITION_GAP_PX,
   RAIL_SEAM_PX,
   clampSlot,
+  columnLayoutOf,
+  DEFAULT_PLACE_LAYOUT,
   railWeightOf,
   slotCount,
+  type PlaceLayout,
   type PlaceMemberAppetite,
   type RailMode,
   type SidebarSide,
@@ -153,6 +156,11 @@ export interface DropZoneRail {
    *  pure module cannot see the registry that maps one to the other. Absent
    *  members weigh 1 (`railWeightOf`'s rule). */
   shares?: Readonly<Record<string, number>>;
+  /** Whether the side fits or flows its run; absent reads as fit. A tile is
+   *  the allocator's answer, and the allocator answers a flowing place
+   *  differently — so a place drawn one way and dropped into another would be
+   *  a promise the commit could not keep ([P06]). */
+  layout?: PlaceLayout;
 }
 
 /**
@@ -403,6 +411,7 @@ function seatedPlace(
   draggedAtStart: Rect,
   run: number,
   seam: number,
+  layout: PlaceLayout,
 ): { run: { top: number; height: number }; x: number; width: number } {
   const seatedIndex = order.findIndex((id) => id !== draggedId);
   const index = seatedIndex === -1 ? 0 : seatedIndex;
@@ -415,6 +424,7 @@ function seatedPlace(
     placeAppetites(order, appetites, shares),
     run,
     seam,
+    layout,
   ).tops[index];
   return {
     run: { top: seated.y - advance, height: run },
@@ -436,7 +446,12 @@ function seatedPlace(
  *
  * A member the measurement never saw contributes no appetite: floors of zero,
  * and a greed rank of `NaN`, which the allocator sanitizes to the default rank
- * rather than reaching for a registry this module cannot see.
+ * rather than reaching for a registry this module cannot see. Its natural is
+ * ENDLESS rather than zero: a member nobody has measured has not declared a
+ * height it is satisfied at, and saying it is satisfied at zero would hand its
+ * whole share to whichever member fit's slack rule ranks greediest ([B06]).
+ * Endless keeps it in the ladder's discretionary stage, dividing by weight,
+ * which is the tile a drop into an unmeasured place can honestly promise.
  */
 function placeAppetites(
   order: readonly string[],
@@ -447,7 +462,14 @@ function placeAppetites(
     const measured = appetites.get(id);
     const weight = railWeightOf(shares, id);
     return measured === undefined
-      ? { id, floor: 0, comfort: 0, natural: 0, greedRank: Number.NaN, weight }
+      ? {
+          id,
+          floor: 0,
+          comfort: 0,
+          natural: Infinity,
+          greedRank: Number.NaN,
+          weight,
+        }
       : { ...measured, weight };
   });
 }
@@ -475,6 +497,7 @@ function placeTiles(
   x: number,
   width: number,
   seam: number,
+  layout: PlaceLayout,
 ): Rect[] {
   const count = others.length + 1;
   return Array.from({ length: count }, (_, i) => {
@@ -483,6 +506,7 @@ function placeTiles(
       placeAppetites(order, appetites, shares),
       run.height,
       seam,
+      layout,
     );
     return {
       x,
@@ -548,6 +572,7 @@ function columnPlaces(
   draggedPaneId: string,
   draggedAtStart: Rect,
   columnRun: number | null,
+  layout: PlaceLayout,
 ): { tile: Rect; hit: Rect }[] {
   if (rects.length === 0 || columnRun === null) return [];
   const seam = IMPOSITION_GAP_PX;
@@ -560,6 +585,7 @@ function columnPlaces(
     draggedAtStart,
     columnRun,
     seam,
+    layout,
   );
   const others = order.filter((id) => id !== draggedPaneId);
   const tiles = placeTiles(
@@ -571,6 +597,7 @@ function columnPlaces(
     x,
     width,
     seam,
+    layout,
   );
   const hits = tileHitBands(
     tiles,
@@ -641,6 +668,7 @@ function railZonesOf(
   // seam is the rail's own — `RAIL_SEAM_PX`, the value the imposer divides a
   // rail with — so the tiles pin at the seams the commit will actually write.
   const seam = RAIL_SEAM_PX;
+  const layout = rail.layout ?? DEFAULT_PLACE_LAYOUT;
   const { run, x, width } = seatedPlace(
     rail.members,
     members,
@@ -650,6 +678,7 @@ function railZonesOf(
     measured.draggedAtStart,
     railRun,
     seam,
+    layout,
   );
   // The post-drop rail: the sitters other than the dragged card, plus the
   // dragged card itself — N for its own rail, N + 1 for the other one.
@@ -662,6 +691,7 @@ function railZonesOf(
     x,
     width,
     seam,
+    layout,
   );
   const hits = tileHitBands(
     tiles,
@@ -781,6 +811,7 @@ export function enumerateDropZones(
         draggedPaneId,
         measured.draggedAtStart,
         measured.runs.column,
+        columnLayoutOf(state.imposition, slot),
       );
       // The card's own column keeps its member count; a foreign one grows by
       // the arriving card, so it advertises one more position than it has
@@ -820,6 +851,7 @@ export function enumerateDropZones(
           draggedPaneId,
           measured.draggedAtStart,
           measured.runs.column,
+          columnLayoutOf(state.imposition, slot),
         );
         for (const [index, place] of places.entries()) {
           zones.push({

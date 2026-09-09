@@ -8,14 +8,20 @@
  * sweep. A failure names the invariant it broke and prints the rows that broke
  * it, so the message says what is untrue rather than which example moved.
  *
+ * It sweeps a LAYOUT axis ([B12]): every row is allocated once as a fit place
+ * and once as a flow one, and the invariants say which of the two they are
+ * about. Fit fills its run exactly; flow stands every member at its own
+ * `natural · weight`; and the round trip through `placeSharesFromHeights` is
+ * the identity under both.
+ *
  * It was written RED, against a stub that answered as the deck answered before
  * the allocator existed — the standing from the member count, an overflowing
  * member at a fixed fraction of the run — so that the invariants the two proxy
  * rules contradicted were the specification the allocator was then written
  * against. Both are retired now and the census is green over all of them:
  *
- *  - **(b)** a place's standing is decided by its floors against its run, not
- *    by counting its members;
+ *  - **(b)** a place's standing follows its layout, with fit's floors against
+ *    its run as the one exception — never a count of its members;
  *  - **(c)** a sharing place's strip IS its run;
  *  - **(g)** the allocator and `placeSharesFromHeights` are inverses, which is
  *    what makes a committed seam drag land where the user let go of it;
@@ -36,6 +42,7 @@ import {
   railWeightOf,
   seamDragBounds,
   type PlaceAllocation,
+  type PlaceLayout,
   type PlaceMemberAppetite,
   type PlaceStanding,
 } from "../layout-imposer";
@@ -71,14 +78,16 @@ const RUNS: readonly number[] = Array.from(
 );
 const SEAMS: readonly number[] = [RAIL_SEAM_PX, IMPOSITION_GAP_PX];
 const COUNTS: readonly number[] = [1, 2, 3, 4, 5];
+const LAYOUTS: readonly PlaceLayout[] = ["fit", "flow"];
 
 interface Row {
   label: string;
   members: PlaceMemberAppetite[];
   run: number;
   seam: number;
+  layout: PlaceLayout;
   allocation: PlaceAllocation;
-  /** The standing the floors call for — what (b) asserts, and what the other
+  /** The standing the layout calls for — what (b) asserts, and what the other
    *  invariants are keyed on, so the census states the settled rule rather
    *  than whatever the allocator happens to answer today. */
   expected: PlaceStanding;
@@ -100,14 +109,18 @@ function membersFor(count: number, weights: readonly number[]) {
   return members;
 }
 
-/** `Σ floor + (n − 1) · seam ≤ run` is the whole of the standing rule; one
- *  member has nothing to divide and always shares. */
-function standingFromFloors(
+/** A flowing place is a strip by choice, and a fitting one whose floors do not
+ *  fit its run is a strip by arithmetic ([B07]) — that exception is the whole
+ *  of what fit's `Σ floor + (n − 1) · seam ≤ run` decides. One member has
+ *  nothing to divide and always shares. */
+function standingFromLayout(
   members: readonly PlaceMemberAppetite[],
   run: number,
   seam: number,
+  layout: PlaceLayout,
 ): PlaceStanding {
   if (members.length < 2) return "shared";
+  if (layout === "flow") return "overflow";
   const required =
     members.reduce((sum, member) => sum + member.floor, 0) +
     (members.length - 1) * seam;
@@ -119,18 +132,21 @@ for (const run of RUNS) {
   for (const seam of SEAMS) {
     for (const count of COUNTS) {
       for (const set of WEIGHT_SETS) {
-        const members = membersFor(count, set.weights);
-        const expected = standingFromFloors(members, run, seam);
-        ROWS.push({
-          label: `${expected} run=${run} seam=${seam} n=${count} weights=${set.name} mixes=${members
-            .map((_, i) => MIXES[i % MIXES.length].name)
-            .join("/")}`,
-          members,
-          run,
-          seam,
-          allocation: allocatePlaceHeights(members, run, seam),
-          expected,
-        });
+        for (const layout of LAYOUTS) {
+          const members = membersFor(count, set.weights);
+          const expected = standingFromLayout(members, run, seam, layout);
+          ROWS.push({
+            label: `${expected} ${layout} run=${run} seam=${seam} n=${count} weights=${set.name} mixes=${members
+              .map((_, i) => MIXES[i % MIXES.length].name)
+              .join("/")}`,
+            members,
+            run,
+            seam,
+            layout,
+            allocation: allocatePlaceHeights(members, run, seam, layout),
+            expected,
+          });
+        }
       }
     }
   }
@@ -171,6 +187,23 @@ function heightsMatch(
 }
 
 describe("the vertical census", () => {
+  test("(0) the sweep reaches both layouts and both standings", () => {
+    // A census whose invariants are all scoped by layout is only as strong as
+    // the rows it actually holds: every one of the four cells below is a claim
+    // some later test in this file makes, and an empty cell would let that
+    // test pass by having nothing to check.
+    const cell = (layout: PlaceLayout, standing: PlaceStanding): number =>
+      DIVIDED.filter(
+        (row) => row.layout === layout && row.expected === standing,
+      ).length;
+    expect(cell("fit", "shared")).toBeGreaterThan(0);
+    expect(cell("fit", "overflow")).toBeGreaterThan(0);
+    expect(cell("flow", "overflow")).toBeGreaterThan(0);
+    // Flow is a strip whatever its run: there is no such thing as a sharing
+    // flow place, and that absence is the layout axis's own claim ([B04]).
+    expect(cell("flow", "shared")).toBe(0);
+  });
+
   test("(a) no member is ever shorter than its floor", () => {
     const failures: string[] = [];
     for (const row of DIVIDED) {
@@ -186,12 +219,17 @@ describe("the vertical census", () => {
     expect(reportOf(failures)).toEqual([]);
   });
 
-  test("(b) the standing is decided by the floors against the run", () => {
+  test("(b) the standing follows the layout, and fit's floors are its one exception", () => {
     const failures: string[] = [];
     for (const row of DIVIDED) {
       if (row.allocation.standing !== row.expected) {
         failures.push(
-          `${row.label}: stood ${row.allocation.standing}, floors call for ${row.expected}`,
+          `${row.label}: stood ${row.allocation.standing}, ${row.layout} calls for ${row.expected}`,
+        );
+      }
+      if (row.allocation.layout !== row.layout) {
+        failures.push(
+          `${row.label}: allocation carries layout ${row.allocation.layout}`,
         );
       }
     }
@@ -221,9 +259,14 @@ describe("the vertical census", () => {
     expect(reportOf(failures)).toEqual([]);
   });
 
-  test("(d) an overflowing place's strip is longer than its run", () => {
+  test("(d) a fitting place that could not fit its floors overflows its run", () => {
     const failures: string[] = [];
     for (const row of DIVIDED) {
+      // Fit's rows only. A flowing place's strip is as long as its members
+      // make it and no longer: three short cards on a tall display leave
+      // honest vacancy at the foot rather than stretching to fill it ([B08]),
+      // so "longer than the run" is a claim about fit's fallback alone.
+      if (row.layout !== "fit") continue;
       if (row.expected !== "overflow") continue;
       if (row.allocation.stripLength <= row.run) {
         failures.push(
@@ -283,6 +326,29 @@ describe("the vertical census", () => {
     expect(reportOf(failures)).toEqual([]);
   });
 
+  test("(i) a flowing member stands at its own natural times its weight", () => {
+    // Flow's whole promise ([B08]), swept: nothing about the run enters a
+    // member's height except for a stream, whose natural is endless and which
+    // therefore reads the run as one screen of itself. The floor still binds.
+    const failures: string[] = [];
+    for (const row of DIVIDED) {
+      if (row.layout !== "flow") continue;
+      for (let i = 0; i < row.members.length; i += 1) {
+        const member = row.members[i];
+        const natural = Number.isFinite(member.natural)
+          ? member.natural
+          : row.run;
+        const wanted = Math.max(member.floor, natural * member.weight);
+        if (Math.abs(row.allocation.heights[i] - wanted) > EPSILON) {
+          failures.push(
+            `${row.label}: member ${i} got ${row.allocation.heights[i].toFixed(2)} rather than max(floor ${member.floor}, natural ${natural} × weight ${member.weight}) = ${wanted.toFixed(2)}`,
+          );
+        }
+      }
+    }
+    expect(reportOf(failures)).toEqual([]);
+  });
+
   test("(g) the allocator and placeSharesFromHeights are inverses", () => {
     const failures: string[] = [];
     for (const row of DIVIDED) {
@@ -290,12 +356,15 @@ describe("the vertical census", () => {
       const shares = placeSharesFromHeights(
         row.members,
         heights,
-        row.allocation.standing,
+        row.layout,
+        row.run,
+        row.seam,
       );
       const again = allocatePlaceHeights(
         withWeights(row.members, shares),
         row.run,
         row.seam,
+        row.layout,
       );
       if (!heightsMatch(again.heights, heights)) {
         failures.push(
@@ -327,16 +396,26 @@ describe("the vertical census", () => {
         for (const probe of [lower, (lower + upper) / 2, upper]) {
           const probed = heights.slice();
           probed[index] = probe;
-          probed[index + 1] = span - probe;
+          // What the drag actually reaches, which is not the same gesture in
+          // both standings: a shared place trades the span between the two
+          // members either side of the seam, and a flowing one resizes the
+          // member above it and lengthens the strip, leaving its neighbour at
+          // the height it declared ([B08]).
+          if (row.allocation.standing === "shared") {
+            probed[index + 1] = span - probe;
+          }
           const shares = placeSharesFromHeights(
             row.members,
             probed,
-            row.allocation.standing,
+            row.layout,
+            row.run,
+            row.seam,
           );
           const again = allocatePlaceHeights(
             withWeights(row.members, shares),
             row.run,
             row.seam,
+            row.layout,
           );
           if (!heightsMatch(again.heights, probed)) {
             failures.push(
@@ -366,9 +445,12 @@ function appetite(
 }
 
 describe("the ladder fills a shared run stage by stage", () => {
-  test("floors first, and the remainder by weight when nothing wants more", () => {
+  test("floors first, and the slack whole to the greediest when nothing wants more", () => {
     // Three cards declaring only a floor: the ladder's middle two stages have
-    // nothing to do, and stage 4 divides what is left equally.
+    // nothing to do, and stage 4 hands the whole remainder to one of them.
+    // Every rank is 5, so position breaks the tie and the first card takes it;
+    // the other two stand at exactly the natural they declared, which is what
+    // puts both seams on a content boundary ([B06]).
     const { heights, standing } = allocatePlaceHeights(
       [
         appetite("a", 240, 240, 240, 5),
@@ -379,7 +461,43 @@ describe("the ladder fills a shared run stage by stage", () => {
       0,
     );
     expect(standing).toBe("shared");
-    for (const height of heights) expect(height).toBeCloseTo(2000 / 3, 6);
+    expect(heights[0]).toBeCloseTo(2000 - 480, 6);
+    expect(heights[1]).toBeCloseTo(240, 6);
+    expect(heights[2]).toBeCloseTo(240, 6);
+  });
+
+  test("the greed rank decides which card holds the slack, not the order", () => {
+    // The same run, and the only thing that moved is a rank: the greediest
+    // card takes the whole of it wherever it stands in the place.
+    const { heights } = allocatePlaceHeights(
+      [
+        appetite("a", 240, 240, 240, 5),
+        appetite("b", 240, 240, 240, 2),
+        appetite("c", 240, 240, 240, 5),
+      ],
+      2000,
+      0,
+    );
+    expect(heights[0]).toBeCloseTo(240, 6);
+    expect(heights[1]).toBeCloseTo(2000 - 480, 6);
+    expect(heights[2]).toBeCloseTo(240, 6);
+  });
+
+  test("weights that are not the absent record are a drag, and they divide the slack", () => {
+    // All-ones is what a place nobody has dragged reads as, and it takes the
+    // greedy default above. Anything else is a hand's own division of the
+    // slack and overrides it ([B12]) — here, three quarters to the card that
+    // is not the greediest.
+    const { heights } = allocatePlaceHeights(
+      [
+        appetite("a", 240, 240, 240, 2, 0.25),
+        appetite("b", 240, 240, 240, 5, 0.75),
+      ],
+      1000,
+      0,
+    );
+    expect(heights[0]).toBeCloseTo(240 + 130, 6);
+    expect(heights[1]).toBeCloseTo(240 + 390, 6);
   });
 
   test("a member at its natural height takes no more, and the rest split the surplus", () => {

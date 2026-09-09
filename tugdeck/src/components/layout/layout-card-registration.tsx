@@ -50,9 +50,10 @@ export function registerLayoutCard(): void {
     acceptsFamilies: [],
     contentFactory: (cardId: string) => <LayoutContent cardId={cardId} />,
     defaultMeta: { title: "Layout", icon: "Columns3", closable: true },
-    // Rows elide where prose cannot, so this gives width back before a reading
-    // surface does — the rank the rail held.
-    greedRank: 2,
+    // Last of the six, rank 6: the only card whose content is fixed. Its
+    // drawing and its control rows are the same size tomorrow, so space handed
+    // to it is space nothing will ever grow into.
+    greedRank: 6,
     hidden: true,
     // Every row here is an engine focus stop and the arrows are how the card
     // is read, so it engages KBF mode the moment it is the key card ([P10]).

@@ -235,7 +235,8 @@ describe("the division math is shared, not forked {#member-keys}", () => {
     const recovered = placeSharesFromHeights(
       paneMembers(order, shares),
       heights,
-      "shared",
+      "fit",
+      400,
     );
     // Scaled to average 1 per member, so the ratios are what round-trips.
     expect(recovered["pane-a"] / recovered["pane-b"]).toBeCloseTo(2, 10);
@@ -265,11 +266,12 @@ describe("the division math is shared, not forked {#member-keys}", () => {
     const after = placeSharesFromHeights(
       paneMembers(order, shares),
       dragged,
-      "shared",
+      "fit",
+      600,
     );
     expect(after["pane-c"] / after["pane-d"]).toBeCloseTo(3, 10);
     expect(after["pane-a"]).toBeLessThan(
-      placeSharesFromHeights(paneMembers(order, shares), before, "shared")[
+      placeSharesFromHeights(paneMembers(order, shares), before, "fit", 600)[
         "pane-a"
       ],
     );

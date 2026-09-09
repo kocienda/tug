@@ -43,6 +43,7 @@ import {
   isImpositionKind,
   isImpositionLayout,
   isColumnMode,
+  isPlaceLayout,
   isRailMode,
   isSidebarSide,
 } from "@/lib/layout-imposer";
@@ -789,6 +790,20 @@ export function initActionDispatch(
     deckManager.setRailMode(side, mode);
   });
 
+  // set-rail-layout: whether a split rail divides its run or lets its members
+  // stand at their own heights down a strip that scrolls. A side fits or flows
+  // as a whole — all of its visible members are resolved by one rule — which is
+  // why the payload names a side, exactly as set-rail-mode does.
+  registerAction(TUG_ACTIONS.SET_RAIL_LAYOUT, (payload) => {
+    const side = payload.side;
+    const layout = payload.layout;
+    if (!isSidebarSide(side) || !isPlaceLayout(layout)) {
+      console.warn("set-rail-layout: missing or invalid side/layout", payload);
+      return;
+    }
+    deckManager.setRailLayout(side, layout);
+  });
+
   // equalize-rail: divide a split rail's run equally again. Dispatched by the
   // stack badge menu and by a double-click on the seam. The side's mode and
   // member order survive — only the heights a seam drag set are discarded.
@@ -818,6 +833,22 @@ export function initActionDispatch(
       return;
     }
     deckManager.setColumnMode(slot, mode);
+  });
+
+  // set-column-layout: the content-side twin of set-rail-layout, over one
+  // numbered slot.
+  registerAction(TUG_ACTIONS.SET_COLUMN_LAYOUT, (payload) => {
+    const slot = payload.slot;
+    const layout = payload.layout;
+    if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0) {
+      console.warn("set-column-layout: missing or invalid slot", payload);
+      return;
+    }
+    if (!isPlaceLayout(layout)) {
+      console.warn("set-column-layout: missing or invalid layout", payload);
+      return;
+    }
+    deckManager.setColumnLayout(slot, layout);
   });
 
   // equalize-column: divide a split column's run equally again. Dispatched by

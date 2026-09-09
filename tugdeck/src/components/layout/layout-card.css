@@ -20,6 +20,14 @@
      `MIN_LAYOUT_WIDTH_PX` floor (320) inside this card's own padding. */
   --tugx-layouts-plan-mini-width: 300px;
 
+  /* And what that width comes to in HEIGHT, which is the other number anything
+     sizing itself against the drawing needs: `.layout-mini`'s
+     `aspect-ratio: 16 / 10`, so 300px of width is 187.5px of drawing. It is
+     written here rather than only in the aspect rule because the card's own
+     vertical appetite is a sum of its boxes and the drawing is the largest of
+     them — `layout-card.tsx` states the arithmetic and reads these two knobs,
+     so tuning the width above moves what the card asks its rail for. */
+
   font-family: var(--tug-font-family-sans);
   color: var(--tug7-element-global-text-normal-default-rest);
   /* The card owns its pane's height, so it owns the overflow too: the whole

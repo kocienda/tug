@@ -39,6 +39,7 @@ import {
   isImpositionLayout,
   isRailMode,
   isColumnMode,
+  isPlaceLayout,
   isSidebarSide,
   DEFAULT_IMPOSITION_KIND,
   DEFAULT_CONTENT_WIDTH,
@@ -329,6 +330,14 @@ function parseRails(
       arrangement.mode = mode;
     }
 
+    // Additive-optional, and read on its own terms rather than the mode's: an
+    // unreadable layout is DROPPED and the side comes back fit, because fit is
+    // what every rail written before the choice existed was. A mode this build
+    // cannot read makes the order and heights meaningless; a layout it cannot
+    // read does not — the arrangement still stands, it just stands fitting.
+    const layout = entry["layout"];
+    if (isPlaceLayout(layout)) arrangement.layout = layout;
+
     const order = entry["order"];
     if (Array.isArray(order)) {
       const ids = order
@@ -395,6 +404,11 @@ function parseColumns(
       if (!isColumnMode(mode)) continue;
       arrangement.mode = mode;
     }
+
+    // Read exactly as the rail's is, and dropped rather than defaulted for the
+    // same reason.
+    const layout = entry["layout"];
+    if (isPlaceLayout(layout)) arrangement.layout = layout;
 
     const order = entry["order"];
     if (Array.isArray(order)) {

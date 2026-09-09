@@ -25,18 +25,41 @@
  *      whichever branch its own run puts the fixture in — and `note()` says
  *      which one that was.
  *   4. **A sash stands between every pair of members, in both standings, and
- *      the drag is zero-sum.** On the overflowing rail a real pointer drags one
- *      sash down a hundred pixels: the two members either side of it change by
- *      `+100` and `−100`, every other frame holds, and the strip keeps its
- *      length — so no member the hand did not touch is resized by one it did.
- *      The rail's offset does not move either: a drag divides, it does not
- *      scroll.
- *   5. **What a card declares is what the rail divides by.** The Jots card's
- *      list grows past the share it was standing at, and the Layout card —
- *      which asks for one size and means it — hands the room back and stands
- *      at exactly its natural, while the Cards card — which asks for less than
- *      its floor — stands at that floor. `DeckState.appetites` carries the
- *      declarations, which is the settle having run.
+ *      a flowing drag takes from nobody.** On the overflowing rail a real
+ *      pointer drags one sash down a hundred pixels: the member above it grows
+ *      by `+100`, every other frame holds at the height it declared, and the
+ *      strip lengthens by exactly that ([B08]) — flow divides nothing, so
+ *      there is nothing for a drag to trade. The rail's offset does not move:
+ *      a drag resizes, it does not scroll.
+ *   5. **What a card declares is what the rail divides by.** Each declaration
+ *      is read against the content it claims to measure: the Jots card's
+ *      natural is its list a row at a time, and the two decks differ by exactly
+ *      the five jots between them; the Layout card's is its plate plus a pitch
+ *      for every control row it actually drew. No member is pushed past what it
+ *      asked for, and the Cards card — which asks for less than its floor —
+ *      stands at that floor. `DeckState.appetites` carries the declarations,
+ *      which is the settle having run.
+ *   6. **And what a card declares is TRUE of the card.** Parts 1–5 all ask
+ *      whether the allocator honours the declarations; this one asks whether
+ *      the declarations are honest. Standing at exactly its natural height,
+ *      each card's scroll container has nothing left to scroll —
+ *      `scrollHeight ≤ clientHeight + 1`, which is what a natural height MEANS
+ *      and what nothing has ever checked. Nothing is arranged to stand them
+ *      there: a flowing member's height is `max(floor, natural · weight)`, so
+ *      an undragged rail already stands each card at what it asked for.
+ *   7. **Run left over past every natural goes whole to the greediest card.**
+ *      Two cards whose declarations both fit in the run leave slack, and the
+ *      slack is not smeared across them: the one the registry ranks less
+ *      greedy stands at exactly the height it asked for, so the seam between
+ *      them sits on a content boundary, and the single stretch of empty space
+ *      is at the foot of the greedier one. The greedier card is SECOND in the
+ *      rail, so a pass is about the rank rather than about position.
+ *   8. **The layout is the user's, on the doors a place already has.** The
+ *      stack badge's menu offers Fit and Flow as a checked pair; choosing Flow
+ *      puts the rail on a strip whatever its run, with every member at its own
+ *      `natural · weight`; and a double-click on the seam clears the weights,
+ *      which under flow means every member standing at exactly the height its
+ *      content asked for.
  *
  * The standing is read off the CANVAS rather than out of the store: a shared
  * rail publishes seam fractions and an overflowing one publishes strip
@@ -53,10 +76,22 @@
  * Deliberately declaring the allocator and the selectors alone. The canvas
  * (`deck-canvas.tsx`) and the pane (`tug-pane.tsx`) are both at the selection
  * budget's fan-out ceiling — at0456 and at0537 decline to name them for the
- * same reason — and the rule under test here is the allocation's.
+ * same reason — and the rule under test here is the allocation's. Part 8
+ * presses the pane's badge menu and so runs its code, and still does not
+ * declare it: naming it puts `tug-pane.tsx` at 21 tests and turns
+ * `app-test-changed` into a sweep, which the budget check refuses. What part 8
+ * is about is the layout the press SETS, which is the allocator's and the
+ * selectors' — at0347 and at0359 are the badge menu's own tests.
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/deck-store-selectors.ts
+ * @covers tugdeck/src/lib/card-appetite-store.ts
+ * @covers tugdeck/src/components/layout/layout-card.tsx
+ * @covers tugdeck/src/components/cards/cards-card.tsx
+ * @covers tugdeck/src/components/jots/jots-card.tsx
+ * @covers tugdeck/src/components/arcs/arcs-card.tsx
+ * @covers tugdeck/src/components/tripwires/tripwires-card.tsx
+ * @covers tugdeck/src/components/overview/overview-card.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -96,29 +131,46 @@ const RAIL_GAP_BOTTOM = RAIL_EDGE_INSET_PX;
 // ---- What the cards declare (part 5) ----
 
 /**
- * `LAYOUT_NATURAL_HEIGHT_PX` in `layout-card.tsx`. The Layout card's content is
- * a picture of the deck, and a picture is one size: this is both what it asks
- * for and the height past which it wants nothing more.
+ * `LAYOUT_ROW_PITCH_PX` in `layout-card.tsx` — one control row's 28px control
+ * against `.layouts-section-rows`'s `row-gap: 6px`. The Layout card's natural
+ * is its plate plus one of these for every row it draws, which is what part 5
+ * checks against the rows on screen.
  */
-const LAYOUT_NATURAL = 300;
+const LAYOUT_ROW_PITCH = 34;
 
 /** `JOTS_HEADER_PX` and `JOTS_ROW_HEIGHT_PX` in `jots-card.tsx` — the Jots
- *  card's natural height is its whole list, a row at a time. */
-const JOTS_HEADER = 69;
+ *  card's natural height is its whole list, a row at a time, under the pane's
+ *  title bar and the card's own toolbar. */
+const JOTS_HEADER = 76;
 const JOTS_ROW = 28;
 
 /**
  * How many jots the fixture opens with, and how many it then adds.
  *
- * Chosen so the pair straddles the one interesting boundary. At 15 the run has
- * more room than every member's natural asks for, so the leftover is shared out
- * and Layout stands ABOVE its natural. At 20, Jots's own natural has grown past
- * its share, the leftover is gone, and every capped member falls back to
- * exactly what it asked for. Two decks, two divisions, and the rule is legible
- * in the difference.
+ * Five rows apart, which is the whole point of the pair: the Jots card's
+ * declaration has to grow by exactly five row heights and by nothing else, and
+ * two decks are what makes that a reading rather than an arithmetic identity.
+ *
+ * The pair used to straddle a boundary in the ALLOCATION — at 15 the run had
+ * more room than every natural asked for and Layout stood above its own, at 20
+ * it did not. No run this harness opens straddles that boundary any more: the
+ * Layout card's natural counts its control rows now, so three members' naturals
+ * exceed the run at either count and neither deck reaches the surplus stage.
  */
 const JOTS_FEW = 15;
 const JOTS_MANY = 20;
+
+/**
+ * How many extra maker cards part 6's fixture stands in its floating pane.
+ *
+ * The Cards card's natural is the deck's own cards, a row apiece under a group
+ * header, and the ordinary fixture holds one — which asks for less than the
+ * 240px floor, so the card would be measured with more room than it asked for
+ * and the reading would be of the floor rather than of the declaration. Ten
+ * puts its natural clear of the floor, which is what makes part 6 a reading of
+ * what the Cards card actually says.
+ */
+const EXTRA_MAKER_CARDS = 10;
 
 /** One deck's reading, for the pair part 5 compares. */
 interface Reading {
@@ -126,6 +178,9 @@ interface Reading {
   run: { top: number; bottom: number; height: number };
   settled: Record<string, { comfort: number; natural: number }> | null;
   standing: string;
+  /** How many control rows the Layout card drew — the count its own natural
+   *  height is a function of. */
+  layoutRows: number;
 }
 
 const wait = (ms: number): Promise<void> =>
@@ -156,6 +211,7 @@ interface Rect {
 function deckShape(
   components: readonly string[],
   shares?: Readonly<Record<string, number>>,
+  extraMakerCards = 0,
 ): Record<string, unknown> {
   const rail = (componentId: string) => ({
     id: paneOf(componentId),
@@ -166,9 +222,18 @@ function deckShape(
     title: componentId,
     acceptsFamilies: [],
   });
+  const makerCardIds = [
+    "A",
+    ...Array.from({ length: extraMakerCards }, (_, i) => `A${i + 2}`),
+  ];
   return {
     cards: [
-      { id: "A", componentId: "gallery-accordion", title: "Card A", closable: true },
+      ...makerCardIds.map((id) => ({
+        id,
+        componentId: "gallery-accordion",
+        title: `Card ${id}`,
+        closable: true,
+      })),
       ...components.map((componentId) => ({
         id: componentId.toUpperCase(),
         componentId,
@@ -181,7 +246,7 @@ function deckShape(
         id: "p1",
         position: { x: 40, y: 40 },
         size: { width: 400, height: 400 },
-        cardIds: ["A"],
+        cardIds: makerCardIds,
         activeCardId: "A",
         title: "",
         acceptsFamilies: ["maker"],
@@ -299,9 +364,10 @@ async function seed(
   app: App,
   components: readonly string[],
   shares?: Readonly<Record<string, number>>,
+  extraMakerCards = 0,
 ): Promise<void> {
   await app.seedDeckState({
-    state: deckShape(components, shares),
+    state: deckShape(components, shares, extraMakerCards),
     focusCardId: "A",
   });
   await app.waitForCondition<boolean>(
@@ -309,6 +375,87 @@ async function seed(
     { timeoutMs: 8_000 },
   );
   await wait(AFTER_LAND_MS);
+}
+
+/**
+ * What every card in the deck declared, as `DeckState.appetites` holds it —
+ * `natural: null` where the card declares none.
+ *
+ * `Infinity` is what a stream publishes and no JSON value can carry it, so the
+ * read below projects it to `null` rather than letting the RPC refuse the whole
+ * object. Part 5 never met this because its three cards all declare a finite
+ * natural.
+ */
+type Declarations = Record<string, { comfort: number; natural: number | null }>;
+
+/** The settled mirror of what the cards declared, read off the deck's own
+ *  diagnostic surface — the publish → quiet period → deck state path having
+ *  run, which is the one claim about the settle that does not depend on
+ *  catching it in the act. */
+async function readAppetites(app: App): Promise<Declarations | null> {
+  return app.evalJS<Declarations | null>(
+    `(function () {
+      var live = window.tugdeck.diag.getDeckState().appetites;
+      if (!live) return null;
+      var out = {};
+      Object.keys(live).forEach(function (key) {
+        out[key] = {
+          comfort: live[key].comfort,
+          natural: Number.isFinite(live[key].natural) ? live[key].natural : null,
+        };
+      });
+      return out;
+    })()`,
+  );
+}
+
+/** One card's scroll container as the DOM has it — the two numbers part 6 asks
+ *  its question of, and enough of the element to name it in a failure. */
+interface Scroller {
+  scrollHeight: number;
+  clientHeight: number;
+  label: string;
+}
+
+/**
+ * The card's own scroll container: the first element in document order inside
+ * the card's host whose computed `overflow-y` lets it scroll.
+ *
+ * Found by the property rather than by a per-card selector, because the whole
+ * claim is about a card's content against the height it asked for, and a table
+ * of six selectors would be six more things to keep true. Every sidebar card
+ * hands its overflow to exactly one such element — the list's own scroller for
+ * the list cards, the content column for Layout.
+ *
+ * `null` when a card has none, which a card with an empty list really does not:
+ * an empty roster draws its placeholder and no scroller, and there is then
+ * nothing that could have overflowed. That is a skip with a `note()` rather
+ * than a pass or a failure — the claim is about a scroller that does not fit,
+ * and a card with no scroller has not made one.
+ */
+async function cardScroller(app: App, cardId: string): Promise<Scroller | null> {
+  return app.evalJS<Scroller | null>(
+    `(function () {
+      var host = document.querySelector(
+        '[data-card-host][data-card-id="${cardId}"]',
+      );
+      if (host === null) return null;
+      var all = host.querySelectorAll("*");
+      for (var i = 0; i < all.length; i += 1) {
+        var overflow = getComputedStyle(all[i]).overflowY;
+        if (overflow !== "auto" && overflow !== "scroll") continue;
+        return {
+          scrollHeight: all[i].scrollHeight,
+          clientHeight: all[i].clientHeight,
+          label:
+            all[i].tagName.toLowerCase() +
+            "." +
+            String(all[i].getAttribute("class") || "—"),
+        };
+      }
+      return null;
+    })()`,
+  );
 }
 
 describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
@@ -496,9 +643,8 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
             await seamCount(app),
             "an overflowing rail offers a sash between every pair of members",
           ).toBe(all.length - 1);
-          // Between the two the weight separates: `jots` at its floor above,
-          // `layout` with room to spare below. Dragging down grows the upper
-          // one, which is the direction that has anywhere to go.
+          // Dragging down grows the member above the sash, which is the whole
+          // of what a flowing drag does.
           const offsetBefore = await railOffset(app);
           const sash = await app.getElementBounds(`[data-rail-seam="right:1"]`);
           await app.nativeDragElement(`[data-rail-seam="right:1"]`, {
@@ -512,17 +658,18 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
               .map((r, i) => `${all[i]} ${Math.round(r.height)}`)
               .join(", ")}`,
           );
-          // The two the sash divides trade the drag between them, and nobody
-          // else moves a pixel. Four untouched members either side of the pair
-          // is what makes this a claim about zero-sum rather than about one
-          // lucky neighbour.
+          // The member above the sash takes the drag and NOBODY gives it up:
+          // in flow every other member is standing at a height it declared,
+          // and a hand lengthening one card is not a reason to shorten its
+          // neighbour ([B08]). Five untouched members is what makes this a
+          // claim about the rule rather than about one lucky neighbour.
           expect(
             Math.abs(after[1].height - six[1].height - DRAG_PX),
             "the member above the sash took the drag",
           ).toBeLessThan(EPSILON);
           expect(
-            Math.abs(after[2].height - six[2].height + DRAG_PX),
-            "and the member below it gave exactly that up",
+            Math.abs(after[2].height - six[2].height),
+            "and the member below it gave up nothing",
           ).toBeLessThan(EPSILON);
           for (const index of [0, 3, 4, 5]) {
             expect(
@@ -530,13 +677,13 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
               `${all[index]} was not touched by a drag on a sash it does not sit at`,
             ).toBeLessThan(EPSILON);
           }
-          // And the strip is exactly as long as it was: a drag divides, it does
-          // not lengthen. The offset holds for the same reason — dividing is not
-          // scrolling.
+          // And the strip is exactly the drag longer than it was, which is the
+          // other side of nobody giving anything up. The offset holds all the
+          // same: resizing a member is not scrolling the strip.
           const strippedAfter = await stripEnd(app, all.length);
           expect(
-            Math.abs((strippedAfter as number) - (published as number)),
-            "the strip kept its length through the drag",
+            Math.abs((strippedAfter as number) - (published as number) - DRAG_PX),
+            "the strip grew by exactly the drag",
           ).toBeLessThan(EPSILON);
           expect(
             await railOffset(app),
@@ -594,12 +741,15 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
             `(window.tugdeck.diag.getDeckState().appetites || null)`,
           );
           const how = await standing(app);
+          const layoutRows = await app.evalJS<number>(
+            `document.querySelectorAll(".layouts-section-row").length`,
+          );
           note(
             `${jots} jots: ${rects
               .map((r, i) => `${MODEST[i]} ${Math.round(r.height)}`)
               .join(", ")} — the rail stands ${how}, run ${run.height.toFixed(1)}px`,
           );
-          return { rects, run, settled, standing: how };
+          return { rects, run, settled, standing: how, layoutRows };
         } finally {
           await app.close();
           rmSync(dir, { recursive: true, force: true });
@@ -614,50 +764,72 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
       // publish → quiet period → deck state → allocator path having run — the
       // one claim about the settle that does not depend on catching it in the
       // act.
-      expect(
-        many.settled?.layout,
-        "the Layout card's declaration reached deck state",
-      ).toEqual({ comfort: LAYOUT_NATURAL, natural: LAYOUT_NATURAL });
+      //
+      // Each declaration is then read against the content it claims to measure.
+      // The Jots card's is its list, a row at a time, and the two decks differ
+      // by exactly the five jots between them. The Layout card's is its plate
+      // plus a pitch for every control row it drew — counted off the card's own
+      // rendered rows, so the declaration is checked against the picture rather
+      // than against a second copy of the formula.
       expect(
         many.settled?.jots.natural,
-        "and the Jots card's is its whole list, a row at a time",
+        "the Jots card's natural is its whole list, a row at a time",
       ).toBe(JOTS_HEADER + JOTS_MANY * JOTS_ROW);
+      expect(
+        few.settled?.jots.natural,
+        "and a shorter list asks for exactly the rows it has",
+      ).toBe(JOTS_HEADER + JOTS_FEW * JOTS_ROW);
+      const layout = many.settled?.layout;
+      expect(
+        layout,
+        "the Layout card's declaration reached deck state",
+      ).toBeDefined();
+      const declaredLayout = layout as { comfort: number; natural: number };
+      note(
+        `layout declared comfort ${declaredLayout.comfort}, natural ${declaredLayout.natural}, over ${many.layoutRows} control rows`,
+      );
+      expect(
+        many.layoutRows,
+        "the Layout card drew control rows to count",
+      ).toBeGreaterThan(0);
+      expect(
+        declaredLayout.natural - declaredLayout.comfort,
+        "and its natural is its comfort plus a pitch for every row it drew",
+      ).toBe(LAYOUT_ROW_PITCH * many.layoutRows);
 
       // Both stand the same way — this is about how a shared run is divided,
       // not about which standing it takes.
       expect(few.standing).toBe("shared");
       expect(many.standing).toBe("shared");
 
-      // With few jots nobody's natural is binding, so the room left over once
-      // every ask is met is shared out and the Layout card stands taller than
-      // the picture it draws actually wants. That is [Q01]'s answer, and it is
-      // what makes the other reading a change rather than a coincidence.
-      expect(
-        few.rects[2].height,
-        "with room to spare, the leftover is shared out past every natural",
-      ).toBeGreaterThan(LAYOUT_NATURAL + EPSILON);
+      // A natural is a CEILING. The naturals no longer fit in a run this
+      // harness opens, so no member reaches its own — and the claim that
+      // matters is that none is pushed PAST it either, which is what makes the
+      // declaration a statement the allocator obeys rather than a hint. A
+      // member whose natural falls below its floor asks for the floor, which is
+      // what the allocator reads it as.
+      for (const reading of [few, many]) {
+        for (const [index, componentId] of MODEST.entries()) {
+          const declared = reading.settled?.[componentId];
+          expect(
+            declared,
+            `${componentId} declared an appetite at all`,
+          ).toBeDefined();
+          expect(
+            reading.rects[index].height,
+            `${componentId} is not pushed past the height it asked for`,
+          ).toBeLessThanOrEqual(
+            Math.max(FLOOR, (declared as { natural: number }).natural) + EPSILON,
+          );
+        }
+      }
 
-      // With enough jots the Jots card's own natural has grown past its share,
-      // there is no leftover, and the card that asked for one size gets exactly
-      // that size.
-      expect(
-        Math.abs(many.rects[2].height - LAYOUT_NATURAL),
-        "and the card that asked for one size stands at exactly that size",
-      ).toBeLessThan(EPSILON);
-      expect(
-        many.rects[1].height,
-        "the card whose content wants the room takes it",
-      ).toBeGreaterThan(few.rects[1].height + EPSILON);
-      expect(
-        many.rects[2].height,
-        "which is less room than it had when nobody else wanted it",
-      ).toBeLessThan(few.rects[2].height - EPSILON);
-      // The Cards card declares less than its floor, so it stands at the floor
-      // and asks for nothing more — the third reading that makes the other two
-      // a division rather than a coincidence.
+      // The Cards card declares less than its floor in this fixture, so it
+      // stands at the floor and asks for nothing more — the reading that makes
+      // the others a division rather than a coincidence.
       expect(
         Math.abs(many.rects[0].height - FLOOR),
-        "and the card that asked for nothing stands at its floor",
+        "and the card that asked for less than it may have stands at its floor",
       ).toBeLessThan(EPSILON);
 
       // Whatever moved, the rail is still a division of its run.
@@ -669,6 +841,390 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
           Math.abs(tiled - reading.run.height),
           "the heights and the seams add up to the run itself",
         ).toBeLessThan(1);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // ── 6. What a card declares is a claim about the card's own content. ──
+  //
+  // Parts 1–5 ask whether the allocator honours the declarations. This asks
+  // the other question, which nothing has ever asked: are the declarations
+  // true. A natural height MEANS "at this height my content has nothing left
+  // to scroll", and that is one reading of one element.
+  //
+  // Nothing has to be arranged for a member to stand at its natural: a flowing
+  // place's heights ARE `max(floor, natural · weight)` ([B08]), so a rail
+  // nobody has dragged stands every member at exactly what it declared. This
+  // used to need a stored weight of `natural / comfort` and a second app to
+  // seed it into, because the tier was comfort. The declarations come out of
+  // the deck's own settled mirror rather than being recomputed here, so the
+  // height under test is the height the card asked for rather than one this
+  // file agreed with itself about.
+  //
+  // Two members are not askable, and both are skipped by RULE rather than by
+  // name, with a `note()` each so a skip is visible rather than silent:
+  // Overview declares `Infinity` — a stream is never finished — and a card
+  // whose natural falls below the 240px floor cannot be stood at it, so it is
+  // measured at the floor, which is more room than it asked for and therefore
+  // a weaker reading of the same claim.
+  //
+  // The shortfalls are collected and asserted once at the end rather than
+  // thrown one at a time, because the interesting failure is WHICH cards are
+  // short, and a loop that stops at the first names only the first.
+  test(
+    "a card standing at its declared natural has nothing left to scroll",
+    async () => {
+      // The two list cards whose rows this fixture supplies: the Jots card's
+      // natural is its list, and the Cards card's is the deck's own cards. An
+      // empty one of either asks for less than its floor, and a card measured
+      // at the floor is measured with room it never asked for.
+      const dir = mkdtempSync(join(tmpdir(), "tug-at0542-natural-"));
+      const jotsPath = join(dir, "jots.json");
+      writeFileSync(
+        jotsPath,
+        `${JSON.stringify(
+          {
+            version: 1,
+            jots: Array.from({ length: JOTS_MANY }, (_, i) => ({
+              id: `j${i}`,
+              text: `jot ${i}`,
+            })),
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      const all = [...MODEST, ...REST];
+
+      /**
+       * One app, launched, seeded once, and handed to `read`. The seed is the
+       * only one it gets, so its settled appetites are the cards' own and its
+       * heights are the ones those appetites allocate.
+       */
+      const withDeck = async <T>(
+        name: string,
+        read: (app: App) => Promise<T>,
+      ): Promise<T> => {
+        const app = await launchTugApp({
+          testName: name,
+          env: { TUG_JOTS_PATH: jotsPath },
+        });
+        try {
+          await app.evalJS<null>(
+            `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+          );
+          await seed(app, all, undefined, EXTRA_MAKER_CARDS);
+          return await read(app);
+        } finally {
+          await app.close();
+        }
+      };
+
+      try {
+        // One deck, read twice over: what the six cards declare, and what they
+        // are standing at — which under flow's heights is the same number, so
+        // there is nothing to seed a second time for.
+        const seen = await withDeck("at0542-natural-fits", async (app) => {
+          const appetites = await readAppetites(app);
+          const how = await standing(app);
+          const rects = await memberRects(app, all);
+          const scrollers: (Scroller | null)[] = [];
+          for (const componentId of all) {
+            scrollers.push(await cardScroller(app, componentId.toUpperCase()));
+          }
+          return { appetites, how, rects, scrollers };
+        });
+        const appetites = seen.appetites;
+        expect(
+          appetites,
+          "the cards' declarations reached deck state",
+        ).not.toBeNull();
+        const declared = appetites as Declarations;
+        note(
+          `declared: ${all
+            .map((componentId) => {
+              const appetite = declared[componentId];
+              return `${componentId} comfort ${appetite?.comfort} natural ${appetite?.natural ?? "none"}`;
+            })
+            .join("; ")}`,
+        );
+
+        expect(
+          seen.how,
+          "the six overflow, which is the standing whose heights are each member's own",
+        ).toBe("overflow");
+        note(
+          `stood: ${all
+            .map((componentId, i) => `${componentId} ${Math.round(seen.rects[i].height)}`)
+            .join(", ")}`,
+        );
+
+        const short: string[] = [];
+        for (const [index, componentId] of all.entries()) {
+          const appetite = declared[componentId];
+          expect(
+            appetite,
+            `${componentId} declared an appetite at all`,
+          ).toBeDefined();
+          if (appetite.natural === null) {
+            note(
+              `${componentId}: declares no natural — a stream is never finished, so there is no height to check it at`,
+            );
+            continue;
+          }
+          const stood = Math.max(FLOOR, appetite.natural);
+          expect(
+            Math.abs(seen.rects[index].height - stood),
+            `${componentId} stands at the height its own declaration puts it at`,
+          ).toBeLessThan(EPSILON);
+          const scroller = seen.scrollers[index];
+          if (scroller === null) {
+            note(
+              `${componentId}: natural ${Math.round(appetite.natural)}, stood ${Math.round(
+                seen.rects[index].height,
+              )}, no scroll container — nothing it draws could have overflowed`,
+            );
+            continue;
+          }
+          const box = scroller;
+          const left = box.scrollHeight - box.clientHeight;
+          const floored =
+            appetite.natural < FLOOR
+              ? " (measured at the floor, which is more room than it asked for)"
+              : "";
+          note(
+            `${componentId}: natural ${Math.round(appetite.natural)}, stood ${Math.round(
+              seen.rects[index].height,
+            )}, ${box.label} ${box.scrollHeight}/${box.clientHeight} — ${
+              left > 1 ? `${Math.round(left)}px LEFT TO SCROLL` : "fits"
+            }${floored}`,
+          );
+          if (left > 1) short.push(`${componentId} (${Math.round(left)}px)`);
+        }
+
+        expect(
+          short,
+          "every card at its declared natural has nothing left to scroll — a natural height its own content does not fit inside is a declaration the rail cannot honour",
+        ).toEqual([]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // ── 7. Slack goes whole to the greediest, never spread. ──
+  //
+  // Every part above stands the rail where its members want more run than
+  // there is. This is the other edge: two cards whose naturals both fit, with
+  // run left over. The old ladder divided that leftover by weight, so every
+  // card held a little empty space and no seam sat on a content boundary. It
+  // goes to one card now, and the one is chosen by the registry's greed rank.
+  //
+  // The Arcs card — componentId `dashes`, which is the tugbank spelling
+  // [D141] kept — ranks greedier than the Tripwires card and stands BELOW it,
+  // so a pass cannot be position falling out the same way. Both cards are
+  // empty in this fixture, which is what makes their declarations small enough
+  // to leave slack in a run this harness opens.
+  test(
+    "run left over past every natural stands in the greediest card alone",
+    async () => {
+      const app = await launchTugApp({
+        testName: "at0542-rail-vertical-allocation",
+      });
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+        );
+        const SLACK = ["tripwires", "dashes"];
+        await seed(app, SLACK);
+        const run = await railRun(app);
+        const declared = await readAppetites(app);
+        const rects = await memberRects(app, SLACK);
+        // A declaration below the floor asks for the floor, which is what the
+        // allocator reads it as and therefore what "at its natural" means here.
+        const wanted = SLACK.map((componentId) => {
+          const appetite = declared?.[componentId];
+          expect(
+            appetite?.natural,
+            `${componentId} declared a finite natural to be satisfied at`,
+          ).not.toBeNull();
+          return Math.max(FLOOR, appetite?.natural ?? FLOOR);
+        });
+        const asked = wanted[0] + wanted[1] + RAIL_SEAM_PX;
+        note(
+          `two members: run ${run.height.toFixed(1)}px against ${asked}px asked for — heights ${rects
+            .map((r) => Math.round(r.height))
+            .join(" / ")}`,
+        );
+        expect(await standing(app), "the two floors fit, so the rail shares").toBe(
+          "shared",
+        );
+        expect(
+          asked,
+          "the fixture leaves run over past both naturals, which is the case under test",
+        ).toBeLessThan(run.height - 1);
+
+        // The less greedy member stands at exactly what it asked for, so the
+        // seam between the two sits on a content boundary.
+        expect(
+          Math.abs(rects[0].height - wanted[0]),
+          "tripwires, the less greedy of the two, stands at exactly its natural",
+        ).toBeLessThan(EPSILON);
+        // And every pixel of the leftover is at the foot of the other one.
+        expect(
+          Math.abs(rects[1].height - (run.height - RAIL_SEAM_PX - wanted[0])),
+          "and the Arcs card, the greedier, holds the whole of what is left over",
+        ).toBeLessThan(EPSILON);
+        expect(
+          rects[1].height - wanted[1],
+          "which is more than it asked for — the one stretch of empty space in the rail",
+        ).toBeGreaterThan(1);
+        // Still a division of the run: slack going to one member is not slack
+        // going missing.
+        expect(
+          Math.abs(
+            rects[0].height + rects[1].height + RAIL_SEAM_PX - run.height,
+          ),
+          "the heights and the seam add up to the run itself",
+        ).toBeLessThan(1);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "the badge menu offers the layout, and equalize means natural under flow",
+    async () => {
+      const app = await launchTugApp({
+        testName: "at0542-rail-vertical-allocation",
+      });
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+        );
+        // The same two-card fixture part 7 uses, with a weight on the first
+        // member so flow has something to forget when equalize is asked for.
+        const PAIR = ["tripwires", "dashes"];
+        const DRAGGED = 1.5;
+        await seed(app, PAIR, { tripwires: DRAGGED, dashes: 1 });
+        const declared = await readAppetites(app);
+        const natural = PAIR.map((componentId) =>
+          Math.max(FLOOR, declared?.[componentId]?.natural ?? FLOOR),
+        );
+
+        // ── The badge menu is the second door, and it states the present. ──
+        //
+        // A split place's menu offers Stack, then the layout as a checked
+        // pair, then Equalize. Checked rather than a toggling row: a menu row
+        // states a choice among answers, and the Layout card's mark is where
+        // the present answer toggles.
+        const front = await app.evalJS<string | null>(
+          `(function () {
+            var members = Array.from(
+              document.querySelectorAll('.tug-pane[data-rail-side="right"]'),
+            );
+            if (members.length === 0) return null;
+            var zOf = function (el) {
+              var z = parseInt(window.getComputedStyle(el).zIndex, 10);
+              return Number.isNaN(z) ? 0 : z;
+            };
+            return members
+              .slice()
+              .sort(function (a, b) { return zOf(a) - zOf(b); })
+              .pop()
+              .getAttribute("data-pane-id");
+          })()`,
+        );
+        expect(front, "the rail has a member whose badge is reachable").not.toBeNull();
+        await app.nativeClickAtElement(
+          `.tug-pane[data-pane-id="${front}"] [data-testid="tug-pane-title-bar-stack-badge"]`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="tug-pane-title-bar-stack-menu"]') !== null`,
+          { timeoutMs: 8_000 },
+        );
+        const rows = await app.evalJS<{ label: string; checked: boolean }[]>(
+          `Array.from(document.querySelectorAll('[data-testid="tug-pane-title-bar-stack-menu"] [role="menuitem"], [data-testid="tug-pane-title-bar-stack-menu"] [role="menuitemradio"]'))
+            .map(function (el) {
+              return {
+                label: (el.textContent || "").trim(),
+                checked: el.getAttribute("aria-checked") === "true" ||
+                  el.getAttribute("data-selected") === "true",
+              };
+            })`,
+        );
+        note(
+          `badge menu: ${rows.map((r) => `${r.label}${r.checked ? " ✓" : ""}`).join(" · ")}`,
+        );
+        const fit = rows.find((r) => r.label === "Fit");
+        const flow = rows.find((r) => r.label === "Flow");
+        expect(fit, "the menu offers Fit").toBeDefined();
+        expect(flow, "and Flow beside it").toBeDefined();
+        expect(fit!.checked, "and the check says which one the place is on").toBe(
+          true,
+        );
+        expect(flow!.checked, "which is not the other one").toBe(false);
+
+        // ── Choosing Flow puts the rail on a strip, and nobody is stretched. ──
+        await app.evalJS<null>(
+          `(function () {
+            var rows = Array.from(document.querySelectorAll('[data-testid="tug-pane-title-bar-stack-menu"] [role="menuitem"], [data-testid="tug-pane-title-bar-stack-menu"] [role="menuitemradio"]'));
+            var row = rows.filter(function (el) {
+              return (el.textContent || "").trim() === "Flow";
+            })[0];
+            if (row) row.click();
+            return null;
+          })()`,
+        );
+        await wait(AFTER_LAND_MS);
+        expect(
+          await standing(app),
+          "the rail flows by choice, whatever its run",
+        ).toBe("overflow");
+        const flowing = await memberRects(app, PAIR);
+        note(
+          `flowing at natural × weight: ${flowing.map((r) => Math.round(r.height)).join(" / ")} against naturals ${natural.join(" / ")}`,
+        );
+        expect(
+          Math.abs(flowing[0].height - natural[0] * DRAGGED),
+          "the weighted member stands at its own natural times what the hand stored",
+        ).toBeLessThan(EPSILON);
+        expect(
+          Math.abs(flowing[1].height - natural[1]),
+          "and the undragged one at exactly its natural — flow stretches nobody",
+        ).toBeLessThan(EPSILON);
+
+        // ── The third door, and the meaning the layout gives it. ──
+        //
+        // A double-click on the seam clears the stored weights. Under fit that
+        // is an equal division of the discretionary pool; under flow it is
+        // every member standing at exactly the height its own content asked
+        // for, which is the same sentence answered by the layout the place is
+        // on.
+        await app.nativeDoubleClickAtElement(`[data-rail-seam="right:0"]`);
+        await wait(AFTER_LAND_MS);
+        const equalized = await memberRects(app, PAIR);
+        note(
+          `after equalize under flow: ${equalized.map((r) => Math.round(r.height)).join(" / ")}`,
+        );
+        for (let i = 0; i < PAIR.length; i += 1) {
+          expect(
+            Math.abs(equalized[i].height - natural[i]),
+            `${PAIR[i]} stands at exactly its natural once the weights are forgotten`,
+          ).toBeLessThan(EPSILON);
+        }
+        expect(
+          await app.evalJS<unknown>(
+            `((window.tugdeck.diag.getDeckState().imposition.rails || {}).right || {}).shares || null`,
+          ),
+          "and the record is gone rather than rewritten to ones",
+        ).toBeNull();
+      } finally {
+        await app.close();
       }
     },
     TEST_TIMEOUT_MS,

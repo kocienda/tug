@@ -25,6 +25,10 @@
  *   5. **A mark is a button.** It answers a hand and does not audition, and
  *      every mark rests at one weight — the picture states arrangements, not
  *      how many cards stand under them.
+ *   6. **A split place wears its LAYOUT beside its mode**, fit or flow, and a
+ *      stacked one wears none. The press toggles the stored layout, the
+ *      drawing follows the allocation into a strip, and the plan's note names
+ *      the rail as the thing that scrolls.
  *
  * Read from live `getBoundingClientRect()` and `data-` attributes. Nothing here
  * reads back a declared style value.
@@ -217,6 +221,28 @@ function readMarks(app: App): Promise<Record<string, MarkFacts>> {
             width: r.width, height: r.height,
           },
         };
+      });
+      return out;
+    })()`,
+  );
+}
+
+/**
+ * What each place's LAYOUT mark is saying, by place key — absent for a place
+ * that wears none.
+ *
+ * Read off the mark span's own `data-place-layout`, which the overlay sets
+ * only when the place is split, so "no entry" and "not divided" are one fact
+ * here exactly as they are on screen.
+ */
+function readLayoutMarks(app: App): Promise<Record<string, string>> {
+  return app.evalJS<Record<string, string>>(
+    `(function () {
+      var out = {};
+      var nodes = document.querySelectorAll('${PLACES} .layout-places-mark[data-place]');
+      Array.prototype.forEach.call(nodes, function (el) {
+        var layout = el.getAttribute("data-place-layout");
+        if (layout !== null) out[el.getAttribute("data-place")] = layout;
       });
       return out;
     })()`,
@@ -1031,6 +1057,110 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "a pointer resting on a segment does not swap the drawing",
         ).toBe(false);
         note("pointer rests on a segment: the drawing does not move");
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a split place wears its layout beside its mode, and the note says which thing scrolls",
+    async () => {
+      const app = await launchTugApp();
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+        );
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${PLACES}') !== null`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        // ── The second mark is only asked of a place the first one divided. ──
+        //
+        // Split and stack answer "is this place divided"; fit and flow answer
+        // "does the division fill the run, or run past it" — and the second
+        // question has no meaning for a stacked place, which stores its layout
+        // and ignores it. Slot 1 is SET to split and slot 0 is stacked, so one
+        // wears the pair and the other wears one mark. Fit is the default, so
+        // the split one reads fit before anybody presses anything.
+        const before = await readLayoutMarks(app);
+        note(`layout marks at rest: ${JSON.stringify(before)}`);
+        expect(
+          before["col-1"],
+          "the split slot wears a layout mark, and it reads fit",
+        ).toBe("fit");
+        expect(
+          before["col-0"],
+          "the stacked slot wears none — there is no division to fit or flow",
+        ).toBeUndefined();
+
+        // ── Pressing it flips the stored layout, and it is a toggle. ──
+        await app.click(mark("col-1-layout"));
+        await wait(AFTER_LAND_MS);
+        expect(
+          (await readLayoutMarks(app))["col-1"],
+          "the press set the slot flowing",
+        ).toBe("flow");
+        await app.click(mark("col-1-layout"));
+        await wait(AFTER_LAND_MS);
+        expect(
+          (await readLayoutMarks(app))["col-1"],
+          "and pressing it again undoes it, which is what a mark is",
+        ).toBe("fit");
+
+        // ── A rail is a place too, and the note names it by side. ──
+        //
+        // Two cards on the right rail, split, flowing: the drawing follows the
+        // allocation into a strip with no branch of its own, and the plan's
+        // note gains the tail that says which thing scrolls. The deck's band
+        // is fitting here, so the rail is the only scroller and the note names
+        // exactly it — the two clauses are never confusable.
+        await app.click(
+          `[data-testid="layout-card-sidebar-jots"] [data-choice-value="right"]`,
+        );
+        await wait(AFTER_LAND_MS);
+        await app.click(mark("rail-right"));
+        await wait(AFTER_LAND_MS);
+        await app.click(mark("rail-right-layout"));
+        await wait(AFTER_LAND_MS);
+
+        const face = await app.evalJS<{
+          layout: string | null;
+          note: string;
+          railOverflow: string | null;
+        }>(
+          `(function () {
+            var m = document.querySelector('${PLACES} .layout-places-mark[data-place="rail-right"]');
+            var committed = document.querySelector('.layouts-plan-layer[data-plan-layer="committed"]');
+            var noteEl = document.querySelector(".layouts-plan-note");
+            var rail = committed === null ? null : committed.querySelector('.layout-mini-rail[data-rail-mode="split"]');
+            return {
+              layout: m === null ? null : m.getAttribute("data-place-layout"),
+              note: noteEl === null ? "" : (noteEl.textContent || ""),
+              railOverflow: rail === null ? null : rail.getAttribute("data-rail-overflow"),
+            };
+          })()`,
+        );
+        note(
+          `flowing right rail: mark ${face.layout} | note "${face.note}" | drawn overflow ${face.railOverflow}`,
+        );
+        expect(face.layout, "the rail's mark reads flow").toBe("flow");
+        expect(
+          face.note,
+          "the note's tail names the rail as the thing that scrolls",
+        ).toContain("the right rail scrolls");
+        expect(
+          face.note,
+          "and not the deck, which is fitting",
+        ).not.toContain("the deck");
+        expect(
+          face.railOverflow,
+          "the miniature draws the flowing rail as a strip running off the field",
+        ).toBe("true");
       } finally {
         await app.close();
       }

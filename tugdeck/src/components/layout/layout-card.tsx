@@ -126,9 +126,12 @@ import {
   isImpositionKind,
   isColumnMode,
   columnModeOf,
+  columnLayoutOf,
   isImpositionLayout,
   impositionLayout,
   isRailMode,
+  isPlaceLayout,
+  railLayoutOf,
   isSidebarSide,
   railModeOf,
   sidebarSide,
@@ -142,6 +145,7 @@ import {
   type ImpositionKind,
   type ColumnMode,
   type ImpositionLayout,
+  type PlaceLayout,
   type RailMode,
   type SidebarSide,
   type PlaceAllocation,
@@ -162,6 +166,7 @@ import { useResponder } from "@/components/tugways/use-responder";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useCardAppetite } from "@/lib/card-appetite-store";
+import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
 import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 
 /** The card's focus group — every stop it offers lives here.
@@ -181,16 +186,80 @@ const WIDTH_SENDER_ID = "layout-card-width";
 const SIDE_SENDER_PREFIX = "layout-card-side:";
 
 /**
- * The Layout card's whole content, in pixels ([Q02]): the pane's 36px title
- * bar, the drawing at the aspect `.layout-picture` gives it inside
- * `.layout-card`'s `6px 8px 8px` padding, and the preset row under it. One
- * number rather than a measurement — a card that measured its own drawing to
- * decide the box the drawing is laid out in is the metric loop [B03] refuses.
+ * The Layout card's appetite, box by box ([B01], [B02]).
  *
- * TUNE HERE: it is both what the card asks for and the ceiling the allocator
- * will not push it past, so a taller drawing is one edit.
+ * The card used to declare one number for the whole of itself, and that number
+ * described the plate alone: it named the title bar, the drawing and the preset
+ * strip, and said nothing about the caption above the drawing or the control
+ * rows below it — which are most of the card. A rail that honoured it as a
+ * ceiling therefore cut the rows off, which is exactly what it was asked to do.
+ *
+ * So the comfort height is the PLATE — everything above the first control row,
+ * because the picture is the card's job and the rows under it may scroll — and
+ * the natural height is that plus the rows, which is the only part that varies:
+ * three deck-wide rows and one per registered sidebar card. Every term below
+ * names the rule in `layout-card.css` it comes from, and none of them measures
+ * anything at run time — a card that measured its own drawing to decide the box
+ * the drawing is laid out in is the metric loop the previous brief's [B03]
+ * refuses.
  */
-const LAYOUT_NATURAL_HEIGHT_PX = 300;
+
+/** `.layouts-section`'s own `padding: 6px 8px 8px`, block only. */
+const LAYOUT_SECTION_PADDING_PX = 6 + 8;
+
+/** `.layouts-plan-summary`: the caption at `--tugx-header-title-size` /
+ *  `--tugx-header-title-lh` over the note at `--tug-font-size-sm` /
+ *  `--tug-line-height-normal`, `--tug-space-sm` between them. */
+const LAYOUT_CAPTION_PX = 42;
+
+/** `.layouts-plan-layer`'s `gap: var(--tug-space-lg)`, which stands the summary
+ *  off the drawing. */
+const LAYOUT_SUMMARY_GAP_PX = 12;
+
+/** The drawing: `--tugx-layouts-plan-mini-width` at `.layout-mini`'s
+ *  `aspect-ratio: 16 / 10`. Both numbers are stated together in
+ *  `layout-card.css`, beside the width knob, so tuning the width moves this. */
+const LAYOUT_MINI_WIDTH_PX = 300;
+const LAYOUT_DRAWING_PX = (LAYOUT_MINI_WIDTH_PX * 10) / 16;
+
+/** `.layouts-plate`'s own `gap: 4px`, between the drawing and its legend. */
+const LAYOUT_PLATE_GAP_PX = 4;
+
+/** The preset strip: `.flow-strip`, one line of numbered segments inside its
+ *  own `padding-inline: 3px` box and transparent border. */
+const LAYOUT_STRIP_PX = 19;
+
+/** `.layouts-section`'s `gap: 10px`, between the plate and the first control
+ *  row. It belongs to comfort because it is air the plate has to stand in. */
+const LAYOUT_SECTION_GAP_PX = 10;
+
+/** One control row's pitch: the row's own 28px control against
+ *  `.layouts-section-rows`'s `row-gap: 6px`. */
+const LAYOUT_ROW_PITCH_PX = 28 + 6;
+
+/** The rows that are there whatever the registry holds: Cards, Layout and Card
+ *  Width. Every other row is one registered sidebar card. */
+const LAYOUT_DECK_ROWS = 3;
+
+/** Comfort: the plate, and nothing below it. */
+const LAYOUT_COMFORT_HEIGHT_PX = Math.ceil(
+  CARD_TITLE_BAR_HEIGHT +
+    LAYOUT_SECTION_PADDING_PX +
+    LAYOUT_CAPTION_PX +
+    LAYOUT_SUMMARY_GAP_PX +
+    LAYOUT_DRAWING_PX +
+    LAYOUT_PLATE_GAP_PX +
+    LAYOUT_STRIP_PX +
+    LAYOUT_SECTION_GAP_PX,
+);
+
+/** Natural: comfort plus every control row the card will draw. */
+function layoutNaturalHeightPx(sidebarCount: number): number {
+  return (
+    LAYOUT_COMFORT_HEIGHT_PX +
+    LAYOUT_ROW_PITCH_PX * (LAYOUT_DECK_ROWS + sidebarCount)
+  );
+}
 const RAIL_SENDER_PREFIX = "layout-card-rail:";
 const COLUMN_SENDER_PREFIX = "layout-card-column:";
 
@@ -608,6 +677,7 @@ function planNote(
   kind: ImpositionKind,
   width: ContentWidth,
   layout: ImpositionLayout = "fit",
+  flowingRails: readonly SidebarSide[] = [],
 ): string {
   const slots = slotCount(kind);
   const px = CONTENT_WIDTH_PX[width];
@@ -619,7 +689,21 @@ function planNote(
   // on overlap, flow spends it on the right edge. The clause is on flow only —
   // fit is the deck the reader already knows, and a note that explained both
   // would make the familiar answer look like a new choice.
-  return layout === "flow" ? `${cards} — the deck scrolls` : cards;
+  //
+  // A flowing RAIL earns the same clause on the same terms ([B09]): the note's
+  // tail names every thing on screen that scrolls, and a deck and a rail can
+  // both be flowing at once, so the scrollers are listed rather than chosen
+  // between. The band comes first because it is the larger thing.
+  const scrollers = [
+    ...(layout === "flow" ? ["the deck"] : []),
+    ...flowingRails.map((side) => `the ${side} rail`),
+  ];
+  if (scrollers.length === 0) return cards;
+  const named =
+    scrollers.length === 1
+      ? scrollers[0]
+      : `${scrollers.slice(0, -1).join(", ")} and ${scrollers[scrollers.length - 1]}`;
+  return `${cards} — ${named} scroll${scrollers.length === 1 ? "s" : ""}`;
 }
 
 /** One plan layer: a drawing, the caption naming it, and the note under it. */
@@ -703,16 +787,22 @@ export interface LayoutContentProps {
 export function LayoutContent(
   _props: LayoutContentProps,
 ): React.ReactElement {
-  // The Layout card is the one rail card whose appetite is not a row count: its
-  // content is a picture of the deck, and a picture is one size ([Q02]). It
-  // asks for that size and nothing beyond it, so a rail that has room to spare
-  // spends it on the cards that can use it rather than on a bigger drawing.
-  useCardAppetite(LAYOUT_CARD_ID, LAYOUT_NATURAL_HEIGHT_PX, LAYOUT_NATURAL_HEIGHT_PX);
   const imposition = useImposition();
   const kind = imposition.kind ?? DEFAULT_IMPOSITION_KIND;
   const contentWidth = imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH;
   const layout = impositionLayout(imposition);
   const sidebars = sidebarEntries();
+  // What the card would like of its rail's run ([B02]). Comfort is the plate —
+  // the picture is the card's job and the rows beneath it may scroll — and
+  // natural is the plate plus every control row, which is the three deck-wide
+  // ones and one per registered sidebar card. `sidebarEntries()` reads the
+  // registry, which is fixed at boot, so this is a pure function of state and
+  // the section's height does not move as cards come and go.
+  useCardAppetite(
+    LAYOUT_CARD_ID,
+    LAYOUT_COMFORT_HEIGHT_PX,
+    layoutNaturalHeightPx(sidebars.length),
+  );
   // The open ones are what the picture draws and what the overlay marks;
   // the full registry is what the sidebar rows list, because a hidden card's
   // row is the door that shows it.
@@ -725,11 +815,27 @@ export function LayoutContent(
     left: railModeOf(imposition, "left"),
     right: railModeOf(imposition, "right"),
   };
+  // …and each side's layout, which the mark reads beside the mode and the
+  // note reads to say which thing scrolls ([B09]).
+  const railLayouts: Partial<Record<SidebarSide, PlaceLayout>> = {
+    left: railLayoutOf(imposition, "left"),
+    right: railLayoutOf(imposition, "right"),
+  };
   // Every occupied slot, whatever its membership (see `useDeckColumns` for
   // why one card deep still counts).
   const columns = useDeckColumns();
   // The committed places' own divisions, for the committed drawing alone.
   const committedAllocations = useCommittedAllocations(columns);
+  // The sides whose run actually scrolls — read off the side's own STANDING
+  // rather than off the layout it stores, because those are different facts
+  // and this note is about the one on screen. A flowing rail stands as a strip
+  // by choice; a fitting one whose floors do not fit its run stands as one by
+  // arithmetic, and it reads as flowing on every face until a member leaves or
+  // the window grows ([B07]). A stacked or empty side has no allocation at all
+  // and so is never named: neither divides anything, and neither scrolls.
+  const flowingRails: SidebarSide[] = SIDES.filter(
+    (side) => committedAllocations.rails[side]?.standing === "overflow",
+  );
   // The committed drawing alone gets the live strip; every preview layer below
   // draws at rest ([P06]).
   const committedFlow = useCommittedFlow();
@@ -834,6 +940,7 @@ export function LayoutContent(
       key: `col-${slot}`,
       slot,
       mode: occupiedColumnOf(slot)?.mode ?? columnModeOf(imposition, slot),
+      layout: columnLayoutOf(imposition, slot),
       label: columnCaption(slot),
       senderId: `${COLUMN_SENDER_PREFIX}${slot}`,
     }),
@@ -849,6 +956,7 @@ export function LayoutContent(
       key: `rail-${side}`,
       side,
       mode: modes[side] ?? "stack",
+      layout: railLayouts[side] ?? "fit",
       label: RAIL_CAPTIONS[side],
       senderId: `${RAIL_SENDER_PREFIX}${side}`,
     }));
@@ -873,8 +981,16 @@ export function LayoutContent(
         const sender = event.sender;
         if (typeof sender === "string" && sender.startsWith(RAIL_SENDER_PREFIX)) {
           const side = sender.slice(RAIL_SENDER_PREFIX.length);
-          if (isSidebarSide(side) && isRailMode(value)) {
+          if (!isSidebarSide(side)) return;
+          if (isRailMode(value)) {
             dispatchCommand(TUG_ACTIONS.SET_RAIL_MODE, { side, mode: value });
+          } else if (isPlaceLayout(value)) {
+            // The same sender carries both of a place's questions, told apart
+            // by which vocabulary the value is in — `split`/`stack` against
+            // `fit`/`flow`, which do not overlap. A second sender prefix would
+            // be one more thing for the overlay and this responder to agree
+            // about, for no fact the value does not already carry.
+            dispatchCommand(TUG_ACTIONS.SET_RAIL_LAYOUT, { side, layout: value });
           }
           return;
         }
@@ -883,8 +999,11 @@ export function LayoutContent(
           sender.startsWith(COLUMN_SENDER_PREFIX)
         ) {
           const slot = Number(sender.slice(COLUMN_SENDER_PREFIX.length));
-          if (Number.isInteger(slot) && slot >= 0 && isColumnMode(value)) {
+          if (!Number.isInteger(slot) || slot < 0) return;
+          if (isColumnMode(value)) {
             dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: value });
+          } else if (isPlaceLayout(value)) {
+            dispatchCommand(TUG_ACTIONS.SET_COLUMN_LAYOUT, { slot, layout: value });
           }
           return;
         }
@@ -1024,7 +1143,7 @@ export function LayoutContent(
     ...IMPOSITION_KINDS.map((k) => ({
       previewId: `kind:${k}`,
       caption: [KIND_LABELS[k], CONTENT_WIDTH_LABELS[contentWidth]],
-      note: planNote(k, contentWidth, layout),
+      note: planNote(k, contentWidth, layout, flowingRails),
       kind: k,
       rails,
       railModes,
@@ -1039,7 +1158,7 @@ export function LayoutContent(
     ...LAYOUTS.map((mode) => ({
       previewId: `layout:${mode}`,
       caption: [KIND_LABELS[kind], LAYOUT_LABELS[mode]],
-      note: planNote(kind, contentWidth, mode),
+      note: planNote(kind, contentWidth, mode, flowingRails),
       kind,
       rails,
       railModes,
@@ -1050,7 +1169,7 @@ export function LayoutContent(
     ...CONTENT_WIDTH_PRESETS.map((preset) => ({
       previewId: `width:${preset}`,
       caption: [KIND_LABELS[kind], CONTENT_WIDTH_LABELS[preset]],
-      note: planNote(kind, preset, layout),
+      note: planNote(kind, preset, layout, flowingRails),
       kind,
       rails,
       railModes,
@@ -1069,7 +1188,7 @@ export function LayoutContent(
         // The arrangement is unchanged by a rail moving sides, so the note
         // stands as it is: the caption says what the preview would change,
         // the note what it would leave alone.
-        note: planNote(kind, contentWidth, layout),
+        note: planNote(kind, contentWidth, layout, flowingRails),
         kind,
         rails: railsFor(imposition, openSidebars, {
           componentId: entry.componentId,
@@ -1104,7 +1223,7 @@ export function LayoutContent(
       return {
         previewId: `side:${entry.componentId}:off`,
         caption: [`${entry.title} Off`],
-        note: planNote(kind, contentWidth, layout),
+        note: planNote(kind, contentWidth, layout, flowingRails),
         kind,
         rails: counts,
         railModes,
@@ -1206,7 +1325,7 @@ export function LayoutContent(
             <div className="layouts-plan-summary">
               <PlanCaption values={committedCaption} />
               <span className="layouts-plan-note">
-                {planNote(kind, contentWidth, layout)}
+                {planNote(kind, contentWidth, layout, flowingRails)}
               </span>
             </div>
             <LayoutMiniature

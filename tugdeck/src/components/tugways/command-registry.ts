@@ -1894,6 +1894,15 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
+    // Its doors are the rail's own — the Layout card's per-place mark and the
+    // title bar's stack badge menu; the side set is the deck's, so the payload
+    // set is runtime.
+    id: TUG_ACTIONS.SET_RAIL_LAYOUT,
+    title: "Set Rail Layout",
+    routing: "registry",
+    internal: true,
+  },
+  {
     // Its doors are the stack badge menu and a double-click on a seam.
     id: TUG_ACTIONS.EQUALIZE_RAIL,
     title: "Equalize Rail Heights",
@@ -1906,6 +1915,15 @@ export const COMMANDS: readonly CommandEntry[] = [
     // runtime.
     id: TUG_ACTIONS.SET_COLUMN_MODE,
     title: "Set Column Mode",
+    routing: "registry",
+    internal: true,
+  },
+  {
+    // Its doors are the slot's own — the Layout card's per-place mark and the
+    // stack badge menu; the slot set is the deck's, so the payload set is
+    // runtime.
+    id: TUG_ACTIONS.SET_COLUMN_LAYOUT,
+    title: "Set Column Layout",
     routing: "registry",
     internal: true,
   },

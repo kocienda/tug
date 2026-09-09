@@ -132,6 +132,37 @@ export type SidebarSide = "left" | "right";
  */
 export type ImpositionLayout = "fit" | "flow";
 
+/**
+ * How one PLACE resolves its members' heights against its run — the vertical
+ * twin of {@link ImpositionLayout}, and deliberately a distinct type ([B05]).
+ *
+ * `"fit"` — the run is the constraint. The members divide it by the allocation
+ * ladder: floors, comfort in greed order, and the discretionary pool by weight
+ * under each member's natural height. Nobody overflows and the run is filled.
+ *
+ * `"flow"` — the content is the constraint. Every member stands at its own
+ * height, the strip is as long as that makes it, and it scrolls behind the run.
+ * Nobody is stretched and nobody is squeezed.
+ *
+ * The same two words as the deck's band, because it is the same choice one axis
+ * over: whether the place should fit the screen, or the screen should be a
+ * window onto the place. A SEPARATE TYPE all the same, so a deck layout can
+ * never be handed where a place layout is read or the reverse — the two are
+ * chosen in different places, stored in different fields, and mean the same
+ * thing about different runs.
+ */
+export type PlaceLayout = "fit" | "flow";
+
+/** The layout a place reads under when it has never said otherwise, and what
+ *  every blob written before the choice existed means. */
+export const DEFAULT_PLACE_LAYOUT: PlaceLayout = "fit";
+
+/** Narrow an unknown (a parsed blob field, an action payload) to a place
+ *  layout. */
+export function isPlaceLayout(value: unknown): value is PlaceLayout {
+  return value === "fit" || value === "flow";
+}
+
 /** The layout mode a deck reads under when it has never said otherwise, and
  *  what every blob written before the mode existed means. */
 export const DEFAULT_IMPOSITION_LAYOUT: ImpositionLayout = "fit";
@@ -202,6 +233,17 @@ export interface RailArrangement {
   /** Absent reads as `"stack"` — today's behavior, on an unchanged blob. */
   mode?: RailMode;
   /**
+   * How the side's run is resolved when it is split; absent reads as
+   * {@link DEFAULT_PLACE_LAYOUT}, so every rail that predates the choice comes
+   * back exactly as it stood.
+   *
+   * Meaningful only under `"split"`. A stacked rail stores it and ignores it,
+   * exactly as it stores `shares`: the choice describes how a division is
+   * resolved, and a stack has no division — but re-splitting has to land on the
+   * arrangement the user chose rather than on a default.
+   */
+  layout?: PlaceLayout;
+  /**
    * The members' vertical order, top to bottom, by componentId. Absent means
    * registration order — see {@link effectiveRailOrder}, which also tolerates
    * ids named here that are not currently standing.
@@ -263,6 +305,10 @@ export interface RailArrangement {
 export interface ColumnArrangement {
   /** Absent reads as `"stack"` — cards in a slot take turns, as they always did. */
   mode?: ColumnMode;
+  /** How the slot's run is resolved when it is split; absent reads as
+   *  {@link DEFAULT_PLACE_LAYOUT}. Meaningful only under `"split"`, on
+   *  {@link RailArrangement.layout}'s own reasoning. */
+  layout?: PlaceLayout;
   /**
    * The members' vertical order, top to bottom, by pane id. Absent means the
    * slot's own pane order — see {@link effectiveColumnOrder}, which also
@@ -441,6 +487,15 @@ export function isRailMode(value: unknown): value is RailMode {
   return value === "stack" || value === "split";
 }
 
+/** How `side`'s run is resolved: what it stored, or fit. */
+export function railLayoutOf(
+  imposition: DeckImposition,
+  side: SidebarSide,
+): PlaceLayout {
+  const stored = imposition.rails?.[side]?.layout;
+  return isPlaceLayout(stored) ? stored : DEFAULT_PLACE_LAYOUT;
+}
+
 /** The side's arrangement with one field replaced, the others untouched. */
 function withRailField(
   imposition: DeckImposition,
@@ -462,6 +517,16 @@ export function withRailMode(
   mode: RailMode,
 ): DeckImposition {
   return withRailField(imposition, side, { mode });
+}
+
+/** The imposition with `side` fitting or flowing its run, keeping its mode,
+ *  order and shares. */
+export function withRailLayout(
+  imposition: DeckImposition,
+  side: SidebarSide,
+  layout: PlaceLayout,
+): DeckImposition {
+  return withRailField(imposition, side, { layout });
 }
 
 /** The imposition with `side`'s members in `order`, top to bottom. */
@@ -662,6 +727,15 @@ export function isColumnMode(value: unknown): value is ColumnMode {
   return value === "stack" || value === "split";
 }
 
+/** How `slot`'s run is resolved: what it stored, or fit. */
+export function columnLayoutOf(
+  imposition: Pick<DeckImposition, "columns">,
+  slot: number,
+): PlaceLayout {
+  const stored = imposition.columns?.[slot]?.layout;
+  return isPlaceLayout(stored) ? stored : DEFAULT_PLACE_LAYOUT;
+}
+
 /** The slot's arrangement with one field replaced, the others untouched. */
 function withColumnField(
   imposition: DeckImposition,
@@ -683,6 +757,16 @@ export function withColumnMode(
   mode: ColumnMode,
 ): DeckImposition {
   return withColumnField(imposition, slot, { mode });
+}
+
+/** The imposition with `slot` fitting or flowing its run, keeping its mode,
+ *  order and shares. */
+export function withColumnLayout(
+  imposition: DeckImposition,
+  slot: number,
+  layout: PlaceLayout,
+): DeckImposition {
+  return withColumnField(imposition, slot, { layout });
 }
 
 /** The imposition with `slot`'s members in `order`, top to bottom. */
@@ -3280,6 +3364,10 @@ export interface PlaceMemberAppetite {
  */
 export interface PlaceAllocation {
   standing: PlaceStanding;
+  /** The place's own choice, carried with the numbers it produced. Every
+   *  consumer that must know which arithmetic made these heights reads it here
+   *  rather than working it out again ([B12]). */
+  layout: PlaceLayout;
   ids: readonly string[];
   /** One per member, px, each ≥ its floor. */
   heights: readonly number[];
@@ -3353,6 +3441,7 @@ export function stripCoordinatesOf(
  *  the strip is the last top plus the last height. */
 function placeAllocationOf(
   standing: PlaceStanding,
+  layout: PlaceLayout,
   members: readonly PlaceMemberAppetite[],
   heights: readonly number[],
   run: number,
@@ -3367,6 +3456,7 @@ function placeAllocationOf(
   const stripLength = heights.length === 0 ? 0 : running - seam;
   return {
     standing,
+    layout,
     ids: members.map((member) => member.id),
     heights,
     tops,
@@ -3376,12 +3466,38 @@ function placeAllocationOf(
   };
 }
 
-/** An overflowing place's heights, from what its members want: comfort scaled
- *  by the weight the drags stored, never below the floor. */
-function overflowHeightsOf(members: readonly PlaceMemberAppetite[]): number[] {
-  return members.map((member) =>
-    Math.max(member.floor, member.comfort * member.weight),
-  );
+/**
+ * A FLOWING place's heights, from what its members want and nothing about the
+ * run: `max(floor, natural · weight)`, where the weight is the multiplier the
+ * user's own seam drags stored.
+ *
+ * Natural rather than comfort is the tier, because natural is what flow
+ * promises ([B08]): the content is the constraint here, so a member stands at
+ * the height its own content is finished at, and nobody is stretched to fill a
+ * run or squeezed to fit one. The floor still binds — a member whose whole
+ * declaration falls below the box it needs to paint stands in that box.
+ *
+ * A member with an ENDLESS natural — a stream, which is never finished — reads
+ * the run as its natural and so stands at one screen of itself, scrolled to.
+ * That is the only number in this function about the place rather than about
+ * the member, and it is here because `Infinity · weight` is not a height. A
+ * place with no run to speak of has no screen to offer either, so a stream
+ * there falls back to the comfort height it declared.
+ *
+ * Greed ranks play no part: flow divides nothing, so there is nothing to be
+ * first in line for.
+ */
+function flowHeightsOf(
+  members: readonly PlaceMemberAppetite[],
+  run: number,
+): number[] {
+  const screen = Number.isFinite(run) && run > 0 ? run : null;
+  return members.map((member) => {
+    const natural = Number.isFinite(member.natural)
+      ? member.natural
+      : (screen ?? member.comfort);
+    return Math.max(member.floor, natural * member.weight);
+  });
 }
 
 /** The tolerance the ladder's own pool arithmetic is done at, finer than
@@ -3409,10 +3525,22 @@ const PLACE_POOL_EPSILON = 1e-9;
  *    back over the members still below theirs. That is why this is a loop
  *    rather than one division: capping one member changes every other
  *    member's share, and the water has to find its level.
- * 4. **Past natural, by weight, uncapped.** Once everybody is at natural there
- *    is no cap left to bind, and the remainder is divided by weight so the run
- *    is filled exactly ([D181]). A place whose members all fit twice over
- *    still fills its run, because a shared place's strip IS its run.
+ * 4. **Past natural, whole, to the greediest.** Once everybody is at natural
+ *    there is no cap left to bind, and the remainder goes ENTIRELY to the
+ *    lowest `greedRank` — position as tiebreak, the same order stage 2 used —
+ *    so the run is still filled exactly ([D181]) while every other member
+ *    stands at precisely its natural. Every seam then sits on a content
+ *    boundary and the one stretch of empty space is at the foot of the card
+ *    that will grow into it first ([B06]). Spreading the remainder by weight
+ *    was the old rule and it handed each card space it had not asked for:
+ *    when one card then grew, the settle had to claw that space back across
+ *    every seam instead of moving one.
+ *
+ * Fit has two edges and they have names. **Squeeze** is the run falling short
+ * of the naturals — stage 2 runs out and members are held below natural in
+ * reverse greed order. **Slack** is the run running past them — stage 4, where
+ * the greediest takes the lot. Neither word is user-facing; the user's words
+ * for the choice are Fit and Flow.
  *
  * A weight of zero is legal and means what it says at each stage: no share of
  * the pool. It is what a member dragged down to its comfort height stores, and
@@ -3467,23 +3595,88 @@ function sharedHeightsOf(
   }
 
   if (pool > PLACE_POOL_EPSILON) {
-    const total = members.reduce((sum, member) => sum + member.weight, 0);
-    for (let i = 0; i < n; i += 1) {
-      heights[i] += total > 0 ? (pool * members[i].weight) / total : pool / n;
+    // Slack. The default is one card's: past natural nobody is competing for
+    // the pool, so dividing it by weight would only hand every card space it
+    // did not ask for ([B06]). A weight of exactly 1 on EVERY member is the
+    // shape an absent `shares` record makes — `railWeightOf` answers 1 for a
+    // place nobody has dragged — so that is the default, and it goes whole to
+    // the greediest, position as tiebreak.
+    //
+    // Anything else is a hand's: a seam dragged past the naturals stored the
+    // division it was let go at, and it overrides the default for that place
+    // ([B12]). {@link placeSharesFromHeights} scales a slack drag's weights to
+    // put their largest at n, rather than to average 1, for exactly this
+    // reason — an equal division of slack is a real thing to have dragged to,
+    // and it must not come back wearing the all-ones record that means nobody
+    // dragged at all.
+    const dragged = members.some(
+      (member) => Math.abs(member.weight - 1) > PLACE_POOL_EPSILON,
+    );
+    if (dragged) {
+      const total = members.reduce((sum, member) => sum + member.weight, 0);
+      for (let i = 0; i < n; i += 1) {
+        // A record of nothing but zeros is still a hand's by the test above,
+        // and it has no ratio in it — so it divides evenly, the only reading a
+        // total of nothing has, and the same one the stage below the naturals
+        // takes. Without this the division is a zero over a zero on every
+        // member at once.
+        heights[i] += total > 0 ? (pool * members[i].weight) / total : pool / n;
+      }
+    } else {
+      heights[byGreed[0].index] += pool;
     }
   }
   return heights;
 }
 
 /**
+ * How a place STANDS, from its layout and its floors — the one derivation of
+ * the standing, read by {@link allocatePlaceHeights} and by the inverse that
+ * must know which arithmetic made a set of heights ([B12]).
+ *
+ * A flowing place is a strip by choice and a place whose floors do not fit its
+ * run is a strip by arithmetic ([B07]), and the two are the same standing. A
+ * place of fewer than two members has nothing to divide and always shares.
+ *
+ * It takes the LAYOUT rather than being handed a standing, so that no caller
+ * has to work out for itself which of the two a place is in. That was the shape
+ * the inverse and the drag bounds used to be written in, and a caller that got
+ * it wrong wrote a weight the allocator would not give back.
+ */
+function placeStandingOf(
+  members: readonly PlaceMemberAppetite[],
+  run: number,
+  seam: number,
+  layout: PlaceLayout,
+): PlaceStanding {
+  if (members.length < 2) return "shared";
+  if (layout === "flow") return "overflow";
+  if (!Number.isFinite(run) || run <= 0) return "overflow";
+  const required =
+    members.reduce((sum, member) => sum + member.floor, 0) +
+    (members.length - 1) * seam;
+  return required > run ? "overflow" : "shared";
+}
+
+/**
  * How a place divides `run` among `members`, seams included — the single
  * derivation of a member height ([P02]).
  *
- * The standing is decided first and from the floors alone ([P01]): a place
- * whose members' floors and seams fit inside the run divides it, and one whose
- * do not stacks down a strip. Then the heights follow from the standing — the
- * ladder in {@link sharedHeightsOf} for a shared place, and each member's own
- * comfort height, weighted, for an overflowing one.
+ * The standing follows the place's LAYOUT ([B04]). A flowing place stands as a
+ * strip whatever its run, because that is what flow means: the content is the
+ * constraint and the run is a window onto it. A fitting place divides its run —
+ * unless it cannot, which is the one derived exception ([B07]): floors and seams
+ * that do not fit inside the run leave nothing to divide, so the place stands
+ * as flowing until a member leaves or the window grows. That test used to be
+ * THE rule and is now fit's fallback, and the standing stays derived and
+ * visible either way, which is what lets the faces read it.
+ *
+ * `layout` is optional and absent reads as fit, so every caller written before
+ * the choice existed allocates exactly as it did.
+ *
+ * Then the heights follow from the standing — the ladder in
+ * {@link sharedHeightsOf} for a shared place, and each member's own comfort
+ * height, weighted, for an overflowing one.
  *
  * Neither branch reads a number about the run rather than about the member.
  * An overflowing member takes `max(floor, comfort · weight)` — what it said it
@@ -3502,28 +3695,34 @@ export function allocatePlaceHeights(
   members: readonly PlaceMemberAppetite[],
   run: number,
   seam: number,
+  layout: PlaceLayout = DEFAULT_PLACE_LAYOUT,
 ): PlaceAllocation {
   const sane = sanitizedAppetites(members);
   const gap = Number.isFinite(seam) && seam > 0 ? seam : 0;
   if (sane.length === 0) {
-    return placeAllocationOf("shared", sane, [], run, gap);
+    return placeAllocationOf("shared", layout, sane, [], run, gap);
   }
   if (sane.length === 1) {
     // The undivided member IS the run, as today, even below its floor: a place
     // with one member has nothing to divide and no strip to scroll.
-    return placeAllocationOf("shared", sane, [run], run, gap);
+    return placeAllocationOf("shared", layout, sane, [run], run, gap);
   }
-  if (!Number.isFinite(run) || run <= 0) {
-    return placeAllocationOf("overflow", sane, overflowHeightsOf(sane), run, gap);
-  }
-  const required =
-    sane.reduce((sum, member) => sum + member.floor, 0) +
-    (sane.length - 1) * gap;
-  if (required > run) {
-    return placeAllocationOf("overflow", sane, overflowHeightsOf(sane), run, gap);
+  if (placeStandingOf(sane, run, gap, layout) === "overflow") {
+    // Flow is a strip by choice, and a run that cannot hold the floors is a
+    // strip by arithmetic — fit's one derived exception ([B07]). The two stand
+    // the same way and get the same heights.
+    return placeAllocationOf(
+      "overflow",
+      layout,
+      sane,
+      flowHeightsOf(sane, run),
+      run,
+      gap,
+    );
   }
   return placeAllocationOf(
     "shared",
+    layout,
     sane,
     sharedHeightsOf(sane, run, gap),
     run,
@@ -3542,9 +3741,13 @@ export function allocatePlaceHeights(
  * proposed ones alike while only the committed picture reads real heights.
  *
  * It answers the equal division because that is what the allocator answers for
- * members with no floor to fit and no appetite to feed, and the equal division
- * is what [P09] asks a proposal to draw. It is here rather than at the drawing
- * so that the miniature still derives no member height of its own ([P02]).
+ * members with no floor to fit and an appetite nothing satisfies, and the equal
+ * division is what [P09] asks a proposal to draw. The endless natural is what
+ * makes it so: a proposal's members are unmeasured rather than satisfied, so
+ * they divide the run by weight in the ladder's discretionary stage and never
+ * reach fit's slack rule, which would hand the whole picture to one of them
+ * ([B06]). It is here rather than at the drawing so that the miniature still
+ * derives no member height of its own ([P02]).
  */
 export function nominalPlaceAllocation(
   count: number,
@@ -3557,7 +3760,7 @@ export function nominalPlaceAllocation(
       id: `${index}`,
       floor: 0,
       comfort: 0,
-      natural: 0,
+      natural: Infinity,
       greedRank: DEFAULT_GREED_RANK,
       weight: 1,
     }),
@@ -3569,26 +3772,60 @@ export function nominalPlaceAllocation(
  * The weights a set of heights means — the inverse of
  * {@link allocatePlaceHeights}, and what a committed seam drag stores ([P04]).
  *
- * A weight means a different thing in each standing, so the inverse does too:
- * in overflow it is the multiplier on comfort the height implies; in shared it
- * is the share of the discretionary pool the member took, measured from
- * whichever floor of that pool the place is standing above — comfort while
- * anybody is still below their natural height, natural once everybody is past
- * it. Scaled to average 1 per member, so an equal division round-trips to the
- * all-ones record that an absent `shares` already means.
+ * It takes the place's LAYOUT and works the standing out itself ([B12]), so
+ * that no caller has to decide which arithmetic made the heights it is handing
+ * over. The standing is the one {@link placeStandingOf} derives, which is why
+ * a FIT place whose floors do not fit inverts as a strip: those heights came
+ * from flow's rule, and inverting them by fit's would store a weight the
+ * allocator would not give back.
+ *
+ * A weight means a different thing in each standing, so the inverse does too.
+ *
+ * **A strip** — flow, or fit standing as flow: the weight is the multiplier on
+ * NATURAL the height implies, which is the tier flow's heights are built on
+ * ([B08]). A stream, whose natural is endless, reads the run as its natural
+ * here exactly as it does there.
+ *
+ * **A shared run** — fit: the weight is the share of the discretionary pool
+ * the member took, measured from whichever floor of that pool the place stands
+ * above, and the two regimes scale differently because the difference carries
+ * a fact.
+ *
+ * Below natural, the weights are scaled to average 1, so an equal division
+ * round-trips to the all-ones record that an absent `shares` already means —
+ * equal IS the default there, and returning the empty record for it is the
+ * same statement in fewer bytes.
+ *
+ * Past natural the default is not the equal division but the greedy one
+ * ([B06]), so THAT is the division that returns the empty record: heights
+ * standing at every natural with the whole remainder on the greediest are what
+ * a place nobody has dragged already looks like, and storing a record for it
+ * would freeze today's greed ranks into the blob. Any other division of the
+ * slack is a hand's, and it overrides the default for that place. Its weights
+ * are scaled to put their LARGEST at `n` rather than to average 1, because an
+ * equal division of slack is a real thing to have dragged to and must not come
+ * back wearing the all-ones record that means nobody dragged at all.
  */
 export function placeSharesFromHeights(
   members: readonly PlaceMemberAppetite[],
   heights: readonly number[],
-  standing: PlaceStanding,
+  layout: PlaceLayout,
+  run: number,
+  seam = 0,
 ): Record<string, number> {
   const sane = sanitizedAppetites(members);
   if (sane.length < 2) return {};
+  const gap = Number.isFinite(seam) && seam > 0 ? seam : 0;
+  const standing = placeStandingOf(sane, run, gap, layout);
   const shares: Record<string, number> = {};
   if (standing === "overflow") {
+    const screen = Number.isFinite(run) && run > 0 ? run : null;
     for (let i = 0; i < sane.length; i += 1) {
       const height = heights[i] ?? 0;
-      shares[sane[i].id] = sane[i].comfort > 0 ? height / sane[i].comfort : 1;
+      const natural = Number.isFinite(sane[i].natural)
+        ? sane[i].natural
+        : (screen ?? sane[i].comfort);
+      shares[sane[i].id] = natural > 0 ? height / natural : 1;
     }
     return shares;
   }
@@ -3600,8 +3837,24 @@ export function placeSharesFromHeights(
   );
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   if (total <= PLACE_HEIGHT_EPSILON) return {};
+  if (pastNatural) {
+    // The greedy default wears no record. The slack all standing on the
+    // lowest `greedRank` — position as tiebreak, the order {@link
+    // sharedHeightsOf} hands it out in — is what an undragged place already
+    // allocates, so the empty record reproduces it exactly ([B12]).
+    const greediest = sane
+      .map((member, index) => ({ member, index }))
+      .sort(
+        (a, b) =>
+          a.member.greedRank - b.member.greedRank || a.index - b.index,
+      )[0].index;
+    if (weights[greediest] >= total - PLACE_HEIGHT_EPSILON) return {};
+  }
+  // Averaging to 1 divides by the total; putting the largest at n divides by
+  // the largest.
+  const basis = pastNatural ? Math.max(...weights) : total;
   for (let i = 0; i < sane.length; i += 1) {
-    shares[sane[i].id] = (weights[i] * sane.length) / total;
+    shares[sane[i].id] = (weights[i] * sane.length) / basis;
   }
   return shares;
 }
@@ -3612,13 +3865,27 @@ export function placeSharesFromHeights(
  * and the reason a drag can never write a height the allocator would refuse to
  * give back ([P10]).
  *
- * The bounds are the regime's (Table T02): overflow lets both members range
- * between their floors, because an overflowing strip is as long as it needs to
- * be; a shared place whose comfort no longer fits has no discretionary pool to
- * move, so its seams are immovable; a shared place still below natural trades
- * between comfort and natural; and one past natural trades above natural. A
- * range that comes out inverted — or collapsed, which regime A reaches
- * honestly ([Q01]) — is reported as the height standing exactly where it is.
+ * The regime is the allocation's own, never inferred here: the allocation
+ * carries both the layout the place chose and the standing that layout put it
+ * in ([B12]), so these bounds read a fact rather than re-deriving one from the
+ * heights they are about to clamp.
+ *
+ * The bounds are the regime's (Table T02). A shared place whose comfort no
+ * longer fits has no discretionary pool to move, so its seams are immovable;
+ * one still below natural trades between comfort and natural; and one past
+ * natural trades above natural. A range that comes out inverted — or collapsed,
+ * which regime A reaches honestly ([Q01]) — is reported as the height standing
+ * exactly where it is.
+ *
+ * A place standing as a STRIP is the one that does not trade. Its drag resizes
+ * the member above the seam and lengthens the strip, leaving every other member
+ * at the height it declared ([B08]) — so the bound below is that member's own
+ * floor, and the bound above is a screen of it: the run, which is the same
+ * measure flow gives a stream, and past which a card is being scrolled rather
+ * than read. A member already taller than that keeps its own height as the
+ * ceiling, so a drag can always hold where it is. A fit place whose floors do
+ * not fit stands here too and drags the same way, because its heights were made
+ * the same way ([B07]).
  */
 export function seamDragBounds(
   allocation: PlaceAllocation,
@@ -3636,7 +3903,13 @@ export function seamDragBounds(
   let upper: number;
   if (allocation.standing === "overflow") {
     lower = a.floor;
-    upper = span - b.floor;
+    upper = Math.max(
+      held,
+      a.floor,
+      Number.isFinite(allocation.run) && allocation.run > 0
+        ? allocation.run
+        : 0,
+    );
   } else {
     const comfortRequired =
       sane.reduce((sum, member) => sum + member.comfort, 0) +
@@ -3671,6 +3944,12 @@ export interface ColumnMemberPlacement {
   /** How the place stands — the rail twin's own field, for the rail twin's own
    *  reason. */
   standing: PlaceStanding;
+  /** And the layout that put it there, for the badge menu that offers the
+   *  choice back ([B10]). Optional because no geometry reads it — the standing
+   *  above is what the frame is built from — so a caller describing a
+   *  placement rather than driving a menu leaves it off, and absent reads as
+   *  fit exactly as an absent stored layout does. */
+  layout?: PlaceLayout;
   /** The rail twin's own field, for the rail twin's own reason: the strip
    *  coordinates this frame's `var()` fallbacks are read from. */
   strip?: readonly number[];

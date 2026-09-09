@@ -284,9 +284,13 @@ describe.skipIf(!SHOULD_RUN)(
           //
           // What IS the claim, and what the retired stride arithmetic was
           // standing in for: the outline is the size of the card that would
-          // land there, and it stands inside the run rather than off its ends.
-          // Part 3 closes the loop by releasing and checking that the card
-          // landed where the outline said.
+          // land there, and it OVERLAPS the run rather than being drawn off
+          // somewhere else. Not "inside the run": a flowing member stands at
+          // the height its own content asked for ([B08]), so a card can be
+          // taller than the run it is landing in and its tile then hangs past
+          // an edge exactly as the card will. Part 3 closes the loop by
+          // releasing and checking that the card landed where the outline
+          // said, which is the claim that needs no tolerance at all.
           note(
             `outline ${drawn!.top.toFixed(1)}..${drawn!.bottom.toFixed(1)} (h ${drawn!.height.toFixed(1)}) vs card h ${live[topPane].height.toFixed(1)}, run ${canvas.top.toFixed(1)}..${canvas.bottom.toFixed(1)}`,
           );
@@ -295,13 +299,13 @@ describe.skipIf(!SHOULD_RUN)(
             "the outline is the size of the card that would land there",
           ).toBeLessThanOrEqual(slack);
           expect(
-            drawn!.top,
-            "and it stands inside the run, not off its top",
-          ).toBeGreaterThanOrEqual(canvas.top - slack);
-          expect(
             drawn!.bottom,
-            "nor off its foot",
-          ).toBeLessThanOrEqual(canvas.bottom + slack);
+            "and it reaches into the run rather than standing above it",
+          ).toBeGreaterThan(canvas.top + slack);
+          expect(
+            drawn!.top,
+            "and does not begin below its foot",
+          ).toBeLessThan(canvas.bottom - slack);
 
           // ── 3. The release lands where the outline said. ──
           await app.nativeMouseUp(edge);
@@ -314,17 +318,24 @@ describe.skipIf(!SHOULD_RUN)(
           // tile was drawn from the same allocation, over the same appetites
           // and weights, that the drop then commits ([P06]). So the promise is
           // checkable directly, without naming a position: the card's landed
-          // frame IS the box the outline drew.
+          // frame IS the box the outline drew — on the strip, which is the
+          // coordinate the promise is made in. The strip may have slid under it
+          // in between: a flowing member stands as tall as its own content
+          // ([B08]), so a tile can hang past the run's top, and the drop then
+          // reveals the card it landed. That slide is read off the rail's own
+          // offset rather than allowed for as tolerance, so the claim stays
+          // exact.
+          const slid = offset - (await railOffsetDrawn(app));
           const landed = (await railRects(app))[topPane];
           note(
-            `landed ${landed.top.toFixed(1)}..${landed.bottom.toFixed(1)} against the outline's ${drawn!.top.toFixed(1)}..${drawn!.bottom.toFixed(1)}`,
+            `landed ${landed.top.toFixed(1)}..${landed.bottom.toFixed(1)} against the outline's ${drawn!.top.toFixed(1)}..${drawn!.bottom.toFixed(1)}, strip slid ${slid.toFixed(1)}px`,
           );
           expect(
-            Math.abs(landed.top - drawn!.top),
+            Math.abs(landed.top - (drawn!.top + slid)),
             "the dragged card landed exactly where the outline drew it",
           ).toBeLessThanOrEqual(slack);
           expect(
-            Math.abs(landed.bottom - drawn!.bottom),
+            Math.abs(landed.bottom - (drawn!.bottom + slid)),
             "and its foot is the outline's too",
           ).toBeLessThanOrEqual(slack);
           expect(

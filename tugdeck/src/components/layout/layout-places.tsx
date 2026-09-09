@@ -42,6 +42,20 @@
  * consequence leaves the reader to infer the present, and the present is the
  * harder half to read off a small glyph.
  *
+ * **A split place wears TWO marks, and the second one is its layout.** Split
+ * and stack answer "is this place divided"; fit and flow answer "does the
+ * division fill the run, or run past it" ([B04]) — and the second question is
+ * only asked of a place the first one already divided, so a stacked place
+ * wears one mark and a split one wears the pair. They read together as
+ * `Split · Fit`, which is why they stand side by side in one mark rather than
+ * anywhere else on the card ([B09], [B10]): the layout is a fact about a
+ * place's arrangement, and this is where a place's arrangement is decided.
+ *
+ * Each is the same two-state toggle the mode mark has always been, which is
+ * the reason there are two of them rather than one three-state cycle: the
+ * whole argument above for a mark behaving like a button rests on pressing it
+ * again undoing it, and a cycle through three answers does not.
+ *
  * **The geometry is not this component's opinion.** It replicates the drawing's
  * own flex row — the same padding, the same gap, the same rail flex-basis — and
  * places its parts from `miniatureGeometry`, the arithmetic the drawing itself
@@ -82,7 +96,12 @@ import {
   type MiniatureFlowStrip,
   type MiniatureRails,
 } from "@/components/layout/layout-miniature";
-import { SplitGlyph, StackGlyph } from "@/components/tugways/tug-column-badge";
+import {
+  PlaceFitGlyph,
+  PlaceFlowGlyph,
+  SplitGlyph,
+  StackGlyph,
+} from "@/components/tugways/tug-column-badge";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useControlDispatch } from "@/components/tugways/use-control-dispatch";
@@ -92,6 +111,7 @@ import type {
   ContentWidth,
   ImpositionKind,
   ImpositionLayout,
+  PlaceLayout,
   RailMode,
   SidebarSide,
 } from "@/lib/layout-imposer";
@@ -114,6 +134,10 @@ export interface LayoutPlace {
   side?: SidebarSide;
   /** The arrangement the deck has stored for this place. */
   mode: ColumnMode | RailMode;
+  /** The layout the deck has stored for this place — meaningful only under
+   *  split, and stored either way ([B05]), so the mark that reads it is drawn
+   *  only when the place is divided. */
+  layout: PlaceLayout;
   /** What to call it out loud: "Column 3", "Left rail". */
   label: string;
   /** The sender id the section's responder routes this place's presses by. */
@@ -155,9 +179,20 @@ function PlaceGlyph({ mode }: { mode: ColumnMode | RailMode }): React.ReactEleme
   return mode === "split" ? <SplitGlyph lit={null} /> : <StackGlyph lit={null} />;
 }
 
+/** The glyph a split place's stored LAYOUT wears: a division that ends at the
+ *  foot of the run, or one that runs past it. */
+function PlaceLayoutGlyph({ layout }: { layout: PlaceLayout }): React.ReactElement {
+  return layout === "flow" ? <PlaceFlowGlyph /> : <PlaceFitGlyph />;
+}
+
 /** The other of the two arrangements — what pressing this mark would set. */
 function otherMode(mode: ColumnMode | RailMode): ColumnMode | RailMode {
   return mode === "split" ? "stack" : "split";
+}
+
+/** The other of the two layouts — what pressing the layout mark would set. */
+function otherLayout(layout: PlaceLayout): PlaceLayout {
+  return layout === "flow" ? "fit" : "flow";
 }
 
 /**
@@ -170,6 +205,19 @@ function describePlace(place: LayoutPlace): string {
   const now = place.mode === "split" ? "split" : "stacked";
   const does = place.mode === "split" ? "stack" : "split";
   return `${place.label} is ${now} — click to ${does}`;
+}
+
+/**
+ * The layout mark's own story, in the same shape: what the run is doing now,
+ * then what the press does. `fits` and `scrolls` rather than the words `fit`
+ * and `flow`, because the tooltip is the one place there is room to say what
+ * the two answers actually come to ([B09]) — the glyph beside it is already
+ * carrying the name.
+ */
+function describeLayout(place: LayoutPlace): string {
+  const now = place.layout === "flow" ? "scrolls" : "fits its run";
+  const does = place.layout === "flow" ? "fit" : "flow";
+  return `${place.label} ${now} — click to ${does}`;
 }
 
 /**
@@ -198,34 +246,68 @@ function PlaceMark({
   ghost?: boolean;
 }): React.ReactElement {
   const proposed = otherMode(place.mode);
+  const proposedLayout = otherLayout(place.layout);
   return (
     <span
       className="layout-places-mark"
       data-place={place.key}
       data-mode={place.mode}
+      data-place-layout={place.mode === "split" ? place.layout : undefined}
     >
       {ghost ? (
-        <span className="layout-places-ghost-glyph" aria-hidden="true">
-          <PlaceGlyph mode={place.mode} />
-        </span>
+        <>
+          <span className="layout-places-ghost-glyph" aria-hidden="true">
+            <PlaceGlyph mode={place.mode} />
+          </span>
+          {place.mode === "split" && (
+            <span className="layout-places-ghost-glyph" aria-hidden="true">
+              <PlaceLayoutGlyph layout={place.layout} />
+            </span>
+          )}
+        </>
       ) : (
-        <TugIconButton
-          icon={<PlaceGlyph mode={place.mode} />}
-          aria-label={describePlace(place)}
-          title={describePlace(place)}
-          size="sm"
-          emphasis="ghost"
-          senderId={senderId}
-          dispatch={{
-            action: TUG_ACTIONS.SELECT_VALUE,
-            sender: senderId,
-            value: proposed,
-            phase: "discrete",
-          }}
-          data-testid={`layout-card-place-${place.key}`}
-          data-choice-value={proposed}
-          data-sender={senderId}
-        />
+        <>
+          <TugIconButton
+            icon={<PlaceGlyph mode={place.mode} />}
+            aria-label={describePlace(place)}
+            title={describePlace(place)}
+            size="sm"
+            emphasis="ghost"
+            senderId={senderId}
+            dispatch={{
+              action: TUG_ACTIONS.SELECT_VALUE,
+              sender: senderId,
+              value: proposed,
+              phase: "discrete",
+            }}
+            data-testid={`layout-card-place-${place.key}`}
+            data-choice-value={proposed}
+            data-sender={senderId}
+          />
+          {place.mode === "split" && (
+            // One sender for both marks: the value says which question is
+            // being answered, because the two vocabularies do not overlap and
+            // the section's responder can tell a mode word from a layout one
+            // without a second routing prefix to keep in step with this one.
+            <TugIconButton
+              icon={<PlaceLayoutGlyph layout={place.layout} />}
+              aria-label={describeLayout(place)}
+              title={describeLayout(place)}
+              size="sm"
+              emphasis="ghost"
+              senderId={senderId}
+              dispatch={{
+                action: TUG_ACTIONS.SELECT_VALUE,
+                sender: senderId,
+                value: proposedLayout,
+                phase: "discrete",
+              }}
+              data-testid={`layout-card-place-${place.key}-layout`}
+              data-choice-value={proposedLayout}
+              data-sender={senderId}
+            />
+          )}
+        </>
       )}
     </span>
   );
@@ -310,8 +392,8 @@ export function LayoutPlaces({
 
   // The mark set changes with the deck — a slot gains a card, a side empties —
   // so the cursor's range is re-read whenever the drawing does.
-  const marksSignature = `${columns.map((c) => `${c.key}:${c.mode}`).join(",")}|${railPlaces
-    .map((r) => `${r.key}:${r.mode}`)
+  const marksSignature = `${columns.map((c) => `${c.key}:${c.mode}:${c.layout}`).join(",")}|${railPlaces
+    .map((r) => `${r.key}:${r.mode}:${r.layout}`)
     .join(",")}`;
   useLayoutEffect(() => {
     syncItems();

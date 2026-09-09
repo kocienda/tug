@@ -49,7 +49,10 @@ export function registerOverviewCard(): void {
     contentFactory: (cardId: string) => <OverviewContent cardId={cardId} />,
     defaultMeta: { title: "Overview", icon: "Newspaper", closable: true },
     // The greediest rail on the deck: a post is prose, and prose is what a
-    // narrow rail costs the most. Fed first in surplus, drained last in deficit.
+    // narrow rail costs the most. Fed first in surplus, drained last in
+    // deficit. Rank 1 of the six sidebar cards, and the only stream among
+    // them: a feed has no natural height to be satisfied at, so a place it
+    // sits in never reaches fit's slack stage at all.
     greedRank: 1,
     // The 56-character measure: the narrowest a post still reads as prose. The
     // allocator holds the rail here and gives it up only to remove overlap;

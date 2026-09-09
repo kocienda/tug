@@ -44,8 +44,9 @@ export function registerTripwiresCard(): void {
     contentFactory: (cardId: string) => <TripwiresContent cardId={cardId} />,
     defaultMeta: { title: "Tripwires", icon: "Zap", closable: true },
     // Rows elide where prose cannot, so this gives width back before a reading
-    // surface does — the rank the rail held.
-    greedRank: 2,
+    // surface does. Rank 5: the slowest-growing of the four lists — a tripwire
+    // is written once and mostly sits there.
+    greedRank: 5,
     hidden: true,
     // Every row here is an engine focus stop and the arrows are how the roster
     // is read, so it engages KBF mode the moment it is the key card ([P10]).

@@ -964,6 +964,15 @@ export const TUG_ACTIONS = {
   //                the default. Its doors are the title bar's stack badge menu
   //                and the rail Layouts section's per-side rail row.
   SET_RAIL_MODE:          "set-rail-mode",
+  // SET_RAIL_LAYOUT: payload — `{ side, layout }`, `"fit"` or `"flow"`. How a
+  //                  split rail resolves its run: fitting, the members divide
+  //                  it and nobody overflows; flowing, each member stands at
+  //                  its own height and the strip scrolls behind the run. Fit
+  //                  is the default. The same two words the deck's LAYOUT row
+  //                  carries, over a different run — the deck's band against
+  //                  one side's column of cards — which is why the doors are
+  //                  the rail's own and never the deck-wide rows.
+  SET_RAIL_LAYOUT:        "set-rail-layout",
   // EQUALIZE_RAIL: payload — `{ side }`. Divide a split rail's run equally
   //                again, discarding the heights a seam drag set while keeping
   //                the side's mode and member order. Its doors are the stack
@@ -977,6 +986,11 @@ export const TUG_ACTIONS = {
   //                  doors are the title bar's stack badge menu, the rail
   //                  Layouts section's per-slot column row, and ⌃⌘S.
   SET_COLUMN_MODE:        "set-column-mode",
+  // SET_COLUMN_LAYOUT: payload — `{ slot, layout }`. The content-side twin of
+  //                    SET_RAIL_LAYOUT: whether a split slot's members divide
+  //                    its run or stand at their own heights down a strip that
+  //                    scrolls. Fit is the default.
+  SET_COLUMN_LAYOUT:      "set-column-layout",
   // EQUALIZE_COLUMN: payload — `{ slot }`. Divide a split column's run equally
   //                  again, discarding the heights a seam drag set while
   //                  keeping the slot's mode and member order. Its doors are

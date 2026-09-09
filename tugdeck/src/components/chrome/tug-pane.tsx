@@ -77,6 +77,7 @@ import {
   imposeSidebarStyle,
   sidebarWidthProperty,
   type PinnedFrame,
+  type PlaceLayout,
   type PlaceStanding,
   type RailMode,
   type SidebarSide,
@@ -334,6 +335,10 @@ export interface CardTitleBarProps {
    */
   placeArrangement?: {
     mode: RailMode;
+    /** How the place's run stands under that mode: filled by its members, or
+     *  a window onto a strip they overrun ([B04]). Meaningful only under
+     *  split, and carried either way because the place stores it either way. */
+    layout: PlaceLayout;
     kind: "rail" | "column";
     /** This pane's place in the run, topmost first — the band letter the badge
      *  draws when the place is split. */
@@ -343,11 +348,15 @@ export interface CardTitleBarProps {
   };
   /**
    * Arrange the place this pane stands in. `"split"` / `"stack"` set the mode;
-   * `"equalize"` divides the run evenly again. Wired by `TugPane` to the
-   * registered commands, never to a store method ([L30]) — the same path
+   * `"fit"` / `"flow"` set the layout; `"equalize"` clears the stored weights,
+   * which is an equal division of the discretionary pool under fit and every
+   * member at its own natural height under flow ([B10]). Wired by `TugPane` to
+   * the registered commands, never to a store method ([L30]) — the same path
    * {@link onSetWidth} takes.
    */
-  onArrangePlace?: (verb: "split" | "stack" | "equalize") => void;
+  onArrangePlace?: (
+    verb: "split" | "stack" | "fit" | "flow" | "equalize",
+  ) => void;
   /**
    * Apply a width preset to this pane. Present exactly when
    * {@link widthPreset} is — together they are "this pane has a width
@@ -422,6 +431,8 @@ function sharedVerbRank(commandId: string): number {
   return SHARED_VERB_RANK[commandId] ?? -1;
 }
 const PLACE_VERB_EQUALIZE = "place:equalize";
+const PLACE_VERB_FIT = "place:fit";
+const PLACE_VERB_FLOW = "place:flow";
 
 export const CardTitleBar = React.forwardRef<CardTitleBarHandle, CardTitleBarProps>(
 function CardTitleBar({
@@ -1437,6 +1448,23 @@ function CardTitleBar({
                     : placeSplit
                       ? [
                           { id: PLACE_VERB_STACK, label: "Stack" },
+                          // The layout, as a checked pair under the verb that
+                          // made the place divided in the first place ([B10]).
+                          // Checked rather than a single toggling row because
+                          // a menu row states a choice among answers, where
+                          // the Layout card's mark states the present answer
+                          // and toggles it — two idioms, each native to its
+                          // own surface.
+                          {
+                            id: PLACE_VERB_FIT,
+                            label: "Fit",
+                            selected: placeArrangement.layout !== "flow",
+                          },
+                          {
+                            id: PLACE_VERB_FLOW,
+                            label: "Flow",
+                            selected: placeArrangement.layout === "flow",
+                          },
                           ...(placeAlone
                             ? []
                             : [{ id: PLACE_VERB_EQUALIZE, label: "Equalize Heights" }]),
@@ -1446,6 +1474,8 @@ function CardTitleBar({
                 onSelect={(id) => {
                   if (id === PLACE_VERB_SPLIT) return onArrangePlace?.("split");
                   if (id === PLACE_VERB_STACK) return onArrangePlace?.("stack");
+                  if (id === PLACE_VERB_FIT) return onArrangePlace?.("fit");
+                  if (id === PLACE_VERB_FLOW) return onArrangePlace?.("flow");
                   if (id === PLACE_VERB_EQUALIZE) return onArrangePlace?.("equalize");
                   const entry = slotStack.find((e) => e.paneId === id);
                   if (entry) onRevealPane?.(entry);
@@ -1801,6 +1831,13 @@ export interface SidebarStackStanding {
    * rail and a rail of one read `"shared"`: neither divides anything.
    */
   standing: PlaceStanding;
+  /**
+   * The layout the SIDE is set to, carried beside the standing it produced —
+   * the badge menu's checked pair reads it, and it is a fact about the rail
+   * rather than about this pane, so the canvas resolves it once from the
+   * allocation ([B12]).
+   */
+  layout: PlaceLayout;
   /**
    * The overflowing rail's strip coordinates, `n + 1` of them, resolved by the
    * canvas from the same allocation the `standing` came from — the `var()`
@@ -4234,10 +4271,17 @@ export function TugPane({
   // a rail if it holds a side, otherwise its slot — rather than in the bar,
   // which has no business knowing the deck has two kinds of place.
   const handleArrangePlace = useCallback(
-    (verb: "split" | "stack" | "equalize") => {
+    (verb: "split" | "stack" | "fit" | "flow" | "equalize") => {
       if (sidebarSide !== undefined) {
         if (verb === "equalize") {
           dispatchCommand(TUG_ACTIONS.EQUALIZE_RAIL, { side: sidebarSide });
+          return;
+        }
+        if (verb === "fit" || verb === "flow") {
+          dispatchCommand(TUG_ACTIONS.SET_RAIL_LAYOUT, {
+            side: sidebarSide,
+            layout: verb,
+          });
           return;
         }
         dispatchCommand(TUG_ACTIONS.SET_RAIL_MODE, {
@@ -4250,6 +4294,10 @@ export function TugPane({
       if (slot === undefined) return;
       if (verb === "equalize") {
         dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot });
+        return;
+      }
+      if (verb === "fit" || verb === "flow") {
+        dispatchCommand(TUG_ACTIONS.SET_COLUMN_LAYOUT, { slot, layout: verb });
         return;
       }
       dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: verb });
@@ -4500,6 +4548,7 @@ export function TugPane({
               ? {
                   placeArrangement: {
                     mode: sidebarStack.mode,
+                    layout: sidebarStack.layout,
                     kind: "rail" as const,
                     index: sidebarStack.memberIndex,
                     count: sidebarStack.count,
@@ -4525,6 +4574,11 @@ export function TugPane({
                       mode: (columnMember !== undefined
                         ? "split"
                         : "stack") as RailMode,
+                      // The column's own stored layout, resolved by the canvas
+                      // from the allocation it already made. A stacked column
+                      // has no member record and reads fit, which is what a
+                      // place that divides nothing is.
+                      layout: columnMember?.layout ?? "fit",
                       kind: "column" as const,
                       // A stacked column has no member record and needs none:
                       // the badge draws the depth, and every pane in the stack

@@ -111,7 +111,9 @@ import {
   clampFlowOffset,
   clampStripOffset,
   columnModeOf,
+  columnLayoutOf,
   type PlaceAllocation,
+  type PlaceLayout,
   effectiveRailOrder,
   centerVisibleFlowSlot,
   flowRevealOffset,
@@ -126,10 +128,13 @@ import {
   stripRevealOffset,
   RESIZE_RETUNE_QUIET_MS,
   railModeOf,
+  railLayoutOf,
   withRailMode,
+  withRailLayout,
   withRailOrder,
   withSidebarMovedToRail,
   withColumnMode,
+  withColumnLayout,
   sweptColumnOrders,
   withColumnOrder,
   withColumnShares,
@@ -435,8 +440,9 @@ export function factoryRailImposition(
  *
  * An `order`, a `shares`, a side, or the whole `rails` record left empty is
  * removed rather than kept as `[]` / `{}`, matching `parseRails`, which drops
- * empty fields for the same reason. `mode` is never touched: it describes the
- * side, not its membership.
+ * empty fields for the same reason. `mode` and `layout` are never touched:
+ * both describe the side, not its membership, and they survive by riding the
+ * `{ ...arrangement }` copy below rather than by being named ([L23]).
  *
  * Returns the same reference when there was nothing to sweep.
  */
@@ -1855,6 +1861,20 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
+   * Fit or flow `side`'s run — whether its split members divide it or stand at
+   * their own heights down a strip that scrolls behind it.
+   *
+   * Stored whatever the side's mode, on the reasoning {@link RailArrangement}
+   * states: a stacked side has no division to resolve, but re-splitting has to
+   * land on the arrangement the user chose rather than on a default.
+   */
+  setRailLayout(side: SidebarSide, layout: PlaceLayout): void {
+    const imposition = this.deckState.imposition;
+    if (railLayoutOf(imposition, side) === layout) return;
+    this._reimpose(withRailLayout(imposition, side, layout));
+  }
+
+  /**
    * Put `side`'s members in `order`, top to bottom — the corridor drag's
    * commit. Filtered to sidebar componentIds, so a caller cannot record a
    * content card's id as a member of a rail.
@@ -1913,8 +1933,18 @@ export class DeckManager implements IDeckManagerStore {
     this._reimpose(withRailShares(this.deckState.imposition, side, weights));
   }
 
-  /** Divide `side`'s run equally again, keeping its mode and order — what the
-   *  badge's "Equalize Heights" and a double-click on a seam ask for. */
+  /**
+   * Clear `side`'s stored heights, keeping its mode, layout and order — what
+   * the badge's "Equalize Heights" and a double-click on a seam ask for.
+   *
+   * It is ONE act with a meaning per layout, rather than two verbs ([B10]).
+   * Dropping the weights puts every member back on the record an undragged
+   * place has, and what that record allocates to is the layout's answer: under
+   * fit an equal division of the discretionary pool, and under flow every
+   * member at exactly the natural height its own content asked for. Both are
+   * the same sentence — "forget what the hand did here" — and the layout is
+   * what makes it mean the right thing, which is why the verb does not fork.
+   */
   equalizeRail(side: SidebarSide): void {
     const imposition = this.deckState.imposition;
     const equalized = withoutRailShares(imposition, side);
@@ -2036,6 +2066,14 @@ export class DeckManager implements IDeckManagerStore {
     );
   }
 
+  /** Fit or flow `slot`'s run — {@link setRailLayout}'s slot-keyed twin, on the
+   *  same reasoning about a stacked place storing a choice it does not use. */
+  setColumnLayout(slot: number, layout: PlaceLayout): void {
+    const imposition = this.deckState.imposition;
+    if (columnLayoutOf(imposition, slot) === layout) return;
+    this._reimpose(withColumnLayout(imposition, slot, layout));
+  }
+
   /**
    * Put `slot`'s members in `order`, top to bottom — what a corridor drag and
    * the move-in-column chords commit.
@@ -2087,8 +2125,9 @@ export class DeckManager implements IDeckManagerStore {
     this._reimpose(withColumnShares(this.deckState.imposition, slot, weights));
   }
 
-  /** Divide `slot`'s run equally again, keeping its mode and order — what the
-   *  badge's "Equalize Heights" and a double-click on a column seam ask for. */
+  /** {@link equalizeRail}'s slot-keyed twin, with the same per-layout meaning:
+   *  an equal division of the pool under fit, every member at its own natural
+   *  height under flow ([B10]). */
   equalizeColumn(slot: number): void {
     const imposition = this.deckState.imposition;
     const equalized = withoutColumnShares(imposition, slot);

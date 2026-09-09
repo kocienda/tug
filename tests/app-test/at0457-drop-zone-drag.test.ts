@@ -347,9 +347,24 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
           // the arrival below the sitter. And the tile the indicator drew is
           // the rect the card lands in, to within the tween's tolerance.
           const before = await rects(app, ["p3"]);
+          // A member can stand taller than the window — a flowing place gives
+          // each member the height its own content asked for, and a member
+          // that has declared nothing reads the run as that height — so the
+          // point is clamped into the visible frame, which is the only part of
+          // the card a pointer can reach. It is still in the card's lower
+          // half, which is what the drop under test needs.
+          const viewportBottom = await app.evalJS<number>(`window.innerHeight`);
+          const lowerY = Math.min(
+            before.p3.top + before.p3.height * 0.8,
+            Math.min(before.p3.bottom, viewportBottom) - 8,
+          );
+          expect(
+            lowerY,
+            "the reachable point is still in the lower half of the card",
+          ).toBeGreaterThan(before.p3.top + before.p3.height / 2);
           const lowerHalf = {
             x: Math.round(before.p3.left + before.p3.width / 2),
-            y: Math.round(before.p3.top + before.p3.height * 0.8),
+            y: Math.round(lowerY),
           };
           await app.nativeDragElementWithoutRelease(titleBar("p4"), lowerHalf);
           const indicated = await indicator(app);
@@ -419,6 +434,15 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
              })[0].cardIds.length`,
           );
           expect(before, "p1 arrived holding two tabs, so it draws a tab bar").toBe(2);
+          // Slot 0 now holds three members and overflows, so it is a strip:
+          // every member stands at the height its own content wants, and a
+          // member that has declared none reads the run as that height ([B08]).
+          // C is the third of them and its title bar is therefore below the
+          // fold — so reveal it first, which is the gesture a user reaches for
+          // and the one the strip exists to answer, and drag the bar the reveal
+          // brought into the window.
+          await app.evalJS<null>(`(window.__tug.activateCard("C"), null)`);
+          await wait(AFTER_LAND_MS);
           await app.nativeDragElement(titleBar("p3"), {
             selector: `${frame("p1")} .tug-tab-bar`,
           });
@@ -714,7 +738,7 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
                  if (bar === null) return;
                  var r = bar.getBoundingClientRect();
                  var mid = r.top + r.height / 2;
-                 if (mid < 300 || mid > window.innerHeight - 300) return;
+                 if (mid < 8 || mid > window.innerHeight - 8) return;
                  if (best === null) best = id;
                });
                return best;
@@ -726,12 +750,23 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
           ).not.toBeNull();
           const home = await titleBarPoint(app, subject);
           // Toward the middle of the window, so the travel cannot leave it
-          // whichever half of the band the subject happens to be standing in.
+          // whichever half of the band the subject happens to be standing in —
+          // and clamped inside it, because a flowing member can be a whole
+          // screen tall and its title bar is then near an edge whichever
+          // member it is.
           const viewport = await app.evalJS<number>(`window.innerHeight`);
           const away = {
             x: home.x,
-            y: Math.round(home.y + (home.y < viewport / 2 ? 260 : -260)),
+            y: Math.round(
+              home.y < viewport / 2
+                ? Math.min(home.y + 260, viewport - 40)
+                : Math.max(home.y - 260, 40),
+            ),
           };
+          expect(
+            Math.abs(away.y - home.y),
+            "the travel is long enough to be a drag rather than a click",
+          ).toBeGreaterThan(100);
           note(`origin release: grabbed ${subject} at ${home.x},${home.y}`);
           await app.nativeDragElementWithoutRelease(titleBar(subject), away);
           // Released back over where it started: the live zone is the origin,

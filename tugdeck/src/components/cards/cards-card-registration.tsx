@@ -42,8 +42,9 @@ export function registerCardsCard(): void {
     contentFactory: (cardId: string) => <CardsContent cardId={cardId} />,
     defaultMeta: { title: "Cards", icon: "LayoutGrid", closable: true },
     // Rows elide where prose cannot, so this gives width back before a reading
-    // surface does — the rank the rail held.
-    greedRank: 2,
+    // surface does. Rank 3: the list that grows second-fastest, behind Jots
+    // and ahead of the two that only fill as the work does.
+    greedRank: 3,
     hidden: true,
     // Every row here is an engine focus stop and the arrows are how the list is
     // read, so it engages KBF mode the moment it is the key card ([P10]).

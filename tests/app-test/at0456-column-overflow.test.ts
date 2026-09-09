@@ -344,13 +344,17 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
 
         const geometry = await run(app);
         const three = await rects(app, ["p1", "p2", "p3"]);
-        // Each member takes `max(floor, comfort · weight)` — its floor, scaled
-        // by whatever the drag above stored for it. Computed from the LIVE
-        // record rather than restated, so the assertion is the rule and not a
-        // transcription of one particular drag.
+        // Each member takes `max(floor, natural · weight)` — what it declared
+        // it is finished at, scaled by whatever the drag above stored for it.
+        // These panes declare no appetite at all, so none of them is ever
+        // finished and each reads the RUN as its natural: one screen of
+        // itself, which is what a flowing member with nothing to say about its
+        // own height stands at. Computed from the LIVE record rather than
+        // restated, so the assertion is the rule and not a transcription of
+        // one particular drag.
         const overflowShares = (await columnsRecord(app))["0"]?.shares ?? {};
         const wanted = (id: string): number =>
-          Math.max(FLOOR, FLOOR * (overflowShares[id] ?? 1));
+          Math.max(FLOOR, geometry.height * (overflowShares[id] ?? 1));
         note(
           `overflow members: ${["p1", "p2", "p3"]
             .map((id) => `${id} ${Math.round(three[id].height)} of ${Math.round(wanted(id))}`)

@@ -906,18 +906,26 @@ describe.skipIf(!SHOULD_RUN)(
           // frame the imposer's — so the reveal is the settle's to carry and a
           // jump here is a plain cut, allowed zero.
           // The clipped member a pointer can reach: the lowest one whose title
-          // bar is still inside the window while its foot hangs past it. That
-          // hanging foot is the affordance, and a click below it is a
-          // coordinate the harness rightly refuses. WHICH member it is follows
-          // from the members' own heights rather than from a constant, so it is
-          // read off the live frames.
+          // bar can still be clicked while its foot hangs past it. That hanging
+          // foot is the affordance, and a click below the window is a
+          // coordinate the harness rightly refuses. Both halves are read off the
+          // live frames — the title bar's own midpoint is the point the press
+          // will land on, so a member whose bar is a few pixels lower than a
+          // guessed constant is still correctly reachable. WHICH member it is
+          // follows from the members' own heights rather than from a constant.
           const clipped = await app.evalJS<string>(
             `(function () {
               var pressable = Array.prototype.slice
                 .call(document.querySelectorAll('.tug-pane[data-rail-side="right"]'))
                 .filter(function (el) {
                   var r = el.getBoundingClientRect();
-                  return r.top + 40 < window.innerHeight && r.bottom > window.innerHeight;
+                  var bar = el.querySelector(".tug-pane-title-bar");
+                  if (bar === null) return false;
+                  var b = bar.getBoundingClientRect();
+                  return (
+                    b.top + b.height / 2 < window.innerHeight - 2 &&
+                    r.bottom > window.innerHeight
+                  );
                 });
               return pressable[pressable.length - 1].getAttribute("data-pane-id");
             })()`,

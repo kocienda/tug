@@ -165,6 +165,7 @@ import {
   effectiveRailOrder,
   imposeSidebarStyle,
   impositionLayout,
+  railLayoutOf,
   railModeOf,
   railSeamProperty,
   railStripProperty,
@@ -641,11 +642,20 @@ function placeSeamPx(place: SeamPlace): number {
  *
  * The boundary is put where the hand left it and the strip is differenced: the
  * `n + 1` coordinates become `n` heights, each the distance to the next
- * coordinate less the seam standing in it. Only the two members either side of
- * `index` change, because only their shared coordinate moved — which is what
- * makes a seam drag **zero-sum** on both axes. An overflowing strip keeps its
- * length (coordinate `n` is untouched) and a shared run keeps its run, so no
- * member the hand did not touch is resized by one it did.
+ * coordinate less the seam standing in it.
+ *
+ * A SHARED place's drag is **zero-sum**: only the two members either side of
+ * `index` change, because only their shared coordinate moved, and the run they
+ * divide is fixed — so no member the hand did not touch is resized by one it
+ * did.
+ *
+ * A FLOWING place's is not, and that is the settled answer rather than an
+ * oversight ([B08]). Every coordinate below the boundary moves with it, so the
+ * member above the seam takes the whole of the drag and the strip lengthens by
+ * it. The alternative — trading against the member below, as a shared place
+ * does — would make lengthening one card cost its neighbour a height the
+ * neighbour declared it needs, and in flow a declared height is the whole of
+ * what a member stands at.
  *
  * `value` arrives in the property's own unit, so a shared place's fraction is
  * turned back into a strip coordinate first — the exact inverse of what the
@@ -659,10 +669,12 @@ function draggedHeights(
   const count = allocation.ids.length;
   const strip = [...allocation.tops, allocation.stripLength];
   const seam = allocation.seam;
-  strip[index + 1] =
-    allocation.standing === "overflow"
-      ? value
-      : value * allocation.run + seam / 2;
+  if (allocation.standing === "overflow") {
+    const shift = value - strip[index + 1];
+    for (let i = index + 1; i < strip.length; i += 1) strip[i] += shift;
+  } else {
+    strip[index + 1] = value * allocation.run + seam / 2;
+  }
   const heights: number[] = [];
   for (let i = 0; i < count; i += 1) {
     heights.push(strip[i + 1] - strip[i] - (i < count - 1 ? seam : 0));
@@ -1110,6 +1122,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           index,
           count: column.members.length,
           standing: column.allocation?.standing ?? "shared",
+          layout: column.allocation?.layout ?? "fit",
           ...(strip === undefined ? {} : { strip }),
         });
       });
@@ -1154,6 +1167,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         mode: rail.mode,
         memberIndex: index,
         standing: rail.allocation?.standing ?? "shared",
+        layout: rail.allocation?.layout ?? "fit",
         ...(strip === undefined ? {} : { strip }),
       });
     });
@@ -3375,7 +3389,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               state.imposition.rails?.[place.side]?.shares,
             ),
             draggedHeights(rail.allocation, index, value),
-            rail.allocation.standing,
+            rail.allocation.layout,
+            rail.allocation.run,
+            rail.allocation.seam,
           ),
         );
         return;
@@ -3392,7 +3408,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             state.imposition.columns?.[place.slot]?.shares,
           ),
           draggedHeights(column.allocation, index, value),
-          column.allocation.standing,
+          column.allocation.layout,
+          column.allocation.run,
+          column.allocation.seam,
         ),
       );
     },
@@ -3568,6 +3586,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               mode: rail.mode,
               members: rail.members.map((member) => member.paneId),
               shares,
+              // The side's own layout, so the tiles are the allocator's answer
+              // for the place the drop actually lands in.
+              layout: railLayoutOf(state.imposition, rail.side),
             };
           }),
         });

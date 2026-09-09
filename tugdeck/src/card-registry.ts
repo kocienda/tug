@@ -247,18 +247,26 @@ export interface CardRegistration {
    */
   kbfAtRest?: boolean;
   /**
-   * How greedy this card's rail is for width when the space allocator shares
-   * out the deck: **lower is greedier** — fed first when there is surplus,
-   * drained last when there is a deficit.
+   * How greedy this card is for space when an allocator shares some out:
+   * **lower is greedier** — fed first when there is surplus, drained last when
+   * there is a deficit.
    *
-   * The Overview is 1, the rail 2, Jots 3; anything else takes
-   * {@link DEFAULT_GREED_RANK}. A rail carrying several cards is as greedy as
-   * its greediest member (`deck-manager.ts` folds the members with `Math.min`),
-   * so a prose reader stacked with a modest card keeps the prose reader's
-   * standing.
+   * One rank, read on both axes. Across the deck it orders the rails competing
+   * for WIDTH; down a place it orders the members competing for the RUN — who
+   * reaches comfort first when the run is short, and who takes fit's slack
+   * whole when it is long ([B06]).
    *
-   * Read only through {@link getGreedRank}, by the rail fold that builds the
-   * allocator's input. The allocator itself sees numbers and knows nothing
+   * The six sidebar cards are ranked as a single order rather than left tied,
+   * because a tie leaves the slack rule with nobody to give to: Overview 1 (the
+   * only stream), then the lists by how fast their content grows — Jots 2,
+   * Cards 3, Arcs 4, Tripwires 5 — and fixed-content Layout 6. Anything else
+   * takes {@link DEFAULT_GREED_RANK}. A rail carrying several cards is as
+   * greedy as its greediest member (`deck-manager.ts` folds the members with
+   * `Math.min`), so a prose reader stacked with a modest card keeps the prose
+   * reader's standing.
+   *
+   * Read only through {@link getGreedRank}, by the folds that build the
+   * allocators' inputs. The allocators themselves see numbers and know nothing
    * about cards.
    */
   greedRank?: number;
@@ -431,11 +439,11 @@ export function isSidebarCard(componentId: string): boolean {
 }
 
 /**
- * How greedy a card type's rail is for width: what the registration declares,
- * or {@link DEFAULT_GREED_RANK}. See {@link CardRegistration.greedRank} —
- * lower is greedier. An unregistered componentId takes the default too, so a
+ * How greedy a card type is for space, on either axis: what the registration
+ * declares, or {@link DEFAULT_GREED_RANK}. See {@link CardRegistration.greedRank}
+ * — lower is greedier. An unregistered componentId takes the default too, so a
  * card seeded before its registration lands is simply the least greedy thing
- * on its rail rather than a hole in the fold.
+ * in its place rather than a hole in the fold.
  */
 export function getGreedRank(componentId: string): number {
   return registry.get(componentId)?.greedRank ?? DEFAULT_GREED_RANK;

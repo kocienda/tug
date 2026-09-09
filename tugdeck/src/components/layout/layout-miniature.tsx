@@ -353,6 +353,15 @@ function slideExpression(
  * heights. The picture answers "how is this side arranged", and a miniature
  * faithful to a hand-dragged ratio would make the two answers to that question
  * look like three.
+ *
+ * **A FLOWING rail draws itself, and no code here says so.** The drawing reads
+ * the side's own allocation, whose standing follows the layout ([B04]) — so a
+ * flow rail arrives already standing as a strip and is drawn the way this
+ * function has always drawn a strip: every member at the height its own
+ * content asked for, a seam apart, running off the bottom of the run and
+ * clipped by it ([B09]). Fit draws as the division with seams it is. That the
+ * two pictures needed no new branch is the point: the layout is a fact about
+ * the allocation rather than a second kind of drawing.
  */
 function Rail({
   count,

@@ -167,9 +167,14 @@ import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
 // ---- Vertical appetite ([B02]) ----
 
 /**
- * One arc row's height. An arc is a two-line block inside `.arcs-block`'s
- * `--tug-space-md` (8px) of block padding — "8px each side, the 16px the
- * design settled on" — over two ~14px lines and their 3px gap.
+ * One arc row's height.
+ *
+ * From `.arcs-block` in `arcs-card.css`: `padding-block: var(--tug-space-md)` —
+ * "8px each side, the 16px the design settled on" — over the block's own two
+ * lines and the `gap: 3px` the same rule sets between them, each line at
+ * `--tug-font-size-sm` × `--tug-line-height-tight`. Derived from those rules
+ * rather than measured: the app-test fixture that reads a card's declaration
+ * against its content stands no arc.
  */
 const ARCS_ROW_HEIGHT_PX = 48;
 

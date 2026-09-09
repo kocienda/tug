@@ -151,22 +151,50 @@ const ROW_ACTION_FOCUS_GROUP = "cards-row-actions";
 // ---- Vertical appetite ([B02]) ----
 
 /**
- * One row's height, group headers included — `.cards-empty`'s `min-block-size`
- * in `cards-card.css`, "the same measure every rail card's empty label uses",
- * which stands in for the list's first row at that row's height. A header row
- * takes the same list-row density, so one number answers for both.
+ * A one-line row's height: a file or tool pane row, a stack's pane row, and
+ * each of that stack's card subrows.
+ *
+ * From `.cards-list .cards-oneline` in `cards-card.css` — the rule that states
+ * THE DENSE ROW METRIC: `--tugx-list-row-padding-block: 2px` over a row that
+ * "bottoms out on its 24px close box".
  */
-const CARDS_ROW_HEIGHT_PX = 28;
+const CARDS_ONE_LINE_ROW_PX = 28;
+
+/**
+ * A group header's height.
+ *
+ * `.cards-header` takes no density rule of its own, so it keeps the row
+ * primitive's default `--tugx-list-row-padding-block: 8px` (`tug-list-row.css`)
+ * over one line — which the `.cards-list` comment says outright, that the
+ * headers "keep theirs so a group reads as separated from the one above it".
+ */
+const CARDS_GROUP_HEADER_PX = 36;
+
+/**
+ * A session monitor row's height — the three-line block a `session-pane` gets.
+ *
+ * From `tug-session-row.css`: `--tugx-session-identity-row-pad` (12px) of block
+ * padding each side, three lines each at `--tug-font-size-sm` ×
+ * `--tug-line-height-tight`, with `--tugx-session-identity-lead-gap` (3px)
+ * under the name line and `--tugx-session-identity-line-gap` (1px) inside the
+ * pair beneath it. Derived from those rules rather than measured: the app-test
+ * fixture that reads a card's declaration against its content stands no
+ * session, so this is the one row kind the check cannot confirm.
+ */
+const CARDS_SESSION_ROW_PX = 76;
 
 /**
  * Everything above the first row: the pane's title bar, plus `.cards-toolbar` —
- * a `--tugx-toolheader-line` filter field (`--tug-font-size-sm` × 1.6 ≈ 21px)
- * inside `--tug-space-sm` (6px) of block padding.
+ * a 28px filter field inside that rule's own `padding: var(--tug-space-sm)
+ * var(--tug-space-md)`, which is 6px of block padding each side.
  */
-const CARDS_HEADER_PX = CARD_TITLE_BAR_HEIGHT + 33;
+const CARDS_TOOLBAR_PX = 40;
+const CARDS_HEADER_PX = CARD_TITLE_BAR_HEIGHT + CARDS_TOOLBAR_PX;
 
-/** A group's header and three of its rows — enough to read as a list. */
-const CARDS_COMFORT_ROWS = 4;
+/** A group's header and three of its one-line rows — enough to read as a
+ *  list. */
+const CARDS_COMFORT_PX =
+  CARDS_GROUP_HEADER_PX + 3 * CARDS_ONE_LINE_ROW_PX;
 
 // The section's remembered selection — the last-touched row id, mapped to a
 // cursor seed on the next Cmd-L / Tab. Module-level so it outlives a collapse
@@ -745,22 +773,25 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // not a change in what it holds — but a COLLAPSED group really is fewer rows
   // to draw, so a folded group costs its header alone. A group with nothing in
   // it draws no header and asks for nothing.
-  const appetiteRows = useMemo(() => {
-    const census = dataSource.censusByGroup();
-    const folded = new Set(collapsedGroups);
-    let rows = 0;
-    for (const [group, inGroup] of Object.entries(census)) {
-      if (inGroup === 0) continue;
-      rows += 1 + (folded.has(group) ? 0 : inGroup);
-    }
-    return rows;
+  //
+  // The census is by row KIND ([B03]), because the card draws three heights:
+  // a group header, a three-line session monitor row, and the one-line row
+  // everything else takes. Summing a single row height over every row was what
+  // put the card's declaration at little over half its content.
+  const appetitePx = useMemo(() => {
+    const census = dataSource.censusByRowKind();
+    return (
+      census.headers * CARDS_GROUP_HEADER_PX +
+      census.sessionRows * CARDS_SESSION_ROW_PX +
+      census.oneLineRows * CARDS_ONE_LINE_ROW_PX
+    );
     // The census is a function of the projection, which `count` versions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataSource, count, collapsedGroups]);
   useCardAppetite(
     CARDS_CARD_ID,
-    CARDS_HEADER_PX + CARDS_COMFORT_ROWS * CARDS_ROW_HEIGHT_PX,
-    CARDS_HEADER_PX + appetiteRows * CARDS_ROW_HEIGHT_PX,
+    CARDS_HEADER_PX + CARDS_COMFORT_PX,
+    CARDS_HEADER_PX + appetitePx,
   );
 
   // The opening key view lands on a real row rather than on the chrome; an

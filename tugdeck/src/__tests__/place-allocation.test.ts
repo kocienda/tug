@@ -129,8 +129,11 @@ function columnState(
 describe("a place divides its run by the allocation ladder", () => {
   test("a rail of three shares the run, because three floors fit in it", () => {
     // The count says nothing ([P01]): three floors of 180 need 540 of the
-    // 1000px run, so the rail divides it. Nothing left to feed above the
-    // floors but the pool, and equal weights split it three ways.
+    // 1000px run, so the rail divides it. None of the three has declared a
+    // natural, so none of them is finished and the pool is the ladder's
+    // DISCRETIONARY one rather than fit's slack: equal weights split it three
+    // ways. Slack ([B06]) is what is left once every member is satisfied, and
+    // a member that has said nothing never is.
     const allocation = railAllocationOf(
       railState([...RAIL_IDS]),
       "right",
@@ -287,9 +290,12 @@ describe("a member's appetite is what its cards declared, folded", () => {
     } as unknown as DeckState;
   }
 
-  test("a card that declared nothing reads its floor for both tiers", () => {
-    // `probe-c` publishes no appetite. It asks for nothing beyond the box it
-    // needs to paint, which is the state every card is in until it declares.
+  test("a card that declared nothing reads its floor, and no natural at all", () => {
+    // `probe-c` publishes no appetite. It needs its floor to paint, and it has
+    // said nothing about the height its content is finished at — so its
+    // natural is endless rather than its floor. Reading it as satisfied at the
+    // floor would be a declaration nobody made, and fit's slack rule would act
+    // on it ([B06]).
     const [, , third] = placeMemberAppetites(
       stateWithAppetites(),
       "rail",
@@ -298,7 +304,7 @@ describe("a member's appetite is what its cards declared, folded", () => {
     );
     expect(third.floor).toBe(DEFAULT_FLOOR);
     expect(third.comfort).toBe(DEFAULT_FLOOR);
-    expect(third.natural).toBe(DEFAULT_FLOOR);
+    expect(third.natural).toBe(Infinity);
   });
 
   test("a declaration is read, and one below the floor cannot lower it", () => {
@@ -362,6 +368,10 @@ describe("a member's appetite is what its cards declared, folded", () => {
     const state = {
       ...railState([...RAIL_IDS]),
       appetites: {
+        // Declared at its floor, so it is satisfied there: an undeclared
+        // member would be endless and would take a share of what `probe-b`
+        // left, which is a different claim.
+        "probe-a": { comfort: DEFAULT_FLOOR, natural: DEFAULT_FLOOR },
         "probe-b": { comfort: 200, natural: 250 },
         "probe-c": { comfort: 200, natural: Infinity },
       },

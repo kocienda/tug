@@ -36,12 +36,14 @@ import {
 import {
   allocatePlaceHeights,
   clampSlot,
+  columnLayoutOf,
   columnModeOf,
   DEFAULT_CONTENT_WIDTH,
   effectiveColumnOrder,
   effectiveRailOrder,
   IMPOSITION_GAP_PX,
   isSidebarPinned,
+  railLayoutOf,
   railModeOf,
   RAIL_SEAM_PX,
   railWeightOf,
@@ -498,9 +500,17 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
  * Comfort and natural come from `state.appetites` — the settled mirror of
  * `cardAppetiteStore` ([P05]) — folded across the componentIds a member's pane
  * hosts by `Math.max`, because a tab stack is one box and the box has to suit
- * whichever tab is forward. A componentId that declared nothing reads its
- * floor for both, so a card that never publishes asks for nothing beyond what
- * it needs to paint.
+ * whichever tab is forward.
+ *
+ * A member NO card of which declared anything reads its floor for comfort and
+ * an ENDLESS natural: it needs the floor to paint and it has said nothing
+ * about the height its content is finished at. Endless is what "it did not
+ * say" means, and saying instead that it is satisfied at its floor would be a
+ * declaration nobody made — one that fit's slack rule would then act on by
+ * handing every spare pixel of the run to somebody else ([B06]). A column of
+ * two ordinary content panes divides its run in half for this reason: neither
+ * is finished, so they divide what is over by weight rather than one of them
+ * taking it.
  *
  * `natural` is raised to `comfort` here rather than trusted from the
  * publisher: the ladder's water-fill reads `natural` as the ceiling on
@@ -528,10 +538,12 @@ export function placeMemberAppetites(
     let greedRank = DEFAULT_GREED_RANK;
     let comfort = floor;
     let natural = floor;
+    let declared = false;
     for (const componentId of componentIds) {
       greedRank = Math.min(greedRank, getGreedRank(componentId));
       const appetite = state.appetites?.[componentId];
       if (appetite === undefined) continue;
+      declared = true;
       comfort = Math.max(comfort, appetite.comfort);
       natural = Math.max(natural, appetite.natural);
     }
@@ -539,7 +551,7 @@ export function placeMemberAppetites(
       id,
       floor,
       comfort,
-      natural: Math.max(comfort, natural),
+      natural: declared ? Math.max(comfort, natural) : Infinity,
       greedRank,
       weight: railWeightOf(shares, id),
     };
@@ -613,6 +625,7 @@ export function railAllocationOf(
     ),
     run,
     RAIL_SEAM_PX,
+    railLayoutOf(state.imposition, side),
   );
 }
 
@@ -636,6 +649,7 @@ export function columnAllocationOf(
     ),
     run,
     IMPOSITION_GAP_PX,
+    columnLayoutOf(state.imposition, slot),
   );
 }
 

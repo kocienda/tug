@@ -42,7 +42,9 @@ export function registerArcsCard(): void {
     contentFactory: (cardId: string) => <ArcsContent cardId={cardId} />,
     // An arc IS a branch plus a worktree, and this is the glyph that says so.
     defaultMeta: { title: "Arcs", icon: "GitBranch", closable: true },
-    greedRank: 2,
+    // Rank 4: a list, so it grows, but an arc is a whole unit of work and they
+    // arrive far slower than jots or cards do.
+    greedRank: 4,
     hidden: true,
     // Every row is an engine focus stop and the arrows are how the list is
     // read, so it engages KBF mode the moment it is the key card ([P10]).

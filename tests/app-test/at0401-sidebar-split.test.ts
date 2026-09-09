@@ -1118,9 +1118,15 @@ describe.skipIf(!SHOULD_RUN)(
             );
             const rowPaneIds = await app.evalJS<string[]>(
               `Array.from(document.querySelectorAll(${JSON.stringify(ROW)}))
-                .map(function (el) { return el.getAttribute("data-item-id"); })`,
+                .map(function (el) { return el.getAttribute("data-item-id"); })
+                .filter(function (id) { return id !== null && id.indexOf("place:") !== 0; })`,
             );
-            expect(rowPaneIds, "rows list in rail order, top to bottom").toEqual(
+            // The MEMBER rows, which is what this claim is about. A split
+            // place's menu also carries its own checked Fit / Flow pair, and a
+            // checked row is a radio like a member row is — the `place:`
+            // prefix is what tells a verb from a member, and it is on the ids
+            // for exactly this reason.
+            expect(rowPaneIds, "member rows list in rail order, top to bottom").toEqual(
               railOrderPaneIds,
             );
 

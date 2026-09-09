@@ -95,14 +95,22 @@ import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
 // ---- Vertical appetite ([B02]) ----
 
 /**
- * One tripwire row's height — `.tripwires-empty`'s `min-block-size` in
- * `tripwires-card.css`, which "stands in for the list's first row, at that
- * row's height".
+ * One tripwire row's height — a TWO-line row, which the empty label's
+ * `min-block-size` never was.
+ *
+ * The roster mounts its rows at `density="compact"`, so
+ * `.tug-list-row[data-density="compact"]` in `tug-list-row.css` gives them
+ * `--tugx-list-row-padding-block: 1px` each side. Inside that stand the name at
+ * `titleSize="sm"` and the trigger line under it, each at `--tug-font-size-sm`
+ * × `--tug-line-height-tight`, with `--tugx-list-row-content-gap`
+ * (`--tug-space-2xs`, 2px) between them. Derived from those rules rather than
+ * measured: the app-test fixture that reads a card's declaration against its
+ * content stands no tripwire.
  */
-const TRIPWIRES_ROW_HEIGHT_PX = 28;
+const TRIPWIRES_ROW_HEIGHT_PX = 36;
 
-/** The pane's title bar over `.tripwires-head`, a line inside its `6px 8px` of
- *  block padding. */
+/** The pane's title bar over `.tripwires-head` — one compact row inside that
+ *  rule's own `padding-block: 6px 8px`. */
 const TRIPWIRES_HEADER_PX = CARD_TITLE_BAR_HEIGHT + 32;
 
 /** Four rows read as a roster rather than as a sample of one. */
