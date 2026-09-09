@@ -73,9 +73,10 @@ body {
   --tugx-transcript-body-color:           var(--tug7-element-global-text-normal-default-rest);
 
   /* Sticky header chrome — must be opaque to hide body content
-   * scrolling underneath. Bound to the same surface family the pane
-   * chrome uses so the header reads as part of the pane surface, not
-   * as a foreign overlay. */
+   * scrolling underneath. This is the LAST-RESORT value: the entry
+   * root below re-points it at whatever surface is actually painted
+   * beneath the entry. Only a transcript mounted outside every
+   * publisher lands here. */
   --tugx-transcript-header-bg:    var(--tug7-surface-global-primary-normal-content-rest);
   --tugx-transcript-header-padding-block: var(--tug-space-sm);
 
@@ -115,6 +116,22 @@ body {
 
 .tug-transcript-entry {
   color: var(--tugx-transcript-body-color);
+  /* The pin paints an opaque backing, and it has to be the ground the
+   * entry actually sits on — otherwise the pin reads as a band across
+   * every attribution line instead of as nothing at all. Naming a
+   * surface here cannot get that right: `.tug-pane-content` publishes
+   * `--tugx-ambient-surface` as the single-writer answer, and in a
+   * sidebar rail under the `panel` treatment that answer is the sunken
+   * tone, not the `content` tone a fixed token would have named. Read
+   * here rather than at the `body` declaration above, because a custom
+   * property substitutes at the element that declares it and `body` is
+   * outside every publisher's scope. A consumer that wants a different
+   * backing still overrides the slot — its selector is longer than
+   * this one. */
+  --tugx-transcript-header-bg: var(
+    --tugx-ambient-surface,
+    var(--tug7-surface-global-primary-normal-content-rest)
+  );
   /* Containment boundary: a mutation inside one entry must never bill
    * layout across the rest of the transcript, and a mutation outside
    * (the composer, sibling entries) must never force this entry's
