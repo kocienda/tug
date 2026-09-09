@@ -1116,12 +1116,16 @@ const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTT
 /** The rail's two lengths as CSS lengths, each reading its property with the
  *  numeric twin as the fallback, so an expression resolves to the same pixel
  *  whether or not the root has been stamped yet. */
-const RAIL_EDGE_INSET = `var(${RAIL_EDGE_INSET_PROPERTY}, ${RAIL_EDGE_INSET_PX}px)`;
+export const RAIL_EDGE_INSET = `var(${RAIL_EDGE_INSET_PROPERTY}, ${RAIL_EDGE_INSET_PX}px)`;
 
 const RAIL_GUTTER = `var(${RAIL_GUTTER_PROPERTY}, ${RAIL_GUTTER_PX}px)`;
 
-/** The rail's bottom pin as a CSS length — see {@link railGapBottomPx}. */
-const RAIL_GAP_BOTTOM = `calc(${GAP_BOTTOM} - ${GAP} + ${RAIL_EDGE_INSET})`;
+/** The rail's bottom pin as a CSS length — see {@link railGapBottomPx}.
+ *  Exported with {@link RAIL_EDGE_INSET} because they are the rail run's two
+ *  endpoints: anything the canvas stands beside a rail for its whole height —
+ *  the rail shadow — spans them rather than the window, so it starts and
+ *  stops exactly where the rail does. */
+export const RAIL_GAP_BOTTOM = `calc(${GAP_BOTTOM} - ${GAP} + ${RAIL_EDGE_INSET})`;
 
 /**
  * The inset a standing rail contributes to the span, as a CSS length over the

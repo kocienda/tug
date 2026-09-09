@@ -1,0 +1,78 @@
+/**
+ * rail-shadow.css — the shadow a pinned rail casts into its gutter.
+ *
+ * A pinned rail is a panel standing above every content card, and the shadow
+ * off its inner edge is that z-order made visible: a card sliding toward the
+ * rail passes under the shadow before it goes behind the panel, so the gutter
+ * reads as the depth between a panel and the paper rather than as air between
+ * two cards.
+ *
+ * **One strip per side, drawn by the canvas — never one per member.** The
+ * shadow was first a pseudo-element on each rail pane, and a per-member strip
+ * can only ever be as continuous as the member frames are: at every seam of a
+ * split rail the shadow broke, which is loud on the light themes where the
+ * gutter is bright. The rail's own law is that its members touch and meet at
+ * one hairline so a rail reads as ONE flush panel from window top to window
+ * foot; a shadow assembled from per-member pieces contradicts that at exactly
+ * the boundary the law is about. So the strip belongs to the SIDE, the way
+ * the margin cap does: one element spanning the rail's whole run, seated in
+ * the canvas beside the caps, with no seam in it to break at.
+ *
+ * **It is a gradient, not a blurred `box-shadow`.** A blur fades in around
+ * the box's corners as well as along its edge, so a `box-shadow` on the rail
+ * left a soft notch at the top and bottom of every member — the same class of
+ * break, arriving from the blur instead of from the seams. A gradient strip
+ * has one axis and no corners, so it is the same weight from the run's first
+ * row to its last.
+ *
+ * Geometry comes from the canvas rather than from here: the strip stands at
+ * `RAIL_EDGE_INSET + rail width` from its window edge, and spans the rail
+ * run's own endpoints, so it starts where the rail starts and stops at the
+ * rail's foot rather than running on under the maker strip. Inert to the
+ * pointer — the gutter's hit surfaces (the width-resize seam, the drop zones)
+ * stay exactly what they were, and a shadow that took a press would be a dead
+ * strip beside every rail.
+ */
+
+body {
+  /* How far into the gutter the shadow reaches. The gutter is
+     `RAIL_GUTTER_PX` (12); the shadow stops short of the first card's edge. */
+  --tugx-rail-shadow-reach: 10px;
+  --tugx-rail-shadow-color: var(--tug7-element-global-shadow-normal-lg-rest);
+
+  /* The falloff, as a stop list rather than a plain two-stop ramp, stated
+     once here because the two sides differ only in direction.
+
+     Both halves of it are tuned by eye. The peak is half the token rather
+     than the whole of it — a gradient standing at the edge is not a blurred
+     `box-shadow`, whose own peak is roughly half its color's alpha because
+     the blur puts the edge at the ramp's midpoint, so taking the token at
+     full strength made the rail's shadow darker at the boundary than any
+     card's. And the ramp is EASED rather than linear, though only somewhat: a
+     linear fade arrives at the outer edge still descending at a constant
+     slope, which reads as a termination rather than a fade, while a hard ease
+     spends the strip's whole weight in its first pixels and gives back the
+     contact edge the shadow is for. Between them — 50 → 26 → 12 → 0, against
+     the 50 → 33 → 18 → 0 a straight ramp would draw — keeps a defined edge at
+     the rail and still approaches nothing gently, so the strip has its full
+     reach and no visible end. */
+  --tugx-rail-shadow-stops:
+    color-mix(in srgb, var(--tugx-rail-shadow-color) 50%, transparent) 0%,
+    color-mix(in srgb, var(--tugx-rail-shadow-color) 26%, transparent) 35%,
+    color-mix(in srgb, var(--tugx-rail-shadow-color) 12%, transparent) 65%,
+    transparent 100%;
+}
+
+.tug-rail-shadow {
+  position: absolute;
+  width: var(--tugx-rail-shadow-reach);
+  pointer-events: none;
+}
+
+.tug-rail-shadow--left {
+  background: linear-gradient(to right, var(--tugx-rail-shadow-stops));
+}
+
+.tug-rail-shadow--right {
+  background: linear-gradient(to left, var(--tugx-rail-shadow-stops));
+}

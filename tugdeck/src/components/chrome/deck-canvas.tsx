@@ -131,6 +131,7 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import "./slot-vacancy.css";
 import "./rail-vacancy.css";
 import "./margin-cap.css";
+import "./rail-shadow.css";
 import {
   isSidebarPinned,
   sidebarSide,
@@ -171,6 +172,8 @@ import {
   stripCoordinatesOf,
   impositionGapBottomPx,
   RAIL_EDGE_INSET_PX,
+  RAIL_EDGE_INSET,
+  RAIL_GAP_BOTTOM,
   railGapBottomPx,
   RAIL_SEAM_PX,
   RAIL_TREATMENT,
@@ -230,6 +233,15 @@ const SIDEBAR_PANE_ZINDEX_BASE = 8990;
  * both, with no arithmetic over the deck's card count. [B02]
  */
 const MARGIN_CAP_ZINDEX = SIDEBAR_PANE_ZINDEX_BASE - 1;
+
+/**
+ * Z for the rail shadows, deliberately the margin cap's own layer: above
+ * every free card and strictly below the rail band. The shadow's whole job is
+ * to darken the card sliding under it, so it must outrank cards; and it must
+ * stay below the rails so a rail's own ink is never shaded by the panel it
+ * belongs to.
+ */
+const RAIL_SHADOW_ZINDEX = MARGIN_CAP_ZINDEX;
 
 /** The most rails the band can order before it would collide with the overlay
  *  base. Far past any real deck; the clamp is here so it cannot ever collide. */
@@ -4235,6 +4247,43 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             aria-hidden="true"
             style={{ width: `${bare}px`, zIndex: MARGIN_CAP_ZINDEX }}
             {...{ [CANVAS_BACKGROUND_ATTRIBUTE]: "" }}
+          />
+        );
+      })}
+      {/* The rail shadows: one strip per railed side, standing in the gutter
+          off the rail's inner edge. It is the rail's z-order made visible —
+          the panel is above every content card, and a card travelling toward
+          it passes under this before it goes behind the panel, so the gutter
+          reads as depth rather than as air between two cards.
+
+          Drawn HERE rather than by the pane, and that is the whole point of
+          the element. A strip drawn per rail member is only as continuous as
+          the member frames are, and it broke at every seam of a split rail —
+          against the panel's own law, which says the members touch at one
+          hairline so a rail reads as one flush surface from window top to
+          foot. One element per side has no seam in it to break at. It spans
+          the rail RUN rather than the window, so it stops at the rail's foot
+          instead of running on beside the maker strip. See rail-shadow.css
+          for the falloff and its reasoning. */}
+      {(["left", "right"] as const).map((side) => {
+        // The same `railWidthOf` the inset effect reads, so the shadow and
+        // the band can never disagree about where the rail's inner edge is.
+        // No rail on this side, nothing to cast a shadow.
+        if (railWidthOf(side) === 0) return null;
+        const innerEdge =
+          `calc(${RAIL_EDGE_INSET} + var(${sidebarWidthProperty(side)}, 0px))`;
+        return (
+          <div
+            key={`rail-shadow:${side}`}
+            className={`tug-rail-shadow tug-rail-shadow--${side}`}
+            data-rail-shadow={side}
+            aria-hidden="true"
+            style={{
+              ...(side === "left" ? { left: innerEdge } : { right: innerEdge }),
+              top: RAIL_EDGE_INSET,
+              bottom: RAIL_GAP_BOTTOM,
+              zIndex: RAIL_SHADOW_ZINDEX,
+            }}
           />
         );
       })}
