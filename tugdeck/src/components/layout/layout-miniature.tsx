@@ -52,7 +52,6 @@ import {
   type ContentWidth,
   type ImpositionKind,
   type ImpositionLayout,
-  type RailMode,
   type SidebarSide,
 } from "@/lib/layout-imposer";
 
@@ -89,10 +88,6 @@ export interface MiniatureFlowStrip {
   slots: readonly MiniatureFlowSlot[];
 }
 
-/** How far a card behind the front one peeks out of the rail, in percent of
- *  the miniature's height. Small: the picture has to say "there is another card
- *  back there" without implying the rail is divided. */
-const RAIL_DEPTH_PCT = 3;
 
 /** A lone free card's width, in percent of the field it stands in — the
  *  picture for a deck with no imposition at all (`kind: null`). */
@@ -171,12 +166,9 @@ export interface LayoutMiniatureProps {
   kind: ImpositionKind | null;
   /** How many sidebar cards stand on each side. */
   rails?: MiniatureRails;
-  /** How each side's rail is arranged. Absent — for a side or entirely — draws
-   *  a stack, which is what a rail is until the user says otherwise. */
-  railModes?: Partial<Record<SidebarSide, RailMode>>;
   /**
-   * Which slots are drawn divided, and into how many members — the content-side
-   * twin of `railModes`, keyed by slot index. A slot absent here is drawn whole,
+   * Which slots are drawn divided, and into how many members, keyed by slot
+   * index. A slot absent here is drawn whole,
    * which is what every column is until the user splits it.
    *
    * Member counts rather than a mode word, because a column's membership is
@@ -333,110 +325,67 @@ function slideExpression(
 }
 
 /**
- * One side's rail, holding `count` cards at `widthPct` of the drawing, drawn
- * the way that side is actually arranged.
+ * One side's rail, holding `count` cards at `widthPct` of the drawing.
  *
- * **Stacked**, the members are the same size and stand in one place — that IS
- * the geometry — so it is drawn the way a stack of paper is: the ones behind
- * peek out by a few percent at the top. **Split**, the strip is divided into
- * equal segments with a seam between them, because the whole point of that
+ * A rail is ALWAYS divided ([B01]), so there is one picture: the strip cut into
+ * segments with a seam between them, because the whole point of the
  * arrangement is that every member has its own share of the run.
  *
- * The peek is a SOLID-paint idiom, so only the committed drawing draws it. A
- * proposal's members are hollow, and a hollow rect cannot occlude the one
- * behind it — both outlines paint whole, and the offsets that read as a paper
- * stack in solid ink read as spurious slivers at the strip's top and bottom.
- * A proposal therefore draws a stacked rail as ONE silhouette; the overlay's
- * mark is what states the stack there.
+ * The division drawn is the equal one rather than the side's actual heights.
+ * The picture answers "what stands on this side", and a miniature faithful to
+ * a hand-dragged ratio would make one answer look like several.
  *
- * The split drawing is the equal division rather than the side's actual
- * heights. The picture answers "how is this side arranged", and a miniature
- * faithful to a hand-dragged ratio would make the two answers to that question
- * look like three.
- *
- * **A FLOWING rail draws itself, and no code here says so.** The drawing reads
- * the side's own allocation, whose standing follows the layout ([B04]) — so a
- * flow rail arrives already standing as a strip and is drawn the way this
- * function has always drawn a strip: every member at the height its own
- * content asked for, a seam apart, running off the bottom of the run and
- * clipped by it ([B09]). Fit draws as the division with seams it is. That the
- * two pictures needed no new branch is the point: the layout is a fact about
- * the allocation rather than a second kind of drawing.
+ * A rail whose floors stop fitting the run overflows, and the drawing follows
+ * without a branch: the allocation it reads already stands as a strip, and
+ * every member is drawn at its own span, a seam apart, running off the bottom
+ * of the run and clipped by it — the same picture the column blocks below
+ * draw, and the same affordance.
  */
 function Rail({
   count,
   widthPct,
-  mode = "stack",
-  committed = false,
   allocation,
 }: {
   count: number;
   widthPct: number;
-  mode?: RailMode;
-  committed?: boolean;
   allocation?: PlaceAllocation | null;
 }): React.ReactElement {
-  const depth = mode !== "split" && committed ? Math.min(count - 1, 2) : 0;
   // The side's own allocation when there is one; the anonymous one a proposal
   // gets otherwise ([P09]). Either way ONE arithmetic draws the spans, and the
   // drawing derives no member height of its own.
-  const place =
-    mode === "split"
-      ? (allocation ?? nominalPlaceAllocation(count, NOMINAL_RUN, 0))
-      : null;
-  const overflow = place?.standing === "overflow";
-  // Every split member is drawn, not the first three: an overflowing rail's
-  // members no longer share one height, so which of them the cut falls on is a
-  // fact about their natural heights rather than a constant the drawing could
-  // know in advance. The run clips whatever hangs below it, exactly as the
-  // column blocks are clipped, and the half-visible member at the bottom edge
-  // is the same affordance either way.
-  const spans = place === null ? [] : placeSpanPcts(place, count);
+  const place = allocation ?? nominalPlaceAllocation(count, NOMINAL_RUN, 0);
+  const overflow = place.standing === "overflow";
+  // Every member is drawn, not the first three: an overflowing rail's members
+  // no longer share one height, so which of them the cut falls on is a fact
+  // about their floors rather than a constant the drawing could know in
+  // advance. The run clips whatever hangs below it, exactly as the column
+  // blocks are clipped.
+  //
   // …and exactly as many as the place HAS, which is not the same number as the
   // side's card count: a card dragged loose off the rail keeps its side — so it
   // is still counted here — and stops being a member of the rail, so the
   // allocation has no height for it. Drawing `count` members would index a span
   // nobody allocated.
-  const members = mode === "split" ? spans.length : depth + 1;
+  const spans = placeSpanPcts(place, count);
   return (
     <span
       className="layout-mini-rail"
-      data-rail-mode={mode}
       data-rail-overflow={overflow ? "true" : undefined}
       style={{ flexBasis: `${widthPct}%` }}
     >
-      {Array.from({ length: members }, (_, i) => {
-        if (mode === "split") {
-          // Two members divide: equal segments with a seam between them, the
-          // first flush with the top of the strip and the last with its bottom,
-          // exactly as the real rail's endpoints are the pins an unsplit rail
-          // has. When the floors stop fitting the side overflows and the
-          // drawing follows: every member at its own natural span, stacked a
-          // seam apart down a strip that runs off the bottom of the run — the
-          // same picture the column blocks below draw, and the same affordance.
-          //
-          // Drawn AT REST, unlike a column's, which slides by its live offset:
-          // no rail offset rides the gauge channel, and a rail's question here
-          // is how the side is arranged rather than where its viewport stands.
-          const { top, span } = spans[i];
-          return (
-            <span
-              key={i}
-              className="layout-mini-rail-member"
-              style={{ top: `${top}%`, bottom: `${100 - top - span}%` }}
-            />
-          );
-        }
-        // Drawn back to front: the last one is the card you are looking at.
-        const behind = depth - i;
+      {Array.from({ length: spans.length }, (_, i) => {
+        // The members divide: segments with a seam between them, the first
+        // flush with the top of the strip and the last with its bottom.
+        //
+        // Drawn AT REST, unlike a column's, which slides by its live offset:
+        // no rail offset rides the gauge channel, and a rail's question here
+        // is what stands on the side rather than where its viewport stands.
+        const { top, span } = spans[i];
         return (
           <span
             key={i}
             className="layout-mini-rail-member"
-            style={{
-              top: `${behind * RAIL_DEPTH_PCT}%`,
-              bottom: `${(depth - behind) * RAIL_DEPTH_PCT}%`,
-            }}
+            style={{ top: `${top}%`, bottom: `${100 - top - span}%` }}
           />
         );
       })}
@@ -650,7 +599,6 @@ export function miniatureGeometry({
 export function LayoutMiniature({
   kind,
   rails = {},
-  railModes,
   columnSplits,
   columnOffsets,
   railAllocations,
@@ -778,8 +726,6 @@ export function LayoutMiniature({
         <Rail
           count={left}
           widthPct={railPct}
-          mode={railModes?.left}
-          committed={committed}
           allocation={railAllocations?.left}
         />
       ) : null}
@@ -835,7 +781,7 @@ export function LayoutMiniature({
               // UP is what a positive offset means. ([P08])
               //
               // THIS member's span, not the strip's first: an overflowing place
-              // sizes its members from their own appetites, so they no longer
+              // stands its members at their own floors, so they no longer
               // share one height, and one scale over all of them would slide a
               // taller member by less than the strip it belongs to.
               const slideExpr = overflow
@@ -891,8 +837,6 @@ export function LayoutMiniature({
         <Rail
           count={right}
           widthPct={railPct}
-          mode={railModes?.right}
-          committed={committed}
           allocation={railAllocations?.right}
         />
       ) : null}

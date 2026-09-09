@@ -27,25 +27,19 @@
 
 import type { DeckState, TugPaneState } from "./layout-tree";
 import {
-  DEFAULT_GREED_RANK,
   getAllRegistrations,
-  getGreedRank,
-  getHeightSource,
   getStackSizePolicy,
   isSidebarCard,
 } from "./card-registry";
 import {
   allocatePlaceHeights,
   clampSlot,
-  columnLayoutOf,
   columnModeOf,
   DEFAULT_CONTENT_WIDTH,
   effectiveColumnOrder,
   effectiveRailOrder,
   IMPOSITION_GAP_PX,
   isSidebarPinned,
-  railLayoutOf,
-  railModeOf,
   RAIL_SEAM_PX,
   railWeightOf,
   stripPositions,
@@ -57,7 +51,7 @@ import {
   type FlowSlotExtent,
   type FlowStrip,
   type PlaceAllocation,
-  type PlaceMemberAppetite,
+  type PlaceMember,
   type SidebarSide,
 } from "./lib/layout-imposer";
 
@@ -490,41 +484,24 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
 }
 
 /**
- * What each member of a place wants of its run: its floor from the stack size
- * policy, its natural height, its greed rank, and the weight the user's own
- * seam drags stored.
+ * Each member of a place, as the allocator reads it: its floor from the stack
+ * size policy, and the weight the user's own seam drags stored.
  *
  * A rail member is named by componentId and a column member by pane id, which
  * is the one thing the two places differ by here — a sidebar card is a
  * singleton, and a slot holds panes that may each be a tab stack.
  *
- * The natural comes from `state.appetites` — the settled mirror of
- * `cardAppetiteStore` ([P05]) — folded across the componentIds a member's pane
- * hosts by `Math.max`, because a tab stack is one box and the box has to suit
- * whichever tab is forward.
- *
- * A member NO card of which declared anything reads an ENDLESS natural: it
- * needs the floor to paint and it has said nothing about the height its
- * content is finished at. Endless is what "it did not
- * say" means, and saying instead that it is satisfied at its floor would be a
- * declaration nobody made — one that the seed's slack rule would then act on
- * by handing every spare pixel of the run to somebody else ([B06]). A column
- * of two ordinary content panes seeds to half the run each for this reason:
- * neither is finished, so the seed's fill toward natural divides what is over
- * evenly rather than one of them taking it.
- *
- * A member hosting a card the registry calls a STREAM reads endless too, and
- * for the stronger reason ([B05]): a stream's content is as tall as its pane
- * by nature, so there is no finished height for it to have declared and none
- * for anything to measure. It is read from `getHeightSource` rather than from
- * anything the card publishes, because a stream publishes nothing at all.
+ * There is nothing above the floor to read. A rail divides its run by the
+ * hand's own weights ([B03]), and the one algorithm that reads a card's
+ * content height runs on request rather than from a settled mirror of a
+ * measurement store.
  */
-export function placeMemberAppetites(
+export function placeMembers(
   state: DeckState,
   kind: "rail" | "column",
   memberIds: readonly string[],
   shares: Readonly<Record<string, number>> | undefined,
-): PlaceMemberAppetite[] {
+): PlaceMember[] {
   return memberIds.map((id) => {
     const pane =
       kind === "rail"
@@ -536,24 +513,9 @@ export function placeMemberAppetites(
         : state.cards
             .filter((card) => pane.cardIds.includes(card.id))
             .map((card) => card.componentId);
-    const floor = getStackSizePolicy(componentIds).min.height;
-    let greedRank = DEFAULT_GREED_RANK;
-    let natural = floor;
-    let declared = false;
-    let stream = false;
-    for (const componentId of componentIds) {
-      greedRank = Math.min(greedRank, getGreedRank(componentId));
-      if (getHeightSource(componentId) === "stream") stream = true;
-      const appetite = state.appetites?.[componentId];
-      if (appetite === undefined) continue;
-      declared = true;
-      natural = Math.max(natural, appetite.natural);
-    }
     return {
       id,
-      floor,
-      natural: stream || !declared ? Infinity : Math.max(floor, natural),
-      greedRank,
+      floor: getStackSizePolicy(componentIds).min.height,
       weight: railWeightOf(shares, id),
     };
   });
@@ -601,12 +563,10 @@ export function railMembersOf(
 
 /**
  * How one side's rail divides `run` among its members, or `null` when there is
- * nothing to divide: no rail on that side, a stacked one, or a canvas with no
- * run.
+ * nothing to divide: no rail on that side, or a canvas with no run.
  *
- * A stacked rail has no allocation because every member takes the whole run —
- * that is what a stack IS — and answering with heights would invite a caller
- * to draw a division nobody asked for.
+ * A rail is always divided ([B01]), so the only question here is whether there
+ * is a run and anybody standing in it.
  */
 export function railAllocationOf(
   state: DeckState,
@@ -614,11 +574,10 @@ export function railAllocationOf(
   run: number | null,
 ): PlaceAllocation | null {
   if (run === null || !(run > 0)) return null;
-  if (railModeOf(state.imposition, side) !== "split") return null;
   const members = railMembersOf(state, side);
   if (members.length === 0) return null;
   return allocatePlaceHeights(
-    placeMemberAppetites(
+    placeMembers(
       state,
       "rail",
       members.map((member) => member.componentId),
@@ -626,7 +585,6 @@ export function railAllocationOf(
     ),
     run,
     RAIL_SEAM_PX,
-    railLayoutOf(state.imposition, side),
   );
 }
 
@@ -642,7 +600,7 @@ export function columnAllocationOf(
   const members = columnMembersOf(state, slot);
   if (members.length === 0) return null;
   return allocatePlaceHeights(
-    placeMemberAppetites(
+    placeMembers(
       state,
       "column",
       members,
@@ -650,7 +608,6 @@ export function columnAllocationOf(
     ),
     run,
     IMPOSITION_GAP_PX,
-    columnLayoutOf(state.imposition, slot),
   );
 }
 

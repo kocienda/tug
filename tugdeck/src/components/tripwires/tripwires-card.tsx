@@ -88,9 +88,6 @@ import {
 
 import "./tripwires-card.css";
 
-import { useMeasuredCardAppetite } from "@/lib/card-appetite-store";
-import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
-import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
 
 /**
  * The card's focus group — every stop it offers lives here, so the Tab walk
@@ -431,16 +428,6 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
   const tripwires = snapshot.tripwires;
   const populated = tripwires.length > 0;
 
-  // What the card would like of its rail's run ([B01]): the measured height of
-  // whichever level's content element is standing, plus the pane's title bar,
-  // which neither column can see. The two levels are two different columns and
-  // the ref follows the one that mounted, so opening a tripwire asks for the
-  // detail's height rather than for the roster it replaced.
-  const contentRef = useMeasuredCardAppetite(
-    TRIPWIRES_CARD_ID,
-    CARD_TITLE_BAR_HEIGHT,
-  );
-
   // The opening key view lands on a real row, never on emptiness: an empty list
   // is not a focus stop, and seeding one would arm a pending restore that paints
   // a ring on nothing. `useSeedKeyView` re-arms while the key is null, so the
@@ -483,7 +470,7 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
         <div
           className="tripwires-card-content"
           data-testid="tripwires-card-content"
-          ref={contentRef}
+          data-card-content=""
         >
           <TripwireDetail
             tripwire={open}
@@ -505,7 +492,7 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
         <div
           className="tripwires-card-content"
           data-testid="tripwires-card-content"
-          ref={contentRef}
+          data-card-content=""
         >
         {!populated ? (
           // No list until there is a row for it. A `TugListView` over zero rows

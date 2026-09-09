@@ -101,10 +101,9 @@ describe.skipIf(!SHOULD_RUN)("at0506 — the factory rail", () => {
         expect(zOrder[zOrder.length - 1]).toBe("cards");
 
         // ---- 2. The arrangement is written, not fallen back to.
-        const rail = await app.evalJS<{ mode?: string; order?: string[] }>(
+        const rail = await app.evalJS<{ order?: string[] }>(
           `(window.tugdeck.diag.getDeckState().imposition.rails || {}).right || {}`,
         );
-        expect(rail.mode).toBe("stack");
         expect(rail.order).toEqual(FACTORY_RAIL);
       } finally {
         await app.close();

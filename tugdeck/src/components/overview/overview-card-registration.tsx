@@ -50,9 +50,8 @@ export function registerOverviewCard(): void {
     defaultMeta: { title: "Overview", icon: "Newspaper", closable: true },
     // The greediest rail on the deck: a post is prose, and prose is what a
     // narrow rail costs the most. Fed first in surplus, drained last in
-    // deficit. Rank 1 of the six sidebar cards, and the only stream among
-    // them: a feed has no natural height to be satisfied at, so a place it
-    // sits in never reaches the seed's slack stage at all ([B05]).
+    // deficit. Rank 1 of the six sidebar cards. The rank is read by the WIDTH
+    // allocator alone; a rail's vertical division is the hand's.
     greedRank: 1,
     // The 56-character measure: the narrowest a post still reads as prose. The
     // allocator holds the rail here and gives it up only to remove overlap;
@@ -66,14 +65,6 @@ export function registerOverviewCard(): void {
     // Pins to a deck edge and insets the imposition band rather than taking a
     // slot inside it.
     layoutRole: "sidebar",
-    // The one stream on the deck ([B05]/[B06]). Its transcript is virtualized
-    // against its own viewport and it follows its content's tail, so its
-    // rendered height is a function of the height it would feed — the one leg
-    // that would close the measurement loop. So it is never measured: it
-    // publishes no appetite at all, its natural is read as endless here, flow
-    // stands it at one screen of the run, and a fitting place's seed hands it
-    // the discretionary pool.
-    heightSource: "stream",
     // Out of the Cards card's list, as Jots and that card itself are: those rows
     // are the deck's content cards, each carrying a slot picker for an
     // arrangement a rail can never stand in.

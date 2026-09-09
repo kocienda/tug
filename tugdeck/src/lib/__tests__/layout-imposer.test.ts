@@ -19,21 +19,17 @@ import {
   allocateSidebarWidths,
   allocatePlaceHeights,
   railStripProperty,
-  type PlaceMemberAppetite,
+  type PlaceMember,
   stripCoordinatesOf,
   solveSidebarWidths,
   effectiveRailOrder,
-  railModeOf,
-  isRailMode,
   railSeamProperty,
   railWeightOf,
   placeSharesFromHeights,
   seamDragBounds,
-  withRailMode,
   withRailOrder,
   withSidebarMovedToRail,
   withRailShares,
-  withoutRailShares,
   seamPicture,
   imposeRect,
   imposeStyle,
@@ -943,45 +939,34 @@ describe("a rail whose floors no longer fit overflows instead of dividing", () =
   });
 });
 
-describe("an overflowing place is built out of what its members asked for", () => {
-  /** Three members whose natural heights differ, in a run too short for their
-   *  floors — the shape the whole rule exists for. */
-  const members = (
-    naturals: readonly number[],
-    weights: readonly number[] = naturals.map(() => 1),
-  ) =>
+describe("an overflowing place stands its members at their floors", () => {
+  /** Three members whose floors do not fit the run — the one shape that
+   *  overflows ([B06]). Their naturals differ and none of them is a term. */
+  const members = (naturals: readonly number[]) =>
     naturals.map((natural, index) => ({
       id: `m${index}`,
       floor: 240,
       natural,
       greedRank: 5,
-      weight: weights[index],
+      weight: 1,
     }));
 
-  test("each member takes its own natural height, and the strip is their sum", () => {
-    // The claim in one row: `240, 400, 600` in a run of 300 gives back exactly
-    // `240, 400, 600` — three different numbers, none of them about the run —
-    // and a strip of their sum with a seam between each neighbouring pair.
+  test("every member is at its floor, and the strip is their sum", () => {
+    // The claim in one row: three floors of 240 in a run of 300 give back
+    // `240, 240, 240` and a strip of their sum, a seam between each
+    // neighbouring pair. The naturals say nothing — there is no room above the
+    // floors to divide, so there is nothing for a natural to ask for.
     const place = allocatePlaceHeights(members([240, 400, 600]), 300, 4);
     expect(place.standing).toBe("overflow");
-    expect(place.heights).toEqual([240, 400, 600]);
-    expect(place.tops).toEqual([0, 244, 648]);
-    expect(place.stripLength).toBe(1240 + 2 * 4);
-  });
-
-  test("a stored weight scales a member's natural, and its floor still holds", () => {
-    // The overflow branch reads the weight a seam drag stored, which is what
-    // makes an overflowing drag land where the user let go of it. The floor is
-    // the one thing the weight cannot argue with: half of 600 is 300 and stands
-    // at 300, half of 400 is 200 and stands at the floor's 240.
-    const place = allocatePlaceHeights(members([240, 400, 600], [1, 0.5, 0.5]), 300, 4);
-    expect(place.heights).toEqual([240, 240, 300]);
+    expect(place.heights).toEqual([240, 240, 240]);
+    expect(place.tops).toEqual([0, 244, 488]);
+    expect(place.stripLength).toBe(720 + 2 * 4);
   });
 
   test("the strip coordinates published are the tops, then the strip's end", () => {
     // `n + 1` for `n` members, and the last one is what the offset clamp reads.
     const place = allocatePlaceHeights(members([240, 400, 600]), 300, 4);
-    expect(stripCoordinatesOf(place)).toEqual([0, 244, 648, 1248]);
+    expect(stripCoordinatesOf(place)).toEqual([0, 244, 488, 728]);
     // A sharing place publishes seams instead, so it has no strip to publish.
     expect(stripCoordinatesOf(allocatePlaceHeights(members([240, 400, 600]), 4000, 4)))
       .toBeUndefined();
@@ -1026,7 +1011,7 @@ describe("a place's stored weights set how it divides its run", () => {
   const floorless = (
     ids: readonly string[],
     shares: Readonly<Record<string, number>> | undefined,
-  ): PlaceMemberAppetite[] =>
+  ): PlaceMember[] =>
     ids.map((id) => ({
       id,
       floor: 0,
@@ -1089,7 +1074,7 @@ describe("a place's stored weights set how it divides its run", () => {
     const satisfied = (
       ids: readonly string[],
       shares: Readonly<Record<string, number>>,
-    ): PlaceMemberAppetite[] =>
+    ): PlaceMember[] =>
       ids.map((id) => ({
         id,
         floor: 0,
@@ -1107,7 +1092,7 @@ describe("a place's stored weights set how it divides its run", () => {
 });
 
 describe("placeSharesFromHeights", () => {
-  const floorless = (ids: readonly string[]): PlaceMemberAppetite[] =>
+  const floorless = (ids: readonly string[]): PlaceMember[] =>
     ids.map((id) => ({
       id,
       floor: 0,
@@ -1123,14 +1108,12 @@ describe("placeSharesFromHeights", () => {
     const shares = placeSharesFromHeights(
       floorless(["a", "b", "c"]),
       [30, 30, 30],
-      "fit",
       90,
     );
     for (const id of ["a", "b", "c"]) expect(shares[id]).toBeCloseTo(1, 9);
     const uneven = placeSharesFromHeights(
       floorless(["a", "b"]),
       [75, 25],
-      "fit",
       100,
     );
     expect(uneven.a / uneven.b).toBeCloseTo(3, 9);
@@ -1142,82 +1125,72 @@ describe("placeSharesFromHeights", () => {
     // nothing else — the naturals they are short of are not a term. Under the
     // retired rule this was the all-zero record, on the reading that a weight
     // was a claim on the pool above a second tier.
-    const members: PlaceMemberAppetite[] = ["a", "b"].map((id) => ({
+    const members: PlaceMember[] = ["a", "b"].map((id) => ({
       id,
       floor: 100,
       natural: 600,
       greedRank: 5,
       weight: 1,
     }));
-    const shares = placeSharesFromHeights(members, [200, 200], "fit", 400);
+    const shares = placeSharesFromHeights(members, [200, 200], 400);
     expect(shares.a).toBeCloseTo(1, 9);
     expect(shares.b).toBeCloseTo(1, 9);
   });
 
-  test("a strip's weights are NOT normalized: each is its own multiple of natural", () => {
-    // A shared weight is a claim on a pool the members compete for, so it only
-    // means anything relative to its neighbours. An overflowing weight is a
-    // claim on nothing but the member's own natural height — the strip is as
-    // long as it needs to be — so scaling the set would change every height.
-    const members: PlaceMemberAppetite[] = ["a", "b"].map((id) => ({
+  test("a strip has no division to record: its members are at their floors", () => {
+    // A place whose floors do not fit its run stands as a strip ([B06]), and
+    // those heights are the floors rather than a division — inverting them
+    // would store a weight the allocator would not give back.
+    const members: PlaceMember[] = ["a", "b"].map((id) => ({
       id,
-      floor: 0,
+      floor: 400,
       natural: 400,
       greedRank: 5,
       weight: 1,
     }));
-    expect(placeSharesFromHeights(members, [400, 800], "flow", 400)).toEqual({
-      a: 1,
-      b: 2,
-    });
+    expect(placeSharesFromHeights(members, [400, 400], 500)).toEqual({});
   });
 
   test("a place of fewer than two members has no division to record", () => {
-    expect(placeSharesFromHeights(floorless(["a"]), [100], "fit", 100)).toEqual(
-      {},
-    );
-    expect(placeSharesFromHeights([], [], "flow", 100)).toEqual({});
+    expect(placeSharesFromHeights(floorless(["a"]), [100], 100)).toEqual({});
+    expect(placeSharesFromHeights([], [], 100)).toEqual({});
   });
 
-  test("a fit place's record is its division, and it allocates straight back", () => {
-    // A place with no record stands at the seed — here the slack whole to the
-    // greediest — and the seed's own shares reproduce it. A hand that put the
-    // members somewhere else stored that division instead, and it comes back
-    // exactly too ([P10]): the record IS the heights, scaled to average 1.
-    const appetites: PlaceMemberAppetite[] = [
-      { id: "a", floor: 100, natural: 200, greedRank: 1 },
-      { id: "b", floor: 100, natural: 200, greedRank: 5 },
+  test("a place's record is its division, and it allocates straight back", () => {
+    // A place with no record stands at the EQUAL division ([B03]) — an unnamed
+    // member weighs 1 — and inverting those heights gives the all-ones record,
+    // which allocates straight back to them. A hand that put the members
+    // somewhere else stored that division instead, and it comes back exactly
+    // too ([P10]): the record IS the heights, scaled to average 1.
+    const members: PlaceMember[] = [
+      { id: "a", floor: 100 },
+      { id: "b", floor: 100 },
     ];
-    const place = allocatePlaceHeights(appetites, 900, 0);
-    expect(place.heights).toEqual([700, 200]);
-    const seeded = placeSharesFromHeights(appetites, place.heights, "fit", 900);
-    expect(seeded.a / seeded.b).toBeCloseTo(3.5, 9);
+    const place = allocatePlaceHeights(members, 900, 0);
+    expect(place.heights).toEqual([450, 450]);
+    expect(placeSharesFromHeights(members, place.heights, 900)).toEqual({
+      a: 1,
+      b: 1,
+    });
+
+    const dragged = placeSharesFromHeights(members, [700, 200], 900);
+    expect(dragged.a / dragged.b).toBeCloseTo(3.5, 9);
     expect(
       allocatePlaceHeights(
-        appetites.map((member) => ({ ...member, weight: seeded[member.id] })),
+        members.map((member) => ({ ...member, weight: dragged[member.id] })),
         900,
         0,
       ).heights,
     ).toEqual([700, 200]);
-
-    const dragged = placeSharesFromHeights(appetites, [450, 450], "fit", 900);
-    expect(dragged).toEqual({ a: 1, b: 1 });
-    expect(
-      allocatePlaceHeights(
-        appetites.map((member) => ({ ...member, weight: dragged[member.id] })),
-        900,
-        0,
-      ).heights,
-    ).toEqual([450, 450]);
   });
 });
 
 describe("seamDragBounds gives each regime its own room", () => {
   const members = (
     count: number,
-    appetite: { floor: number; natural: number },
+    appetite: { floor: number },
     greedRanks?: readonly number[],
-  ): PlaceMemberAppetite[] =>
+  ): PlaceMember[] =>
     Array.from({ length: count }, (_, i) => ({
       id: `m${i}`,
       ...appetite,
@@ -1225,23 +1198,21 @@ describe("seamDragBounds gives each regime its own room", () => {
       weight: 1,
     }));
 
-  test("flow: the seam takes from nobody, and reaches a screen", () => {
-    // A flowing strip is as long as it needs to be, and its drag takes nothing
-    // from the member below the seam ([B08]) — so the range is the dragged
-    // member's own: its floor below, and one screen of it above, which is the
-    // run. Its neighbour's floor is not a term, because its neighbour is not
-    // giving anything up.
-    const appetites = members(2, { floor: 240, natural: 400 });
+  test("a strip does not trade: its seam is reported where it stands", () => {
+    // A place whose floors do not fit its run has no room to give either way
+    // ([B06]) — every member is already at its floor — so the seam holds where
+    // it is until a member leaves or the window grows.
+    const appetites = members(2, { floor: 240 });
     const place = allocatePlaceHeights(appetites, 300, 0);
     expect(place.standing).toBe("overflow");
     expect(seamDragBounds(place, appetites, 0)).toEqual({
       lower: 240,
-      upper: 400,
+      upper: 240,
     });
   });
 
   test("shared: the trade is between the floors, whatever the appetites", () => {
-    const appetites = members(2, { floor: 100, natural: 600 });
+    const appetites = members(2, { floor: 100 });
     const place = allocatePlaceHeights(appetites, 900, 0);
     expect(place.standing).toBe("shared");
     expect(place.heights).toEqual([450, 450]);
@@ -1259,7 +1230,7 @@ describe("seamDragBounds gives each regime its own room", () => {
     // The naturals no longer fit, and under the retired rule that was a seam
     // that did not move. The floors fit, so there is a division, and a
     // division is the hand's to move.
-    const appetites = members(2, { floor: 100, natural: 600 });
+    const appetites = members(2, { floor: 100 });
     const place = allocatePlaceHeights(appetites, 500, 0);
     expect(place.standing).toBe("shared");
     expect(place.heights).toEqual([250, 250]);
@@ -1272,7 +1243,7 @@ describe("seamDragBounds gives each regime its own room", () => {
   test("shared with both members at their floors: the seam does not move", () => {
     // The floors exactly fill the run, so there is nothing to trade. A drag
     // holds where it is rather than starving one member to feed the other.
-    const appetites = members(2, { floor: 250, natural: 600 });
+    const appetites = members(2, { floor: 250 });
     const place = allocatePlaceHeights(appetites, 500, 0);
     expect(place.standing).toBe("shared");
     expect(place.heights).toEqual([250, 250]);
@@ -1286,7 +1257,7 @@ describe("seamDragBounds gives each regime its own room", () => {
     // Three members, and the seam between the first two can trade only their
     // span: the third member's height is not a term above or below, whatever
     // it holds. The upper bound is the span less the neighbour's floor.
-    const appetites = members(3, { floor: 100, natural: 200 });
+    const appetites = members(3, { floor: 100 });
     const place = allocatePlaceHeights(appetites, 900, 0);
     expect(place.heights).toEqual([300, 300, 300]);
     expect(seamDragBounds(place, appetites, 0)).toEqual({
@@ -1296,7 +1267,7 @@ describe("seamDragBounds gives each regime its own room", () => {
   });
 
   test("a boundary that is not one reports the height standing where it is", () => {
-    const appetites = members(2, { floor: 100, natural: 600 });
+    const appetites = members(2, { floor: 100 });
     const place = allocatePlaceHeights(appetites, 900, 0);
     for (const index of [-1, 1, 7]) {
       const bounds = seamDragBounds(place, appetites, index);
@@ -1345,7 +1316,7 @@ describe("effectiveRailOrder", () => {
   test("the stored order wins", () => {
     const state = imposition(
       { cards: { side: "right" }, jots: { side: "right" } },
-      { right: { mode: "split", order: ["jots", "cards"] } },
+      { right: { order: ["jots", "cards"] } },
     );
     expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual([
       "jots",
@@ -1358,7 +1329,7 @@ describe("effectiveRailOrder", () => {
     // stored order is what makes a split rail's vertical order immune to that.
     const state = imposition(
       { cards: { side: "right" }, jots: { side: "right" } },
-      { right: { mode: "split", order: ["jots", "cards"] } },
+      { right: { order: ["jots", "cards"] } },
     );
     expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual(
       effectiveRailOrder(state, "right", ["jots", "cards"]),
@@ -1370,7 +1341,7 @@ describe("effectiveRailOrder", () => {
     // when it returns, and the rail lays out the members it has.
     const state = imposition(
       { cards: { side: "right" }, jots: { side: "left" } },
-      { right: { mode: "split", order: ["jots", "cards"] } },
+      { right: { order: ["jots", "cards"] } },
     );
     expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual([
       "cards",
@@ -1384,7 +1355,7 @@ describe("effectiveRailOrder", () => {
         jots: { side: "right" },
         overview: { side: "right" },
       },
-      { right: { mode: "split", order: ["jots"] } },
+      { right: { order: ["jots"] } },
     );
     expect(
       effectiveRailOrder(state, "right", ["cards", "jots", "overview"]),
@@ -1396,7 +1367,7 @@ describe("effectiveRailOrder", () => {
     // the record still names it, and reopening puts it back at its place.
     const state = imposition(
       { cards: { side: "right" }, jots: { side: "right" } },
-      { right: { mode: "split", order: ["jots", "cards"] } },
+      { right: { order: ["jots", "cards"] } },
     );
     expect(effectiveRailOrder(state, "right", ["cards"])).toEqual(["cards"]);
     expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual([
@@ -1414,7 +1385,7 @@ describe("withSidebarMovedToRail carries a cross-side move in one imposition", (
       layout: { side: "right", pinned: true },
       overview: { side: "right", pinned: true },
     },
-    rails: { right: { mode: "split", order: ["layout", "overview"] } },
+    rails: { right: { order: ["layout", "overview"] } },
   };
   const standing = {
     left: ["cards", "jots"],
@@ -1426,7 +1397,6 @@ describe("withSidebarMovedToRail carries a cross-side move in one imposition", (
     expect(moved.sidebars.cards).toEqual({ side: "right", pinned: true });
     expect(moved.rails?.right?.order).toEqual(["layout", "cards", "overview"]);
     expect(moved.rails?.left?.order).toEqual(["jots"]);
-    expect(moved.rails?.right?.mode, "the destination's mode is untouched").toBe("split");
     expect(base.rails?.right?.order, "pure: the input is not mutated").toEqual([
       "layout",
       "overview",
@@ -1446,68 +1416,6 @@ describe("withSidebarMovedToRail carries a cross-side move in one imposition", (
     const moved = withSidebarMovedToRail(base, "layout", "right", 1, standing);
     expect(moved.rails?.right?.order).toEqual(["overview", "layout"]);
     expect(moved.rails?.left, "no order was written for a side that did not move").toBeUndefined();
-  });
-});
-
-describe("rail arrangement accessors", () => {
-  const base: DeckImposition = {
-    sidebars: { cards: { side: "right" }, jots: { side: "right" } },
-  };
-
-  test("an absent record reads as a stack on both sides", () => {
-    expect(railModeOf(base, "left")).toBe("stack");
-    expect(railModeOf(base, "right")).toBe("stack");
-    expect(railModeOf({ sidebars: {}, rails: { right: {} } }, "right")).toBe(
-      "stack",
-    );
-  });
-
-  test("withRailMode records the side's mode without touching the other", () => {
-    const split = withRailMode(base, "right", "split");
-    expect(railModeOf(split, "right")).toBe("split");
-    expect(railModeOf(split, "left")).toBe("stack");
-    expect(railModeOf(base, "right")).toBe("stack");
-  });
-
-  test("re-stacking keeps order and shares, so a re-split lands where the user left it", () => {
-    const split = withRailShares(
-      withRailOrder(withRailMode(base, "right", "split"), "right", [
-        "jots",
-        "cards",
-      ]),
-      "right",
-      { jots: 2, cards: 1 },
-    );
-    const stacked = withRailMode(split, "right", "stack");
-    expect(stacked.rails?.right?.order).toEqual(["jots", "cards"]);
-    expect(stacked.rails?.right?.shares).toEqual({ jots: 2, cards: 1 });
-    expect(railModeOf(withRailMode(stacked, "right", "split"), "right")).toBe(
-      "split",
-    );
-  });
-
-  test("withoutRailShares equalizes and keeps mode and order", () => {
-    const split = withRailShares(
-      withRailOrder(withRailMode(base, "right", "split"), "right", [
-        "jots",
-        "cards",
-      ]),
-      "right",
-      { jots: 2, cards: 1 },
-    );
-    const equalized = withoutRailShares(split, "right");
-    expect(equalized.rails?.right?.shares).toBeUndefined();
-    expect(equalized.rails?.right?.order).toEqual(["jots", "cards"]);
-    expect(railModeOf(equalized, "right")).toBe("split");
-    expect(withoutRailShares(base, "right")).toBe(base);
-  });
-
-  test("isRailMode narrows only the two modes", () => {
-    expect(isRailMode("stack")).toBe(true);
-    expect(isRailMode("split")).toBe(true);
-    for (const bad of ["Split", "", 1, null, undefined, {}]) {
-      expect(isRailMode(bad)).toBe(false);
-    }
   });
 });
 

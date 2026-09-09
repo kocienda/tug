@@ -103,8 +103,6 @@
 
 import type React from "react";
 
-import { DEFAULT_GREED_RANK } from "../card-registry";
-
 /** The active N-up rule. */
 export type ImpositionKind =
   | "one-up"
@@ -131,37 +129,6 @@ export type SidebarSide = "left" | "right";
  * — and disagree only about where slot k lands.
  */
 export type ImpositionLayout = "fit" | "flow";
-
-/**
- * How one PLACE resolves its members' heights against its run — the vertical
- * twin of {@link ImpositionLayout}, and deliberately a distinct type ([B05]).
- *
- * `"fit"` — the run is the constraint. The members divide it by the allocation
- * ladder: floors, an even fill toward the naturals, and the discretionary pool
- * past them by greed. Nobody overflows and the run is filled.
- *
- * `"flow"` — the content is the constraint. Every member stands at its own
- * height, the strip is as long as that makes it, and it scrolls behind the run.
- * Nobody is stretched and nobody is squeezed.
- *
- * The same two words as the deck's band, because it is the same choice one axis
- * over: whether the place should fit the screen, or the screen should be a
- * window onto the place. A SEPARATE TYPE all the same, so a deck layout can
- * never be handed where a place layout is read or the reverse — the two are
- * chosen in different places, stored in different fields, and mean the same
- * thing about different runs.
- */
-export type PlaceLayout = "fit" | "flow";
-
-/** The layout a place reads under when it has never said otherwise, and what
- *  every blob written before the choice existed means. */
-export const DEFAULT_PLACE_LAYOUT: PlaceLayout = "fit";
-
-/** Narrow an unknown (a parsed blob field, an action payload) to a place
- *  layout. */
-export function isPlaceLayout(value: unknown): value is PlaceLayout {
-  return value === "fit" || value === "flow";
-}
 
 /** The layout mode a deck reads under when it has never said otherwise, and
  *  what every blob written before the mode existed means. */
@@ -193,9 +160,6 @@ export interface SidebarEntry {
   pinned?: boolean;
 }
 
-/** How a side's sidebar cards stand against one another. */
-export type RailMode = "stack" | "split";
-
 /** How the content cards sharing one slot stand against one another. The same
  *  two words a rail uses, and deliberately a separate name: a slot is a
  *  different place, and a column mode is read from a different record. */
@@ -215,34 +179,20 @@ export function isColumnMoveTarget(
 }
 
 /**
- * How one side's rail is arranged: stacked front-to-back (the default, and what
- * a rail has always been) or divided vertically so every member is visible at
- * once.
+ * How one side's rail is arranged: divided vertically, always, so that every
+ * member standing on the side is visible at once.
  *
- * Split is a property of the SIDE, not of a pair of cards: all of a side's
+ * The division is a property of the SIDE, not of a pair of cards: all of a side's
  * visible members participate, and there are no sub-groups. Two or three cards
  * do not need a tree, and a tree is where this surface's complexity would go.
  *
  * `order` and `shares` outlive the members they name. A card closing is an
  * internal operation and must not destroy the arrangement the user chose
- * ([L23]), so nothing here is ever cleaned up: close a split member and the
- * remaining one takes the full run, reopen it and the split re-applies at the
- * order and heights it had.
+ * ([L23]), so nothing here is ever cleaned up: close a member and the
+ * remaining one takes the full run, reopen it and the division re-applies at
+ * the order and heights it had.
  */
 export interface RailArrangement {
-  /** Absent reads as `"stack"` — today's behavior, on an unchanged blob. */
-  mode?: RailMode;
-  /**
-   * How the side's run is resolved when it is split; absent reads as
-   * {@link DEFAULT_PLACE_LAYOUT}, so every rail that predates the choice comes
-   * back exactly as it stood.
-   *
-   * Meaningful only under `"split"`. A stacked rail stores it and ignores it,
-   * exactly as it stores `shares`: the choice describes how a division is
-   * resolved, and a stack has no division — but re-splitting has to land on the
-   * arrangement the user chose rather than on a default.
-   */
-  layout?: PlaceLayout;
   /**
    * The members' vertical order, top to bottom, by componentId. Absent means
    * registration order — see {@link effectiveRailOrder}, which also tolerates
@@ -251,15 +201,12 @@ export interface RailArrangement {
   order?: string[];
   /**
    * Each member's share of the run, keyed by componentId — the division a
-   * fitting rail stands at, bounded below by the members' floors, and under
-   * flow the multiplier on each member's natural height.
+   * rail stands at, bounded below by the members' floors.
    *
    * The shares belong to the hand. Only a seam drag, a membership change and
-   * Fit to Content write them; content never does. An ABSENT record is a rail
-   * nobody has divided yet: it allocates from the members' appetites once, as
-   * a seed, and the deck writes that seed here at its first settle so that
-   * nothing later moves a seam the user did not. An unnamed member in a
-   * present record weighs 1.
+   * Resize Sidebars to Fit write them; content never does. An ABSENT record is
+   * a rail nobody has divided yet, and it stands at equal shares. An unnamed
+   * member in a present record weighs 1.
    *
    * Weights rather than positions: membership churns, and a positional array
    * would hand a departing card's height to whoever inherits its index.
@@ -313,10 +260,6 @@ export interface RailArrangement {
 export interface ColumnArrangement {
   /** Absent reads as `"stack"` — cards in a slot take turns, as they always did. */
   mode?: ColumnMode;
-  /** How the slot's run is resolved when it is split; absent reads as
-   *  {@link DEFAULT_PLACE_LAYOUT}. Meaningful only under `"split"`, on
-   *  {@link RailArrangement.layout}'s own reasoning. */
-  layout?: PlaceLayout;
   /**
    * The members' vertical order, top to bottom, by pane id. Absent means the
    * slot's own pane order — see {@link effectiveColumnOrder}, which also
@@ -325,8 +268,9 @@ export interface ColumnArrangement {
   order?: string[];
   /**
    * Each member's share of the run, keyed by pane id, on
-   * {@link RailArrangement.shares}'s own meaning: the hand's division under
-   * fit, a multiplier on natural under flow, seeded once when absent.
+   * {@link RailArrangement.shares}'s own meaning: the hand's division of the
+   * run. An absent record is a column nobody has divided, and it stands at
+   * equal shares.
    */
   shares?: Record<string, number>;
 }
@@ -483,28 +427,6 @@ export function effectiveRailOrder(
   return [...named, ...present.filter((id) => !claimed.has(id))];
 }
 
-/** The arrangement `side` stands under; absent reads as a stack. */
-export function railModeOf(
-  imposition: DeckImposition,
-  side: SidebarSide,
-): RailMode {
-  return imposition.rails?.[side]?.mode === "split" ? "split" : "stack";
-}
-
-/** Narrow an unknown (a parsed blob field, an action payload) to a rail mode. */
-export function isRailMode(value: unknown): value is RailMode {
-  return value === "stack" || value === "split";
-}
-
-/** How `side`'s run is resolved: what it stored, or fit. */
-export function railLayoutOf(
-  imposition: DeckImposition,
-  side: SidebarSide,
-): PlaceLayout {
-  const stored = imposition.rails?.[side]?.layout;
-  return isPlaceLayout(stored) ? stored : DEFAULT_PLACE_LAYOUT;
-}
-
 /** The side's arrangement with one field replaced, the others untouched. */
 function withRailField(
   imposition: DeckImposition,
@@ -516,26 +438,6 @@ function withRailField(
     ...imposition,
     rails: { ...imposition.rails, [side]: { ...current, ...patch } },
   };
-}
-
-/** The imposition with `side` stacked or split, keeping its order and shares —
- *  a re-split lands on the arrangement the user last chose, not on a default. */
-export function withRailMode(
-  imposition: DeckImposition,
-  side: SidebarSide,
-  mode: RailMode,
-): DeckImposition {
-  return withRailField(imposition, side, { mode });
-}
-
-/** The imposition with `side` fitting or flowing its run, keeping its mode,
- *  order and shares. */
-export function withRailLayout(
-  imposition: DeckImposition,
-  side: SidebarSide,
-  layout: PlaceLayout,
-): DeckImposition {
-  return withRailField(imposition, side, { layout });
 }
 
 /** The imposition with `side`'s members in `order`, top to bottom. */
@@ -551,10 +453,8 @@ export function withRailOrder(
  * The imposition with `componentId` moved from the rail it stands on to
  * position `index` of `side`'s rail — its side, the origin's order, and the
  * destination's order in ONE imposition, so a cross-side drop arms exactly
- * one settle. The precedent is a split: {@link withRailMode}'s caller writes
- * the mode and the order it materializes in one commit, never two, because a
- * second commit under the same gesture is a second settle under the user's
- * hand. Changing the side alone would first land the card at the side's
+ * one settle: a second commit under the same gesture is a second settle under
+ * the user's hand. Changing the side alone would first land the card at the side's
  * default position and tween it there, and only then move it to `index`.
  *
  * `standing` is each side's members in the vertical order they hold, the
@@ -618,24 +518,12 @@ export function withRailShares(
   return withRailField(imposition, side, { shares: { ...shares } });
 }
 
-/** The imposition with `side`'s height weights removed — an equal division,
- *  keeping the side's mode and order. */
-export function withoutRailShares(
-  imposition: DeckImposition,
-  side: SidebarSide,
-): DeckImposition {
-  const current = imposition.rails?.[side];
-  if (current?.shares === undefined) return imposition;
-  const { shares: _dropped, ...rest } = current;
-  return { ...imposition, rails: { ...imposition.rails, [side]: rest } };
-}
-
 /**
  * How much of the run a member is worth: its stored share, 1 for a member the
  * record does not name, and `undefined` when there is no record at all.
  *
  * The absent record is a fact the allocator reads — a place nobody has divided
- * yet seeds its division from the members' appetites — so it is answered as
+ * yet stands at equal shares — so it is answered as
  * `undefined` rather than folded into 1. Inside a present record a weight that
  * is not a finite non-negative number reads as 1 rather than as an error: these
  * arrive from a JSON blob and from gesture arithmetic, and a rail that refuses
@@ -741,15 +629,6 @@ export function isColumnMode(value: unknown): value is ColumnMode {
   return value === "stack" || value === "split";
 }
 
-/** How `slot`'s run is resolved: what it stored, or fit. */
-export function columnLayoutOf(
-  imposition: Pick<DeckImposition, "columns">,
-  slot: number,
-): PlaceLayout {
-  const stored = imposition.columns?.[slot]?.layout;
-  return isPlaceLayout(stored) ? stored : DEFAULT_PLACE_LAYOUT;
-}
-
 /** The slot's arrangement with one field replaced, the others untouched. */
 function withColumnField(
   imposition: DeckImposition,
@@ -771,16 +650,6 @@ export function withColumnMode(
   mode: ColumnMode,
 ): DeckImposition {
   return withColumnField(imposition, slot, { mode });
-}
-
-/** The imposition with `slot` fitting or flowing its run, keeping its mode,
- *  order and shares. */
-export function withColumnLayout(
-  imposition: DeckImposition,
-  slot: number,
-  layout: PlaceLayout,
-): DeckImposition {
-  return withColumnField(imposition, slot, { layout });
 }
 
 /** The imposition with `slot`'s members in `order`, top to bottom. */
@@ -858,18 +727,6 @@ export function sweptColumnOrders(
     next[slot] = { ...arrangement, order: kept };
   }
   return changed ? { ...imposition, columns: next } : imposition;
-}
-
-/** The imposition with `slot`'s height weights removed — an equal division,
- *  keeping the slot's mode and order. */
-export function withoutColumnShares(
-  imposition: DeckImposition,
-  slot: number,
-): DeckImposition {
-  const current = imposition.columns?.[slot];
-  if (current?.shares === undefined) return imposition;
-  const { shares: _dropped, ...rest } = current;
-  return { ...imposition, columns: { ...imposition.columns, [slot]: rest } };
 }
 
 /**
@@ -3343,32 +3200,25 @@ export function columnStripProperty(slot: number, index: number): string {
 export type PlaceStanding = "shared" | "overflow";
 
 /**
- * One member's appetite for vertical run: what it cannot go below, what it is
- * would take if the run were endless, how greedy it is against its
- * neighbours, and the weight the user's own seam drags stored.
+ * One member's claim on the vertical run: what it cannot go below, and the
+ * weight the user's own seam drags stored.
  *
  * A rail member is a card (`id` is its componentId); a column member is a pane
  * (`id` is the pane id). The two are the same kind of member in the same kind
  * of place, which is why one allocator answers for both.
  *
- * There is ONE tier above the floor ([B03]). There were two, and the second —
- * comfort — was the rung a fitting place's ladder held every member at before
- * dividing the rest. The ladder no longer has that rung, and the tier it read
- * was a per-card sum of pixel constants nothing in the build could check.
+ * There is no tier above the floor. There were two — comfort and natural —
+ * and both were rungs a ladder held a member at before dividing the rest.
+ * The ladder is gone: a rail divides its run by the hand's own weights, and
+ * the one algorithm that reads a card's content height runs on request.
  */
-export interface PlaceMemberAppetite {
+export interface PlaceMember {
   /** componentId for a rail member, pane id for a column member. */
   id: string;
   /** Hard floor, px: `getStackSizePolicy(componentIds).min.height`. */
   floor: number;
-  /** ≥ floor; `Infinity` for a stream and for a member that declared nothing. */
-  natural: number;
-  /** Lower is greedier; `getGreedRank` folded with `Math.min` over a pane's
-   *  cards. */
-  greedRank: number;
   /** The stored share, {@link railWeightOf}: finite, ≥ 0; `undefined` when the
-   *  place has no record, which is what makes a fitting place seed its
-   *  division from the appetites rather than divide by weights nobody wrote. */
+   *  place has no record, which reads as an equal division ([B03]). */
   weight?: number;
 }
 
@@ -3383,10 +3233,6 @@ export interface PlaceMemberAppetite {
  */
 export interface PlaceAllocation {
   standing: PlaceStanding;
-  /** The place's own choice, carried with the numbers it produced. Every
-   *  consumer that must know which arithmetic made these heights reads it here
-   *  rather than working it out again ([B12]). */
-  layout: PlaceLayout;
   ids: readonly string[];
   /** One per member, px, each ≥ its floor. */
   heights: readonly number[];
@@ -3400,42 +3246,32 @@ export interface PlaceAllocation {
 
 /** The tolerance every comparison in this arithmetic is made at: a px of run
  *  divided by a weight is never exact, and a member a millionth of a px below
- *  its natural height is at its natural height. */
+ *  the height its share bought is standing at that height. */
 const PLACE_HEIGHT_EPSILON = 1e-6;
 
 /**
- * The appetites as the allocator may rely on them: floors non-negative and
- * finite, `floor ≤ natural`, weight finite and non-negative, greed a
- * rank.
+ * The members as the allocator may rely on them: floors non-negative and
+ * finite, weights finite and non-negative.
  *
  * Sanitized rather than rejected for the reason {@link railWeightOf} reads a
  * `NaN` weight as 1 — these numbers arrive from a stored blob, from gesture
- * arithmetic, and from cards that declare their own appetites, and a rail that
- * refuses to lay itself out because one card published a `NaN` is worse than a
- * rail that lays itself out from the numbers it can read.
+ * arithmetic, and from a registered size policy, and a rail that refuses to
+ * lay itself out because one number is a `NaN` is worse than a rail that lays
+ * itself out from the numbers it can read.
  */
-function sanitizedAppetites(
-  members: readonly PlaceMemberAppetite[],
-): PlaceMemberAppetite[] {
+function sanitizedMembers(
+  members: readonly PlaceMember[],
+): PlaceMember[] {
   return members.map((member) => {
     const floor =
       Number.isFinite(member.floor) && member.floor > 0 ? member.floor : 0;
-    const natural =
-      member.natural === Infinity
-        ? Infinity
-        : Number.isFinite(member.natural)
-          ? Math.max(floor, member.natural)
-          : floor;
     const weight =
       member.weight === undefined
         ? undefined
         : Number.isFinite(member.weight) && member.weight >= 0
           ? member.weight
           : 1;
-    const greedRank = Number.isFinite(member.greedRank)
-      ? member.greedRank
-      : DEFAULT_GREED_RANK;
-    return { id: member.id, floor, natural, greedRank, weight };
+    return { id: member.id, floor, weight };
   });
 }
 
@@ -3461,8 +3297,7 @@ export function stripCoordinatesOf(
  *  the strip is the last top plus the last height. */
 function placeAllocationOf(
   standing: PlaceStanding,
-  layout: PlaceLayout,
-  members: readonly PlaceMemberAppetite[],
+  members: readonly PlaceMember[],
   heights: readonly number[],
   run: number,
   seam: number,
@@ -3476,7 +3311,6 @@ function placeAllocationOf(
   const stripLength = heights.length === 0 ? 0 : running - seam;
   return {
     standing,
-    layout,
     ids: members.map((member) => member.id),
     heights,
     tops,
@@ -3487,38 +3321,18 @@ function placeAllocationOf(
 }
 
 /**
- * A FLOWING place's heights, from what its members want and nothing about the
- * run: `max(floor, natural · weight)`, where the weight is the multiplier the
- * user's own seam drags stored.
+ * An OVERFLOWING place's heights: every member at its floor.
  *
- * Natural rather than comfort is the tier, because natural is what flow
- * promises ([B08]): the content is the constraint here, so a member stands at
- * the height its own content is finished at, and nobody is stretched to fill a
- * run or squeezed to fit one. The floor still binds — a member whose whole
- * declaration falls below the box it needs to paint stands in that box.
- *
- * A member with an ENDLESS natural — a stream, which is never finished — reads
- * the run as its natural and so stands at one screen of itself, scrolled to.
- * That is the only number in this function about the place rather than about
- * the member, and it is here because `Infinity · weight` is not a height. A
- * place with no run to speak of has no screen to offer either, so a stream
- * there falls back to its floor — the only height about the member that is
- * still known when its content's is not.
- *
- * Greed ranks play no part: flow divides nothing, so there is nothing to be
- * first in line for.
+ * A place overflows for exactly one reason ([B06]) — its members' floors and
+ * seams do not fit inside its run — so the floors are the whole of what is
+ * left to stand on. There is no room above them to divide, and the stored
+ * weights say nothing about a run that cannot hold the minimum: the strip is
+ * as long as the floors make it and it scrolls behind the run.
  */
-function flowHeightsOf(
-  members: readonly PlaceMemberAppetite[],
-  run: number,
+function overflowHeightsOf(
+  members: readonly PlaceMember[],
 ): number[] {
-  const screen = Number.isFinite(run) && run > 0 ? run : null;
-  return members.map((member) => {
-    const natural = Number.isFinite(member.natural)
-      ? member.natural
-      : (screen ?? member.floor);
-    return Math.max(member.floor, natural * (member.weight ?? 1));
-  });
+  return members.map((member) => member.floor);
 }
 
 /** The tolerance the ladder's own pool arithmetic is done at, finer than
@@ -3535,15 +3349,14 @@ const PLACE_POOL_EPSILON = 1e-9;
  * the floor instead, giving the difference up to the others in proportion to
  * their shares — repeated until every member is at or above its floor, which
  * a place standing as shared guarantees terminates, since its floors fit. The
- * appetites' naturals enter nowhere here: a card whose content outgrows its
+ * card's own content enters nowhere here: a card whose content outgrows its
  * share scrolls inside itself, as a split pane does in every editor, and a
- * seam moves only when the hand moves it.
+ * seam moves only when the hand moves it ([B03]).
  *
  * A place with NO record — every weight `undefined`, which is what an absent
- * `shares` reads as — has not been divided yet, and its division is the seed:
- * {@link seedSharedHeights}, the appetite ladder run once. The deck writes that
- * seed into the record at its first settle so the next content change reads a
- * division rather than re-deriving one.
+ * `shares` reads as — has not been divided yet, and an undivided place stands
+ * at EQUAL shares: an unnamed member weighs 1, so the same arithmetic answers
+ * without a second regime beside it.
  *
  * A weight of zero is legal and means what it says: no share of the run, so
  * the member stands at its floor. A place whose weights are ALL zero divides
@@ -3551,13 +3364,10 @@ const PLACE_POOL_EPSILON = 1e-9;
  * has.
  */
 function sharedHeightsOf(
-  members: readonly PlaceMemberAppetite[],
+  members: readonly PlaceMember[],
   run: number,
   seam: number,
 ): number[] {
-  if (members.every((member) => member.weight === undefined)) {
-    return seedSharedHeights(members, run, seam);
-  }
   const n = members.length;
   const weights = members.map((member) => member.weight ?? 1);
   const divisible = run - (n - 1) * seam;
@@ -3593,130 +3403,26 @@ function sharedHeightsOf(
 }
 
 /**
- * The seed: what a fitting place stands at before any hand has divided it —
- * the appetite ladder, run once over the members' declarations.
+ * How a place STANDS, from its floors alone — the one derivation of the
+ * standing, read by {@link allocatePlaceHeights} and by the inverse that must
+ * know which arithmetic made a set of heights.
  *
- * Three stages, each spending what the one before it left:
+ * A place divides its run, and there is one derived exception ([B06]): floors
+ * and seams that do not fit inside the run leave nothing to divide, so the
+ * place stands as a strip until a member leaves or the window grows. A place
+ * of fewer than two members has nothing to divide and always shares.
  *
- * 1. **Floors.** Every member starts at the height it cannot go below, and the
- *    seams take theirs. What is left over is the pool.
- * 2. **Toward natural, evenly.** What is still left is divided evenly among
- *    the members still below their naturals, each capped at its own, with the
- *    surplus a capped member could not take poured back over the rest. A loop
- *    rather than one division, because capping one member changes every other
- *    member's share and the water has to find its level.
- * 3. **Past natural, whole, to the greediest.** Once everybody is at natural
- *    the remainder goes ENTIRELY to the lowest `greedRank` — position as
- *    tiebreak — so the run is still filled exactly while every other member
- *    stands at precisely its natural, every seam sits on a content boundary,
- *    and the one stretch of empty space is at the foot of the card that will
- *    grow into it first.
- *
- * There was a stage between the first and the second — comfort, greediest
- * first, each member drawn up to a readable height before anything was
- * divided. It is gone with the tier ([B03]): a member's natural is now
- * measured from its own content, so the even fill toward natural is already
- * the fill toward what the card actually paints, and a rung between the floor
- * and that is a number nobody could check.
- *
- * This is a function of the appetites and nothing else: the stored weights are
- * not read, because a seed is what a place gets when there are none, or when
- * the hand asked for the division content would make (Fit to Content). It is
- * exported so the deck can write its result into the record and so the census
- * can test it on its own.
- */
-export function seedSharedHeights(
-  members: readonly PlaceMemberAppetite[],
-  run: number,
-  seam: number,
-): number[] {
-  const n = members.length;
-  const heights = members.map((member) => member.floor);
-  const floors = heights.reduce((sum, height) => sum + height, 0);
-  let pool = run - floors - (n - 1) * seam;
-
-  const byGreed = members
-    .map((member, index) => ({ member, index }))
-    .sort((a, b) => a.member.greedRank - b.member.greedRank || a.index - b.index);
-
-  let active = members
-    .map((_, index) => index)
-    .filter((i) => heights[i] < members[i].natural - PLACE_POOL_EPSILON);
-  while (pool > PLACE_POOL_EPSILON && active.length > 0) {
-    const give = pool / active.length;
-    const capped = active.filter(
-      (i) => give >= members[i].natural - heights[i] - PLACE_POOL_EPSILON,
-    );
-    if (capped.length === 0) {
-      for (const i of active) heights[i] += give;
-      pool = 0;
-      break;
-    }
-    for (const i of capped) {
-      pool -= members[i].natural - heights[i];
-      heights[i] = members[i].natural;
-    }
-    const held = new Set(capped);
-    active = active.filter((i) => !held.has(i));
-  }
-
-  if (pool > PLACE_POOL_EPSILON && n > 0) {
-    heights[byGreed[0].index] += pool;
-  }
-  return heights;
-}
-
-/**
- * The shares the seed means — {@link seedSharedHeights} read back through
- * {@link placeSharesFromHeights}, so that allocating from the record this
- * returns reproduces the seed's heights exactly. This is what a membership
- * change and Fit to Content write, and what the deck writes for a place whose
- * record is absent at its first settle.
- *
- * Empty for a place that has nothing to divide — fewer than two members, or
- * floors that do not fit the run and stand it as a strip, where there is no
- * division to seed.
- */
-export function seedPlaceShares(
-  members: readonly PlaceMemberAppetite[],
-  run: number,
-  seam: number,
-): Record<string, number> {
-  const sane = sanitizedAppetites(members);
-  if (sane.length < 2) return {};
-  const gap = Number.isFinite(seam) && seam > 0 ? seam : 0;
-  if (placeStandingOf(sane, run, gap, "fit") !== "shared") return {};
-  return placeSharesFromHeights(
-    sane,
-    seedSharedHeights(sane, run, gap),
-    "fit",
-    run,
-    gap,
-  );
-}
-
-/**
- * How a place STANDS, from its layout and its floors — the one derivation of
- * the standing, read by {@link allocatePlaceHeights} and by the inverse that
- * must know which arithmetic made a set of heights ([B12]).
- *
- * A flowing place is a strip by choice and a place whose floors do not fit its
- * run is a strip by arithmetic ([B07]), and the two are the same standing. A
- * place of fewer than two members has nothing to divide and always shares.
- *
- * It takes the LAYOUT rather than being handed a standing, so that no caller
- * has to work out for itself which of the two a place is in. That was the shape
- * the inverse and the drag bounds used to be written in, and a caller that got
- * it wrong wrote a weight the allocator would not give back.
+ * It is a function rather than a field so that no caller has to work out for
+ * itself which of the two a place is in. That was the shape the inverse and the
+ * drag bounds used to be written in, and a caller that got it wrong wrote a
+ * weight the allocator would not give back.
  */
 function placeStandingOf(
-  members: readonly PlaceMemberAppetite[],
+  members: readonly PlaceMember[],
   run: number,
   seam: number,
-  layout: PlaceLayout,
 ): PlaceStanding {
   if (members.length < 2) return "shared";
-  if (layout === "flow") return "overflow";
   if (!Number.isFinite(run) || run <= 0) return "overflow";
   const required =
     members.reduce((sum, member) => sum + member.floor, 0) +
@@ -3728,67 +3434,49 @@ function placeStandingOf(
  * How a place divides `run` among `members`, seams included — the single
  * derivation of a member height ([P02]).
  *
- * The standing follows the place's LAYOUT ([B04]). A flowing place stands as a
- * strip whatever its run, because that is what flow means: the content is the
- * constraint and the run is a window onto it. A fitting place divides its run —
- * unless it cannot, which is the one derived exception ([B07]): floors and seams
- * that do not fit inside the run leave nothing to divide, so the place stands
- * as flowing until a member leaves or the window grows. That test used to be
- * THE rule and is now fit's fallback, and the standing stays derived and
- * visible either way, which is what lets the faces read it.
+ * A place divides its run — unless it cannot, which is the one derived
+ * exception ([B06]): floors and seams that do not fit inside the run leave
+ * nothing to divide, so the place stands as a strip until a member leaves or
+ * the window grows. The standing stays derived and visible either way, which is
+ * what lets the faces read it.
  *
- * `layout` is optional and absent reads as fit, so every caller written before
- * the choice existed allocates exactly as it did.
+ * Then the heights follow from the standing — the hand's division in
+ * {@link sharedHeightsOf} for a shared place, and the members' floors for an
+ * overflowing one.
  *
- * Then the heights follow from the standing — the ladder in
- * {@link sharedHeightsOf} for a shared place, and each member's own natural
- * height, weighted, for an overflowing one.
- *
- * Neither branch reads a number about the run rather than about the member.
- * An overflowing member takes `max(floor, natural · weight)` — what it said it
- * wanted, scaled by what the user's own seam drags stored — so a strip is
- * built out of its members instead of out of a constant, and a member whose
- * floor exceeds any share of the run still stands at its floor. The count-based
- * standing and the fixed fraction-of-the-run height were the two halves of the
- * same proxy ([P01], [B07]), and neither is left.
- *
- * The census in `src/lib/__tests__/layout-imposer-heights-census.test.ts` is
- * the statement of what this must be true of, overflow rows included: every
- * height is at or above its floor, and `allocate(sharesFromHeights(h)) == h`
- * for every reachable `h`.
+ * Neither branch reads a number about the run rather than about the member. An
+ * overflowing member takes its floor, so a strip is built out of its members
+ * instead of out of a constant. The count-based standing and the fixed
+ * fraction-of-the-run height were the two halves of the same proxy ([P01]), and
+ * neither is left.
  */
 export function allocatePlaceHeights(
-  members: readonly PlaceMemberAppetite[],
+  members: readonly PlaceMember[],
   run: number,
   seam: number,
-  layout: PlaceLayout = DEFAULT_PLACE_LAYOUT,
 ): PlaceAllocation {
-  const sane = sanitizedAppetites(members);
+  const sane = sanitizedMembers(members);
   const gap = Number.isFinite(seam) && seam > 0 ? seam : 0;
   if (sane.length === 0) {
-    return placeAllocationOf("shared", layout, sane, [], run, gap);
+    return placeAllocationOf("shared", sane, [], run, gap);
   }
   if (sane.length === 1) {
     // The undivided member IS the run, as today, even below its floor: a place
     // with one member has nothing to divide and no strip to scroll.
-    return placeAllocationOf("shared", layout, sane, [run], run, gap);
+    return placeAllocationOf("shared", sane, [run], run, gap);
   }
-  if (placeStandingOf(sane, run, gap, layout) === "overflow") {
-    // Flow is a strip by choice, and a run that cannot hold the floors is a
-    // strip by arithmetic — fit's one derived exception ([B07]). The two stand
-    // the same way and get the same heights.
+  if (placeStandingOf(sane, run, gap) === "overflow") {
+    // A run that cannot hold the floors is a strip by arithmetic ([B06]).
     return placeAllocationOf(
       "overflow",
-      layout,
       sane,
-      flowHeightsOf(sane, run),
+      overflowHeightsOf(sane),
       run,
       gap,
     );
   }
   return placeAllocationOf(
     "shared",
-    layout,
     sane,
     sharedHeightsOf(sane, run, gap),
     run,
@@ -3801,18 +3489,16 @@ export function allocatePlaceHeights(
  * division, over members nobody has measured.
  *
  * This is what a *proposal* is: a picture of an arrangement nobody has stood
- * in, whose members have no appetites because they are not standing anywhere
- * yet. The Layout card's miniature draws its preview layers from it, which is
+ * in, whose members have no floors and no stored shares because they are not
+ * standing anywhere yet. The Layout card's miniature draws its preview layers
+ * from it, which is
  * how the drawing keeps one span arithmetic for the committed picture and the
  * proposed ones alike while only the committed picture reads real heights.
  *
  * It answers the equal division because that is what the allocator answers for
- * members with no floor to fit and an appetite nothing satisfies, and the equal
- * division is what [P09] asks a proposal to draw. The endless natural is what
- * makes it so: a proposal's members are unmeasured rather than satisfied, so
- * they divide the run by weight in the ladder's discretionary stage and never
- * reach fit's slack rule, which would hand the whole picture to one of them
- * ([B06]). It is here rather than at the drawing so that the miniature still
+ * members with no floor to fit standing at equal weights, and the equal
+ * division is what [P09] asks a proposal to draw. It is here rather than at
+ * the drawing so that the miniature still
  * derives no member height of its own ([P02]).
  */
 export function nominalPlaceAllocation(
@@ -3820,13 +3506,11 @@ export function nominalPlaceAllocation(
   run: number,
   seam: number,
 ): PlaceAllocation {
-  const members: PlaceMemberAppetite[] = Array.from(
+  const members: PlaceMember[] = Array.from(
     { length: Math.max(0, count) },
     (_, index) => ({
       id: `${index}`,
       floor: 0,
-      natural: Infinity,
-      greedRank: DEFAULT_GREED_RANK,
       weight: 1,
     }),
   );
@@ -3837,50 +3521,30 @@ export function nominalPlaceAllocation(
  * The shares a set of heights means — the inverse of
  * {@link allocatePlaceHeights}, and what a committed seam drag stores ([P04]).
  *
- * It takes the place's LAYOUT and works the standing out itself ([B12]), so
- * that no caller has to decide which arithmetic made the heights it is handing
- * over. The standing is the one {@link placeStandingOf} derives, which is why
- * a FIT place whose floors do not fit inverts as a strip: those heights came
- * from flow's rule, and inverting them by fit's would store a weight the
- * allocator would not give back.
+ * It works the standing out itself, so that no caller has to decide which
+ * arithmetic made the heights it is handing over. The standing is the one
+ * {@link placeStandingOf} derives, which is why a place whose floors do not fit
+ * inverts to NOTHING: those heights are the floors ([B06]), not a division, and
+ * inverting them would store a weight the allocator would not give back.
  *
- * A weight means a different thing in each standing, so the inverse does too.
- *
- * **A strip** — flow, or fit standing as flow: the weight is the multiplier on
- * NATURAL the height implies, which is the tier flow's heights are built on
- * ([B08]). A stream, whose natural is endless, reads the run as its natural
- * here exactly as it does there.
- *
- * **A shared run** — fit: the share is the fraction of the run the member
- * stands at, scaled so the shares average 1 — an equal division is the
- * all-ones record. Every height a drag can reach is at or above its member's
- * floor, so allocating from the record this returns reproduces the heights
- * exactly ([P10]): the division is the shares, and the floors never bind on
- * a division the hand was allowed to make.
+ * On a shared run the share is the fraction of the run the member stands at,
+ * scaled so the shares average 1 — an equal division is the all-ones record.
+ * Every height a drag can reach is at or above its member's floor, so
+ * allocating from the record this returns reproduces the heights exactly
+ * ([P10]): the division is the shares, and the floors never bind on a division
+ * the hand was allowed to make.
  */
 export function placeSharesFromHeights(
-  members: readonly PlaceMemberAppetite[],
+  members: readonly PlaceMember[],
   heights: readonly number[],
-  layout: PlaceLayout,
   run: number,
   seam = 0,
 ): Record<string, number> {
-  const sane = sanitizedAppetites(members);
+  const sane = sanitizedMembers(members);
   if (sane.length < 2) return {};
   const gap = Number.isFinite(seam) && seam > 0 ? seam : 0;
-  const standing = placeStandingOf(sane, run, gap, layout);
+  if (placeStandingOf(sane, run, gap) === "overflow") return {};
   const shares: Record<string, number> = {};
-  if (standing === "overflow") {
-    const screen = Number.isFinite(run) && run > 0 ? run : null;
-    for (let i = 0; i < sane.length; i += 1) {
-      const height = heights[i] ?? 0;
-      const natural = Number.isFinite(sane[i].natural)
-        ? sane[i].natural
-        : (screen ?? sane[i].floor);
-      shares[sane[i].id] = natural > 0 ? height / natural : 1;
-    }
-    return shares;
-  }
   const stood = sane.map((_, i) => Math.max(0, heights[i] ?? 0));
   const total = stood.reduce((sum, height) => sum + height, 0);
   if (total <= PLACE_HEIGHT_EPSILON) return {};
@@ -3897,9 +3561,8 @@ export function placeSharesFromHeights(
  * give back ([P10]).
  *
  * The regime is the allocation's own, never inferred here: the allocation
- * carries both the layout the place chose and the standing that layout put it
- * in ([B12]), so these bounds read a fact rather than re-deriving one from the
- * heights they are about to clamp.
+ * carries the standing its floors put it in, so these bounds read a fact rather
+ * than re-deriving one from the heights they are about to clamp.
  *
  * A SHARED place trades the span between the two members either side of the
  * seam, and the floors are the only thing that bounds the trade: the upper
@@ -3909,43 +3572,26 @@ export function placeSharesFromHeights(
  * inside itself. A range that comes out inverted is reported as the height
  * standing exactly where it is.
  *
- * A place standing as a STRIP is the one that does not trade. Its drag resizes
- * the member above the seam and lengthens the strip, leaving every other member
- * at the height it declared ([B08]) — so the bound below is that member's own
- * floor, and the bound above is a screen of it: the run, which is the same
- * measure flow gives a stream, and past which a card is being scrolled rather
- * than read. A member already taller than that keeps its own height as the
- * ceiling, so a drag can always hold where it is. A fit place whose floors do
- * not fit stands here too and drags the same way, because its heights were made
- * the same way ([B07]).
+ * A place standing as a STRIP is the one that does not trade at all. Its
+ * members are already at their floors and the run cannot hold even those
+ * ([B06]), so there is nothing to give either way: the seam is reported where
+ * it stands, and it moves again when a member leaves or the window grows.
  */
 export function seamDragBounds(
   allocation: PlaceAllocation,
-  members: readonly PlaceMemberAppetite[],
+  members: readonly PlaceMember[],
   index: number,
 ): { lower: number; upper: number } {
-  const sane = sanitizedAppetites(members);
+  const sane = sanitizedMembers(members);
   const heights = allocation.heights;
   const held = heights[index] ?? 0;
   if (index < 0 || index + 1 >= sane.length) return { lower: held, upper: held };
   const a = sane[index];
   const b = sane[index + 1];
   const span = (heights[index] ?? 0) + (heights[index + 1] ?? 0);
-  let lower: number;
-  let upper: number;
-  if (allocation.standing === "overflow") {
-    lower = a.floor;
-    upper = Math.max(
-      held,
-      a.floor,
-      Number.isFinite(allocation.run) && allocation.run > 0
-        ? allocation.run
-        : 0,
-    );
-  } else {
-    lower = a.floor;
-    upper = span - b.floor;
-  }
+  if (allocation.standing === "overflow") return { lower: held, upper: held };
+  const lower = a.floor;
+  const upper = span - b.floor;
   if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower > upper) {
     return { lower: held, upper: held };
   }
@@ -3961,12 +3607,6 @@ export interface ColumnMemberPlacement {
   /** How the place stands — the rail twin's own field, for the rail twin's own
    *  reason. */
   standing: PlaceStanding;
-  /** And the layout that put it there, for the badge menu that offers the
-   *  choice back ([B10]). Optional because no geometry reads it — the standing
-   *  above is what the frame is built from — so a caller describing a
-   *  placement rather than driving a menu leaves it off, and absent reads as
-   *  fit exactly as an absent stored layout does. */
-  layout?: PlaceLayout;
   /** The rail twin's own field, for the rail twin's own reason: the strip
    *  coordinates this frame's `var()` fallbacks are read from. */
   strip?: readonly number[];
@@ -3977,19 +3617,18 @@ export interface ColumnMemberPlacement {
  * side of it, with the whole strip slid up by the place's own offset.
  *
  * A member's height is no longer expressible in CSS — it is `max(floor,
- * natural · weight)`, which is a fact about the member rather than about the
+ * share · run)`, which is a fact about the member rather than about the
  * run — so the frame reads the allocation's own coordinates instead of solving
  * for a height. That is why there are `n + 1` strip properties for `n` members:
  * a frame pins to the coordinate above it and the one below it, exactly as a
  * shared frame pins to the seam above it and the one below it, and neither ever
  * multiplies an index by a height.
  *
- * The offset is CLAMPED HERE, in CSS, for the reason flow's is clamped inside
- * its `left`: make the window taller and the run grows while the stored number
- * stands still, and without the clamp the place would hold a stale slide until
- * the settled-resize retune fired. The clamp reads the strip's own end —
- * property `n` — so a strip that got shorter because a member's natural fell
- * re-resolves in the same reflow ([L06]).
+ * The offset is CLAMPED HERE, in CSS: make the window taller and the run grows
+ * while the stored number stands still, and without the clamp the place would
+ * hold a stale slide until the settled-resize retune fired. The clamp reads
+ * the strip's own end — property `n` — so a strip that got shorter because a
+ * member left re-resolves in the same reflow ([L06]).
  *
  * `bottom` is `100%` less the coordinate below the member, plus the seam that
  * coordinate stands above (the last member has none: its lower coordinate IS

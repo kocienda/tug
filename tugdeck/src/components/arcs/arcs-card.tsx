@@ -160,9 +160,6 @@ import type {
   ProjectChangeset,
   WorkspacesChangesetSnapshot,
 } from "@/lib/changeset-types";
-import { useMeasuredCardAppetite } from "@/lib/card-appetite-store";
-import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
-import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
 
 /** The card's focus group — every stop it offers lives here. */
 const ARCS_FOCUS_GROUP = "arcs-card";
@@ -1012,15 +1009,6 @@ function ArcsBody(): React.ReactElement {
   // "No arcs" over rows that never mounted.
   const populated = rows.length + plans.length > 0;
 
-  // What the card would like of its rail's run ([B01]): the measured height of
-  // its content element, plus the pane's title bar, which the column below the
-  // scroller cannot see. A block per arc used to be a constant derived from
-  // the CSS by hand; a row that grows a line now says so by being taller.
-  const contentRef = useMeasuredCardAppetite(
-    ARCS_CARD_ID,
-    CARD_TITLE_BAR_HEIGHT,
-  );
-
   const discardVerb = useChangesetDiscard(ARCS_VERB_KEY);
   // One replay round trip for the section, for the reason the discard has one:
   // the state is a slot per key, and a second press would render the first's
@@ -1109,7 +1097,7 @@ function ArcsBody(): React.ReactElement {
         <div
           className="arcs-card-content"
           data-testid="arcs-card-content"
-          ref={contentRef}
+          data-card-content=""
         >
           <div className="arcs-empty" data-slot="arcs-empty">
             None
@@ -1127,7 +1115,7 @@ function ArcsBody(): React.ReactElement {
         <div
           className="arcs-card-content"
           data-testid="arcs-card-content"
-          ref={contentRef}
+          data-card-content=""
         >
         <TugListView<CockpitRowsDataSource>
           dataSource={dataSource}

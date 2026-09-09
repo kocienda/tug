@@ -55,7 +55,6 @@ describe("sweepImposition", () => {
         },
         rails: {
           right: {
-            mode: "split",
             order: ["cards", "pulses"],
             shares: { pulses: 1.5255, wires: 0.4744 },
           },
@@ -64,8 +63,7 @@ describe("sweepImposition", () => {
       registered("cards"),
     );
     expect(swept.sidebars).toEqual({ cards: { side: "right" } });
-    // `mode` describes the side, not its membership, so it is never touched.
-    expect(swept.rails).toEqual({ right: { mode: "split", order: ["cards"] } });
+    expect(swept.rails).toEqual({ right: { order: ["cards"] } });
   });
 
   test("a registered id that is not standing survives both passes", () => {
@@ -124,7 +122,7 @@ describe("sweepImposition", () => {
       kind: "four-up",
       contentWidth: "slim",
       sidebars: { cards: { side: "right" } },
-      rails: { right: { mode: "stack", order: ["cards"] } },
+      rails: { right: { order: ["cards"] } },
     };
     expect(sweepImposition(imposition, registered("cards"))).toBe(imposition);
   });
@@ -148,7 +146,7 @@ describe("filterDeckStateByRegistration carries the sweep", () => {
       ],
       imposition: {
         sidebars: { cards: { side: "right" }, wires: { side: "right" } },
-        rails: { right: { mode: "stack", order: ["cards", "wires"] } },
+        rails: { right: { order: ["cards", "wires"] } },
       },
       hasFocus: true,
     };
@@ -163,7 +161,7 @@ describe("filterDeckStateByRegistration carries the sweep", () => {
     expect(filtered).not.toBe(state);
     expect(filtered.imposition.sidebars).toEqual({ cards: { side: "right" } });
     expect(filtered.imposition.rails).toEqual({
-      right: { mode: "stack", order: ["cards"] },
+      right: { order: ["cards"] },
     });
     // The cards and panes are untouched — nothing was dropped there.
     expect(filtered.cards).toEqual(state.cards);
@@ -176,7 +174,7 @@ describe("filterDeckStateByRegistration carries the sweep", () => {
       ...state,
       imposition: {
         sidebars: { cards: { side: "right" } },
-        rails: { right: { mode: "stack", order: ["cards"] } },
+        rails: { right: { order: ["cards"] } },
       },
     };
     expect(filterDeckStateByRegistration(clean, registered("cards"))).toBe(clean);

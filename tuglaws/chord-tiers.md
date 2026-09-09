@@ -38,7 +38,7 @@ Composed sets are never assigned fresh — each one *means* its composition, and
 |---|---|
 | ⌥⇧⌘ | Both twists at once. "…as Plain Text" is always ⌥⇧⌘ (⌥⇧⌘C, ⌥⇧⌘V — the latter matching macOS "Paste and Match Style" exactly). First/Last Turn ⌥⇧⌘↑/↓ are the ⇧-extremes of Previous/Next Turn ⌥⌘↑/↓. |
 | ⌃⇧⌘ | The counterpart of a Tug-tier command. Disclaim All ⌃⇧⌘A, against Claim All ⌃⌘A — the same key, the opposite bulk verb of the Changes shade ([D175]). |
-| ⌃⌥⌘ | The variant or advanced form of a Tug-tier command — the "super-advanced" tier. Cycle Permission Mode ⌃⌥⌘P, since permission modes govern agent autonomy, the quintessential expert feature. Its sole resident again since [D175] returned the Changes shade's bulk verbs to the tiers [D126] derived for them. |
+| ⌃⌥⌘ | The variant or advanced form of a Tug-tier command — the "super-advanced" tier. Cycle Permission Mode ⌃⌥⌘P, since permission modes govern agent autonomy, the quintessential expert feature. Its debut resident, and its second is ⌃⌥⌘R Resize Sidebars to Fit — a grant with a reading rather than a derivation, recorded below. The tier briefly held the Changes shade's bulk verbs; [D175] returned those to the tiers [D126] derived for them. |
 
 ## The digit row
 
@@ -307,3 +307,15 @@ A slot holds a run of vertical space, and the cards standing in it either take t
 That last sentence is the whole cost of a promotion and it applies to this family too: ⌃⌘S and the ⌃⌘ arrows now leave the JS funnel and are claimed globally by the menu bar, above every surface — including a text editor's caret. `disabledChord: "keep"`, as the Go to Slot row does: nothing else in the funnel wants these chords, so there is nothing for a detach to hand them back to.
 
 **Refusal is visible.** ⌃⌘S on a slot holding one card has nothing to divide, and a member already at the end it was sent to has nowhere to go; both flash the pane's border rather than returning quietly. A chord that does nothing and says nothing cannot be told from a chord that never arrived.
+
+## Resize Sidebars to Fit
+
+A rail is always divided and its sashes are the hand's ([D183]), so one verb resizes on request and nothing else touches a sash.
+
+| Command | Chord | Derivation |
+|---|---|---|
+| `resize-sidebars-to-fit` | **⌃⌥⌘R** | The advanced form of a Tug-tier command, and the tier's second resident beside ⌃⌥⌘P. |
+
+**It is a grant with a reading, not a derivation, and it is recorded as one.** The algebra reads ⌃⌥⌘ as the variant of a ⌃⌘ base — and ⌃⌘R is the Arcs card, of which this is no variant at all. The user chose ⌃⌥⌘R with that in view, so the row is recorded rather than bent: **R for *Resize***, on the tier reserved for deck-shaping verbs a user reaches for deliberately. That is the same shape the ⌥⌘U / ⌥⌘L case pair is written down under — a mnemonic on a tier whose base is spoken for, stated as a mnemonic rather than dressed as a derivation.
+
+**Promoted to the Window menu**, above the six sidebar-card rows, and the promotion is total under R6: the item preempts every scoped binding on ⌃⌥⌘R, which is intended, because the rails are the deck's own geometry and no focused surface should be able to decline a verb about them. Ungated — a rail with two members always has a division to write, and one with fewer has nothing to divide either way. The item is constructed with an **empty** key equivalent, so `applyCommandChords` writes the chord from the registry and it stays rebindable end to end.

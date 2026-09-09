@@ -101,9 +101,6 @@ import {
   useSeedKeyView,
 } from "@/components/tugways/use-focusable";
 import { useResponder } from "@/components/tugways/use-responder";
-import { useMeasuredCardAppetite } from "@/lib/card-appetite-store";
-import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
-import { JOTS_CARD_ID } from "@/lib/jots-card-id";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { JotsDataSource, useJotsDataSource } from "./jots-data-source";
@@ -954,16 +951,6 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
   // field's enablement turns on: a card filtered to zero still has items.
   const hasItems = dataSource.unfilteredCount() > 0;
 
-  // What the card would like of its rail's run ([B01]): the height its content
-  // element actually stands at, measured, plus the pane's title bar — the one
-  // piece of the member's box the column below the scroller cannot see. The
-  // filter is inside the measurement rather than argued around: a filtered list
-  // really is a shorter column, and the card asks for what it draws.
-  const contentRef = useMeasuredCardAppetite(
-    JOTS_CARD_ID,
-    CARD_TITLE_BAR_HEIGHT,
-  );
-
   // A card with nothing in it holds no query either — otherwise the disabled
   // field's text and the list's actual filter drift apart while items are away.
   useLayoutEffect(() => {
@@ -1243,7 +1230,7 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
         <div
           className="jots-card-content"
           data-testid="jots-card-content"
-          ref={contentRef}
+          data-card-content=""
         >
         <JotsToolbar
           query={filterQuery}

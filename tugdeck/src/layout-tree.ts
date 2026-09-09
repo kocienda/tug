@@ -28,7 +28,6 @@ import type {
   DeckImposition,
   SidebarSide,
 } from "@/lib/layout-imposer";
-import type { CardAppetite } from "@/lib/card-appetite-store";
 import { isSidebarCard } from "@/card-registry";
 
 // ---- Types () ----
@@ -402,27 +401,6 @@ export interface DeckState {
    * gained or lost members while the deck was closed.
    */
   railOffsets?: Readonly<Partial<Record<SidebarSide, number>>>;
-  /**
-   * What each card would like of the vertical run it shares, keyed by
-   * componentId — the SETTLED mirror of `cardAppetiteStore` ([P05]).
-   *
-   * A card publishes its natural height into the store as its content
-   * changes; the deck manager copies the store's snapshot here once
-   * the publishing stops, and the height allocator reads it from here. The
-   * indirection is the point: layout reads a settled fact rather than a live
-   * one, so a list being typed into does not re-allocate its rail per
-   * keystroke.
-   *
-   * Undefined until the first settle, and a componentId with no entry reads
-   * its registered floor for both tiers — a card that declares nothing asks
-   * for nothing beyond the box it needs to paint.
-   *
-   * Not serialized, like {@link DeckState.railOffsets}: every number here is
-   * derived from card content that is itself restored, so a persisted copy
-   * could only ever be a stale answer to a question the cards re-answer on
-   * their first render.
-   */
-  appetites?: Readonly<Record<string, CardAppetite>>;
 }
 
 // ---- Invariant validation ----

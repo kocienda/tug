@@ -19,7 +19,7 @@
  * A zone's rect is **the tile the card would occupy if released there**, not a
  * hit-target drawn around a boundary. That is what lets the indicator be
  * honest: what it shows is what the release does. Tiles are derived with the
- * commit's own arithmetic — the post-drop order's appetites and weights through
+ * commit's own arithmetic — the post-drop order's floors and weights through
  * `allocatePlaceHeights` ([P06]) — and a place whose floors would no longer fit
  * the run lands under the overflow rule rather than dividing ([P08]). The seam is a
  * value the place supplies, exactly as the imposer's `PlaceRun.seam` is: a
@@ -36,13 +36,9 @@ import {
   IMPOSITION_GAP_PX,
   RAIL_SEAM_PX,
   clampSlot,
-  columnLayoutOf,
-  DEFAULT_PLACE_LAYOUT,
   railWeightOf,
   slotCount,
-  type PlaceLayout,
-  type PlaceMemberAppetite,
-  type RailMode,
+  type PlaceMember,
   type SidebarSide,
 } from "./layout-imposer";
 
@@ -145,10 +141,6 @@ export function hitRectOf(zone: DropZone): Rect {
  *  cannot see a registry. */
 export interface DropZoneRail {
   side: SidebarSide;
-  /** Stacked or split. A rail card arriving from the other side lands in a
-   *  split rail at a position; what a stacked destination advertises is its
-   *  own question, answered where the vocabulary is assembled. */
-  mode: RailMode;
   /** The rail's member pane ids, top to bottom. */
   members: readonly string[];
   /** The members' division weights, keyed by pane id — the rail's stored
@@ -157,11 +149,6 @@ export interface DropZoneRail {
    *  members weigh 1 and an absent RECORD is the seed, which is
    *  `railWeightOf`'s rule. */
   shares?: Readonly<Record<string, number>>;
-  /** Whether the side fits or flows its run; absent reads as fit. A tile is
-   *  the allocator's answer, and the allocator answers a flowing place
-   *  differently — so a place drawn one way and dropped into another would be
-   *  a promise the commit could not keep ([P06]). */
-  layout?: PlaceLayout;
 }
 
 /**
@@ -183,17 +170,17 @@ export interface DropZoneMeasurements {
   rails: readonly DropZoneRail[];
   /**
    * What every member of every place wants of its run, by PANE ID — the
-   * host's `placeMemberAppetites` over each sidebar and slotted pane, with a
+   * host's `placeMembers` over each sidebar and slotted pane, with a
    * rail's members re-keyed from componentId at the same boundary its shares
    * are.
    *
    * One map for both kinds of place rather than one per rail and one per
    * column: a tile is the allocator's answer either way, and the allocator
    * asks the same question of a rail member and a column member. A member
-   * missing from it contributes no appetite at all, which the allocator reads
-   * as a floorless member of whatever the place decides.
+   * missing from it contributes no floor at all, which the allocator reads as
+   * a floorless member of whatever the place decides.
    */
-  appetites: ReadonlyMap<string, PlaceMemberAppetite>;
+  members: ReadonlyMap<string, PlaceMember>;
   /**
    * The run each kind of place divides, in layout px — the deck's own
    * measurement (`getColumnRunHeight` and `getRailRunHeight`), never a sum
@@ -407,12 +394,11 @@ function seatedPlace(
   order: readonly string[],
   rects: readonly Rect[],
   shares: Readonly<Record<string, number>> | undefined,
-  appetites: ReadonlyMap<string, PlaceMemberAppetite>,
+  members: ReadonlyMap<string, PlaceMember>,
   draggedId: string,
   draggedAtStart: Rect,
   run: number,
   seam: number,
-  layout: PlaceLayout,
 ): { run: { top: number; height: number }; x: number; width: number } {
   const seatedIndex = order.findIndex((id) => id !== draggedId);
   const index = seatedIndex === -1 ? 0 : seatedIndex;
@@ -422,10 +408,9 @@ function seatedPlace(
   // it, inverted. One reading for both standings: a strip's member is at its
   // top, and so is a shared one.
   const advance = allocatePlaceHeights(
-    placeAppetites(order, appetites, shares),
+    placeMembersOf(order, members, shares),
     run,
     seam,
-    layout,
   ).tops[index];
   return {
     run: { top: seated.y - advance, height: run },
@@ -435,43 +420,30 @@ function seatedPlace(
 }
 
 /**
- * The appetites a place's `order` carries, in the order's own order: each
- * member's measured appetite, wearing the weight THIS place stores for it.
+ * The members a place's `order` carries, in the order's own order: each
+ * member's floor, wearing the weight THIS place stores for it.
  *
  * The weight is re-read here rather than taken from the map because a card's
  * share is a fact about the place it stands in, and the map is keyed by pane
  * across every place at once. Weights travel with cards — a member absent from
- * `shares` weighs 1 and an absent record reads as the seed, which is
+ * `shares` weighs 1 and an absent record reads as the equal division, which is
  * `railWeightOf`'s rule — so a member reordering its own place previews its
- * share standing wherever it lands, and a foreign arrival previews the seed
- * its join forces ({@link placeTiles} says why).
+ * share standing wherever it lands, and a foreign arrival previews the equal
+ * division its join forces ({@link placeTiles} says why).
  *
- * A member the measurement never saw contributes no appetite: floors of zero,
- * and a greed rank of `NaN`, which the allocator sanitizes to the default rank
- * rather than reaching for a registry this module cannot see. Its natural is
- * ENDLESS rather than zero: a member nobody has measured has not declared a
- * height it is satisfied at, and saying it is satisfied at zero would hand its
- * whole share to whichever member the seed's slack rule ranks greediest
- * ([B06]). Endless keeps it in the seed's even fill toward natural, which is
- * the tile a drop into an unmeasured place can honestly promise.
+ * A member the host never named contributes no floor: zero, which the
+ * allocator reads as a member with nothing to fall back to rather than
+ * reaching for a registry this module cannot see.
  */
-function placeAppetites(
+function placeMembersOf(
   order: readonly string[],
-  appetites: ReadonlyMap<string, PlaceMemberAppetite>,
+  members: ReadonlyMap<string, PlaceMember>,
   shares: Readonly<Record<string, number>> | undefined,
-): PlaceMemberAppetite[] {
+): PlaceMember[] {
   return order.map((id) => {
-    const measured = appetites.get(id);
+    const known = members.get(id);
     const weight = railWeightOf(shares, id);
-    return measured === undefined
-      ? {
-          id,
-          floor: 0,
-          natural: Infinity,
-          greedRank: Number.NaN,
-          weight,
-        }
-      : { ...measured, weight };
+    return known === undefined ? { id, floor: 0, weight } : { ...known, weight };
   });
 }
 
@@ -500,7 +472,7 @@ function namesExactly(
  * the run.
  *
  * This is the pins' own arithmetic with the run resolved to measured pixels —
- * the same allocation, over the same appetites and weights the commit will
+ * the same allocation, over the same floors and weights the commit will
  * allocate from — which is what makes the tile a promise the commit keeps by
  * construction ([P06]). The seam arrives as a value for the same reason it
  * rides `PlaceRun.seam` there, so a rail's 0 seam and a column's gap are one
@@ -509,7 +481,7 @@ function namesExactly(
  *
  * The record the tiles allocate from is the one the COMMIT will allocate
  * from, which is not always the one the place is holding now: a fitting place
- * whose MEMBERSHIP changes has its shares re-seeded from the members' naturals
+ * whose MEMBERSHIP changes has its shares dropped, standing it equally divided
  * ([B03]), so a foreign arrival into a divided place would otherwise be
  * promised a division the drop immediately replaces. The test is the commit's
  * own — does the record name exactly the post-drop members — so a reorder
@@ -519,27 +491,23 @@ function namesExactly(
  */
 function placeTiles(
   others: readonly string[],
-  appetites: ReadonlyMap<string, PlaceMemberAppetite>,
+  members: ReadonlyMap<string, PlaceMember>,
   shares: Readonly<Record<string, number>> | undefined,
   draggedId: string,
   run: { top: number; height: number },
   x: number,
   width: number,
   seam: number,
-  layout: PlaceLayout,
 ): Rect[] {
   const count = others.length + 1;
   const committed =
-    layout === "flow" || namesExactly(shares, others, draggedId)
-      ? shares
-      : undefined;
+    namesExactly(shares, others, draggedId) ? shares : undefined;
   return Array.from({ length: count }, (_, i) => {
     const order = [...others.slice(0, i), draggedId, ...others.slice(i)];
     const allocation = allocatePlaceHeights(
-      placeAppetites(order, appetites, committed),
+      placeMembersOf(order, members, committed),
       run.height,
       seam,
-      layout,
     );
     return {
       x,
@@ -601,11 +569,10 @@ function columnPlaces(
   order: readonly string[],
   rects: readonly Rect[],
   shares: Readonly<Record<string, number>> | undefined,
-  appetites: ReadonlyMap<string, PlaceMemberAppetite>,
+  members: ReadonlyMap<string, PlaceMember>,
   draggedPaneId: string,
   draggedAtStart: Rect,
   columnRun: number | null,
-  layout: PlaceLayout,
 ): { tile: Rect; hit: Rect }[] {
   if (rects.length === 0 || columnRun === null) return [];
   const seam = IMPOSITION_GAP_PX;
@@ -613,24 +580,22 @@ function columnPlaces(
     order,
     rects,
     shares,
-    appetites,
+    members,
     draggedPaneId,
     draggedAtStart,
     columnRun,
     seam,
-    layout,
   );
   const others = order.filter((id) => id !== draggedPaneId);
   const tiles = placeTiles(
     others,
-    appetites,
+    members,
     shares,
     draggedPaneId,
     run,
     x,
     width,
     seam,
-    layout,
   );
   const hits = tileHitBands(
     tiles,
@@ -643,36 +608,6 @@ function columnPlaces(
 
 // ---- Enumeration ----
 
-/** A stacked rail's one rect: the union of its SEATED members' frames, which
- *  under a stack are the same frame drawn front to back ([F09]). The dragged
- *  card is left out for the reason {@link seatedPlace} leaves it out — its
- *  rect carries the drag transform, so a rail read through it would follow
- *  the hand — and only when it is the rail's sole member does its own
- *  gesture-start rect stand in ([B07]). Null when a seated member is missing
- *  from the measurement, so a rail that cannot be read whole advertises
- *  nothing. */
-function stackRect(
-  rail: DropZoneRail,
-  measured: DropZoneMeasurements,
-  draggedPaneId: string,
-): Rect | null {
-  let union: Rect | null = null;
-  for (const paneId of rail.members) {
-    if (paneId === draggedPaneId) continue;
-    const rect = measured.panes.get(paneId);
-    if (rect === undefined) return null;
-    if (union === null) {
-      union = { ...rect };
-      continue;
-    }
-    const left = Math.min(union.x, rect.x);
-    const top = Math.min(union.y, rect.y);
-    const right = Math.max(union.x + union.width, rect.x + rect.width);
-    const bottom = Math.max(union.y + union.height, rect.y + rect.height);
-    union = { x: left, y: top, width: right - left, height: bottom - top };
-  }
-  return union ?? { ...measured.draggedAtStart };
-}
 
 function railZonesOf(
   rail: DropZoneRail,
@@ -701,30 +636,27 @@ function railZonesOf(
   // seam is the rail's own — `RAIL_SEAM_PX`, the value the imposer divides a
   // rail with — so the tiles pin at the seams the commit will actually write.
   const seam = RAIL_SEAM_PX;
-  const layout = rail.layout ?? DEFAULT_PLACE_LAYOUT;
   const { run, x, width } = seatedPlace(
     rail.members,
     members,
     rail.shares,
-    measured.appetites,
+    measured.members,
     draggedPaneId,
     measured.draggedAtStart,
     railRun,
     seam,
-    layout,
   );
   // The post-drop rail: the sitters other than the dragged card, plus the
   // dragged card itself — N for its own rail, N + 1 for the other one.
   const tiles = placeTiles(
     others,
-    measured.appetites,
+    measured.members,
     rail.shares,
     draggedPaneId,
     run,
     x,
     width,
     seam,
-    layout,
   );
   const hits = tileHitBands(
     tiles,
@@ -772,31 +704,6 @@ export function enumerateDropZones(
     const zones: DropZone[] = [];
     let origin: DropZone | null = null;
     for (const rail of measured.rails) {
-      if (rail.mode !== "split") {
-        // A stacked rail is one rect front to back, and what it offers is the
-        // stack itself rather than a position in a division: one zone, the
-        // rail's whole rect, and an arrival goes to the front — index 0 of
-        // the stored order — with the mode untouched ([B11]). The fork is on
-        // the rail's MODE alone and not on whose rail it is, because the
-        // shape is the same fact either way: a stack's members share one
-        // frame, so there are no positions to divide it into, and reading a
-        // division out of them would put the tiles wherever the arithmetic
-        // for a split rail happened to land. A stacked own rail therefore
-        // advertises its one rect as its own origin, and a release over it
-        // asks for the place the card already holds.
-        const stack = stackRect(rail, measured, draggedPaneId);
-        if (stack !== null) {
-          const zone: DropZone = {
-            kind: "rail-index",
-            side: rail.side,
-            index: 0,
-            rect: stack,
-          };
-          zones.push(zone);
-          if (rail === ownRail) origin = zone;
-        }
-        continue;
-      }
       const set = railZonesOf(rail, draggedPaneId, measured);
       zones.push(...set.zones);
       if (rail === ownRail) origin = set.origin;
@@ -840,11 +747,10 @@ export function enumerateDropZones(
         column.members,
         members,
         state.imposition.columns?.[slot]?.shares,
-        measured.appetites,
+        measured.members,
         draggedPaneId,
         measured.draggedAtStart,
         measured.runs.column,
-        columnLayoutOf(state.imposition, slot),
       );
       // The card's own column keeps its member count; a foreign one grows by
       // the arriving card, so it advertises one more position than it has
@@ -880,11 +786,10 @@ export function enumerateDropZones(
           column.members,
           [sitterRect],
           state.imposition.columns?.[slot]?.shares,
-          measured.appetites,
+          measured.members,
           draggedPaneId,
           measured.draggedAtStart,
           measured.runs.column,
-          columnLayoutOf(state.imposition, slot),
         );
         for (const [index, place] of places.entries()) {
           zones.push({

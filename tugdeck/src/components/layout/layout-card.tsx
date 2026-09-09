@@ -81,9 +81,9 @@
  * what the card SAYS. The rule is what says how far the fold reaches. The header
  * itself never folds, because the one thing a fold must not do is hide its own
  * way back. The state is deck-wide tugbank rather than a React cell, so it
- * survives a relaunch; and it is an appetite change too — a folded card asks
- * its rail for the plate alone and hands the difference back, rather than
- * standing over an empty run.
+ * survives a relaunch. The card's share of its rail does not move with it: a
+ * sash is the hand's, and a folded card scrolls or stands over what it was
+ * given, exactly as any other card does ([B03]).
  *
  * The previews are pre-rendered: React renders one hidden plan layer per
  * offerable option from the same store read as the committed layer, and the
@@ -98,7 +98,7 @@
  * event handlers and a `MutationObserver`, never React state; [L11] every
  * control emits `selectValue` through the responder chain, which this card
  * turns into `set-imposition` / `set-imposition-layout` / `set-content-width` /
- * `set-sidebar-side` / `set-rail-mode` dispatches; [L19] every control is a `TugChoiceGroup` and
+ * `set-sidebar-side` / `set-column-mode` dispatches; [L19] every control is a `TugChoiceGroup` and
  * every caption a `TugLabel`, composed rather than hand-rolled; [L30] the card never touches
  * the deck store — it goes through the command funnel like any other door.
  *
@@ -141,14 +141,9 @@ import {
   isImpositionKind,
   isColumnMode,
   columnModeOf,
-  columnLayoutOf,
   isImpositionLayout,
   impositionLayout,
-  isRailMode,
-  isPlaceLayout,
-  railLayoutOf,
   isSidebarSide,
-  railModeOf,
   sidebarSide,
   clampSlot,
   slotCount,
@@ -160,8 +155,6 @@ import {
   type ImpositionKind,
   type ColumnMode,
   type ImpositionLayout,
-  type PlaceLayout,
-  type RailMode,
   type SidebarSide,
   type PlaceAllocation,
 } from "@/lib/layout-imposer";
@@ -181,9 +174,6 @@ import type { TugChoiceItem } from "@/components/tugways/tug-choice-group";
 import { useResponder } from "@/components/tugways/use-responder";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { useMeasuredCardAppetite } from "@/lib/card-appetite-store";
-import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
-import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
@@ -209,19 +199,8 @@ const LAYOUT_SENDER_ID = "layout-card-layout";
 const WIDTH_SENDER_ID = "layout-card-width";
 const SIDE_SENDER_PREFIX = "layout-card-side:";
 
-/**
- * The two rail rows, one per side, present whatever the sides hold: a split
- *  side dropping to one card would otherwise take the only way to un-split it
- *  away with it ([B08]). Disabled rather than absent, which is why they count
- *  toward the natural unconditionally. */
-const LAYOUT_RAIL_ROWS = 2;
 
-const RAIL_SENDER_PREFIX = "layout-card-rail:";
 const COLUMN_SENDER_PREFIX = "layout-card-column:";
-/** The per-place ROWS' senders, apart from the marks' above: a row's Fit and
- *  Flow write the mode as well as the layout, where a mark writes one or the
- *  other ([B08]). */
-const RAIL_ROW_SENDER_PREFIX = "layout-card-rail-row:";
 const COLUMN_ROW_SENDER_PREFIX = "layout-card-column-row:";
 
 /** Ids of the captions, so each group can point `aria-labelledby` at its own
@@ -253,14 +232,12 @@ const LAYOUTS_KIND_FOCUS_ORDER = 0;
 const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
 const LAYOUTS_WIDTH_FOCUS_ORDER = 2;
 
-/** The rail rows' orders, one per side, directly under Card Width — and the
- *  column rows' after them, one per slot the kind defines, dense over the rows
- *  actually rendered (a slot with nothing to arrange has no row, so its order
- *  is simply unused). The sidebar rows start past the last slot any kind can
- *  define, so no two stops can share an order however the deck is shaped. */
-const LAYOUTS_FIRST_RAIL_ROW_FOCUS_ORDER = 3;
-const LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER =
-  LAYOUTS_FIRST_RAIL_ROW_FOCUS_ORDER + LAYOUT_RAIL_ROWS;
+/** The column rows' orders, directly under Card Width — one per slot the kind
+ *  defines, dense over the rows actually rendered (a slot with nothing to
+ *  arrange has no row, so its order is simply unused). The sidebar rows start
+ *  past the last slot any kind can define, so no two stops can share an order
+ *  however the deck is shaped. */
+const LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER = 3;
 
 /** The first sidebar row's order; each further registered card takes the next.
  *  These rows are the registry's size, which is fixed at boot — they list every
@@ -322,28 +299,12 @@ const SIDE_LABELS: Record<SidebarSide, string> = {
   right: "Right",
 };
 
-/** The caption for a side's rail row. */
-const RAIL_CAPTIONS: Record<SidebarSide, string> = {
-  left: "Left Rail",
-  right: "Right Rail",
-};
-
-/** A place row's three answers, in one choice group: Stack, or one of the two
- *  kinds of split ([B08]). Stack writes the mode alone and leaves the layout
- *  as it was, so a stacked place remembers which split it was; Fit and Flow
- *  write the mode and the layout together. */
-type PlaceRowValue = RailMode | PlaceLayout;
+/** A place row's two answers, in one choice group: the cards in a slot take
+ *  turns, or they divide its run. */
 const PLACE_ROW_ITEMS: TugChoiceItem[] = [
   { value: "stack", label: "Stack" },
-  { value: "fit", label: "Fit" },
-  { value: "flow", label: "Flow" },
+  { value: "split", label: "Split" },
 ];
-
-/** What a place row shows: Stack when the place is stacked, else the layout
- *  its division is on. */
-function placeRowValue(mode: RailMode, layout: PlaceLayout): PlaceRowValue {
-  return mode === "stack" ? "stack" : layout;
-}
 
 /** The caption for a slot's column row. One-based, matching the ⌘-digit chords
  *  and every other place the deck names a slot to the user. */
@@ -718,8 +679,6 @@ interface PlanLayer {
   note: string;
   kind: ImpositionKind;
   rails: MiniatureRails;
-  /** How each side's rail is arranged in this drawing. */
-  railModes: Partial<Record<SidebarSide, RailMode>>;
   width: ContentWidth;
   /** Which geometry this drawing stands under. */
   layout: ImpositionLayout;
@@ -733,7 +692,6 @@ interface PlanLayer {
    */
   ghost: {
     columns: readonly LayoutPlace[];
-    railPlaces: readonly LayoutPlace[];
   };
 }
 
@@ -812,18 +770,6 @@ export function LayoutContent(
     .filter((column) => column.members.length > 1)
     .map((column) => column.slot)
     .sort((a, b) => a - b);
-  // What the card would like of its rail's run ([B01]): the measured height of
-  // its content element, plus the pane's title bar, which the column below the
-  // scroller cannot see. This is the card whose sum was hardest to keep honest
-  // — a plate of nine terms, each naming a rule in `layout-card.css`, plus a
-  // pitch per control row — and the one whose drift was most visible, because
-  // the caption and the OPTIONS header the sum did not carry were drawn all
-  // the same and then cut off. Folding the mixer takes the rows out of the
-  // DOM, so the fold is still an appetite change; nothing has to say so.
-  const contentRef = useMeasuredCardAppetite(
-    LAYOUT_CARD_ID,
-    CARD_TITLE_BAR_HEIGHT,
-  );
   // The open ones are what the picture draws and what the overlay marks;
   // the full registry is what the sidebar rows list, because a hidden card's
   // row is the door that shows it.
@@ -832,25 +778,14 @@ export function LayoutContent(
     openSidebarIds.has(entry.componentId),
   );
   const rails = railsFor(imposition, openSidebars);
-  const railModes: Partial<Record<SidebarSide, RailMode>> = {
-    left: railModeOf(imposition, "left"),
-    right: railModeOf(imposition, "right"),
-  };
-  // …and each side's layout, which the rail rows read and the note reads to
-  // say which thing scrolls ([B08]).
-  const railLayouts: Partial<Record<SidebarSide, PlaceLayout>> = {
-    left: railLayoutOf(imposition, "left"),
-    right: railLayoutOf(imposition, "right"),
-  };
+
   // The committed places' own divisions, for the committed drawing alone.
   const committedAllocations = useCommittedAllocations(columns);
-  // The sides whose run actually scrolls — read off the side's own STANDING
-  // rather than off the layout it stores, because those are different facts
-  // and this note is about the one on screen. A flowing rail stands as a strip
-  // by choice; a fitting one whose floors do not fit its run stands as one by
-  // arithmetic, and it reads as flowing on every face until a member leaves or
-  // the window grows ([B07]). A stacked or empty side has no allocation at all
-  // and so is never named: neither divides anything, and neither scrolls.
+  // The sides whose run actually scrolls — read off the side's own STANDING,
+  // which is a fact about what is on screen. A rail whose floors do not fit its
+  // run stands as a strip by arithmetic and reads as scrolling on every face
+  // until a member leaves or the window grows ([B06]). An empty side has no
+  // allocation at all and so is never named: it divides nothing.
   const flowingRails: SidebarSide[] = SIDES.filter(
     (side) => committedAllocations.rails[side]?.standing === "overflow",
   );
@@ -962,21 +897,7 @@ export function LayoutContent(
       senderId: `${COLUMN_SENDER_PREFIX}${slot}`,
     }),
   );
-  /** The rail places a given pair of rail counts and modes comes to — used for
-   *  the live overlay and again for every preview layer's ghost, so the two
-   *  cannot disagree about what an occupied side is. */
-  const railPlacesFor = (
-    counts: MiniatureRails,
-    modes: Partial<Record<SidebarSide, RailMode>>,
-  ): LayoutPlace[] =>
-    SIDES.filter((side) => (counts[side] ?? 0) > 0).map((side) => ({
-      key: `rail-${side}`,
-      side,
-      mode: modes[side] ?? "stack",
-      label: RAIL_CAPTIONS[side],
-      senderId: `${RAIL_SENDER_PREFIX}${side}`,
-    }));
-  const railPlaces: LayoutPlace[] = railPlacesFor(rails, railModes);
+
   /** Which slots the miniature draws divided, and into how many shares. */
   const columnSplits: Record<number, number> = {};
   for (const column of columns) {
@@ -995,44 +916,17 @@ export function LayoutContent(
         const value = event.value;
         if (typeof value !== "string") return;
         const sender = event.sender;
-        // The place rows: Stack writes the mode alone; Fit and Flow write the
-        // mode and the layout, in that order, so the place stands split on
-        // the layout the press named ([B08]). Both setters short-circuit on
-        // an unchanged value, so a row pressed on the answer it shows costs
+        // The place row writes the slot's mode. The setter short-circuits on an
+        // unchanged value, so a row pressed on the answer it shows costs
         // nothing.
-        if (
-          typeof sender === "string" &&
-          sender.startsWith(RAIL_ROW_SENDER_PREFIX)
-        ) {
-          const side = sender.slice(RAIL_ROW_SENDER_PREFIX.length);
-          if (!isSidebarSide(side)) return;
-          if (value === "stack") {
-            dispatchCommand(TUG_ACTIONS.SET_RAIL_MODE, { side, mode: "stack" });
-          } else if (isPlaceLayout(value)) {
-            dispatchCommand(TUG_ACTIONS.SET_RAIL_MODE, { side, mode: "split" });
-            dispatchCommand(TUG_ACTIONS.SET_RAIL_LAYOUT, { side, layout: value });
-          }
-          return;
-        }
         if (
           typeof sender === "string" &&
           sender.startsWith(COLUMN_ROW_SENDER_PREFIX)
         ) {
           const slot = Number(sender.slice(COLUMN_ROW_SENDER_PREFIX.length));
           if (!Number.isInteger(slot) || slot < 0) return;
-          if (value === "stack") {
-            dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: "stack" });
-          } else if (isPlaceLayout(value)) {
-            dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: "split" });
-            dispatchCommand(TUG_ACTIONS.SET_COLUMN_LAYOUT, { slot, layout: value });
-          }
-          return;
-        }
-        if (typeof sender === "string" && sender.startsWith(RAIL_SENDER_PREFIX)) {
-          const side = sender.slice(RAIL_SENDER_PREFIX.length);
-          if (!isSidebarSide(side)) return;
-          if (isRailMode(value)) {
-            dispatchCommand(TUG_ACTIONS.SET_RAIL_MODE, { side, mode: value });
+          if (isColumnMode(value)) {
+            dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: value });
           }
           return;
         }
@@ -1205,7 +1099,7 @@ export function LayoutContent(
   // width) change no place, so their ghosts are the marks as they stand — at
   // the LAYER's geometry, which is the whole point: the marks travel with the
   // blocks they annotate.
-  const baseGhost = { columns: columnPlaces, railPlaces };
+  const baseGhost = { columns: columnPlaces };
 
   const layers: PlanLayer[] = [
     ...IMPOSITION_KINDS.map((k) => ({
@@ -1214,14 +1108,12 @@ export function LayoutContent(
       note: planNote(k, contentWidth, layout, flowingRails),
       kind: k,
       rails,
-      railModes,
       width: contentWidth,
       layout,
       // A different kind reshuffles which cards share which slot, and that
       // redistribution is the imposer's to make — so the ghost claims nothing
-      // about columns and keeps only the rails, which a kind change leaves
-      // alone.
-      ghost: { columns: [], railPlaces },
+      // about columns at all.
+      ghost: { columns: [] },
     })),
     ...LAYOUTS.map((mode) => ({
       previewId: `layout:${mode}`,
@@ -1229,7 +1121,6 @@ export function LayoutContent(
       note: planNote(kind, contentWidth, mode, flowingRails),
       kind,
       rails,
-      railModes,
       width: contentWidth,
       layout: mode,
       ghost: baseGhost,
@@ -1240,7 +1131,6 @@ export function LayoutContent(
       note: planNote(kind, preset, layout, flowingRails),
       kind,
       rails,
-      railModes,
       width: preset,
       layout,
       ghost: baseGhost,
@@ -1262,21 +1152,9 @@ export function LayoutContent(
           componentId: entry.componentId,
           side,
         }),
-        railModes,
         width: contentWidth,
         layout,
-        // The rail marks travel with the placement: the destination side gains
-        // one and the origin may lose its rail outright.
-        ghost: {
-          columns: columnPlaces,
-          railPlaces: railPlacesFor(
-            railsFor(imposition, openSidebars, {
-              componentId: entry.componentId,
-              side,
-            }),
-            railModes,
-          ),
-        },
+        ghost: { columns: columnPlaces },
       })),
     ),
     // And one per card for Off: the deck without it. For a card already
@@ -1294,13 +1172,9 @@ export function LayoutContent(
         note: planNote(kind, contentWidth, layout, flowingRails),
         kind,
         rails: counts,
-        railModes,
         width: contentWidth,
         layout,
-        ghost: {
-          columns: columnPlaces,
-          railPlaces: railPlacesFor(counts, railModes),
-        },
+        ghost: { columns: columnPlaces },
       };
     }),
   ].map((layer) => ({ ...layer, columnSplits }));
@@ -1374,7 +1248,7 @@ export function LayoutContent(
         <div
           className="layouts-content"
           data-testid="layout-card-content"
-          ref={contentRef}
+          data-card-content=""
         >
         {/* The figure: the drawing, and the places standing on it. They are
             siblings rather than nested because the drawing is `aria-hidden` —
@@ -1409,7 +1283,6 @@ export function LayoutContent(
             <LayoutMiniature
               kind={kind}
               rails={rails}
-              railModes={railModes}
               width={contentWidth}
               layout={layout}
               columnSplits={columnSplits}
@@ -1448,7 +1321,6 @@ export function LayoutContent(
               <LayoutMiniature
                 kind={layer.kind}
                 rails={layer.rails}
-                railModes={layer.railModes}
                 width={layer.width}
                 layout={layer.layout}
                 columnSplits={layer.columnSplits}
@@ -1464,7 +1336,6 @@ export function LayoutContent(
                 layout={layer.layout}
                 band={committedFlow?.bandPx}
                 columns={layer.ghost.columns}
-                railPlaces={layer.ghost.railPlaces}
                 ghost
               />
             </div>
@@ -1492,7 +1363,6 @@ export function LayoutContent(
                 }
           }
           columns={columnPlaces}
-          railPlaces={railPlaces}
           focusGroup={LAYOUT_FOCUS_GROUP}
           focusOrder={LAYOUTS_PLACES_FOCUS_ORDER}
         />
@@ -1634,49 +1504,12 @@ export function LayoutContent(
             />
           </div>
 
-          {/* The place rows ([B08]): one per rail side, always, and one per
-              slot with something to arrange. A per-thing row is told from the
-              deck rows above by its caption naming the place. No
-              `data-preview-axis`: an arrangement does not audition, for the
-              reason the marks give — its effect is the word on the segment. */}
-          {SIDES.map((side, index) => {
-            const captionId = `layout-card-rail-caption-${side}`;
-            return (
-              <div
-                className="layouts-section-row"
-                key={`rail-${side}`}
-              >
-                <TugLabel
-                  id={captionId}
-                  size="md"
-                  emphasis="proposal"
-                  className="layouts-section-caption"
-                >
-                  {RAIL_CAPTIONS[side]}
-                </TugLabel>
-                <TugChoiceGroup
-                  items={PLACE_ROW_ITEMS}
-                  value={placeRowValue(
-                    railModes[side] ?? "stack",
-                    railLayouts[side] ?? "fit",
-                  )}
-                  senderId={`${RAIL_ROW_SENDER_PREFIX}${side}`}
-                  size="xs"
-                  sidePadding="xs"
-                  reselect
-                  // A side holding fewer than two cards has nothing to divide,
-                  // but the row stays: it is the one door back to a stack once
-                  // a split side has emptied to one card.
-                  disabled={(rails[side] ?? 0) < 2}
-                  focusGroup={LAYOUT_FOCUS_GROUP}
-                  focusOrder={LAYOUTS_FIRST_RAIL_ROW_FOCUS_ORDER + index}
-                  aria-labelledby={captionId}
-                  data-testid={`layout-card-rail-${side}`}
-                />
-              </div>
-            );
-          })}
-
+          {/* The place rows: one per slot with something to arrange. A rail
+              gets none — it is always divided ([B01]), so there is nothing to
+              choose. A per-thing row is told from the deck rows above by its
+              caption naming the place. No `data-preview-axis`: an arrangement
+              does not audition, for the reason the marks give — its effect is
+              the word on the segment. */}
           {columnRowSlots.map((slot) => {
             const captionId = `layout-card-column-caption-${slot}`;
             return (
@@ -1694,10 +1527,7 @@ export function LayoutContent(
                 </TugLabel>
                 <TugChoiceGroup
                   items={PLACE_ROW_ITEMS}
-                  value={placeRowValue(
-                    columnModeOf(imposition, slot),
-                    columnLayoutOf(imposition, slot),
-                  )}
+                  value={columnModeOf(imposition, slot)}
                   senderId={`${COLUMN_ROW_SENDER_PREFIX}${slot}`}
                   size="xs"
                   sidePadding="xs"

@@ -18,9 +18,9 @@
  * Five members on the right rail put its floors past the run, which is what
  * puts the rail under the overflow rule — a sidebar card's floor is 240px and
  * this harness's canvas is a little over 1000px tall, so it takes five before
- * they stop fitting ([P01]). Past it each member stands at the height its own
- * appetite asks for and the strip runs off the window's foot, so the members at
- * the bottom of it stand clipped at rest.
+ * they stop fitting ([P01]). Past it each member stands at its own floor and
+ * the strip runs off the window's foot, so the members at the bottom of it
+ * stand clipped at rest.
  *
  * @covers tugdeck/src/components/chrome/pane-focus-controller.ts
  * @covers tugdeck/src/gesture-interpreter.ts

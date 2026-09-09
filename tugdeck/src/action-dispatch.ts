@@ -43,8 +43,6 @@ import {
   isImpositionKind,
   isImpositionLayout,
   isColumnMode,
-  isPlaceLayout,
-  isRailMode,
   isSidebarSide,
 } from "@/lib/layout-imposer";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
@@ -776,59 +774,6 @@ export function initActionDispatch(
     writeSlotWindow(size);
   });
 
-  // set-rail-mode: stack or split one side's rail. Dispatched by the title
-  // bar's stack badge menu and by the Layout card's per-side rail row.
-  // A side is a stack or a split — all of its visible members participate,
-  // which is why the payload names a side rather than a pair of cards.
-  registerAction(TUG_ACTIONS.SET_RAIL_MODE, (payload) => {
-    const side = payload.side;
-    const mode = payload.mode;
-    if (!isSidebarSide(side) || !isRailMode(mode)) {
-      console.warn("set-rail-mode: missing or invalid side/mode", payload);
-      return;
-    }
-    deckManager.setRailMode(side, mode);
-  });
-
-  // set-rail-layout: whether a split rail divides its run or lets its members
-  // stand at their own heights down a strip that scrolls. A side fits or flows
-  // as a whole — all of its visible members are resolved by one rule — which is
-  // why the payload names a side, exactly as set-rail-mode does.
-  registerAction(TUG_ACTIONS.SET_RAIL_LAYOUT, (payload) => {
-    const side = payload.side;
-    const layout = payload.layout;
-    if (!isSidebarSide(side) || !isPlaceLayout(layout)) {
-      console.warn("set-rail-layout: missing or invalid side/layout", payload);
-      return;
-    }
-    deckManager.setRailLayout(side, layout);
-  });
-
-  // equalize-rail: divide a split rail's run equally again. Dispatched by the
-  // stack badge menu. The side's mode and member order survive — only the
-  // division is rewritten.
-  registerAction(TUG_ACTIONS.EQUALIZE_RAIL, (payload) => {
-    const side = payload.side;
-    if (!isSidebarSide(side)) {
-      console.warn("equalize-rail: missing or invalid side", payload);
-      return;
-    }
-    deckManager.equalizeRail(side);
-  });
-
-  // fit-rail-to-content: re-seed a split rail's division from its members'
-  // naturals as they stand now. Dispatched by the stack badge menu and by a
-  // double-click on the seam. Under fit the seed is written as the hand's
-  // division; under flow the stored weights are dropped.
-  registerAction(TUG_ACTIONS.FIT_RAIL_TO_CONTENT, (payload) => {
-    const side = payload.side;
-    if (!isSidebarSide(side)) {
-      console.warn("fit-rail-to-content: missing or invalid side", payload);
-      return;
-    }
-    deckManager.fitRailToContent(side);
-  });
-
   // set-column-mode: stack or split the cards sharing one numbered slot.
   // Dispatched by the title bar's stack badge menu, the Layout card's
   // per-slot column row, and ⌃⌘S. A slot is a stack or a split — all of its
@@ -848,22 +793,6 @@ export function initActionDispatch(
     deckManager.setColumnMode(slot, mode);
   });
 
-  // set-column-layout: the content-side twin of set-rail-layout, over one
-  // numbered slot.
-  registerAction(TUG_ACTIONS.SET_COLUMN_LAYOUT, (payload) => {
-    const slot = payload.slot;
-    const layout = payload.layout;
-    if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0) {
-      console.warn("set-column-layout: missing or invalid slot", payload);
-      return;
-    }
-    if (!isPlaceLayout(layout)) {
-      console.warn("set-column-layout: missing or invalid layout", payload);
-      return;
-    }
-    deckManager.setColumnLayout(slot, layout);
-  });
-
   // equalize-column: divide a split column's run equally again. Dispatched by
   // the stack badge menu. The slot's mode and member order survive — only the
   // division is rewritten.
@@ -876,16 +805,12 @@ export function initActionDispatch(
     deckManager.equalizeColumn(slot);
   });
 
-  // fit-column-to-content: the content-side twin of fit-rail-to-content, over
-  // one numbered slot. Dispatched by the stack badge menu and by a
-  // double-click on the seam.
-  registerAction(TUG_ACTIONS.FIT_COLUMN_TO_CONTENT, (payload) => {
-    const slot = payload.slot;
-    if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0) {
-      console.warn("fit-column-to-content: missing or invalid slot", payload);
-      return;
-    }
-    deckManager.fitColumnToContent(slot);
+  // resize-sidebars-to-fit: stand every rail's cards at the heights their
+  // content asks for, once. Dispatched by ⌃⌥⌘R and the Window menu row, and
+  // by nothing else — the result is a division like any the hand makes, and
+  // no resize, content change or membership change re-runs it ([B07]).
+  registerAction(TUG_ACTIONS.RESIZE_SIDEBARS_TO_FIT, () => {
+    deckManager.resizeSidebarsToFit();
   });
 
   // assign-slot: put a card's pane at a numbered position in the active

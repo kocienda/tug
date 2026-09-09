@@ -1667,13 +1667,14 @@ describe("imposition rails", () => {
 
   const sidebars = { tripwires: { side: "right" }, jots: { side: "right" } };
 
-  test("a split rail round-trips whole", () => {
+  test("a divided rail round-trips whole, and a stored mode is dropped", () => {
     const imposition = {
       kind: "three-up",
       contentWidth: "comfy",
       sidebars,
       rails: {
         right: {
+          // A pre-[B01] blob's `mode`: read past and gone from the next write.
           mode: "split",
           order: ["jots", "tripwires"],
           shares: { jots: 1.4, tripwires: 1 },
@@ -1683,7 +1684,6 @@ describe("imposition rails", () => {
     const restored = deserialize(railBlob(imposition), 1920, 1080);
     expect(restored.imposition.rails).toEqual({
       right: {
-        mode: "split",
         order: ["jots", "tripwires"],
         shares: { jots: 1.4, tripwires: 1 },
       },
@@ -1702,25 +1702,18 @@ describe("imposition rails", () => {
     expect(railsOf({ kind: "three-up", sidebars })).toBeUndefined();
   });
 
-  test("an unreadable mode drops the whole side", () => {
-    // The order and heights below describe an arrangement; applying them under
-    // a guessed mode would show the user something nobody chose.
+  test("an unreadable mode is read past, leaving the order standing", () => {
+    // A rail is always divided ([B01]), so a `mode` from an older blob says
+    // nothing about the side either way — readable or not, it is skipped and
+    // the order and shares beside it come back whole.
     expect(
       railsOf({
         sidebars,
         rails: { right: { mode: "sideways", order: ["jots", "tripwires"] } },
       }),
-    ).toBeUndefined();
+    ).toEqual({ right: { order: ["jots", "tripwires"] } });
   });
 
-  test("one bad side leaves the other standing", () => {
-    expect(
-      railsOf({
-        sidebars,
-        rails: { left: { mode: "split" }, right: { mode: 7 } },
-      }),
-    ).toEqual({ left: { mode: "split" } });
-  });
 
   test("shares are dropped per key, not per side", () => {
     expect(
@@ -1728,7 +1721,6 @@ describe("imposition rails", () => {
         sidebars,
         rails: {
           right: {
-            mode: "split",
             shares: {
               tripwires: 2,
               jots: -1,
@@ -1740,7 +1732,7 @@ describe("imposition rails", () => {
           },
         },
       }),
-    ).toEqual({ right: { mode: "split", shares: { tripwires: 2 } } });
+    ).toEqual({ right: { shares: { tripwires: 2 } } });
   });
 
   test("non-string order entries are dropped", () => {
@@ -1772,7 +1764,6 @@ describe("imposition rails", () => {
         sidebars,
         rails: {
           right: {
-            mode: "split",
             order: ["dev", "tripwires"],
             shares: { dev: 2, tripwires: 1 },
           },
@@ -1780,7 +1771,6 @@ describe("imposition rails", () => {
       }),
     ).toEqual({
       right: {
-        mode: "split",
         order: ["session", "tripwires"],
         shares: { session: 2, tripwires: 1 },
       },

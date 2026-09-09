@@ -1841,6 +1841,38 @@ export const COMMANDS: readonly CommandEntry[] = [
   ...SLOT_COMMANDS,
   ...NUDGE_SLOT_COMMANDS,
   ...COLUMN_SPLIT_COMMANDS,
+  // ⌃⌥⌘R — Resize Sidebars to Fit: stand every rail's cards at the heights
+  // their content asks for, once ([B07], [B08]).
+  //
+  // **The tier, and the anomaly it is recorded as** (tuglaws/chord-tiers.md):
+  // ⌃⌥⌘ is the advanced form of a Tug-tier command, and ⌃⌘R is the Arcs card
+  // rather than a base this varies — so the grant is the tier's second
+  // resident with a reading of its own, R for *Resize*, on the tier reserved
+  // for deck-shaping verbs a user reaches for deliberately.
+  //
+  // `menuEligible`, so the Window row's key equivalent preempts every scoped
+  // binding: the rails are the deck's own geometry and no focused surface
+  // should be able to decline a verb about them. The Swift item is built with
+  // an EMPTY key equivalent, so `applyCommandChords` writes the chord from
+  // this table and it stays rebindable end to end.
+  //
+  // Ungated. A rail with two members always has a division to write, and one
+  // with fewer has nothing to divide either way — a dimmed row would be
+  // reporting a fact about the rails that the rails themselves already show.
+  {
+    id: TUG_ACTIONS.RESIZE_SIDEBARS_TO_FIT,
+    title: "Resize Sidebars to Fit",
+    routing: "registry",
+    menuItemId: "window.resizeSidebarsToFit",
+    mirrored: true,
+    bindings: [
+      chord(
+        { key: "KeyR", meta: true, ctrl: true, alt: true, label: "r" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    validate: () => true,
+  },
   {
     // Its door is the pane's close box — a targeted control, invisible to
     // a lint that can only see menu items and chords.
@@ -1885,38 +1917,6 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its doors are the title bar's stack badge menu and the Layout card's
-    // per-side rail row; the side set is the deck's, so the payload
-    // set is runtime.
-    id: TUG_ACTIONS.SET_RAIL_MODE,
-    title: "Set Rail Mode",
-    routing: "registry",
-    internal: true,
-  },
-  {
-    // Its doors are the rail's own — the Layout card's per-place mark and the
-    // title bar's stack badge menu; the side set is the deck's, so the payload
-    // set is runtime.
-    id: TUG_ACTIONS.SET_RAIL_LAYOUT,
-    title: "Set Rail Layout",
-    routing: "registry",
-    internal: true,
-  },
-  {
-    // Its door is the stack badge menu.
-    id: TUG_ACTIONS.EQUALIZE_RAIL,
-    title: "Equalize Rail Heights",
-    routing: "registry",
-    internal: true,
-  },
-  {
-    // Its doors are the stack badge menu and a double-click on a seam.
-    id: TUG_ACTIONS.FIT_RAIL_TO_CONTENT,
-    title: "Fit Rail to Content",
-    routing: "registry",
-    internal: true,
-  },
-  {
     // Its doors are the stack badge menu, the Layout card's per-slot
     // column row, and ⌃⌘S; the slot set is the deck's, so the payload set is
     // runtime.
@@ -1926,25 +1926,9 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its doors are the slot's own — the Layout card's per-place mark and the
-    // stack badge menu; the slot set is the deck's, so the payload set is
-    // runtime.
-    id: TUG_ACTIONS.SET_COLUMN_LAYOUT,
-    title: "Set Column Layout",
-    routing: "registry",
-    internal: true,
-  },
-  {
     // Its door is the stack badge menu.
     id: TUG_ACTIONS.EQUALIZE_COLUMN,
     title: "Equalize Column Heights",
-    routing: "registry",
-    internal: true,
-  },
-  {
-    // Its doors are the stack badge menu and a double-click on a column seam.
-    id: TUG_ACTIONS.FIT_COLUMN_TO_CONTENT,
-    title: "Fit Column to Content",
     routing: "registry",
     internal: true,
   },

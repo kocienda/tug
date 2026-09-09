@@ -191,6 +191,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘→ | `toggle-rail:right` | Show Right Rail | menu bar (swept) |
 | ⌃⌘↓ | `move-in-column:down` | Move Card Down in Column | menu bar (swept) |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
+| ⌃⌥⌘R | `resize-sidebars-to-fit` | Resize Sidebars to Fit | menu bar (swept) |
 | ⌘+ | `zoom-in` | Zoom In | menu bar (swept) |
 | ⌘, | `show-settings` | Settings… | JS, global |
 | ⌘- | `zoom-out` | Zoom Out | menu bar (swept) |
@@ -365,6 +366,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `window.nextCardInStack` | `next-stack-card` | first responder | registry gate |
 | `window.previousCard` | `previous-tab` | first responder | registry gate |
 | `window.previousCardInStack` | `previous-stack-card` | first responder | registry gate |
+| `window.resizeSidebarsToFit` | `resize-sidebars-to-fit` | registered handler | registry gate |
 | `window.revealStack` | `reveal-stack` | first responder | registry gate |
 | `window.sidebar.cards.left` | `set-sidebar-side:cards:left` | registered handler | registry gate |
 | `window.sidebar.cards.right` | `set-sidebar-side:cards:right` | registered handler | registry gate |

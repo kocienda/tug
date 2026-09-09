@@ -253,6 +253,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "toggle-column-split": "command",
   "move-in-column": { bridgeFor: TUG_ACTIONS.MOVE_IN_COLUMN },
   "toggle-rail": { bridgeFor: TUG_ACTIONS.TOGGLE_RAIL },
+  "resize-sidebars-to-fit": "command",
   // A command in its own right rather than a bridge, though the Window
   // menu's per-card rows do carry per-value entries: the wire's handler
   // takes the card and the side out of one payload, and the Layout card's
@@ -476,6 +477,11 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // family above already made.
   ["⌃⌘←", `${TUG_ACTIONS.TOGGLE_RAIL}:left`],
   ["⌃⌘→", `${TUG_ACTIONS.TOGGLE_RAIL}:right`],
+  // Resize Sidebars to Fit — an anomaly by the algebra and recorded as one in
+  // chord-tiers.md: ⌃⌥⌘ is the advanced form of the ⌃⌘ tier above, and ⌃⌘R is
+  // the Arcs card rather than a base this varies. R for *Resize*, on the tier
+  // reserved for deck-shaping verbs a user reaches for deliberately.
+  ["⌃⌥⌘R", TUG_ACTIONS.RESIZE_SIDEBARS_TO_FIT],
 ];
 
 /** The map as it reads today: transcription, minus retirements, plus moves and additions. */

@@ -13,7 +13,7 @@ import type { Rect } from "../../snap";
 import {
   allocatePlaceHeights,
   IMPOSITION_GAP_PX,
-  type PlaceMemberAppetite,
+  type PlaceMember,
   RAIL_SEAM_PX,
 } from "../layout-imposer";
 import {
@@ -103,7 +103,7 @@ function splitRects(
 function overflowFloors(
   ids: readonly string[],
   run: number,
-): Map<string, PlaceMemberAppetite> {
+): Map<string, PlaceMember> {
   const floor = run / 2.6;
   return new Map(
     ids.map((id) => [
@@ -157,7 +157,7 @@ function measured(overrides: Partial<DropZoneMeasurements> = {}): DropZoneMeasur
     // No appetites: the fixtures' members declare nothing, so every one of
     // them is floorless and the allocator answers from the standing and the
     // stored weights alone — which is what these tests are about.
-    appetites: new Map(),
+    members: new Map(),
     // The deck's own run measurement, which the engine reads instead of
     // summing frames. The fixtures' places are tiled to fill RUN_HEIGHT
     // unless a test says otherwise.
@@ -297,7 +297,7 @@ describe("a card only ever sees the places its own kind can stand in", () => {
           ["notes", railRects[1]],
         ]),
         tabBars: new Map([["p1", { x: 0, y: RUN_TOP, width: SLOT_WIDTH, height: 30 }]]),
-        rails: [{ side: "right", mode: "split", members: ["tripwires", "notes"] }],
+        rails: [{ side: "right", members: ["tripwires", "notes"] }],
       }),
     );
     expect(keys(set.zones)).toEqual(["rail:right:0", "rail:right:1"]);
@@ -328,7 +328,7 @@ describe("a card only ever sees the places its own kind can stand in", () => {
         slots: new Map([[1, slotRect(1)]]),
         panes,
         tabBars,
-        rails: [{ side: "right", mode: "split", members: ["tripwires"] }],
+        rails: [{ side: "right", members: ["tripwires"] }],
         draggedAtStart: slotRect(2),
       }),
     );
@@ -347,7 +347,7 @@ describe("a card only ever sees the places its own kind can stand in", () => {
       state,
       "tripwires",
       measured({
-        appetites: overflowFloors(
+        members: overflowFloors(
           ["tripwires", "notes", "cards", "jots"],
           RUN_HEIGHT,
         ),
@@ -358,8 +358,8 @@ describe("a card only ever sees the places its own kind can stand in", () => {
           ["jots", left[1]],
         ]),
         rails: [
-          { side: "left", mode: "split", members: ["cards", "jots"] },
-          { side: "right", mode: "split", members: ["tripwires", "notes"] },
+          { side: "left", members: ["cards", "jots"] },
+          { side: "right", members: ["tripwires", "notes"] },
         ],
       }),
     );
@@ -383,95 +383,6 @@ describe("a card only ever sees the places its own kind can stand in", () => {
     }
   });
 
-  it("a stacked other rail offers itself whole: one zone, index 0", () => {
-    // What a stack offers is the stack itself — one rect front to back —
-    // and the arrival goes to the front of the stored order ([B11]).
-    const state = deck([pane("tripwires"), pane("notes"), pane("cards")]);
-    const right = splitRects(2, [RUN_HEIGHT / 2, RUN_HEIGHT / 2], RAIL_SEAM_PX);
-    const set = enumerateDropZones(
-      state,
-      "tripwires",
-      measured({
-        panes: new Map([
-          ["tripwires", right[0]],
-          ["notes", right[1]],
-          ["cards", slotRect(0)],
-        ]),
-        rails: [
-          { side: "left", mode: "stack", members: ["cards"] },
-          { side: "right", mode: "split", members: ["tripwires", "notes"] },
-        ],
-      }),
-    );
-    expect(keys(set.zones)).toEqual(["rail:left:0", "rail:right:0", "rail:right:1"]);
-    const stack = set.zones.find((z) => z.kind === "rail-index" && z.side === "left");
-    expect(stack?.rect).toEqual(slotRect(0));
-    expect(stack?.hit).toBeUndefined();
-  });
-
-  it("a stacked other rail of two is one rect, not two", () => {
-    const state = deck([pane("tripwires"), pane("notes"), pane("cards")]);
-    const left = slotRect(0);
-    const set = enumerateDropZones(
-      state,
-      "tripwires",
-      measured({
-        panes: new Map([
-          ["tripwires", slotRect(2)],
-          ["notes", left],
-          ["cards", left],
-        ]),
-        rails: [
-          { side: "left", mode: "stack", members: ["notes", "cards"] },
-          { side: "right", mode: "split", members: ["tripwires"] },
-        ],
-      }),
-    );
-    expect(keys(set.zones).filter((k) => k.startsWith("rail:left"))).toEqual(["rail:left:0"]);
-  });
-
-  it("the card's OWN stacked rail is one rect too, and it is the origin", () => {
-    // A stack's members share one frame, so there are no positions to divide
-    // it into — the fork is on the rail's mode, not on whose rail it is. Read
-    // as a division instead, the seated member's pin would be inverted with
-    // arithmetic that never wrote it, and the run would come back half a run
-    // above the canvas ([B07], [B11]).
-    const state = deck([pane("cards"), pane("jots")]);
-    const frame = slotRect(0);
-    const set = enumerateDropZones(
-      state,
-      "cards",
-      measured({
-        panes: new Map([
-          ["cards", { ...frame, y: frame.y - 400 }], // in flight, under the hand
-          ["jots", frame],
-        ]),
-        rails: [{ side: "left", mode: "stack", members: ["cards", "jots"] }],
-      }),
-    );
-    expect(keys(set.zones)).toEqual(["rail:left:0"]);
-    expect(set.zones[0]?.rect, "the rail's own rect, off the seated member").toEqual(frame);
-    expect(set.origin?.rect, "and a release over it asks for the place it holds").toEqual(frame);
-  });
-
-  it("a stacked rail's sole member reads its own gesture-start rect", () => {
-    // Nothing stayed put, so the one rect the card can still vouch for is the
-    // frame it had at the latch — never the live one, which carries the drag.
-    const state = deck([pane("cards")]);
-    const frame = slotRect(0);
-    const set = enumerateDropZones(
-      state,
-      "cards",
-      measured({
-        panes: new Map([["cards", { ...frame, y: frame.y - 400 }]]),
-        rails: [{ side: "left", mode: "stack", members: ["cards"] }],
-        draggedAtStart: frame,
-      }),
-    );
-    expect(keys(set.zones)).toEqual(["rail:left:0"]);
-    expect(set.zones[0]?.rect).toEqual(frame);
-  });
-
   it("a side with no rail advertises its vacancy tile as index 0", () => {
     // The empty side holds open a landing strip while a rail card is in the
     // air ([B10]); the tile's box is the zone, and the card arrives alone.
@@ -486,7 +397,7 @@ describe("a card only ever sees the places its own kind can stand in", () => {
           ["tripwires", right[0]],
           ["notes", right[1]],
         ]),
-        rails: [{ side: "right", mode: "split", members: ["tripwires", "notes"] }],
+        rails: [{ side: "right", members: ["tripwires", "notes"] }],
         railVacancies: { left: vacancy },
       }),
     );
@@ -505,7 +416,7 @@ describe("a card only ever sees the places its own kind can stand in", () => {
           ["tripwires", right[0]],
           ["notes", right[1]],
         ]),
-        rails: [{ side: "right", mode: "split", members: ["tripwires", "notes"] }],
+        rails: [{ side: "right", members: ["tripwires", "notes"] }],
       }),
     );
     expect(keys(set.zones)).toEqual(["rail:right:0", "rail:right:1"]);
@@ -621,7 +532,7 @@ describe("a split column advertises one position per place a member can stand", 
       state,
       "p1",
       measured({
-        appetites: overflowFloors(["p1", "p2", "p3"], RUN_HEIGHT),
+        members: overflowFloors(["p1", "p2", "p3"], RUN_HEIGHT),
         panes: new Map([
           ["p1", rects[0]],
           ["p2", rects[1]],
@@ -677,7 +588,7 @@ describe("a split column advertises one position per place a member can stand", 
       state,
       "p1",
       measured({
-        appetites: overflowFloors(["p1", "p2", "p3"], RUN_HEIGHT),
+        members: overflowFloors(["p1", "p2", "p3"], RUN_HEIGHT),
         slots: new Map([[0, slotRect(0)]]),
         panes: new Map([
           ["p1", slotRect(0)],
@@ -757,7 +668,7 @@ describe("a position is asked for at the tile the preview draws", () => {
       state,
       "p1",
       measured({
-        appetites: overflowFloors(["p1", "p2", "p3"], RUN),
+        members: overflowFloors(["p1", "p2", "p3"], RUN),
         slots: new Map([[0, slotRect(0)]]),
         panes: new Map([
           ["p1", slotRect(0)],
@@ -826,7 +737,7 @@ describe("a position is asked for at the tile the preview draws", () => {
           ["s1", rects[0]],
           ["s2", rects[1]],
         ]),
-        rails: [{ side: "left", mode: "split", members: ["s1", "s2"] }],
+        rails: [{ side: "left", members: ["s1", "s2"] }],
         runs: { column: RUN_HEIGHT, rail: run },
       }),
     );
@@ -859,13 +770,13 @@ describe("a position is asked for at the tile the preview draws", () => {
       state,
       "s1",
       measured({
-        appetites: overflowFloors(["s1", "s2", "s3"], run),
+        members: overflowFloors(["s1", "s2", "s3"], run),
         panes: new Map([
           ["s1", rects[0]],
           ["s2", rects[1]],
           ["s3", rects[2]],
         ]),
-        rails: [{ side: "left", mode: "split", members: ["s1", "s2", "s3"] }],
+        rails: [{ side: "left", members: ["s1", "s2", "s3"] }],
         runs: { column: RUN_HEIGHT, rail: run },
       }),
     );
@@ -904,7 +815,6 @@ describe("a position is asked for at the tile the preview draws", () => {
         rails: [
           {
             side: "left",
-            mode: "split",
             members: ["s1", "s2"],
             shares: { s1: 1, s2: 2 },
           },
@@ -941,7 +851,7 @@ describe("a position is asked for at the tile the preview draws", () => {
           ["s1", inFlight],
           ["s2", seated[1]],
         ]),
-        rails: [{ side: "left", mode: "split", members: ["s1", "s2"] }],
+        rails: [{ side: "left", members: ["s1", "s2"] }],
         runs: { column: RUN_HEIGHT, rail: run },
       }),
     );
@@ -977,13 +887,13 @@ describe("a position is asked for at the tile the preview draws", () => {
       state,
       "s1",
       measured({
-        appetites: overflowFloors(["s1", "s2", "s3"], run),
+        members: overflowFloors(["s1", "s2", "s3"], run),
         panes: new Map([
           ["s1", { ...at(0), x: SLOT_X[0] - 80, y: at(0).y + 300 }],
           ["s2", at(1)],
           ["s3", at(2)],
         ]),
-        rails: [{ side: "left", mode: "split", members: ["s1", "s2", "s3"] }],
+        rails: [{ side: "left", members: ["s1", "s2", "s3"] }],
         runs: { column: RUN_HEIGHT, rail: run },
       }),
     );
@@ -1006,7 +916,7 @@ describe("a position is asked for at the tile the preview draws", () => {
       "s1",
       measured({
         panes: new Map([["s1", { ...atStart, x: atStart.x + 200, y: atStart.y + 150 }]]),
-        rails: [{ side: "left", mode: "split", members: ["s1"] }],
+        rails: [{ side: "left", members: ["s1"] }],
         runs: { column: RUN_HEIGHT, rail: 380 },
         draggedAtStart: atStart,
       }),

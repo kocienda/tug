@@ -213,11 +213,11 @@ describe("the vocabulary is fully accounted for", () => {
     }
   });
 
-  test("the rail verbs are registry-routed and bind no chord", () => {
-    // Both are named verbs a menu row and a rail control dispatch, and neither
-    // takes a default binding ([L30]) — the deck's chord budget is not spent on
-    // an arrangement the user reaches by pointing at it.
-    for (const id of [TUG_ACTIONS.SET_RAIL_MODE, TUG_ACTIONS.EQUALIZE_RAIL]) {
+  test("the column verbs are registry-routed and bind no chord", () => {
+    // Named verbs a menu row and a column control dispatch, and neither takes a
+    // default binding ([L30]) — the deck's chord budget is not spent on an
+    // arrangement the user reaches by pointing at it.
+    for (const id of [TUG_ACTIONS.SET_COLUMN_MODE, TUG_ACTIONS.EQUALIZE_COLUMN]) {
       const entry = COMMANDS_BY_ID.get(id);
       expect(entry?.routing).toBe("registry");
       expect(entry?.bindings ?? []).toEqual([]);

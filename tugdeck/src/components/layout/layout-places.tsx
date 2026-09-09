@@ -2,8 +2,8 @@
  * layout-places.tsx — the drawing's places, as things you can read and press.
  *
  * The Layout section draws the deck once, at scale, and used to re-describe it
- * underneath in a row per place: a rail row per side, a Stack/Split row per
- * shared slot. The reader's eye joined "Column 3" to the third block in the
+ * underneath in a row per place: a Stack/Split row per shared slot. The
+ * reader's eye joined "Column 3" to the third block in the
  * picture on every read, and the row count grew with the deck. This is the
  * other half of that trade: the picture states every per-place ARRANGEMENT
  * fact and takes every arrangement gesture, and the rows below it keep the
@@ -12,8 +12,8 @@
  * placement is the rows' question, asked once, in words.
  *
  * **A place wears what it is SET to, not what it is showing.** A slot's glyph
- * reads `columnModeOf` and a side's reads `railModeOf` — the stored
- * arrangement. The blocks under them are honest about what is on screen, and
+ * reads `columnModeOf` — the stored arrangement. The blocks under them are
+ * honest about what is on screen, and
  * the two come apart below two cards: membership churn preserves an
  * arrangement (`columnDrawsSplit`), so a slot set to split and standing one
  * card deep draws as one undivided block. Before this overlay that stored split
@@ -42,12 +42,9 @@
  * consequence leaves the reader to infer the present, and the present is the
  * harder half to read off a small glyph.
  *
- * **A place wears ONE mark, and it is Stack | Split.** A split place's
- * layout — fit or flow — is not drawn here: it stood for a while as a second
- * glyph beside the first, and an unlabeled glyph its own author could not read
- * is not a door ([B09]). The layout is a row in the mixer, `Stack | Fit |
- * Flow` per place, where a word can carry it; the mark keeps the one question
- * a glyph can answer at a glance.
+ * **A place wears ONE mark, and it is Stack | Split.** It is the one question a
+ * glyph can answer at a glance, and it is the only one a place still has: a
+ * rail is always divided ([B01]) and so wears no mark at all.
  *
  * **The geometry is not this component's opinion.** It replicates the drawing's
  * own flex row — the same padding, the same gap, the same rail flex-basis — and
@@ -102,13 +99,16 @@ import type {
   ContentWidth,
   ImpositionKind,
   ImpositionLayout,
-  RailMode,
   SidebarSide,
 } from "@/lib/layout-imposer";
 
 /**
- * One place in the deck that has an arrangement of its own: a numbered slot, or
- * a side's rail.
+ * One place in the deck that has an arrangement of its own: a numbered slot.
+ *
+ * A rail is not one of them. It is always divided ([B01]), so there is nothing
+ * about its arrangement for a mark to state or a press to change; the picture
+ * still leaves it its width, and the marks over the field stay where the
+ * drawing beneath puts the blocks.
  *
  * `mode` is the STORED arrangement — deliberately not derived from what stands
  * there, which is exactly the conflation this overlay exists to undo. How many
@@ -120,10 +120,8 @@ export interface LayoutPlace {
   key: string;
   /** Which numbered slot this is, for a column place. */
   slot?: number;
-  /** Which edge this is, for a rail place. */
-  side?: SidebarSide;
   /** The arrangement the deck has stored for this place. */
-  mode: ColumnMode | RailMode;
+  mode: ColumnMode;
   /** What to call it out loud: "Column 3", "Left rail". */
   label: string;
   /** The sender id the section's responder routes this place's presses by. */
@@ -146,8 +144,6 @@ export interface LayoutPlacesProps {
    *  instrument. An empty slot's stored arrangement is as real as a
    *  one-card slot's, and its mark is the door back to it. */
   columns: readonly LayoutPlace[];
-  /** Every occupied side. */
-  railPlaces: readonly LayoutPlace[];
   /** The focus group the section authors this stop into. */
   focusGroup?: string;
   /** Order within {@link focusGroup} — the picture's place in the walk. */
@@ -161,12 +157,12 @@ export interface LayoutPlacesProps {
 
 /** The glyph a place's stored arrangement wears. Nothing is ever marked lit:
  *  the glyph is naming the arrangement, not a position within it. */
-function PlaceGlyph({ mode }: { mode: ColumnMode | RailMode }): React.ReactElement {
+function PlaceGlyph({ mode }: { mode: ColumnMode }): React.ReactElement {
   return mode === "split" ? <SplitGlyph lit={null} /> : <StackGlyph lit={null} />;
 }
 
 /** The other of the two arrangements — what pressing this mark would set. */
-function otherMode(mode: ColumnMode | RailMode): ColumnMode | RailMode {
+function otherMode(mode: ColumnMode): ColumnMode {
   return mode === "split" ? "stack" : "split";
 }
 
@@ -252,7 +248,6 @@ export function LayoutPlaces({
   band,
   flow = null,
   columns,
-  railPlaces,
   focusGroup,
   focusOrder = 0,
   ghost = false,
@@ -274,8 +269,8 @@ export function LayoutPlaces({
   const rootRef = useRef<HTMLSpanElement | null>(null);
   const { dispatch } = useControlDispatch();
 
-  /** Every affordance, in reading order — which is DOM order: the left rail's
-   *  arrangement, the slots left to right, then the right rail's. */
+  /** Every affordance, in reading order — which is DOM order: the slots, left
+   *  to right. */
   const affordances = useCallback((): Element[] => {
     const root = rootRef.current;
     if (root === null) return [];
@@ -320,9 +315,7 @@ export function LayoutPlaces({
 
   // The mark set changes with the deck — a slot gains a card, a side empties —
   // so the cursor's range is re-read whenever the drawing does.
-  const marksSignature = `${columns.map((c) => `${c.key}:${c.mode}`).join(",")}|${railPlaces
-    .map((r) => `${r.key}:${r.mode}`)
-    .join(",")}`;
+  const marksSignature = columns.map((c) => `${c.key}:${c.mode}`).join(",");
   useLayoutEffect(() => {
     syncItems();
   }, [marksSignature, syncItems]);
@@ -334,22 +327,20 @@ export function LayoutPlaces({
     },
     [attachRoot],
   );
-  const railOf = (side: SidebarSide): LayoutPlace | undefined =>
-    railPlaces.find((place) => place.side === side);
   const columnOf = (slot: number): LayoutPlace | undefined =>
     columns.find((place) => place.slot === slot);
 
+  /** A side's width, held open and empty — the rail carries no mark, and the
+   *  field's marks only land on the blocks if the picture's own flex row is
+   *  replicated whole. */
   const rail = (side: SidebarSide): React.ReactElement | null => {
     const basis = geometry.rails[side];
-    const place = railOf(side);
-    if (basis === undefined || place === undefined) return null;
+    if (basis === undefined) return null;
     return (
       <span
         className="layout-places-rail"
         style={{ flexBasis: `${basis.basisPct}%` }}
-      >
-        <PlaceMark place={place} senderId={place.senderId} ghost={ghost} />
-      </span>
+      />
     );
   };
 

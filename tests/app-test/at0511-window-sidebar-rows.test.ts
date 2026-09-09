@@ -43,6 +43,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
+import type { MenuItemSnapshot, MenuItemState } from "./_harness/types";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -57,6 +58,13 @@ const PARENT = "window.sidebar.jots";
 const TOGGLE = "window.sidebar.jots.show";
 const LEFT = "window.sidebar.jots.left";
 const RIGHT = "window.sidebar.jots.right";
+/** The one verb that resizes the rails, above the six card rows ([B11]). */
+const RESIZE = "window.resizeSidebarsToFit";
+
+/** `NSEvent.ModifierFlags` as the snapshot reports them. */
+const CONTROL = 1 << 18;
+const OPTION = 1 << 19;
+const COMMAND = 1 << 20;
 
 /**
  * `NSControl.StateValue` as the harness reports it. `.mixed` is -1, which is
@@ -121,6 +129,49 @@ async function menuItem(
   expect(item.found, `${identifier} present in the menu`).toBe(true);
   if (!item.found) throw new Error(`${identifier} is not in the menu`);
   return { enabled: item.enabled, state: item.state, title: item.title };
+}
+
+/**
+ * Poll until the item carries `keyEquivalent`, then return its snapshot. The
+ * chord sweep crosses from the frontend after the menu is built, so a read
+ * taken the instant the deck comes up can legitimately see the empty key
+ * equivalent the item was constructed with.
+ */
+async function waitMenuChord(
+  app: App,
+  identifier: string,
+  keyEquivalent: string,
+  timeoutMs = 8_000,
+): Promise<MenuItemState> {
+  const deadline = Date.now() + timeoutMs;
+  let last = await app.menuItemState(identifier);
+  while (Date.now() < deadline) {
+    if (last.found && last.keyEquivalent === keyEquivalent) return last;
+    await new Promise((r) => setTimeout(r, 100));
+    last = await app.menuItemState(identifier);
+  }
+  return last;
+}
+
+/**
+ * Where `identifier` stands in the Window menu, top to bottom — the fact an
+ * item's own state cannot answer, and the only way to say that one row is
+ * above another.
+ */
+async function windowRowOrder(app: App): Promise<(string | undefined)[]> {
+  // Found by looking for the row list the Jots parent is in rather than by
+  // the menu's title: the snapshot's top level is the menu BAR, whose items
+  // carry the submenus, and which of the two levels holds the title is not
+  // the thing under test here.
+  const tree = await app.menuSnapshot();
+  let rows: MenuItemSnapshot[] | undefined;
+  const walk = (items: readonly MenuItemSnapshot[]): void => {
+    if (items.some((item) => item.identifier === PARENT)) rows = [...items];
+    for (const item of items) if (item.submenu) walk(item.submenu);
+  };
+  walk(tree);
+  expect(rows, "the Window menu's rows are in the snapshot").toBeDefined();
+  return (rows ?? []).map((item) => item.identifier);
 }
 
 /** One free content card, so the keyboard has somewhere to be that is not the rail. */
@@ -297,6 +348,57 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => 
           // And only from the top rung does it hide.
           await app.nativeKey("j", ["cmd", "ctrl"]);
           await expectRung(app, OFF, "Show Jots");
+        } finally {
+          await app.close();
+        }
+      } finally {
+        rmTempTugbank(tugbankPath);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "Resize Sidebars to Fit stands above the card rows, carrying ⌃⌥⌘R",
+    async () => {
+      const tugbankPath = mkTempTugbank();
+      try {
+        seedTugbankForLaunch(tugbankPath);
+        const app = await launchTugApp({
+          testName: "at0511-resize-sidebars-row",
+          env: { TUGBANK_PATH: tugbankPath },
+          persistInTestMode: true,
+        });
+        try {
+          await app.seedDeckState({ state: priorCardDeck(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `window.__tug.assertHostRootRegistered("A")`,
+            { timeoutMs: 5_000 },
+          );
+
+          // Built with an EMPTY key equivalent, like every row in this menu:
+          // the chord below can only be here because `applyCommandChords`
+          // wrote it from the frontend's registry, which is what keeps it
+          // rebindable.
+          const row = await waitMenuChord(app, RESIZE, "r");
+          expect(row.found, `${RESIZE} present in the Window menu`).toBe(true);
+          if (!row.found) throw new Error(`${RESIZE} is not in the menu`);
+          expect(row.keyEquivalent, `${RESIZE} carries "r"`).toBe("r");
+          expect(row.modifierMask, `${RESIZE} is ⌃⌥⌘`).toBe(
+            COMMAND | CONTROL | OPTION,
+          );
+          // Ungated: the rails are the deck's geometry and no focused surface
+          // declines a verb about them.
+          expect(row.enabled, `${RESIZE} is live`).toBe(true);
+
+          // Above the card rows it resizes, which is the placement the row
+          // was given rather than one AppKit would arrive at ([B11]).
+          const rows = await windowRowOrder(app);
+          expect(
+            rows.indexOf(RESIZE),
+            `${RESIZE} stands above ${PARENT}`,
+          ).toBeLessThan(rows.indexOf(PARENT));
+          expect(rows.indexOf(RESIZE), `${RESIZE} is one of the rows`).toBeGreaterThanOrEqual(0);
         } finally {
           await app.close();
         }

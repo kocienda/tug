@@ -6,10 +6,11 @@
  * floor cannot all stand in the ~1040px run this canvas gives a column, so
  * division stops being possible and the column takes a different geometry
  * entirely ([P01], [P08]). Every member takes the height IT asked for —
- * `max(floor, natural · weight)` — and they stack down a virtual strip that
- * slides up behind the run on a per-slot offset. The strip is longer than the
- * run, so the card the run's bottom edge cuts IS the affordance, the vertical
- * twin of flow's card half-hidden at the band edge.
+ * its FLOOR, which is the whole of what a member declares about its own height
+ * — and they stack down a virtual strip that slides up behind the run on a
+ * per-slot offset. The strip is longer than the run, so the card the run's
+ * bottom edge cuts IS the affordance, the vertical twin of flow's card
+ * half-hidden at the band edge.
  *
  * The floors are why the fixture's cards are `fixture-tall-floor` rather than
  * the Hello cards it used to carry: a floor of 150 lets three members share
@@ -23,15 +24,15 @@
  * user chose is governing again, unrewritten.
  *
  *   1. **The strip is built from the members.** Each frame stands at the height
- *      the allocator gives it from its own floor, natural and stored weight,
- *      stacked one imposition gap apart from the run's own top — and the last
- *      running PAST the run's bottom edge rather than being squeezed above it.
- *      That overhang is the affordance, and the coordinates the frames pin to
- *      are published on the slot's own strip properties.
- *   2. **The weights the user dragged survive, and are READ.** They were kept
- *      but ignored while an overflowing member's height was a constant; now a
- *      member the hand made bigger is bigger in the strip too, which is what
- *      makes the crossing lossless in both directions.
+ *      its own floor gives it, stacked one imposition gap apart from the run's
+ *      own top — and the last running PAST the run's bottom edge rather than
+ *      being squeezed above it. That overhang is the affordance, and the
+ *      coordinates the frames pin to are published on the slot's own strip
+ *      properties.
+ *   2. **The weights the user dragged survive, untouched and unread.** A run
+ *      that cannot hold the floors has no room to divide, so the record says
+ *      nothing about this geometry — and it is kept whole rather than
+ *      rewritten, which is what makes the crossing lossless in both directions.
  *   3. **Activating a below-the-run member slides the column, minimally.** The
  *      bottom member's bottom edge lands flush with the run's, which is the
  *      LEAST slide that shows it — not the top of the strip and not the whole
@@ -72,8 +73,8 @@ const GAP = 5;
  * one.
  */
 const GAP_BOTTOM = GAP;
-/** The floor `fixture-tall-floor` declares. It declares no appetite above it,
- *  so its natural is endless ([P02], Spec S05). */
+/** The floor `fixture-tall-floor` declares — and, in a run too short to hold
+ *  three of them, the whole of what it stands at ([P02]). */
 const FLOOR = 400;
 /** Geometry tolerance. A shade wider than at0455's, because the offset is
  *  published rounded to the pixel and every member's top carries that
@@ -344,17 +345,14 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
 
         const geometry = await run(app);
         const three = await rects(app, ["p1", "p2", "p3"]);
-        // Each member takes `max(floor, natural · weight)` — what it declared
-        // it is finished at, scaled by whatever the drag above stored for it.
-        // These panes declare no appetite at all, so none of them is ever
-        // finished and each reads the RUN as its natural: one screen of
-        // itself, which is what a flowing member with nothing to say about its
-        // own height stands at. Computed from the LIVE record rather than
-        // restated, so the assertion is the rule and not a transcription of
-        // one particular drag.
+        // Each member takes its FLOOR. A place overflows for exactly one
+        // reason — its members' floors and seams do not fit inside its run —
+        // so there is no room above the floors to divide and nothing else
+        // left to stand on. The stored weights say nothing about a run that
+        // cannot hold the minimum, and the strip is as long as the floors
+        // make it.
         const overflowShares = (await columnsRecord(app))["0"]?.shares ?? {};
-        const wanted = (id: string): number =>
-          Math.max(FLOOR, geometry.height * (overflowShares[id] ?? 1));
+        const wanted = (_id: string): number => FLOOR;
         note(
           `overflow members: ${["p1", "p2", "p3"]
             .map((id) => `${id} ${Math.round(three[id].height)} of ${Math.round(wanted(id))}`)
@@ -363,7 +361,7 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
         for (const id of ["p1", "p2", "p3"]) {
           expect(
             Math.abs(three[id].height - wanted(id)),
-            `${id} stands at the height its own appetite asked for`,
+            `${id} stands at its own floor`,
           ).toBeLessThan(EPSILON);
         }
         // Stacked from the run's own top, one imposition gap apart.
@@ -375,10 +373,10 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
           EPSILON,
         );
         // The overhang: the strip's foot runs past the run's bottom rather than
-        // being squeezed above it. WHICH member the run's bottom edge cuts is a
-        // fact about the members' own heights now — the heaviest of them can be
-        // twice its neighbour — so the claim is about the strip, which is where
-        // the affordance actually lives.
+        // being squeezed above it. The claim is about the strip rather than
+        // about which member the run's bottom edge happens to cut, because the
+        // affordance is the overhang and the cut member is whatever the floors
+        // and the window between them make it.
         expect(
           three.p3.bottom,
           "the strip overhangs the run — that overhang is the affordance",
@@ -408,20 +406,19 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
           "and the strip is longer than the run — which is what overflowing means",
         ).toBeGreaterThan(geometry.height);
 
-        // ── 2. The weights survive the crossing, and are read on the far side. ──
+        // ── 2. The weights survive the crossing, untouched. ──
         expect(
           overflowShares,
           "the weights the user dragged are preserved untouched",
         ).toEqual(draggedShares);
-        // Read, not merely kept: the member the hand made bigger is bigger here
-        // too. Under the retired rule every overflowing member was the same
-        // height and this record made no difference to anything drawn.
-        const heavier = draggedShares.p1 > draggedShares.p2 ? "p1" : "p2";
-        const lighter = heavier === "p1" ? "p2" : "p1";
+        // Kept rather than read. A strip has no division for a weight to
+        // describe, so the heavier member is no taller than the lighter one
+        // here — and the record is still whole when the run can divide again,
+        // which is what case 4 reads back.
         expect(
-          three[heavier].height,
-          "the member the drag made heavier is the taller one in the strip",
-        ).toBeGreaterThan(three[lighter].height + EPSILON);
+          Math.abs(three.p1.height - three.p2.height),
+          "no weight tilts a strip whose members are all at their floors",
+        ).toBeLessThan(EPSILON);
 
         // ── 3. The reveal, and its minimality. ──
         expect(await columnOffset(app)).toBe(0);

@@ -70,7 +70,7 @@ import {
   type DeckColumn,
   findSidebarPanes,
   paneRenderWidthOf,
-  placeMemberAppetites,
+  placeMembers,
   placeSeamFractions,
   placeAllocationTerm,
   type PlaceRuns,
@@ -140,7 +140,7 @@ import {
   clampSlot,
   columnOffsetProperty,
   type PlaceAllocation,
-  type PlaceMemberAppetite,
+  type PlaceMember,
   columnSeamProperty,
   columnStripProperty,
   placeSharesFromHeights,
@@ -165,8 +165,6 @@ import {
   effectiveRailOrder,
   imposeSidebarStyle,
   impositionLayout,
-  railLayoutOf,
-  railModeOf,
   railSeamProperty,
   railStripProperty,
   seamDragBounds,
@@ -179,7 +177,6 @@ import {
   RAIL_TREATMENT_ATTRIBUTE,
   railSpanInset,
   sidebarWidthProperty,
-  type RailMode,
   type SidebarSide,
 } from "@/lib/layout-imposer";
 
@@ -299,20 +296,17 @@ interface SidebarRailMember {
  * A side's rail: the pinned sidebar panes standing on it, the width they share,
  * and how they stand against one another.
  *
- * Stacked, they share the vertical run too — all of it, each — and z-order
- * decides which you see. Split, they divide the run at `seams` and every one is
- * visible.
+ * They divide the run at `seams`, always, and every one is visible ([B01]).
  */
 interface SidebarRail {
   side: SidebarSide;
   width: number;
-  mode: RailMode;
   members: readonly SidebarRailMember[];
-  /** Where the gaps fall, as fractions of the run: `members.length - 1` values
-   *  in split mode, empty in a stack (a stack has no gaps to place). */
+  /** Where the gaps fall, as fractions of the run: `members.length - 1`
+   *  values. */
   seams: readonly number[];
-  /** How the rail divides its run among its members, or `null` when it has
-   *  nothing to divide — a stack, or a canvas with no measured run. */
+  /** How the rail divides its run among its members, or `null` on a canvas
+   *  with no measured run. */
   allocation: PlaceAllocation | null;
 }
 
@@ -350,63 +344,58 @@ function sidebarRailsOf(
       members.push({ componentId, paneId: pane.id });
     }
     if (members.length === 0) continue;
-    const mode = railModeOf(state.imposition, side);
     const shares = state.imposition.rails?.[side]?.shares;
-    const allocation =
-      mode === "split" ? railAllocationOf(state, side, runs.rail) : null;
+    const allocation = railAllocationOf(state, side, runs.rail);
     rails.push({
       side,
       width,
-      mode,
       members,
       allocation,
       seams:
-        mode === "split"
-          ? placeSeamFractions(
-              allocation,
-              members.map((member) => member.componentId),
-            )
-          : [],
+        placeSeamFractions(
+          allocation,
+          members.map((member) => member.componentId),
+        ),
     });
   }
   return rails;
 }
 
 /**
- * What every member of every place wants of its run, keyed by PANE ID — the
- * map the drop-zone engine allocates its tiles from.
+ * Every member of every place, keyed by PANE ID — the map the drop-zone
+ * engine allocates its tiles from.
  *
- * The engine keys everything by pane, so a rail member's appetite is re-keyed
+ * The engine keys everything by pane, so a rail member is re-keyed
  * here from its componentId, at the same boundary its shares are: this is the
- * one place that can see both names for a member. The weight each appetite
+ * one place that can see both names for a member. The weight each member
  * carries is immaterial — the engine re-reads it from the place's own shares
  * for whichever candidate order it is allocating.
  */
-function appetitesByPaneId(
+function placeMembersByPaneId(
   state: DeckState,
   rails: readonly SidebarRail[],
-): ReadonlyMap<string, PlaceMemberAppetite> {
-  const map = new Map<string, PlaceMemberAppetite>();
+): ReadonlyMap<string, PlaceMember> {
+  const map = new Map<string, PlaceMember>();
   for (const rail of rails) {
-    const appetites = placeMemberAppetites(
+    const railMembers = placeMembers(
       state,
       "rail",
       rail.members.map((member) => member.componentId),
       state.imposition.rails?.[rail.side]?.shares,
     );
-    appetites.forEach((appetite, index) => {
+    railMembers.forEach((member, index) => {
       const paneId = rail.members[index].paneId;
-      map.set(paneId, { ...appetite, id: paneId });
+      map.set(paneId, { ...member, id: paneId });
     });
   }
   for (const column of deckColumnsOf(state, null)) {
-    for (const appetite of placeMemberAppetites(
+    for (const member of placeMembers(
       state,
       "column",
       column.members,
       state.imposition.columns?.[column.slot]?.shares,
     )) {
-      map.set(appetite.id, appetite);
+      map.set(member.id, member);
     }
   }
   return map;
@@ -488,7 +477,7 @@ function arrangementSignature(state: DeckState, runs: PlaceRuns): string {
   const rails = sidebarRailsOf(state, runs)
     .map(
       (rail) =>
-        `${rail.side}:${rail.width}:${rail.mode}:${rail.members
+        `${rail.side}:${rail.width}:${rail.members
           .map((m) => m.componentId)
           .join("+")}:${placeAllocationTerm(rail.allocation)}:${Math.round(
           state.railOffsets?.[rail.side] ?? 0,
@@ -703,12 +692,12 @@ interface PlaceSeamProps {
    */
   allocation: PlaceAllocation;
   /**
-   * What every member of the place wants of it — floors, naturals, greed and
-   * stored weights, in the place's own order. The drag's
-   * bounds are a function of these and nothing else, so the clamp a hand meets
-   * is the same rule the allocator would apply to the height it left behind.
+   * Every member of the place — floors and stored weights, in the place's own
+   * order. The drag's bounds are a function of these and nothing else, so the
+   * clamp a hand meets is the same rule the allocator would apply to the
+   * height it left behind.
    */
-  appetites: readonly PlaceMemberAppetite[];
+  members: readonly PlaceMember[];
   /**
    * The pane id of every member of the place, in the same order. The two this
    * seam divides are `[index]` and `[index + 1]`, and they are the frames the
@@ -751,14 +740,14 @@ function PlaceSeam({
   index,
   frameStyle,
   allocation,
-  appetites,
+  members,
   memberPaneIds,
   onCommit,
 }: PlaceSeamProps): React.ReactElement {
   const allocationRef = useRef(allocation);
   allocationRef.current = allocation;
-  const appetitesRef = useRef(appetites);
-  appetitesRef.current = appetites;
+  const membersRef = useRef(members);
+  membersRef.current = members;
   const memberPaneIdsRef = useRef(memberPaneIds);
   memberPaneIdsRef.current = memberPaneIds;
 
@@ -795,7 +784,7 @@ function PlaceSeam({
       // a hand.
       const { lower, upper } = seamDragBounds(
         start,
-        appetitesRef.current,
+        membersRef.current,
         index,
       );
       const overflowing = start.standing === "overflow";
@@ -933,15 +922,13 @@ function PlaceSeam({
     [place, index, onCommit],
   );
 
-  // A double-click on the seam means Fit to Content ([B04]): the place is
-  // re-seeded from its members' naturals as they stand now. Equalize stays in
-  // the badge menu.
+  // A double-click on a COLUMN seam divides the slot equally again — the one
+  // arithmetic a place has that is not the hand's own division. A rail's seam
+  // does nothing on a double-click: its sashes are the hand's, and nothing but
+  // the hand moves one ([B03]).
   const handleDoubleClick = useCallback(() => {
-    if (place.kind === "rail") {
-      dispatchCommand(TUG_ACTIONS.FIT_RAIL_TO_CONTENT, { side: place.side });
-    } else {
-      dispatchCommand(TUG_ACTIONS.FIT_COLUMN_TO_CONTENT, { slot: place.slot });
-    }
+    if (place.kind === "rail") return;
+    dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot: place.slot });
   }, [place]);
 
   // Only the vertical placement is the seam's own, and it is the same
@@ -1125,7 +1112,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           index,
           count: column.members.length,
           standing: column.allocation?.standing ?? "shared",
-          layout: column.allocation?.layout ?? "fit",
           ...(strip === undefined ? {} : { strip }),
         });
       });
@@ -1167,10 +1153,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         side: rail.side,
         componentId: member.componentId,
         count: rail.members.length,
-        mode: rail.mode,
         memberIndex: index,
         standing: rail.allocation?.standing ?? "shared",
-        layout: rail.allocation?.layout ?? "fit",
         ...(strip === undefined ? {} : { strip }),
       });
     });
@@ -1267,7 +1251,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // outside the rail. Checking the topmost there would be a claim about
       // z-order dressed up as a claim about what you are looking at.
       const splitRail = rails.find(
-        (rail) => rail.mode === "split" && `rail:${rail.side}` === place,
+        (rail) => `rail:${rail.side}` === place,
       );
       const ordered =
         splitRail === undefined
@@ -2106,7 +2090,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   const railSummary = `${sidebarRails
     .map(
       (rail) =>
-        `${rail.side}:${rail.width}:${rail.mode}:${rail.seams
+        `${rail.side}:${rail.width}:${rail.seams
           .map((f) => f.toFixed(4))
           .join("+")}:${Math.round(railOffsets[rail.side] ?? 0)}:${(
           stripCoordinatesOf(rail.allocation) ?? []
@@ -2449,11 +2433,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * costs nothing but the motion the eye was already expecting.
    */
   const settleFadePlanRef = useRef<Map<string, "in" | "out">>(new Map());
-  /** Each rail's mode as of the last settle, so a mode flip is detectable
-   *  when the next one arms. */
-  const prevRailModesRef = useRef<Map<SidebarSide, RailMode> | null>(null);
-  /** Each column's mode as of the last settle, keyed by slot — the same record
-   *  the rails keep, over the other kind of place. */
+  /** Each column's mode as of the last settle, keyed by slot, so a mode flip is
+   *  detectable when the next one arms. A rail keeps no such record: it is
+   *  always divided ([B01]), so its mode never flips. */
   const prevColumnModesRef = useRef<Map<number, ColumnMode> | null>(null);
   /** The raw (unscaled) settle duration read back for the current gesture. */
   const settleDurationRef = useRef(IMPOSITION_SETTLE_MS);
@@ -2557,12 +2539,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // where it is hardest to see.
   useLayoutEffect(() => {
     const clearFlip = clearFlipRef.current;
-    prevRailModesRef.current = new Map(
-      sidebarRailsOf(store.getSnapshot(), UNMEASURED_RUNS).map((rail) => [
-        rail.side,
-        rail.mode,
-      ]),
-    );
     prevColumnModesRef.current = new Map(
       deckColumnsOf(store.getSnapshot(), null).map((c) => [c.slot, c.mode]),
     );
@@ -2603,12 +2579,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // reduced motion: they are the shore the NEXT flip is read against, and
       // one left behind by a cut would read that flip against the wrong one.
       if (landing === "cut") {
-        prevRailModesRef.current = new Map(
-          sidebarRailsOf(state, UNMEASURED_RUNS).map((rail) => [
-            rail.side,
-            rail.mode,
-          ]),
-        );
         prevColumnModesRef.current = new Map(
           deckColumnsOf(state, null).map((column) => [column.slot, column.mode]),
         );
@@ -2711,30 +2681,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // shore.
       const fadePlan = settleFadePlanRef.current;
       fadePlan.clear();
-      const rails = sidebarRailsOf(state, UNMEASURED_RUNS);
-      const prevModes = prevRailModesRef.current;
-      if (motion && prevModes !== null) {
-        for (const rail of rails) {
-          const prevMode = prevModes.get(rail.side);
-          if (prevMode === undefined || prevMode === rail.mode) continue;
-          if (rail.members.length < 2) continue;
-          const survivor = railFrontmostPaneId(state, rail);
-          for (const member of rail.members) {
-            if (member.paneId === survivor) continue;
-            fadePlan.set(member.paneId, rail.mode === "split" ? "in" : "out");
-          }
-        }
-      }
-      prevRailModesRef.current = new Map(
-        rails.map((rail) => [rail.side, rail.mode]),
-      );
-
-      // A COLUMN whose mode flipped is the same choreography over the other
-      // kind of place, and the survivor rule transfers unchanged: the frame the
+      // A COLUMN whose mode flipped gets the fade choreography: the frame the
       // stack actually shows is the z-frontmost member, not the top of the
       // column's order, so that is the one that moves and every other one
       // fades. Picking the top member instead would grow a frame that ends up
       // hidden while the card the stack goes on to display arrived by a cut.
+      //
+      // A rail has no such flip — it is always divided ([B01]).
       const columns = deckColumnsOf(state, null);
       const prevColumnModes = prevColumnModesRef.current;
       if (motion && prevColumnModes !== null) {
@@ -3357,7 +3310,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // Two conversions rather than one because a weight is no longer a share of
   // the run ([P04]) — it is a share of the discretionary pool, which is what
   // the run has left once the floors are fed. Only a height
-  // can be read off a seam, and only the appetites can say what share of the
+  // can be read off a seam, and only the members' floors can say what share of the
   // pool that height took, so the fractions become px first and the imposer's
   // own inverse takes it from there. That inverse is the allocator's fixed
   // point ([P10]): allocating from what it returns reproduces the heights the
@@ -3385,14 +3338,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         store.setRailShares(
           place.side,
           placeSharesFromHeights(
-            placeMemberAppetites(
+            placeMembers(
               state,
               "rail",
               ids,
               state.imposition.rails?.[place.side]?.shares,
             ),
             draggedHeights(rail.allocation, index, value),
-            rail.allocation.layout,
             rail.allocation.run,
             rail.allocation.seam,
           ),
@@ -3404,14 +3356,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       store.setColumnShares(
         place.slot,
         placeSharesFromHeights(
-          placeMemberAppetites(
+          placeMembers(
             state,
             "column",
             column.members,
             state.imposition.columns?.[place.slot]?.shares,
           ),
           draggedHeights(column.allocation, index, value),
-          column.allocation.layout,
           column.allocation.run,
           column.allocation.seam,
         ),
@@ -3551,7 +3502,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           railVacancies[side] = toCanvas(el.getBoundingClientRect());
         }
         // The rails, read once: the engine needs their membership, their
-        // shares and their appetites, and three readings of one rail would
+        // shares and their floors, and three readings of one rail would
         // agree only by luck.
         const railsForZones = sidebarRailsOf(state, UNMEASURED_RUNS);
         return enumerateDropZones(state, draggedPaneId, {
@@ -3567,11 +3518,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           },
           draggedAtStart,
           railVacancies,
-          // What every member of every place wants of its run, by pane id:
-          // the engine allocates its tiles from these, and it keys everything
-          // by pane, so a rail member's appetite is re-keyed here beside its
-          // shares — the one boundary that can see both names for a member.
-          appetites: appetitesByPaneId(state, railsForZones),
+          // Every member of every place, by pane id: the engine allocates its
+          // tiles from these, and it keys everything by pane, so a rail member
+          // is re-keyed here beside its shares — the one boundary that can see
+          // both names for a member.
+          members: placeMembersByPaneId(state, railsForZones),
           rails: railsForZones.map((rail) => {
             // The engine keys everything by pane id; the rail's stored shares
             // are keyed by componentId, so they re-key here, at the one place
@@ -3586,12 +3537,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             }
             return {
               side: rail.side,
-              mode: rail.mode,
               members: rail.members.map((member) => member.paneId),
               shares,
-              // The side's own layout, so the tiles are the allocator's answer
-              // for the place the drop actually lands in.
-              layout: railLayoutOf(state.imposition, rail.side),
             };
           }),
         });
@@ -4178,7 +4125,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const allocation = rail.allocation;
         if (allocation === null || allocation.ids.length < 2) return [];
         const ids = rail.members.map((member) => member.componentId);
-        const appetites = placeMemberAppetites(
+        const members = placeMembers(
           deckState,
           "rail",
           ids,
@@ -4193,7 +4140,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               imposeSidebarStyle(rail.side, rail.width) as React.CSSProperties
             }
             allocation={allocation}
-            appetites={appetites}
+            members={members}
             memberPaneIds={rail.members.map((member) => member.paneId)}
             onCommit={handleSeamCommit}
           />
@@ -4220,7 +4167,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               panes.find((p) => p.id === paneId)?.size.width ?? 0,
           ),
         );
-        const appetites = placeMemberAppetites(
+        const members = placeMembers(
           deckState,
           "column",
           column.members,
@@ -4233,7 +4180,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             index={index}
             frameStyle={imposeStyle(placement, width)}
             allocation={allocation}
-            appetites={appetites}
+            members={members}
             memberPaneIds={column.members}
             onCommit={handleSeamCommit}
           />

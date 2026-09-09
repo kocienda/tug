@@ -284,8 +284,8 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // empty in this fixture, and marked at its default.
         expect(
           Object.keys(marks).sort(),
-          "every slot the kind defines, and the occupied side",
-        ).toEqual(["col-0", "col-1", "col-2", "rail-right"]);
+          "every slot the kind defines, and no rail",
+        ).toEqual(["col-0", "col-1", "col-2"]);
         expect(marks["col-2"].mode, "the empty slot reads its default").toBe(
           "stack",
         );
@@ -333,13 +333,15 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "the picture draws what is on screen: no divided column",
         ).toBe(0);
 
-        // ── The rail is a place too, wearing the same vocabulary. ──
+        // ── A rail is NOT one of the marked places. ──
         //
-        // Which sides are marked is a live read of what is standing: `railsFor`
-        // in `layouts-section.tsx` counts the OPEN sidebar cards, so a card
-        // that is registered but hidden is not drawn and not marked. Here the
-        // Layout card holds the right edge and the left is empty.
-        expect(marks["rail-right"].mode).toBe("stack");
+        // It is always divided ([B01]), so there is no arrangement of its own
+        // for a mark to state. The Layout card holds the right edge here and
+        // the picture still leaves that side its width — it just wears nothing.
+        expect(
+          Object.keys(marks).filter((key) => key.startsWith("rail-")),
+          "no rail is marked",
+        ).toEqual([]);
 
         // ── The rows are fixed, and the count does not move. ──
         //
@@ -363,19 +365,19 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "layout-card-layout",
           "layout-card-width",
         ]);
-        // Under them, the place rows — one per rail side, always, and one per
-        // slot with something to arrange (part 7) — and under those, one row
-        // per REGISTERED sidebar card: the show/hide + side question the
-        // picture cannot ask, because a hidden card is exactly what the
-        // picture does not draw. The registry is a boot step, so that count
-        // is fixed too.
+        // Under them, the place rows — one per slot with something to arrange
+        // (part 7); a rail gets none, because it is always divided — and under
+        // those, one row per REGISTERED sidebar card: the show/hide + side
+        // question the picture cannot ask, because a hidden card is exactly
+        // what the picture does not draw. The registry is a boot step, so that
+        // count is fixed too.
         const placeRows = rows
           .slice(3)
-          .filter((id) => /^layout-card-(rail|column)-/.test(id));
-        expect(placeRows.slice(0, 2), "the two rail rows lead the place rows").toEqual([
-          "layout-card-rail-left",
-          "layout-card-rail-right",
-        ]);
+          .filter((id) => /^layout-card-column-/.test(id));
+        expect(
+          rows.filter((id) => /^layout-card-rail-/.test(id)),
+          "a rail has no arrangement row",
+        ).toEqual([]);
         const sidebarRows = rows.slice(3 + placeRows.length);
         expect(
           sidebarRows.length,
@@ -820,14 +822,16 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // ── And the drawing draws what stands: no rail for a hidden card. ──
         //
         // Membership is a live read of the OPEN cards. A registered-but-hidden
-        // Jots is not on the deck, so its side is neither drawn nor marked —
-        // the row above is its one door.
-        expect(
-          await app.evalJS<boolean>(
-            `document.querySelector('${PLACES} .layout-places-mark[data-place="rail-left"]') !== null`,
-          ),
-          "an empty side has no rail to mark",
-        ).toBe(false);
+        // Jots is not on the deck, so its side is not drawn at all — the row
+        // above is its one door. Read off the committed drawing rather than off
+        // a mark: a rail wears none ([B01]).
+        const drawnRails = async (): Promise<number> =>
+          app.evalJS<number>(
+            `document.querySelectorAll(
+              '.layouts-plan-layer[data-plan-layer="committed"] .layout-mini-rail'
+            ).length`,
+          );
+        expect(await drawnRails(), "only the occupied right side is drawn").toBe(1);
 
         // ── Pressing a side on a hidden card's row shows it THERE. ──
         await app.click(
@@ -842,21 +846,14 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           `document.querySelectorAll('.tug-pane[data-rail-side="left"]').length`,
         );
         expect(jotsLeft, "the real Jots card stands on the left edge").toBe(1);
-        // The drawing follows: a left rail appears, wearing its own mark.
+        // The drawing follows: a left rail appears beside the right one.
         await app.waitForCondition<boolean>(
-          `document.querySelector('${PLACES} .layout-places-mark[data-place="rail-left"]') !== null`,
+          `document.querySelectorAll(
+            '.layouts-plan-layer[data-plan-layer="committed"] .layout-mini-rail'
+          ).length === 2`,
           { timeoutMs: 4_000 },
         );
-        const railMarksNow = await app.evalJS<string[]>(
-          `Array.prototype.map.call(
-            document.querySelectorAll('${PLACES} .layout-places-mark[data-place^="rail-"]'),
-            function (el) { return el.getAttribute("data-place"); }
-          ).sort()`,
-        );
-        expect(
-          railMarksNow,
-          "both edges now carry a rail, and both are marked",
-        ).toEqual(["rail-left", "rail-right"]);
+        expect(await drawnRails(), "both edges now carry a rail").toBe(2);
 
         // ── Off hides it again, and everything retracts together. ──
         await app.click(
@@ -870,12 +867,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           ),
           "the real card left the deck",
         ).toBe(0);
-        expect(
-          await app.evalJS<boolean>(
-            `document.querySelector('${PLACES} .layout-places-mark[data-place="rail-left"]') !== null`,
-          ),
-          "and its rail left the drawing",
-        ).toBe(false);
+        expect(await drawnRails(), "and its rail left the drawing").toBe(1);
         note("jots: off → left → off, with the deck and the drawing in step");
       } finally {
         await app.close();
@@ -965,13 +957,12 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "the ghost's mark stands inside the PREVIEWED drawing's block",
         ).toBe(true);
 
-        // ── A proposal draws a stacked rail as ONE silhouette. ──
+        // ── A rail is drawn divided, in the committed layer and every
+        //    proposal alike. ──
         //
-        // The stack peek is a solid-paint idiom: hollow members cannot occlude
-        // each other, so the offsets that read as a paper stack in the
-        // committed drawing read as spurious slivers at the strip's top and
-        // bottom in a proposal. Stand two cards on the right rail, raise any
-        // preview, and count.
+        // There is one picture for a rail now ([B01]): a member per card the
+        // side holds, in both layers, so a preview cannot make the side look
+        // like a different kind of place.
         await app.click(
           `[data-testid="layout-card-sidebar-jots"] [data-choice-value="right"]`,
         );
@@ -987,7 +978,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
               var layer = document.querySelector(scope);
               return layer === null
                 ? -1
-                : layer.querySelectorAll('.layout-mini-rail[data-rail-mode="stack"] .layout-mini-rail-member').length;
+                : layer.querySelectorAll('.layout-mini-rail .layout-mini-rail-member').length;
             };
             return {
               committed: count('.layouts-plan-layer[data-plan-layer="committed"]'),
@@ -996,16 +987,16 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           })()`,
         );
         note(
-          `stacked rail members: committed ${railDrawing.committed}, preview ${railDrawing.preview}`,
+          `rail members: committed ${railDrawing.committed}, preview ${railDrawing.preview}`,
         );
         expect(
           railDrawing.committed,
-          "the committed drawing peeks the buried card",
+          "the committed drawing divides the side between its two cards",
         ).toBe(2);
         expect(
           railDrawing.preview,
-          "a proposal draws the stacked rail as one silhouette",
-        ).toBe(1);
+          "and so does the proposal — a rail has one picture",
+        ).toBe(2);
 
         // ── Taking the cursor off the rows brings the live marks back. ──
         //
@@ -1101,56 +1092,21 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "no mark carries a layout — glyph or attribute",
         ).toBe(0);
 
-        // ── A rail is a place too, and the note names it by side. ──
+        // ── A rail wears NO mark at all. ──
         //
-        // Two cards on the right rail, put on flow through the rail's own
-        // mixer row (part 7): the drawing follows the allocation into a strip
-        // with no branch of its own, and the plan's note gains the tail that
-        // says which thing scrolls. The deck's band is fitting here, so the
-        // rail is the only scroller and the note names exactly it — the two
-        // clauses are never confusable.
+        // It is always divided ([B01], [B02]), so there is nothing about its
+        // arrangement for a glyph to state or a press to change. The picture
+        // still leaves the side its width; the marks over the field are the
+        // slots' alone.
         await app.click(
           `[data-testid="layout-card-sidebar-jots"] [data-choice-value="right"]`,
         );
         await wait(AFTER_LAND_MS);
-        await app.click(
-          `[data-testid="layout-card-rail-right"] [data-choice-value="flow"]`,
+        const railMarks = await app.evalJS<number>(
+          `document.querySelectorAll('${PLACES} .layout-places-mark[data-place^="rail-"]').length`,
         );
-        await wait(AFTER_LAND_MS);
-
-        const face = await app.evalJS<{
-          mode: string | null;
-          note: string;
-          railOverflow: string | null;
-        }>(
-          `(function () {
-            var m = document.querySelector('${PLACES} .layout-places-mark[data-place="rail-right"]');
-            var committed = document.querySelector('.layouts-plan-layer[data-plan-layer="committed"]');
-            var noteEl = document.querySelector(".layouts-plan-note");
-            var rail = committed === null ? null : committed.querySelector('.layout-mini-rail[data-rail-mode="split"]');
-            return {
-              mode: m === null ? null : m.getAttribute("data-mode"),
-              note: noteEl === null ? "" : (noteEl.textContent || ""),
-              railOverflow: rail === null ? null : rail.getAttribute("data-rail-overflow"),
-            };
-          })()`,
-        );
-        note(
-          `flowing right rail: mark ${face.mode} | note "${face.note}" | drawn overflow ${face.railOverflow}`,
-        );
-        expect(face.mode, "the rail's mark reads split — the row split it").toBe("split");
-        expect(
-          face.note,
-          "the note's tail names the rail as the thing that scrolls",
-        ).toContain("the right rail scrolls");
-        expect(
-          face.note,
-          "and not the deck, which is fitting",
-        ).not.toContain("the deck");
-        expect(
-          face.railOverflow,
-          "the miniature draws the flowing rail as a strip running off the field",
-        ).toBe("true");
+        note(`rail marks on the picture: ${railMarks}`);
+        expect(railMarks, "no mark stands over either rail").toBe(0);
       } finally {
         await app.close();
       }
@@ -1161,15 +1117,14 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
   // ── 7. The arrangement is a row in the mixer. ──
   //
   // The picture's marks state and toggle; a row states a choice among answers,
-  // and this is the row: `Stack | Fit | Flow` per place, under Card Width and
-  // above the per-card rows, told from the deck's own LAYOUT row by the caption
-  // naming the place. Three answers in one group because Fit and Flow are the
-  // two kinds of split — so Stack writes the mode alone, and Fit and Flow write
-  // the mode and the layout together. Every press below is read back from the
+  // and this is the row: `Stack | Split` per SLOT, under Card Width and above
+  // the per-card rows, told from the deck's own LAYOUT row by the caption
+  // naming the place. A rail gets no row at all — it is always divided ([B01]),
+  // so there is nothing to choose. Every press below is read back from the
   // STORED record rather than from the row, so a pass says the deck changed
   // and not that the segment lit.
   test(
-    "a place's arrangement is a Stack | Fit | Flow row, and each segment writes the record it names",
+    "a slot's arrangement is a Stack | Split row, and each segment writes the record it names",
     async () => {
       const app = await launchTugApp();
       try {
@@ -1183,7 +1138,6 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         await wait(AFTER_LAND_MS);
 
-        const railRow = (side: string) => `[data-testid="layout-card-rail-${side}"]`;
         const columnRow = (slot: number) => `[data-testid="layout-card-column-${slot}"]`;
         const rowFacts = async (
           selector: string,
@@ -1200,46 +1154,31 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
               };
             })()`,
           );
-        const stored = async (): Promise<{
-          rail: { mode: string | null; layout: string | null };
-          column: { mode: string | null; layout: string | null };
-        }> =>
-          app.evalJS<{
-            rail: { mode: string | null; layout: string | null };
-            column: { mode: string | null; layout: string | null };
-          }>(
+        const stored = async (): Promise<{ mode: string | null }> =>
+          app.evalJS<{ mode: string | null }>(
             `(function () {
               var imp = window.tugdeck.diag.getDeckState().imposition;
-              var rail = (imp.rails || {}).right || {};
               var column = (imp.columns || {})[0] || {};
-              // Absent reads as fit — the record's own default, which the
-              // layout setter honours by writing nothing for it.
-              return {
-                rail: { mode: rail.mode || null, layout: rail.layout || "fit" },
-                column: { mode: column.mode || null, layout: column.layout || "fit" },
-              };
+              return { mode: column.mode || null };
             })()`,
           );
 
         // ── The rows stand where the brief puts them. ──
         //
-        // Both rail rows are there whatever the sides hold; slot 0 holds two
-        // cards and gets a row, slot 1 holds one and gets none. The rail rows
-        // come directly after Card Width, the column rows after them, and the
-        // per-card rows last.
+        // No rail row on either side. Slot 0 holds two cards and gets a row,
+        // slot 1 holds one and gets none. The column rows come directly after
+        // Card Width, and the per-card rows last.
         const order = await app.evalJS<string[]>(
           `Array.from(document.querySelectorAll('.layouts-section-row [data-testid^="layout-card-"]'))
             .map(function (el) { return el.getAttribute("data-testid"); })`,
         );
         note(`mixer rows: ${order.join(" · ")}`);
-        expect(order.indexOf("layout-card-rail-left"), "Left Rail follows Card Width").toBe(
+        expect(
+          order.filter((id) => id.startsWith("layout-card-rail-")),
+          "a rail has no arrangement row: it is always divided",
+        ).toEqual([]);
+        expect(order.indexOf("layout-card-column-0"), "Column 1 follows Card Width").toBe(
           order.indexOf("layout-card-width") + 1,
-        );
-        expect(order.indexOf("layout-card-rail-right"), "Right Rail follows it").toBe(
-          order.indexOf("layout-card-rail-left") + 1,
-        );
-        expect(order.indexOf("layout-card-column-0"), "Column 1 follows the rails").toBe(
-          order.indexOf("layout-card-rail-right") + 1,
         );
         expect(
           order.indexOf("layout-card-column-1"),
@@ -1250,77 +1189,24 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "and the per-card rows come after every place row",
         ).toBeGreaterThan(order.indexOf("layout-card-column-0"));
 
-        // ── A rail row with one card under it is disabled, never absent. ──
-        const rightAlone = await rowFacts(railRow("right"));
-        expect(rightAlone.present, "the right rail's row is there with one card on it").toBe(true);
-        expect(rightAlone.disabled, "and disabled, since one card has nothing to divide").toBe(true);
-        expect(rightAlone.value, "reading Stack, which is what an unchosen side is").toBe("stack");
-        const leftEmpty = await rowFacts(railRow("left"));
-        expect(leftEmpty.present, "the empty left rail's row is there too").toBe(true);
-        expect(leftEmpty.disabled, "disabled likewise").toBe(true);
-
-        // A second card on the side enables it.
-        await app.click(
-          `[data-testid="layout-card-sidebar-jots"] [data-choice-value="right"]`,
-        );
-        await wait(AFTER_LAND_MS);
-        const rightPair = await rowFacts(railRow("right"));
-        expect(rightPair.disabled, "two cards on the side enable its row").toBe(false);
-        expect(rightPair.value, "and it still reads Stack").toBe("stack");
-
-        // ── Fit writes split + fit; Flow writes split + flow; Stack keeps the layout. ──
-        await app.click(`${railRow("right")} [data-choice-value="fit"]`);
-        await wait(AFTER_LAND_MS);
-        let record = await stored();
-        note(`after Fit: rail ${JSON.stringify(record.rail)}`);
-        expect(record.rail.mode, "Fit split the rail").toBe("split");
-        expect(record.rail.layout, "on fit").toBe("fit");
-        expect((await rowFacts(railRow("right"))).value, "and the row says Fit").toBe("fit");
-
-        await app.click(`${railRow("right")} [data-choice-value="flow"]`);
-        await wait(AFTER_LAND_MS);
-        record = await stored();
-        note(`after Flow: rail ${JSON.stringify(record.rail)}`);
-        expect(record.rail.mode, "Flow keeps the rail split").toBe("split");
-        expect(record.rail.layout, "and puts it on flow").toBe("flow");
-        expect((await rowFacts(railRow("right"))).value, "and the row says Flow").toBe("flow");
-
-        await app.click(`${railRow("right")} [data-choice-value="stack"]`);
-        await wait(AFTER_LAND_MS);
-        record = await stored();
-        note(`after Stack: rail ${JSON.stringify(record.rail)}`);
-        expect(record.rail.mode, "Stack stacks the rail").toBe("stack");
-        expect(
-          record.rail.layout,
-          "and leaves the layout alone, so a stacked rail remembers which split it was",
-        ).toBe("flow");
-        expect((await rowFacts(railRow("right"))).value, "and the row says Stack").toBe("stack");
-
-        // ── The column row is the same instrument over a slot. ──
+        // ── Split writes the slot's mode; Stack writes it back. ──
         const columnAtRest = await rowFacts(columnRow(0));
         expect(columnAtRest.present, "slot 0's row is there").toBe(true);
         expect(columnAtRest.disabled, "enabled — two cards stand in it").toBe(false);
         expect(columnAtRest.value, "reading Stack, which an untouched shared slot is").toBe("stack");
 
-        await app.click(`${columnRow(0)} [data-choice-value="flow"]`);
+        await app.click(`${columnRow(0)} [data-choice-value="split"]`);
         await wait(AFTER_LAND_MS);
-        record = await stored();
-        note(`after Flow on Column 1: ${JSON.stringify(record.column)}`);
-        expect(record.column.mode, "Flow split the slot").toBe("split");
-        expect(record.column.layout, "on flow").toBe("flow");
-
-        await app.click(`${columnRow(0)} [data-choice-value="fit"]`);
-        await wait(AFTER_LAND_MS);
-        record = await stored();
-        expect(record.column.mode, "Fit keeps it split").toBe("split");
-        expect(record.column.layout, "on fit").toBe("fit");
+        let record = await stored();
+        note(`after Split on Column 1: ${JSON.stringify(record)}`);
+        expect(record.mode, "Split divided the slot").toBe("split");
+        expect((await rowFacts(columnRow(0))).value, "and the row says Split").toBe("split");
 
         await app.click(`${columnRow(0)} [data-choice-value="stack"]`);
         await wait(AFTER_LAND_MS);
         record = await stored();
-        note(`after Stack on Column 1: ${JSON.stringify(record.column)}`);
-        expect(record.column.mode, "Stack stacks the slot").toBe("stack");
-        expect(record.column.layout, "and the layout is remembered").toBe("fit");
+        note(`after Stack on Column 1: ${JSON.stringify(record)}`);
+        expect(record.mode, "Stack stacks the slot").toBe("stack");
         expect((await rowFacts(columnRow(0))).value, "and the row says Stack").toBe("stack");
       } finally {
         await app.close();

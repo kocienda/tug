@@ -79,9 +79,6 @@ import { TugFilterField } from "@/components/tugways/tug-filter-field";
 import { useAttachedFilter } from "@/components/tugways/attached-filter";
 import { setCardsFilterBinding, shrinkCardsState } from "./cards-escape";
 import { useResponder } from "@/components/tugways/use-responder";
-import { useMeasuredCardAppetite } from "@/lib/card-appetite-store";
-import { CARD_TITLE_BAR_HEIGHT } from "@/components/chrome/tug-pane";
-import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
@@ -717,17 +714,6 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   const hasContent = count > 0;
   const hasItems = dataSource.unfilteredCount() > 0;
 
-  // What the card would like of its rail's run ([B01]): the measured height of
-  // its content element, plus the pane's title bar — the one piece of the
-  // member's box the column below the scroller cannot see. Three row kinds at
-  // three heights used to be summed from a census, and a row whose padding
-  // moved put the declaration at little over half the content; the column
-  // stands at whatever it stands at, and nothing here has to know why.
-  const contentRef = useMeasuredCardAppetite(
-    CARDS_CARD_ID,
-    CARD_TITLE_BAR_HEIGHT,
-  );
-
   // The opening key view lands on a real row rather than on the chrome; an
   // empty list is not a focus stop, and `useSeedKeyView` re-arms while the key
   // is null ([P02]).
@@ -1113,7 +1099,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       <div
         className="cards-card-content"
         data-testid="cards-card-content"
-        ref={contentRef}
+        data-card-content=""
       >
       <div className="cards-toolbar" data-testid="cards-toolbar">
         <TugFilterField

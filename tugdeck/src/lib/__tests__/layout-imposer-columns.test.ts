@@ -45,12 +45,11 @@ import {
   stripRevealOffset,
   placeSharesFromHeights,
   railWeightOf,
-  type PlaceMemberAppetite,
+  type PlaceMember,
   sweptColumnOrders,
   withColumnMode,
   withColumnOrder,
   withColumnShares,
-  withoutColumnShares,
   type DeckImposition,
 } from "@/lib/layout-imposer";
 
@@ -154,28 +153,8 @@ describe("the column withers", () => {
     expect(next.columns?.[0]?.order).toEqual(["p1", "p2"]);
     expect(next.columns?.[0]?.shares).toEqual({ p1: 2 });
   });
-
-  test("withoutColumnShares drops the weights and keeps mode and order", () => {
-    const split = withColumnShares(
-      withColumnOrder(withColumnMode(bare(), 2, "split"), 2, ["p1", "p2"]),
-      2,
-      { p1: 3 },
-    );
-    expect(withoutColumnShares(split, 2).columns?.[2]).toEqual({
-      mode: "split",
-      order: ["p1", "p2"],
-    });
-  });
-
-  test("withoutColumnShares returns the SAME imposition when there is nothing to drop", () => {
-    // Identity is the signal `equalizeColumn` reads to decide whether it has
-    // anything to commit — an equalize on an already-equal column must not arm
-    // a settle. A fresh object that merely compares equal would arm one.
-    const already = withColumnMode(bare(), 0, "split");
-    expect(withoutColumnShares(already, 0)).toBe(already);
-    expect(withoutColumnShares(bare(), 5)).not.toBeUndefined();
-  });
 });
+
 
 describe("the division math is shared, not forked {#member-keys}", () => {
   // Column members are PANE ids. `allocatePlaceHeights` and
@@ -191,7 +170,7 @@ describe("the division math is shared, not forked {#member-keys}", () => {
   const paneMembers = (
     ids: readonly string[],
     shares?: Readonly<Record<string, number>>,
-  ): PlaceMemberAppetite[] =>
+  ): PlaceMember[] =>
     ids.map((id) => ({
       id,
       floor: 0,
@@ -235,7 +214,6 @@ describe("the division math is shared, not forked {#member-keys}", () => {
     const recovered = placeSharesFromHeights(
       paneMembers(order, shares),
       heights,
-      "fit",
       400,
     );
     // Scaled to average 1 per member, so the ratios are what round-trips.
@@ -266,12 +244,11 @@ describe("the division math is shared, not forked {#member-keys}", () => {
     const after = placeSharesFromHeights(
       paneMembers(order, shares),
       dragged,
-      "fit",
       600,
     );
     expect(after["pane-c"] / after["pane-d"]).toBeCloseTo(3, 10);
     expect(after["pane-a"]).toBeLessThan(
-      placeSharesFromHeights(paneMembers(order, shares), before, "fit", 600)[
+      placeSharesFromHeights(paneMembers(order, shares), before, 600)[
         "pane-a"
       ],
     );

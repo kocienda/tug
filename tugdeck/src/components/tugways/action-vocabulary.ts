@@ -957,56 +957,25 @@ export const TUG_ACTIONS = {
   //                  happened. Its door is the rail Layouts section's Slot
   //                  Window row.
   SET_SLOT_WINDOW:        "set-slot-window",
-  // SET_RAIL_MODE: payload — `{ side, mode }`. Stack or split one side's rail:
-  //                stacked, its sidebar cards stand front-to-back and z-order
-  //                decides which you see; split, the side's run is divided
-  //                between them and every member is visible at once. Stack is
-  //                the default. Its doors are the title bar's stack badge menu
-  //                and the rail Layouts section's per-side rail row.
-  SET_RAIL_MODE:          "set-rail-mode",
-  // SET_RAIL_LAYOUT: payload — `{ side, layout }`, `"fit"` or `"flow"`. How a
-  //                  split rail resolves its run: fitting, the members divide
-  //                  it and nobody overflows; flowing, each member stands at
-  //                  its own height and the strip scrolls behind the run. Fit
-  //                  is the default. The same two words the deck's LAYOUT row
-  //                  carries, over a different run — the deck's band against
-  //                  one side's column of cards — which is why the doors are
-  //                  the rail's own and never the deck-wide rows.
-  SET_RAIL_LAYOUT:        "set-rail-layout",
-  // EQUALIZE_RAIL: payload — `{ side }`. Divide a split rail's run equally
-  //                again, keeping the side's mode and member order — an equal
-  //                division written under fit, every member at its natural
-  //                under flow. Its door is the stack badge menu.
-  EQUALIZE_RAIL:          "equalize-rail",
-  // FIT_RAIL_TO_CONTENT: payload — `{ side }`. Re-seed a split rail's division
-  //                      from its members' naturals as they stand now: under
-  //                      fit the seed is written as the hand's division, under
-  //                      flow the stored weights are dropped so every member
-  //                      stands at its natural. Its doors are the stack badge
-  //                      menu and a double-click on the seam itself.
-  FIT_RAIL_TO_CONTENT:    "fit-rail-to-content",
-  // SET_COLUMN_MODE: payload — `{ slot, mode }`. The content-side twin of
-  //                  SET_RAIL_MODE: stack or split the cards sharing one
-  //                  numbered slot. Stacked they stand front-to-back and
-  //                  z-order decides which you see; split, the slot's vertical
-  //                  run is divided between them. Stack is the default. Its
-  //                  doors are the title bar's stack badge menu, the rail
-  //                  Layouts section's per-slot column row, and ⌃⌘S.
+  // SET_COLUMN_MODE: payload — `{ slot, mode }`. Stack or split the cards
+  //                  sharing one numbered slot. Stacked they stand
+  //                  front-to-back and z-order decides which you see; split,
+  //                  the slot's vertical run is divided between them. Stack is
+  //                  the default. Its doors are the title bar's stack badge
+  //                  menu, the rail Layouts section's per-slot column row, and
+  //                  ⌃⌘S.
   SET_COLUMN_MODE:        "set-column-mode",
-  // SET_COLUMN_LAYOUT: payload — `{ slot, layout }`. The content-side twin of
-  //                    SET_RAIL_LAYOUT: whether a split slot's members divide
-  //                    its run or stand at their own heights down a strip that
-  //                    scrolls. Fit is the default.
-  SET_COLUMN_LAYOUT:      "set-column-layout",
   // EQUALIZE_COLUMN: payload — `{ slot }`. Divide a split column's run equally
   //                  again, keeping the slot's mode and member order. Its
   //                  door is the stack badge menu.
   EQUALIZE_COLUMN:        "equalize-column",
-  // FIT_COLUMN_TO_CONTENT: payload — `{ slot }`. The content-side twin of
-  //                        FIT_RAIL_TO_CONTENT over one numbered slot. Its
-  //                        doors are the stack badge menu and a double-click
-  //                        on the seam.
-  FIT_COLUMN_TO_CONTENT:  "fit-column-to-content",
+  // RESIZE_SIDEBARS_TO_FIT: payload — none. ⌃⌥⌘R and Window ▸ Resize Sidebars
+  //                         to Fit. Stand every rail's cards at the heights
+  //                         their content asks for, once, and write the
+  //                         result as the hand's own division. The only
+  //                         automatic vertical arithmetic left on a rail, and
+  //                         nothing but the user runs it.
+  RESIZE_SIDEBARS_TO_FIT: "resize-sidebars-to-fit",
   // TOGGLE_COLUMN_SPLIT: payload — none. ⌃⌘S. Split or re-stack the slot
   //                      holding the layout selection's first card (else the
   //                      first responder's). Resolved by the deck canvas, which

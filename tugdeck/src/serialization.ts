@@ -37,9 +37,7 @@ import {
   clampSlot,
   isImpositionKind,
   isImpositionLayout,
-  isRailMode,
   isColumnMode,
-  isPlaceLayout,
   isSidebarSide,
   DEFAULT_IMPOSITION_KIND,
   DEFAULT_CONTENT_WIDTH,
@@ -321,22 +319,10 @@ function parseRails(
     const entry = value as Record<string, unknown>;
     const arrangement: RailArrangement = {};
 
-    const mode = entry["mode"];
-    if (mode !== undefined) {
-      // A mode this build cannot read means the whole side is unreadable: the
-      // order and heights below describe an arrangement, and applying them
-      // under a guessed mode would show the user something nobody chose.
-      if (!isRailMode(mode)) continue;
-      arrangement.mode = mode;
-    }
-
-    // Additive-optional, and read on its own terms rather than the mode's: an
-    // unreadable layout is DROPPED and the side comes back fit, because fit is
-    // what every rail written before the choice existed was. A mode this build
-    // cannot read makes the order and heights meaningless; a layout it cannot
-    // read does not — the arrangement still stands, it just stands fitting.
-    const layout = entry["layout"];
-    if (isPlaceLayout(layout)) arrangement.layout = layout;
+    // A blob written before [B01] may carry `mode` and `layout` on the side.
+    // Both are IGNORED here and dropped by the next write: a rail is always
+    // divided now, so neither says anything about how this side stands, and
+    // the order and shares below are the whole of what it stored that survives.
 
     const order = entry["order"];
     if (Array.isArray(order)) {
@@ -398,17 +384,15 @@ function parseColumns(
 
     const mode = entry["mode"];
     if (mode !== undefined) {
-      // As with a rail: a mode this build cannot read means the whole column
-      // is unreadable, because the order and heights below describe an
-      // arrangement nobody would have chosen under a guessed mode.
+      // A mode this build cannot read means the whole column is unreadable,
+      // because the order and heights below describe an arrangement nobody
+      // would have chosen under a guessed mode.
       if (!isColumnMode(mode)) continue;
       arrangement.mode = mode;
     }
 
-    // Read exactly as the rail's is, and dropped rather than defaulted for the
-    // same reason.
-    const layout = entry["layout"];
-    if (isPlaceLayout(layout)) arrangement.layout = layout;
+    // A `layout` written before [B12] is ignored, as a rail's is: a divided
+    // column divides its run and has no second answer to store.
 
     const order = entry["order"];
     if (Array.isArray(order)) {

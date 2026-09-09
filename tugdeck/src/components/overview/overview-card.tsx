@@ -944,11 +944,11 @@ export function OverviewContent({
   cardId,
 }: OverviewContentProps): React.ReactElement {
   const { posts, status, pendingRequestId } = useOverview();
-  // The Overview declares no appetite at all. It is a stream, and the registry
-  // is where that is said ([B05]): whether a card's content depends on its own
-  // height is a fact about the kind of card, and the selector reads a stream's
-  // natural as endless without the card publishing anything. Measuring one
-  // would close the loop the no-measurement rule was written against.
+  // The Overview carries no content marker. It is a stream — its rendered
+  // height is a function of the height it is given — so there is no finished
+  // height on it to read, and Resize Sidebars to Fit stands it at a fraction
+  // of the run instead ([B10]). Measuring one would close the loop the
+  // no-measurement rule was written against.
   const formats = useTimeFormats();
   const rootFor = useOverviewRefRoots(posts);
   const scrollRef = useRef<HTMLDivElement | null>(null);

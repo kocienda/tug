@@ -1327,6 +1327,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             wMenu.addItem(item)
         }
         wMenu.addItem(NSMenuItem.separator())
+        // The one verb that resizes the rails, above the cards it resizes.
+        // Key equivalent left EMPTY as everywhere in this file:
+        // `applyCommandChords` writes ⌃⌥⌘R from the frontend's keymap, so the
+        // chord stays rebindable.
+        wMenu.addItem(NSMenuItem(title: "Resize Sidebars to Fit", action: #selector(resizeSidebarsToFit(_:)), keyEquivalent: "").identified("window.resizeSidebarsToFit"))
+        wMenu.addItem(NSMenuItem.separator())
         // The sidebar cards — one parent row each, in the panel-list manner
         // every drawing app uses: the row stands for the card, its mark says
         // where the card stands, and its submenu holds the verbs.
@@ -1594,6 +1600,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func toggleRailFromMenu(_ sender: NSMenuItem) {
         guard let side = sender.representedObject as? String else { return }
         sendControl("toggle-rail", params: ["value": side])
+    }
+
+    /// Window ▸ Resize Sidebars to Fit. One run of the rails' only remaining
+    /// vertical algorithm: each card is stood at the height its content asks
+    /// for, and the result is kept as the hand's own division from there on.
+    @objc private func resizeSidebarsToFit(_ sender: Any) {
+        sendControl("resize-sidebars-to-fit")
     }
 
     /// Create a jot and land the caret in it, revealing the Jots rail if it is

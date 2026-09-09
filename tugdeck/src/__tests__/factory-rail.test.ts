@@ -29,10 +29,9 @@ import type { DeckImposition } from "../lib/layout-imposer";
 const FRESH: DeckImposition = { sidebars: {} };
 
 describe("factoryRailImposition", () => {
-  test("stacks the right rail in the factory order", () => {
+  test("stands the right rail up in the factory order", () => {
     const imposition = factoryRailImposition(FRESH);
 
-    expect(imposition.rails?.right?.mode).toBe("stack");
     expect(imposition.rails?.right?.order).toEqual([
       "cards",
       "dashes",
@@ -67,13 +66,13 @@ describe("factoryRailImposition", () => {
       kind: "two-up",
       contentWidth: "slim",
       sidebars: { jots: { side: "left" } },
-      rails: { left: { mode: "split" } },
+      rails: { left: { order: ["jots"] } },
     });
 
     expect(imposition.kind).toBe("two-up");
     expect(imposition.contentWidth).toBe("slim");
     expect(imposition.sidebars.jots).toEqual({ side: "left" });
-    expect(imposition.rails?.left).toEqual({ mode: "split" });
+    expect(imposition.rails?.left).toEqual({ order: ["jots"] });
   });
 
   test("is pure — the imposition it was handed is untouched", () => {

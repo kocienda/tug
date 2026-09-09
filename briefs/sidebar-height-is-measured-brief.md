@@ -1,5 +1,11 @@
 <!-- brief-skeleton v1 -->
 
+> **SUPERSEDED (2026-09-09) by `resize-sidebars-to-fit`, recorded as [D183].** The measurement pipeline this brief argued for is deleted: `cardAppetiteStore`, `useMeasuredCardAppetite`, `DeckState.appetites`, `heightSource` and `CardHeightSource`, and the seed that read them. The rails no longer resize themselves at all, so there is nothing left for a continuously published natural height to feed — a rail is always divided, its sashes are the hand's, and one user-invoked verb resizes on request.
+>
+> **What survives is the content element.** Every content card still marks one in-flow element whose border-box height depends on rail width and card data alone, now carrying `data-card-content`, and *Resize Sidebars to Fit* reads it once from the DOM at the moment it is invoked. That element, and the argument for why it cannot see the height it feeds, is what this brief is still worth reading for.
+>
+> Its `[B06]` stream test and `[B07]` invariant gate now have nothing to admit a card to: there is no `heightSource` to declare and no continuous measurement to gate, and `at0542`, the test that enforced the invariant, is deleted. The reasoning behind both stands as the reason Overview takes a fraction of the run rather than a measurement.
+
 # A sidebar card's height is measured from its content, with a carve-out for streams
 
 **Purpose:** Three arcs have tried to make a rail stand its cards at the height their content needs, and every one has shipped with wrong numbers, because every number is a hand-maintained sum of pixel constants that nothing in the build can check. In Flow today Layout is clipped, Jots scrolls, and Cards holds a band of empty space, with a screen of vacancy under all three. This brief reverses the decision that a card must declare its height from state and never measure it: a card's natural height is the measured height of a content element that can never depend on the height it feeds. Cards whose content is by nature as tall as their pane — the Overview transcript, and any stream like it — are carved out by declaration.
