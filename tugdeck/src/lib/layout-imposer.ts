@@ -885,8 +885,10 @@ export const RAIL_EDGE_INSET_PROPERTY = "--tug-rail-edge-inset";
  * The **rail gutter**: the space between a pinned rail's inner edge and the
  * band the cards stand in — the first card's near edge is exactly this far
  * from the rail. Wider than the card gap on purpose: the air between a panel
- * and the paper is not the air between two cards, and the width is what says
- * so without tint or livery in the gap.
+ * and the paper is not the air between two cards. The width says so, and the
+ * rail's one-sided shadow (`--tugx-rail-shadow-*` in `tug-pane.css`) fills
+ * most of it — the panel stands above the cards, and the gutter is where that
+ * shows.
  */
 export const RAIL_GUTTER_PX = 12;
 

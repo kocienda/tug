@@ -53,6 +53,21 @@ body {
   --tugx-pane-shadow-inactive: 0 1px 4px var(--tug7-element-global-shadow-normal-xs-rest);
   --tugx-pane-dim-overlay: var(--tug7-surface-overlay-primary-normal-highlight-rest);
 
+  /* --- Rail shadow: the panel's drop onto the paper ---
+     A pinned rail stands above every content card, and the shadow it casts
+     into the gutter is what says so. It is a GRADIENT STRIP, not a blurred
+     `box-shadow`: a blur fades in at the box's corners as well as along its
+     edge, so every member showed a soft notch at its top and bottom where
+     the ramp had not yet reached full — a gap at each seam and at the window
+     top. The strip is drawn by a pseudo-element on the pane frame (the
+     chrome clips its overflow; the frame does not), full height exactly, so
+     it reaches 10 of the gutter's 12 pixels from the rail's inner edge, is
+     the same weight from the first row to the last, bleeds nothing above or
+     below the rail, and a split rail's members meet in one unbroken line of
+     shadow. The right rail mirrors the direction. */
+  --tugx-rail-shadow-color: var(--tug7-element-global-shadow-normal-lg-rest);
+  --tugx-rail-shadow-reach: 10px;
+
   /* --- Rail tint (declared, unused at strength 0) ---
      The hue a tinted rail treatment would travel toward, and how far. The
      light themes' chrome Key is the hue where one exists; the focused title
@@ -336,9 +351,9 @@ body {
  *
  * `panel`: the rail gives up the card's whole shape. Flush to the window's
  * top and outer edge (the rail edge inset is 0 — `RAIL_EDGE_INSET_PX`), square
- * corners, no shadow, on the SUNKEN surface rather than the content surface,
- * and a `strong` hairline only where the rail BORDERS SOMETHING ELSE is all
- * the frame it keeps. The rule: a hairline marks a boundary — the inner edge,
+ * corners, on the SUNKEN surface rather than the content surface, and a
+ * `strong` hairline only where the rail BORDERS SOMETHING ELSE is all the
+ * frame it keeps. The rule: a hairline marks a boundary — the inner edge,
  * where the gutter to the first card begins (`RAIL_GUTTER_PX`, wider than the
  * card gap), and the seam between two members of a split rail. The window's
  * own top and bottom are boundaries with nothing, so no member draws a top
@@ -357,10 +372,16 @@ body {
  * The rail's title bar and every in-pane surface that paints from
  * `--tugx-pane-bg` take the sunken tone with it, which is what keeps the
  * panel one flush surface from bar to foot. The focused/unfocused reading
- * stays on the bar's ink, where the rail tier already carries it; the drop
- * shadow it gives up was never the rail's focus signal. The activation flash
- * still lands: it is an animation on `box-shadow`, and an animation outranks
- * every static declaration below.
+ * stays on the bar's ink, where the rail tier already carries it; the card's
+ * all-round drop shadow was never the rail's focus signal and it gives that
+ * up. What it casts instead is ONE-SIDED — a gradient strip
+ * (`--tugx-rail-shadow-reach` wide, drawn by the frame's `::after`) from
+ * its inner edge into the gutter, which is the rail's z-order made visible:
+ * the panel stands above the cards, a card sliding behind it passes under
+ * that shadow, and the gutter reads as the depth between a panel and the
+ * paper rather than as air between two cards. The activation flash still
+ * lands: it is an animation on `box-shadow`, and an animation outranks every
+ * static declaration below.
  */
 [data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side] {
   --tugx-rail-tint: 0;
@@ -391,6 +412,30 @@ body {
 /* Mirrored: the inner edge of a right-hand rail is its left. */
 [data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side="right"]:not([data-gesture="true"]) .tug-pane-chrome {
   border-width: 0 0 0 1px;
+}
+
+/* The rail's shadow: a full-height gradient strip standing in the gutter
+   just past the inner edge, on the FRAME rather than the chrome because the
+   chrome clips its overflow. Inert to the pointer — the gutter's hit
+   surfaces (the width-resize seam, the drop zones) stay exactly what they
+   were, and a shadow that took a press would be a 10px dead strip beside
+   every rail. Withdrawn for the carry with the rest of the panel's rules: a
+   lifted rail takes a card's frame, and a card's shadow is all round. */
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side]:not([data-gesture="true"])::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: var(--tugx-rail-shadow-reach);
+  background: linear-gradient(to right, var(--tugx-rail-shadow-color), transparent);
+  pointer-events: none;
+}
+
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side="right"]:not([data-gesture="true"])::after {
+  left: auto;
+  right: 100%;
+  background: linear-gradient(to left, var(--tugx-rail-shadow-color), transparent);
 }
 
 /* A member with a member below it draws the seam's one hairline as its
