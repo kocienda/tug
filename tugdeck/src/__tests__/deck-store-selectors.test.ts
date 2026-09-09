@@ -292,12 +292,11 @@ describe("deckColumnsOf", () => {
       ),
     );
     expect(columns[0].members).toEqual(["pane-a", "pane-b"]);
-    // Not 0.75. A weight divides the DISCRETIONARY POOL ([P04]), which is the
-    // 1000px run less two default floors of 180 and the 5px gap: 635px, of
-    // which the upper member takes three quarters. Its bottom edge lands at
-    // 656.25px, the gap's centre half a gap past that, and the fraction the
-    // seam property carries is what is left when that half gap comes off.
-    expect(columns[0].seams).toEqual([0.65875]);
+    // A share divides the RUN less its gaps ([P04]): 995px of the 1000px run,
+    // of which the upper member takes three quarters — 746.25px, well clear
+    // of the 180 floor. The gap's centre is half a gap past its bottom edge,
+    // and the fraction the seam property carries is that centre over the run.
+    expect(columns[0].seams).toEqual([0.74875]);
   });
 
   test("the fallback order is NOT the panes array's order", () => {

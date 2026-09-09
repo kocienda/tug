@@ -42,9 +42,11 @@ export function registerCardsCard(): void {
     contentFactory: (cardId: string) => <CardsContent cardId={cardId} />,
     defaultMeta: { title: "Cards", icon: "LayoutGrid", closable: true },
     // Rows elide where prose cannot, so this gives width back before a reading
-    // surface does. Rank 3: the list that grows second-fastest, behind Jots
-    // and ahead of the two that only fill as the work does.
-    greedRank: 3,
+    // surface does. Rank 2, greediest of the finite cards ([B05]): this card
+    // holds the sessions and files the user is working in, so a seed puts the
+    // slack under it and it has room to grow before it scrolls. The rank
+    // decides a seed, not a live policy — it moves nothing on its own.
+    greedRank: 2,
     hidden: true,
     // Every row here is an engine focus stop and the arrows are how the list is
     // read, so it engages KBF mode the moment it is the key card ([P10]).

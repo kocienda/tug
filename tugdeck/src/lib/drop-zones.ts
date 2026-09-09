@@ -154,7 +154,8 @@ export interface DropZoneRail {
   /** The members' division weights, keyed by pane id — the rail's stored
    *  shares re-keyed from componentId at the measurement boundary, since a
    *  pure module cannot see the registry that maps one to the other. Absent
-   *  members weigh 1 (`railWeightOf`'s rule). */
+   *  members weigh 1 and an absent RECORD is the seed, which is
+   *  `railWeightOf`'s rule. */
   shares?: Readonly<Record<string, number>>;
   /** Whether the side fits or flows its run; absent reads as fit. A tile is
    *  the allocator's answer, and the allocator answers a flowing place
@@ -440,18 +441,19 @@ function seatedPlace(
  * The weight is re-read here rather than taken from the map because a card's
  * share is a fact about the place it stands in, and the map is keyed by pane
  * across every place at once. Weights travel with cards — a member absent from
- * `shares` weighs 1, which is `railWeightOf`'s rule — so a foreign arrival
- * previews the re-division its extra member forces, and a member reordering
- * its own place previews its share standing wherever it lands.
+ * `shares` weighs 1 and an absent record reads as the seed, which is
+ * `railWeightOf`'s rule — so a member reordering its own place previews its
+ * share standing wherever it lands, and a foreign arrival previews the seed
+ * its join forces ({@link placeTiles} says why).
  *
  * A member the measurement never saw contributes no appetite: floors of zero,
  * and a greed rank of `NaN`, which the allocator sanitizes to the default rank
  * rather than reaching for a registry this module cannot see. Its natural is
  * ENDLESS rather than zero: a member nobody has measured has not declared a
  * height it is satisfied at, and saying it is satisfied at zero would hand its
- * whole share to whichever member fit's slack rule ranks greediest ([B06]).
- * Endless keeps it in the ladder's discretionary stage, dividing by weight,
- * which is the tile a drop into an unmeasured place can honestly promise.
+ * whole share to whichever member the seed's slack rule ranks greediest
+ * ([B06]). Endless keeps it in the seed's even fill toward natural, which is
+ * the tile a drop into an unmeasured place can honestly promise.
  */
 function placeAppetites(
   order: readonly string[],
@@ -475,6 +477,24 @@ function placeAppetites(
 }
 
 /**
+ * Whether `shares` names exactly the members a drop would leave standing —
+ * `others` plus the dragged card — which is the test {@link placeTiles} reads
+ * to know whether the commit will keep the record or re-seed it. An absent
+ * record passes: there is nothing for the commit to drop, and both sides seed.
+ */
+function namesExactly(
+  shares: Readonly<Record<string, number>> | undefined,
+  others: readonly string[],
+  draggedId: string,
+): boolean {
+  if (shares === undefined) return true;
+  const keys = Object.keys(shares);
+  if (keys.length !== others.length + 1) return false;
+  const named = new Set(keys);
+  return named.has(draggedId) && others.every((id) => named.has(id));
+}
+
+/**
  * One tile per position the dragged card could take in a place: for each
  * candidate index, the post-drop order is the sitting members with the dragged
  * card inserted there, and the tile is what the allocator gives that member of
@@ -487,6 +507,16 @@ function placeAppetites(
  * rides `PlaceRun.seam` there, so a rail's 0 seam and a column's gap are one
  * arithmetic rather than two, and the standing is the allocator's rather than
  * a count the caller forked on.
+ *
+ * The record the tiles allocate from is the one the COMMIT will allocate
+ * from, which is not always the one the place is holding now: a fitting place
+ * whose MEMBERSHIP changes has its shares re-seeded from the members' naturals
+ * ([B03]), so a foreign arrival into a divided place would otherwise be
+ * promised a division the drop immediately replaces. The test is the commit's
+ * own — does the record name exactly the post-drop members — so a reorder
+ * inside one place keeps its record (membership is the key set, not the
+ * order), an absent record reads as the seed on both sides, and a flowing
+ * place, whose weights survive a membership change, always stands on its own.
  */
 function placeTiles(
   others: readonly string[],
@@ -500,10 +530,14 @@ function placeTiles(
   layout: PlaceLayout,
 ): Rect[] {
   const count = others.length + 1;
+  const committed =
+    layout === "flow" || namesExactly(shares, others, draggedId)
+      ? shares
+      : undefined;
   return Array.from({ length: count }, (_, i) => {
     const order = [...others.slice(0, i), draggedId, ...others.slice(i)];
     const allocation = allocatePlaceHeights(
-      placeAppetites(order, appetites, shares),
+      placeAppetites(order, appetites, committed),
       run.height,
       seam,
       layout,

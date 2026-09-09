@@ -41,10 +41,10 @@ export function registerJotsCard(): void {
     acceptsFamilies: [],
     contentFactory: (cardId: string) => <JotsContent cardId={cardId} />,
     defaultMeta: { title: "Jots", icon: "NotebookPen", closable: true },
-    // Greediest of the lists, rank 2 behind the Overview: jots arrive faster
-    // than cards, arcs or tripwires do, so this is the card that grows into
-    // fit's slack first and the one that should be holding it.
-    greedRank: 2,
+    // Rank 3, behind the Cards card ([B05]): jots arrive faster than arcs or
+    // tripwires do, but the card the user is working in outranks the one they
+    // are writing beside it. Read at seed time only.
+    greedRank: 3,
     hidden: true,
     // The jot LIST is the card's resting surface — rows, arrows, rings ([P10]).
     // An open jot is a typing descend inside that list, not a different mode:

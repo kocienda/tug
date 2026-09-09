@@ -274,6 +274,12 @@ const LAYOUT_ROW_PITCH_PX = 28 + 6;
  *  Width. Every other row is one registered sidebar card. */
 const LAYOUT_DECK_ROWS = 3;
 
+/** The two rail rows, one per side, present whatever the sides hold: a split
+ *  side dropping to one card would otherwise take the only way to un-split it
+ *  away with it ([B08]). Disabled rather than absent, which is why they count
+ *  toward the natural unconditionally. */
+const LAYOUT_RAIL_ROWS = 2;
+
 /** Comfort: the plate and the fold cue, and nothing below them. */
 const LAYOUT_COMFORT_HEIGHT_PX = Math.ceil(
   CARD_TITLE_BAR_HEIGHT +
@@ -290,20 +296,30 @@ const LAYOUT_COMFORT_HEIGHT_PX = Math.ceil(
 /** Natural: comfort plus every control row the card will draw — and, when the
  *  mixer is folded away, comfort itself, because a folded card draws no rows
  *  and asking its rail for room to draw them would leave the run empty under
- *  the cue. The fold is therefore an appetite change as much as a visual one:
- *  press it and the card gives its slack back to the rail. */
+ *  the cue. The fold is therefore an appetite change as much as a visual one —
+ *  but an appetite is read at the hand's moments, not on every change: in flow
+ *  the strip shortens, and in fit the plate stands over the room it was given
+ *  until a drag, a membership change or Fit to Content reads the folded card.
+ *  A seam moves only when the hand moves it. */
 function layoutNaturalHeightPx(
   sidebarCount: number,
+  columnRowCount: number,
   mixerOpen: boolean,
 ): number {
   if (!mixerOpen) return LAYOUT_COMFORT_HEIGHT_PX;
   return (
     LAYOUT_COMFORT_HEIGHT_PX +
-    LAYOUT_ROW_PITCH_PX * (LAYOUT_DECK_ROWS + sidebarCount)
+    LAYOUT_ROW_PITCH_PX *
+      (LAYOUT_DECK_ROWS + LAYOUT_RAIL_ROWS + columnRowCount + sidebarCount)
   );
 }
 const RAIL_SENDER_PREFIX = "layout-card-rail:";
 const COLUMN_SENDER_PREFIX = "layout-card-column:";
+/** The per-place ROWS' senders, apart from the marks' above: a row's Fit and
+ *  Flow write the mode as well as the layout, where a mark writes one or the
+ *  other ([B08]). */
+const RAIL_ROW_SENDER_PREFIX = "layout-card-rail-row:";
+const COLUMN_ROW_SENDER_PREFIX = "layout-card-column-row:";
 
 /** Ids of the captions, so each group can point `aria-labelledby` at its own
  *  `TugLabel`. */
@@ -318,10 +334,10 @@ const WIDTH_CAPTION_ID = "layout-card-width-caption";
  *  separately ordered is also what makes them separate rows of this card's arrow
  *  plane, so a vertical arrow steps from one group to the next.
  *
- *  Three is the whole list, and fixed. The per-place rows this card used to
- *  grow — one per sidebar card, one per side, one per shared slot — needed
- *  their orders computed from a running count, and that arithmetic is gone with
- *  them: those questions are asked on the drawing now.
+ *  Three deck rows, fixed, then the place rows: two rail rows that are always
+ *  there, and a column row per slot with something to arrange ([B08]). The
+ *  place rows' orders are keyed by side and by slot rather than counted, so a
+ *  slot's row inserting itself moves no other row's order.
  *
  *  A fourth stood here for a while: the slot window, how many places a Cards
  *  row draws around its card's own. It was the odd one — every other row
@@ -334,11 +350,21 @@ const LAYOUTS_KIND_FOCUS_ORDER = 0;
 const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
 const LAYOUTS_WIDTH_FOCUS_ORDER = 2;
 
+/** The rail rows' orders, one per side, directly under Card Width — and the
+ *  column rows' after them, one per slot the kind defines, dense over the rows
+ *  actually rendered (a slot with nothing to arrange has no row, so its order
+ *  is simply unused). The sidebar rows start past the last slot any kind can
+ *  define, so no two stops can share an order however the deck is shaped. */
+const LAYOUTS_FIRST_RAIL_ROW_FOCUS_ORDER = 3;
+const LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER =
+  LAYOUTS_FIRST_RAIL_ROW_FOCUS_ORDER + LAYOUT_RAIL_ROWS;
+
 /** The first sidebar row's order; each further registered card takes the next.
  *  These rows are the registry's size, which is fixed at boot — they list every
  *  sidebar card the deck HAS, open or not, because a hidden card's row is the
  *  one door that shows it. The deck-wide rows above never move. */
-const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 3;
+const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER =
+  LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER + slotCount("six-up");
 
 /** The fold cue's stop, PAST every row rather than ahead of them. The card
  *  engages KBF at rest ([P10]), so whatever holds order 0 wears the cursor's
@@ -398,6 +424,23 @@ const RAIL_CAPTIONS: Record<SidebarSide, string> = {
   left: "Left Rail",
   right: "Right Rail",
 };
+
+/** A place row's three answers, in one choice group: Stack, or one of the two
+ *  kinds of split ([B08]). Stack writes the mode alone and leaves the layout
+ *  as it was, so a stacked place remembers which split it was; Fit and Flow
+ *  write the mode and the layout together. */
+type PlaceRowValue = RailMode | PlaceLayout;
+const PLACE_ROW_ITEMS: TugChoiceItem[] = [
+  { value: "stack", label: "Stack" },
+  { value: "fit", label: "Fit" },
+  { value: "flow", label: "Flow" },
+];
+
+/** What a place row shows: Stack when the place is stacked, else the layout
+ *  its division is on. */
+function placeRowValue(mode: RailMode, layout: PlaceLayout): PlaceRowValue {
+  return mode === "stack" ? "stack" : layout;
+}
 
 /** The caption for a slot's column row. One-based, matching the ⌘-digit chords
  *  and every other place the deck names a slot to the user. */
@@ -865,10 +908,18 @@ export function LayoutContent(
   // registry, which is fixed at boot, so this is a pure function of state and
   // the section's height does not move as cards come and go. The fold is the
   // one thing that moves it, and it moves it because the reader asked.
+  // Every occupied slot, whatever its membership (see `useDeckColumns` for
+  // why one card deep still counts) — read here, ahead of the appetite,
+  // because the slots with something to arrange each add a row to it.
+  const columns = useDeckColumns();
+  const columnRowSlots: number[] = columns
+    .filter((column) => column.members.length > 1)
+    .map((column) => column.slot)
+    .sort((a, b) => a - b);
   useCardAppetite(
     LAYOUT_CARD_ID,
     LAYOUT_COMFORT_HEIGHT_PX,
-    layoutNaturalHeightPx(sidebars.length, mixerOpen),
+    layoutNaturalHeightPx(sidebars.length, columnRowSlots.length, mixerOpen),
   );
   // The open ones are what the picture draws and what the overlay marks;
   // the full registry is what the sidebar rows list, because a hidden card's
@@ -882,15 +933,12 @@ export function LayoutContent(
     left: railModeOf(imposition, "left"),
     right: railModeOf(imposition, "right"),
   };
-  // …and each side's layout, which the mark reads beside the mode and the
-  // note reads to say which thing scrolls ([B09]).
+  // …and each side's layout, which the rail rows read and the note reads to
+  // say which thing scrolls ([B08]).
   const railLayouts: Partial<Record<SidebarSide, PlaceLayout>> = {
     left: railLayoutOf(imposition, "left"),
     right: railLayoutOf(imposition, "right"),
   };
-  // Every occupied slot, whatever its membership (see `useDeckColumns` for
-  // why one card deep still counts).
-  const columns = useDeckColumns();
   // The committed places' own divisions, for the committed drawing alone.
   const committedAllocations = useCommittedAllocations(columns);
   // The sides whose run actually scrolls — read off the side's own STANDING
@@ -1007,7 +1055,6 @@ export function LayoutContent(
       key: `col-${slot}`,
       slot,
       mode: occupiedColumnOf(slot)?.mode ?? columnModeOf(imposition, slot),
-      layout: columnLayoutOf(imposition, slot),
       label: columnCaption(slot),
       senderId: `${COLUMN_SENDER_PREFIX}${slot}`,
     }),
@@ -1023,7 +1070,6 @@ export function LayoutContent(
       key: `rail-${side}`,
       side,
       mode: modes[side] ?? "stack",
-      layout: railLayouts[side] ?? "fit",
       label: RAIL_CAPTIONS[side],
       senderId: `${RAIL_SENDER_PREFIX}${side}`,
     }));
@@ -1046,18 +1092,44 @@ export function LayoutContent(
         const value = event.value;
         if (typeof value !== "string") return;
         const sender = event.sender;
+        // The place rows: Stack writes the mode alone; Fit and Flow write the
+        // mode and the layout, in that order, so the place stands split on
+        // the layout the press named ([B08]). Both setters short-circuit on
+        // an unchanged value, so a row pressed on the answer it shows costs
+        // nothing.
+        if (
+          typeof sender === "string" &&
+          sender.startsWith(RAIL_ROW_SENDER_PREFIX)
+        ) {
+          const side = sender.slice(RAIL_ROW_SENDER_PREFIX.length);
+          if (!isSidebarSide(side)) return;
+          if (value === "stack") {
+            dispatchCommand(TUG_ACTIONS.SET_RAIL_MODE, { side, mode: "stack" });
+          } else if (isPlaceLayout(value)) {
+            dispatchCommand(TUG_ACTIONS.SET_RAIL_MODE, { side, mode: "split" });
+            dispatchCommand(TUG_ACTIONS.SET_RAIL_LAYOUT, { side, layout: value });
+          }
+          return;
+        }
+        if (
+          typeof sender === "string" &&
+          sender.startsWith(COLUMN_ROW_SENDER_PREFIX)
+        ) {
+          const slot = Number(sender.slice(COLUMN_ROW_SENDER_PREFIX.length));
+          if (!Number.isInteger(slot) || slot < 0) return;
+          if (value === "stack") {
+            dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: "stack" });
+          } else if (isPlaceLayout(value)) {
+            dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: "split" });
+            dispatchCommand(TUG_ACTIONS.SET_COLUMN_LAYOUT, { slot, layout: value });
+          }
+          return;
+        }
         if (typeof sender === "string" && sender.startsWith(RAIL_SENDER_PREFIX)) {
           const side = sender.slice(RAIL_SENDER_PREFIX.length);
           if (!isSidebarSide(side)) return;
           if (isRailMode(value)) {
             dispatchCommand(TUG_ACTIONS.SET_RAIL_MODE, { side, mode: value });
-          } else if (isPlaceLayout(value)) {
-            // The same sender carries both of a place's questions, told apart
-            // by which vocabulary the value is in — `split`/`stack` against
-            // `fit`/`flow`, which do not overlap. A second sender prefix would
-            // be one more thing for the overlay and this responder to agree
-            // about, for no fact the value does not already carry.
-            dispatchCommand(TUG_ACTIONS.SET_RAIL_LAYOUT, { side, layout: value });
           }
           return;
         }
@@ -1069,8 +1141,6 @@ export function LayoutContent(
           if (!Number.isInteger(slot) || slot < 0) return;
           if (isColumnMode(value)) {
             dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: value });
-          } else if (isPlaceLayout(value)) {
-            dispatchCommand(TUG_ACTIONS.SET_COLUMN_LAYOUT, { slot, layout: value });
           }
           return;
         }
@@ -1650,6 +1720,83 @@ export function LayoutContent(
               data-testid="layout-card-width"
             />
           </div>
+
+          {/* The place rows ([B08]): one per rail side, always, and one per
+              slot with something to arrange. A per-thing row is told from the
+              deck rows above by its caption naming the place. No
+              `data-preview-axis`: an arrangement does not audition, for the
+              reason the marks give — its effect is the word on the segment. */}
+          {SIDES.map((side, index) => {
+            const captionId = `layout-card-rail-caption-${side}`;
+            return (
+              <div
+                className="layouts-section-row"
+                key={`rail-${side}`}
+              >
+                <TugLabel
+                  id={captionId}
+                  size="md"
+                  emphasis="proposal"
+                  className="layouts-section-caption"
+                >
+                  {RAIL_CAPTIONS[side]}
+                </TugLabel>
+                <TugChoiceGroup
+                  items={PLACE_ROW_ITEMS}
+                  value={placeRowValue(
+                    railModes[side] ?? "stack",
+                    railLayouts[side] ?? "fit",
+                  )}
+                  senderId={`${RAIL_ROW_SENDER_PREFIX}${side}`}
+                  size="xs"
+                  sidePadding="xs"
+                  reselect
+                  // A side holding fewer than two cards has nothing to divide,
+                  // but the row stays: it is the one door back to a stack once
+                  // a split side has emptied to one card.
+                  disabled={(rails[side] ?? 0) < 2}
+                  focusGroup={LAYOUT_FOCUS_GROUP}
+                  focusOrder={LAYOUTS_FIRST_RAIL_ROW_FOCUS_ORDER + index}
+                  aria-labelledby={captionId}
+                  data-testid={`layout-card-rail-${side}`}
+                />
+              </div>
+            );
+          })}
+
+          {columnRowSlots.map((slot) => {
+            const captionId = `layout-card-column-caption-${slot}`;
+            return (
+              <div
+                className="layouts-section-row"
+                key={`column-${slot}`}
+              >
+                <TugLabel
+                  id={captionId}
+                  size="md"
+                  emphasis="proposal"
+                  className="layouts-section-caption"
+                >
+                  {columnCaption(slot)}
+                </TugLabel>
+                <TugChoiceGroup
+                  items={PLACE_ROW_ITEMS}
+                  value={placeRowValue(
+                    columnModeOf(imposition, slot),
+                    columnLayoutOf(imposition, slot),
+                  )}
+                  senderId={`${COLUMN_ROW_SENDER_PREFIX}${slot}`}
+                  size="xs"
+                  sidePadding="xs"
+                  reselect
+                  focusGroup={LAYOUT_FOCUS_GROUP}
+                  focusOrder={LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER + slot}
+                  aria-labelledby={captionId}
+                  data-testid={`layout-card-column-${slot}`}
+                />
+              </div>
+            );
+          })}
 
           {sidebars.map((entry, index) => {
             const captionId = `layout-card-sidebar-caption-${entry.componentId}`;

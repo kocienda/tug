@@ -52,7 +52,7 @@ export function registerOverviewCard(): void {
     // narrow rail costs the most. Fed first in surplus, drained last in
     // deficit. Rank 1 of the six sidebar cards, and the only stream among
     // them: a feed has no natural height to be satisfied at, so a place it
-    // sits in never reaches fit's slack stage at all.
+    // sits in never reaches the seed's slack stage at all ([B05]).
     greedRank: 1,
     // The 56-character measure: the narrowest a post still reads as prose. The
     // allocator holds the rail here and gives it up only to remove overlap;

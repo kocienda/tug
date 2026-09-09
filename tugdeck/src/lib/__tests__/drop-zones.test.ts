@@ -572,6 +572,48 @@ describe("a split column advertises one position per place a member can stand", 
     expect(zones[1].rect.height).toBeCloseTo(heights[0], 6);
   });
 
+  it("a foreign arrival's tiles are the SEED, not the sitting record", () => {
+    // The record belongs to the two members standing there, and a fitting
+    // place whose membership changes re-seeds from the naturals ([B03]) — so
+    // the tile a joining card is shown has to be the seed's, or the drop
+    // lands somewhere other than the outline promised ([P06]).
+    const state = deck([pane("p1", 0), pane("p2", 1), pane("p3", 1)], {
+      kind: "three-up",
+      columns: { 1: { mode: "split", shares: { p2: 1.6, p3: 0.4 } } },
+    });
+    const sitting = sharedHeights([1.6, 0.4], RUN_HEIGHT, IMPOSITION_GAP_PX);
+    const rects = splitRects(1, sitting);
+    const { zones } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: new Map([[0, slotRect(0)]]),
+        panes: new Map([
+          ["p1", slotRect(0)],
+          ["p2", rects[0]],
+          ["p3", rects[1]],
+        ]),
+      }),
+    );
+    // Nobody declares a natural, so the seed's fill toward natural divides the
+    // run less its two gaps evenly: three equal members, whatever the record
+    // said about the two who were already there.
+    const third = (RUN_HEIGHT - 2 * IMPOSITION_GAP_PX) / 3;
+    const tileAt = (index: number) =>
+      zones.find((zone) => dropZoneKey(zone) === `column:1:${index}`)!.rect;
+    for (const index of [0, 1, 2]) {
+      expect(tileAt(index).height).toBeCloseTo(third, 6);
+      expect(tileAt(index).y).toBeCloseTo(
+        RUN_TOP + index * (third + IMPOSITION_GAP_PX),
+        6,
+      );
+    }
+    // And the sitting record's own division is emphatically not it: p2 held
+    // four fifths of the two-member run, so the middle tile would have begun
+    // far lower had the tiles been drawn from weights the drop discards.
+    expect(tileAt(1).y).toBeLessThan(RUN_TOP + sitting[0]);
+  });
+
   it("an overflowing column's positions are the strip its floors force", () => {
     const state = deck([pane("p1", 0), pane("p2", 0), pane("p3", 0)], split);
     const memberH = overflowHeightOf(RUN_HEIGHT);

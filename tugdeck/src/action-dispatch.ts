@@ -805,8 +805,8 @@ export function initActionDispatch(
   });
 
   // equalize-rail: divide a split rail's run equally again. Dispatched by the
-  // stack badge menu and by a double-click on the seam. The side's mode and
-  // member order survive — only the heights a seam drag set are discarded.
+  // stack badge menu. The side's mode and member order survive — only the
+  // division is rewritten.
   registerAction(TUG_ACTIONS.EQUALIZE_RAIL, (payload) => {
     const side = payload.side;
     if (!isSidebarSide(side)) {
@@ -814,6 +814,19 @@ export function initActionDispatch(
       return;
     }
     deckManager.equalizeRail(side);
+  });
+
+  // fit-rail-to-content: re-seed a split rail's division from its members'
+  // naturals as they stand now. Dispatched by the stack badge menu and by a
+  // double-click on the seam. Under fit the seed is written as the hand's
+  // division; under flow the stored weights are dropped.
+  registerAction(TUG_ACTIONS.FIT_RAIL_TO_CONTENT, (payload) => {
+    const side = payload.side;
+    if (!isSidebarSide(side)) {
+      console.warn("fit-rail-to-content: missing or invalid side", payload);
+      return;
+    }
+    deckManager.fitRailToContent(side);
   });
 
   // set-column-mode: stack or split the cards sharing one numbered slot.
@@ -852,8 +865,8 @@ export function initActionDispatch(
   });
 
   // equalize-column: divide a split column's run equally again. Dispatched by
-  // the stack badge menu and by a double-click on the seam. The slot's mode and
-  // member order survive — only the heights a seam drag set are discarded.
+  // the stack badge menu. The slot's mode and member order survive — only the
+  // division is rewritten.
   registerAction(TUG_ACTIONS.EQUALIZE_COLUMN, (payload) => {
     const slot = payload.slot;
     if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0) {
@@ -861,6 +874,18 @@ export function initActionDispatch(
       return;
     }
     deckManager.equalizeColumn(slot);
+  });
+
+  // fit-column-to-content: the content-side twin of fit-rail-to-content, over
+  // one numbered slot. Dispatched by the stack badge menu and by a
+  // double-click on the seam.
+  registerAction(TUG_ACTIONS.FIT_COLUMN_TO_CONTENT, (payload) => {
+    const slot = payload.slot;
+    if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0) {
+      console.warn("fit-column-to-content: missing or invalid slot", payload);
+      return;
+    }
+    deckManager.fitColumnToContent(slot);
   });
 
   // assign-slot: put a card's pane at a numbered position in the active

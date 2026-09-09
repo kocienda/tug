@@ -250,8 +250,16 @@ export interface RailArrangement {
    */
   order?: string[];
   /**
-   * Each member's height weight, keyed by componentId; an unnamed member weighs
-   * 1, so an absent record is an equal division.
+   * Each member's share of the run, keyed by componentId — the division a
+   * fitting rail stands at, bounded below by the members' floors, and under
+   * flow the multiplier on each member's natural height.
+   *
+   * The shares belong to the hand. Only a seam drag, a membership change and
+   * Fit to Content write them; content never does. An ABSENT record is a rail
+   * nobody has divided yet: it allocates from the members' appetites once, as
+   * a seed, and the deck writes that seed here at its first settle so that
+   * nothing later moves a seam the user did not. An unnamed member in a
+   * present record weighs 1.
    *
    * Weights rather than positions: membership churns, and a positional array
    * would hand a departing card's height to whoever inherits its index.
@@ -316,8 +324,9 @@ export interface ColumnArrangement {
    */
   order?: string[];
   /**
-   * Each member's height weight, keyed by pane id; an unnamed member weighs 1,
-   * so an absent record is an equal division.
+   * Each member's share of the run, keyed by pane id, on
+   * {@link RailArrangement.shares}'s own meaning: the hand's division under
+   * fit, a multiplier on natural under flow, seeded once when absent.
    */
   shares?: Record<string, number>;
 }
@@ -622,22 +631,27 @@ export function withoutRailShares(
 }
 
 /**
- * How much of the run a member is worth: its stored weight, or 1.
+ * How much of the run a member is worth: its stored share, 1 for a member the
+ * record does not name, and `undefined` when there is no record at all.
  *
- * A weight that is not a finite non-negative number reads as 1 rather than as
- * an error. These arrive from a JSON blob and from gesture arithmetic, and a
- * rail that refuses to lay itself out because one number is `NaN` is worse
- * than a rail that divides evenly.
+ * The absent record is a fact the allocator reads — a place nobody has divided
+ * yet seeds its division from the members' appetites — so it is answered as
+ * `undefined` rather than folded into 1. Inside a present record a weight that
+ * is not a finite non-negative number reads as 1 rather than as an error: these
+ * arrive from a JSON blob and from gesture arithmetic, and a rail that refuses
+ * to lay itself out because one number is `NaN` is worse than a rail that
+ * divides evenly.
  *
  * Zero is a weight, not an absence: a member a drag pushed down to its floor
- * has no share of the discretionary pool and says so with a zero ([P04]).
- * {@link sharedHeightsOf} divides evenly when every weight is zero, which is
- * the only reading a total of nothing has.
+ * stands at the floor and says so with a zero. {@link sharedHeightsOf} divides
+ * evenly when every weight is zero, which is the only reading a total of
+ * nothing has.
  */
 export function railWeightOf(
   shares: Readonly<Record<string, number>> | undefined,
   componentId: string,
-): number {
+): number | undefined {
+  if (shares === undefined) return undefined;
   const weight = shares?.[componentId];
   return typeof weight === "number" && Number.isFinite(weight) && weight >= 0
     ? weight
@@ -3349,8 +3363,10 @@ export interface PlaceMemberAppetite {
   /** Lower is greedier; `getGreedRank` folded with `Math.min` over a pane's
    *  cards. */
   greedRank: number;
-  /** The stored weight, {@link railWeightOf}: finite, ≥ 0, default 1. */
-  weight: number;
+  /** The stored share, {@link railWeightOf}: finite, ≥ 0; `undefined` when the
+   *  place has no record, which is what makes a fitting place seed its
+   *  division from the appetites rather than divide by weights nobody wrote. */
+  weight?: number;
 }
 
 /**
@@ -3411,7 +3427,11 @@ function sanitizedAppetites(
           ? Math.max(comfort, member.natural)
           : comfort;
     const weight =
-      Number.isFinite(member.weight) && member.weight >= 0 ? member.weight : 1;
+      member.weight === undefined
+        ? undefined
+        : Number.isFinite(member.weight) && member.weight >= 0
+          ? member.weight
+          : 1;
     const greedRank = Number.isFinite(member.greedRank)
       ? member.greedRank
       : DEFAULT_GREED_RANK;
@@ -3496,7 +3516,7 @@ function flowHeightsOf(
     const natural = Number.isFinite(member.natural)
       ? member.natural
       : (screen ?? member.comfort);
-    return Math.max(member.floor, natural * member.weight);
+    return Math.max(member.floor, natural * (member.weight ?? 1));
   });
 }
 
@@ -3506,8 +3526,74 @@ function flowHeightsOf(
 const PLACE_POOL_EPSILON = 1e-9;
 
 /**
- * A shared place's heights: the allocation ladder ([P03]), which is the whole
- * of how a run that fits its members gets divided among them.
+ * A shared place's heights: its run divided by the members' stored shares,
+ * bounded below by their floors ([P03]).
+ *
+ * The shares are the hand's. Each member's target is its share of the run less
+ * the seams, and a member whose target would put it under its floor stands at
+ * the floor instead, giving the difference up to the others in proportion to
+ * their shares — repeated until every member is at or above its floor, which
+ * a place standing as shared guarantees terminates, since its floors fit. The
+ * appetites' comforts and naturals enter nowhere here: a card whose content
+ * outgrows its share scrolls inside itself, as a split pane does in every
+ * editor, and a seam moves only when the hand moves it.
+ *
+ * A place with NO record — every weight `undefined`, which is what an absent
+ * `shares` reads as — has not been divided yet, and its division is the seed:
+ * {@link seedSharedHeights}, the appetite ladder run once. The deck writes that
+ * seed into the record at its first settle so the next content change reads a
+ * division rather than re-deriving one.
+ *
+ * A weight of zero is legal and means what it says: no share of the run, so
+ * the member stands at its floor. A place whose weights are ALL zero divides
+ * its run equally rather than not at all — the only reading a total of nothing
+ * has.
+ */
+function sharedHeightsOf(
+  members: readonly PlaceMemberAppetite[],
+  run: number,
+  seam: number,
+): number[] {
+  if (members.every((member) => member.weight === undefined)) {
+    return seedSharedHeights(members, run, seam);
+  }
+  const n = members.length;
+  const weights = members.map((member) => member.weight ?? 1);
+  const divisible = run - (n - 1) * seam;
+  const heights = members.map((member) => member.floor);
+  // Members still dividing: everyone whose share has not put it under its
+  // floor. Each pass hands the room the floored members do not take back to
+  // the rest, in proportion to their shares, and stops when nobody new drops
+  // below a floor.
+  let active = members.map((_, index) => index);
+  let room = divisible;
+  for (;;) {
+    const total = active.reduce((sum, i) => sum + weights[i], 0);
+    const targets = active.map((i) =>
+      total > PLACE_POOL_EPSILON
+        ? (room * weights[i]) / total
+        : room / active.length,
+    );
+    const floored = active.filter(
+      (i, k) => targets[k] < members[i].floor - PLACE_POOL_EPSILON,
+    );
+    if (floored.length === 0) {
+      active.forEach((i, k) => {
+        heights[i] = targets[k];
+      });
+      break;
+    }
+    for (const i of floored) room -= members[i].floor;
+    const held = new Set(floored);
+    active = active.filter((i) => !held.has(i));
+    if (active.length === 0) break;
+  }
+  return heights;
+}
+
+/**
+ * The seed: what a fitting place stands at before any hand has divided it —
+ * the appetite ladder, run once over the members' declarations.
  *
  * Four stages, each spending what the one before it left:
  *
@@ -3519,35 +3605,25 @@ const PLACE_POOL_EPSILON = 1e-9;
  *    every comfort leaves the last-ranked members at their floors, which is
  *    the honest answer — somebody has to be short, and the greed rank is the
  *    card registry's statement about who it should be.
- * 3. **Toward natural, by weight.** What is still left is the DISCRETIONARY
- *    pool, and the stored weights divide it — each member capped at its
- *    natural height, with the surplus a capped member could not take poured
- *    back over the members still below theirs. That is why this is a loop
- *    rather than one division: capping one member changes every other
- *    member's share, and the water has to find its level.
+ * 3. **Toward natural, evenly.** What is still left is divided evenly among
+ *    the members still below their naturals, each capped at its own, with the
+ *    surplus a capped member could not take poured back over the rest. A loop
+ *    rather than one division, because capping one member changes every other
+ *    member's share and the water has to find its level.
  * 4. **Past natural, whole, to the greediest.** Once everybody is at natural
- *    there is no cap left to bind, and the remainder goes ENTIRELY to the
- *    lowest `greedRank` — position as tiebreak, the same order stage 2 used —
- *    so the run is still filled exactly ([D181]) while every other member
- *    stands at precisely its natural. Every seam then sits on a content
- *    boundary and the one stretch of empty space is at the foot of the card
- *    that will grow into it first ([B06]). Spreading the remainder by weight
- *    was the old rule and it handed each card space it had not asked for:
- *    when one card then grew, the settle had to claw that space back across
- *    every seam instead of moving one.
+ *    the remainder goes ENTIRELY to the lowest `greedRank` — position as
+ *    tiebreak — so the run is still filled exactly while every other member
+ *    stands at precisely its natural, every seam sits on a content boundary,
+ *    and the one stretch of empty space is at the foot of the card that will
+ *    grow into it first.
  *
- * Fit has two edges and they have names. **Squeeze** is the run falling short
- * of the naturals — stage 2 runs out and members are held below natural in
- * reverse greed order. **Slack** is the run running past them — stage 4, where
- * the greediest takes the lot. Neither word is user-facing; the user's words
- * for the choice are Fit and Flow.
- *
- * A weight of zero is legal and means what it says at each stage: no share of
- * the pool. It is what a member dragged down to its comfort height stores, and
- * a place whose weights are ALL zero divides its pool equally rather than not
- * at all — the only reading a total of nothing has.
+ * This is a function of the appetites and nothing else: the stored weights are
+ * not read, because a seed is what a place gets when there are none, or when
+ * the hand asked for the division content would make (Fit to Content). It is
+ * exported so the deck can write its result into the record and so the census
+ * can test it on its own.
  */
-function sharedHeightsOf(
+export function seedSharedHeights(
   members: readonly PlaceMemberAppetite[],
   run: number,
   seam: number,
@@ -3572,17 +3648,12 @@ function sharedHeightsOf(
     .map((_, index) => index)
     .filter((i) => heights[i] < members[i].natural - PLACE_POOL_EPSILON);
   while (pool > PLACE_POOL_EPSILON && active.length > 0) {
-    const total = active.reduce((sum, i) => sum + members[i].weight, 0);
-    const give = active.map((i) =>
-      total > 0 ? (pool * members[i].weight) / total : pool / active.length,
-    );
+    const give = pool / active.length;
     const capped = active.filter(
-      (i, k) => give[k] >= members[i].natural - heights[i] - PLACE_POOL_EPSILON,
+      (i) => give >= members[i].natural - heights[i] - PLACE_POOL_EPSILON,
     );
     if (capped.length === 0) {
-      active.forEach((i, k) => {
-        heights[i] += give[k];
-      });
+      for (const i of active) heights[i] += give;
       pool = 0;
       break;
     }
@@ -3594,39 +3665,39 @@ function sharedHeightsOf(
     active = active.filter((i) => !held.has(i));
   }
 
-  if (pool > PLACE_POOL_EPSILON) {
-    // Slack. The default is one card's: past natural nobody is competing for
-    // the pool, so dividing it by weight would only hand every card space it
-    // did not ask for ([B06]). A weight of exactly 1 on EVERY member is the
-    // shape an absent `shares` record makes — `railWeightOf` answers 1 for a
-    // place nobody has dragged — so that is the default, and it goes whole to
-    // the greediest, position as tiebreak.
-    //
-    // Anything else is a hand's: a seam dragged past the naturals stored the
-    // division it was let go at, and it overrides the default for that place
-    // ([B12]). {@link placeSharesFromHeights} scales a slack drag's weights to
-    // put their largest at n, rather than to average 1, for exactly this
-    // reason — an equal division of slack is a real thing to have dragged to,
-    // and it must not come back wearing the all-ones record that means nobody
-    // dragged at all.
-    const dragged = members.some(
-      (member) => Math.abs(member.weight - 1) > PLACE_POOL_EPSILON,
-    );
-    if (dragged) {
-      const total = members.reduce((sum, member) => sum + member.weight, 0);
-      for (let i = 0; i < n; i += 1) {
-        // A record of nothing but zeros is still a hand's by the test above,
-        // and it has no ratio in it — so it divides evenly, the only reading a
-        // total of nothing has, and the same one the stage below the naturals
-        // takes. Without this the division is a zero over a zero on every
-        // member at once.
-        heights[i] += total > 0 ? (pool * members[i].weight) / total : pool / n;
-      }
-    } else {
-      heights[byGreed[0].index] += pool;
-    }
+  if (pool > PLACE_POOL_EPSILON && n > 0) {
+    heights[byGreed[0].index] += pool;
   }
   return heights;
+}
+
+/**
+ * The shares the seed means — {@link seedSharedHeights} read back through
+ * {@link placeSharesFromHeights}, so that allocating from the record this
+ * returns reproduces the seed's heights exactly. This is what a membership
+ * change and Fit to Content write, and what the deck writes for a place whose
+ * record is absent at its first settle.
+ *
+ * Empty for a place that has nothing to divide — fewer than two members, or
+ * floors that do not fit the run and stand it as a strip, where there is no
+ * division to seed.
+ */
+export function seedPlaceShares(
+  members: readonly PlaceMemberAppetite[],
+  run: number,
+  seam: number,
+): Record<string, number> {
+  const sane = sanitizedAppetites(members);
+  if (sane.length < 2) return {};
+  const gap = Number.isFinite(seam) && seam > 0 ? seam : 0;
+  if (placeStandingOf(sane, run, gap, "fit") !== "shared") return {};
+  return placeSharesFromHeights(
+    sane,
+    seedSharedHeights(sane, run, gap),
+    "fit",
+    run,
+    gap,
+  );
 }
 
 /**
@@ -3769,7 +3840,7 @@ export function nominalPlaceAllocation(
 }
 
 /**
- * The weights a set of heights means — the inverse of
+ * The shares a set of heights means — the inverse of
  * {@link allocatePlaceHeights}, and what a committed seam drag stores ([P04]).
  *
  * It takes the place's LAYOUT and works the standing out itself ([B12]), so
@@ -3786,25 +3857,12 @@ export function nominalPlaceAllocation(
  * ([B08]). A stream, whose natural is endless, reads the run as its natural
  * here exactly as it does there.
  *
- * **A shared run** — fit: the weight is the share of the discretionary pool
- * the member took, measured from whichever floor of that pool the place stands
- * above, and the two regimes scale differently because the difference carries
- * a fact.
- *
- * Below natural, the weights are scaled to average 1, so an equal division
- * round-trips to the all-ones record that an absent `shares` already means —
- * equal IS the default there, and returning the empty record for it is the
- * same statement in fewer bytes.
- *
- * Past natural the default is not the equal division but the greedy one
- * ([B06]), so THAT is the division that returns the empty record: heights
- * standing at every natural with the whole remainder on the greediest are what
- * a place nobody has dragged already looks like, and storing a record for it
- * would freeze today's greed ranks into the blob. Any other division of the
- * slack is a hand's, and it overrides the default for that place. Its weights
- * are scaled to put their LARGEST at `n` rather than to average 1, because an
- * equal division of slack is a real thing to have dragged to and must not come
- * back wearing the all-ones record that means nobody dragged at all.
+ * **A shared run** — fit: the share is the fraction of the run the member
+ * stands at, scaled so the shares average 1 — an equal division is the
+ * all-ones record. Every height a drag can reach is at or above its member's
+ * floor, so allocating from the record this returns reproduces the heights
+ * exactly ([P10]): the division is the shares, and the floors never bind on
+ * a division the hand was allowed to make.
  */
 export function placeSharesFromHeights(
   members: readonly PlaceMemberAppetite[],
@@ -3829,32 +3887,11 @@ export function placeSharesFromHeights(
     }
     return shares;
   }
-  const pastNatural = sane.every(
-    (member, i) => (heights[i] ?? 0) >= member.natural - PLACE_HEIGHT_EPSILON,
-  );
-  const weights = sane.map((member, i) =>
-    Math.max(0, (heights[i] ?? 0) - (pastNatural ? member.natural : member.comfort)),
-  );
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  const stood = sane.map((_, i) => Math.max(0, heights[i] ?? 0));
+  const total = stood.reduce((sum, height) => sum + height, 0);
   if (total <= PLACE_HEIGHT_EPSILON) return {};
-  if (pastNatural) {
-    // The greedy default wears no record. The slack all standing on the
-    // lowest `greedRank` — position as tiebreak, the order {@link
-    // sharedHeightsOf} hands it out in — is what an undragged place already
-    // allocates, so the empty record reproduces it exactly ([B12]).
-    const greediest = sane
-      .map((member, index) => ({ member, index }))
-      .sort(
-        (a, b) =>
-          a.member.greedRank - b.member.greedRank || a.index - b.index,
-      )[0].index;
-    if (weights[greediest] >= total - PLACE_HEIGHT_EPSILON) return {};
-  }
-  // Averaging to 1 divides by the total; putting the largest at n divides by
-  // the largest.
-  const basis = pastNatural ? Math.max(...weights) : total;
   for (let i = 0; i < sane.length; i += 1) {
-    shares[sane[i].id] = (weights[i] * sane.length) / basis;
+    shares[sane[i].id] = (stood[i] * sane.length) / total;
   }
   return shares;
 }
@@ -3870,12 +3907,13 @@ export function placeSharesFromHeights(
  * in ([B12]), so these bounds read a fact rather than re-deriving one from the
  * heights they are about to clamp.
  *
- * The bounds are the regime's (Table T02). A shared place whose comfort no
- * longer fits has no discretionary pool to move, so its seams are immovable;
- * one still below natural trades between comfort and natural; and one past
- * natural trades above natural. A range that comes out inverted — or collapsed,
- * which regime A reaches honestly ([Q01]) — is reported as the height standing
- * exactly where it is.
+ * A SHARED place trades the span between the two members either side of the
+ * seam, and the floors are the only thing that bounds the trade: the upper
+ * member may go no lower than its own floor and no higher than what leaves
+ * its neighbour at its floor. Comfort and natural bound nothing — the division
+ * is the hand's, and a card the hand makes shorter than its content scrolls
+ * inside itself. A range that comes out inverted is reported as the height
+ * standing exactly where it is.
  *
  * A place standing as a STRIP is the one that does not trade. Its drag resizes
  * the member above the seam and lengthens the strip, leaving every other member
@@ -3911,23 +3949,8 @@ export function seamDragBounds(
         : 0,
     );
   } else {
-    const comfortRequired =
-      sane.reduce((sum, member) => sum + member.comfort, 0) +
-      (sane.length - 1) * allocation.seam;
-    const pastNatural = sane.every(
-      (member, i) => (heights[i] ?? 0) >= member.natural - PLACE_HEIGHT_EPSILON,
-    );
-    if (comfortRequired > allocation.run + PLACE_HEIGHT_EPSILON) {
-      // Regime C: the pool is empty, so there is nothing to trade.
-      return { lower: held, upper: held };
-    }
-    if (pastNatural) {
-      lower = a.natural;
-      upper = span - b.natural;
-    } else {
-      lower = Math.max(a.comfort, span - b.natural);
-      upper = Math.min(a.natural, span - b.comfort);
-    }
+    lower = a.floor;
+    upper = span - b.floor;
   }
   if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower > upper) {
     return { lower: held, upper: held };

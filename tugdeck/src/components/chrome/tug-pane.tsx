@@ -348,14 +348,14 @@ export interface CardTitleBarProps {
   };
   /**
    * Arrange the place this pane stands in. `"split"` / `"stack"` set the mode;
-   * `"fit"` / `"flow"` set the layout; `"equalize"` clears the stored weights,
-   * which is an equal division of the discretionary pool under fit and every
-   * member at its own natural height under flow ([B10]). Wired by `TugPane` to
-   * the registered commands, never to a store method ([L30]) — the same path
-   * {@link onSetWidth} takes.
+   * `"fit"` / `"flow"` set the layout; `"equalize"` writes an equal division
+   * under fit and puts every member at its own natural height under flow
+   * ([B10]); `"fit-content"` re-seeds the division from the members' naturals
+   * as they stand now ([B04]). Wired by `TugPane` to the registered commands,
+   * never to a store method ([L30]) — the same path {@link onSetWidth} takes.
    */
   onArrangePlace?: (
-    verb: "split" | "stack" | "fit" | "flow" | "equalize",
+    verb: "split" | "stack" | "fit" | "flow" | "equalize" | "fit-content",
   ) => void;
   /**
    * Apply a width preset to this pane. Present exactly when
@@ -431,6 +431,7 @@ function sharedVerbRank(commandId: string): number {
   return SHARED_VERB_RANK[commandId] ?? -1;
 }
 const PLACE_VERB_EQUALIZE = "place:equalize";
+const PLACE_VERB_FIT_CONTENT = "place:fit-content";
 const PLACE_VERB_FIT = "place:fit";
 const PLACE_VERB_FLOW = "place:flow";
 
@@ -1467,7 +1468,11 @@ function CardTitleBar({
                           },
                           ...(placeAlone
                             ? []
-                            : [{ id: PLACE_VERB_EQUALIZE, label: "Equalize Heights" }]),
+                            : [
+                                { id: PLACE_VERB_EQUALIZE, label: "Equalize Heights" },
+                                // The seam's double-click, as a row ([B04]).
+                                { id: PLACE_VERB_FIT_CONTENT, label: "Fit to Content" },
+                              ]),
                         ]
                       : [{ id: PLACE_VERB_SPLIT, label: "Split Vertically" }]),
                 ]}
@@ -1477,6 +1482,7 @@ function CardTitleBar({
                   if (id === PLACE_VERB_FIT) return onArrangePlace?.("fit");
                   if (id === PLACE_VERB_FLOW) return onArrangePlace?.("flow");
                   if (id === PLACE_VERB_EQUALIZE) return onArrangePlace?.("equalize");
+                  if (id === PLACE_VERB_FIT_CONTENT) return onArrangePlace?.("fit-content");
                   const entry = slotStack.find((e) => e.paneId === id);
                   if (entry) onRevealPane?.(entry);
                 }}
@@ -4271,10 +4277,14 @@ export function TugPane({
   // a rail if it holds a side, otherwise its slot — rather than in the bar,
   // which has no business knowing the deck has two kinds of place.
   const handleArrangePlace = useCallback(
-    (verb: "split" | "stack" | "fit" | "flow" | "equalize") => {
+    (verb: "split" | "stack" | "fit" | "flow" | "equalize" | "fit-content") => {
       if (sidebarSide !== undefined) {
         if (verb === "equalize") {
           dispatchCommand(TUG_ACTIONS.EQUALIZE_RAIL, { side: sidebarSide });
+          return;
+        }
+        if (verb === "fit-content") {
+          dispatchCommand(TUG_ACTIONS.FIT_RAIL_TO_CONTENT, { side: sidebarSide });
           return;
         }
         if (verb === "fit" || verb === "flow") {
@@ -4294,6 +4304,10 @@ export function TugPane({
       if (slot === undefined) return;
       if (verb === "equalize") {
         dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot });
+        return;
+      }
+      if (verb === "fit-content") {
+        dispatchCommand(TUG_ACTIONS.FIT_COLUMN_TO_CONTENT, { slot });
         return;
       }
       if (verb === "fit" || verb === "flow") {

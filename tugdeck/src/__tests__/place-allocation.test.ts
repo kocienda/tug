@@ -4,17 +4,17 @@
  *
  * Every site that used to derive a member height for itself now asks
  * `railAllocationOf` / `columnAllocationOf`, and the numbers below are the
- * ladder's ([P03]): every member at its floor, and what the run has left over
- * divided by the stored weights. They are pinned here because the numbers a
- * place draws are exactly what a move like this can quietly break, and because
- * the remaining steps change some of them on purpose: when they move, this
- * file is where the intent is stated.
+ * allocator's ([P03]): a place with no record stands at the seed, and a place
+ * with one divides its run by the stored shares, bounded by the floors. They
+ * are pinned here because the numbers a place draws are exactly what a move
+ * like this can quietly break: when they move, this file is where the intent
+ * is stated.
  *
  * The probe cards declare no size policy, so each takes the default floor of
  * 180px and no comfort or natural height above it. That is deliberately the
- * state every card is in until the appetite declarations land: the ladder's
+ * state every card is in until the appetite declarations land: the seed's
  * middle two stages have nothing to do, and the whole of the run above the
- * floors is the discretionary pool.
+ * floors divides evenly.
  *
  * The signature term is pinned beside them for the reason it exists: what a
  * settle interpolates is frames, so a term that missed a height change would
@@ -151,20 +151,19 @@ describe("a place divides its run by the allocation ladder", () => {
     expect(allocation?.stripLength).toBeCloseTo(RUN, 6);
   });
 
-  test("a rail of two divides the pool at its stored weights", () => {
+  test("a rail of two divides its run at its stored shares", () => {
     const allocation = railAllocationOf(
       railState(RAIL_IDS.slice(0, 2), { "probe-a": 3, "probe-b": 1 }),
       "right",
       RUN,
     );
     expect(allocation?.standing).toBe("shared");
-    // 3:1 of the POOL rather than of the run ([P04]): both members keep their
-    // floor whatever the weights say, and only what is left over is divided.
-    const pool = poolOf(2, RAIL_SEAM_PX);
-    expect(allocation?.heights).toEqual([
-      DEFAULT_FLOOR + (pool * 3) / 4,
-      DEFAULT_FLOOR + pool / 4,
-    ]);
+    // 3:1 of the RUN less its seam ([P04]): the shares are the division, and
+    // the floors bound it only when a share would take a member under its own
+    // — a quarter of the run is well above 180.
+    const divisible = RUN - RAIL_SEAM_PX;
+    expect(allocation?.heights[0]).toBeCloseTo((divisible * 3) / 4, 6);
+    expect(allocation?.heights[1]).toBeCloseTo(divisible / 4, 6);
     expect(allocation?.stripLength).toBe(RUN);
   });
 
@@ -176,12 +175,10 @@ describe("a place divides its run by the allocation ladder", () => {
     );
     expect(allocation?.standing).toBe("shared");
     // The one difference from the rail: the gap between two column members is
-    // paid out of the run before the pool is measured.
-    const pool = poolOf(2, IMPOSITION_GAP_PX);
-    expect(allocation?.heights).toEqual([
-      DEFAULT_FLOOR + (pool * 3) / 4,
-      DEFAULT_FLOOR + pool / 4,
-    ]);
+    // paid out of the run before it is divided.
+    const divisible = RUN - IMPOSITION_GAP_PX;
+    expect(allocation?.heights[0]).toBeCloseTo((divisible * 3) / 4, 6);
+    expect(allocation?.heights[1]).toBeCloseTo(divisible / 4, 6);
     expect(allocation?.stripLength).toBe(RUN);
   });
 
@@ -210,11 +207,11 @@ describe("the arrangement signature's allocation term", () => {
       "right",
       RUN,
     );
-    // 3.03 : 1 of the pool puts the upper member at 661.2px — a whole pixel
-    // taller than the 660 it stood at, and the term has to say so or the
+    // 3.03 : 1 of the run puts the upper member at 751.86px — nearly two
+    // pixels taller than the 750 it stood at, and the term has to say so or the
     // settle would cut a motion it should cross.
-    expect(Math.round(before?.heights[0] ?? 0)).toBe(660);
-    expect(Math.round(after?.heights[0] ?? 0)).toBe(661);
+    expect(Math.round(before?.heights[0] ?? 0)).toBe(750);
+    expect(Math.round(after?.heights[0] ?? 0)).toBe(752);
     expect(placeAllocationTerm(after)).not.toBe(placeAllocationTerm(before));
   });
 
@@ -225,9 +222,9 @@ describe("the arrangement signature's allocation term", () => {
       "right",
       RUN,
     );
-    // 660.08px: the member moved, but not by a pixel anybody draws.
-    expect(after?.heights[0]).toBeCloseTo(660.08, 2);
-    expect(Math.round(after?.heights[0] ?? 0)).toBe(660);
+    // 750.12px: the member moved, but not by a pixel anybody draws.
+    expect(after?.heights[0]).toBeCloseTo(750.12, 2);
+    expect(Math.round(after?.heights[0] ?? 0)).toBe(750);
     expect(placeAllocationTerm(after)).toBe(placeAllocationTerm(before));
   });
 

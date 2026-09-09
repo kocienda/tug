@@ -63,7 +63,9 @@ import {
   findSidebarPanes,
   paneRenderWidthOf,
   railAllocationOf,
+  placeMemberAppetites,
   placeRunsMoved,
+  railMembersOf,
   type PlaceRuns,
 } from "./deck-store-selectors";
 import { getTugbankClient } from "./lib/tugbank-singleton";
@@ -129,6 +131,7 @@ import {
   RESIZE_RETUNE_QUIET_MS,
   railModeOf,
   railLayoutOf,
+  seedPlaceShares,
   withRailMode,
   withRailLayout,
   withRailOrder,
@@ -211,6 +214,18 @@ import {
   transferFocusAfterMove,
   transferFocusForActivation,
 } from "./focus-transfer";
+
+/** Whether `recorded` names exactly `standing` — the test a fitting place's
+ *  `shares` record must pass to survive a membership change ([B03]). Order
+ *  is not membership: a reorder keeps its division. */
+function sameMembers(
+  recorded: readonly string[],
+  standing: readonly string[],
+): boolean {
+  if (recorded.length !== standing.length) return false;
+  const set = new Set(recorded);
+  return standing.every((id) => set.has(id));
+}
 
 /** Debounce delay for saving layout (ms) */
 const SAVE_DEBOUNCE_MS = 500;
@@ -1917,10 +1932,10 @@ export class DeckManager implements IDeckManagerStore {
    * member already weighs 1, so a dropped weight means exactly what a missing
    * one does, and nothing downstream has to defend against a `NaN` height.
    *
-   * ZERO IS A WEIGHT. A weight divides the discretionary pool rather than the
-   * run ([P04]), and a member dragged down to its comfort height took none of
-   * that pool — the honest record of which is `0`, not the `1` a dropped
-   * weight would mean. Only negatives and non-numbers are refusals.
+   * ZERO IS A SHARE. A share divides the RUN, bounded below by every member's
+   * floor ([P04]), and a member dragged down to its floor took no share of
+   * the run — the honest record of which is `0`, not the `1` a dropped weight
+   * would mean. Only negatives and non-numbers are refusals.
    */
   setRailShares(side: SidebarSide, shares: Record<string, number>): void {
     const weights: Record<string, number> = {};
@@ -1934,22 +1949,76 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * Clear `side`'s stored heights, keeping its mode, layout and order — what
-   * the badge's "Equalize Heights" and a double-click on a seam ask for.
+   * Equalize `side`'s members, keeping its mode, layout and order — what the
+   * badge's "Equalize Heights" asks for.
    *
    * It is ONE act with a meaning per layout, rather than two verbs ([B10]).
-   * Dropping the weights puts every member back on the record an undragged
-   * place has, and what that record allocates to is the layout's answer: under
-   * fit an equal division of the discretionary pool, and under flow every
-   * member at exactly the natural height its own content asked for. Both are
-   * the same sentence — "forget what the hand did here" — and the layout is
-   * what makes it mean the right thing, which is why the verb does not fork.
+   * Under fit it WRITES the equal division — one share apiece for every member
+   * standing — because a fitting place with no record does not stand equal, it
+   * stands at the seed, and equalize is a hand's division like any drag. Under
+   * flow it drops the weights, which puts every member at exactly the natural
+   * height its own content asked for. Both are the same sentence — "make them
+   * even" — and the layout is what makes it mean the right thing.
    */
   equalizeRail(side: SidebarSide): void {
     const imposition = this.deckState.imposition;
+    if (railLayoutOf(imposition, side) === "fit") {
+      const members = railMembersOf(this.deckState, side);
+      if (members.length < 2) return;
+      this._reimpose(
+        withRailShares(
+          imposition,
+          side,
+          Object.fromEntries(members.map((member) => [member.componentId, 1])),
+        ),
+      );
+      return;
+    }
     const equalized = withoutRailShares(imposition, side);
     if (equalized === imposition) return;
     this._reimpose(equalized);
+  }
+
+  /**
+   * Re-seed `side`'s division from its members' naturals as they stand now —
+   * what the badge's "Fit to Content" and a double-click on the seam ask for
+   * ([B04]). Under fit it WRITES the seed: every member at its natural,
+   * comfort by greed rank if the naturals do not fit, the slack whole to the
+   * greediest ([B03]'s ladder, run once at the hand's request). Under flow
+   * it drops the weights, which puts every member at exactly its natural —
+   * the same sentence, "fit to content", answered by the layout the place is
+   * on.
+   *
+   * A rail whose members have not all declared gets its record dropped rather
+   * than a seed of nothing; the settle after the last publish writes the seed
+   * the absent record already allocates to.
+   */
+  fitRailToContent(side: SidebarSide): void {
+    const imposition = this.deckState.imposition;
+    if (railLayoutOf(imposition, side) === "fit") {
+      const members = railMembersOf(this.deckState, side).map(
+        (member) => member.componentId,
+      );
+      if (members.length < 2) return;
+      const railRun = this._placeRunHeight("rail");
+      const shares =
+        railRun > 0 && this._railMembersDeclared(members)
+          ? seedPlaceShares(
+              placeMemberAppetites(this.deckState, "rail", members, undefined),
+              railRun,
+              RAIL_SEAM_PX,
+            )
+          : {};
+      this._reimpose(
+        Object.keys(shares).length === 0
+          ? withoutRailShares(imposition, side)
+          : withRailShares(imposition, side, shares),
+      );
+      return;
+    }
+    const fitted = withoutRailShares(imposition, side);
+    if (fitted === imposition) return;
+    this._reimpose(fitted);
   }
 
   /**
@@ -2126,13 +2195,54 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /** {@link equalizeRail}'s slot-keyed twin, with the same per-layout meaning:
-   *  an equal division of the pool under fit, every member at its own natural
+   *  an equal division written under fit, every member at its own natural
    *  height under flow ([B10]). */
   equalizeColumn(slot: number): void {
     const imposition = this.deckState.imposition;
+    if (columnLayoutOf(imposition, slot) === "fit") {
+      const members = columnMembersOf(this.deckState, slot);
+      if (members.length < 2) return;
+      this._reimpose(
+        withColumnShares(
+          imposition,
+          slot,
+          Object.fromEntries(members.map((paneId) => [paneId, 1])),
+        ),
+      );
+      return;
+    }
     const equalized = withoutColumnShares(imposition, slot);
     if (equalized === imposition) return;
     this._reimpose(equalized);
+  }
+
+  /** {@link fitRailToContent}'s slot-keyed twin, with the same per-layout
+   *  meaning: the seed written under fit, every member at its own natural
+   *  height under flow ([B04]). */
+  fitColumnToContent(slot: number): void {
+    const imposition = this.deckState.imposition;
+    if (columnLayoutOf(imposition, slot) === "fit") {
+      const members = columnMembersOf(this.deckState, slot);
+      if (members.length < 2) return;
+      const columnRun = this._placeRunHeight("column");
+      const shares =
+        columnRun > 0
+          ? seedPlaceShares(
+              placeMemberAppetites(this.deckState, "column", members, undefined),
+              columnRun,
+              IMPOSITION_GAP_PX,
+            )
+          : {};
+      this._reimpose(
+        Object.keys(shares).length === 0
+          ? withoutColumnShares(imposition, slot)
+          : withColumnShares(imposition, slot, shares),
+      );
+      return;
+    }
+    const fitted = withoutColumnShares(imposition, slot);
+    if (fitted === imposition) return;
+    this._reimpose(fitted);
   }
 
   /**
@@ -2367,6 +2477,12 @@ export class DeckManager implements IDeckManagerStore {
     // caller remembering to. A stranded member is not cosmetic: invariant 9
     // refuses it and the deck comes up on the error overlay.
     imposition = sweptColumnOrders(imposition, panes);
+    // And the one place that can keep every fitting place's RECORD honest: a
+    // place with no stored shares stands at the seed, and the seed is written
+    // here so that the next content change reads a division rather than
+    // re-deriving one ([B01], [B03]). Identical heights either way, so this
+    // moves nothing on screen; it only makes the record say what is drawn.
+    imposition = this._seededFitShares(imposition, panes);
     const { panesBySide } = this._sidebarRails(panes, imposition);
     const allocated = retuneRails
       ? this._allocatedRailWidths(panes, imposition)
@@ -2550,20 +2666,156 @@ export class DeckManager implements IDeckManagerStore {
   /**
    * Copy the appetite store's snapshot into deck state and re-allocate.
    *
+   * A settled appetite change commits nothing for a fitting place ([B01],
+   * [B02]): its heights are its stored shares over its run, so the snapshot
+   * updates — the next seed or drag will read it — and the seams stay. The
+   * commit is for the places whose heights DO read the appetites: a place
+   * standing as a strip, whose members are at `natural · weight` ([B06]), and
+   * a fitting place with no record yet, whose seed is written by this commit.
+   * The first settle commits unconditionally, because it is the boot's answer
+   * and nothing has been drawn from a settled snapshot before it.
+   *
    * The commit carries `retuneRails: false`: an appetite is a claim on the
    * vertical run, and a rail's WIDTH is the user's — a card's list growing may
    * not spend it. `_commitImposition` notifies unconditionally and lands as
    * `"cross"`, which is the landing a settled content change wants ([B10]), so
-   * there is no second notify here.
+   * there is no second notify on that path; the other path notifies once so
+   * the snapshot's readers see it.
    */
   private _settleAppetites(): void {
     const next = cardAppetiteStore.snapshot();
     const prev = this.deckState.appetites;
     if (prev !== undefined && sameAppetites(prev, next)) return;
     this.deckState = { ...this.deckState, appetites: next };
-    this._commitImposition(this.deckState.imposition, this.deckState.panes, {
-      retuneRails: false,
-    });
+    const imposition = this.deckState.imposition;
+    const panes = this.deckState.panes;
+    const seeded = this._seededFitShares(imposition, panes);
+    if (
+      prev === undefined ||
+      seeded !== imposition ||
+      this._anyPlaceOverflows(seeded, panes)
+    ) {
+      this._commitImposition(seeded, panes, { retuneRails: false });
+      return;
+    }
+    this.notify("_settleAppetites");
+  }
+
+  /**
+   * `imposition` with every fitting place's record made honest: a `shares`
+   * record that does not name exactly the members now standing is dropped —
+   * a division for two members says nothing about three ([B03]) — and every
+   * split rail and split column on fit with two or more members and no
+   * record is then seeded once from the settled appetites through the
+   * imposer's own seed. The seed's shares allocate to exactly the heights the
+   * absent record already allocates to, so writing them moves nothing; it
+   * makes the division the hand's from here on. Membership is compared by key
+   * set alone, so a reorder keeps its record and only a join or a leave
+   * re-seeds.
+   *
+   * Returns the SAME imposition when there is nothing to write — before the
+   * first settle (a seed from undeclared appetites would freeze the equal
+   * division in, which is the one outcome this exists to avoid), with no run
+   * to divide, or when every fitting place already has a record. A rail whose
+   * members have not ALL declared is deferred for the same reason: the first
+   * settle runs synchronously at the first card's publish, and a seed taken
+   * then would stand every card still to come at an endless natural. Every
+   * sidebar card declares, so the deferral ends at the quiet-period settle
+   * that follows the last publish. Content cards declare nothing, so a column
+   * has nothing to wait for and seeds at once — to the equal division, which
+   * no later declaration would move.
+   *
+   * Called from `_commitImposition`, from the settle, and from the three
+   * membership moves that write state directly — a sidebar pane created,
+   * a pane closed, a sidebar unpinned — so a stale record never survives
+   * the gesture that staled it. A joining card has not declared yet, so its
+   * rail's record is dropped at the join and seeded at the settle that
+   * follows its first publish; until then the absent record allocates to the
+   * same seed the settle will write.
+   */
+  private _seededFitShares(
+    imposition: DeckImposition,
+    panes: readonly TugPaneState[],
+  ): DeckImposition {
+    const declared = this.deckState.appetites !== undefined;
+    let next = imposition;
+    const state = { ...this.deckState, imposition, panes };
+    const railRun = this._placeRunHeight("rail");
+    for (const side of ["left", "right"] as const) {
+      if (railModeOf(next, side) !== "split") continue;
+      if (railLayoutOf(next, side) !== "fit") continue;
+      const members = railMembersOf(state, side).map(
+        (member) => member.componentId,
+      );
+      const record = next.rails?.[side]?.shares;
+      if (record !== undefined) {
+        if (sameMembers(Object.keys(record), members)) continue;
+        next = withoutRailShares(next, side);
+      }
+      if (!declared || railRun <= 0 || members.length < 2) continue;
+      if (!this._railMembersDeclared(members)) continue;
+      const shares = seedPlaceShares(
+        placeMemberAppetites(state, "rail", members, undefined),
+        railRun,
+        RAIL_SEAM_PX,
+      );
+      if (Object.keys(shares).length === 0) continue;
+      next = withRailShares(next, side, shares);
+    }
+    const columnRun = this._placeRunHeight("column");
+    const kind = imposition.kind;
+    if (kind !== undefined) {
+      for (let slot = 0; slot < slotCount(kind); slot += 1) {
+        if (columnModeOf(next, slot) !== "split") continue;
+        if (columnLayoutOf(next, slot) !== "fit") continue;
+        const members = columnMembersOf(state, slot);
+        const record = next.columns?.[slot]?.shares;
+        if (record !== undefined) {
+          if (sameMembers(Object.keys(record), members)) continue;
+          next = withoutColumnShares(next, slot);
+        }
+        if (!declared || columnRun <= 0 || members.length < 2) continue;
+        const shares = seedPlaceShares(
+          placeMemberAppetites(state, "column", members, undefined),
+          columnRun,
+          IMPOSITION_GAP_PX,
+        );
+        if (Object.keys(shares).length === 0) continue;
+        next = withColumnShares(next, slot, shares);
+      }
+    }
+    return next;
+  }
+
+  /** Whether every one of `componentIds` has a settled appetite — the
+   *  condition a rail's seed waits for, since every sidebar card declares one
+   *  and a seed taken before the last publish would be a seed of nothing. */
+  private _railMembersDeclared(componentIds: readonly string[]): boolean {
+    const appetites = this.deckState.appetites;
+    if (appetites === undefined) return false;
+    return componentIds.every((componentId) => appetites[componentId] !== undefined);
+  }
+
+  /** Whether any split place stands as a strip under `imposition` — flow by
+   *  choice, or fit whose floors do not fit — which is the standing whose
+   *  heights read the appetites and so must be re-committed when they move. */
+  private _anyPlaceOverflows(
+    imposition: DeckImposition,
+    panes: readonly TugPaneState[],
+  ): boolean {
+    for (const side of ["left", "right"] as const) {
+      if (this._railAllocation(side, panes, imposition)?.standing === "overflow") {
+        return true;
+      }
+    }
+    const kind = imposition.kind;
+    if (kind === undefined) return false;
+    for (let slot = 0; slot < slotCount(kind); slot += 1) {
+      if (this._columnAllocation(slot, panes, imposition)?.standing === "overflow") {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -2604,16 +2856,18 @@ export class DeckManager implements IDeckManagerStore {
       .filter((p) => p.slot !== undefined)
       .map((p) => p.activeCardId);
     for (const cardId of stillSlotted) this.cardLifecycle.notifyCardWillMove(cardId);
+    const panes = this.deckState.panes.map((p) =>
+      p.id === paneId ? { ...p, position: rect.position, size: rect.size } : p,
+    );
     this.deckState = {
       ...this.deckState,
-      imposition: withSidebarPinned(
-        this.deckState.imposition,
-        componentId,
-        false,
+      // The unpinned card left its rail, so a fitting rail's division is
+      // re-seeded for the members that remain ([B03]).
+      imposition: this._seededFitShares(
+        withSidebarPinned(this.deckState.imposition, componentId, false),
+        panes,
       ),
-      panes: this.deckState.panes.map((p) =>
-        p.id === paneId ? { ...p, position: rect.position, size: rect.size } : p,
-      ),
+      panes,
     };
     this.notify("_unpinSidebar");
     for (const cardId of stillSlotted) this.cardLifecycle.notifyCardDidMove(cardId);
@@ -2763,20 +3017,25 @@ export class DeckManager implements IDeckManagerStore {
     this._flipFirstResponder(
       cardId,
       () => {
+        const panes = [...this.deckState.panes, pane];
+        // A sidebar that was dragged loose and then closed comes back at its
+        // pin. Only a drag takes it off the pin, and closing it is not one —
+        // reopening it into the middle of the deck at a nominal (0, 0) would
+        // be the deck inventing a position nobody asked for.
+        //
+        // Its rail's membership just changed, so a fitting rail's division is
+        // re-seeded rather than kept ([B03]): the record is dropped here, and
+        // the settle after this card's first publish writes the seed.
+        const imposition = this._seededFitShares(
+          withSidebarPinned(this.deckState.imposition, componentId, true),
+          panes,
+        );
         this.deckState = {
           ...this.deckState,
           cards: [...this.deckState.cards, card],
-          panes: [...this.deckState.panes, pane],
+          panes,
           activePaneId: paneId,
-          // A sidebar that was dragged loose and then closed comes back at its
-          // pin. Only a drag takes it off the pin, and closing it is not one —
-          // reopening it into the middle of the deck at a nominal (0, 0) would
-          // be the deck inventing a position nobody asked for.
-          imposition: withSidebarPinned(
-            this.deckState.imposition,
-            componentId,
-            true,
-          ),
+          imposition,
         };
         this.notify("_createSidebarPane");
         this.scheduleSave();
@@ -2879,10 +3138,14 @@ export class DeckManager implements IDeckManagerStore {
       this.cardLifecycle.notifyCardWillBeginDestruction(cid);
     }
     const cardIdSet = new Set(win.cardIds);
+    const remaining = this.deckState.panes.filter((s) => s.id !== paneId);
     this.deckState = {
       ...this.deckState,
       cards: this.deckState.cards.filter((c) => !cardIdSet.has(c.id)),
-      panes: this.deckState.panes.filter((s) => s.id !== paneId),
+      panes: remaining,
+      // A member left its place, so a fitting place's division is re-seeded
+      // for the members that remain ([B03]).
+      imposition: this._seededFitShares(this.deckState.imposition, remaining),
     };
     // Discard per-card component-state-preservation registries ([A9]) after
     // destruction notifications have fired — subscribers observing

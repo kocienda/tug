@@ -974,10 +974,17 @@ export const TUG_ACTIONS = {
   //                  the rail's own and never the deck-wide rows.
   SET_RAIL_LAYOUT:        "set-rail-layout",
   // EQUALIZE_RAIL: payload — `{ side }`. Divide a split rail's run equally
-  //                again, discarding the heights a seam drag set while keeping
-  //                the side's mode and member order. Its doors are the stack
-  //                badge menu and a double-click on the seam itself.
+  //                again, keeping the side's mode and member order — an equal
+  //                division written under fit, every member at its natural
+  //                under flow. Its door is the stack badge menu.
   EQUALIZE_RAIL:          "equalize-rail",
+  // FIT_RAIL_TO_CONTENT: payload — `{ side }`. Re-seed a split rail's division
+  //                      from its members' naturals as they stand now: under
+  //                      fit the seed is written as the hand's division, under
+  //                      flow the stored weights are dropped so every member
+  //                      stands at its natural. Its doors are the stack badge
+  //                      menu and a double-click on the seam itself.
+  FIT_RAIL_TO_CONTENT:    "fit-rail-to-content",
   // SET_COLUMN_MODE: payload — `{ slot, mode }`. The content-side twin of
   //                  SET_RAIL_MODE: stack or split the cards sharing one
   //                  numbered slot. Stacked they stand front-to-back and
@@ -992,10 +999,14 @@ export const TUG_ACTIONS = {
   //                    scrolls. Fit is the default.
   SET_COLUMN_LAYOUT:      "set-column-layout",
   // EQUALIZE_COLUMN: payload — `{ slot }`. Divide a split column's run equally
-  //                  again, discarding the heights a seam drag set while
-  //                  keeping the slot's mode and member order. Its doors are
-  //                  the stack badge menu and a double-click on the seam.
+  //                  again, keeping the slot's mode and member order. Its
+  //                  door is the stack badge menu.
   EQUALIZE_COLUMN:        "equalize-column",
+  // FIT_COLUMN_TO_CONTENT: payload — `{ slot }`. The content-side twin of
+  //                        FIT_RAIL_TO_CONTENT over one numbered slot. Its
+  //                        doors are the stack badge menu and a double-click
+  //                        on the seam.
+  FIT_COLUMN_TO_CONTENT:  "fit-column-to-content",
   // TOGGLE_COLUMN_SPLIT: payload — none. ⌃⌘S. Split or re-stack the slot
   //                      holding the layout selection's first card (else the
   //                      first responder's). Resolved by the deck canvas, which

@@ -1903,9 +1903,16 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its doors are the stack badge menu and a double-click on a seam.
+    // Its door is the stack badge menu.
     id: TUG_ACTIONS.EQUALIZE_RAIL,
     title: "Equalize Rail Heights",
+    routing: "registry",
+    internal: true,
+  },
+  {
+    // Its doors are the stack badge menu and a double-click on a seam.
+    id: TUG_ACTIONS.FIT_RAIL_TO_CONTENT,
+    title: "Fit Rail to Content",
     routing: "registry",
     internal: true,
   },
@@ -1928,9 +1935,16 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its doors are the stack badge menu and a double-click on a column seam.
+    // Its door is the stack badge menu.
     id: TUG_ACTIONS.EQUALIZE_COLUMN,
     title: "Equalize Column Heights",
+    routing: "registry",
+    internal: true,
+  },
+  {
+    // Its doors are the stack badge menu and a double-click on a column seam.
+    id: TUG_ACTIONS.FIT_COLUMN_TO_CONTENT,
+    title: "Fit Column to Content",
     routing: "registry",
     internal: true,
   },

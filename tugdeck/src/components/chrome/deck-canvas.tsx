@@ -933,11 +933,14 @@ function PlaceSeam({
     [place, index, onCommit],
   );
 
+  // A double-click on the seam means Fit to Content ([B04]): the place is
+  // re-seeded from its members' naturals as they stand now. Equalize stays in
+  // the badge menu.
   const handleDoubleClick = useCallback(() => {
     if (place.kind === "rail") {
-      dispatchCommand(TUG_ACTIONS.EQUALIZE_RAIL, { side: place.side });
+      dispatchCommand(TUG_ACTIONS.FIT_RAIL_TO_CONTENT, { side: place.side });
     } else {
-      dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot: place.slot });
+      dispatchCommand(TUG_ACTIONS.FIT_COLUMN_TO_CONTENT, { slot: place.slot });
     }
   }, [place]);
 

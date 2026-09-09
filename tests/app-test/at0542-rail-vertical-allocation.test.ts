@@ -57,9 +57,25 @@
  *   8. **The layout is the user's, on the doors a place already has.** The
  *      stack badge's menu offers Fit and Flow as a checked pair; choosing Flow
  *      puts the rail on a strip whatever its run, with every member at its own
- *      `natural · weight`; and a double-click on the seam clears the weights,
- *      which under flow means every member standing at exactly the height its
- *      content asked for.
+ *      `natural · weight`; and a double-click on the seam means Fit to
+ *      Content, which under flow clears the weights so every member stands at
+ *      exactly the height its content asked for.
+ *   9. **A control pressed inside a fitting card stays where it was pressed.**
+ *      Collapsing the FILES group in the Cards card and folding the Layout
+ *      card's mixer are both appetite changes, and a seam that follows content
+ *      answers each by moving — carrying the control the user just pressed off
+ *      the edge it stood at. A fitting place divides its run by shares that
+ *      only the hand may write, so the press changes the card's content and
+ *      moves no seam: the cue's rect holds, the header stays inside its card,
+ *      and every member's frame is where it was. The declarations still move
+ *      — the appetite is read at the hand's moments, not ignored — and the
+ *      case asserts that too, so a pass says the seam held AGAINST a change
+ *      rather than in the absence of one. The third case is the other edge
+ *      of the same rule: content that OUTGROWS a fitting card's share moves
+ *      no seam either, and the card scrolls inside itself, until the user
+ *      asks for Fit to Content — which re-seeds the division from the
+ *      naturals as they stand, so the card that grew has no internal scroll
+ *      and the others stand at what they asked for or less.
  *
  * The standing is read off the CANVAS rather than out of the store: a shared
  * rail publishes seam fractions and an overflowing one publishes strip
@@ -103,6 +119,7 @@ import { launchTugApp, note, type App } from "./_harness";
 import {
   RAIL_EDGE_INSET_PX,
   RAIL_SEAM_PX,
+  RESIZE_RETUNE_QUIET_MS,
 } from "../../tugdeck/src/lib/layout-imposer";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -172,6 +189,24 @@ const JOTS_MANY = 20;
  */
 const EXTRA_MAKER_CARDS = 10;
 
+/**
+ * How many extra maker cards part 9's fixture stands, and the file card beside
+ * them.
+ *
+ * Part 9 needs the Cards card ABOVE its floor and AT its natural — the one
+ * arrangement where an allocator that follows content has something to take
+ * back when a row goes away. Two maker cards in a stack draw a pane row and
+ * two subrows, the one file draws a header and a row, and with the tools
+ * header that puts the card's census a row or so past the 240px floor: small
+ * enough that the run this harness opens satisfies it in full, large enough
+ * that a collapse would shrink the card rather than leave it at the floor. The
+ * case asserts that arrangement as a precondition rather than assuming it.
+ */
+const PINNED_MAKER_CARDS = 1;
+/** The Text card part 9 opens in a floating pane, so the Cards card draws a
+ *  FILES group with one file — and a fold cue on its header to press. */
+const FILE_CARD_ID = "F";
+
 /** One deck's reading, for the pair part 5 compares. */
 interface Reading {
   rects: Rect[];
@@ -212,6 +247,7 @@ function deckShape(
   components: readonly string[],
   shares?: Readonly<Record<string, number>>,
   extraMakerCards = 0,
+  withFileCard = false,
 ): Record<string, unknown> {
   const rail = (componentId: string) => ({
     id: paneOf(componentId),
@@ -240,6 +276,16 @@ function deckShape(
         title: componentId,
         closable: true,
       })),
+      ...(withFileCard
+        ? [
+            {
+              id: FILE_CARD_ID,
+              componentId: "text",
+              title: "File",
+              closable: true,
+            },
+          ]
+        : []),
     ],
     panes: [
       {
@@ -252,6 +298,20 @@ function deckShape(
         acceptsFamilies: ["maker"],
         slot: 0,
       },
+      ...(withFileCard
+        ? [
+            {
+              id: "p2",
+              position: { x: 480, y: 40 },
+              size: { width: 400, height: 300 },
+              cardIds: [FILE_CARD_ID],
+              activeCardId: FILE_CARD_ID,
+              title: "",
+              acceptsFamilies: ["standard"],
+              slot: 1,
+            },
+          ]
+        : []),
       ...components.map(rail),
     ],
     activePaneId: "p1",
@@ -359,15 +419,27 @@ async function railOffset(app: App): Promise<number> {
   );
 }
 
-/** Seed `components` onto the right rail and wait for every frame to stand. */
+/** Seed `components` onto the right rail and wait for every frame to stand.
+ *  `filePath` also opens a Text card on that file in a floating pane, which
+ *  is what gives the Cards card a FILES group. */
 async function seed(
   app: App,
   components: readonly string[],
   shares?: Readonly<Record<string, number>>,
   extraMakerCards = 0,
+  filePath?: string,
 ): Promise<void> {
   await app.seedDeckState({
-    state: deckShape(components, shares, extraMakerCards),
+    state: deckShape(components, shares, extraMakerCards, filePath !== undefined),
+    ...(filePath === undefined
+      ? {}
+      : {
+          cardStates: {
+            [FILE_CARD_ID]: {
+              content: { path: filePath, anchor: { line: 1, ch: 0 }, scrollTop: 0 },
+            },
+          },
+        }),
     focusCardId: "A",
   });
   await app.waitForCondition<boolean>(
@@ -456,6 +528,61 @@ async function cardScroller(app: App, cardId: string): Promise<Scroller | null> 
       return null;
     })()`,
   );
+}
+
+/** One element's box in viewport coordinates — what part 9 records before a
+ *  press and reads back after the settle. `null` when nothing matches. */
+interface Box {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+async function elementBox(app: App, selector: string): Promise<Box | null> {
+  return app.evalJS<Box | null>(
+    `(function () {
+      var el = document.querySelector(${JSON.stringify(selector)});
+      if (el === null) return null;
+      var r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    })()`,
+  );
+}
+
+/** Every named edge of `after` within tolerance of `before`'s — the element
+ *  did not move. Each edge is its own assertion so a failure names the edge. */
+function expectSameBox(
+  before: Box,
+  after: Box,
+  what: string,
+  edges: readonly (keyof Box)[] = ["top", "bottom", "left", "right"],
+): void {
+  for (const edge of edges) {
+    expect(
+      Math.abs(after[edge] - before[edge]),
+      `${what}: its ${edge} edge is where it was`,
+    ).toBeLessThan(EPSILON);
+  }
+}
+
+/** Every member's frame within tolerance of where it stood. */
+function expectSameRects(
+  before: readonly Rect[],
+  after: readonly Rect[],
+  components: readonly string[],
+  why: string,
+): void {
+  for (const [index, componentId] of components.entries()) {
+    expect(
+      Math.abs(after[index].top - before[index].top),
+      `${componentId}'s top edge did not move — ${why}`,
+    ).toBeLessThan(EPSILON);
+    expect(
+      Math.abs(after[index].bottom - before[index].bottom),
+      `${componentId}'s bottom edge did not move — ${why}`,
+    ).toBeLessThan(EPSILON);
+  }
 }
 
 describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
@@ -1200,11 +1327,11 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
 
         // ── The third door, and the meaning the layout gives it. ──
         //
-        // A double-click on the seam clears the stored weights. Under fit that
-        // is an equal division of the discretionary pool; under flow it is
-        // every member standing at exactly the height its own content asked
-        // for, which is the same sentence answered by the layout the place is
-        // on.
+        // A double-click on the seam means Fit to Content. Under fit that
+        // re-seeds the division from the naturals; under flow it clears the
+        // stored weights, which is every member standing at exactly the height
+        // its own content asked for — the same sentence answered by the layout
+        // the place is on.
         await app.nativeDoubleClickAtElement(`[data-rail-seam="right:0"]`);
         await wait(AFTER_LAND_MS);
         const equalized = await memberRects(app, PAIR);
@@ -1221,10 +1348,444 @@ describe.skipIf(!SHOULD_RUN)("at0542 — a rail allocates its run", () => {
           await app.evalJS<unknown>(
             `((window.tugdeck.diag.getDeckState().imposition.rails || {}).right || {}).shares || null`,
           ),
-          "and the record is gone rather than rewritten to ones",
+          "and the record is gone rather than rewritten — under flow, fit to content is no record at all",
         ).toBeNull();
       } finally {
         await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // ── 9. A seam belongs to the hand. ──
+  //
+  // Parts 1–8 ask how a rail divides its run. This asks what the division may
+  // NOT do: move while the user is pressing something inside it. Collapsing
+  // the FILES group in the Cards card takes a row out of its census, and
+  // folding the Layout card's mixer drops its natural to its comfort; both are
+  // appetite changes, and an allocation that follows content answers each by
+  // moving a seam — which carries the control that was just pressed off the
+  // edge it stood at, and is the complaint this part exists to pin. A fitting
+  // place divides its run by stored shares that only a seam drag, a membership
+  // change or Fit to Content may write, so a press inside a card changes the
+  // card's content and nothing else.
+  //
+  // The fixture stands the Cards card above its floor and at its natural,
+  // which is the arrangement where a content-following allocator has
+  // something to take back: an empty jots file leaves the Jots card at its
+  // floor with nothing to grow into, and two maker cards plus one file put the
+  // Cards card's census a row or so past the floor. The case asserts that
+  // arrangement before it presses anything, because a Cards card standing at
+  // its floor would hold still under either rule and prove nothing.
+  //
+  // Each press is followed by a read of the declarations, and the case asserts
+  // that they MOVED — the collapse asks for less, the fold asks for comfort.
+  // Without that, a pass could be an appetite that never changed rather than a
+  // seam that held against one.
+  test(
+    "collapsing a group inside a fitting card moves no seam, and the cue stays put",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "tug-at0542-pinned-"));
+      const jotsPath = join(dir, "jots.json");
+      writeFileSync(
+        jotsPath,
+        `${JSON.stringify({ version: 1, jots: [] }, null, 2)}\n`,
+      );
+      const filePath = join(dir, "alpha.txt");
+      writeFileSync(filePath, "alpha\nbeta\n", "utf8");
+      const app = await launchTugApp({
+        testName: "at0542-pinned-control",
+        env: { TUG_JOTS_PATH: jotsPath },
+      });
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+        );
+        await seed(app, MODEST, undefined, PINNED_MAKER_CARDS, filePath);
+        // Past the settle's own quiet period and the deck's landing, so a
+        // re-allocation the press provoked has had every chance to commit.
+        const settleMs = RESIZE_RETUNE_QUIET_MS + AFTER_LAND_MS;
+
+        // ── The arrangement under test. ──
+        expect(
+          await standing(app),
+          "the three fit, which is the standing whose seams are a division",
+        ).toBe("shared");
+        const declared = await readAppetites(app);
+        expect(declared, "the cards' declarations reached deck state").not.toBeNull();
+        const cardsNatural = (declared as Declarations).cards.natural;
+        expect(
+          cardsNatural,
+          "the Cards card declared a finite natural",
+        ).not.toBeNull();
+        const before = await memberRects(app, MODEST);
+        note(
+          `pinned fixture: run ${(await railRun(app)).height.toFixed(1)}px; ${MODEST.map(
+            (componentId, i) =>
+              `${componentId} ${Math.round(before[i].height)} (natural ${
+                (declared as Declarations)[componentId].natural ?? "none"
+              })`,
+          ).join(", ")}`,
+        );
+        expect(
+          cardsNatural as number,
+          "the fixture stands the Cards card's natural above its floor",
+        ).toBeGreaterThan(FLOOR + EPSILON);
+        expect(
+          before[0].height,
+          "and the card at or above that natural — a content-following allocator has a smaller natural to re-run its ladder on",
+        ).toBeGreaterThan((cardsNatural as number) - EPSILON);
+
+        // ── Collapsing FILES. ──
+        const filesHeader = `.tug-pane[data-pane-id="${paneOf(
+          "cards",
+        )}"] .cards-header[data-cards-group="files"]`;
+        const filesCue = `${filesHeader} [data-slot="block-fold-cue"]`;
+        const cueBefore = await elementBox(app, filesCue);
+        expect(cueBefore, "the FILES header offers its fold cue").not.toBeNull();
+        const headerBefore = await elementBox(app, filesHeader);
+        expect(
+          (headerBefore as Box).bottom,
+          "and the header stands inside the Cards card before the press",
+        ).toBeLessThanOrEqual(before[0].bottom + EPSILON);
+        await app.nativeClickAtElement(filesCue);
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${filesHeader}').getAttribute("data-group-collapsed") === "true"`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(settleMs);
+
+        const collapsed = await readAppetites(app);
+        const collapsedNatural = (collapsed as Declarations).cards.natural;
+        const afterCollapse = await memberRects(app, MODEST);
+        const cueAfter = await elementBox(app, filesCue);
+        const headerAfter = await elementBox(app, filesHeader);
+        note(
+          `after collapsing FILES: cards natural ${cardsNatural} → ${collapsedNatural}; heights ${afterCollapse
+            .map((r, i) => `${MODEST[i]} ${Math.round(r.height)}`)
+            .join(", ")}; cue top ${Math.round((cueBefore as Box).top)} → ${
+            cueAfter === null ? "gone" : Math.round(cueAfter.top)
+          }`,
+        );
+        expect(
+          collapsedNatural as number,
+          "the collapse shrank what the Cards card asks for — the declaration still moves",
+        ).toBeLessThan(cardsNatural as number);
+        expect(cueAfter, "the fold cue is still on screen").not.toBeNull();
+        expectSameBox(
+          cueBefore as Box,
+          cueAfter as Box,
+          "the fold cue stands exactly where it was pressed",
+        );
+        expect(headerAfter, "the FILES header is still drawn").not.toBeNull();
+        expect(
+          (headerAfter as Box).bottom,
+          "and the header is still on screen, inside its own card",
+        ).toBeLessThanOrEqual(afterCollapse[0].bottom + EPSILON);
+        expect(
+          (headerAfter as Box).top,
+          "not scrolled out past the card's top either",
+        ).toBeGreaterThanOrEqual(afterCollapse[0].top - EPSILON);
+        expectSameRects(
+          before,
+          afterCollapse,
+          MODEST,
+          "content changed and no seam did",
+        );
+      } finally {
+        await app.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // The same question of the Layout card's own fold. The mixer folding is the
+  // larger of the two appetite changes — a folded card asks for its comfort
+  // and nothing above it — and the cue that folds it is the control the user
+  // is pressing. The plate stands over the run it was given until the hand
+  // says otherwise; the declared natural still falls, so a later re-seed
+  // reads the folded card correctly.
+  test(
+    "folding the Layout mixer inside a fitting rail moves no seam, and the cue stays put",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "tug-at0542-pinned-fold-"));
+      const jotsPath = join(dir, "jots.json");
+      writeFileSync(
+        jotsPath,
+        `${JSON.stringify({ version: 1, jots: [] }, null, 2)}\n`,
+      );
+      const filePath = join(dir, "alpha.txt");
+      writeFileSync(filePath, "alpha\nbeta\n", "utf8");
+      const app = await launchTugApp({
+        testName: "at0542-pinned-fold",
+        env: { TUG_JOTS_PATH: jotsPath },
+      });
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+        );
+        await seed(app, MODEST, undefined, PINNED_MAKER_CARDS, filePath);
+        const settleMs = RESIZE_RETUNE_QUIET_MS + AFTER_LAND_MS;
+        expect(
+          await standing(app),
+          "the three fit, which is the standing whose seams are a division",
+        ).toBe("shared");
+        const declared = await readAppetites(app);
+        expect(declared, "the cards' declarations reached deck state").not.toBeNull();
+        const layoutDeclared = (declared as Declarations).layout;
+        const before = await memberRects(app, MODEST);
+        note(
+          `fold fixture: run ${(await railRun(app)).height.toFixed(1)}px; ${MODEST.map(
+            (componentId, i) => `${componentId} ${Math.round(before[i].height)}`,
+          ).join(", ")}; layout comfort ${layoutDeclared.comfort}, natural ${
+            layoutDeclared.natural
+          }`,
+        );
+        expect(
+          before[2].height,
+          "the Layout card stands above its comfort, so a fold has something to hand back",
+        ).toBeGreaterThan(layoutDeclared.comfort + EPSILON);
+
+        const mixerCue = `.tug-pane[data-pane-id="${paneOf(
+          "layout",
+        )}"] [data-slot="layout-card-mixer-cue"]`;
+        expect(
+          await app.evalJS<string | null>(
+            `(function () {
+              var el = document.querySelector('${mixerCue}');
+              return el === null ? null : el.getAttribute("aria-expanded");
+            })()`,
+          ),
+          "the Layout card's mixer stands open, with its cue offering to fold it",
+        ).toBe("true");
+        const cueBefore = await elementBox(app, mixerCue);
+        await app.nativeClickAtElement(mixerCue);
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${mixerCue}').getAttribute("aria-expanded") === "false"`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(settleMs);
+
+        const folded = await readAppetites(app);
+        const after = await memberRects(app, MODEST);
+        const cueAfter = await elementBox(app, mixerCue);
+        note(
+          `after folding the mixer: layout natural ${layoutDeclared.natural} → ${
+            (folded as Declarations).layout.natural
+          }; heights ${after
+            .map((r, i) => `${MODEST[i]} ${Math.round(r.height)}`)
+            .join(", ")}; cue top ${Math.round((cueBefore as Box).top)} → ${
+            cueAfter === null ? "gone" : Math.round(cueAfter.top)
+          }`,
+        );
+        expect(
+          (folded as Declarations).layout.natural,
+          "the fold dropped the Layout card's natural to its comfort — the declaration still moves",
+        ).toBe(layoutDeclared.comfort);
+        expect(cueAfter, "the fold cue is still on screen").not.toBeNull();
+        expectSameBox(
+          cueBefore as Box,
+          cueAfter as Box,
+          "the fold cue stands exactly where it was pressed",
+          // The vertical edges are the seam's; the horizontal ones are the
+          // card's own, and a fold that empties the card's scroller can move
+          // the header's trailing edge by a scrollbar's width without any
+          // seam having moved.
+          ["top", "bottom"],
+        );
+        expectSameRects(
+          before,
+          after,
+          MODEST,
+          "the plate stands over the run it was given until the hand says otherwise",
+        );
+      } finally {
+        await app.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // The other edge of the same rule. Parts 9's first two cases press a control
+  // that makes a card ask for LESS; this one makes the Cards card ask for MORE
+  // than its share, one new file at a time, and asserts the seam holds and the
+  // card scrolls inside itself — the honest fit answer, and the one every
+  // editor's split pane gives. Then it asks for Fit to Content, the one verb
+  // that re-seeds on request, and asserts the division is the naturals' again.
+  //
+  // The seed put the slack under the Cards card, which is the greediest of the
+  // finite cards, so the presses first fill that slack and then run past it;
+  // the loop reads the declaration after each press rather than counting on a
+  // row pitch, and the case asserts the natural crossed the share before it
+  // reads anything else, so a pass says the seam held AGAINST content that
+  // wanted more.
+  test(
+    "content outgrowing a fitting card's share moves no seam, and Fit to Content re-seeds on request",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "tug-at0542-fit-to-content-"));
+      const jotsPath = join(dir, "jots.json");
+      writeFileSync(
+        jotsPath,
+        `${JSON.stringify({ version: 1, jots: [] }, null, 2)}\n`,
+      );
+      const filePath = join(dir, "alpha.txt");
+      writeFileSync(filePath, "alpha\nbeta\n", "utf8");
+      const app = await launchTugApp({
+        testName: "at0542-fit-to-content",
+        env: { TUG_JOTS_PATH: jotsPath },
+      });
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+        );
+        await seed(app, MODEST, undefined, PINNED_MAKER_CARDS, filePath);
+        const settleMs = RESIZE_RETUNE_QUIET_MS + AFTER_LAND_MS;
+        expect(
+          await standing(app),
+          "the three fit, which is the standing whose seams are a division",
+        ).toBe("shared");
+        const before = await memberRects(app, MODEST);
+        const share = before[0].height;
+        const seeded = await readAppetites(app);
+        expect(seeded, "the cards' declarations reached deck state").not.toBeNull();
+        note(
+          `fit-to-content fixture: run ${(await railRun(app)).height.toFixed(1)}px; ${MODEST.map(
+            (componentId, i) =>
+              `${componentId} ${Math.round(before[i].height)} (natural ${
+                (seeded as Declarations)[componentId].natural ?? "none"
+              })`,
+          ).join(", ")}`,
+        );
+
+        // ── ⌥⌘N until the Cards card asks for more than it holds. ──
+        const MAX_PRESSES = 16;
+        const textCards = `window.tugdeck.diag.getDeckState().cards.filter(function (c) { return c.componentId === "text"; }).length`;
+        const textCardsBefore = await app.evalJS<number>(textCards);
+        let declared = seeded as Declarations;
+        let presses = 0;
+        while (
+          presses < MAX_PRESSES &&
+          (declared.cards.natural ?? 0) <= share + EPSILON
+        ) {
+          await app.nativeKey("n", ["alt", "cmd"]);
+          presses += 1;
+          await app.waitForCondition<boolean>(
+            `${textCards} === ${textCardsBefore + presses}`,
+            { timeoutMs: 8_000 },
+          );
+          await wait(settleMs);
+          declared = (await readAppetites(app)) as Declarations;
+        }
+        note(
+          `after ${presses} new file${presses === 1 ? "" : "s"}: cards natural ${
+            (seeded as Declarations).cards.natural
+          } → ${declared.cards.natural} against a share of ${Math.round(share)}`,
+        );
+        expect(
+          presses,
+          "the loop pressed at all — a fixture whose Cards card already outgrew its share proves nothing about growth",
+        ).toBeGreaterThan(0);
+        expect(
+          declared.cards.natural as number,
+          "the Cards card now asks for more than its share",
+        ).toBeGreaterThan(share + EPSILON);
+
+        const grown = await memberRects(app, MODEST);
+        expectSameRects(
+          before,
+          grown,
+          MODEST,
+          "content that outgrew its share moved no seam",
+        );
+        const overgrown = await cardScroller(app, "CARDS");
+        expect(overgrown, "the Cards card has a scroll container").not.toBeNull();
+        const left = (overgrown as Scroller).scrollHeight - (overgrown as Scroller).clientHeight;
+        note(
+          `cards ${(overgrown as Scroller).label} ${(overgrown as Scroller).scrollHeight}/${
+            (overgrown as Scroller).clientHeight
+          } — ${Math.round(left)}px left to scroll inside the card`,
+        );
+        expect(
+          left,
+          "and the card scrolls inside itself — the honest fit answer",
+        ).toBeGreaterThan(1);
+
+        // ── Fit to Content, from the badge menu. ──
+        await app.nativeClickAtElement(
+          `.tug-pane[data-pane-id="${paneOf(
+            "cards",
+          )}"] [data-testid="tug-pane-title-bar-stack-badge"]`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="tug-pane-title-bar-stack-menu"]') !== null`,
+          { timeoutMs: 8_000 },
+        );
+        const menuRows = `Array.from(document.querySelectorAll('[data-testid="tug-pane-title-bar-stack-menu"] [role="menuitem"], [data-testid="tug-pane-title-bar-stack-menu"] [role="menuitemradio"]'))`;
+        const labels = await app.evalJS<string[]>(
+          `${menuRows}.map(function (el) { return (el.textContent || "").trim(); })`,
+        );
+        note(`badge menu: ${labels.join(" · ")}`);
+        expect(
+          labels.indexOf("Fit to Content"),
+          "the menu offers Fit to Content, beside Equalize Heights",
+        ).toBe(labels.indexOf("Equalize Heights") + 1);
+        await app.evalJS<null>(
+          `(function () {
+            var row = ${menuRows}.filter(function (el) {
+              return (el.textContent || "").trim() === "Fit to Content";
+            })[0];
+            if (row) row.click();
+            return null;
+          })()`,
+        );
+        await wait(settleMs);
+
+        const fitted = await memberRects(app, MODEST);
+        const record = await app.evalJS<Record<string, number> | null>(
+          `((window.tugdeck.diag.getDeckState().imposition.rails || {}).right || {}).shares || null`,
+        );
+        note(
+          `after Fit to Content: heights ${fitted
+            .map((r, i) => `${MODEST[i]} ${Math.round(r.height)}`)
+            .join(", ")}; naturals ${MODEST.map(
+            (componentId) => `${componentId} ${declared[componentId].natural}`,
+          ).join(", ")}; record ${JSON.stringify(record)}`,
+        );
+        expect(
+          await standing(app),
+          "the rail still fits — the re-seed divides, it does not overflow",
+        ).toBe("shared");
+        expect(record, "the re-seed wrote a record").not.toBeNull();
+        expect(
+          Object.keys(record as Record<string, number>).sort(),
+          "naming exactly the rail's members",
+        ).toEqual([...MODEST].sort());
+        expect(
+          fitted[0].height,
+          "the Cards card stands at or above the natural it declared",
+        ).toBeGreaterThan((declared.cards.natural as number) - EPSILON);
+        const refitted = await cardScroller(app, "CARDS");
+        const leftAfter =
+          refitted === null
+            ? 0
+            : refitted.scrollHeight - refitted.clientHeight;
+        expect(
+          leftAfter,
+          "and has nothing left to scroll inside itself",
+        ).toBeLessThanOrEqual(1);
+        for (const [i, componentId] of MODEST.entries()) {
+          if (i === 0) continue;
+          const asked = Math.max(FLOOR, declared[componentId].natural ?? FLOOR);
+          expect(
+            fitted[i].height,
+            `${componentId} stands at what it asked for or less — the slack went to the card that grew, not to it`,
+          ).toBeLessThan(asked + EPSILON);
+        }
+      } finally {
+        await app.close();
+        rmSync(dir, { recursive: true, force: true });
       }
     },
     TEST_TIMEOUT_MS,

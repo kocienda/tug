@@ -506,14 +506,14 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
  * an ENDLESS natural: it needs the floor to paint and it has said nothing
  * about the height its content is finished at. Endless is what "it did not
  * say" means, and saying instead that it is satisfied at its floor would be a
- * declaration nobody made — one that fit's slack rule would then act on by
- * handing every spare pixel of the run to somebody else ([B06]). A column of
- * two ordinary content panes divides its run in half for this reason: neither
- * is finished, so they divide what is over by weight rather than one of them
- * taking it.
+ * declaration nobody made — one that the seed's slack rule would then act on
+ * by handing every spare pixel of the run to somebody else ([B06]). A column
+ * of two ordinary content panes seeds to half the run each for this reason:
+ * neither is finished, so the seed's fill toward natural divides what is over
+ * evenly rather than one of them taking it.
  *
  * `natural` is raised to `comfort` here rather than trusted from the
- * publisher: the ladder's water-fill reads `natural` as the ceiling on
+ * publisher: the seed's water-fill reads `natural` as the ceiling on
  * `comfort`'s step, and a member whose ceiling sat below its own comfort would
  * make the two rungs disagree about the same member.
  */
