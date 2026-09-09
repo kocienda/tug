@@ -163,7 +163,7 @@ function deckShape(paneWidth: number, railWidth: number) {
       },
     ],
     activePaneId: "p1",
-    imposition: { kind: "two-up", sidebars: { layout: { side: "right" } } },
+    imposition: { kind: "two-up", layout: "fit", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -269,6 +269,7 @@ async function seedTwoRails(
       ...shape,
       imposition: {
         kind,
+        layout: "fit",
         sidebars: { layout: { side: "right" }, overview: { side: "left" } },
       },
     },
@@ -420,7 +421,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.seedDeckState({
             state: {
               ...deckShape(unreachable, PREFERRED),
-              imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
+              imposition: { kind: "three-up", layout: "fit", sidebars: { layout: { side: "right" } } },
             },
             focusCardId: "A",
           });
@@ -474,7 +475,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.seedDeckState({
             state: {
               ...deckShape(second, predictedRailWidth(canvas, first)),
-              imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
+              imposition: { kind: "three-up", layout: "fit", sidebars: { layout: { side: "right" } } },
             },
             focusCardId: "A",
           });
@@ -533,7 +534,7 @@ describe.skipIf(!SHOULD_RUN)(
             state: {
               ...shape,
               panes: [...shape.panes],
-              imposition: { kind: "three-up", sidebars: { layout: { side: "right" } } },
+              imposition: { kind: "three-up", layout: "fit", sidebars: { layout: { side: "right" } } },
             },
             focusCardId: "A",
           });

@@ -130,9 +130,14 @@ export type SidebarSide = "left" | "right";
  */
 export type ImpositionLayout = "fit" | "flow";
 
-/** The layout mode a deck reads under when it has never said otherwise, and
- *  what every blob written before the mode existed means. */
-export const DEFAULT_IMPOSITION_LAYOUT: ImpositionLayout = "fit";
+/** The layout mode a deck reads under when it has never said otherwise.
+ *
+ *  Flow: the cards keep the width they were given and the deck runs past the
+ *  edge. It is what a deck should open in, because it never takes width away
+ *  from a card the reader chose — fit is the answer for someone who would
+ *  rather see everything at once and says so. An absent field therefore no
+ *  longer means "as it stood before the mode existed"; it means flow. */
+export const DEFAULT_IMPOSITION_LAYOUT: ImpositionLayout = "flow";
 
 /**
  * The deck-wide content width, as one of three named presets. Absent reads as
@@ -291,8 +296,8 @@ export interface DeckImposition {
   contentWidth?: ContentWidth;
   /**
    * How slots resolve into positions; absent reads as
-   * {@link DEFAULT_IMPOSITION_LAYOUT}, so every deck that predates the mode
-   * comes back exactly as it stood.
+   * {@link DEFAULT_IMPOSITION_LAYOUT} — flow, the arrangement a deck that has
+   * never chosen stands in.
    *
    * Independent of `kind`, which keeps naming how many slots there are in
    * either mode.

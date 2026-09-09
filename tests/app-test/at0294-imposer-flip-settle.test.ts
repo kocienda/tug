@@ -140,7 +140,7 @@ function deckShape() {
     activePaneId: "p1",
     // No `sidebars` entry: the rail is unplaced at seed and `setRailSide` is
     // what puts it on a side, which is the transition this file measures.
-    imposition: { kind: "two-up" },
+    imposition: { kind: "two-up", layout: "fit" },
     hasFocus: true,
   };
 }

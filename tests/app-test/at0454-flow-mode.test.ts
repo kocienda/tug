@@ -120,6 +120,9 @@ function deckShape() {
     activePaneId: "p1",
     imposition: {
       kind: "six-up",
+      // Fit explicitly: the deck's default is flow now, and every part below
+      // starts from fit and moves to flow, so the fixture has to say so.
+      layout: "fit",
       sidebars: { layout: { side: "right" } },
     },
     hasFocus: true,
@@ -607,8 +610,8 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
             `Array.from(document.querySelectorAll(${JSON.stringify(LAYOUT_TILES)}))
               .map(function (el) { return el.getAttribute("data-choice-value"); })`,
           ),
-          "fit first, because it is what an unchosen deck is",
-        ).toEqual(["fit", "flow"]);
+          "flow first, the arrangement the row rests its reader on",
+        ).toEqual(["flow", "fit"]);
         expect(await activeLayoutTile(app), "the control rests on fit").toBe("fit");
 
         // ── Clicking it moves the deck ──────────────────────────────────────

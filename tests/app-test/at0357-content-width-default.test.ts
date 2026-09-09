@@ -105,7 +105,7 @@ function deckShape(): Record<string, unknown> {
       },
     ],
     activePaneId: "p1",
-    imposition: { kind: "four-up", sidebars: { layout: { side: "right" } } },
+    imposition: { kind: "four-up", layout: "fit", sidebars: { layout: { side: "right" } } },
     hasFocus: true,
   };
 }

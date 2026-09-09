@@ -112,6 +112,7 @@ function allocateOneRail(input: {
   const widths = allocateSidebarWidths({
     canvasWidth: input.canvasWidth,
     kind: input.kind,
+    layout: "fit",
     occupied: input.occupied,
     rails: {
       right: rail({
@@ -137,6 +138,7 @@ function solveOneRail(input: {
   return solveSidebarWidths({
     canvasWidth: input.canvasWidth,
     kind: input.kind,
+    layout: "fit",
     occupied: input.occupied,
     rails: {
       right: rail({
@@ -1828,6 +1830,7 @@ describe("the space allocator", () => {
       allocateSidebarWidths({
         canvasWidth: 2845,
         kind: "three-up",
+        layout: "fit",
         occupied: THREE_UP_RUN,
         rails: {},
         maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -1858,6 +1861,7 @@ describe("the total is chosen by the picture it paints", () => {
   const at = (canvasWidth: number) => ({
     canvasWidth,
     kind: "three-up" as const,
+    layout: "fit" as const,
     occupied: THREE_COMFY,
     rails: { left: CARDS, right: OVERVIEW },
     maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -1943,6 +1947,7 @@ describe("the total is chosen by the picture it paints", () => {
     const crowded = {
       canvasWidth: 3000,
       kind: "three-up" as const,
+      layout: "fit" as const,
       occupied: THREE_COMFY,
       rails: { left: CARDS, right: dragged },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -1996,6 +2001,7 @@ describe("greed order decides which rail is the wide one", () => {
     allocateSidebarWidths({
       canvasWidth,
       kind: "two-up",
+      layout: "fit",
       occupied,
       rails: { left, right },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -2129,6 +2135,7 @@ describe("greed order decides which rail is the wide one", () => {
     const input = {
       canvasWidth,
       kind: "two-up" as const,
+      layout: "fit" as const,
       occupied: TWO_CARDS,
       rails: { left: CARDS, right: OVERVIEW },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -2220,6 +2227,7 @@ describe("the rails' inset count follows how many of them stand", () => {
     const widths = allocateSidebarWidths({
       canvasWidth: 420 + RAIL_AIR + GAP + EXACT_BAND,
       kind: "three-up",
+      layout: "fit",
       occupied: THREE_UP_RUN,
       rails: { left: rail({ preferredWidth: 400, minWidth: 320, greedRank: 2 }) },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -2232,6 +2240,7 @@ describe("the rails' inset count follows how many of them stand", () => {
     const widths = allocateSidebarWidths({
       canvasWidth: 840 + RAIL_AIR * 2 + EXACT_BAND,
       kind: "three-up",
+      layout: "fit",
       occupied: THREE_UP_RUN,
       rails: { left: twin, right: { ...twin } },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,

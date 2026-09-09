@@ -4,10 +4,10 @@
  * Every layout decision the deck has is made here, and the card asks them in
  * the two kinds they actually come in.
  *
- * **Deck-wide questions are rows.** **Cards** says how many the arrangement
- * holds; **Layout** says how a slot resolves into a place — `Fit`, where the
- * cards share the band and crowd when it is narrow, or `Flow`, where they keep
- * their width and the deck runs past the edge; and **Card Width** says how
+ * **Deck-wide questions are rows.** **Slots** says how many the arrangement
+ * holds; **Imposition** says how a slot resolves into a place — `Flow`, where
+ * the cards keep their width and the deck runs past the edge, or `Fit`, where
+ * they share the band and crowd when it is narrow; and **Width** says how
  * wide they read. Under them, one row per REGISTERED sidebar card answers the
  * one question the picture cannot: `Off · Left · Right` — whether the card is
  * on the deck at all, and where. It cannot live on the drawing because the
@@ -42,10 +42,10 @@
  * layout questions answered beside the other layout questions rather than in
  * an app-wide preference somewhere else. The
  * sidebar side of it stays **registry-driven**: the cards that registered
- * `layoutRole: "sidebar"` are what the overlay offers, in registration order,
+ * `layoutRole: "sidebar"` are what the overlay offers, in alphabetical order,
  * and a third one appears by registering with nothing to add in this file.
  *
- * The Cards axis has no *off*. One-up is the quietest arrangement rather than
+ * The Slots axis has no *off*. One-up is the quietest arrangement rather than
  * the absence of one — a single anchor, which a card occupies only by being put
  * there — so the deck always stands under an imposition and every row's slot
  * picker is live from the first frame.
@@ -149,6 +149,7 @@ import {
   slotCount,
   DEFAULT_CONTENT_WIDTH,
   DEFAULT_IMPOSITION_KIND,
+  DEFAULT_IMPOSITION_LAYOUT,
   DEFAULT_SIDEBAR_SIDE,
   type ContentWidth,
   type DeckImposition,
@@ -167,6 +168,7 @@ import {
 } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
+import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { TugChoiceGroup } from "@/components/tugways/tug-choice-group";
@@ -232,7 +234,7 @@ const LAYOUTS_KIND_FOCUS_ORDER = 0;
 const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
 const LAYOUTS_WIDTH_FOCUS_ORDER = 2;
 
-/** The column rows' orders, directly under Card Width — one per slot the kind
+/** The column rows' orders, directly under Width — one per slot the kind
  *  defines, dense over the rows actually rendered (a slot with nothing to
  *  arrange has no row, so its order is simply unused). The sidebar rows start
  *  past the last slot any kind can define, so no two stops can share an order
@@ -250,7 +252,7 @@ const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER =
  *  engages KBF at rest ([P10]), so whatever holds order 0 wears the cursor's
  *  ring the whole time the card is the key card — and a lid drawn lit, from
  *  the first frame, in a card whose subject is a picture, is the loudest thing
- *  on the surface saying the least. The resting cursor belongs on `Cards`, the
+ *  on the surface saying the least. The resting cursor belongs on `Slots`, the
  *  first thing a reader comes here to change; the cue is what they reach for
  *  after, so it is where reaching-after lands. Its order is a sort key rather
  *  than a count, set past every row the registry can grow AND past the
@@ -282,9 +284,10 @@ const KIND_LABELS: Record<ImpositionKind, string> = {
 /** The two sides, in the order the control offers them. */
 const SIDES: readonly SidebarSide[] = ["left", "right"];
 
-/** The two geometry modes, in the order the control offers them — fit first,
- *  because it is what the deck has always done and what an unchosen deck is. */
-const LAYOUTS: readonly ImpositionLayout[] = ["fit", "flow"];
+/** The two geometry modes, in the order the control offers them — flow first,
+ *  because a deck that runs past the edge is the arrangement to reach for and
+ *  the one the row should rest its reader on. */
+const LAYOUTS: readonly ImpositionLayout[] = ["flow", "fit"];
 
 /** User-facing label for each mode. Named for what the CARDS do, not for the
  *  mechanism: under "Fit" they share the band and crowd; under "Flow" they keep
@@ -320,11 +323,15 @@ interface SidebarEntry {
 }
 
 /**
- * Every card registered as a sidebar, in registration order.
+ * Every card registered as a sidebar, in alphabetical order by title.
  *
  * The registry is fixed by the time this card renders (registration is a
  * boot step), so this is a plain read rather than store-observed state — there
  * is no moment at which a card registers behind a rendered picker.
+ *
+ * Registration order is a boot fact and reads as no order at all in a list of
+ * six names; alphabetical is the order a reader can predict from the words
+ * themselves, which is the whole ask of a list somebody scans for one row.
  */
 function sidebarEntries(): SidebarEntry[] {
   const entries: SidebarEntry[] = [];
@@ -335,7 +342,23 @@ function sidebarEntries(): SidebarEntry[] {
       title: registration.defaultMeta.title || componentId,
     });
   }
+  entries.sort((a, b) => a.title.localeCompare(b.title));
   return entries;
+}
+
+/**
+ * The caption for a sidebar card's row.
+ *
+ * The Layout card names itself with a parenthetical: alphabetized among its
+ * neighbours, the row that can take THIS card off the deck is worth telling
+ * from the other five before it is pressed. The parenthetical is the row's
+ * alone — the plan captions above name the card plainly, because there the
+ * subject is the deck rather than the list.
+ */
+function sidebarRowCaption(entry: SidebarEntry): string {
+  return entry.componentId === LAYOUT_CARD_ID
+    ? `${entry.title} (This Card)`
+    : entry.title;
 }
 
 /**
@@ -631,7 +654,7 @@ function useStripInstrument(): {
  * earns its line rather than paraphrasing the caption: `Slim` is a name, `675
  * px` is the fact behind it.
  *
- * The card count is a DIGIT, matching the Cards control's own segments (`1 2 3
+ * The card count is a DIGIT, matching the Slots control's own segments (`1 2 3
  * 4 5 6`) rather than the caption's spelled-out kind — the note reads as a
  * reading of the controls, which is what it is.
  */
@@ -1088,7 +1111,7 @@ export function LayoutContent(
   const committedCaption = [
     KIND_LABELS[kind],
     CONTENT_WIDTH_LABELS[contentWidth],
-    ...(layout === "flow" ? [LAYOUT_LABELS[layout]] : []),
+    ...(layout === DEFAULT_IMPOSITION_LAYOUT ? [] : [LAYOUT_LABELS[layout]]),
   ];
 
   // Every layer draws the deck's CURRENT column arrangement — a preview changes
@@ -1442,7 +1465,7 @@ export function LayoutContent(
               emphasis="proposal"
               className="layouts-section-caption"
             >
-              Cards
+              Slots
             </TugLabel>
             <TugChoiceGroup
               items={kindItems}
@@ -1465,7 +1488,7 @@ export function LayoutContent(
               emphasis="proposal"
               className="layouts-section-caption"
             >
-              Layout
+              Imposition
             </TugLabel>
             <TugChoiceGroup
               items={layoutItems}
@@ -1488,7 +1511,7 @@ export function LayoutContent(
               emphasis="proposal"
               className="layouts-section-caption"
             >
-              Card Width
+              Width
             </TugLabel>
             <TugChoiceGroup
               items={widthItems}
@@ -1556,7 +1579,7 @@ export function LayoutContent(
                   emphasis="proposal"
                   className="layouts-section-caption"
                 >
-                  {entry.title}
+                  {sidebarRowCaption(entry)}
                 </TugLabel>
                 <TugChoiceGroup
                   items={sidebarRowItems(entry)}

@@ -688,6 +688,7 @@ describe("the allocator's solution space", () => {
           const base: AllocatorInput = {
             canvasWidth: 0,
             kind,
+            layout: "fit",
             occupied: occupancy.occupied,
             rails: fixture.rails,
             maxRailWidth: CEILING,
@@ -768,6 +769,7 @@ describe("the allocator's solution space", () => {
             const input: AllocatorInput = {
               canvasWidth,
               kind,
+              layout: "fit",
               occupied: occupancy.occupied,
               rails: fixture.rails,
               maxRailWidth: CEILING,
@@ -1034,6 +1036,7 @@ function goldenRows(): GoldenRow[] {
       const base: AllocatorInput = {
         canvasWidth: 2000,
         kind,
+        layout: "fit",
         occupied,
         rails: fixture.rails,
         maxRailWidth: CEILING,

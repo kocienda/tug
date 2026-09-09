@@ -105,7 +105,7 @@ function deckShape() {
       },
     ],
     activePaneId: "p1",
-    imposition: { kind: "three-up" },
+    imposition: { kind: "three-up", layout: "fit" },
     hasFocus: true,
   };
 }
