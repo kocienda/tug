@@ -104,6 +104,7 @@ import type {
 } from "./deck-manager-store";
 import {
   allocateSidebarWidths,
+  ARRIVAL_BEAT_MS,
   clampSlot,
   centerSlot,
   slotCount,
@@ -156,7 +157,7 @@ import {
   type SidebarEntry,
   type SidebarSide,
 } from "./lib/layout-imposer";
-import { getTugZoom } from "./components/tugways/scale-timing";
+import { getTugTiming, getTugZoom } from "./components/tugways/scale-timing";
 import { DeckManagerContext } from "./deck-manager-context";
 import { BASE_THEME_NAME } from "./theme-constants";
 import {
@@ -850,31 +851,39 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * The second of an arrival's two moves: the slide that brings a card that
-   * has just been added into the band, on the frame AFTER the one it landed
-   * on.
+   * has just been added into the band, one beat after the card itself lands.
    *
-   * The deferral is the whole point of the method. Two notifies inside one
-   * task are batched into one React render, and a batched arrival-plus-slide
-   * is the single move again: the card materializes already in view, and the
-   * reader — who watched the deck travel nowhere — is left to work out that it
-   * moved. Standing the reveal off by a task makes it its own commit, its own
-   * arrangement signature, and therefore its own crossing ([P10]): the card
-   * lands, and then the deck goes to it. `flashPaneBorder` stands off the same
-   * commit for the same reason.
+   * The WAIT is the whole point of the method, and it is measured in the eye
+   * rather than in the scheduler. Standing the reveal off by a task is not
+   * enough: two notifies inside one task are batched into one React render,
+   * and even unbatched they land on adjacent frames, which is one event as far
+   * as a reader is concerned. The card has to be ON SCREEN — risen into the
+   * slot it landed in and held there — before the deck starts travelling, or
+   * the file appears already in view and the only thing left to conclude is
+   * that it opened somewhere it did not. {@link ARRIVAL_BEAT_MS} is that hold,
+   * and `--tug-timing` scales it as it scales every other Tug duration.
+   *
+   * Its own timer therefore means its own commit, its own arrangement
+   * signature, and its own crossing ([P10]) — which is what makes the slide a
+   * move the reader watches rather than a fact they are handed.
    *
    * Everything conditional about it belongs to {@link revealCard}, which is
    * the whole of the move: it commits nothing when the band already shows the
    * card whole, and answers silence for a card closed before the frame
-   * arrived. A window-less host — a manager driven with no DOM — takes the
-   * reveal synchronously instead, since there is no render for it to be
-   * batched with and a deferred commit would never arrive at all.
+   * arrived — a card the reader shut during the beat, say. A window-less host
+   * — a manager driven with no DOM — takes the reveal synchronously instead,
+   * since there is nothing to paint in between and a deferred commit would
+   * never arrive at all.
    */
   private _revealAfterArrival(cardId: string): void {
     if (typeof window === "undefined") {
       this.revealCard(cardId);
       return;
     }
-    window.setTimeout(() => this.revealCard(cardId), 0);
+    window.setTimeout(
+      () => this.revealCard(cardId),
+      ARRIVAL_BEAT_MS * getTugTiming(),
+    );
   }
 
   public deselectActiveCard = (): void => {
@@ -1588,8 +1597,9 @@ export class DeckManager implements IDeckManagerStore {
     // nothing but its flash to say where it went.
     //
     // TWO MOVES, NOT ONE. Opening is one act and travelling to what was opened
-    // is another, and the deck performs them in that order rather than
-    // arriving pre-scrolled.
+    // is another, and the deck performs them in that order, with a beat
+    // between, rather than arriving pre-scrolled: the reader watches the file
+    // open, and then watches the deck go to it.
     this._revealAfterArrival(firstCardId);
 
     return firstCardId;

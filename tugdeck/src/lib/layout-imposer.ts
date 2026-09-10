@@ -1020,8 +1020,9 @@ export function resolveContentWidthPx(
  * imposition arms, the fade a split or stack gives a member, the rise an
  * arriving frame plays, and the landing a drop animates into its zone. Raising
  * it slows all of them together, which is the only way they stay one motion.
- * The two durations deliberately outside it are named where they are declared —
- * {@link PANE_EXIT_GHOST_MS}, which is a departure rather than a crossing, and
+ * The durations deliberately outside it are named where they are declared —
+ * {@link PANE_EXIT_GHOST_MS}, which is a departure rather than a crossing,
+ * {@link ARRIVAL_BEAT_MS}, which is a pause rather than a motion at all, and
  * `--tug-timing`, the app-wide multiplier over every Tug animation.
  */
 export const IMPOSITION_SETTLE_MS = 400;
@@ -1072,6 +1073,27 @@ export const PANE_ENTER_RISE_PX = 8;
  * the gesture that caused it.
  */
 export const PANE_EXIT_GHOST_MS = 180;
+
+/**
+ * How long a card that has just arrived is left standing where it landed
+ * before the deck travels to it, in milliseconds.
+ *
+ * Opening a file is two things happening — a card arrives, and the band moves
+ * to show it — and a reader who is shown both at once is shown neither: the
+ * card materializes already in view, the deck's travel is invisible, and the
+ * only reading left is that the file opened somewhere it did not. So the
+ * arrival is given the screen on its own first. The card rises into its slot
+ * ({@link PANE_ENTER_RISE_PX}) wherever the band happens to be standing, holds
+ * for this beat, and only then does the strip cross to bring it in.
+ *
+ * A pause rather than a motion, which is why it is not on the settle's knob:
+ * nothing is moving during it, and it is measured against the eye rather than
+ * against any tween. Two events fuse into one below roughly 150ms; this clears
+ * that with margin and still stops short of the crossing that follows it, so
+ * the whole gesture reads as one-two and lands inside a second. Scaled by
+ * `--tug-timing` at the call site like every other Tug duration.
+ */
+export const ARRIVAL_BEAT_MS = 250;
 
 /**
  * Which side a pinned rail holds, as a number: 0 is the left edge, 1 the

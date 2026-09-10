@@ -41,10 +41,13 @@
  *     that names a slot — a file link naming the one beside the card that
  *     cited it — can name a slot the band is only half showing. The raise
  *     reveals; for a while the arrival did not, and the file the reader had
- *     just clicked landed with its near edge under the rail. The card lands
- *     first and the deck travels to it second, as two commits: folded into
- *     one they are one render, and a card that materializes already in view
- *     never shows the reader that the deck moved to find it.
+ *     just clicked landed with its near edge under the rail. And the two are
+ *     SEQUENTIAL: the card lands, stands on screen for a beat where it landed,
+ *     and only then does the deck cross to it. Two store commits do not make
+ *     two moves — batched into one render they are a single frame, and a card
+ *     whose first appearance is already in view never shows the reader that
+ *     the deck moved to find it. So the pin is where the card actually STOOD,
+ *     sampled the whole way through.
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
@@ -62,6 +65,7 @@ import path from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import {
+  ARRIVAL_BEAT_MS,
   IMPOSITION_GAP_PX,
   RAIL_EDGE_INSET_PX,
   RAIL_GUTTER_PX,
@@ -203,6 +207,63 @@ const textCardIds = (app: App): Promise<string[]> =>
     `window.tugdeck.diag.getDeckState().cards
       .filter(function (c) { return c.componentId === "text"; })
       .map(function (c) { return c.id; })`,
+  );
+
+/** One reading of where the arriving card stood, and when. */
+interface ArrivalSample {
+  t: number;
+  left: number;
+}
+
+/**
+ * Start recording where the card an open is about to add stands, from now
+ * until {@link stopArrivalSampler}.
+ *
+ * A timer rather than `requestAnimationFrame`, which an occluded harness
+ * window suspends — the reading itself is a `getBoundingClientRect`, which
+ * resolves layout on demand and carries the settle's transform, so it answers
+ * where the card IS whether or not this window is the one being looked at.
+ *
+ * `known` is the Text cards standing before the gesture; the sampler watches
+ * for the one that is not among them.
+ */
+const startArrivalSampler = (
+  app: App,
+  known: readonly string[],
+): Promise<null> =>
+  app.evalJS<null>(
+    `(function () {
+      var known = ${JSON.stringify(known)};
+      window.__arrival = { samples: [] };
+      window.__arrival.timer = setInterval(function () {
+        var state = window.tugdeck.diag.getDeckState();
+        var fresh = state.cards.filter(function (c) {
+          return c.componentId === "text" && known.indexOf(c.id) === -1;
+        })[0];
+        if (fresh === undefined) return;
+        var pane = state.panes.filter(function (p) {
+          return p.cardIds.indexOf(fresh.id) !== -1;
+        })[0];
+        if (pane === undefined) return;
+        var el = document.querySelector(
+          '.tug-pane[data-pane-id="' + pane.id + '"]');
+        if (el === null) return;
+        window.__arrival.samples.push({
+          t: performance.now(),
+          left: el.getBoundingClientRect().left,
+        });
+      }, 8);
+      return null;
+    })()`,
+  );
+
+/** Stop the sampler and answer everything it saw, oldest first. */
+const stopArrivalSampler = (app: App): Promise<ArrivalSample[]> =>
+  app.evalJS<ArrivalSample[]>(
+    `(function () {
+      clearInterval(window.__arrival.timer);
+      return window.__arrival.samples;
+    })()`,
   );
 
 /** The painted frame of the pane holding `cardId`, in viewport coordinates. */
@@ -837,13 +898,11 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
 
         // Open a file from the active card. `neighborSlot` names the slot to
         // its left — the straddling one — and the arrival owes the reveal.
-        //
-        // The deck's own trace records every commit under the mutation that
-        // made it, which is how the two moves below are counted. Enabled here
-        // rather than at the top so the ring holds this gesture and nothing
-        // before it.
-        await app.evalJS<null>(`(window.__deckTrace.enable(true), null)`);
         const before = await textCardIds(app);
+        // What the reader would have seen, sampled the whole way through.
+        // Started before the gesture so the very first frame the card is on
+        // screen is in the record.
+        await startArrivalSampler(app, before);
         await app.dispatchControlAction("open-file", { path: file });
         await app.waitForCondition<boolean>(
           `window.tugdeck.diag.getDeckState().cards.filter(function (c) {
@@ -856,6 +915,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         );
         expect(fresh, "exactly one card answered the open").toHaveLength(1);
         await wait(AFTER_LAND_MS);
+        const seen = await stopArrivalSampler(app);
 
         const bandAfter = await band(app);
         const arrived = await cardRect(app, fresh[0]);
@@ -875,23 +935,48 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
           "and no further in than it had to come — the move is minimal",
         ).toBeLessThanOrEqual(bandAfter.left + TOL);
 
-        // TWO MOVES, NOT ONE. The card lands in its slot, and the deck then
-        // travels to it — two commits, in that order. Folded into one they
-        // would be one render, and the card would materialise already in
-        // view: the deck would have moved and the reader would not have seen
-        // it go.
-        const commits = await app.evalJS<string[]>(
-          `window.__deckTrace.dump()
-            .filter(function (e) { return e.kind === "store-notify"; })
-            .map(function (e) { return e.caller; })`,
+        // ── TWO MOVES, NOT ONE ──────────────────────────────────────────────
+        //
+        // Where the card STOOD, over time, is the only witness to this. Two
+        // store commits are not two moves: batched into one render they are a
+        // single frame, and the card is on screen for the first time already
+        // in view. So the pin is the sampled run of positions.
+        expect(seen.length, "the card was on screen to be sampled").toBeGreaterThan(0);
+        const landed = seen[0].left;
+        const stillLanded = seen.filter((s) => Math.abs(s.left - landed) <= TOL);
+        const heldMs = stillLanded[stillLanded.length - 1].t - stillLanded[0].t;
+        const travelling = seen.filter(
+          (s) => s.left > landed + TOL && s.left < bandAfter.left - TOL,
         );
-        const arrival = commits.lastIndexOf("addCard");
-        const slide = commits.lastIndexOf("revealCard");
-        note(`commits after the open: ${commits.join(" → ")}`);
-        expect(arrival, "the arrival is a commit of its own").toBeGreaterThanOrEqual(0);
-        expect(slide, "and the slide is a second one, after it").toBeGreaterThan(
-          arrival,
+        note(
+          `${seen.length} samples: landed at ${Math.round(landed)}, held ${Math.round(
+            heldMs,
+          )}ms, ${travelling.length} in transit, ended at ${Math.round(
+            seen[seen.length - 1].left,
+          )}`,
         );
+
+        // 1. The file opens FIRST — the reader sees the card where it landed,
+        //    which is out past the band's near edge.
+        expect(
+          landed,
+          "the card is first seen where it landed, not already in view",
+        ).toBeLessThan(bandAfter.left - TOL);
+
+        // 2. And it is left there long enough to be read as its own event.
+        //    Half the beat is the floor, so a sampler the harness throttles
+        //    still measures a hold rather than a flicker.
+        expect(
+          heldMs,
+          "and stands there for a beat before anything moves",
+        ).toBeGreaterThanOrEqual(ARRIVAL_BEAT_MS / 2);
+
+        // 3. THEN the deck travels to it — a crossing with a middle, not a
+        //    cut from one place to the other.
+        expect(
+          travelling.length,
+          "and then the deck crosses to it, through places in between",
+        ).toBeGreaterThan(0);
       } finally {
         await app.close();
         fs.rmSync(dir, { recursive: true, force: true });
