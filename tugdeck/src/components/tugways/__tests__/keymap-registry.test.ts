@@ -248,9 +248,9 @@ describe("menuChords", () => {
 
   test("publishes the promoted rows' converted chords", () => {
     expect(chords["session.previousTurn"]).toEqual({
-      keyEquivalent: "\u{F700}",
+      keyEquivalent: "[",
       command: true,
-      option: true,
+      control: true,
     });
     expect(chords["session.commandPicker"]).toEqual({
       keyEquivalent: "/",

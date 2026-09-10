@@ -49,7 +49,7 @@
  * No Z2 status bar, no Z4A route picker, no Z4B indicators — just the field
  * and the button.
  *
- * ⌥⌘↑ / ⌥⌘↓ step the column one post at a time, the Session transcript's own
+ * ⌃⌘[ / ⌃⌘] step the column one post at a time, the Session transcript's own
  * chord over this card's column and its own selection rule
  * ({@link computePageNavigation}). The card answers the registry's
  * `PREVIOUS_TURN` / `NEXT_TURN` on its `card-content` responder, which is what
@@ -1226,7 +1226,7 @@ export function OverviewContent({
   }, [setFollowing, pinToBottom]);
 
   /**
-   * Step the column one POST — the Session transcript's ⌥⌘↑ / ⌥⌘↓, read here.
+   * Step the column one POST — the Session transcript's ⌃⌘[ / ⌃⌘], read here.
    *
    * The selection is the transcript's own
    * ({@link computePageNavigation}): the entry currently flush at the top is
@@ -1270,7 +1270,7 @@ export function OverviewContent({
     el.scrollTop += target.getBoundingClientRect().top - portTop;
   }, [setFollowing, pinToBottom]);
 
-  // ⌥⌘↑ / ⌥⌘↓ — the Session card's transcript chord, on this card's column.
+  // ⌃⌘[ / ⌃⌘] — the Session card's transcript chord, on this card's column.
   //
   // The commands are `PREVIOUS_TURN` / `NEXT_TURN` from the registry, routed
   // `key-card`: the chord is delivered to whichever card the user is in, and a

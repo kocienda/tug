@@ -36,9 +36,9 @@ Composed sets are never assigned fresh — each one *means* its composition, and
 
 | Set | Reading |
 |---|---|
-| ⌥⇧⌘ | Both twists at once. "…as Plain Text" is always ⌥⇧⌘ (⌥⇧⌘C, ⌥⇧⌘V — the latter matching macOS "Paste and Match Style" exactly). First/Last Turn ⌥⇧⌘↑/↓ are the ⇧-extremes of Previous/Next Turn ⌥⌘↑/↓. |
+| ⌥⇧⌘ | Both twists at once. "…as Plain Text" is always ⌥⇧⌘ (⌥⇧⌘C, ⌥⇧⌘V — the latter matching macOS "Paste and Match Style" exactly). On the bracket row it is the slot nudge ⌥⇧⌘[/], both twists of the lateral ring; on the arrow row it is free in full, and recorded free rather than spent ([D184]). |
 | ⌃⇧⌘ | The counterpart of a Tug-tier command. Disclaim All ⌃⇧⌘A, against Claim All ⌃⌘A — the same key, the opposite bulk verb of the Changes shade ([D175]). |
-| ⌃⌥⌘ | The variant or advanced form of a Tug-tier command — the "super-advanced" tier. Cycle Permission Mode ⌃⌥⌘P, since permission modes govern agent autonomy, the quintessential expert feature. Its debut resident, and its second is ⌃⌥⌘R Resize Sidebars to Fit — a grant with a reading rather than a derivation, recorded below. The tier briefly held the Changes shade's bulk verbs; [D175] returned those to the tiers [D126] derived for them. |
+| ⌃⌥⌘ | The variant or advanced form of a Tug-tier command — the "super-advanced" tier. **Unavailable for new grants** — the set is spoken for outside Tug, recorded below, and both its residents are grandfathered. Cycle Permission Mode ⌃⌥⌘P, since permission modes govern agent autonomy, the quintessential expert feature. Its debut resident, and its second is ⌃⌥⌘R Resize Sidebars to Fit — a grant with a reading rather than a derivation, recorded below. The tier briefly held the Changes shade's bulk verbs; [D175] returned those to the tiers [D126] derived for them. |
 
 ## The digit row
 
@@ -49,6 +49,33 @@ This generalizes the older wording, "digits are places" ([D130]). Places was onl
 The rule that keeps this from becoming a pool: a digit family must be an **ordered set the user already sees in that order**. Slots run left to right across the deck, and the flow strip draws that order at the bottom of the canvas while a reader is using it. A family whose order is arbitrary has no business on the digit row, because the whole value of a digit is that you can predict which one before you press it.
 
 **⌥⌘1–3 was once proposed for the card widths, and R1 is why it failed.** ⌥ is the variant operator, so ⌥⌘*n* must read as a variant of ⌘*n* — a variant of Move Card to Slot *n*. Card width is a different verb on a different property, so the composed set had no base to compose from: the modifier stack would have been climbed purely because plain ⌘ digits were taken, which is the accretion R1 exists to stop. The widths went to ⌃⌘1–3 instead, and later gave those up as well ("The card widths gave the digits up", below) — the digit row belongs to the deck's slots on both its tiers.
+
+## Arrows are geometry, brackets are series
+
+**An arrow points at a place; a bracket steps a series.** The two key classes are the algebra's other axis: the tier says whose vocabulary a chord speaks, and the key class says what kind of motion it is. This is the same move the digit row makes one row over — a rule stated about the key class rather than about whichever family got there first — and it is what makes an unfamiliar arrow or bracket chord guessable instead of memorized.
+
+**The arrow bands, read by tier.** ⌃⌘ arrows move the **furniture**: ⌃⌘←/→ opens the rail on that side, ⌃⌘↑/↓ moves a card up its column. ⌥⌘ arrows move the **reader** through that same geometry: ⌥⌘←/→/↑/↓ hand the keyboard to the card that is spatially in that direction. On the ←/→ pair the two read as a pair — ⌃⌘← opens the left side, ⌥⌘← walks into it — and that pairing is the mnemonic the whole family rests on, since the chord points where you are going.
+
+| Band | Reading | Occupancy |
+|---|---|---|
+| ⌃⌘ arrows | Move the furniture — the Tug tier's own layout verbs. | Closed. ←/→ the rail pair, ↑/↓ `move-in-column`. |
+| ⌃⇧⌘ arrows | The ⇧-extreme of a furniture move. | ↑/↓ Move Card to Top/Bottom; ←/→ free. |
+| ⌥⌘ arrows | Move the reader through the geometry. | Closed. All four Focus Card Left / Right / Above / Below ([D184]). |
+| ⌥⇧⌘ arrows | The ⇧-extreme of a reader move. | Free, all four, and recorded free rather than spent ([D184]). |
+
+**Brackets step a series, and the tier says which series.** ⇧⌘[/] the lateral card ring, ⌥⌘[/] the stack ring, ⌥⇧⌘[/] the slot nudge, and ⌃⌘[/] the transcript's turns with ⌃⇧⌘[/] its extremes. `[` is back and `]` is forward in every one of them, which is exactly what lets a fifth family land on the row and be guessed rather than learned.
+
+### The turn family lives on the brackets
+
+Previous / Next Turn are **⌃⌘[ / ⌃⌘]** and First / Last Turn **⌃⇧⌘[ / ⌃⇧⌘]**. They were ⌥⌘↑/↓ and ⌥⇧⌘↑/↓, and they moved so directional card focus could take the whole ⌥⌘ arrow band ([D184]).
+
+**The derivation is the band reading, not the vacancy.** Stepping turns is stepping a series — a transcript is an ordered run and nothing about moving through it is spatial — so the arrows were the wrong key class for the family all along, and the arrow shape was carrying a resemblance rather than a meaning. On the brackets it keeps every property the arrows gave it: `[` is back, `]` is forward, and ⇧ is the extreme sharing its base's key, which satisfies R1 outright rather than being exempted from it under R2.
+
+**Neither set collides with CodeMirror, and that is load-bearing.** `defaultKeymap` binds `Mod-[` / `Mod-]` to `indentLess` / `indentMore` and Tug installs that keymap in the composer and the text card — which is why plain ⌘[/] cannot carry this family whatever the free pool reserves it for. The ⌃⌘ and ⌃⇧⌘ compositions are untouched by it, so the chords still fire with the caret in the composer. That is the property the arrow binding had and the one that matters most here, since a reader steps back through turns with the prompt still under their hands.
+
+**The family moves as a unit.** Splitting it across two key classes would leave First/Last with no base to be the extreme of. The cost is muscle memory, and it is paid back at the card: a Session card contributes the four verbs to its own title-bar menu, each row rendering its current chord, so the card shows the reader where the verb went.
+
+**⌥⇧⌘↑/↓ is freed and stays free.** It is recorded as available rather than spent in the same change that vacates it, because the extremes of focus travel — Focus Topmost / Bottommost — are deliberately not commands: `move-in-column` keeps all four of its chords, which is worth more than the extremes would be. A later grant on that band must derive as the ⇧-extreme of a ⌥⌘ arrow, which is what the band now means.
 
 ## The closed sets
 
@@ -64,7 +91,7 @@ One non-printing exception is grandfathered, and grandfathered is the whole just
 
 **R1 — The pairing rule.** A ⇧- or ⌥-composed chord must share its key with the base command it twists. If a proposed chord has no base to vary, it is either a plain-⌘ candidate or a ⌃⌘ Tug-tier command. The modifier stack is never climbed merely because plain ⌘ was taken; that is exactly the accretion the algebra exists to stop.
 
-**R2 — The arrows exemption.** Arrow chords are exempt from R1. ⌘↑/↓ is text and history currency in the composer, so the ⌥⌘↑/↓ turn-navigation family has no ⌘ base to pair with. ⇧ still means "to the extreme" on arrows, which is how ⌥⇧⌘↑/↓ reads as First/Last Turn.
+**R2 — The arrows exemption.** Arrow chords are exempt from R1. ⌘↑/↓ is text and selection currency in the composer, so the ⌥⌘ arrows carrying directional card focus have no ⌘ base to pair with, exactly as the ⌃⌘ arrows carrying `move-in-column` have none. ⇧ still means "to the extreme" on arrows, which is how ⌃⇧⌘↑/↓ reads as Move Card to Top/Bottom. What an arrow band *means* is the band reading below, and the exemption is only about R1's pairing.
 
 **R3 — The scarcity rule.** Plain ⌘'s remaining free slots go only to commands a user hits many times an hour. Everything else enters through its semantic tier. A plain-⌘ grant spends a finite resource, so the frequency claim is part of the grant, not an afterthought.
 
@@ -87,7 +114,7 @@ Plain ⌘, for future grants under R3.
 | ⌘B, ⌘U | Hold in reserve — bold/underline, and Tug renders markdown. |
 | ⌘P | Hold in reserve — the print reflex is strong. The only accepted repurposing is a command palette. |
 | ⌘' ⌘; ⌘\ | Free punctuation. |
-| ⌘[ ⌘] | Reserved for any future back/forward navigation concept. |
+| ⌘[ ⌘] | Reserved for any future back/forward navigation concept — and unable to carry turn navigation, which reads as one. CodeMirror's `defaultKeymap` binds `Mod-[` / `Mod-]` to `indentLess` / `indentMore`, and Tug installs that keymap in both the composer and the text card, so a promoted ⌘[ would kill dedent app-wide and a scoped one would be dead in the composer — the one surface turn stepping is used from ([D184]). |
 
 Plain-⌘ digits are fully spent: ⌘1–9 are slots, ⌘0 is actual size. ⌃⌘1–6 take the reader to those same slots; ⌃⌘7–9 and ⌃⌘0 are free, and free for an *ordered set* under the digit-row rule above — not as loose slots. (⌃⌘7–9 are really the tail of the Go to Slot set, held for an arrangement wider than six-up rather than open for anything else.)
 
@@ -100,6 +127,14 @@ Plain-⌘ digits are fully spent: ⌘1–9 are slots, ⌘0 is actual size. ⌃�
 ⌘Space, ⌘⇥, ⌘` · ⌃↑ ⌃↓ ⌃← ⌃→, ⌃Space · ⌃⌘Q (lock screen), ⌃⌘D (dictionary), ⌃⌘Space (emoji) · ⇧⌘3 ⇧⌘4 ⇧⌘5 (screenshots), ⇧⌘Q (log out), ⇧⌘/ (Help search) · ⌥⌘⎋ (force quit).
 
 ---
+
+## ⌃⌥⌘ is spoken for outside Tug
+
+**No new chord may be granted on ⌃⌥⌘.** The set is claimed machine-wide on the user's own Mac — Keyboard Maestro drives special-character entry from it — so a Tug grant there is a chord that never arrives, indistinguishable from the keyboard from a command that does not exist.
+
+This is recorded as a standing constraint rather than as a note on one feature, because the algebra keeps **deriving** onto the set: ⌃⌥⌘ reads as the variant of a Tug-tier command, so any "the same move, one step further" reading lands there honestly and then dies. Directional card focus is the case that made it worth writing down — ⌥-as-variant over ⌃⌘↑/↓ reads exactly as *the same move, the reader instead of the card*, which is the derivation the ⌥⌘ arrows had to be granted in place of ([D184]).
+
+**Two residents are grandfathered** — ⌃⌥⌘P Cycle Permission Mode and ⌃⌥⌘R Resize Sidebars to Fit — and grandfathered is the whole of their standing rather than evidence the set works. Both are reachable from their menu rows and both are rebindable. A third would not be granted.
 
 ## Worked example: the nine moves of [D126]
 
@@ -119,7 +154,7 @@ The algebra's first application. Each row's rationale is a derivation, not a pre
 
 **Claim All and Disclaim All are not an inverse on one set.** Claim acts on what is *not yet* this session's — the unattributed and orphaned buckets together — and Disclaim on what *is*. ⇧-as-counterpart was carrying "the opposite bulk verb of this shade", not "the same set, reversed". R1 promises a shared key and an opposite sense; it does not promise set inversion, and this pair is the reason to say so out loud.
 
-**Ratified unchanged:** ⌥⌘/ Show DevTools against ⌘/ Command Picker; the ⌥⌘↑/↓ + ⌥⇧⌘↑/↓ turn family (R2).
+**Ratified unchanged:** ⌥⌘/ Show DevTools against ⌘/ Command Picker; the ⌥⌘↑/↓ + ⌥⇧⌘↑/↓ turn family (R2). *What was ratified there was the R2 exemption, not the arrow shape: the turn family later moved to the bracket row ([D184]), where R1 is satisfied outright.*
 
 ---
 
@@ -214,6 +249,7 @@ Recorded so a reader takes them as debt rather than as precedent.
 - [L30] — every user-invocable command is a registry entry; every emitter goes through the two funnels
 - [D126] — the adoption of this algebra and the nine moves it drove
 - [D130] — the digit row generalized, and the card-width chords it granted
+- [D184] — arrows are geometry and brackets are series: directional card focus on the ⌥⌘ arrows, the turn family's move to the bracket row, and the ⌃⌥⌘ reservation
 - [commands.md](commands.md) — the authoring contract: the entry shape, "Adding a command", the four-layer chord resolution order, the lints
 - [menus.md](menus.md) — the menuState wire contract and the generated chord table
 - `tugdeck/src/components/tugways/command-registry.ts` — the table and `lintChordCollisions`
@@ -278,7 +314,7 @@ The bracket keys carry three commands, and they carry the same axis in all three
 
 **Why not plain ⌘[/].** The free pool reserves it for a future back/forward concept, and R3 does not override a reservation — rearranging the deck is a deliberate act, not a many-times-an-hour verb.
 
-**⌃⌘[/] was the recorded fallback** if the R1 reading had been rejected: brackets are free on the Tug tier, and a slot is Tug's own layout vocabulary. The R1 reading held, so the fallback stays unspent.
+**⌃⌘[/] was the recorded fallback** if the R1 reading had been rejected: brackets are free on the Tug tier, and a slot is Tug's own layout vocabulary. The R1 reading held, so the nudge never took it — and the set is spent now regardless: ⌃⌘[/] carries Previous / Next Turn and ⌃⇧⌘[/] First / Last Turn ([D184]). The bracket row has five families on it and one axis reading, which the band doctrine above states.
 
 **The composed chord reaches the web view, and that was checked rather than assumed.** ⌥⌘[/] one modifier away are menu-promoted, which raised the question of whether AppKit's key-equivalent scan would claim the ⌥⇧⌘ press too. It does not: the scan matches modifier masks exactly, so a promoted chord shadows itself and not its composed neighbours. Worth stating because the opposite was briefly believed and written down — the misreading came from a page-level `keydown` probe, which cannot see a chord the keymap already matched and consumed (`responder-chain-provider.tsx` calls `stopImmediatePropagation` on a handled match). **A probe of that shape can never distinguish "AppKit ate it" from "we handled it"; only pressing the chord and watching the deck can.**
 
@@ -296,7 +332,7 @@ A slot holds a run of vertical space, and the cards standing in it either take t
 |---|---|---|
 | `toggle-column-split` | **⌃⌘S** | Tug tier: dividing a slot is Tug's own layout vocabulary, alongside the Go to Slot row, ⌃⌘B Bullseye and the ⌃⌘←/→ rail pair. Letter S is unoccupied on the tier — only ⌘S and ⇧⌘S exist on that key — and is the obvious mnemonic. |
 | `move-in-column:up` / `:down` | **⌃⌘↑ / ⌃⌘↓** | R1's base pair on the vertical axis, in the tier that owns the slot. Arrows are R1-exempt under R2. |
-| `move-in-column:top` / `:bottom` | **⌃⇧⌘↑ / ⌃⇧⌘↓** | The counterpart set of the ⌃⌘ base: top and bottom are the ⇧-extreme of up and down, exactly the shape ⌥⇧⌘↑/↓ First/Last Turn has one tier over. |
+| `move-in-column:top` / `:bottom` | **⌃⇧⌘↑ / ⌃⇧⌘↓** | The counterpart set of the ⌃⌘ base: top and bottom are the ⇧-extreme of up and down, exactly the shape ⌃⇧⌘[/] First/Last Turn has one key class over. |
 
 **Why ⌃⌘ arrows are available.** The macOS never-bind list reserves *plain* ⌃-arrows for Spaces and Mission Control — not the ⌘ composition. The vertical pair was unbound in Tug when this family took it, and the horizontal pair was still unbound when the rail promotion took that; all four are spent now, and the tier's arrows are a closed set. Checked against the registry rather than assumed in both cases, and pinned by the routing-drift guard, which fails on any chord the table gains without being declared.
 

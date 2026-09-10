@@ -375,6 +375,24 @@ export const TUG_ACTIONS = {
   //                 arrangement; the only thing that travels is the band. So
   //                 it is inert under fit, where the band shows every anchor
   //                 already, and inert past the arrangement's slot count.
+  // FOCUS_CARD:     payload — `value: "left" | "right" | "above" | "below"`.
+  //                 Deck-level: hand the keyboard to the card that is
+  //                 spatially in that direction — a reckoning over the
+  //                 arrangement rather than a walk of a ring, which is what
+  //                 lets a reader standing in a split column reach the card
+  //                 ABOVE them ([D184]). Used by ⌥⌘←/→/↑/↓ (Window ▸ Focus
+  //                 Card Left / Right / Above / Below), handled by the deck
+  //                 canvas beside PREVIOUS_TAB, because only that root sees
+  //                 every pane. It reads the FIRST RESPONDER rather than the
+  //                 layout selection — the gesture moves the keyboard, so
+  //                 where the keyboard is is the whole of its input — and
+  //                 arrives through `transferFocusForActivation`, the same
+  //                 activation taxonomy the click path uses. The geometry is
+  //                 `lib/directional-focus.ts`; the band travels when the
+  //                 target is off-band, the arrival flashes, and a refusal at
+  //                 the arrangement's edge flashes the pane that would not
+  //                 move. Nothing in the arrangement changes — the reader
+  //                 moves, exactly as GO_TO_SLOT moves the band.
   // SET_PANE_WIDTH: payload — `value: string` (a `ContentWidth`: slim /
   //                 comfy / wide). Deck-level: put the SELECTED card's pane
   //                 at that named width. Its doors are Window ▸ Slim / Comfy
@@ -518,18 +536,20 @@ export const TUG_ACTIONS = {
   // PREVIOUS_TURN / NEXT_TURN: payload — none. Step the session card's
   //                 transcript one turn (one entry) backward / forward,
   //                 pinning the target turn's top flush to the viewport
-  //                 top. Bound to ⌥⌘↑ / ⌥⌘↓, `scope: "key-card"`, so the
+  //                 top. Bound to ⌃⌘[ / ⌃⌘], `scope: "key-card"`, so the
   //                 chord walks from the first responder up to the
   //                 card-content responder regardless of where focus
   //                 sits in the card (transcript, prompt editor, status
   //                 bar) — unlike the list view's own scroll-container
   //                 PageUp/PageDown pager, which only fires when the
   //                 transcript holds focus. ⌥↑/⌥↓ are deliberately NOT
-  //                 used (they are editor word-movement). The handler
-  //                 drives `SessionTranscriptHandle.pageByEntry`.
+  //                 used (they are editor word-movement), and the arrow
+  //                 bands are geometry rather than series ([D184]), which
+  //                 is why this family sits on the brackets at all. The
+  //                 handler drives `SessionTranscriptHandle.pageByEntry`.
   // FIRST_TURN / LAST_TURN: payload — none. Jump the session card's
   //                 transcript to the very top / very bottom (Home /
-  //                 End). Bound to ⌥⇧⌘↑ / ⌥⇧⌘↓, `scope: "key-card"`,
+  //                 End). Bound to ⌃⇧⌘[ / ⌃⇧⌘], `scope: "key-card"`,
   //                 same card-wide routing as PREVIOUS_TURN/NEXT_TURN.
   //                 FIRST_TURN drives `SessionTranscriptHandle.scrollToTop`
   //                 (disengages follow-bottom); LAST_TURN drives
@@ -542,6 +562,7 @@ export const TUG_ACTIONS = {
   FOCUS_PROMPT:   "focus-prompt",
   MOVE_TO_SLOT:   "move-to-slot",
   GO_TO_SLOT:    "go-to-slot",
+  FOCUS_CARD:     "focus-card",
   NUDGE_SLOT:     "nudge-slot",
   SET_PANE_WIDTH: "set-pane-width",
   TOGGLE_BULLSEYE: "toggle-bullseye",

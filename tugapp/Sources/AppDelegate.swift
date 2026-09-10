@@ -1289,6 +1289,37 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             wMenu.addItem(item)
         }
         wMenu.addItem(NSMenuItem.separator())
+        // Focus Card Left / Right / Above / Below — move the KEYBOARD to the
+        // card that is spatially in that direction, which is the other half of
+        // the pair the column rows above are one of: those move the card, these
+        // move the reader through the arrangement the card stands in. Its own
+        // group for that reason, and because it is the one family here that is
+        // not selection-relative — the frontend reads the first responder, since
+        // the gesture moves the keyboard and where the keyboard is IS the
+        // source.
+        //
+        // ⌥⌘←/→/↑/↓, all four with EMPTY key equivalents like everything else in
+        // this menu: `applyCommandChords` writes them from the frontend's
+        // keymap, so the family stays rebindable. Each row is gated per
+        // direction by its registry entry on the menuState push, so an item is
+        // live exactly when its chord would act — and the gates hold the chord
+        // while dark (`disabledChord: "keep"`), because nothing else in the JS
+        // funnel wants ⌥⌘ arrows and there is nothing for a release to hand
+        // them to. A dark row does not eat the press: AppKit declines to fire a
+        // disabled item and leaves the keydown alone, so it reaches the web
+        // view, where the same command's own binding still stands and answers
+        // the refusal with a border flash on the pane that is not moving.
+        for (title, direction, id) in [
+            ("Focus Card Left", "left", "window.focusCardLeft"),
+            ("Focus Card Right", "right", "window.focusCardRight"),
+            ("Focus Card Above", "above", "window.focusCardAbove"),
+            ("Focus Card Below", "below", "window.focusCardBelow"),
+        ] {
+            let item = NSMenuItem(title: title, action: #selector(focusCardFromMenu(_:)), keyEquivalent: "").identified(id)
+            item.representedObject = direction
+            wMenu.addItem(item)
+        }
+        wMenu.addItem(NSMenuItem.separator())
         // Bullseye — the focused card's POSTURE rather than its size: a
         // temporary reading stance, centred in the band at comfy with every
         // other surface receded, reversible by pressing again. Its own group
@@ -2024,6 +2055,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func moveInColumnFromMenu(_ sender: NSMenuItem) {
         guard let target = sender.representedObject as? String else { return }
         sendControl("move-in-column", params: ["value": target])
+    }
+
+    /// Window ▸ Focus Card Left / Right / Above / Below. The direction rides
+    /// `representedObject`, the shape the column-move rows use. NOT
+    /// selection-relative, unlike those: the frontend reads the first responder,
+    /// because the verb moves the keyboard rather than a card. Enablement rides
+    /// each item's registry gate on the menuState push, answered per direction,
+    /// so a row is dark exactly when the arrangement has nothing that way.
+    @objc private func focusCardFromMenu(_ sender: NSMenuItem) {
+        guard let direction = sender.representedObject as? String else { return }
+        sendControl("focus-card", params: ["value": direction])
     }
 
     /// Write every key equivalent the frontend's keymap states, recursively

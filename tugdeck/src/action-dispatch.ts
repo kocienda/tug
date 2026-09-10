@@ -34,6 +34,7 @@ import { advanceKeyViewFocus, getFocusManager, BASE_FOCUS_MODE } from "@/compone
 import { dispatchCommand } from "./command-dispatch";
 import { openDiffInCard } from "@/lib/open-diff-in-card";
 import { neighborSlot } from "@/lib/neighbor-slot";
+import { isFocusDirection } from "@/lib/directional-focus";
 import { flashCardPane, flashPaneBorder } from "@/lib/flash-pane-border";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { isDiffDescriptor } from "@/lib/git-diff-store";
@@ -1098,6 +1099,23 @@ export function initActionDispatch(
       return;
     }
     dispatchCommand(`${TUG_ACTIONS.GO_TO_SLOT}:${slot}`);
+  });
+
+  // focus-card: the Window ▸ Focus Card Left/Right/Above/Below round-trip, and
+  // — because those four items are `menuEligible` — the ⌥⌘ arrow chords too.
+  // AppKit resolves the key equivalent before the web view sees a keydown
+  // ([P15]), fires the item's action, and the host sends this one wire with the
+  // direction on it; the four commands the user invokes are
+  // `focus-card:left`…`focus-card:below`. So this bridge is not a menu
+  // convenience — without it neither the item nor the chord reaches the canvas
+  // at all, and the reckoning behind them is unreachable.
+  registerAction(TUG_ACTIONS.FOCUS_CARD, (payload) => {
+    const direction = payload.value;
+    if (!isFocusDirection(direction)) {
+      console.warn(`${TUG_ACTIONS.FOCUS_CARD}: invalid direction`, payload);
+      return;
+    }
+    dispatchCommand(`${TUG_ACTIONS.FOCUS_CARD}:${direction}`);
   });
 
   // toggle-bullseye: the Window ▸ Bullseye round-trip. No payload — the

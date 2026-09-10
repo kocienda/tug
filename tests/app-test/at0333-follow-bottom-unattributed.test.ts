@@ -334,7 +334,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
       try {
         // Arm a two-pass correction, then move before it can fire — all
         // in ONE synchronous block, so no commit can land in between.
-        // The ⌥⌘↑ chord dispatch enters the responder chain's document-
+        // The ⌃⌘[ chord dispatch enters the responder chain's document-
         // level capture listener exactly as a real chord does (the same
         // route at0330's turn stepping uses). Synchronous presses outrun
         // the async re-window, so the later presses target entries that
@@ -348,8 +348,8 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
   var el = document.querySelector('${SCROLLER}');
   for (var i = 0; i < 8; i += 1) {
     document.dispatchEvent(new KeyboardEvent("keydown", {
-      key: "ArrowUp", code: "ArrowUp",
-      altKey: true, metaKey: true,
+      key: "[", code: "BracketLeft",
+      ctrlKey: true, metaKey: true,
       bubbles: true, cancelable: true, composed: true,
     }));
   }

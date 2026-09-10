@@ -42,6 +42,7 @@
  * @covers tugdeck/src/components/tugways/keymap-registry.ts
  * @covers tugdeck/src/components/tugways/chord-format.ts
  * @covers tugdeck/src/lib/host-menu-state.ts
+ * @covers tugdeck/src/components/tugways/command-registry.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -165,6 +166,22 @@ describe.skipIf(!SHOULD_RUN)("AT0181: the keymap drives the native key equivalen
           "\u{F701}",
           COMMAND | CONTROL | SHIFT,
         );
+        // The focus family rides the same answer, and it is the ⌥⌘ half of the
+        // arrow bands: ⌃⌘ arrows move the furniture, ⌥⌘ arrows move the reader
+        // through it ([D184]). One card in no column has nowhere to go in any
+        // direction, so all four validate dark and all four keep their chords —
+        // nothing in the JS funnel wants ⌥⌘ arrows either. The horizontal pair
+        // is the conversion this adds to the two vertical ones above:
+        // `NSLeftArrowFunctionKey` and its twin.
+        await expectChord(app, "window.focusCardLeft", "\u{F702}", COMMAND | OPTION);
+        await expectChord(app, "window.focusCardRight", "\u{F703}", COMMAND | OPTION);
+        await expectChord(app, "window.focusCardAbove", "\u{F700}", COMMAND | OPTION);
+        await expectChord(app, "window.focusCardBelow", "\u{F701}", COMMAND | OPTION);
+        const focusLeft = await app.menuItemState("window.focusCardLeft");
+        expect(
+          focusLeft.found ? focusLeft.enabled : true,
+          "a focus row is dark when the arrangement has nothing that way",
+        ).toBe(false);
         const split = await app.menuItemState("window.columnSplit");
         expect(
           split.found ? split.enabled : true,

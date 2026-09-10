@@ -834,7 +834,7 @@ export class SmartScroll {
    * ancestor of the target and scrolls each one to satisfy `block` — the card
    * body, the deck's containing block, the document itself. A deck whose panes
    * reach past the window bottom leaves the document a few pixels of scroll
-   * range, and then one turn-step chord (⌥⌘↑ → `pageByEntry`) scrolls the whole
+   * range, and then one turn-step chord (⌃⌘[ → `pageByEntry`) scrolls the whole
    * deck: every card's title bar parks above the window top, with no gesture
    * that brings it back. A scroller owns its own scrollport and nothing else,
    * so the delta is computed here and written to `_container` alone.

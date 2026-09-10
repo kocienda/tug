@@ -1,5 +1,5 @@
 /**
- * at0369-overview-post-navigation.test.ts — ⌥⌘↑ / ⌥⌘↓ step the Overview one
+ * at0369-overview-post-navigation.test.ts — ⌃⌘[ / ⌃⌘] step the Overview one
  * post at a time.
  *
  * The chord is the Session transcript's, read on this card's column, and it
@@ -21,8 +21,11 @@
  *
  * The caret is put in the composer first, on purpose: `key-card` routing is
  * what makes the gesture work from anywhere in the rail, and the composer is
- * the surface most likely to swallow an arrow. A CM6 editor holding focus and
- * the column still stepping is the routing working.
+ * the surface most likely to swallow a bracket: CodeMirror's `defaultKeymap`
+ * binds `Mod-[` / `Mod-]` to `indentLess` / `indentMore`, which is why the
+ * family took the ⌃⌘ composition rather than plain ⌘ ([D184]). A CM6 editor
+ * holding focus and the column still stepping is the routing working AND that
+ * composition clearing the indent bindings.
  *
  * @covers tugdeck/src/components/overview/overview-card.tsx
  * @covers tugdeck/src/components/tugways/internal/list-view-page-navigation.ts
@@ -90,7 +93,7 @@ async function standing(app: App): Promise<Standing> {
 
 describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
   test(
-    "⌥⌘↑ / ⌥⌘↓ land a post's top flush at the top of the column",
+    "⌃⌘[ / ⌃⌘] land a post's top flush at the top of the column",
     async () => {
       const app = await launchTugApp({
         testName: "at0369-overview-post-navigation",
@@ -134,7 +137,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
 
         // ── Up. Each press pins one post's top to the top of the column,
         // and each pins the one before the last.
-        await app.nativeKey("ArrowUp", ["cmd", "alt"]);
+        await app.nativeKey("[", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
@@ -143,7 +146,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
           { timeoutMs: 5_000 },
         );
         const firstUp = await standing(app);
-        note("after one ⌥⌘↑", JSON.stringify(firstUp));
+        note("after one ⌃⌘[", JSON.stringify(firstUp));
         expect(
           firstUp.flushIndex,
           "a post's top is flush with the top of the column",
@@ -153,7 +156,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
           "and the column moved up off the bottom",
         ).toBeLessThan(opened.scrollTop);
 
-        await app.nativeKey("ArrowUp", ["cmd", "alt"]);
+        await app.nativeKey("[", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
@@ -162,14 +165,14 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
           { timeoutMs: 5_000 },
         );
         const secondUp = await standing(app);
-        note("after two ⌥⌘↑", JSON.stringify(secondUp));
+        note("after two ⌃⌘[", JSON.stringify(secondUp));
         expect(
           secondUp.flushIndex,
           "the second press steps to the post before it, not by a pixel amount",
         ).toBe(firstUp.flushIndex - 1);
 
         // ── Down. The mirror: back to the post the first press had chosen.
-        await app.nativeKey("ArrowDown", ["cmd", "alt"]);
+        await app.nativeKey("]", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
@@ -178,16 +181,16 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
           { timeoutMs: 5_000 },
         );
         const back = await standing(app);
-        note("after ⌥⌘↓", JSON.stringify(back));
+        note("after ⌃⌘]", JSON.stringify(back));
         expect(
           back.flushIndex,
-          "⌥⌘↓ returns to the post ⌥⌘↑ stepped off",
+          "⌃⌘] returns to the post ⌃⌘[ stepped off",
         ).toBe(firstUp.flushIndex);
 
         // ── And down past the last post is the live bottom: the gesture that
         // re-engages following rather than stopping one post short of it.
         for (let i = 0; i < 14; i++) {
-          await app.nativeKey("ArrowDown", ["cmd", "alt"]);
+          await app.nativeKey("]", ["cmd", "ctrl"]);
         }
         await app.waitForCondition<boolean>(
           `(function () {

@@ -115,6 +115,11 @@ import { shrinkCardsState } from "@/components/cards/cards-escape";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
 import { flashCardPane, flashSlot } from "@/lib/flash-pane-border";
 import {
+  isFocusDirection,
+  resolveDirectionalFocus,
+  type FocusTravelSpan,
+} from "@/lib/directional-focus";
+import {
   enumerateDropZones,
   type DropZoneHost,
 } from "@/lib/drop-zones";
@@ -417,6 +422,23 @@ function placeMembersByPaneId(
  *  place with no run has no allocation, and asking for one would measure the
  *  canvas for an answer nobody reads. */
 const UNMEASURED_RUNS: PlaceRuns = { rail: null, column: null };
+
+/**
+ * Where a lateral focus run entered, and the card it last landed on ([B06]).
+ *
+ * Module scope rather than a store, because nothing renders from it: it is the
+ * travel's own memory, read by one handler and written by the same one.
+ *
+ * **It needs no invalidation, and that is the design.** The memory is only in
+ * force while the keyboard still stands where the travel left it, so every event
+ * the brief lists as a reset — a click, a ring step, a slot assign, a card
+ * closing — moves the first responder somewhere else and the goal is ignored on
+ * the next read. A card closing takes its id with it, so a stale entry cannot
+ * even be matched. The one thing that survives is a click landing back on the
+ * same card, which is a focus change that changed no focus, and holding the line
+ * through it is the friendlier answer anyway.
+ */
+let focusTravelRun: { cardId: string; goal: FocusTravelSpan } | null = null;
 
 /**
  * Everything the imposer reads, as one string: the imposition record, which
@@ -1025,6 +1047,7 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.LOOK_UP_IN_DICTIONARY,
   TUG_ACTIONS.MOVE_TO_SLOT,
   TUG_ACTIONS.GO_TO_SLOT,
+  TUG_ACTIONS.FOCUS_CARD,
   TUG_ACTIONS.NUDGE_SLOT,
   TUG_ACTIONS.TOGGLE_COLUMN_SPLIT,
   TUG_ACTIONS.MOVE_IN_COLUMN,
@@ -1518,6 +1541,72 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           }),
         );
         flashSlot(store, slot);
+      },
+      // ⌥⌘←/→/↑/↓ — hand the keyboard to the card that is spatially in that
+      // direction ([D184]). The canvas owns it for the reason it owns the
+      // lateral ring: only this root sees every pane, so only it can reckon
+      // across them.
+      //
+      // It reads the FIRST RESPONDER rather than the layout selection, unlike
+      // every other geometry verb here, and the difference is the verb's: those
+      // arrange a card the user has named, this moves the keyboard, so where
+      // the keyboard is IS the source. The geometry is
+      // `lib/directional-focus.ts` — nothing about the rule lives in this
+      // handler, which does the four things around it instead.
+      //
+      // Arrival goes through `transferFocusForActivation`, the click path's own
+      // taxonomy (SAVE outgoing → commit → resolve incoming → focus transfer),
+      // never a raw `activateCard`: that flips the composite first-responder bit
+      // and skips the transfer, leaving the caret in the card the reader just
+      // left. **The travel that brings an off-band target into view ([B08]) is
+      // that commit's own**, not a second move made here: `activateCard`
+      // reveals what it raises, sliding the flow band, the target's column and
+      // its rail each by the least that shows the member ([P12]) and spreading
+      // all three into the SAME commit as the raise, so the settle animates
+      // them together ([P10]). A centering pass afterwards would be a second
+      // arrangement change a beat later, and the wrong rule besides — centering
+      // is what a reader who named a slot by number means, and this reader
+      // named a direction. Then the arrival flashes, which is the answer Go to
+      // Slot gives and for the same reason: on a deck of near-identical cards,
+      // focus moving is not by itself visible enough to say which card it
+      // moved to.
+      //
+      // A refusal is VISIBLE ([B09]): at the arrangement's edge the pane the
+      // reader is standing in flashes, which is the receipt a refused
+      // `move-in-column` already gives. A chord that does nothing and says
+      // nothing cannot be told from one that never arrived ([P08]).
+      [TUG_ACTIONS.FOCUS_CARD]: (event: ActionEvent) => {
+        if (!isFocusDirection(event.value)) return;
+        if (reactivateWhenDeselected()) return;
+        const sourceCardId = store.getFirstResponderCardId();
+        if (sourceCardId === null) return;
+        // The line this run is travelling, if it is still the run that left the
+        // keyboard here. Any other focus change makes the ids disagree and the
+        // run starts fresh from this card's own band.
+        const goal =
+          focusTravelRun?.cardId === sourceCardId ? focusTravelRun.goal : null;
+        const target = resolveDirectionalFocus(
+          store.getSnapshot(),
+          {
+            rail: store.getRailRunHeight(),
+            column: store.getColumnRunHeight(),
+          },
+          sourceCardId,
+          event.value,
+          goal,
+        );
+        if (target === null) {
+          flashCardPane(store, sourceCardId);
+          return;
+        }
+        focusTravelRun = { cardId: target.cardId, goal: target.goal };
+        transferFocusForActivation({
+          outgoingCardId: sourceCardId,
+          incomingCardId: target.cardId,
+          store,
+          commitMutation: () => store.activateCard(target.cardId),
+        });
+        flashCardPane(store, target.cardId);
       },
       // ⌥⇧⌘[ / ⌥⇧⌘] — move the layout selection one slot along the
       // arrangement. The canvas owns it for the same reason it owns ⌘1..9,

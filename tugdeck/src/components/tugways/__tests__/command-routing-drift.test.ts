@@ -249,6 +249,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "run-card-command": { bridgeFor: TUG_ACTIONS.RUN_SLASH_COMMAND },
   "set-pane-width": { bridgeFor: TUG_ACTIONS.SET_PANE_WIDTH },
   "go-to-slot": { bridgeFor: TUG_ACTIONS.GO_TO_SLOT },
+  "focus-card": { bridgeFor: TUG_ACTIONS.FOCUS_CARD },
   "toggle-bullseye": "command",
   "toggle-column-split": "command",
   "move-in-column": { bridgeFor: TUG_ACTIONS.MOVE_IN_COLUMN },
@@ -389,6 +390,15 @@ const MOVED_SINCE_THE_MAP: ReadonlyMap<string, string> = new Map([
   // ⌃⌘T is the Tripwires sidebar row's; a theme has no ⌘T base to be a
   // variant of, so it is the one of the two free to sit anywhere.
   ["next-theme", "⇧⌘T"],
+  // The turn family moved off the arrows and onto the brackets ([D184]): a
+  // bracket steps a series and a transcript is one, so directional card focus
+  // could take the whole ⌥⌘ arrow band — the band that moves the reader
+  // through the deck's geometry. The ⇧ pair renders as ⌃⌘{ / ⌃⌘} because a
+  // shifted-pair key spends its ⇧ on the character.
+  [TUG_ACTIONS.PREVIOUS_TURN, "⌃⌘["],
+  [TUG_ACTIONS.NEXT_TURN, "⌃⌘]"],
+  [TUG_ACTIONS.FIRST_TURN, "⌃⌘{"],
+  [TUG_ACTIONS.LAST_TURN, "⌃⌘}"],
 ]);
 
 /**
@@ -440,6 +450,16 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   ["⌃⌘4", `${TUG_ACTIONS.GO_TO_SLOT}:4`],
   ["⌃⌘5", `${TUG_ACTIONS.GO_TO_SLOT}:5`],
   ["⌃⌘6", `${TUG_ACTIONS.GO_TO_SLOT}:6`],
+  // Directional card focus. ⌃⌘ arrows move the FURNITURE — a rail on that side,
+  // a card up its column — and ⌥⌘ arrows move the READER through that same
+  // geometry, so on the horizontal pair the two read as a pair: ⌃⌘← opens the
+  // left side, ⌥⌘← walks into it ([D184]). All four or none: the family's only
+  // mnemonic is the geometry itself, and ⌥⌘↑/↓ is what the turn family vacated
+  // when it moved to the bracket row.
+  ["⌥⌘←", `${TUG_ACTIONS.FOCUS_CARD}:left`],
+  ["⌥⌘→", `${TUG_ACTIONS.FOCUS_CARD}:right`],
+  ["⌥⌘↑", `${TUG_ACTIONS.FOCUS_CARD}:above`],
+  ["⌥⌘↓", `${TUG_ACTIONS.FOCUS_CARD}:below`],
   // Bullseye — a card's POSTURE on the deck, one tier-mate of the width row
   // above: ⌃⌘ carries Tug's layout and card-posture vocabulary generally,
   // of which the sidebar toggles are one family.
@@ -465,7 +485,7 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // ⌃⌘ arrows are neither bound in Tug nor on the macOS never-bind list,
   // which reserves plain ⌃-arrows for Spaces rather than the ⌘ composition.
   // ⌃⇧⌘ is the counterpart set of the ⌃⌘ base — top/bottom is the ⇧-extreme
-  // of up/down, the same shape ⌥⇧⌘↑/↓ First/Last Turn has one tier over.
+  // of up/down, the same shape ⌃⇧⌘[/] First/Last Turn has one key class over.
   ["⌃⌘S", TUG_ACTIONS.TOGGLE_COLUMN_SPLIT],
   ["⌃⌘↑", `${TUG_ACTIONS.MOVE_IN_COLUMN}:up`],
   ["⌃⌘↓", `${TUG_ACTIONS.MOVE_IN_COLUMN}:down`],
@@ -613,6 +633,23 @@ describe("every registry-routed command has a body to run", () => {
     });
   }
 
+  // The same gap one door over, and the one that actually shipped. A
+  // `{ bridgeFor }` wire is a bare host name that is NOT a command id, so
+  // `dispatchAction` resolves it through the handler map — the map
+  // `registerAction` writes — and hands off to the per-value id from there.
+  // The routing on those per-value entries says nothing about it: they can be
+  // `first-responder` and still be unreachable, because the frame never gets
+  // that far. `focus-card` shipped with four Window rows, four key
+  // equivalents, a live per-direction gate, and no handler under the bare
+  // wire; AppKit fired, the frame arrived, `dispatchAction` warned "unknown
+  // action", and the whole feature did nothing from either the menu or the
+  // keyboard. Nothing else in this file could see it.
+  for (const [wire, kind] of Object.entries(SWIFT_WIRES)) {
+    if (typeof kind === "string") continue;
+    test(`${wire} has a bridge in action-dispatch`, () => {
+      expect(registered.has(wire)).toBe(true);
+    });
+  }
 });
 
 /**

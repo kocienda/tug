@@ -186,6 +186,10 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘T | `toggle-tripwires` | Show Tripwires | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
 | ⌃⌘W | `toggle-cards` | Show Cards | menu bar (swept) |
+| ⌃⌘[ | `previous-turn` | Previous Turn | menu bar (swept) |
+| ⌃⌘] | `next-turn` | Next Turn | menu bar (swept) |
+| ⌃⌘{ | `first-turn` | First Turn | menu bar (swept) |
+| ⌃⌘} | `last-turn` | Last Turn | menu bar (swept) |
 | ⌃⌘← | `toggle-rail:left` | Show Left Rail | menu bar (swept) |
 | ⌃⌘↑ | `move-in-column:up` | Move Card Up in Column | menu bar (swept) |
 | ⌃⌘→ | `toggle-rail:right` | Show Right Rail | menu bar (swept) |
@@ -230,8 +234,6 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⇥ | `cycle-focus-mode` | Cycle Focus Mode | JS, global |
 | ⌥⇧⌘C | `copy-as-plain-text` | Copy as Plain Text | JS, global |
 | ⌥⇧⌘V | `paste-as-plain-text` | Paste as Plain Text | JS, global |
-| ⌥⇧⌘↑ | `first-turn` | First Turn | menu bar (swept) |
-| ⌥⇧⌘↓ | `last-turn` | Last Turn | menu bar (swept) |
 | ⌥⌘/ | `show-devtools` | Show DevTools | menu bar (swept) |
 | ⌥⌘H | `hide-others` | Hide Others | menu bar (AppKit's own) |
 | ⌥⌘L | `make-lowercase` | Make Lowercase | menu bar (swept) |
@@ -242,8 +244,10 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⌘] | `next-stack-card` | Next Card in Stack | JS, global |
 | ⌥⌘{ | `nudge-slot:left` | Nudge Card Left | JS, global |
 | ⌥⌘} | `nudge-slot:right` | Nudge Card Right | JS, global |
-| ⌥⌘↑ | `previous-turn` | Previous Turn | menu bar (swept) |
-| ⌥⌘↓ | `next-turn` | Next Turn | menu bar (swept) |
+| ⌥⌘← | `focus-card:left` | Focus Card Left | menu bar (swept) |
+| ⌥⌘↑ | `focus-card:above` | Focus Card Above | menu bar (swept) |
+| ⌥⌘→ | `focus-card:right` | Focus Card Right | menu bar (swept) |
+| ⌥⌘↓ | `focus-card:below` | Focus Card Below | menu bar (swept) |
 | ⎋ | `cancel-dialog` | Cancel | JS, global |
 <!-- /generated:chords -->
 
@@ -355,6 +359,10 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `window.columnMoveUp` | `move-in-column:up` | first responder | registry gate |
 | `window.columnSplit` | `toggle-column-split` | first responder | registry gate |
 | `window.enterFullScreen` | `toggle-full-screen` | AppKit performs it | host tier |
+| `window.focusCardAbove` | `focus-card:above` | first responder | registry gate |
+| `window.focusCardBelow` | `focus-card:below` | first responder | registry gate |
+| `window.focusCardLeft` | `focus-card:left` | first responder | registry gate |
+| `window.focusCardRight` | `focus-card:right` | first responder | registry gate |
 | `window.goToSlot.1` | `go-to-slot:1` | first responder | registry gate |
 | `window.goToSlot.2` | `go-to-slot:2` | first responder | registry gate |
 | `window.goToSlot.3` | `go-to-slot:3` | first responder | registry gate |

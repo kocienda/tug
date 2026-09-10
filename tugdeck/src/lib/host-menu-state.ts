@@ -54,6 +54,7 @@ import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { chordCaptureState } from "../components/tugways/chord-capture-state";
 import { getSettings, lastKnownMakerMode } from "./maker-mode-bridge";
 import { resolveColumnMenuFact } from "./layout-selection";
+import { focusTravelDirections } from "./directional-focus";
 import {
   cardsSelectionStore,
   subscribeLayoutCursorCard,
@@ -853,6 +854,17 @@ export class HostMenuStatePublisher {
    * (see {@link initHostMenuState}).
    */
   private columnFactSource: (() => CommandMenuFacts["column"]) | null = null;
+  /**
+   * Which directions a focus move could take right now, asked rather than
+   * stored — for {@link columnFactSource}'s reason one axis over. The fact reads
+   * the runs the deck's places divide, and a run is a MEASUREMENT off the store
+   * rather than a field of `DeckState`, so it cannot be projected: it has to be
+   * asked at flush time, where the answer is as fresh as whatever caused the
+   * flush.
+   */
+  private focusTravelFactSource:
+    | (() => CommandMenuFacts["focusTravel"])
+    | null = null;
   /** Recent-document MRU, mirrored outward for the Open Recent submenu. */
   private recentDocuments: string[] = [];
   /** The active theme, for the Theme submenu's checkmark. */
@@ -871,6 +883,15 @@ export class HostMenuStatePublisher {
   /** Register the closure the flush asks for {@link CommandMenuFacts.column}. */
   setColumnFactSource(source: () => CommandMenuFacts["column"]): void {
     this.columnFactSource = source;
+    this.scheduleFlush();
+  }
+
+  /** Register the closure the flush asks for
+   *  {@link CommandMenuFacts.focusTravel}. */
+  setFocusTravelFactSource(
+    source: () => CommandMenuFacts["focusTravel"],
+  ): void {
+    this.focusTravelFactSource = source;
     this.scheduleFlush();
   }
 
@@ -1060,6 +1081,7 @@ export class HostMenuStatePublisher {
       reachableSlots,
       sidebars,
       column: this.columnFactSource?.() ?? null,
+      focusTravel: this.focusTravelFactSource?.() ?? null,
     };
     this.lastFacts = facts;
     const commands = computeCommandCapabilities(this.validationSource(facts));
@@ -1138,6 +1160,18 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
   // ([P05]). Its two non-deck inputs push a flush themselves: the selection
   // store, and the Cards list's cursor.
   publisher.setColumnFactSource(() => resolveColumnMenuFact(deck));
+  // The focus family's gate, per direction. It needs no subscription of its own:
+  // its one non-deck input is the pair of measured runs, and a run only moves
+  // when the canvas re-lays out, which pushes a projection anyway. What it must
+  // NOT be is projected, because `projectDeckState` sees the state and not the
+  // store the measurements live on.
+  publisher.setFocusTravelFactSource(() =>
+    focusTravelDirections(
+      deck.getSnapshot(),
+      { rail: deck.getRailRunHeight(), column: deck.getColumnRunHeight() },
+      deck.getFirstResponderCardId(),
+    ),
+  );
   cardsSelectionStore.subscribe(() => {
     publisher.refresh();
   });

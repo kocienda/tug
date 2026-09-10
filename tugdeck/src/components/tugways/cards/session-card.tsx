@@ -257,6 +257,8 @@ import {
   type CardServices,
 } from "@/lib/card-services-store";
 import { cardTitleStore } from "@/lib/card-title-store";
+import { paneTitleBarItemsStore } from "@/lib/pane-title-bar-items-store";
+import { SESSION_TRANSCRIPT_TITLE_BAR_ITEMS } from "@/lib/session-transcript-title-bar-items";
 import { registerCardCloseAdvice } from "@/lib/card-close-advice";
 import { readSessionCardCloseAdvice } from "@/lib/session-card-close-advice";
 import {
@@ -4661,7 +4663,7 @@ export function SessionCardBody({
       [TUG_ACTIONS.CYCLE_FOCUS_MODE]: (_event: ActionEvent) => {
         cycle.toggle();
       },
-      // ⌥⌘↑ / ⌥⌘↓ — step the transcript one turn back / forward. The
+      // ⌃⌘[ / ⌃⌘] — step the transcript one turn back / forward. The
       // card-content responder owns this because the transcript is the
       // card's content; routing the chord here (rather than a listener
       // on the transcript's scroll container) is what makes it work from
@@ -4674,7 +4676,7 @@ export function SessionCardBody({
       [TUG_ACTIONS.NEXT_TURN]: (_event: ActionEvent) => {
         transcriptRef.current?.pageByEntry("down");
       },
-      // ⌥⇧⌘↑ / ⌥⇧⌘↓ — jump the transcript to the very top / bottom.
+      // ⌃⇧⌘[ / ⌃⇧⌘] — jump the transcript to the very top / bottom.
       [TUG_ACTIONS.FIRST_TURN]: (_event: ActionEvent) => {
         transcriptRef.current?.scrollToTop();
       },
@@ -4998,6 +5000,17 @@ export function SessionCardBody({
       cardTitleStore.clear(cardId);
     };
   }, [cardId, sessionLine, boundSessionId]);
+
+  // The four Go in Transcript verbs, as rows in the pane title bar's `…`
+  // popup ([D184]) — the list and the argument for it live in
+  // `session-transcript-title-bar-items.ts`. Membership is unconditional for
+  // as long as this body stands, which is the whole of what the card decides;
+  // a card still on its project picker has no transcript for these to be
+  // about, and this body is not mounted then.
+  useLayoutEffect(() => {
+    paneTitleBarItemsStore.set(cardId, SESSION_TRANSCRIPT_TITLE_BAR_ITEMS);
+    return () => paneTitleBarItemsStore.set(cardId, null);
+  }, [cardId]);
 
   const projectChipText =
     projectDir !== null ? formatPathChipText(projectDir) : null;

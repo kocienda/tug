@@ -1181,8 +1181,8 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
     // browser's native focus-driven key scrolling both require DOM focus
     // inside the scroll container, which engine-routed mode never grants — so
     // the engine routes the intent itself: first through the responder chain's
-    // established transcript paging actions (the same handlers the ⌥⌘↑/↓ and
-    // ⌥⇧⌘↑/↓ chords drive, [D07]-coherent), then a generic region scroll via
+    // established transcript paging actions (the same handlers the ⌃⌘[/] and
+    // ⌃⇧⌘[/] chords drive, [D07]-coherent), then a generic region scroll via
     // the `tug-region-scroll-set` channel every scroll region listens on.
     function engineScrollKeyListener(event: KeyboardEvent): void {
       if (event.defaultPrevented) return;

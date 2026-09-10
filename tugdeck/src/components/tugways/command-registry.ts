@@ -220,6 +220,25 @@ export interface CommandMenuFacts {
     readonly canMoveDown: boolean;
   } | null;
   /**
+   * Whether a directional focus move would act, per direction. `null` when none
+   * would — no card holds the keyboard, or the card that does stands in no place
+   * (a free pane), which is the same pair of gates the reckoning itself refuses
+   * on.
+   *
+   * It reads the FIRST RESPONDER rather than the layout selection, unlike
+   * {@link column}, because that is what the verb acts on: the gesture moves the
+   * keyboard, so where the keyboard is IS the source. Same promotion argument
+   * either way — AppKit resolves a key equivalent before the web view sees the
+   * keydown, so an item this fact dims is a chord that stops firing, and a fact
+   * narrower than the verb would take the chord down with the item ([P05]).
+   */
+  readonly focusTravel: {
+    readonly left: boolean;
+    readonly right: boolean;
+    readonly above: boolean;
+    readonly below: boolean;
+  } | null;
+  /**
    * Every registered sidebar card, keyed by component id — the registry's
    * set rather than whatever is open, so a hidden card still has an entry
    * and its row still has something to say. A component id absent from the
@@ -263,6 +282,7 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   bullseye: null,
   reachableSlots: 0,
   column: null,
+  focusTravel: null,
   sidebars: {},
 };
 
@@ -730,8 +750,9 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
  * The arrows are R1-exempt (rule R2), and ⌃⌘ arrows are unbound in Tug and
  * absent from the macOS never-bind list, which reserves plain ⌃-arrows for
  * Spaces and not the ⌘ composition. ⌃⇧⌘↑/↓ is the counterpart set of a ⌃⌘
- * base: top and bottom are the ⇧-extreme of up and down, exactly the ⌥⇧⌘↑/↓
- * First/Last Turn pattern one tier over.
+ * base: top and bottom are the ⇧-extreme of up and down, exactly the ⌃⇧⌘[/]
+ * First/Last Turn pattern one key class over ([D184] moved that family to the
+ * brackets; the shape it lends this one is unchanged).
  *
  * Four move entries rather than one signed command, for the same reason the
  * width row is three: each is separately rebindable and each is one row in the
@@ -936,6 +957,75 @@ const GO_TO_SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
     };
   },
 );
+
+/**
+ * ⌥⌘←/→/↑/↓ — hand the keyboard to the card that is spatially in that
+ * direction.
+ *
+ * **The band, derived** (tuglaws/chord-tiers.md, "Arrows are geometry, brackets
+ * are series"): ⌃⌘ arrows move the FURNITURE — a rail on that side, a card up
+ * its column — and ⌥⌘ arrows move the READER through that same geometry. On the
+ * horizontal pair the two read as a pair: ⌃⌘← opens the left side, ⌥⌘← walks
+ * into it. Arrows are R1-exempt under R2, and the mnemonic is the geometry
+ * itself — the chord points where you are going, which is the rail pair's own
+ * argument one tier up.
+ *
+ * **All four or none** ([B01]). The family's only mnemonic IS the geometry, and
+ * a mnemonic with a hole in it is a list again. ⌥⌘←/→ were free; ⌥⌘↑/↓ came from
+ * the turn family, which moved to the bracket row where a series belongs
+ * ([D184]). The ⇧-extremes are deliberately NOT granted: `move-in-column` keeps
+ * all four of its chords, so Focus Topmost / Bottommost are not commands and
+ * ⌥⇧⌘↑/↓ stays free rather than being spent in the change that vacated it.
+ *
+ * **Promoted to the Window menu with empty Swift key equivalents** ([B10]).
+ * R6 makes the placement half the grant, and the preemption is the point rather
+ * than a cost: ⌥⌘ arrows are not text currency in any Tug surface (plain ⌥
+ * arrows are word motion; the ⌘ composition is not), and deck-level focus is not
+ * a surface's to decline. `disabledChord: "keep"`, as the split family does —
+ * nothing else in the funnel wants these chords, so a detach has nothing to hand
+ * them back to and the two answers would be indistinguishable here.
+ *
+ * **What a dark row actually does to the press was measured rather than
+ * assumed**, and it is what makes the refusal flash ([B09]) reachable at all:
+ * AppKit declines to fire a disabled item and leaves the keydown alone, so it
+ * arrives at the web view's own funnel, where THIS entry's binding is still
+ * standing — the handler resolves the move, gets `null`, and flashes the pane
+ * that is not going anywhere. So the arrangement's edge answers twice, the dark
+ * row before the press and the border after it, and
+ * `at0547-directional-card-focus.test.ts` holds both together on a real menu
+ * bar. (The general note on {@link CommandEntry.disabledChord} tells it the
+ * other way, as a chord eaten with a beep; that reading predates this
+ * measurement and is not what the four rows here do.)
+ *
+ * The gate reads the FIRST RESPONDER, not the layout selection, because the verb
+ * moves the keyboard rather than a card — and it answers per direction, so an
+ * item is live exactly when its chord would act ([P05]).
+ */
+const FOCUS_CARD_COMMANDS: readonly CommandEntry[] = (
+  [
+    ["left", "ArrowLeft", "Left"],
+    ["right", "ArrowRight", "Right"],
+    ["above", "ArrowUp", "Above"],
+    ["below", "ArrowDown", "Below"],
+  ] as const
+).map(([direction, key, word]) => ({
+  id: `${TUG_ACTIONS.FOCUS_CARD}:${direction}`,
+  title: `Focus Card ${word}`,
+  routing: "first-responder" as const,
+  action: TUG_ACTIONS.FOCUS_CARD,
+  payload: direction,
+  menuItemId: `window.focusCard${word}`,
+  mirrored: true,
+  bindings: [
+    chord(
+      { key, alt: true, meta: true, label: key },
+      { preventDefault: true, menuEligible: true },
+    ),
+  ],
+  validate: (chain: CommandValidationSource) =>
+    chain.menu.focusTravel?.[direction] === true,
+  disabledChord: "keep" as const,
+}));
 
 /**
  * ⌃⌘← / ⌃⌘→ — show or hide a whole SIDE of the deck.
@@ -1802,6 +1892,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     disabledChord: "detach",
   },
   ...GO_TO_SLOT_COMMANDS,
+  ...FOCUS_CARD_COMMANDS,
   ...RAIL_TOGGLE_COMMANDS,
   ...CARD_WIDTH_COMMANDS,
   // ⌃⌘B — bullseye: put the focused card in a centered, comfy-width reading
@@ -2463,13 +2554,38 @@ export const COMMANDS: readonly CommandEntry[] = [
     bindings: [chord({ key: "Tab", alt: true, label: "Tab" }, { preventDefault: true })],
   },
   {
+    // ⌃⌘[ / ⌃⌘] and ⌃⇧⌘[ / ⌃⇧⌘] — step the transcript's turns, and jump to
+    // its ends.
+    //
+    // **The key class, derived** ([D184], tuglaws/chord-tiers.md § "Arrows are
+    // geometry, brackets are series"): a bracket steps a series and an arrow
+    // points at a place. A transcript is an ordered run of turns and nothing
+    // about moving through it is spatial, so the family belongs on the bracket
+    // row beside the lateral card ring (⇧⌘[/]), the stack ring (⌥⌘[/]) and the
+    // slot nudge (⌥⇧⌘[/]) — `[` back and `]` forward in all four. It sat on
+    // ⌥⌘↑/↓ and ⌥⇧⌘↑/↓ until directional card focus took the whole ⌥⌘ arrow
+    // band, which is the band that moves the READER through the deck's
+    // geometry; the arrow shape here was carrying a resemblance rather than a
+    // meaning. ⌃⇧⌘ is the ⇧-extreme sharing its base's key, which satisfies R1
+    // outright instead of leaning on R2's arrows exemption.
+    //
+    // **⌃⌘ and ⌃⇧⌘ brackets clear CodeMirror, and that is load-bearing.**
+    // `defaultKeymap` binds `Mod-[` / `Mod-]` to `indentLess` / `indentMore`
+    // and Tug installs it in both the composer and the text card, so plain
+    // ⌘[/] would be destructive promoted and dead in the composer — the one
+    // surface turn stepping is used from, since a reader steps back through
+    // turns with the caret still in the prompt. These compositions are
+    // untouched by it, so the chords keep the property the arrows had.
+    //
+    // The ⇧ pair RENDERS as ⌃⌘{ / ⌃⌘} because a shifted-pair key spends its ⇧
+    // on the character, the rule Previous Card (⌘{) and Zoom In (⌘+) read by.
     id: TUG_ACTIONS.PREVIOUS_TURN,
     title: "Previous Turn",
     routing: "key-card",
     menuItemId: "session.previousTurn",
     bindings: [
       chord(
-        { key: "ArrowUp", alt: true, meta: true, label: "ArrowUp" },
+        { key: "BracketLeft", ctrl: true, meta: true, label: "[" },
         { preventDefault: true, menuEligible: true },
       ),
     ],
@@ -2484,7 +2600,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     menuItemId: "session.nextTurn",
     bindings: [
       chord(
-        { key: "ArrowDown", alt: true, meta: true, label: "ArrowDown" },
+        { key: "BracketRight", ctrl: true, meta: true, label: "]" },
         { preventDefault: true, menuEligible: true },
       ),
     ],
@@ -2500,11 +2616,11 @@ export const COMMANDS: readonly CommandEntry[] = [
     bindings: [
       chord(
         {
-          key: "ArrowUp",
-          alt: true,
+          key: "BracketLeft",
+          ctrl: true,
           shift: true,
           meta: true,
-          label: "ArrowUp",
+          label: "[",
         },
         { preventDefault: true, menuEligible: true },
       ),
@@ -2521,11 +2637,11 @@ export const COMMANDS: readonly CommandEntry[] = [
     bindings: [
       chord(
         {
-          key: "ArrowDown",
-          alt: true,
+          key: "BracketRight",
+          ctrl: true,
           shift: true,
           meta: true,
-          label: "ArrowDown",
+          label: "]",
         },
         { preventDefault: true, menuEligible: true },
       ),

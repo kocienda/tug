@@ -20,7 +20,7 @@
  * |                     | 0×0 ResizeObserver entries into the ledger and wiping |
  * |                     | it via the width invalidator — scroll geometry then   |
  * |                     | collapses and the position snaps until rows re-measure|
- * | turn stepping       | ⌥⌘↑/⌥⌘↓ dead on an evicted transcript (the pager     |
+ * | turn stepping       | ⌃⌘[/⌃⌘] dead on an evicted transcript (the pager     |
  * |                     | required every cell mounted and bailed on the first   |
  * |                     | unmounted row)                                        |
  * | hidden restore      | a restore completing behind a hidden card holding its |
@@ -456,23 +456,23 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
         // scrollport top, including presses whose target was unmounted and
         // reached via the estimated-jump + post-commit-correction protocol.
         // The chord's real route is the keybinding map's `key-card` scope
-        // (keybinding-map.ts, ⌥⌘↑ → PREVIOUS_TURN), read by the responder
+        // (keybinding-map.ts, ⌃⌘[ → PREVIOUS_TURN), read by the responder
         // chain's document-level CAPTURE listener. Two other drives were
         // tried and are wrong: `dispatchControlAction` registers key-card
         // adapters for a fixed list that excludes the turn steps (silent
         // no-op), and a native key needs the window to be key, which a
         // background app-test window is not. Dispatching the KeyboardEvent
         // on `document` enters the same capture listener a real chord does.
-        const chord = (key: string): Promise<void> =>
+        const chord = (code: string, key: string): Promise<void> =>
           app.evalJS<void>(`(function () {
   document.dispatchEvent(new KeyboardEvent("keydown", {
-    key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)},
-    altKey: true, metaKey: true,
+    key: ${JSON.stringify(key)}, code: ${JSON.stringify(code)},
+    ctrlKey: true, metaKey: true,
     bubbles: true, cancelable: true, composed: true,
   }));
 })()`);
-        const stepUp = (): Promise<void> => chord("ArrowUp");
-        const stepDown = (): Promise<void> => chord("ArrowDown");
+        const stepUp = (): Promise<void> => chord("BracketLeft", "[");
+        const stepDown = (): Promise<void> => chord("BracketRight", "]");
 
         // Stepping up off the pinned live edge is the user's own gesture.
         const atBottom = await readState();
