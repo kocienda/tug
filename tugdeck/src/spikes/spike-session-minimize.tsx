@@ -379,20 +379,14 @@ const MinimizedCard = React.forwardRef<HTMLDivElement, { f: SessionFixture }>(
 // The way in — Z5 on the full card
 // ---------------------------------------------------------------------------
 
-function Z5Row(): React.ReactElement {
+/** The prompt entry's bottom: the placeholder line, then the toolbar row —
+ *  Minimize at the leading edge, a gap, Z4A's route group, Z4B's chips
+ *  centred, and Z5 holding the submit alone. */
+function EntryRow(): React.ReactElement {
   return (
-    <div className="spm-toolbar">
-      <span className="spm-z4a">
-        <span className="spm-route" data-on="true">
-          Prompt
-        </span>
-        <span className="spm-route">Changes</span>
-      </span>
-      <span className="spm-z4b">
-        <span className="spm-badge">tug</span>
-        <span className="spm-badge">Claude Code 2.1.148</span>
-      </span>
-      <span className="spm-z5">
+    <div className="spm-entry">
+      <div className="spm-placeholder">Ask Tug to build, fix, or explain</div>
+      <div className="spm-toolbar">
         <TugIconButton
           icon={<ChevronsDownUp size={16} />}
           size="sm"
@@ -400,14 +394,26 @@ function Z5Row(): React.ReactElement {
           title="Minimize"
           aria-label="Minimize"
         />
-        <TugIconButton
-          icon={<ArrowUp size={16} />}
-          size="sm"
-          emphasis="filled"
-          title="Send"
-          aria-label="Send"
-        />
-      </span>
+        <span className="spm-z4a">
+          <span className="spm-route" data-on="true">
+            Prompt
+          </span>
+          <span className="spm-route">Changes</span>
+        </span>
+        <span className="spm-z4b">
+          <span className="spm-badge">Claude Code 2.1.148</span>
+          <span className="spm-badge">Sonnet 5 · medium</span>
+        </span>
+        <span className="spm-z5">
+          <TugIconButton
+            icon={<ArrowUp size={16} />}
+            size="sm"
+            emphasis="filled"
+            title="Send"
+            aria-label="Send"
+          />
+        </span>
+      </div>
     </div>
   );
 }
@@ -604,13 +610,15 @@ function SpikeSessionMinimize(): React.ReactElement {
       </section>
 
       <section className="sp-section">
-        <h2 className="sp-section-title">The way in — Z5 on the full card</h2>
+        <h2 className="sp-section-title">The way in — the prompt entry's toolbar row</h2>
         <div className="spm-frame">
-          <Z5Row />
+          <EntryRow />
         </div>
         <Caption>
-          Minimize is a button beside the submit at Z5&apos;s trailing edge. The
-          section menu and a chord are the other doors.
+          Minimize leads the row, then a gap, then Z4A&apos;s route group; Z4B&apos;s
+          chips float centred between the group and Z5, which holds the submit
+          alone. Card chrome on the left, the message&apos;s own controls on the
+          right. The section menu and a chord are the other doors.
         </Caption>
       </section>
 

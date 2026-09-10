@@ -238,19 +238,34 @@
 
 /* ── The way in: the full card's toolbar row ─────────────────────────── */
 
-.spm-toolbar {
+.spm-entry {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  flex-direction: column;
   box-sizing: border-box;
   border: 1px solid var(--tug7-element-global-border-normal-default-rest);
   border-radius: var(--tug-radius-md, 6px);
   background: var(--tug7-surface-card-primary-normal-default-rest);
 }
 
+/* The empty editor's placeholder line. */
+.spm-placeholder {
+  padding: 10px 12px 14px;
+  font-size: var(--tug-font-size-sm, 13px);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.spm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
 .spm-z4a {
   display: inline-flex;
+  /* The gap between the card's own control and the message's route group:
+     wider than the row's rhythm, so the two read as different kinds. */
+  margin-inline-start: 8px;
   border: 1px solid var(--tug7-element-global-border-normal-default-rest);
   border-radius: var(--tug-radius-sm, 4px);
   overflow: hidden;
