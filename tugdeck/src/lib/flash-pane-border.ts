@@ -4,7 +4,8 @@
  * One-shot pulse of a pane's BORDER: a CSS class toggled on the pane root,
  * which pulses an accent ring (box-shadow) and removes it on `animationend` —
  * pure appearance, never React state ([L06]). A mid-flash re-request restarts
- * the animation (remove → reflow → add).
+ * the animation (remove → reflow → add), and a flash on anything ELSE ends
+ * this one first — at most one ring is lit on the deck at a time.
  *
  * Every gesture that answers a reader by putting a card in front of them uses
  * it: the slot chords and `focus-session-card` raising a card that already
@@ -26,6 +27,20 @@ import type { IDeckManagerStore } from "@/deck-manager-store";
 
 const FLASH_CLASS = "tug-pane-flash";
 const FLASH_ANIMATION_NAME = "tug-pane-border-flash";
+
+/**
+ * The one flash currently on the deck, as the function that ends it.
+ *
+ * At most one thing flashes at a time. The directional focus commands
+ * (`Focus Card Left`/`Right`/`Above`/`Below`) can activate a card a keystroke
+ * after the last one, and a ring left behind on the card the reader has
+ * already moved off of says "look here" about a place they are no longer
+ * being sent to — two rings answering one gesture. So every flash cancels the
+ * one before it, whichever subject it was on: a card's ring puts out a
+ * vacancy's and the other way round, because the reader reads them the same.
+ */
+let cancelActiveFlash: (() => void) | null = null;
+
 /** Slack over the flash's own duration before the backstop fires. */
 const FLASH_BACKSTOP_SLACK_MS = 500;
 /** Used only when the computed duration can't be read (no chrome element yet). */
@@ -65,6 +80,7 @@ export function flashPaneBorder(paneId: string, allowRetry = true): void {
     if (allowRetry) window.setTimeout(() => flashPaneBorder(paneId, false), 0);
     return;
   }
+  cancelActiveFlash?.();
   paneEl.classList.remove(FLASH_CLASS);
   // Force a reflow so re-adding the class restarts the keyframes.
   void paneEl.offsetWidth;
@@ -73,6 +89,7 @@ export function flashPaneBorder(paneId: string, allowRetry = true): void {
     paneEl.classList.remove(FLASH_CLASS);
     paneEl.removeEventListener("animationend", onEnd);
     window.clearTimeout(backstop);
+    if (cancelActiveFlash === clear) cancelActiveFlash = null;
   };
   // `animationend` bubbles, so the listener must name the flash's own
   // keyframes: any animation finishing anywhere inside the card — a streaming
@@ -86,6 +103,7 @@ export function flashPaneBorder(paneId: string, allowRetry = true): void {
   // `animationend` never arrives and the ring would rest on the pane forever.
   // The timer is the only thing that guarantees the flash is one-shot.
   const backstop = window.setTimeout(clear, flashBackstopMs(paneEl, ".tug-pane-chrome"));
+  cancelActiveFlash = clear;
 }
 
 /**
@@ -126,6 +144,7 @@ export function flashVacantSlot(slot: number): void {
     `.tug-slot-vacancy[data-vacant-slot="${CSS.escape(String(slot))}"]`,
   );
   if (!(el instanceof HTMLElement)) return;
+  cancelActiveFlash?.();
   el.classList.remove(VACANCY_FLASH_CLASS);
   void el.offsetWidth;
   el.classList.add(VACANCY_FLASH_CLASS);
@@ -133,6 +152,7 @@ export function flashVacantSlot(slot: number): void {
     el.classList.remove(VACANCY_FLASH_CLASS);
     el.removeEventListener("animationend", onEnd);
     window.clearTimeout(backstop);
+    if (cancelActiveFlash === clear) cancelActiveFlash = null;
   };
   const onEnd = (event: AnimationEvent): void => {
     if (event.animationName !== VACANCY_FLASH_ANIMATION_NAME) return;
@@ -142,6 +162,7 @@ export function flashVacantSlot(slot: number): void {
   // Same reason as the pane's: a window whose rendering is suspended never
   // ticks the keyframes, so the timer is what makes the flash one-shot.
   const backstop = window.setTimeout(clear, flashBackstopMs(el, ".tug-slot"));
+  cancelActiveFlash = clear;
 }
 
 /**
