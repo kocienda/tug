@@ -15,10 +15,12 @@
  * The properties under test:
  *   - the question reaches the focused session's card with no `sessionId`
  *     given, which is the terminal case;
- *   - the caller's text renders, but under the app's own provenance chrome, so
- *     a question arriving over loopback cannot pose as an app prompt;
- *   - it is answerable from the keyboard: the ring seeds on Continue, arrows
- *     cross into the options and move the selection, and Return commits;
+ *   - a question with three or more options renders as the radio stack: the
+ *     caller's text renders, and the app's own statement of where the question
+ *     came from is the dialog root's accessible description, so a question
+ *     arriving over loopback cannot pose as an app prompt;
+ *   - that shape is answerable from the keyboard: the ring seeds on Continue,
+ *     arrows cross into the options and move the selection, and Return commits;
  *   - answering it releases the caller with the chosen option's value;
  *   - the session reads **Awaiting** in Z2 while the question is up, the same
  *     as the permission and question dialogs — a dialog holding the user's
@@ -26,15 +28,21 @@
  *   - but Z5 is untouched — Awaiting here is a reading, not a turn phase, so a
  *     session with no turn must not end up showing a Stop button with nothing
  *     to stop;
- *   - a question carrying `--unattended` says so on screen and then answers
- *     itself: the countdown line renders, the option it will commit is the one
- *     already checked, and an untouched dialog releases the caller with that
- *     value. This is the difference between a prompt that asks permission and
- *     one that offers a chance to intervene — the second must never park a run
+ *   - a **two-option** question is a different shape entirely: a pair of
+ *     buttons on the header row, no radio stack, and the caller's description
+ *     dropped even though they sent one — the slimness is the component's as
+ *     much as the caller's;
+ *   - a question carrying `--unattended` answers itself, and says so without a
+ *     sentence: the countdown is a rule whose `data-remaining` and progressbar
+ *     value carry the seconds, the rule lies on the frame's own bottom edge
+ *     rather than beside it, the ring rests on the option the count will
+ *     commit, and an untouched dialog releases the caller with that value.
+ *     This is the difference between a prompt that asks permission and one
+ *     that offers a chance to intervene — the second must never park a run
  *     because nobody was at the keyboard;
  *   - the entry pane stands down while the dialog is up. This is the one that
  *     bites: `TugTextEditor`'s Return defers to the pane's default button,
- *     which while this dialog is up is its Continue. If the composer stayed
+ *     which while this dialog is up is one of its own. If the composer stayed
  *     live, a Return meant for a prompt would answer a question the developer
  *     was not looking at.
  *
@@ -65,7 +73,9 @@ const TUGTOOL = resolve(REPO_ROOT, "tugrust/target/debug/tugtool");
 const DIALOG = '[data-slot="session-app-test-ask-dialog"]';
 const OPTION_GROUP = `${DIALOG} [data-slot="tug-radio-group"]`;
 const OPTION_ITEMS = `${DIALOG} [data-slot="tug-radio-item"]`;
-const CONTINUE = `${DIALOG} [data-slot="tug-inline-dialog-actions"] button`;
+// The frame's trailing cluster. In the radio shape it holds one button —
+// Continue — and in the button shape it holds the pair that IS the question.
+const ACTIONS = `${DIALOG} [data-slot="tug-inline-dialog-actions"] button`;
 const COUNTDOWN = `${DIALOG} [data-slot="session-app-test-ask-dialog-countdown"]`;
 
 /** Whether the element matched by `selector` carries `attr`. */
@@ -256,8 +266,8 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
         const opts = [...root.querySelectorAll('[data-slot="tug-radio-item"]')];
         return {
           title: root.querySelector('.tug-inline-dialog-title')?.textContent ?? '',
-          provenance: root.querySelector('.session-app-test-ask-dialog-provenance')?.textContent ?? '',
-          detail: root.querySelector('.session-app-test-ask-dialog-detail')?.textContent ?? '',
+          provenance: root.getAttribute('aria-description') ?? '',
+          detail: root.querySelector('.tug-inline-dialog-description')?.textContent ?? '',
           options: opts.map((b) => b.textContent ?? ''),
         };
       })()`);
@@ -270,11 +280,14 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
         rendered.detail,
         "ARRIVES: the caller's detail text renders",
       ).toContain("at0145-permission-dialog-keyboard");
-      // The impersonation guard: the caller's text never occupies the whole
-      // surface — the app's own provenance line sits above it.
+      // The impersonation guard. It never rested on a rendered line — it rests
+      // on the frame, the app's own caution-tinted icon, and the title being a
+      // plain string from the wire. What the line said is now the dialog
+      // root's accessible description, where it costs no height and a screen
+      // reader still gets it.
       expect(
         rendered.provenance,
-        "PROVENANCE: app-owned chrome names the question's origin",
+        "PROVENANCE: the dialog's accessible description names the question's origin",
       ).toContain("command on this machine");
       expect(rendered.options, "ARRIVES: all three choices render").toHaveLength(3);
 
@@ -336,7 +349,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
         "SAFE DEFAULT: the declining option (last) starts checked",
       ).toContain("Cancel");
       expect(
-        await expectRing(app, CONTINUE, "data-key-view-kbd"),
+        await expectRing(app, ACTIONS, "data-key-view-kbd"),
         "SEED: the ring opens on Continue, so Return commits",
       ).toBe(true);
 
@@ -392,7 +405,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
   );
 
   test(
-    "a countdown question answers itself at an empty keyboard",
+    "a two-option countdown question is a button pair, and answers itself",
     async () => {
       const proc = startCountdownAsk(app.instanceId, 3);
 
@@ -409,23 +422,108 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
         });
       }
 
-      // The line says what will happen, so nobody has to infer it from a
-      // dialog that quietly closes on its own.
-      const line = await app.evalJS<string>(
-        `(document.querySelector('${COUNTDOWN}')?.textContent ?? '')`,
-      );
-      expect(
-        line,
-        "COUNTDOWN: the dialog states that it continues on its own",
-      ).toContain("Continues with the selected option");
+      // Two options is a pair of buttons on the header row and nothing else.
+      // The caller sent a `--description` and a description on each option;
+      // none of it renders, which is the point — the slimness is the
+      // component's doing as much as the caller's.
+      const shape = await app.evalJS<{
+        buttons: Array<{ label: string; ring: boolean }>;
+        radioItems: number;
+        description: number;
+      }>(`(() => {
+        const root = document.querySelector('${DIALOG}');
+        const btns = [...root.querySelectorAll('[data-slot="tug-inline-dialog-actions"] button')];
+        return {
+          buttons: btns.map((b) => ({
+            label: b.textContent ?? '',
+            ring: b.hasAttribute("data-key-view-kbd"),
+          })),
+          radioItems: root.querySelectorAll('[data-slot="tug-radio-item"]').length,
+          description: root.querySelectorAll('.tug-inline-dialog-description').length,
+        };
+      })()`);
 
-      // No resting lie: what the countdown will commit is what the radio
-      // already shows checked — the caller's `--unattended`, not the
+      expect(
+        shape.buttons.length,
+        "BUTTONS: a two-option question is a pair of buttons",
+      ).toBe(2);
+      // Declining first, affirming second — the caller orders the declining
+      // option last, and the row reverses that so the primary sits outermost.
+      expect(
+        shape.buttons[0].label,
+        "BUTTONS: the declining option leads the pair",
+      ).toContain("Skip them");
+      expect(
+        shape.buttons[1].label,
+        "BUTTONS: the affirming option is the trailing, primary one",
+      ).toContain("Run them");
+      expect(
+        shape.radioItems,
+        "BUTTONS: no radio stack — the buttons ARE the question",
+      ).toBe(0);
+      expect(
+        shape.description,
+        "BUTTONS: the caller's description does not render in this shape",
+      ).toBe(0);
+
+      // No resting lie: with no selection to move, what the count will commit
+      // is what the ring rests on — the caller's `--unattended`, not the
       // declining option this dialog otherwise opens on.
       expect(
-        await checkedOption(app),
-        "COUNTDOWN: the option it will commit is the one preselected",
-      ).toContain("Run them");
+        shape.buttons[1].ring,
+        "COUNTDOWN: the ring rests on the option the count will commit",
+      ).toBe(true);
+      expect(
+        shape.buttons[0].ring,
+        "COUNTDOWN: and on nothing else",
+      ).toBe(false);
+
+      // The number left the screen; it must not have left the DOM. The rule's
+      // width is what a reader sees, and `at0320` has no business asserting on
+      // a CSS width — so the same tick writes the seconds where both a test
+      // and the accessibility tree can read them.
+      const count = await app.evalJS<{
+        role: string | null;
+        max: string | null;
+        remaining: string | null;
+      }>(`(() => {
+        const el = document.querySelector('${COUNTDOWN}');
+        return {
+          role: el.getAttribute('role'),
+          max: el.getAttribute('aria-valuemax'),
+          remaining: el.getAttribute('data-remaining'),
+        };
+      })()`);
+      expect(count.role, "COUNTDOWN: the rule reads as a progressbar").toBe("progressbar");
+      expect(count.max, "COUNTDOWN: its maximum is the caller's duration").toBe("3");
+      expect(
+        count.remaining,
+        "COUNTDOWN: the seconds are on `data-remaining`, not in a sentence",
+      ).toMatch(/^[0-3]$/);
+
+      // And it is the frame's bottom edge, not a bar floating near it. The
+      // frame is centered inside its own max width and carries a margin, so a
+      // rule positioned against the dialog root instead spans the whole pane
+      // and sits below the frame entirely — visible, wrong, and invisible to
+      // every assertion above.
+      const edge = await app.evalJS<{ dx: number; dy: number; dw: number }>(
+        `(() => {
+          const frame = document.querySelector('${DIALOG} [data-slot="tug-inline-dialog"]');
+          const rule = document.querySelector('${COUNTDOWN}');
+          const f = frame.getBoundingClientRect();
+          const r = rule.getBoundingClientRect();
+          return { dx: r.left - f.left, dy: f.bottom - r.bottom, dw: f.width - r.width };
+        })()`,
+      );
+      expect(
+        Math.abs(edge.dy) <= 2,
+        `PLACEMENT: the rule sits on the frame's bottom edge (off by ${edge.dy}px)`,
+      ).toBe(true);
+      expect(
+        Math.abs(edge.dx) <= 2 && Math.abs(edge.dw) <= 4,
+        `PLACEMENT: and spans the frame, not the pane (left off by ${edge.dx}px, ` +
+          `${edge.dw}px narrower)`,
+      ).toBe(true);
 
       // Nobody touches anything. The dialog commits, the caller is released,
       // and the answer is the one silence was declared to mean — the point of

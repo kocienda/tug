@@ -1,27 +1,24 @@
 /* @tug-pairings:
-   - --tugx-ask-provenance-color | --tugx-idialog-bg  (provenance line above the caller's own text)
-   - --tugx-ask-detail-color     | --tugx-idialog-bg  (the caller's detail line)
-   - --tugx-ask-countdown-color  | --tugx-idialog-bg  (the countdown line under the options)
+   - --tugx-ask-countdown-color  | --tugx-idialog-bg  (the countdown line)
+   - --tugx-ask-rule-color       | --tugx-idialog-bg  (the countdown rule's fill)
 */
 
 /**
  * session-app-test-ask-dialog.css — `AppTestAskDialog` chrome fragments.
  *
  * The dialog frame belongs to `TugInlineDialog` (which owns
- * `--tugx-idialog-*`) and the option rows to `TugRadioGroup`. This file owns
- * the two-line description slot and the group's placement, and the former's
- * job is a security one as much as a visual one:
+ * `--tugx-idialog-*`) and the option rows to `TugRadioGroup`. What is left
+ * for this file is the radio shape's group placement and the countdown in
+ * both its shapes — the radio shape's sentence, and the button shape's rule
+ * along the frame's bottom edge.
  *
- *   - `.session-app-test-ask-dialog-provenance` — the app's own line saying
- *     where the question came from. It sits above the caller's text and the
- *     caller cannot reach it, so a question arriving over loopback cannot
- *     pass itself off as one of the app's prompts. Rendered smaller and
- *     dimmer than the detail below it: it is a label, not the message.
- *   - `.session-app-test-ask-dialog-detail` — the caller's own supporting
- *     text, on its own line below the provenance label.
- *
- * Both are blocks so the two lines never run together into what could read
- * as one sentence.
+ * The app's own statement of where the question came from used to be a
+ * rendered line above the caller's text. It is now the dialog root's
+ * `aria-description`: it could only ever read "Requested by a command on this
+ * machine", so on screen it spent a row to say nothing, and its real job —
+ * that a question arriving over loopback cannot pass itself off as one of the
+ * app's prompts — always rested on the frame, the app's own caution-tinted
+ * icon, and the title being a plain string from the wire.
  *
  * Tuglaw cross-check:
  *  - [L06] appearance is CSS only; no React state drives any of this.
@@ -33,19 +30,23 @@
  */
 
 .session-app-test-ask-dialog {
-  --tugx-ask-provenance-color: var(--tug7-element-global-text-normal-muted-rest);
-  --tugx-ask-detail-color: var(--tug7-element-global-text-normal-rest);
   --tugx-ask-countdown-color: var(--tug7-element-global-text-normal-muted-rest);
-  --tugx-ask-provenance-size: 0.75rem;
-  --tugx-ask-provenance-gap: 0.25rem;
+  --tugx-ask-countdown-size: 0.75rem;
+  --tugx-ask-rule-color: var(--tug7-surface-toggle-primary-normal-caution-rest);
+  --tugx-ask-rule-height: 2px;
+  /* The frame's own radius, resolved from the same base rather than borrowed
+     from `--tugx-idialog-*`: the rule is clipped to it, and one component
+     does not reach into another's slots ([L20]). */
+  --tugx-ask-rule-radius: var(--tug-radius-md);
 }
 
-.session-app-test-ask-dialog-provenance {
-  display: block;
-  color: var(--tugx-ask-provenance-color);
-  font-size: var(--tugx-ask-provenance-size);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+/* The frame, in the button shape. The rule is positioned against it — against
+   the frame itself rather than this root, which is a flex item stretched to
+   the pane's full width while the frame is centered inside its own max width
+   and carries its own vertical margin. Positioning against the root put the
+   rule below the frame and wider than it. */
+.session-app-test-ask-dialog-frame {
+  position: relative;
 }
 
 /* The option group, centered under the description like the permission
@@ -64,15 +65,33 @@
   margin-top: var(--tug-space-md);
   text-align: center;
   color: var(--tugx-ask-countdown-color);
-  font-size: var(--tugx-ask-provenance-size);
+  font-size: var(--tugx-ask-countdown-size);
   font-variant-numeric: tabular-nums;
 }
 
-.session-app-test-ask-dialog-detail {
-  display: block;
-  margin-top: var(--tugx-ask-provenance-gap);
-  color: var(--tugx-ask-detail-color);
-  /* The caller's text can be a long list of filenames — wrap it rather than
-     letting it stretch the dialog. */
-  overflow-wrap: anywhere;
+/* The button shape's countdown: the frame's bottom edge itself, inset inside
+   the 1px border and clipped to the frame's radius so it reads as part of the
+   frame rather than as a bar laid across it. It renders inside the frame's
+   trailing cluster and is taken out of flow, so it adds no row and the header
+   layout is untouched. The track is transparent — what is visible is the
+   fill, and the fill is the whole statement. */
+.session-app-test-ask-dialog-countdown-rule {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  left: 1px;
+  height: var(--tugx-ask-rule-height);
+  overflow: hidden;
+  border-bottom-right-radius: calc(var(--tugx-ask-rule-radius) - 1px);
+  border-bottom-left-radius: calc(var(--tugx-ask-rule-radius) - 1px);
+  /* Nothing to click: the two buttons are the whole of the interaction. */
+  pointer-events: none;
+}
+
+/* The one thing that moves. The tick writes `width`; left-anchored because it
+   is a block in the track, so the rule drains toward the leading edge. */
+.session-app-test-ask-dialog-countdown-fill {
+  width: 100%;
+  height: 100%;
+  background: var(--tugx-ask-rule-color);
 }

@@ -673,9 +673,15 @@ export interface PendingAsk {
    *
    * A caller sets it when going ahead is the honest default and the dialog
    * exists only so someone at the keyboard can say otherwise. The dialog then
-   * counts {@link countdownSecs} down and commits the *selected* option — the
-   * countdown decides when, never what, so a developer who moves the selection
-   * and walks away still gets what they picked.
+   * counts {@link countdownSecs} down and commits.
+   *
+   * What it commits depends on the shape the question renders as. A question
+   * with three or more options is a radio stack, and the count commits the
+   * *selected* option — it decides when, never what, so a developer who moves
+   * the selection and walks away still gets what they picked. A two-option
+   * question is a pair of buttons with no selection to move, and there the
+   * count commits this value exactly; the default ring rests on it, so the
+   * control at rest still shows what zero will do.
    */
   unattendedChoice: string | null;
   /** Seconds the countdown runs for. Non-null exactly when {@link unattendedChoice} is. */

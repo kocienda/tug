@@ -1100,21 +1100,17 @@ app-test *FILES:
 
             if [ -n "$FG_FILES" ]; then
                 FG_COUNT="$(printf '%s\n' "$FG_FILES" | grep -c .)"
-                ALL_COUNT="$(printf '%s\n' "$ASK_FILES" | grep -c .)"
-                BG_COUNT=$((ALL_COUNT - FG_COUNT))
-                FG_LIST="$(printf '%s\n' "$FG_FILES" | sed 's/\.test\.ts$//' | paste -sd ',' - | sed 's/,/, /g')"
 
                 # Two choices, because by the time this is answered the
                 # background run is already under way — "cancel everything" is
                 # no longer a coherent thing to offer. Declining is last, which
                 # is what Escape chooses.
-                if [ "$BG_COUNT" -gt 0 ]; then
-                    RUN_DESC="The other $BG_COUNT are running now either way"
-                    SKIP_LABEL="Skip them"
-                else
-                    RUN_DESC="Nothing else is in this run"
-                    SKIP_LABEL="Skip them — run nothing"
-                fi
+                #
+                # Neither the question nor its options carry a description.
+                # The dialog renders a two-option question as a single header
+                # row, and there is nothing to put on the rows it no longer
+                # has: the test names are in the run's own report, and the
+                # option descriptions only ever restated the labels.
 
                 # The question is a chance to intervene, not a request for
                 # permission: unanswered, it runs them. A developer at the
@@ -1131,11 +1127,10 @@ app-test *FILES:
                     CHOICE="$(tugrust/target/debug/tugtool host ask \
                         ${TUG_INSTANCE:+--instance "$TUG_INSTANCE"} \
                         --title "$FG_COUNT app-test(s) want to take over the screen" \
-                        --description "$FG_LIST" \
                         --timeout-secs "$FG_COUNTDOWN_SECS" \
                         --unattended run-all \
-                        --option "run-all:Run them:$RUN_DESC" \
-                        --option "background:$SKIP_LABEL:Keeps the screen yours" \
+                        --option "run-all:Run" \
+                        --option "background:Skip" \
                         2>/dev/null)"
                     ASK_STATUS=$?
                     printf '%s\n%s\n' "$ASK_STATUS" "$CHOICE" > "$ASK_OUT.part"
