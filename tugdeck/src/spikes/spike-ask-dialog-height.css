@@ -1,0 +1,184 @@
+/* @tug-pairings:
+   - --tugx-adh-muted   | --tug7-surface-global-primary-normal-default-rest  (lede, notes)
+   - --tugx-adh-text    | --tug7-surface-global-primary-normal-raised-rest   (reference dialog's detail line)
+   - --tugx-adh-rule    | --tug7-surface-global-primary-normal-raised-rest   (the hairline's track)
+   - --tugx-adh-accent  | --tug7-surface-global-primary-normal-default-rest  (height badge, hairline fill)
+*/
+
+/**
+ * spike-ask-dialog-height.css — the vocabulary the one-row ask dialog needs
+ * beyond `spike.css`.
+ *
+ * Two kinds of rule live here and they are not the same commitment:
+ *
+ *  - the spike's own furniture (`.sp-adh-measured`, `.sp-adh-height`,
+ *    `.sp-adh-notes`, `.sp-adh-lede`) plus the reference dialog's fragments
+ *    (`.sp-adh-provenance`, `.sp-adh-detail`, `.sp-adh-countdown-line`,
+ *    `.sp-adh-options-centered`, copies of the shipped values so A reads as it
+ *    ships) — none of which graduates anywhere;
+ *  - the three timer treatments (`.sp-adh-count-numeral`,
+ *    `.sp-adh-count-in-button`, `.sp-adh-hairline`), which are the proposal.
+ *    Whichever wins moves into `session-app-test-ask-dialog.css`.
+ *
+ * The candidates need no `--tugx-idialog-*` override at all: one row with two
+ * actions and no description is the primitive's own header layout. The one
+ * exception is B2's `--tugx-idialog-action-w`, which is the in-button count's
+ * price and is marked as such — `--tugx-idialog-*` stays the primitive's to own
+ * ([L20]), so setting it from here sketches an edit rather than shipping one.
+ *
+ * Tuglaw cross-check:
+ *  - [L06] appearance is CSS; the measured height is written into the DOM
+ *    through a ref, never into React state.
+ *  - [L15] tokens only, no raw color.
+ *  - [L16] the spike owns its stylesheet and imports no gallery CSS.
+ *  - [L17] each `--tugx-adh-*` slot resolves to a `--tug7-*` base in one hop.
+ */
+
+.sp-adh-content {
+  --tugx-adh-muted: var(--tug7-element-global-text-normal-muted-rest);
+  --tugx-adh-text: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-adh-rule: var(--tug7-element-global-border-normal-default-rest);
+  --tugx-adh-accent: var(--tug7-surface-toggle-primary-normal-caution-rest);
+  --tugx-adh-small: 0.75rem;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-adh-lede {
+  margin: 0;
+  max-width: 48rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--tugx-adh-muted);
+}
+
+.sp-adh-lede code {
+  font-family: var(--tug-font-family-mono);
+  font-size: inherit;
+}
+
+/* ---- the measuring frame ------------------------------------------------ */
+
+/* The dialog at its real width with its height called out beside it, so the
+   comparison is a number and not an impression. */
+.sp-adh-measured {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tug-space-md);
+}
+
+.sp-adh-target {
+  flex: 0 1 600px;
+  min-width: 0;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-adh-height {
+  flex: 0 0 auto;
+  padding-top: 0.125rem;
+  font-size: var(--tugx-adh-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--tugx-adh-accent);
+  user-select: none;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-adh-notes {
+  margin: 0;
+  padding-left: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: var(--tugx-adh-small);
+  line-height: 1.4;
+  color: var(--tugx-adh-muted);
+}
+
+/* ---- A, the shipped dialog, copied so it reads as it ships -------------- */
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.sp-adh-provenance {
+  display: block;
+  font-size: var(--tugx-adh-small);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--tugx-adh-muted);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.sp-adh-detail {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--tugx-adh-text);
+  overflow-wrap: anywhere;
+}
+
+.sp-adh-options-centered {
+  margin-top: var(--tug-space-md);
+  display: flex;
+  justify-content: center;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.sp-adh-countdown-line {
+  margin-top: var(--tug-space-md);
+  text-align: center;
+  font-size: var(--tugx-adh-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--tugx-adh-muted);
+}
+
+/* ---- B1, the timer as a numeral ---------------------------------------- */
+
+/* Tabular so the row does not shift as the digits change, and fixed-width so
+   30s and 9s occupy the same space — the tick rewrites this text in place. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.sp-adh-count-numeral {
+  flex: 0 0 auto;
+  min-width: 2.25rem;
+  text-align: right;
+  align-self: center;
+  font-size: var(--tugx-adh-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--tugx-adh-muted);
+  user-select: none;
+}
+
+/* ---- B2, the timer inside the Run button -------------------------------- */
+
+/* The in-button count's price: the pair's uniform slot has to grow, so the
+   cluster stops reading as two equal buttons. */
+.sp-adh-wide-actions {
+  --tugx-idialog-action-w: 6rem;
+}
+
+/* Dimmer than the label it trails, and tabular for the same reason as B1. */
+.sp-adh-count-in-button {
+  margin-left: 0.375rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+/* ---- B3, the timer as a hairline ---------------------------------------- */
+
+/* The count as geometry instead of a sentence: a rule along the frame's bottom
+   edge, drained to whatever fraction is left. Static here — the shipping
+   version would write the width through a ref, the same way the text line is
+   written today. */
+.sp-adh-hairline-host {
+  position: relative;
+}
+
+.sp-adh-hairline {
+  position: absolute;
+  inset: auto 1px 1px 1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--tugx-adh-rule);
+  overflow: hidden;
+}
+
+.sp-adh-hairline-fill {
+  width: 62%;
+  height: 100%;
+  background: var(--tugx-adh-accent);
+}

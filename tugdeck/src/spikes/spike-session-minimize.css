@@ -1,0 +1,363 @@
+/* ============================================================================
+   spike-session-minimize.css — the minimized Session card, drawn to the
+   identity spike's masthead recipe, with the real Z2 cells and real buttons.
+   ========================================================================= */
+
+/**
+ * @tug-pairings
+ * | Element                                          | Surface                                          | Role         | Context                              |
+ * |--------------------------------------------------|--------------------------------------------------|--------------|--------------------------------------|
+ * | --tugx-pane-title-fg-active                      | --tugx-pane-title-bar-bg-active                  | display      | .spm-masthead (the masthead tier)    |
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-default-rest | informational | .spm-caption, .spm-badge, .spm-route |
+ */
+
+.spm-content {
+  /* The slim width preset: the Z2 row's five cells were budgeted to spend it
+     exactly, so this is the narrowest width at which the full set holds. */
+  --spm-card-width: 675px;
+  --spm-masthead-height: var(--tug-masthead-height, 72px);
+  --spm-dot-size: 16px;
+  --spm-tape-width: 64px;
+  /* The two lines under the title hang off the TITLE, not the dot. */
+  --spm-text-inset: calc(var(--spm-dot-size) * 0.8 + var(--tug-space-xs));
+}
+
+.spm-caption {
+  max-width: var(--spm-card-width);
+  line-height: 1.45;
+}
+
+.spm-list {
+  margin: 0;
+  padding-inline-start: 1.25em;
+  max-width: var(--spm-card-width);
+  font-size: var(--tug-font-size-sm, 13px);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.spm-frame,
+.spm-dial {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: var(--spm-card-width);
+  max-width: 100%;
+}
+
+/* ── The card ────────────────────────────────────────────────────────── */
+
+.spm-card {
+  display: flex;
+  flex-direction: column;
+  width: var(--spm-card-width);
+  max-width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tug-radius-md, 6px);
+  background: var(--tug7-surface-card-primary-normal-default-rest);
+  overflow: hidden;
+}
+
+/* ── The masthead tier: 72px plus one more line of the beat, fixed ───── */
+
+/* @tug-renders-on var(--tugx-pane-title-bar-bg-active) */
+.spm-masthead {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: calc(var(--spm-masthead-height) + 16px);
+  box-sizing: border-box;
+  padding: 0 var(--tug-space-md);
+  background-color: var(--tugx-pane-title-bar-bg-active);
+  color: var(--tugx-pane-title-fg-active);
+  line-height: var(--tug-line-height-tight);
+}
+
+.spm-lead {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+}
+
+/* The dot's box is a RING box: the dot paints at 60% of it and the ring
+   overhangs, inline by its own inset and block into the row's air. */
+.spm-dot {
+  display: inline-flex;
+  flex: none;
+  margin-inline-start: calc(var(--spm-dot-size) * -0.2);
+  margin-block: calc(var(--spm-dot-size) * -0.25);
+}
+
+.spm-title {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  white-space: nowrap;
+  font-size: var(--tug-font-size-sm);
+}
+
+.spm-title-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.spm-title-callsign {
+  flex: none;
+  white-space: pre;
+  font-weight: var(--tug-font-weight-regular, 400);
+  opacity: 0.72;
+}
+
+.spm-spacer {
+  flex: 1;
+}
+
+/* The pane's control cluster, in the first chrome band only. */
+.spm-cluster {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-block: calc((22px - var(--spm-dot-size)) * -0.5);
+}
+
+.spm-widget {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--tug-radius-sm, 4px);
+  opacity: 0.8;
+}
+
+.spm-slot-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-inline: 2px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: var(--tug-font-weight-semibold);
+  border: 1px solid currentColor;
+  opacity: 0.7;
+}
+
+/* @tug-renders-on var(--tugx-pane-title-bar-bg-active) */
+.spm-description {
+  margin-top: 3px;
+  margin-inline-start: var(--spm-text-inset);
+  padding-inline-end: calc(var(--spm-tape-width) + var(--tug-space-md));
+  font-size: var(--tug-font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+
+/* @tug-renders-on var(--tugx-pane-title-bar-bg-active) */
+.spm-activity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tug-space-md);
+  margin-top: 1px;
+  margin-inline-start: var(--spm-text-inset);
+  min-width: 0;
+}
+
+/* The beat wraps, clamped at two lines, and the box is always two lines
+   tall so a short beat leaves the second empty. */
+.spm-activity-run {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--tug-font-size-xs);
+  min-height: calc(2 * var(--tug-font-size-xs) * var(--tug-line-height-tight));
+  opacity: 0.65;
+}
+
+/* The tape rides the two-line box and reads centered on it. The sparkline
+   sets its own muted ink for the pane ground; on the tinted chrome band it
+   takes the band's ink, as the real masthead pins it. */
+.spm-tape {
+  display: inline-flex;
+  flex: none;
+}
+
+/* @tug-renders-on var(--tugx-pane-title-bar-bg-active) */
+.spm-tape .tug-sparkline {
+  color: var(--tugx-pane-title-fg-active);
+}
+
+/* ── Z2 ──────────────────────────────────────────────────────────────── */
+
+/* The real status bar's layout and type: five fixed-width cells packed as
+   one centered group at the row's gap, in a container the cells' collapse
+   rungs can query. The cells' `ch` budgets were measured at this size. */
+.spm-z2 {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tug-space-2xl);
+  font-size: 0.625rem;
+  line-height: 1.2;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  container-type: inline-size;
+  container-name: session-status;
+}
+
+/* ── The way back: one full-width bar ────────────────────────────────── */
+
+.spm-bar {
+  display: flex;
+  padding: 2px;
+  border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
+}
+
+.spm-bar-button {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+/* ── The way in: the full card's toolbar row ─────────────────────────── */
+
+.spm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tug-radius-md, 6px);
+  background: var(--tug7-surface-card-primary-normal-default-rest);
+}
+
+.spm-z4a {
+  display: inline-flex;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tug-radius-sm, 4px);
+  overflow: hidden;
+}
+
+.spm-route {
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.spm-route[data-on="true"] {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  background: var(--tug7-surface-global-secondary-normal-default-rest);
+}
+
+.spm-z4b {
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.spm-badge {
+  padding: 1px 6px;
+  border-radius: 9px;
+  font-size: 11px;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  white-space: nowrap;
+}
+
+.spm-z5 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Opening one from the wall: column miniatures ────────────────────── */
+
+.spm-columns {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+.spm-mini-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 150px;
+}
+
+/* A scale miniature of one split slot. */
+.spm-mini {
+  position: relative;
+  width: 150px;
+  box-sizing: border-box;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: 3px;
+  background: var(--tug7-surface-global-primary-normal-default-rest);
+  overflow: hidden;
+}
+
+.spm-mini-card {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  border-radius: 2px;
+  background: var(--tugx-pane-title-bar-bg-active);
+}
+
+/* The opened card: the chrome band at the top, the card ground beneath. */
+.spm-mini-card[data-open="true"] {
+  background: linear-gradient(
+    to bottom,
+    var(--tugx-pane-title-bar-bg-active) 0 14px,
+    var(--tug7-surface-card-primary-normal-default-rest) 14px
+  );
+  border: 1px solid var(--tugx-accent);
+}
+
+/* The card that was open a moment ago and re-minimized. */
+.spm-mini-card[data-faded="true"] {
+  opacity: 0.45;
+}
+
+/* ── The fit dial ────────────────────────────────────────────────────── */
+
+.spm-dial-readout {
+  display: flex;
+  gap: 24px;
+  font-size: var(--tug-font-size-sm, 13px);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.spm-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── The wall ────────────────────────────────────────────────────────── */
+
+.spm-wall {
+  display: flex;
+  flex-direction: column;
+  gap: 5px; /* IMPOSITION_GAP_PX */
+  width: var(--spm-card-width);
+  max-width: 100%;
+}
