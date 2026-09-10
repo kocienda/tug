@@ -405,14 +405,17 @@ body {
   border-bottom-width: 1px;
 }
 
-/* While a card is in the air (`data-carrying`, written on the canvas by
-   `gaugeDragFrame`), every seated member fills in its whole frame. The rule
-   above is "a hairline marks a boundary", and a carry makes new ones: the
-   place the lifted member left is a gap the members beside it now border, and
-   every rail place is somewhere the drop could land. Rather than compute
-   which edge faces the vacancy, the seated members take the full rule set for
-   the carry and give it back at the landing, when `data-carrying` clears. */
-[data-carrying] [data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side]:not([data-gesture="true"]) .tug-pane-chrome {
+/* While a SIDEBAR card is in the air (`data-carrying="rail"`, written on the
+   canvas by `gaugeDragFrame`, whose value says which kind of card it is),
+   every seated member fills in its whole frame. The rule above is "a hairline
+   marks a boundary", and a carry makes new ones: the place the lifted member
+   left is a gap the members beside it now border, and every rail place is
+   somewhere the drop could land — which is true of a rail card and of nothing
+   else, so a content drag leaves the rails as they were ([B01], [B03]).
+   Rather than compute which edge faces the vacancy, the seated members take
+   the full rule set for the carry and give it back at the landing, when
+   `data-carrying` clears. */
+[data-carrying="rail"] [data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side]:not([data-gesture="true"]) .tug-pane-chrome {
   border-width: 1px;
 }
 

@@ -104,12 +104,16 @@
   opacity: 0;
 }
 
-/* A card is in the air. `data-carrying` is written on the canvas by
+/* A CONTENT card is in the air. `data-carrying` is written on the canvas by
    `gaugeDragFrame`, the drag's own lifecycle verb — set when a frame starts
-   travelling, cleared by every path that retires the gesture. Every held-open
-   place shows itself for the duration, which is when a reader is deciding
-   where to let go and the numbers are the answer to that. */
-[data-carrying] .tug-slot-vacancy .tug-slot {
+   travelling, cleared by every path that retires the gesture — and its value
+   says which kind of card that is. A slot is a place only a content card can
+   land in, so the numbers answer for `"card"` alone: a sidebar card carried
+   across the band lights nothing here, because a place reacts to a drag only
+   when the drag could land in it ([B01], [B03]). Every held-open slot shows
+   itself for the duration of a content drag, which is when a reader is
+   deciding where to let go and the numbers are the answer to that. */
+[data-carrying="card"] .tug-slot-vacancy .tug-slot {
   opacity: 1;
 }
 

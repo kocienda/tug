@@ -3668,7 +3668,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             : canvasFractionOf(canvasRectOf(frame.getBoundingClientRect())),
         );
         // The canvas says a card is in the air, which is what the held-open
-        // places read to show themselves. A DOM write, never React state
+        // places read to show themselves, and the VALUE says which kind is in
+        // the air: `"rail"` for a sidebar card, `"card"` for a content card.
+        // A place reacts to a drag only when the drag could land in it ([B01]),
+        // and the kind is what each rule selects on to know. It is read off the
+        // travelling frame's own `data-role`, which the pane already stamps
+        // `"sidebar"` on a rail member — the frame says what it is, so no
+        // second channel is needed to carry the fact ([B02]).
+        //
+        // A DOM write, never React state
         // ([L06]): it turns on the frames of a drag, and re-rendering the deck
         // to change the appearance of an empty slot is a re-render for nothing.
         //
@@ -3678,7 +3686,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const canvas = containerRef.current;
         if (canvas !== null) {
           if (frame === null) canvas.removeAttribute("data-carrying");
-          else canvas.setAttribute("data-carrying", "");
+          else {
+            canvas.setAttribute(
+              "data-carrying",
+              frame.getAttribute("data-role") === "sidebar" ? "rail" : "card",
+            );
+          }
         }
       },
 
@@ -3753,14 +3766,31 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (canvas === null) return null;
         const state = store.getSnapshot();
 
+        // Which strips are even askable is a fact about the card in the air,
+        // decided once, here. A rail card can only land in a rail and a
+        // content card can only land in a column or the band, and a strip a
+        // card cannot land in must not move under it ([B01], [B04]) — a rail
+        // card carried across the band used to reach the flow branch below and
+        // scroll the content strip to its end, and a content card held over an
+        // overflowing rail used to scroll the rail.
+        //
+        // Membership is read the way the engine reads it — `sidebarRailsOf`
+        // over the same snapshot, which is the expression `enumerate` above
+        // hands `enumerateDropZones` as `measured.rails`. One source for
+        // "is this a rail card?" is what keeps the two from disagreeing.
+        const railCard = sidebarRailsOf(state, UNMEASURED_RUNS).some((rail) =>
+          rail.members.some((member) => member.paneId === draggedPaneId),
+        );
+
         // A rail first, and for the reason a column comes before the band: a
         // pointer inside an overflowing rail's run is asking about that rail.
         // Rails are asked about before columns because a rail's band is the
         // deck's edge, which no column occupies — the two cannot both claim a
         // pointer, and asking in a fixed order keeps that a fact rather than a
-        // coincidence.
+        // coincidence. The order is untouched by the gate above; the branches
+        // that cannot apply are skipped, not reordered.
         const railRun = store.getRailRunHeight();
-        if (railRun !== null) {
+        if (railCard && railRun !== null) {
           for (const rail of sidebarRailsOf(state, { rail: railRun, column: null })) {
             const allocation = rail.allocation;
             if (allocation === null || allocation.standing !== "overflow") {
@@ -3795,6 +3825,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             };
           }
         }
+
+        // A rail card has now been offered every rail there is. The column and
+        // the band are not places it can land, so it is asking about nothing.
+        if (railCard) return null;
 
         // A column first: it is the narrower question, and a pointer inside an
         // overflowing column's run is asking about that column rather than
