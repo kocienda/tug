@@ -243,7 +243,10 @@ describe("the documents-only half of an arc's life", () => {
     const fact = index.get("sess-d");
     expect(fact).toBeDefined();
     expect(fact!.name).toBe("planning");
-    expect(fact!.entry.display_name).toBe("planning");
+    expect(fact!.boundSession).toBe("sess-d");
+    expect(fact!.documents).toEqual({
+      brief: "/repo/.tug/arcs/planning/brief.md",
+    });
     expect(fact!.stage).toBeNull();
     expect(fact!.hasPlan).toBe(false);
     expect(fact!.stepTotal).toBe(0);
@@ -277,6 +280,56 @@ describe("the documents-only half of an arc's life", () => {
     expect(fact.runPosition).toBeNull();
     expect(fact.runLength).toBeNull();
     expect(fact.stepTitle).toBeNull();
+  });
+
+  test("the track counts the plan's steps — the two lists draw one strip", () => {
+    // The regression this pins: the index used to store a documents-only arc
+    // adapted into a branch entry, which carries no `steps` at all, so every
+    // surface reading the fact drew a plan half walked as bare stage cells
+    // while the Arcs card — reading the counters directly — drew the ticks.
+    // One arc, two strips, no way for a reader to reconcile them.
+    const index = buildArcSessionIndex({
+      projects: [
+        {
+          ...projectWith([]),
+          document_arcs: [
+            documentArc({
+              documents: {
+                brief: "/repo/.tug/arcs/planning/brief.md",
+                plan: "/repo/.tug/arcs/planning/plan.md",
+              },
+              step_total: 6,
+              steps_done: 2,
+              steps_begun: 3,
+            }),
+          ],
+        },
+      ],
+    });
+    const fact = index.get("sess-d")!;
+    expect(fact.track.steps).not.toBeNull();
+    expect(fact.track.steps!.total).toBe(6);
+    expect(fact.track.steps!.done).toBe(2);
+    expect(fact.track.steps!.current).toBe(3);
+    // A plan under way reads `implement`, not the `review` the stage ladder
+    // falls to when it can see no steps.
+    expect(fact.track.phase).toBe("implement");
+  });
+
+  test("a branchless arc has nothing in its way, and no titles to show", () => {
+    const index = buildArcSessionIndex({
+      projects: [
+        {
+          ...projectWith([]),
+          document_arcs: [documentArc({ step_total: 4, steps_done: 1, steps_begun: 1 })],
+        },
+      ],
+    });
+    const fact = index.get("sess-d")!;
+    // No base to diverge from, so no clause can apply — and the counters say
+    // how far the plan got without claiming to know what any row is called.
+    expect(fact.facts).toEqual([]);
+    expect(fact.steps).toEqual([]);
   });
 
   test("a document arc with no bound session claims nothing", () => {

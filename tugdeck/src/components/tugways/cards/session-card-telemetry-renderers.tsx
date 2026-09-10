@@ -95,10 +95,7 @@ import {
 } from "./session-card-telemetry-popovers";
 import { arcGlanceFraction } from "@/lib/arc-meta-facts";
 import { arcMarkFraction } from "@/components/tugways/arc-lifecycle-mark";
-import {
-  arcCellWord,
-  arcTrackModelFromEntry,
-} from "@/components/tugways/tug-arc-track";
+import { arcCellWord } from "@/components/tugways/tug-arc-track";
 import { useArcForSession } from "@/lib/arc-session-index";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
@@ -840,8 +837,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // The label below and the value further down read this one pair rather
   // than each deriving its own, so the sentence a screen reader hears never
   // counts steps the cell is not showing, nor stays silent about ones it is.
-  const arcModel =
-    arcFact === null ? null : arcTrackModelFromEntry(arcFact.entry);
+  const arcModel = arcFact?.track ?? null;
   const arcFraction =
     arcModel === null
       ? null

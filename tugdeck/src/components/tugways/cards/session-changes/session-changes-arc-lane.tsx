@@ -109,10 +109,7 @@ import type {
   ArcChangesetEntry,
   DocumentArcEntry,
 } from "@/lib/changeset-types";
-import {
-  documentArcAsEntry,
-  documentArcTrackModel,
-} from "@/lib/document-arc-entry";
+import { documentArcTrackModel } from "@/lib/document-arc-entry";
 import type { JoinState } from "@/lib/changeset-verb-store";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
 
@@ -257,8 +254,15 @@ export interface ArcLaneReplay {
 export interface ArcLaneBinding {
   /** Send `bind_arc` for this row's arc. */
   bind: (entry: ArcChangesetEntry) => void;
-  /** Send `unbind_arc` for this card's session. */
-  unbind: (entry: ArcChangesetEntry) => void;
+  /**
+   * Send `unbind_arc` for this card's session.
+   *
+   * Takes no arc, because unbinding names none: the frame carries this card's
+   * session id and nothing else, and the server drops whatever that session
+   * holds. The parameter this once declared was read by no implementation,
+   * and a branchless row had to invent a whole entry to satisfy it.
+   */
+  unbind: () => void;
   /** Why both are unavailable right now, or null when they are available.
    *  Disabled with a reason rather than silently bouncing. */
   disabledReason: string | null;
@@ -421,7 +425,7 @@ function ArcRow({
         : {
             bound,
             disabledReason: binding.disabledReason,
-            perform: () => (bound ? binding.unbind(entry) : binding.bind(entry)),
+            perform: () => (bound ? binding.unbind() : binding.bind(entry)),
           },
     discard: !canDiscard
       ? null
@@ -630,9 +634,7 @@ function DocumentArcRow({
   entry: DocumentArcEntry;
   binding: ArcLaneBinding | null;
 }): React.ReactElement {
-  const asEntry = documentArcAsEntry(entry);
   const model = documentArcTrackModel(entry);
-  const facts = arcMetaFacts(asEntry);
 
   return (
     <div
@@ -652,10 +654,10 @@ function DocumentArcRow({
           name={entry.display_name}
           worker={entry.bound_session ?? null}
           model={model}
-          facts={facts}
-          // As on a branch row: the mark on the line, the sentences below
-          // the block and never behind the fold ([B08]).
-          troublePlacement="mark"
+          // No facts and no mark, unlike a branch row: every clause
+          // `arcMetaFacts` derives is about the checkout's standing against a
+          // base, and this arc has no base, no worktree and no changed files.
+          // There is nothing for [B08]'s placement rule to place.
           trailing={
             binding !== null ? (
               <TugPushButton
@@ -663,7 +665,7 @@ function DocumentArcRow({
                 emphasis="ghost"
                 data-slot="session-changes-arc-unbind"
                 aria-label={`Unbind the arc ${entry.display_name}`}
-                onClick={() => binding.unbind(asEntry)}
+                onClick={() => binding.unbind()}
               >
                 Unbind
               </TugPushButton>
@@ -671,7 +673,6 @@ function DocumentArcRow({
           }
         />
       </TugListRow>
-      <ArcTroubleNotes facts={facts} />
       <div className="session-changes-arc-detail">
         <SessionChangesArcDocuments
           documents={entry.documents}

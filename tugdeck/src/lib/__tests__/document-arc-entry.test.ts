@@ -1,20 +1,17 @@
 /**
- * The branchless arc, in the two shapes the surfaces read.
+ * The branchless arc, as the track reads it.
  *
- * What is worth pinning is the line the module holds: the entry adapter fills
- * the required fields with what an arc with no branch honestly has and passes
- * the optional ones through only when the wire carried them, and the track
- * model reports the plan's real step counts without ever inventing the titles
- * the wire does not carry.
+ * What is worth pinning is the line the module holds: the track model reports
+ * the plan's real step counts without ever inventing the titles the wire does
+ * not carry. The entry adapter these tests also covered is gone — it let a
+ * branchless arc pass for a branched one at the type level, and its callers
+ * turned out to want nothing it produced.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import type { ArcRunState, DocumentArcEntry } from "@/lib/changeset-types";
-import {
-  documentArcAsEntry,
-  documentArcTrackModel,
-} from "../document-arc-entry";
+import { documentArcTrackModel } from "../document-arc-entry";
 
 function arc(over: Partial<DocumentArcEntry> = {}): DocumentArcEntry {
   return {
@@ -32,55 +29,6 @@ const WITH_PLAN = {
   brief: "/repo/.tug/arcs/planning/brief.md",
   plan: "/repo/.tug/arcs/planning/plan.md",
 };
-
-describe("documentArcAsEntry", () => {
-  test("the required fields are what a branchless arc has", () => {
-    const entry = documentArcAsEntry(arc());
-    expect(entry.kind).toBe("arc");
-    expect(entry.owner_id).toBe("tugarc/planning#1");
-    expect(entry.display_name).toBe("planning");
-    expect(entry.documents).toEqual({
-      brief: "/repo/.tug/arcs/planning/brief.md",
-    });
-    expect(entry.base).toBe("");
-    expect(entry.rounds).toBe(0);
-    expect(entry.worktree).toBe("");
-    expect(entry.worktree_dirty).toBe(false);
-    expect(entry.files).toEqual([]);
-  });
-
-  test("absent optional fields stay absent rather than becoming empty ones", () => {
-    const entry = documentArcAsEntry(arc());
-    expect("review" in entry).toBe(false);
-    expect("arc_kind" in entry).toBe(false);
-    expect("arc" in entry).toBe(false);
-    expect("bound_session" in entry).toBe(false);
-    expect(entry.steps).toBeUndefined();
-    expect(entry.stage).toBeUndefined();
-    expect(entry.last_activity).toBeUndefined();
-  });
-
-  test("review, arc, and the bound session pass through when the wire carried them", () => {
-    const run: ArcRunState = { stage: "devise" };
-    const entry = documentArcAsEntry(
-      arc({ review: "stale", arc: run, bound_session: "sess-a" }),
-    );
-    expect(entry.review).toBe("stale");
-    expect(entry.arc).toEqual(run);
-    expect(entry.bound_session).toBe("sess-a");
-  });
-
-  test("the recorded kind passes through, so the line can say `planned`", () => {
-    // The fact reaches the metadata line through this entry and nowhere else,
-    // so a kind dropped here is a kind no branchless row can ever say.
-    expect(documentArcAsEntry(arc({ arc_kind: "planned" })).arc_kind).toBe(
-      "planned",
-    );
-    expect(documentArcAsEntry(arc({ arc_kind: "plain" })).arc_kind).toBe(
-      "plain",
-    );
-  });
-});
 
 describe("documentArcTrackModel", () => {
   test("a brief with no plan reads brief, with no steps to count", () => {

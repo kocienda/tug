@@ -144,8 +144,6 @@ import {
 } from "@/lib/code-session-store/select-goal";
 import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
-import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
-import { arcMetaFacts } from "@/lib/arc-meta-facts";
 import type { ArcSessionFact } from "@/lib/arc-session-index";
 
 // ---------------------------------------------------------------------------
@@ -1436,9 +1434,12 @@ export function ArcPopoverContent({
   idle: boolean;
   onShowInChanges: () => void;
 }): React.ReactElement {
-  const steps = fact.entry.steps ?? [];
-  const model = arcTrackModelFromEntry(fact.entry);
-  const facts = arcMetaFacts(fact.entry);
+  // Everything this placard draws comes off the fact already derived, by the
+  // builder the arc's own shape calls for. There is no wire entry to reach
+  // through and no second derivation to disagree with the Arcs card's row.
+  const steps = fact.steps;
+  const model = fact.track;
+  const facts = fact.facts;
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   // The list below is the ledger when there is one and the task list when
   // there is not, so the row to reveal is read off whichever is rendered.
@@ -1463,8 +1464,8 @@ export function ArcPopoverContent({
             arc={fact.name}
             projectDir={fact.projectDir}
             run={fact.arc}
-            documents={fact.entry.documents}
-            boundSession={fact.entry.bound_session ?? null}
+            documents={fact.documents}
+            boundSession={fact.boundSession}
             surface="popover"
             followed={null}
             size="2xs"
@@ -1492,7 +1493,7 @@ export function ArcPopoverContent({
         <div className="session-arc-popover-head">
           <ArcLifecycleBlock
             name={fact.name}
-            worker={fact.entry.bound_session ?? null}
+            worker={fact.boundSession}
             model={model}
             stepTitle={fact.stepTitle}
             facts={facts}

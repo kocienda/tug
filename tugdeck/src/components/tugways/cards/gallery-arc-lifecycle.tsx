@@ -610,7 +610,11 @@ function factFor(m: Moment): ArcSessionFact {
     runLength: e.run_length ?? null,
     stepTitle: e.step_title ?? null,
     hasPlan: e.documents?.plan !== undefined,
-    entry: e,
+    track: arcTrackModelFromEntry(e),
+    facts: arcMetaFacts(e),
+    documents: e.documents,
+    boundSession: e.bound_session ?? "",
+    steps: e.steps ?? [],
   };
 }
 

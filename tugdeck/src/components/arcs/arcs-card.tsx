@@ -40,12 +40,13 @@
  * half a reading.
  *
  * An arc with no branch yet — a brief being written, a plan being devised or
- * reviewed — is the SAME block, over `documentArcAsEntry`, with its track
+ * reviewed — is the SAME block, over the arc's own shape, with its track
  * model from `documentArcTrackModel` so a plan already under way reads
  * `implement` with the ledger's own counts. It carries neither the menu, which
  * is a live arc's, nor the fold, which reads a ledger a waiting document's
  * entry does not carry — only the transport, which is how paperwork becomes an
- * arc.
+ * arc. It carries no trouble facts either: those are a branch's, and this row
+ * has no branch.
  *
  * `ChangesetAllStore` is the account-global snapshot, so this card is a
  * projection of it and nothing more. Rows key on the arc's **owner key**, which makes two
@@ -113,10 +114,7 @@ import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
 import { arcMetaFacts } from "@/lib/arc-meta-facts";
 import { compareArcEntries } from "@/lib/arc-order";
-import {
-  documentArcAsEntry,
-  documentArcTrackModel,
-} from "@/lib/document-arc-entry";
+import { documentArcTrackModel } from "@/lib/document-arc-entry";
 import { ArcJoinRegisterView } from "@/components/tugways/arc-join-register";
 import { ArcTransportControl } from "@/components/tugways/arc-transport-control";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
@@ -921,7 +919,12 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           name={entry.display_name}
           worker={entry.bound_session ?? null}
           model={model}
-          facts={arcMetaFacts(documentArcAsEntry(entry))}
+          // No facts, and none are possible: every clause `arcMetaFacts`
+          // derives is about the checkout's standing against a base, and a
+          // branchless arc has no base, no worktree and no changed files to
+          // stand against one. The call used to be made through an adapter
+          // that filled those in empty, which is a long way to travel to
+          // learn nothing.
           // No mark here: a plan row has no fold and nothing below it, so the
           // sentence stays on the line rather than being demoted to a hover
           // with nowhere to land ([B06]).

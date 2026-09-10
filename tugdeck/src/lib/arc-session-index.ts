@@ -30,9 +30,16 @@ import {
 import type {
   ArcRunState,
   ArcChangesetEntry,
+  ArcDocuments,
+  ArcStep,
   WorkspacesChangesetSnapshot,
 } from "./changeset-types";
-import { documentArcAsEntry } from "./document-arc-entry";
+import { documentArcTrackModel } from "./document-arc-entry";
+import { type ArcMetaFact, arcMetaFacts } from "./arc-meta-facts";
+import {
+  type ArcTrackModel,
+  arcTrackModelFromEntry,
+} from "@/components/tugways/tug-arc-track";
 
 /** What one session's arc binding looks like to an identity surface. */
 export interface ArcSessionFact {
@@ -64,15 +71,41 @@ export interface ArcSessionFact {
   /** Whether the arc drives a plan at all — what makes a missing step loud. */
   readonly hasPlan: boolean;
   /**
-   * The whole wire entry this fact was projected from.
+   * The arc's track model — the strip, the phase word, the fraction — built
+   * here so every surface that finds an arc by session draws the same one.
    *
-   * Carried so a surface wanting the *detail* — the divergence facts, the
-   * base, the join — reads the same object the row surfaces read rather
-   * than a second projection that could disagree with this one. Reference
-   * identity comes from the snapshot, so exposing it costs no stability: a
-   * beat that does not move this arc hands back the same entry.
+   * It is derived here and not by the consumer because the two arc lists do
+   * not answer the same way, and only this module knows which list a fact
+   * came from. A branched arc carries per-row `steps`, so
+   * {@link arcTrackModelFromEntry} reads it whole; a documents-only arc
+   * carries counters instead, and {@link documentArcTrackModel} is what
+   * reads those. A consumer handed the raw shapes could not tell which to
+   * call, and the wrong one draws an arc mid-plan as bare stage cells.
+   *
+   * Memoized with the index, so it is built once per snapshot beat and is
+   * reference-stable for every reader between beats.
    */
-  readonly entry: ArcChangesetEntry;
+  readonly track: ArcTrackModel;
+  /**
+   * What is in the arc's way, derived here for the same reason {@link track}
+   * is. A branchless arc has no base to diverge from, so this is always
+   * empty for one, and that is a fact rather than a gap.
+   */
+  readonly facts: readonly ArcMetaFact[];
+  /** The arc's documents — what a transport control reads to know what a
+   *  press would open. */
+  readonly documents: ArcDocuments | undefined;
+  /** The session mated to this arc. Present by construction: an unbound arc
+   *  never enters this index. Spelled out so a consumer needs no entry. */
+  readonly boundSession: string;
+  /**
+   * The plan's rows, as a ledger with titles — empty when there are none to
+   * show, which includes every documents-only arc: its progress is on the
+   * wire as counters, and the titles are not on the wire at all. A surface
+   * rendering this list renders what the sender sent, never a title nobody
+   * wrote.
+   */
+  readonly steps: readonly ArcStep[];
 }
 
 /**
@@ -105,7 +138,11 @@ export function buildArcSessionIndex(
         runLength: entry.run_length ?? null,
         stepTitle: entry.step_title ?? null,
         hasPlan: entry.documents?.plan !== undefined,
-        entry,
+        track: arcTrackModelFromEntry(entry),
+        facts: arcMetaFacts(entry),
+        documents: entry.documents,
+        boundSession,
+        steps: entry.steps ?? [],
       };
       if (!index.has(boundSession)) index.set(boundSession, fact);
     }
@@ -114,6 +151,10 @@ export function buildArcSessionIndex(
     // appears on both. `stepTotal` is the one counter a branchless arc really
     // has; the run counters are positions within a declared run, which it has
     // none of.
+    //
+    // Nothing here adapts the arc into an `ArcChangesetEntry` shape. It used
+    // to, and that adapter is why this index once handed every consumer a
+    // branch entry with the counters filed off — see `track`.
     for (const arc of project.document_arcs ?? []) {
       const boundSession = arc.bound_session;
       if (boundSession === undefined) continue;
@@ -130,7 +171,15 @@ export function buildArcSessionIndex(
         runLength: null,
         stepTitle: null,
         hasPlan: arc.documents.plan !== undefined,
-        entry: documentArcAsEntry(arc),
+        // The counters' own builder, never the adapted entry's — see `track`.
+        track: documentArcTrackModel(arc),
+        // Empty by construction, not by omission: every clause `arcMetaFacts`
+        // derives is about a checkout's standing against a base, and this arc
+        // has neither.
+        facts: [],
+        documents: arc.documents,
+        boundSession,
+        steps: [],
       };
       if (!index.has(boundSession)) index.set(boundSession, fact);
     }

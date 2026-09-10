@@ -1,13 +1,25 @@
 /**
- * document-arc-entry — a branchless arc, in the shapes the surfaces read.
+ * document-arc-entry — a branchless arc, as the track reads it.
  *
  * A `DocumentArcEntry` is an arc that exists only as documents: a brief, maybe
- * a plan, and no `tugarc/<name>` branch yet. Every surface that names an arc
- * reads a `ArcChangesetEntry` and a `ArcTrackModel`, and this module is the
- * one place that turns the documents-only row into both — once, so the Arcs card,
- * the shade, and the session index cannot each invent their own reading.
+ * a plan, and no `tugarc/<name>` branch yet. This module turns one into the
+ * `ArcTrackModel` every arc surface draws — once, so the Arcs card, the shade,
+ * and the session index cannot each invent their own reading.
  *
- * The line the two functions hold is what the wire can honestly say. The
+ * **There is deliberately no adapter to `ArcChangesetEntry` here, and its
+ * absence is the point.** One stood here and filled a branch entry's required
+ * fields with zeros — `base: ""`, no worktree, no files — which made a
+ * branchless arc structurally indistinguishable from a branched one at every
+ * call site that took the wider type. Code asking a branch question then got
+ * a silent empty answer instead of a compile error, and that is exactly how
+ * the Z2 placard came to draw a different strip from the Arcs card for the
+ * same arc. Its three callers turned out to want nothing the conversion
+ * provided: two computed `arcMetaFacts`, which reads only branch fields and
+ * so could only ever return `[]`, and the third passed it to an `unbind` that
+ * ignored its argument. If a surface seems to need the conversion again, it
+ * is asking a branch question of an arc that has no branch.
+ *
+ * The line this module holds is what the wire can honestly say. The
  * counters are real: `step_total` / `steps_done` / `steps_begun` are read off
  * the plan's own ledger, so reporting them is reporting. The step *titles* are
  * not on the wire at all, so nothing here synthesizes a `steps` array — a
@@ -16,46 +28,11 @@
  * @module lib/document-arc-entry
  */
 
-import type {
-  ArcChangesetEntry,
-  DocumentArcEntry,
-} from "@/lib/changeset-types";
+import type { DocumentArcEntry } from "@/lib/changeset-types";
 import {
   type ArcTrackModel,
   arcTrackModel,
 } from "@/components/tugways/tug-arc-track";
-
-/**
- * A documents-only arc in the entry shape every arc surface reads.
- *
- * The empty values are not placeholders standing in for facts that exist
- * elsewhere — they are what a branchless arc honestly has. There is no base
- * it diverges from, no worktree to be dirty, no rounds, and no changed files,
- * because there is no branch. Every consumer of this shape reads the fields a
- * documents-only arc really carries: its identity, its documents, its review
- * verdict, its arc, and its bound sessions.
- */
-export function documentArcAsEntry(
-  entry: DocumentArcEntry,
-): ArcChangesetEntry {
-  return {
-    kind: "arc",
-    owner_id: entry.owner_id,
-    display_name: entry.display_name,
-    documents: entry.documents,
-    ...(entry.review !== undefined ? { review: entry.review } : {}),
-    ...(entry.arc_kind !== undefined ? { arc_kind: entry.arc_kind } : {}),
-    ...(entry.arc !== undefined ? { arc: entry.arc } : {}),
-    ...(entry.bound_session !== undefined
-      ? { bound_session: entry.bound_session }
-      : {}),
-    base: "",
-    rounds: 0,
-    worktree: "",
-    worktree_dirty: false,
-    files: [],
-  };
-}
 
 /**
  * The track model for a documents-only arc — what every surface passes to the

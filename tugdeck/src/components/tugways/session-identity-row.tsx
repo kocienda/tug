@@ -122,7 +122,6 @@ import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
 import {
   arcSessionPurpose,
-  arcTrackModelFromEntry,
   type ArcTrackModel,
 } from "@/components/tugways/tug-arc-track";
 import { arcGlanceFraction } from "@/lib/arc-meta-facts";
@@ -695,15 +694,12 @@ export function SessionIdentityRow({
   // differently.
   const storeArc = useArcForSession(arcOverride === undefined ? sessionId : null);
   const arcFact = arcOverride ?? storeArc;
-  // The track's reading of that fact, derived once for the two places that
-  // want it — the title's lifecycle mark and the description's floor rung —
-  // so a row cannot say one thing about its arc on one line and another on
-  // the next. Memoized on the wire entry, which is reference-stable across
-  // beats that do not move this arc.
-  const arcModel = React.useMemo(
-    () => (arcFact !== null ? arcTrackModelFromEntry(arcFact.entry) : null),
-    [arcFact],
-  );
+  // The track's reading of that fact — the title's lifecycle mark and the
+  // description's floor rung read the one model, so a row cannot say one
+  // thing about its arc on one line and another on the next. It arrives on
+  // the fact already built, by the builder that list's shape calls for, and
+  // is reference-stable across beats that do not move this arc.
+  const arcModel = arcFact?.track ?? null;
   // The numerals count the declared RUN — the selection somebody asked for,
   // which is what the task list mirrors and the invocation named. The plan's
   // own pair is the track's, drawn as one tick per plan step, so nothing here
