@@ -105,17 +105,33 @@ describe("_clearBullseyeFor is called from every geometry-writing path", () => {
     expect(body).toContain("this._clearBullseyeFor(");
   });
 
+  test("setPaneMinimized clears — minimizing changes the pane's height", () => {
+    // The minimize commit ([P01]) builds its pane array inline and hands it to
+    // `_commitImposition`, bypassing `movePane` so the settle measures once —
+    // the same shape `setCardWidths` takes, and it owes the same clear. A
+    // bullseye that survived a fold would be a posture claimed for a card whose
+    // transcript is no longer on screen.
+    const body = stripComments(bodyOf("  setPaneMinimized("));
+    expect(body).toContain("this._clearBullseyeFor(");
+  });
+
+  test("setCardMinimized does NOT clear — it delegates to setPaneMinimized", () => {
+    const body = stripComments(bodyOf("  setCardMinimized("));
+    expect(body).not.toContain("_clearBullseyeFor");
+    expect(body).toContain("this.setPaneMinimized(");
+  });
+
   test("_setPaneWidth does NOT clear — it reaches movePane, and one rule is enough", () => {
     const body = stripComments(bodyOf("  private _setPaneWidth("));
     expect(body).not.toContain("_clearBullseyeFor");
     expect(body).toContain("this.movePane(");
   });
 
-  test("there are exactly five honoring call sites", () => {
-    // Pinned so a sixth site cannot arrive without this file being updated
+  test("there are exactly six honoring call sites", () => {
+    // Pinned so a seventh site cannot arrive without this file being updated
     // to say which path it is and why it needs its own clear.
     const calls = stripComments(SRC).match(/this\._clearBullseyeFor\(/g) ?? [];
-    expect(calls.length).toBe(5);
+    expect(calls.length).toBe(6);
   });
 });
 

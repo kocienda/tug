@@ -405,6 +405,7 @@ describe("HostMenuStatePublisher", () => {
     hasTurns: false,
     changesVisible: false,
     historyVisible: false,
+    minimized: false,
     commitReady: false,
     hasCustomName: false,
     ...overrides,

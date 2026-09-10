@@ -57,6 +57,7 @@ import {
   bullseyePaneIdOf,
   columnAllocationOf,
   columnMembersOf,
+  columnDrawsSplit,
   columnMoveOrder,
   deckColumnsOf,
   deckFlowStrip,
@@ -119,6 +120,7 @@ import {
   effectiveRailOrder,
   centerVisibleFlowSlot,
   flowRevealOffset,
+  wallRevealOffset,
   impositionLayout,
   FLOW_OFFSET_PROPERTY,
   impositionGapBottomPx,
@@ -586,6 +588,97 @@ export function filterDeckStateByRegistration(
       ? { activePaneId }
       : { activePaneId: undefined }),
   };
+}
+
+/**
+ * The pane array a minimize commit writes: `paneId`'s entry carries
+ * `minimized: true`, or has the key DELETED on `false`.
+ *
+ * Deleted rather than written `false` because the field's contract is
+ * absent-means-not-minimized ([P01]) — a persisted `minimized: false` would
+ * be a second spelling of the resting state, and the two would then have to
+ * agree forever. The array is returned by IDENTITY when nothing changes, so
+ * the caller can short-circuit its commit on `panes === state.panes` rather
+ * than diffing.
+ *
+ * Pure and exported for the same reason {@link sweepImposition} is: it is the
+ * whole of what the commit decides, and it is testable without a DeckManager.
+ * The rail refusal is NOT here — it needs the card registry — and neither is
+ * the wall's membership, which needs the imposition; see
+ * {@link panesWithWallFolded}, which this composes with.
+ */
+export function panesWithMinimized(
+  panes: readonly TugPaneState[],
+  paneId: string,
+  minimized: boolean,
+): readonly TugPaneState[] {
+  const pane = panes.find((p) => p.id === paneId);
+  if (!pane) return panes;
+  if ((pane.minimized === true) === minimized) return panes;
+  return panes.map((p) => {
+    if (p.id !== paneId) return p;
+    if (minimized) return { ...p, minimized: true as const };
+    const { minimized: _dropped, ...rest } = p;
+    return rest;
+  });
+}
+
+/**
+ * Whether a column is a WALL: some member other than `openPaneId` is folded.
+ *
+ * The definition [P06] rests on, and separate from {@link panesWithWallFolded}
+ * because the two questions come apart. A wall whose siblings are ALREADY
+ * folded needs no fold — that helper answers by identity — but it is still a
+ * wall, and opening a card in it still owes the reveal. Gating the reveal on
+ * the fold having changed something is exactly the bug this predicate exists
+ * to prevent: the common case, opening a second card in a settled wall, is
+ * the one where nothing needs folding.
+ */
+export function columnIsWall(
+  panes: readonly TugPaneState[],
+  openPaneId: string,
+  memberIds: readonly string[],
+): boolean {
+  const members = new Set(memberIds);
+  members.delete(openPaneId);
+  if (members.size === 0) return false;
+  return panes.some((p) => members.has(p.id) && p.minimized === true);
+}
+
+/**
+ * The pane array a WALL OPEN writes: every other member of the column folded,
+ * so the wall stays a wall ([P06]).
+ *
+ * A wall is a split column with at least one MINIMIZED member. Opening a card
+ * in one folds its siblings, because the whole shape rests on a wall having
+ * exactly one card being read at a time — a second open card takes the run the
+ * first one needs and the wall stops being legible as a wall.
+ *
+ * The guard is the definition: a split column with no minimized member is not
+ * a wall, it is two or three full sessions sharing a slot, and a fold there
+ * would take away a division the user made with the seams. So `memberIds` is
+ * checked for another minimized member first, and the array comes back by
+ * IDENTITY when there is none.
+ *
+ * `openPaneId` is expected to be already open in `panes` — this composes after
+ * {@link panesWithMinimized}, which is what cleared its flag.
+ */
+export function panesWithWallFolded(
+  panes: readonly TugPaneState[],
+  openPaneId: string,
+  memberIds: readonly string[],
+): readonly TugPaneState[] {
+  if (!columnIsWall(panes, openPaneId, memberIds)) return panes;
+  const members = new Set(memberIds);
+  members.delete(openPaneId);
+  const toFold = panes.filter(
+    (p) => members.has(p.id) && p.minimized !== true,
+  );
+  if (toFold.length === 0) return panes;
+  const foldIds = new Set(toFold.map((p) => p.id));
+  return panes.map((p) =>
+    foldIds.has(p.id) ? { ...p, minimized: true as const } : p,
+  );
 }
 
 /**
@@ -2349,6 +2442,20 @@ export class DeckManager implements IDeckManagerStore {
        * somewhere and now wants to see.
        */
       readonly revealPaneId?: string;
+      /**
+       * A column reveal this caller worked out for itself, in place of the
+       * derived one.
+       *
+       * There is exactly one: opening a card in a WALL ([P06]). Every other
+       * reveal in the deck is minimal — bring the member in if it is out —
+       * and `_columnRevealOffsetFor` is that rule. A wall open is not minimal:
+       * the opened card is about to grow by hundreds of pixels, so the strip
+       * moves whatever anybody does, and the answer is a POSITION (the
+       * neighbour above in view) rather than a smallest move. The caller
+       * computes it because the caller is the one that knows the commit is a
+       * wall open; this only has to prefer it.
+       */
+      readonly columnReveal?: { slot: number; offset: number };
     },
   ): void {
     const retuneRails = opts?.retuneRails ?? true;
@@ -2421,9 +2528,10 @@ export class DeckManager implements IDeckManagerStore {
     // rebuilt the column under the active member — a split, a move, a card
     // leaving the slot — and the rule is minimal and idempotent here too.
     const columnReveal =
-      activePaneId === undefined
+      opts?.columnReveal ??
+      (activePaneId === undefined
         ? undefined
-        : this._columnRevealOffsetFor(activePaneId, nextPanes, imposition);
+        : this._columnRevealOffsetFor(activePaneId, nextPanes, imposition));
     // And the rail's half of it, for the same reason over the other kind of
     // place: the two rules answer about disjoint panes, so exactly one of them
     // can be anything but `undefined` on any given commit.
@@ -3310,6 +3418,43 @@ export class DeckManager implements IDeckManagerStore {
       offset: standing,
     });
     return next === standing ? undefined : { slot: column.slot, offset: next };
+  }
+
+  /**
+   * The column offset a WALL OPEN lands on ([P06]): the opened member's top,
+   * less the member above it and the seam between them.
+   *
+   * The sibling of {@link _columnRevealOffsetFor} rather than a variant of it,
+   * because the two answer different questions — that one is minimal, this one
+   * is a position (see {@link wallRevealOffset}). It is also computed over the
+   * FOLDED panes rather than the standing deck, which is why the caller hands
+   * the array in: the strip it measures is the one the fold just made.
+   *
+   * `undefined` when the column has no allocation to measure, which is a
+   * canvas with no run rather than a wall that fits — a wall that fits its run
+   * clamps to 0 and is written, because the reveal is a position and 0 is one.
+   */
+  private _wallRevealFor(
+    paneId: string,
+    panes: readonly TugPaneState[],
+    slot: number,
+  ): { slot: number; offset: number } | undefined {
+    const run = this._placeRunHeight("column");
+    if (!(run > 0)) return undefined;
+    const allocation = this._columnAllocation(slot, panes);
+    if (allocation === null) return undefined;
+    const index = allocation.ids.indexOf(paneId);
+    if (index < 0) return undefined;
+    return {
+      slot,
+      offset: wallRevealOffset({
+        stripStart: allocation.tops[index] ?? 0,
+        leadExtent: index === 0 ? 0 : (allocation.heights[index - 1] ?? 0),
+        seam: allocation.seam,
+        stripLength: allocation.stripLength,
+        band: run,
+      }),
+    };
   }
 
   /**
@@ -5776,6 +5921,88 @@ export class DeckManager implements IDeckManagerStore {
     this._commitImposition(this.deckState.imposition, panes, {
       retuneRails: false,
     });
+  }
+
+  // ---- Minimize ----
+
+  /**
+   * Minimize or show one content pane.
+   *
+   * The flag is the pane's ([P01]): a pane is one box shared by its tabs, and
+   * minimized describes the box. This is the one writer, and it lands in ONE
+   * commit — the flag, the bullseye clear, and the reveal together — because
+   * the settle is FLIP and a gesture that notifies twice offers that
+   * measurement a half-changed deck the first time. Same reasoning as
+   * {@link setCardWidths}, and the same `retuneRails: false`: minimizing a
+   * card never mentioned the rails, so it may not spend the user's rail width
+   * on a re-solve.
+   *
+   * A sidebar pane is refused with a warning, as `_setPaneWidth` refuses one:
+   * a rail's height is the allocator's and it wears no masthead to minimize
+   * into.
+   *
+   * Showing a card in a WALL folds its siblings ([P06]) and scrolls the column
+   * to put the opened card under its neighbour above ([B07]) — both in the
+   * same commit, for the same one-notify reason. A split column with nothing
+   * minimized in it is not a wall and is left alone.
+   */
+  setPaneMinimized(paneId: string, minimized: boolean): void {
+    const pane = this.deckState.panes.find((p) => p.id === paneId);
+    if (!pane) return;
+    if (this._sidebarComponentIdOfPane(paneId) !== undefined) {
+      console.warn(
+        `setPaneMinimized: pane "${paneId}" hosts a sidebar card; rails do not minimize`,
+      );
+      return;
+    }
+
+    let panes = panesWithMinimized(this.deckState.panes, paneId, minimized);
+    // Identity means the pane already read the way it was asked to read.
+    if (panes === this.deckState.panes) return;
+
+    // Opening into a wall: fold the siblings, and take the reveal off the new
+    // panes rather than the old ones — the strip this scrolls is the one the
+    // fold just made, and computing it from the pre-fold heights would land
+    // the column at a coordinate that no longer exists.
+    let columnReveal: { slot: number; offset: number } | undefined;
+    if (!minimized) {
+      const run = this._placeRunHeight("column");
+      const column = deckColumnsOf(
+        { ...this.deckState, panes },
+        run > 0 ? run : null,
+      ).find((c) => c.members.includes(paneId));
+      if (column !== undefined && columnDrawsSplit(column)) {
+        // The reveal is owed by the WALL, not by the fold: a settled wall
+        // whose siblings are already folded has nothing to write and still
+        // has to scroll.
+        if (columnIsWall(panes, paneId, column.members)) {
+          panes = panesWithWallFolded(panes, paneId, column.members);
+          columnReveal = this._wallRevealFor(paneId, panes, column.slot);
+        }
+      }
+    }
+
+    // The pane's height changes, so its bullseye ends — honored explicitly
+    // because this path builds its pane array inline and hands it to
+    // `_commitImposition`, bypassing `movePane`.
+    this._clearBullseyeFor(paneId);
+    this._commitImposition(this.deckState.imposition, panes, {
+      retuneRails: false,
+      revealPaneId: paneId,
+      ...(columnReveal !== undefined ? { columnReveal } : {}),
+    });
+  }
+
+  /**
+   * The card-addressed twin of {@link setPaneMinimized}: resolve the hosting
+   * pane and minimize that. This is what the action handler calls, because
+   * every door to minimize — the button, the menu item, the chord, the bar —
+   * knows which card it is about and not which pane holds it.
+   */
+  setCardMinimized(cardId: string, minimized: boolean): void {
+    const pane = this.deckState.panes.find((p) => p.cardIds.includes(cardId));
+    if (!pane) return;
+    this.setPaneMinimized(pane.id, minimized);
   }
 
   // ---- Cascade positioning ----

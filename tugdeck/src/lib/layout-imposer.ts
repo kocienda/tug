@@ -1426,10 +1426,14 @@ export function imposeRect(
   const runHeight = span.height - IMPOSITION_GAP_PX - impositionGapBottomPx();
   const width = pinned?.width ?? slotWidth;
   const height = pinned?.height ?? runHeight;
+  // The vertical slack a height-pinned frame is placed in. `"start"` spends
+  // none of it; anything else halves it, which is the centring this has always
+  // done. See `PinnedFrame.anchor`.
+  const slack = Math.max(0, runHeight - height);
   return {
     position: {
       x: span.x + IMPOSITION_GAP_PX + offset + Math.max(0, (slotWidth - width) / 2),
-      y: IMPOSITION_GAP_PX + Math.max(0, (runHeight - height) / 2),
+      y: IMPOSITION_GAP_PX + (pinned?.anchor === "start" ? 0 : slack / 2),
     },
     size: { width, height },
   };
@@ -1477,6 +1481,20 @@ export interface PinnedFrame {
   width?: number;
   /** The card's own height, centerd down the vertical run. */
   height?: number;
+  /**
+   * Where a height-pinned frame sits in its run. `"center"` (the default, and
+   * About's behaviour) floats it mid-run; `"start"` puts it at the run's top.
+   *
+   * The distinction is what the card IS. About is centred because a dialog box
+   * is centred — it is the only thing on the canvas while it stands there. A
+   * minimized card is a ROW IN A WALL ([P04]): it is read from the top with
+   * its neighbours, and one of them floating in the middle of an empty slot
+   * would read as a card that failed to lay out rather than as a card at rest.
+   *
+   * Ignored when `height` is absent — a frame that fills its run has no slack
+   * to be anchored in.
+   */
+  anchor?: "start" | "center";
 }
 
 export function imposeStyle(
@@ -1504,10 +1522,14 @@ export function imposeStyle(
       : {
           // A size-locked card centers inside whatever run it was given, so a
           // split column shrinks the box it centers in rather than taking it
-          // out of the division.
+          // out of the division — unless it is anchored to the run's start,
+          // which is the wall's reading ([P04]) and spends no slack at all.
           width: `${frameWidth}px`,
           height: `${pinned.height}px`,
-          top: `calc(${run.top} + max(0px, (100% - ${run.top} - ${run.bottom} - ${pinned.height}px) / 2))`,
+          top:
+            pinned.anchor === "start"
+              ? run.top
+              : `calc(${run.top} + max(0px, (100% - ${run.top} - ${run.bottom} - ${pinned.height}px) / 2))`,
         };
 
   const band = `(100% - ${INSET_LEFT} - ${INSET_RIGHT} - ${GAP} * 2)`;
@@ -1845,6 +1867,54 @@ export function stripRevealOffset(input: StripRevealInput): number {
         ? stripStart + extent - band
         : offset;
   return clampStripOffset(wanted, stripLength, band);
+}
+
+/**
+ * What the WALL's reveal is told ([P06], Spec S02). The strip and the band, as
+ * every reveal rule is told them; the opened member's top; the height of the
+ * member ABOVE it, which is the whole difference from
+ * {@link StripRevealInput}; and no standing offset, because this rule is not
+ * minimal.
+ */
+export interface WallRevealInput {
+  /** The opened member's near edge, from the strip's origin. */
+  stripStart: number;
+  /** The member above's extent; 0 for the first member. */
+  leadExtent: number;
+  /** The seam between two members — `IMPOSITION_GAP_PX`. */
+  seam: number;
+  /** The full strip length, for the clamp. */
+  stripLength: number;
+  /** The band the strip is seen through. */
+  band: number;
+}
+
+/**
+ * Where a wall scrolls to when one of its cards is opened: the opened member's
+ * top, less the neighbour above it and the seam between them, clamped to the
+ * strip.
+ *
+ * NOT {@link stripRevealOffset}. That rule moves as little as possible, which
+ * is right for an activation the reader did not ask for — a card that is
+ * already in the band should not move at all. Opening a card in a wall is the
+ * opposite case: the card is about to become much taller than it was, so the
+ * strip is going to move under the reader whatever anybody does, and the only
+ * question is where it lands. It lands with the NEIGHBOUR ABOVE in view
+ * ([B07]), because that neighbour is how the reader knows which part of the
+ * wall they are looking at.
+ *
+ * So there is no `offset` in the input and no early return: the answer is a
+ * position rather than a minimal move. The first member's `leadExtent` is 0,
+ * which resolves to `-seam` and clamps to the strip's origin, and a shared
+ * place clamps to 0 outright because it has no travel — a wall that fits its
+ * run needs no scrolling for the same reason it has no strip.
+ */
+export function wallRevealOffset(input: WallRevealInput): number {
+  const { stripStart, leadExtent, seam, stripLength, band } = input;
+  if (!Number.isFinite(stripStart) || !Number.isFinite(leadExtent)) {
+    return clampStripOffset(0, stripLength, band);
+  }
+  return clampStripOffset(stripStart - leadExtent - seam, stripLength, band);
 }
 
 /** Flow's own name for {@link StripRevealInput}. */
@@ -3253,6 +3323,19 @@ export interface PlaceMember {
   /** The stored share, {@link railWeightOf}: finite, ≥ 0; `undefined` when the
    *  place has no record, which reads as an equal division ([B03]). */
   weight?: number;
+  /**
+   * Hard ceiling, px — the most run this member will take, however much the
+   * place has to give. `undefined` for every ordinary member: a card that can
+   * use more room takes it.
+   *
+   * It exists for the MINIMIZED member ([P05]), whose registered policy pins
+   * its height (`min.height === max.height`), and it is what keeps a wall a
+   * wall. Without it, a column whose members all weigh zero would divide its
+   * run equally by the allocator's own stated reading — and five minimized
+   * cards on a tall run would each stand at a fifth of it instead of at the
+   * tier, which is not a wall but five stretched cards.
+   */
+  ceiling?: number;
 }
 
 /**
@@ -3260,9 +3343,18 @@ export interface PlaceMember {
  * every consumer reads, so that no site derives a member height for itself.
  *
  * `heights` and `tops` are strip coordinates: a shared place's strip IS its
- * run, so `stripLength` equals `run` and the last member's bottom sits at the
- * run's bottom; an overflowing place's strip is longer than the run and slides
- * behind it by the place's offset.
+ * run in the ordinary case, so `stripLength` equals `run` and the last
+ * member's bottom sits at the run's bottom; an overflowing place's strip is
+ * longer than the run and slides behind it by the place's offset.
+ *
+ * The one shared place where the strip is SHORTER than the run is a place
+ * every member of which is held at a ceiling ([P05]) — a wall of minimized
+ * cards on a run taller than they add up to. `stripLength` is then less than
+ * `run` and the last member's bottom stands above the run's, which is the
+ * correct picture: the surplus is run left over beneath the wall rather than
+ * air distributed into the cards. `placeAllocationOf` derives `stripLength`
+ * from the heights, so nothing had to change for it to be right; what was
+ * wrong was this paragraph claiming otherwise.
  */
 export interface PlaceAllocation {
   standing: PlaceStanding;
@@ -3304,7 +3396,21 @@ function sanitizedMembers(
         : Number.isFinite(member.weight) && member.weight >= 0
           ? member.weight
           : 1;
-    return { id: member.id, floor, weight };
+    // A ceiling below its own floor is not a bound the place can honour, so
+    // it is read as no ceiling rather than as an impossible one — the same
+    // treatment an unreadable weight gets, and for the same reason.
+    const ceiling =
+      member.ceiling !== undefined &&
+      Number.isFinite(member.ceiling) &&
+      member.ceiling >= floor
+        ? member.ceiling
+        : undefined;
+    return {
+      id: member.id,
+      floor,
+      weight,
+      ...(ceiling !== undefined ? { ceiling } : {}),
+    };
   });
 }
 
@@ -3395,6 +3501,14 @@ const PLACE_POOL_EPSILON = 1e-9;
  * the member stands at its floor. A place whose weights are ALL zero divides
  * its run equally rather than not at all — the only reading a total of nothing
  * has.
+ *
+ * A CEILING is the floor read the other way ([P05]): a member whose target
+ * would put it above its ceiling stands at the ceiling instead and gives the
+ * surplus back, by the same pass structure and in the same loop. It is what
+ * makes a wall of minimized members hold at their tier — every one of them
+ * weighs zero, the equal division above would hand each a fifth of the run,
+ * and the ceiling is what turns that surplus into run left over beneath the
+ * wall rather than air stretched into the cards.
  */
 function sharedHeightsOf(
   members: readonly PlaceMember[],
@@ -3418,18 +3532,34 @@ function sharedHeightsOf(
         ? (room * weights[i]) / total
         : room / active.length,
     );
-    const floored = active.filter(
-      (i, k) => targets[k] < members[i].floor - PLACE_POOL_EPSILON,
-    );
-    if (floored.length === 0) {
+    // Held this pass: a member whose share put it under its floor, or over
+    // its ceiling. Both leave the division at the bound they met and hand the
+    // difference back to the rest; the loop terminates either way because a
+    // pass that holds nobody breaks and a pass that holds somebody shortens
+    // `active`.
+    const held: number[] = [];
+    active.forEach((i, k) => {
+      const ceiling = members[i].ceiling;
+      if (targets[k] < members[i].floor - PLACE_POOL_EPSILON) {
+        heights[i] = members[i].floor;
+        held.push(i);
+      } else if (
+        ceiling !== undefined &&
+        targets[k] > ceiling + PLACE_POOL_EPSILON
+      ) {
+        heights[i] = ceiling;
+        held.push(i);
+      }
+    });
+    if (held.length === 0) {
       active.forEach((i, k) => {
         heights[i] = targets[k];
       });
       break;
     }
-    for (const i of floored) room -= members[i].floor;
-    const held = new Set(floored);
-    active = active.filter((i) => !held.has(i));
+    for (const i of held) room -= heights[i];
+    const stood = new Set(held);
+    active = active.filter((i) => !stood.has(i));
     if (active.length === 0) break;
   }
   return heights;
@@ -3444,6 +3574,22 @@ function sharedHeightsOf(
  * and seams that do not fit inside the run leave nothing to divide, so the
  * place stands as a strip until a member leaves or the window grows. A place
  * of fewer than two members has nothing to divide and always shares.
+ *
+ * There is a SECOND way a place fails to divide its run, and it arrived with
+ * the wall ([P05]): every member held at a ceiling, adding up to LESS than the
+ * run. A shared place pins its first member's top and its last member's bottom
+ * to the run's own endpoints — that is what makes a split read as a division
+ * of the card the eye already knew — so a shared place cannot leave room
+ * beneath its last member. It would stretch that member instead, and a wall of
+ * five folded cards would come out as four at the tier and one running to the
+ * bottom of the canvas. So a place whose members CANNOT fill their run stands
+ * as a strip too, and the frames take strip coordinates: the offset clamps to
+ * zero (there is nothing to scroll), every member pins to its own two
+ * coordinates, and the surplus is run left over beneath the wall.
+ *
+ * The two exceptions are one rule read from both ends: a place stands as a
+ * strip when the members' own bounds and the run cannot be reconciled —
+ * floors too tall to fit, or ceilings too short to fill.
  *
  * It is a function rather than a field so that no caller has to work out for
  * itself which of the two a place is in. That was the shape the inverse and the
@@ -3460,7 +3606,18 @@ function placeStandingOf(
   const required =
     members.reduce((sum, member) => sum + member.floor, 0) +
     (members.length - 1) * seam;
-  return required > run ? "overflow" : "shared";
+  if (required > run) return "overflow";
+  // The capacity a place has to fill its run: every member at its ceiling,
+  // seams included. Unbounded on any member — which is every ordinary member —
+  // makes this infinite and the comparison false, so nothing but a place of
+  // fully-ceilinged members can reach it.
+  const capacity =
+    members.reduce(
+      (sum, member) => sum + (member.ceiling ?? Number.POSITIVE_INFINITY),
+      0,
+    ) +
+    (members.length - 1) * seam;
+  return capacity < run ? "overflow" : "shared";
 }
 
 /**
@@ -3623,8 +3780,13 @@ export function seamDragBounds(
   const b = sane[index + 1];
   const span = (heights[index] ?? 0) + (heights[index + 1] ?? 0);
   if (allocation.standing === "overflow") return { lower: held, upper: held };
-  const lower = a.floor;
-  const upper = span - b.floor;
+  // The seam's travel is bounded by BOTH members at BOTH ends: `a` may not go
+  // under its floor or over its ceiling, and neither may `b` — and `b`'s
+  // bounds are `a`'s read from the other end of the span ([P05]). Without the
+  // ceiling terms a hand could drag a minimized member to twice its tier and
+  // the next allocation would snap it straight back.
+  const lower = Math.max(a.floor, span - (b.ceiling ?? Infinity));
+  const upper = Math.min(span - b.floor, a.ceiling ?? Infinity);
   if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower > upper) {
     return { lower: held, upper: held };
   }

@@ -95,6 +95,82 @@ describe("TugPaneState (two-table model)", () => {
   });
 });
 
+// ---- the additive-optional `minimized` flag ----
+
+describe("TugPaneState.minimized", () => {
+  function minimizedPane(): TugPaneState {
+    return {
+      id: "pane-min",
+      position: { x: 10, y: 20 },
+      size: { width: 640, height: 480 },
+      cardIds: ["card-min"],
+      activeCardId: "card-min",
+      title: "",
+      acceptsFamilies: ["standard"],
+      minimized: true,
+    };
+  }
+
+  function minimizedState(): DeckState {
+    const card: CardState = {
+      id: "card-min",
+      componentId: "session",
+      title: "Session",
+      closable: true,
+    };
+    return {
+      cards: [card],
+      panes: [minimizedPane()],
+      imposition: { sidebars: { tripwires: { side: "right" } } },
+      hasFocus: true,
+    };
+  }
+
+  test("a minimized pane passes validateDeckState — the flag constrains nothing", () => {
+    expect(() => validateDeckState(minimizedState())).not.toThrow();
+  });
+
+  test("the flag survives serialize / deserialize", () => {
+    const json = JSON.stringify(serialize(minimizedState()));
+    const restored = deserialize(json, 1920, 1080);
+    expect(restored.panes.length).toBe(1);
+    expect(restored.panes[0].minimized).toBe(true);
+  });
+
+  test("a pane without the flag restores without the key, not with false", () => {
+    const state = minimizedState();
+    const { minimized: _dropped, ...bare } = state.panes[0];
+    const json = JSON.stringify(serialize({ ...state, panes: [bare] }));
+    const restored = deserialize(json, 1920, 1080);
+    expect("minimized" in restored.panes[0]).toBe(false);
+  });
+
+  test("a blob saved before the field restores as not minimized", () => {
+    // The additive-optional contract: no version bump, and an older blob
+    // simply has no key to read.
+    const legacy = {
+      version: 4,
+      cards: [
+        { id: "card-old", componentId: "session", title: "S", closable: true },
+      ],
+      panes: [
+        {
+          id: "pane-old",
+          position: { x: 0, y: 0 },
+          size: { width: 400, height: 300 },
+          cardIds: ["card-old"],
+          activeCardId: "card-old",
+          title: "",
+          acceptsFamilies: ["standard"],
+        },
+      ],
+      imposition: { sidebars: { tripwires: { side: "right" } } },
+    };
+    const restored = deserialize(JSON.stringify(legacy), 1920, 1080);
+    expect(restored.panes[0].minimized).toBeUndefined();
+  });
+});
+
 // ---- buildDefaultLayout tests ----
 
 describe("buildDefaultLayout", () => {

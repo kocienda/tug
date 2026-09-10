@@ -311,6 +311,20 @@ export interface TugPaneState {
    * serialization version bump.
    */
   slot?: number;
+  /**
+   * The pane wears its minimized form: masthead, the Z2 status row, and the
+   * Show Transcript bar, with the transcript and composer folded away ([B05]).
+   * Absent means not minimized — `true` is the only value the field ever
+   * carries, and the key is deleted rather than written `false`.
+   *
+   * Geometry is the pane's ([L09]), and a pane is one box shared by its tabs,
+   * so the flag describes the box rather than any card in it. Written only by
+   * {@link DeckManager.setPaneMinimized} and its card-addressed twin.
+   * Additive-optional like `widthPreset?` and `slot?` — no serialization
+   * version bump, and {@link validateDeckState} gains no invariant, because
+   * the field constrains nothing about the rest of the state.
+   */
+  minimized?: true;
 }
 
 /**

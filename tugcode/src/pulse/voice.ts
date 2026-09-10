@@ -444,14 +444,29 @@ export function agentDisplayLabel(slug: string): string {
  * would freeze on the assistant's last pre-question thought.
  */
 function askQuestionBeat(frame: ToolUse): string {
-  const input = (frame.input ?? {}) as Record<string, unknown>;
+  return questionBeat(frame.input ?? {}, "Asking");
+}
+
+/**
+ * `<verb>: <first question's header>`, or `<verb> a question` when the call
+ * carries none.
+ *
+ * Shared by the `AskUserQuestion` tool beat and the permission wait's own
+ * question branch ([P09].1): a question forwarded for an answer and a question
+ * announced as a tool call are the same call read at two moments, so they read
+ * the header the same way rather than each parsing the input for itself.
+ */
+function questionBeat(rawInput: unknown, verb: "Asking" | "Waiting on"): string {
+  const input = (rawInput ?? {}) as Record<string, unknown>;
   const questions = Array.isArray(input.questions) ? input.questions : [];
   const first = questions[0] as Record<string, unknown> | undefined;
   const header =
     first && typeof first.header === "string" && first.header.length > 0
       ? first.header
       : null;
-  return header !== null ? `Asking: ${narratedPhrase(header)}` : "Asking a question";
+  return header !== null
+    ? `${verb}: ${narratedPhrase(header)}`
+    : `${verb} a question`;
 }
 
 /**
@@ -582,6 +597,23 @@ class ScopeVoiceState {
    */
   directLine: string | null = null;
   /**
+   * The line a permission wait superseded, held so the wait can end by
+   * putting it back ([P09].1). There is no other prior-line memory here:
+   * `directLine` is overwritten, never stacked, so a wait that simply cleared
+   * it would leave the strip on the wait's own text after the answer landed.
+   *
+   * `null` means no wait is in flight, which is also what ends one — the two
+   * fields below are written and cleared together.
+   */
+  preWaitLine: string | null = null;
+  /**
+   * The `tool_use_id` the in-flight permission forward named, or `null` when
+   * it named none — which is the QUESTION case, where the frame's
+   * `tool_use_id` is optional and absent. The wait ends on the `tool_result`
+   * carrying this id, and on any `tool_result` when it is null.
+   */
+  waitingToolUseId: string | null = null;
+  /**
    * The retained high-level thought — the last monologue line that
    * passed {@link isSubstantialIntent}. Rides along with `directLine`
    * emits so the strip shows what the tool chain is FOR. Survives a
@@ -616,6 +648,8 @@ class ScopeVoiceState {
     this.blockText = "";
     this.directLine = null;
     this.lastIntent = null;
+    this.preWaitLine = null;
+    this.waitingToolUseId = null;
     this.agentLabels.clear();
     this.shownText = null;
   }
@@ -652,6 +686,53 @@ export class PulseVoice {
         return null;
       case "tool_input_progress":
         state.directLine = synthesizeToolLine(frame, state.root);
+        return null;
+      // ── The narrated wait ([P09].1) ────────────────────────────────────
+      // A permission request went out to the user. The strip's whole job for
+      // the next stretch is to say so: a watched card sitting on the tool
+      // call that opened the request tells the reader nothing about why it
+      // stopped, and this is the most common state a watched card is in.
+      case "control_request_forward": {
+        // A second forward while one is already in flight keeps the FIRST
+        // wait's superseded line: the second's `directLine` is the first
+        // wait's own text, and putting that back at the end would leave the
+        // strip narrating a wait that is over.
+        if (state.waitingToolUseId === null && state.preWaitLine === null) {
+          state.preWaitLine = state.directLine;
+        }
+        state.waitingToolUseId =
+          typeof frame.tool_use_id === "string" && frame.tool_use_id.length > 0
+            ? frame.tool_use_id
+            : null;
+        state.directLine = frame.is_question
+          ? questionBeat(frame.input, "Waiting on")
+          : `Waiting for permission: ${narrateTool(
+              frame.tool_name,
+              frame.input ?? {},
+              state.root,
+            )}`;
+        return null;
+      }
+      // The request was withdrawn — one of the two ways a wait ends.
+      case "control_request_cancel":
+        this.endWait(state);
+        return null;
+      // …and the other, the one that covers an ALLOW. Nothing outbound
+      // announces the user's decision — `tool_approval` is inbound-only and
+      // the voice runs in its own daemon, so the wire is all it can see — but
+      // an approved call runs and reports, and a denied one reports the
+      // denial. `tool_result` is the one frame that arrives either way.
+      //
+      // Correlated by `tool_use_id`, so a result for some OTHER call in
+      // flight does not end this wait. A forward that named none is the
+      // question case, where any result is the answer.
+      case "tool_result":
+        if (
+          state.waitingToolUseId === null ||
+          state.waitingToolUseId === frame.tool_use_id
+        ) {
+          this.endWait(state);
+        }
         return null;
       case "tool_use": {
         const parentId = (frame as unknown as Record<string, unknown>)
@@ -886,6 +967,20 @@ export class PulseVoice {
     return { scope, text };
   }
 
+  /**
+   * End the wait in flight, if there is one: the superseded line goes back on
+   * the strip and the two wait fields clear together ([P09].1).
+   *
+   * A no-op when nothing is waiting, which is the ordinary case for every
+   * `tool_result` in a turn nobody was asked to approve.
+   */
+  private endWait(state: ScopeVoiceState): void {
+    if (state.waitingToolUseId === null && state.preWaitLine === null) return;
+    state.directLine = state.preWaitLine;
+    state.preWaitLine = null;
+    state.waitingToolUseId = null;
+  }
+
   private onTurnEnd(
     state: ScopeVoiceState,
     scope: string,
@@ -894,9 +989,15 @@ export class PulseVoice {
     frame: TurnComplete | TurnCancelled,
   ): VoiceLine {
     void frame;
+    // Captured BEFORE the reset clears it. What the turn was FOR is the one
+    // fact a resting card can still say something with ([P09].2), and until
+    // now it was dropped on the floor at exactly the moment it became the
+    // only thing left. It rides both markers; the deck decides that only
+    // `Done` reads as finished.
+    const intent = state.lastIntent;
     state.resetTurn();
     state.lastEmitAt = atMs;
     state.shownText = marker;
-    return { scope, text: marker };
+    return { scope, text: marker, ...(intent !== null ? { intent } : {}) };
   }
 }

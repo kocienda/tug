@@ -36,6 +36,51 @@ function turnComplete(): OutboundMessage {
   return { type: "turn_complete", msg_id: "m1", seq: 9, result: "done", ipc_version: 2 };
 }
 
+function turnCancelled(): OutboundMessage {
+  return { type: "turn_cancelled", msg_id: "m1", seq: 9, ipc_version: 2 } as OutboundMessage;
+}
+
+/**
+ * A permission request on its way to the user — the frame that opens a
+ * narrated wait ([P09].1). `toolUseId` is deliberately optional and
+ * deliberately spelled at each call site: a forward that names no call is the
+ * QUESTION case, and which of the two a fixture is exercising is the whole
+ * subject of half these tests.
+ */
+function permissionForward(opts: {
+  toolName: string;
+  input: Record<string, unknown>;
+  toolUseId?: string | undefined;
+  isQuestion?: boolean;
+}): OutboundMessage {
+  const toolUseId = "toolUseId" in opts ? opts.toolUseId : "toolu_x";
+  return {
+    type: "control_request_forward",
+    request_id: "req_1",
+    tool_name: opts.toolName,
+    input: opts.input,
+    is_question: opts.isQuestion ?? false,
+    ipc_version: 2,
+    ...(toolUseId !== undefined ? { tool_use_id: toolUseId } : {}),
+  } as OutboundMessage;
+}
+
+/** The request withdrawn — one of the two ways a wait ends. */
+function controlRequestCancel(): OutboundMessage {
+  return { type: "control_request_cancel", request_id: "req_1", ipc_version: 2 };
+}
+
+/** The other way: the call ran (or was denied) and reported. */
+function toolResult(toolUseId: string): OutboundMessage {
+  return {
+    type: "tool_result",
+    tool_use_id: toolUseId,
+    output: "ok",
+    is_error: false,
+    ipc_version: 2,
+  };
+}
+
 function toolUse(
   toolName: string,
   input: Record<string, unknown>,
@@ -672,5 +717,131 @@ describe("parseWireLine", () => {
     expect(ok?.scope).toBe("s1");
     expect(parseWireLine("not json")).toBeNull();
     expect(parseWireLine(JSON.stringify({ type: "turn_complete" }))).toBeNull();
+  });
+});
+
+describe("PulseVoice — the narrated wait", () => {
+  test("a permission forward says what is being waited on", () => {
+    const voice = rootedVoice();
+    voice.onFrame("s1", toolProgress({ filePath: `${ROOT}/tugdeck/src/deck-manager.ts`, lines: 12 }), 0);
+    expect(voice.flush(1_100)).toEqual([
+      { scope: "s1", text: "Writing tugdeck/src/deck-manager.ts — 12 lines" },
+    ]);
+    voice.onFrame("s1", permissionForward({ toolName: "Bash", input: { command: "cargo nextest run" } }), 1_200);
+    expect(voice.flush(2_300)).toEqual([
+      { scope: "s1", text: "Waiting for permission: Running cargo nextest run" },
+    ]);
+  });
+
+  test("a forwarded QUESTION borrows the first question's header", () => {
+    const voice = rootedVoice();
+    voice.onFrame(
+      "s1",
+      permissionForward({
+        toolName: "AskUserQuestion",
+        isQuestion: true,
+        toolUseId: undefined,
+        input: { questions: [{ header: "Auth method" }] },
+      }),
+      0,
+    );
+    expect(voice.flush(1_100)).toEqual([
+      { scope: "s1", text: "Waiting on: Auth method" },
+    ]);
+  });
+
+  test("a cancel puts the superseded line back", () => {
+    const voice = rootedVoice();
+    voice.onFrame("s1", toolProgress({ filePath: `${ROOT}/tugdeck/src/deck-manager.ts`, lines: 12 }), 0);
+    voice.flush(1_100);
+    voice.onFrame("s1", permissionForward({ toolName: "Bash", input: { command: "rm -rf build" } }), 1_200);
+    voice.flush(2_300);
+    voice.onFrame("s1", controlRequestCancel(), 2_400);
+    expect(voice.flush(3_500)).toEqual([
+      { scope: "s1", text: "Writing tugdeck/src/deck-manager.ts — 12 lines" },
+    ]);
+  });
+
+  // The case the whole of [P09].1 turns on. Nothing outbound announces an
+  // ALLOW — `tool_approval` is inbound-only — so if the wait did not end on
+  // the approved call's own result, an approved permission would leave the
+  // wall saying "waiting" for the rest of the turn, which is the wall lying
+  // about the one thing it exists to report.
+  test("the approved call's own tool_result ends the wait", () => {
+    const voice = rootedVoice();
+    voice.onFrame("s1", toolProgress({ filePath: `${ROOT}/tugdeck/src/deck-manager.ts`, lines: 12 }), 0);
+    voice.flush(1_100);
+    voice.onFrame("s1", permissionForward({ toolName: "Bash", input: { command: "cargo nextest run" }, toolUseId: "toolu_9" }), 1_200);
+    voice.flush(2_300);
+    // A result for a DIFFERENT call in flight leaves the wait standing.
+    voice.onFrame("s1", toolResult("toolu_other"), 2_400);
+    expect(voice.flush(3_500)).toEqual([]);
+    voice.onFrame("s1", toolResult("toolu_9"), 3_600);
+    expect(voice.flush(4_700)).toEqual([
+      { scope: "s1", text: "Writing tugdeck/src/deck-manager.ts — 12 lines" },
+    ]);
+  });
+
+  test("a question's wait, which names no call, ends on any tool_result", () => {
+    const voice = rootedVoice();
+    voice.onFrame("s1", toolProgress({ filePath: `${ROOT}/tugdeck/src/main.tsx`, lines: 3 }), 0);
+    voice.flush(1_100);
+    voice.onFrame(
+      "s1",
+      permissionForward({
+        toolName: "AskUserQuestion",
+        isQuestion: true,
+        toolUseId: undefined,
+        input: { questions: [{ header: "Auth method" }] },
+      }),
+      1_200,
+    );
+    voice.flush(2_300);
+    voice.onFrame("s1", toolResult("toolu_whatever"), 2_400);
+    expect(voice.flush(3_500)).toEqual([
+      { scope: "s1", text: "Writing tugdeck/src/main.tsx — 3 lines" },
+    ]);
+  });
+
+  test("a turn's end carries the intent it was working toward", () => {
+    const voice = rootedVoice();
+    voice.onFrame(
+      "s1",
+      assistantText("I'll fold the transcript and the composer on the settle's own clock."),
+      0,
+    );
+    voice.onFrame("s1", toolProgress({ filePath: `${ROOT}/tugdeck/src/lib/layout-imposer.ts`, lines: 6 }), 100);
+    voice.flush(1_100);
+    expect(voice.onFrame("s1", turnComplete(), 2_000)).toEqual({
+      scope: "s1",
+      text: "Done",
+      intent: "I'll fold the transcript and the composer on the settle's own clock.",
+    });
+  });
+
+  test("a cancelled turn carries it too — the deck decides which marker rests", () => {
+    const voice = rootedVoice();
+    voice.onFrame(
+      "s1",
+      assistantText("I'll fold the transcript and the composer on the settle's own clock."),
+      0,
+    );
+    voice.onFrame("s1", toolProgress({ filePath: `${ROOT}/tugdeck/src/lib/layout-imposer.ts`, lines: 6 }), 100);
+    voice.flush(1_100);
+    expect(voice.onFrame("s1", turnCancelled(), 2_000)).toEqual({
+      scope: "s1",
+      text: "Stopped",
+      intent: "I'll fold the transcript and the composer on the settle's own clock.",
+    });
+  });
+
+  test("a turn with no substantive thought behind it ends bare", () => {
+    const voice = rootedVoice();
+    voice.onFrame("s1", toolProgress({ filePath: `${ROOT}/tugdeck/src/main.tsx`, lines: 1 }), 0);
+    voice.flush(1_100);
+    expect(voice.onFrame("s1", turnComplete(), 2_000)).toEqual({
+      scope: "s1",
+      text: "Done",
+    });
   });
 });

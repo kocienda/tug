@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   completedRestingLine,
+  completedWithIntentRestingLine,
   createdRestingLine,
   formatRestingStamp,
   restingActivityText,
@@ -122,5 +123,63 @@ describe("restingActivityText — which lines get rewritten", () => {
         text,
       );
     }
+  });
+});
+
+describe("completedWithIntentRestingLine — what the wall says at rest", () => {
+  const INTENT = "Folding the transcript and the composer on one clock";
+
+  test("names what was finished, then when, then the state", () => {
+    const line = completedWithIntentRestingLine(INTENT, EARLIER_TODAY);
+    expect(line).toBe(`Finished: ${INTENT}. ${completedRestingLine(EARLIER_TODAY)}`);
+    expect(line.startsWith("Finished: ")).toBe(true);
+    expect(line.endsWith(". Ready.")).toBe(true);
+    expect(line).toContain(formatRestingStamp(EARLIER_TODAY));
+  });
+
+  test("still says `at` exactly once", () => {
+    // The intent is prose the assistant wrote and could say anything; the
+    // sentence AROUND it is what this pins. A fixture with no `at` in it
+    // keeps the count a fact about the frame rather than about the text.
+    expect(
+      completedWithIntentRestingLine("Rewiring the reducer", TODAY).match(/\bat\b/g)
+        ?.length,
+    ).toBe(1);
+  });
+
+  test("the marker with an intent reads as the finished line", () => {
+    expect(
+      restingActivityText(
+        { text: TURN_DONE_MARKER, atMs: EARLIER_TODAY, intent: INTENT },
+        LAST_MONTH,
+      ),
+    ).toBe(completedWithIntentRestingLine(INTENT, EARLIER_TODAY));
+  });
+
+  test("the marker WITHOUT one keeps the plain completed line", () => {
+    // The one-line register's reading, and the reading every session that
+    // never narrated a substantive thought gets. An empty intent is the same
+    // absence spelled differently and must not produce `Finished: . `.
+    expect(
+      restingActivityText({ text: TURN_DONE_MARKER, atMs: EARLIER_TODAY }, LAST_MONTH),
+    ).toBe(completedRestingLine(EARLIER_TODAY));
+    expect(
+      restingActivityText(
+        { text: TURN_DONE_MARKER, atMs: EARLIER_TODAY, intent: "" },
+        LAST_MONTH,
+      ),
+    ).toBe(completedRestingLine(EARLIER_TODAY));
+  });
+
+  test("an intent on a line that is NOT the marker changes nothing", () => {
+    // `Stopped` carries the intent too — the voice puts it on both markers
+    // and the deck decides which one rests. A cancelled turn keeps its
+    // marker on the line, so nothing here rewrites it.
+    expect(
+      restingActivityText(
+        { text: "Stopped", atMs: EARLIER_TODAY, intent: INTENT },
+        LAST_MONTH,
+      ),
+    ).toBe("Stopped");
   });
 });

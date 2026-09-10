@@ -143,6 +143,15 @@ export interface CommandMenuFacts {
     readonly changesVisible: boolean;
     readonly historyVisible: boolean;
     readonly commitReady: boolean;
+    /**
+     * The frontmost session card's pane wears the minimized form. Drives the
+     * Minimize Session item's dynamic verb. An inline mirror of
+     * `MenuStateSessionBlock`'s own field rather than an import of it, which
+     * is how this block already stands — so the field is declared in three
+     * places, and missing any of them is a type error rather than a silent
+     * disagreement.
+     */
+    readonly minimized: boolean;
     /** The bound session carries a user-set name — there is one to clear. */
     readonly hasCustomName: boolean;
   } | null;
@@ -1711,6 +1720,42 @@ export const COMMANDS: readonly CommandEntry[] = [
         ? "Hide Commit History"
         : "Show Commit History",
   },
+  {
+    // The card-scoped minimize ([B04], [P02]). Its three doors are the button
+    // ahead of Z4A, this item, and ⌥⌘M — one action, so the state the doors
+    // read and the commit they land are the same one ([L11]).
+    //
+    // ⌥ is the variant operator (`tuglaws/chord-tiers.md`): ⌘M minimizes the
+    // window, ⌥⌘M minimizes the card. `menuEligible` puts the match at the
+    // menu bar, so the item's gate is what answers the chord too — a non-
+    // Session key card disables the item and beeps the chord, which is honest
+    // about a verb that has nothing to act on.
+    //
+    // Gated on a BOUND session, not merely on a Session card being frontmost.
+    // An unbound card renders `SessionProjectPicker` rather than
+    // `SessionCardBody`, and the responder that answers this command — along
+    // with the masthead, the Z2 row and the bar the minimized form IS — lives
+    // in the body. Validating on the card type alone would leave the item
+    // enabled and the chord live over a card that can do nothing with either.
+    id: TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED,
+    title: "Minimize Session",
+    routing: "key-card",
+    menuItemId: "session.minimize",
+    bindings: [
+      chord(
+        { key: "KeyM", alt: true, meta: true, label: "m" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    mirrored: true,
+    validate: sessionBound,
+    // One command, two verbs — the item says what the gesture will do, the
+    // shape the two shade toggles above already take.
+    dynamicTitle: (chain) =>
+      (chain.menu.session?.minimized ?? false)
+        ? "Show Transcript"
+        : "Minimize Session",
+  },
   ...SLASH_BRIDGE_COMMANDS,
 
   // ---- View ----
@@ -2027,6 +2072,15 @@ export const COMMANDS: readonly CommandEntry[] = [
     // Its door is the pane title bar's width popup.
     id: TUG_ACTIONS.SET_CARD_WIDTH,
     title: "Set Card Width",
+    routing: "registry",
+    internal: true,
+  },
+  {
+    // Its doors are `toggle-session-minimized`, the Minimize button ahead of
+    // Z4A, and the minimized form's Show Transcript bar — every one of them a
+    // card-addressed gesture, and this is the one write path they share.
+    id: TUG_ACTIONS.SET_CARD_MINIMIZED,
+    title: "Set Card Minimized",
     routing: "registry",
     internal: true,
   },

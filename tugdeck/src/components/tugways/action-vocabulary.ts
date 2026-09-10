@@ -593,6 +593,27 @@ export const TUG_ACTIONS = {
   //                 must not slam the door.
   REVEAL_CHANGES: "reveal-changes",
   TOGGLE_HISTORY_VIEW: "toggle-history-view",
+  // TOGGLE_SESSION_MINIMIZED: payload — none. Put the frontmost Session card
+  //                           into its minimized form, or take it out — the
+  //                           masthead with its two-line beat, the Z2 status
+  //                           row, and a full-width Show Transcript bar, with
+  //                           the transcript and composer folded away. Its
+  //                           three doors are the Minimize button ahead of
+  //                           Z4A, Session ▸ Minimize Session, and ⌥⌘M
+  //                           ([L11]: one action, three doors). The card's
+  //                           `card-content` responder handles it and
+  //                           dispatches SET_CARD_MINIMIZED with the negated
+  //                           flag; ⌘M without the ⌥ is the window's MINIMIZE
+  //                           and is untouched.
+  TOGGLE_SESSION_MINIMIZED: "toggle-session-minimized",
+  // SET_CARD_MINIMIZED: payload — `{ cardId: string, minimized: boolean }`.
+  //                     Write one card's pane into or out of the minimized
+  //                     form. Internal: its doors are TOGGLE_SESSION_MINIMIZED,
+  //                     the Minimize button, and the Show Transcript bar, and
+  //                     it is the one write path, so every door lands the same
+  //                     deck commit. Handled in `action-dispatch.ts` on the
+  //                     deck manager, the shape SET_CARD_WIDTH's handler takes.
+  SET_CARD_MINIMIZED: "set-card-minimized",
   SHOW_SLASH_COMMAND_NOTICE: "show-slash-command-notice",
 
   // ---- Dialog / popover ----
@@ -728,7 +749,11 @@ export const TUG_ACTIONS = {
   //                         must never destroy a stack outright. Sent with
   //                         `sendToTarget(paneId, …)` — the pane registers it
   //                         under its own id.
-  // MINIMIZE:               payload — none. Minimize the first card.
+  // MINIMIZE:               payload — none. Window ▸ Minimize — the WINDOW's,
+  //                         routed native on ⌘M. Nothing to do with a card:
+  //                         the card-scoped verb is TOGGLE_SESSION_MINIMIZED
+  //                         on ⌥⌘M, and the two are neighbours in the chord
+  //                         space and nowhere else.
   // MAXIMIZE:               payload — none. Maximize the first card.
   // SHOW_COMPONENT_GALLERY: payload — none. Open or focus the gallery card.
   // SHOW_SETTINGS:          payload — none. Open the settings panel.

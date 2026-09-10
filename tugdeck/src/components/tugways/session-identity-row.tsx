@@ -143,7 +143,10 @@ import {
   useIsCompactingCard,
 } from "@/lib/compaction-progress-store";
 import { parseBeatFileTarget } from "@/lib/pulse-line/beat-file-target";
-import { formatRestingStamp } from "@/lib/pulse-line/resting-line";
+import {
+  completedWithIntentRestingLine,
+  formatRestingStamp,
+} from "@/lib/pulse-line/resting-line";
 import { renderPulseLine } from "@/lib/pulse-line/render-pulse-line";
 import { latestLineForScope, usePulse } from "@/lib/pulse-store";
 import {
@@ -237,6 +240,12 @@ interface DisplayEntry {
    * own clear and the compaction pin both answer a gesture.
    */
   immediate?: boolean;
+  /**
+   * The retained thought behind a low-level beat, when the feed carried one.
+   * Read only by the wall register ([P09].3), which gives it a line of its
+   * own; the one-line register has nowhere to put it and ignores it.
+   */
+  intent?: string;
 }
 
 /**
@@ -608,6 +617,24 @@ export interface SessionIdentityRowProps
   /** Class on the activity run itself, for a surface styling its ink. */
   activityClassName?: string;
   /**
+   * Which REGISTER the activity line reads in ([P09].3).
+   *
+   * `"line"` — the default, and every surface but one: the row is one line
+   * tall, so a beat is the beat and a resting session says when it last
+   * finished. The Cards card's rows, the picker's rows and the open card's
+   * masthead all read here.
+   *
+   * `"wall"` — the minimized Session card, where the beat is the only thing
+   * on screen and has two lines to say it in ([B08], [P07]). Two facts get
+   * their own line: the retained INTENT above, the action below; and at rest
+   * the line names what the last turn finished rather than only when it
+   * stopped. A wall of watched sessions is read by asking "what is that one
+   * doing" and "what did that one just do", and this is the register that
+   * answers both without the card being opened.
+   * @default "line"
+   */
+  activityRegister?: "line" | "wall";
+  /**
    * Props for the element wrapping the TITLE. The identity runs are rendered
    * inside whatever this describes.
    */
@@ -655,6 +682,7 @@ export function SessionIdentityRow({
   pace = false,
   markdown = false,
   activityClassName,
+  activityRegister = "line",
   nameProps,
   identityMenu = false,
   hostCardId,
@@ -761,25 +789,46 @@ export function SessionIdentityRow({
   // ── The activity ladder ───────────────────────────────────────────────
   // The bare `Done` marker is filtered on the way in: it is the ABSENCE of a
   // beat, and the rest sentence says the same thing with facts in it.
-  const beat =
+  // The newest line the feed has about this session, unfiltered — the wall
+  // register's rest form needs the `Done` marker's own INTENT, which the
+  // filter below is about to throw away with the marker.
+  const latestLine =
     beats && pulse.enabled
-      ? sessionActivityBeat(
-          latestLineForScope(pulse.lines, sessionId, pulse.cleared.get(sessionId)),
-        )
+      ? latestLineForScope(pulse.lines, sessionId, pulse.cleared.get(sessionId))
       : null;
+  const beat = sessionActivityBeat(latestLine);
   const restLine = sessionActivityRestLine({
     turnCount: facts?.turn_count ?? 0,
     fileSize: facts?.file_size ?? null,
     lastUsedAtMs: facts?.last_used_at ?? null,
   });
+  // The wall register's rest form ([P09].3). The voice now carries the turn's
+  // retained intent across the `Done` marker, so a watched card at rest can
+  // say what it last finished rather than only that it is ready. `Stopped` is
+  // deliberately not here: `sessionActivityBeat` filters `Done` alone, so a
+  // cancelled turn keeps its marker on the line and never reaches the rest
+  // sentence at all.
+  const wallRestLine =
+    activityRegister === "wall" &&
+    beat === null &&
+    latestLine !== null &&
+    latestLine.intent !== undefined &&
+    latestLine.intent.length > 0
+      ? completedWithIntentRestingLine(latestLine.intent, latestLine.atMs)
+      : null;
   const target: DisplayEntry =
     activityOverride !== null && activityOverride.length > 0
       ? composedEntry(activityOverride)
       : compacting
         ? COMPACTING_ENTRY
         : beat !== null
-          ? { key: beat.key, text: beat.text, placeholder: false }
-          : composedEntry(restLine);
+          ? {
+              key: beat.key,
+              text: beat.text,
+              placeholder: false,
+              ...(beat.intent !== undefined ? { intent: beat.intent } : {}),
+            }
+          : composedEntry(wallRestLine ?? restLine);
   // Paced HERE rather than in a leaf, so a swap re-renders the row and
   // `TugPulse` measures the new text — see {@link useDwellDisplay}.
   const entry = useDwellDisplay(target, pace);
@@ -799,13 +848,46 @@ export function SessionIdentityRow({
     enabled: identityMenu,
   });
   const ActivityRun = markdown ? ActivityMarkdownText : ActivityText;
-  const activity = (
+  // The wall register gives the beat two lines with two jobs ([P09].3,
+  // [B08]): the retained intent above, the action below, both through the
+  // same run component so a backticked path reads the same on either. With no
+  // intent to show the beat simply wraps over both lines, which is the second
+  // line earning its keep rather than sitting empty.
+  //
+  // `data-register` is what the CSS keys the stacking on. It rides a wrapper
+  // rather than the run itself because the run is also the middle-truncation
+  // measurer's subject, and a run holding two block children is not a thing
+  // that measurer is asked to read.
+  const activityBeatRun = (
     <ActivityRun
       entry={entry}
       highlight={highlight}
-      className={activityClassName}
+      className={
+        activityRegister === "wall"
+          ? "session-identity-activity-beat"
+          : activityClassName
+      }
     />
   );
+  const activity =
+    activityRegister === "wall" ? (
+      <span className={activityClassName} data-register="wall">
+        {entry.intent !== undefined && entry.intent.length > 0 ? (
+          <ActivityRun
+            entry={{
+              key: `${entry.key}:intent`,
+              text: entry.intent,
+              placeholder: false,
+            }}
+            highlight={highlight}
+            className="session-identity-activity-intent"
+          />
+        ) : null}
+        {activityBeatRun}
+      </span>
+    ) : (
+      activityBeatRun
+    );
 
   // ── The tape ──────────────────────────────────────────────────────────
   // Unconditional wherever the mount asks for one — a session that has done no

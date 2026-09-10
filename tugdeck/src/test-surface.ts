@@ -368,8 +368,14 @@ import {
  * The probe drives the two halves a scroll gesture is made of, a per-frame
  * property write and one store commit, with the landing named, which is the
  * only way to assert that a cut arms nothing. Additive; major stays `2`.
+ *
+ * `2.17.0`: {@link TugTestSurface.getPaneRecord} gains `minimized` — the pane
+ * flag the minimized Session form is written from ([P01]). Read here rather
+ * than off the frame's `data-minimized` because a step that lands the flag
+ * before the form has anything to say still needs to assert the commit.
+ * Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.16.0" as const;
+export const SURFACE_VERSION = "2.17.0" as const;
 
 /**
  * A {@link TugTestSurface.dictionaryLookupProbe} reading: the payload Look Up
@@ -751,6 +757,8 @@ export interface TugTestSurface {
     size: { width: number; height: number };
     slot: number | null;
     widthPreset: string | null;
+    /** The pane wears the minimized form ([P01]). */
+    minimized: boolean;
   } | null;
   getActiveCardId(): string | null;
   getFocusedCardId(): string | null;
@@ -1920,6 +1928,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         size: { ...pane.size },
         slot: pane.slot ?? null,
         widthPreset: pane.widthPreset ?? null,
+        minimized: pane.minimized === true,
       };
     },
 

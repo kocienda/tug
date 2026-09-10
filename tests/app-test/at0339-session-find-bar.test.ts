@@ -545,13 +545,15 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
                .sort((a, b) => a - b).join(",")`,
           ),
           "the find bar's four stops occupy 8…11 in the card's cycle group",
-          // 4 and 6 are gaps by design: slot 4 is the off-code-route chip
+          // −1 is the Z4-lead Minimize button ([D97]) — the row's leftmost
+          // control, negative rather than a renumbering of everything after
+          // it. 4 and 6 are gaps by design: slot 4 is the off-code-route chip
           // (Cwd / Changes, never mounted on the code route this fixture
           // seeds) and slot 6's Effort chip merged into the AI chip in the
           // Z4B diet. The constants keep their places — the grid describes
           // the SHAPE of the toolbar row — and the walk skips what is not
           // mounted.
-        ).toBe(`0,1,5,7,8,9,10,11,${EDITOR_ORDER}`);
+        ).toBe(`-1,0,1,5,7,8,9,10,11,${EDITOR_ORDER}`);
 
         // ⌥⇥ engages the cycle AT the query field's own seat — entering keeps
         // the key view where the keyboard already is, and the landing is a

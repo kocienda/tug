@@ -17,7 +17,10 @@
  *      when some row has been published, so its presence is the publish.
  *   2. The four rows stand, in the family's order — Previous, Next, First,
  *      Last, the same order the native Session ▸ Go in Transcript submenu
- *      uses. A reader who learns one learns both.
+ *      uses. A reader who learns one learns both. They are no longer the
+ *      only rows on the rollup — the card publishes its Minimize verb there
+ *      too, ahead of them — so the whole menu is pinned as its own list and
+ *      the family's claims stay the family's.
  *   3. Each row carries the BRACKET chord, read from the command table
  *      through `commandShortcut` rather than authored here. An arrow glyph in
  *      any of these four is the regression this test exists to catch: it
@@ -61,6 +64,22 @@ const EXPECTED_ROWS = [
   { id: "next-turn", label: "Next Turn", shortcut: "⌃⌘]" },
   { id: "first-turn", label: "First Turn", shortcut: "⌃⌘{" },
   { id: "last-turn", label: "Last Turn", shortcut: "⌃⌘}" },
+] as const;
+
+/**
+ * Everything the Session card publishes to the rollup, in order.
+ *
+ * The family is not alone there any more: the card also publishes
+ * `toggle-session-minimized`, one of the doors onto the minimized form
+ * ([P02] of the session-minimize plan), and it leads. That is a fact about
+ * the MENU rather than about the family, which is why it is a second list —
+ * the four rows below still stand in their own order, still read their
+ * bracket chords, and are still dim over an empty transcript, and those are
+ * the claims this file exists for.
+ */
+const EXPECTED_MENU_IDS = [
+  "toggle-session-minimized",
+  ...EXPECTED_ROWS.map((row) => row.id),
 ] as const;
 
 interface Row {
@@ -154,7 +173,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             rows.map((row) => row.id),
             "the family stands in the submenu's own order and nothing else is on the menu",
-          ).toEqual(EXPECTED_ROWS.map((row) => row.id));
+          ).toEqual([...EXPECTED_MENU_IDS]);
 
           for (const want of EXPECTED_ROWS) {
             const row = rows.find((candidate) => candidate.id === want.id)!;

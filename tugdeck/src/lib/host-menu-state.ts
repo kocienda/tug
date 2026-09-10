@@ -446,6 +446,13 @@ export interface MenuStateSessionBlock {
   /** The History Shade is showing — drives the "Show/Hide History" verb. */
   historyVisible: boolean;
   /**
+   * The card's pane wears the minimized form ([P01]) — drives Session ▸
+   * Minimize Session's dynamic verb, "Show Transcript" when true. Read off the
+   * deck store rather than any card state: the flag is the pane's, and the
+   * card is only where the gesture is aimed from.
+   */
+  minimized: boolean;
+  /**
    * Commit mode is active, the session is idle, the changeset is non-empty and
    * a message is written — every gate Session ▸ Commit Changes needs. Folded
    * into one boolean by `CommitModeController`, which owns all four facts;
@@ -1065,6 +1072,7 @@ export class HostMenuStatePublisher {
               hasTurns: session.hasTurns,
               changesVisible: session.changesVisible,
               historyVisible: session.historyVisible,
+              minimized: session.minimized,
               commitReady: session.commitReady,
               hasCustomName: session.hasCustomName,
             },

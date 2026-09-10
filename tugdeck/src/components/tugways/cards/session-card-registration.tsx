@@ -19,6 +19,23 @@ import {
 import { FeedId } from "@/protocol";
 import { SessionCardContent } from "./session-card";
 
+/**
+ * The height a minimized Session card stands at, in pixels ([P04]).
+ *
+ * The three bands of the minimized form add up here: the masthead tier at
+ * `MASTHEAD_MINIMIZED_HEIGHT` (88) plus its 1px bottom rule, and the 82px the
+ * card body needs for the Z2 status row and the Show Transcript bar together.
+ * MEASURED, not derived: `at0552` reads the built app's own numbers and fails
+ * if the bar overhangs the frame or leaves air under it, which is what caught
+ * the plan's starting 160 — the spike's 159 was measured without the pane
+ * frame around it.
+ *
+ * Pinned rather than a floor: it is BOTH `min.height` and `max.height` in the
+ * minimized policy, which is what makes `TugPane` place the frame at the tier
+ * instead of filling its run, and what makes a wall of minimized cards pack.
+ */
+export const SESSION_MINIMIZED_HEIGHT_PX = 173;
+
 export function registerSessionCard(): void {
   registerCard({
     componentId: "session",
@@ -55,6 +72,23 @@ export function registerSessionCard(): void {
       // height to 90% of the live canvas at creation, so on a smaller screen the
       // card opens at canvas * 0.9 instead of pushing past the viewport.
       preferred: { width: CONTENT_WIDTH_COMFY_PX, height: 1200 },
+    },
+    // The minimized form is a different card for sizing ([P04]): the 600px
+    // floor above is what the TRANSCRIPT and the composer need, and neither is
+    // on screen here. The width policy is unchanged — a minimized card is as
+    // wide as its slot — so `max.width` is declared unbounded rather than
+    // omitted, which `CardSizePolicy` requires and which leaves `widthPinned`
+    // false where a finite width would have pinned it.
+    minimizedSizePolicy: {
+      min: { width: CONTENT_WIDTH_SLIM_PX, height: SESSION_MINIMIZED_HEIGHT_PX },
+      max: {
+        width: Number.POSITIVE_INFINITY,
+        height: SESSION_MINIMIZED_HEIGHT_PX,
+      },
+      preferred: {
+        width: CONTENT_WIDTH_COMFY_PX,
+        height: SESSION_MINIMIZED_HEIGHT_PX,
+      },
     },
     takesContentWidth: true,
     engineKind: "em",

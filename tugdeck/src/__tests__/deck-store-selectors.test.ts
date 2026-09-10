@@ -16,8 +16,12 @@ import {
   deckColumnsOf,
   deckFlowStrip,
   isFocusDestination,
+  paneMinimizedOf,
+  cardMinimizedOf,
+  placeMembers,
   slotStackOf,
 } from "../deck-store-selectors";
+import { registerCard, _resetForTest } from "../card-registry";
 
 
 function makeCard(id: string, componentId = "probe"): CardState {
@@ -152,6 +156,49 @@ describe("slotStackOf", () => {
     const stack = slotStackOf(slottedState(), 0);
     expect(stack.some((p) => p.id === "pane-2")).toBe(false);
     expect(stack.some((p) => p.id === "pane-free")).toBe(false);
+  });
+});
+
+describe("paneMinimizedOf / cardMinimizedOf", () => {
+  function minimizedState(): DeckState {
+    const s = baseState();
+    return {
+      ...s,
+      panes: [
+        { ...s.panes[0], minimized: true },
+        s.panes[1],
+      ],
+    };
+  }
+
+  test("an absent flag reads false", () => {
+    expect(paneMinimizedOf(baseState(), "pane-1")).toBe(false);
+    expect(cardMinimizedOf(baseState(), "card-a")).toBe(false);
+  });
+
+  test("a pane carrying the flag reads true", () => {
+    expect(paneMinimizedOf(minimizedState(), "pane-1")).toBe(true);
+  });
+
+  test("a sibling pane without the flag still reads false", () => {
+    expect(paneMinimizedOf(minimizedState(), "pane-2")).toBe(false);
+  });
+
+  test("a pane id naming no live pane reads false", () => {
+    expect(paneMinimizedOf(minimizedState(), "pane-gone")).toBe(false);
+  });
+
+  test("every tab of a minimized pane reads true — the flag is the box's", () => {
+    expect(cardMinimizedOf(minimizedState(), "card-a")).toBe(true);
+    expect(cardMinimizedOf(minimizedState(), "card-b")).toBe(true);
+  });
+
+  test("a card in an unminimized pane reads false", () => {
+    expect(cardMinimizedOf(minimizedState(), "card-c")).toBe(false);
+  });
+
+  test("a card in no pane reads false", () => {
+    expect(cardMinimizedOf(minimizedState(), "card-orphan")).toBe(false);
   });
 });
 
@@ -519,5 +566,96 @@ describe("columnBadgeFactsOf", () => {
     expect(
       columnBadgeFactsOf(state({ "pane-a": 0, "pane-b": 0 }), "card-nowhere"),
     ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// placeMembers and the wall ([P05])
+// ---------------------------------------------------------------------------
+
+describe("placeMembers reads the minimized flag", () => {
+  const TIER = 173;
+  const OPEN = 600;
+
+  /** A card type shaped like the Session card: a tall open floor, a pinned
+   *  minimized tier. */
+  function registerFoldable(): void {
+    _resetForTest();
+    registerCard({
+      componentId: "foldable",
+      contentFactory: () => null,
+      defaultMeta: { title: "Foldable", closable: true },
+      sizePolicy: {
+        min: { width: 400, height: OPEN },
+        preferred: { width: 600, height: 900 },
+      },
+      minimizedSizePolicy: {
+        min: { width: 400, height: TIER },
+        max: { width: Number.POSITIVE_INFINITY, height: TIER },
+        preferred: { width: 600, height: TIER },
+      },
+    });
+  }
+
+  /** Two panes in one slot, the first optionally folded. */
+  function wallState(foldFirst: boolean): DeckState {
+    const pane = (id: string, cardId: string, minimized: boolean) => ({
+      ...makePane(id, [cardId], cardId),
+      slot: 0,
+      ...(minimized ? { minimized: true as const } : {}),
+    });
+    return {
+      cards: [makeCard("card-a", "foldable"), makeCard("card-b", "foldable")],
+      panes: [
+        pane("pane-a", "card-a", foldFirst),
+        pane("pane-b", "card-b", false),
+      ],
+      activePaneId: "pane-a",
+      imposition: { sidebars: {} },
+      hasFocus: true,
+    };
+  }
+
+  test("a folded column member is a share of zero, pinned at its tier", () => {
+    registerFoldable();
+    const members = placeMembers(
+      wallState(true),
+      "column",
+      ["pane-a", "pane-b"],
+      { "pane-a": 3, "pane-b": 1 },
+    );
+    expect(members[0].floor).toBe(TIER);
+    expect(members[0].ceiling).toBe(TIER);
+    // Zero WHATEVER the stored shares say — a folded card asks for no share.
+    expect(members[0].weight).toBe(0);
+  });
+
+  test("an open member beside it keeps its own floor and its stored share", () => {
+    registerFoldable();
+    const members = placeMembers(
+      wallState(true),
+      "column",
+      ["pane-a", "pane-b"],
+      { "pane-a": 3, "pane-b": 1 },
+    );
+    expect(members[1].floor).toBe(OPEN);
+    expect(members[1].ceiling).toBeUndefined();
+    expect(members[1].weight).toBe(1);
+  });
+
+  test("the stored share comes back the moment the card is open again", () => {
+    // The share is DERIVED from the flag on every allocation ([P05]), never
+    // rewritten, so a minimize and a show is not a gesture that costs the user
+    // the division they made with the seams.
+    registerFoldable();
+    const members = placeMembers(
+      wallState(false),
+      "column",
+      ["pane-a", "pane-b"],
+      { "pane-a": 3, "pane-b": 1 },
+    );
+    expect(members[0].floor).toBe(OPEN);
+    expect(members[0].ceiling).toBeUndefined();
+    expect(members[0].weight).toBe(3);
   });
 });

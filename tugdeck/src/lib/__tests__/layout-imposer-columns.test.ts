@@ -38,6 +38,8 @@ import {
   type PlaceAllocation,
   effectiveColumnOrder,
   flowRevealOffset,
+  seamDragBounds,
+  wallRevealOffset,
   IMPOSITION_GAP_BOTTOM_MAKER_PX,
   IMPOSITION_GAP_BOTTOM_PROPERTY,
   imposeStyle,
@@ -795,5 +797,213 @@ describe("the reveal rule is one rule, read on either axis", () => {
         offset: 5000,
       }),
     ).toBeCloseTo(stripOf(4) - RUN, 6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The wall ([P05], [P06])
+// ---------------------------------------------------------------------------
+
+describe("a wall of minimized members", () => {
+  /** The tier a minimized Session card stands at, and an open one's floor. */
+  const TIER = 160;
+  const OPEN = 600;
+  const SEAM = 5;
+  /** A 900px canvas gives a column this much run: 900 − 5 − 32. */
+  const RUN = 900 - 5 - 32;
+
+  /** A minimized member: floor pinned to ceiling, and no share of the run. */
+  const folded = (id: string): PlaceMember => ({
+    id,
+    floor: TIER,
+    ceiling: TIER,
+    weight: 0,
+  });
+  /** An open member: its own floor, and whatever share it was given. */
+  const open = (id: string, weight = 1): PlaceMember => ({
+    id,
+    floor: OPEN,
+    weight,
+  });
+
+  // The four rows of the plan's own worked table, at a 900px run. They are
+  // here as one test each rather than as a loop because what each row is FOR
+  // is different: the first two are the two standings, the third is the
+  // ceiling's whole reason, and the fourth is the wall the feature exists for.
+
+  test("one folded and one open: shared, and the open card takes the rest", () => {
+    const a = allocatePlaceHeights([folded("a"), open("b")], RUN, SEAM);
+    expect(a.standing).toBe("shared");
+    expect(a.heights[0]).toBeCloseTo(TIER, 6);
+    // Not "six tenths" and not an equal share: the remainder, which is a
+    // reading share rather than the whole column ([B07]).
+    expect(a.heights[1]).toBeCloseTo(RUN - SEAM - TIER, 6);
+    // Nothing dead beneath — the strip is the run.
+    expect(a.stripLength).toBeCloseTo(RUN, 6);
+  });
+
+  test("two folded and one open: the floors stop fitting, so it overflows", () => {
+    const a = allocatePlaceHeights(
+      [folded("a"), folded("b"), open("c")],
+      RUN,
+      SEAM,
+    );
+    expect(a.standing).toBe("overflow");
+    expect(a.heights).toEqual([TIER, TIER, OPEN]);
+    // The strip runs past the run and scrolls behind it.
+    expect(a.stripLength).toBeCloseTo(TIER * 2 + OPEN + SEAM * 2, 6);
+    expect(a.stripLength).toBeGreaterThan(RUN);
+  });
+
+  test("ALL folded: the wall cannot fill its run, so it stands as a strip", () => {
+    // The plan expected `shared` here, and shared is the one standing that
+    // cannot produce this picture: a shared place pins its LAST member's
+    // bottom to the run's own bottom (`memberPins`), so four cards would stand
+    // at the tier and the fifth would run to the bottom of the canvas. A place
+    // whose members cannot fill their run stands as a strip instead, and every
+    // member pins to its own two strip coordinates.
+    const a = allocatePlaceHeights(
+      ["a", "b", "c", "d", "e"].map(folded),
+      RUN,
+      SEAM,
+    );
+    expect(a.standing).toBe("overflow");
+    for (const height of a.heights) expect(height).toBeCloseTo(TIER, 6);
+    // The surplus stays as run BENEATH the wall — a strip SHORTER than the run
+    // it is seen through, which has no travel and so never scrolls.
+    expect(a.stripLength).toBeCloseTo(TIER * 5 + SEAM * 4, 6);
+    expect(a.stripLength).toBeLessThan(RUN);
+  });
+
+  test("one unbounded member is enough to keep the place dividing", () => {
+    // The capacity rule must not catch an ordinary column: a single member
+    // with no ceiling can absorb any surplus, so the place still shares.
+    expect(
+      allocatePlaceHeights([folded("a"), folded("b"), open("c")], RUN * 4, SEAM)
+        .standing,
+    ).toBe("shared");
+  });
+
+  test("ten folded: too many for the run, so the wall becomes a strip", () => {
+    const a = allocatePlaceHeights(
+      Array.from({ length: 10 }, (_, i) => folded(`p${i}`)),
+      RUN,
+      SEAM,
+    );
+    expect(a.standing).toBe("overflow");
+    for (const height of a.heights) expect(height).toBeCloseTo(TIER, 6);
+    expect(a.stripLength).toBeCloseTo(TIER * 10 + SEAM * 9, 6);
+  });
+
+  test("a stored share cannot outvote the ceiling", () => {
+    // The share is derived from the flag on every allocation ([P05]), but a
+    // member that arrived with both a weight and a ceiling must still hold: a
+    // seam drag stored while the card was open is not a licence to stretch it
+    // while it is folded.
+    const a = allocatePlaceHeights(
+      [{ ...folded("a"), weight: 9 }, open("b")],
+      RUN,
+      SEAM,
+    );
+    expect(a.heights[0]).toBeCloseTo(TIER, 6);
+  });
+
+  test("seamDragBounds beside a ceilinged member cannot exceed the ceiling", () => {
+    const members = [folded("a"), open("b")];
+    const a = allocatePlaceHeights(members, RUN, SEAM);
+    const bounds = seamDragBounds(a, members, 0);
+    // `a` may not grow past its tier however far the hand travels…
+    expect(bounds.upper).toBeCloseTo(TIER, 6);
+    // …and may not shrink below it either, because its floor is its ceiling.
+    expect(bounds.lower).toBeCloseTo(TIER, 6);
+  });
+
+  test("seamDragBounds is unchanged where no member carries a ceiling", () => {
+    const members = [open("a"), open("b")];
+    const a = allocatePlaceHeights(members, RUN * 3, SEAM);
+    const bounds = seamDragBounds(a, members, 0);
+    const span = a.heights[0] + a.heights[1];
+    expect(bounds.lower).toBeCloseTo(OPEN, 6);
+    expect(bounds.upper).toBeCloseTo(span - OPEN, 6);
+  });
+});
+
+describe("wallRevealOffset — where a wall lands when a card opens", () => {
+  const SEAM = 5;
+  const TIER = 160;
+  const RUN = 900 - 5 - 32;
+  /** Five folded members and one open one, as a strip: the wall's own shape. */
+  const HEIGHTS = [TIER, TIER, 600, TIER, TIER];
+  const stripLength =
+    HEIGHTS.reduce((sum, h) => sum + h, 0) + (HEIGHTS.length - 1) * SEAM;
+  const topOf = (index: number): number =>
+    HEIGHTS.slice(0, index).reduce((sum, h) => sum + h, 0) + index * SEAM;
+
+  test("the first member pins the strip at its origin", () => {
+    // `leadExtent` is 0 and the arithmetic resolves to `-seam`, which clamps.
+    expect(
+      wallRevealOffset({
+        stripStart: 0,
+        leadExtent: 0,
+        seam: SEAM,
+        stripLength,
+        band: RUN,
+      }),
+    ).toBe(0);
+  });
+
+  test("a middle member lands with its neighbour above in view", () => {
+    // The rule's whole content ([B07]): the offset puts the member ABOVE the
+    // opened one at the top of the band, so the reader keeps their place.
+    const index = 2;
+    const offset = wallRevealOffset({
+      stripStart: topOf(index),
+      leadExtent: HEIGHTS[index - 1],
+      seam: SEAM,
+      stripLength,
+      band: RUN,
+    });
+    expect(offset).toBeCloseTo(topOf(index) - HEIGHTS[index - 1] - SEAM, 6);
+    // And that is exactly the neighbour's own top.
+    expect(offset).toBeCloseTo(topOf(index - 1), 6);
+  });
+
+  test("the last member clamps at the strip's end rather than past it", () => {
+    const index = HEIGHTS.length - 1;
+    expect(
+      wallRevealOffset({
+        stripStart: topOf(index),
+        leadExtent: HEIGHTS[index - 1],
+        seam: SEAM,
+        stripLength,
+        band: RUN,
+      }),
+    ).toBeCloseTo(Math.min(topOf(index - 1), stripLength - RUN), 6);
+  });
+
+  test("a wall that fits its run has no travel and answers 0", () => {
+    // Spec S02's clamp degrades to zero in the shared regime, where there is
+    // no strip to slide.
+    expect(
+      wallRevealOffset({
+        stripStart: 330,
+        leadExtent: TIER,
+        seam: SEAM,
+        stripLength: 500,
+        band: RUN,
+      }),
+    ).toBe(0);
+  });
+
+  test("an unreadable position slides nothing", () => {
+    expect(
+      wallRevealOffset({
+        stripStart: Number.NaN,
+        leadExtent: TIER,
+        seam: SEAM,
+        stripLength,
+        band: RUN,
+      }),
+    ).toBe(0);
   });
 });

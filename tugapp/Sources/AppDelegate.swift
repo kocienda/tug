@@ -1170,6 +1170,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let toggleHistoryItem = NSMenuItem(title: "Show Commit History", action: #selector(toggleShadeView(_:)), keyEquivalent: "h", modifierMask: [.command, .control]).identified("session.toggleHistory")
         toggleHistoryItem.representedObject = "history"
         sessionMenu.addItem(toggleHistoryItem)
+
+        // Minimize Session — the CARD's minimize, on ⌥⌘M. Window ▸ Minimize
+        // keeps ⌘M and is untouched: ⌥ is the variant operator, so the same
+        // verb aimed at the smaller object. The title's verb rides the
+        // registry gate's dynamic title on the menuState push ("Show
+        // Transcript" once the card is minimized), the same way the two shade
+        // toggles above take theirs.
+        sessionMenu.addItem(NSMenuItem(title: "Minimize Session", action: #selector(toggleSessionMinimized(_:)), keyEquivalent: "m", modifierMask: [.command, .option]).identified("session.minimize"))
         sessionMenu.addItem(NSMenuItem.separator())
 
         sessionMenu.addItem(sessionCommandItem("Resume Session…", "resume", "session.resume"))
@@ -1870,6 +1878,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func toggleShadeView(_ sender: NSMenuItem) {
         guard let view = sender.representedObject as? String else { return }
         sendControl(view == "history" ? "toggle-history-view" : "toggle-changes-view")
+    }
+
+    // Session ▸ Minimize Session. One control name for the card-scoped verb;
+    // the frontend's `card-content` responder resolves which card it is about
+    // and lands the deck commit.
+    @objc private func toggleSessionMinimized(_ sender: NSMenuItem) {
+        sendControl("toggle-session-minimized")
     }
 
     // Edit ▸ Undo / Redo — two execution paths, matching the two

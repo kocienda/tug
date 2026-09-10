@@ -153,6 +153,27 @@ export function slotStackOf(
   return state.panes.filter((p) => p.slot === slot);
 }
 
+/**
+ * `paneMinimizedOf(state, paneId)` — whether that pane wears its minimized
+ * form. A pane id naming no live pane reads false, as an absent flag does:
+ * the field is additive-optional and its absence is the resting state, so
+ * there is nothing here for a caller to distinguish ([P01]).
+ */
+export function paneMinimizedOf(state: DeckState, paneId: string): boolean {
+  return state.panes.find((p) => p.id === paneId)?.minimized === true;
+}
+
+/**
+ * `cardMinimizedOf(state, cardId)` — whether the pane HOSTING that card is
+ * minimized. The flag is the pane's ([L09]), so every tab of a minimized pane
+ * reads true; a card in no pane reads false.
+ */
+export function cardMinimizedOf(state: DeckState, cardId: string): boolean {
+  return (
+    state.panes.find((p) => p.cardIds.includes(cardId))?.minimized === true
+  );
+}
+
 // A pane's display name is NOT derived here. It is the string that pane's own
 // title bar renders — registry title, multi-tab group prefix, and the live
 // `cardTitleStore` override composed together — and it lives in exactly one
@@ -495,6 +516,20 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
  * hand's own weights ([B03]), and the one algorithm that reads a card's
  * content height runs on request rather than from a settled mirror of a
  * measurement store.
+ *
+ * The one member that reads differently is a MINIMIZED column member ([P05]).
+ * Its floor is its stack's minimized policy, its ceiling is the same number —
+ * the two together are what pin it at its tier — and its weight is zero
+ * whatever the stored shares say, because a folded card asks for no share of
+ * the run. All three are DERIVED from the flag on every allocation, so the
+ * stored share is never written from the folded height and comes back the
+ * moment the card is open again — unless a seam elsewhere in the same column
+ * is dragged while the card is folded, which re-inverts the WHOLE place's
+ * heights ({@link placeSharesFromHeights} through `handleSeamCommit`) and
+ * records the tier's fraction for the folded member along with the two the
+ * hand actually moved. The floor ladder catches that on the next show — the
+ * card comes back at its floor rather than at the share it remembered — so
+ * the cost is a forgotten share and never a broken division.
  */
 export function placeMembers(
   state: DeckState,
@@ -513,6 +548,18 @@ export function placeMembers(
         : state.cards
             .filter((card) => pane.cardIds.includes(card.id))
             .map((card) => card.componentId);
+    // Rails do not minimize (`setPaneMinimized` refuses one), so this is a
+    // column-only reading and the rail branch is untouched by it.
+    const minimized = kind === "column" && pane?.minimized === true;
+    if (minimized) {
+      const policy = getStackSizePolicy(componentIds, { minimized: true });
+      return {
+        id,
+        floor: policy.min.height,
+        ceiling: policy.max?.height ?? policy.min.height,
+        weight: 0,
+      };
+    }
     return {
       id,
       floor: getStackSizePolicy(componentIds).min.height,

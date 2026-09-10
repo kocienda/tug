@@ -140,6 +140,27 @@ export interface CardRegistration {
   /** Size policy for this card type. Falls back to DEFAULT_SIZE_POLICY when omitted. */
   sizePolicy?: CardSizePolicy;
   /**
+   * The policy this card type takes while its pane is MINIMIZED ([P04]).
+   *
+   * A minimized card is a different card for sizing purposes: its floor is
+   * what the open form needed only because the open form has a transcript and
+   * a composer in it, and a wall of minimized cards cannot pack at all while
+   * every member still claims that floor. So the minimized form declares its
+   * own policy rather than having the open one relaxed — the open card's floor
+   * is still the truth about the open card.
+   *
+   * Declared with `min.height === max.height`, which is how a registration
+   * already says "exactly one correct size" and what `TugPane` reads as
+   * `heightPinned`. The width is left unbounded: a minimized card is as wide
+   * as the slot it stands in.
+   *
+   * Omitted by every card type that has no minimized form, in which case
+   * `getStackSizePolicy({ minimized: true })` falls back to that card's
+   * ordinary policy — the aggregate over a mixed stack is then the honest
+   * answer rather than a tier the other card cannot live at.
+   */
+  minimizedSizePolicy?: CardSizePolicy;
+  /**
    * Where a fresh pane for this card type opens on the canvas.
    * `"cascade"` (the default) walks the standard cascade origin;
    * `"center"` centers the pane in the live canvas — for app-level
@@ -355,6 +376,24 @@ export function getSizePolicy(componentId: string): CardSizePolicy {
 }
 
 /**
+ * The size policy for a registered card type in its MINIMIZED form ([P04]).
+ *
+ * Falls back to {@link getSizePolicy} — the card's ordinary policy — for a
+ * card type that declares no minimized form, which is every type but the
+ * Session card today. The fallback is what keeps a mixed stack honest: a pane
+ * hosting a Session tab and a Text tab is one box, and the box still has to
+ * fit the Text card.
+ */
+export function getMinimizedSizePolicy(componentId: string): CardSizePolicy {
+  const registration = registry.get(componentId);
+  return (
+    registration?.minimizedSizePolicy ??
+    registration?.sizePolicy ??
+    DEFAULT_SIZE_POLICY
+  );
+}
+
+/**
  * Aggregate size policy for a TugPane hosting a stack of cards.
  *
  * A pane is one box shared by all its tabs, so it must satisfy every
@@ -377,12 +416,20 @@ export function getSizePolicy(componentId: string): CardSizePolicy {
  *
  * Each id resolves through `getSizePolicy`, so unknown ids contribute
  * `DEFAULT_SIZE_POLICY`. An empty list returns `DEFAULT_SIZE_POLICY`.
+ *
+ * `options.minimized` resolves each id through {@link getMinimizedSizePolicy}
+ * instead ([P04]). Everything else is unchanged, including the aggregation —
+ * a pane is still one box, and a minimized Session card sharing a pane with a
+ * Text tab still has to fit the Text tab.
  */
 export function getStackSizePolicy(
   componentIds: readonly string[],
+  options: { minimized?: boolean } = {},
 ): CardSizePolicy {
   if (componentIds.length === 0) return DEFAULT_SIZE_POLICY;
-  const policies = componentIds.map(getSizePolicy);
+  const policies = componentIds.map(
+    options.minimized === true ? getMinimizedSizePolicy : getSizePolicy,
+  );
 
   let minWidth = 0;
   let minHeight = 0;
@@ -404,7 +451,19 @@ export function getStackSizePolicy(
       height: Math.max(policies[0].preferred.height, minHeight),
     },
   };
-  if (Number.isFinite(maxWidth) && Number.isFinite(maxHeight)) {
+  // PER-AXIS, not both-or-nothing. `CardSizePolicy.max` requires both numbers,
+  // so a policy bounded on ONE axis declares the other `Infinity` — and the
+  // both-finite gate this replaced would then drop the whole `max`, taking the
+  // bounded axis down with the unbounded one. That is exactly the minimized
+  // policy's shape ([P04]: pinned height, unbounded width), and under the old
+  // gate `heightPinned` would silently never fire.
+  //
+  // `Infinity` on the surviving axis is safe at every reader: each one passes
+  // `max.width` / `max.height` into a clamp (`resolveContentWidthPx` at three
+  // sites in `deck-manager.ts`, the resize clamp's `maxSizeRef`, the bullseye
+  // width), where an infinite bound is a no-op. And `max.width === min.width`
+  // stays false for an infinite width, so nothing reads it as a pin.
+  if (Number.isFinite(maxWidth) || Number.isFinite(maxHeight)) {
     aggregated.max = { width: maxWidth, height: maxHeight };
   }
   return aggregated;

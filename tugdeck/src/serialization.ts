@@ -563,6 +563,12 @@ function parseV4(
       ? rawWidthPreset
       : undefined;
 
+    // `minimized` is read on the way in because the pane is REBUILT here
+    // field by field — `serialize` spreads the pane whole, so an additive
+    // field survives the save and would be dropped on the load without this
+    // line. Only `true` is honored; anything else restores as not minimized.
+    const minimized = win["minimized"] === true ? (true as const) : undefined;
+
     panes.push({
       id,
       position: { x, y },
@@ -573,6 +579,7 @@ function parseV4(
       acceptsFamilies,
       ...(widthPreset !== undefined ? { widthPreset } : {}),
       ...(slot !== undefined ? { slot } : {}),
+      ...(minimized !== undefined ? { minimized } : {}),
     });
   }
 

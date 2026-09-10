@@ -106,6 +106,9 @@ import { useHelpSheet } from "./help-sheet";
 import { useRenameSessionSheet } from "./rename-session-sheet";
 import { useResumeSheet } from "./resume-sheet";
 import { SessionPendingContextStrip } from "./session-pending-context-strip";
+import { SessionShowTranscriptBar } from "./session-show-transcript-bar";
+import { readSettleMs } from "@/lib/layout-imposer";
+import { getTugTiming } from "../scale-timing";
 import { useEffort } from "@/lib/use-effort";
 import { usePermissionRulesSheet } from "./permission-rules-editor";
 import { useSessionCardServices } from "./use-session-card-services";
@@ -132,7 +135,7 @@ import { TugPushButton } from "../tug-push-button";
 import { TugActionTooltip } from "../tug-action-tooltip";
 import { TugTooltip } from "../tug-tooltip";
 import { TugInlineAlert, type TugInlineAlertTone } from "../tug-inline-alert";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronsDownUp, Trash2 } from "lucide-react";
 
 import { TugLabel } from "../tug-label";
 import {
@@ -259,6 +262,8 @@ import {
 import { cardTitleStore } from "@/lib/card-title-store";
 import { paneTitleBarItemsStore } from "@/lib/pane-title-bar-items-store";
 import { SESSION_TRANSCRIPT_TITLE_BAR_ITEMS } from "@/lib/session-transcript-title-bar-items";
+import { getDeckStore } from "@/lib/deck-store-registry";
+import { cardMinimizedOf } from "@/deck-store-selectors";
 import { registerCardCloseAdvice } from "@/lib/card-close-advice";
 import { readSessionCardCloseAdvice } from "@/lib/session-card-close-advice";
 import {
@@ -346,11 +351,11 @@ const SESSION_CYCLE_GROUP = "session-prompt-cycle";
 // Cycle order ([P10], revised): the cycle reads the card bottom toolbar
 // left→right, then up to the find bar (while it is open), the status cells and
 // the PULSE strip, then into the editor and its compose-phase attachment tiles,
-// and **seeds at the route** (order 0). Forward Tab: route → Claude Code →
-// Session → Project → Cwd/Changes → AI settings → submit → find query → find
-// options → find previous → find next → STATE → TIME → TOKENS → CONTEXT →
-// WORK → PULSE → editor → attachment-1 … attachment-N → wrap; Shift+Tab
-// reverses.
+// and **seeds at the Minimize button** (order −1). Forward Tab: Minimize →
+// route → Claude Code → Session → Project → Cwd/Changes → AI settings →
+// submit → find query → find options → find previous → find next → STATE →
+// TIME → TOKENS → CONTEXT → WORK → PULSE → editor → attachment-1 …
+// attachment-N → wrap; Shift+Tab reverses.
 // Every Z4B chip (the route indicator, Session / Project badges, and the
 // Mode / Model / Effort pickers), the five Z2 status cells, and the PULSE
 // label are independent leaf stops (no arrow-roving); the editor is a text
@@ -362,6 +367,18 @@ const SESSION_CYCLE_GROUP = "session-prompt-cycle";
 // submit) drops out of the walk via the engine's interactivity filter, so the
 // seed lands on the next live stop; a chip a route doesn't show simply
 // unmounts (Table T01), so it is not in the walk at all.
+// The Minimize button's Z4-lead seat ([B04], [D97]) is the row's leftmost
+// control, so it takes the lowest order — and a NEGATIVE one, rather than
+// renumbering the whole grid to make room at the front. That is the same
+// bargain the gaps below take: the constants describe the SHAPE of the row,
+// and the shape gained a seat on the left rather than shifting everything
+// right by one.
+//
+// Being lowest, it is also what `focusFirstInMode` seeds on entry, and what
+// the walk wraps to out of the editor. That is the honest reading of a
+// control that stands there: the walk reads the row left to right, and this
+// is now the leftmost thing in it.
+const SESSION_CYCLE_ORDER_MINIMIZE = -1;
 const SESSION_CYCLE_ORDER_ROUTE = 0;
 const SESSION_CYCLE_ORDER_CLAUDE_CODE = 1;
 // 2 was the Session chip's. The Z4B diet unmounted that chip from the code
@@ -397,6 +414,22 @@ const SESSION_CYCLE_ORDER_COMMIT_BASE = 5;
 // where the bar sits: the cycle reads the card upward from its bottom edge.
 const SESSION_CYCLE_ORDER_FIND_BASE = 8;
 const SESSION_CYCLE_FIND_STOP_COUNT = 4;
+// The Show Transcript bar, the minimized card's one control ([P08]). It takes
+// 11 — the last slot of the find bar's 8…11 block — because the two never
+// co-mount: the find bar is closed while minimized and the bar exists only
+// while minimized, so the orders cannot collide. It sits between the toolbar
+// and the Z2 cells for the same reason the find bar does, which is where the
+// bar sits on screen.
+const SESSION_CYCLE_ORDER_SHOW_TRANSCRIPT = 11;
+// The bar's stable focus key — the `group:order` form every `focus-key`
+// placement addresses a stop by.
+const SHOW_TRANSCRIPT_FOCUS_KEY = `${SESSION_CYCLE_GROUP}:${SESSION_CYCLE_ORDER_SHOW_TRANSCRIPT}`;
+// How long past the settle's own window the fold's backstop waits before it
+// writes the terminal state without a `transitionend` ([B06], (#motion-build)).
+// Generous against the window it guards for the reason the settle's session
+// hold is: it is a wedge guard rather than a second clock, and firing it early
+// would take the composer's box away mid-fold.
+const FOLD_END_SLACK_MS = 150;
 // The Z2 status cells are five independent leaf stops ([P10] revised —
 // no arrow-roving): STATE / TIME / TOKENS / CONTEXT / WORK take
 // orders 12…16 (base + 0…4). The editor (the text body) follows at 19; and
@@ -2663,6 +2696,26 @@ export function SessionCardBody({
   }
   const shadeViewController = shadeViewControllerRef.current;
 
+  // Whether this card's PANE wears the minimized form ([P01], [P03]). The
+  // flag is deck state, so it enters React through `useSyncExternalStore`
+  // ([L02]); everything the form does in CSS is keyed on the pane's
+  // `data-minimized` instead, and this value is only for what CSS cannot do —
+  // here, the popup row's checkmark.
+  //
+  // Read off the process-wide registry rather than `useDeckManager()`, which
+  // throws without a provider: a Session card renders in the gallery and in
+  // tests that bootstrap no DeckManager, and the honest answer there is
+  // not-minimized rather than a crash.
+  const subscribeToDeck = useCallback((onStoreChange: () => void) => {
+    const store = getDeckStore();
+    if (store === null) return () => {};
+    return store.subscribe(onStoreChange);
+  }, []);
+  const minimized = useSyncExternalStore(subscribeToDeck, () => {
+    const store = getDeckStore();
+    return store === null ? false : cardMinimizedOf(store.getSnapshot(), cardId);
+  });
+
   // Commit mode's per-card state + land path ([P03], Spec S03). User-driven —
   // `/commit` and ⌃⌘C on an empty composer are the two doors INTO the mode;
   // Session ▸ Commit Changes is the door out the other side, gated on the
@@ -3196,6 +3249,7 @@ export function SessionCardBody({
     const k = (order: number) => `${SESSION_CYCLE_GROUP}:${order}`;
     return rowGridOrder([
       [
+        k(SESSION_CYCLE_ORDER_MINIMIZE),
         k(SESSION_CYCLE_ORDER_ROUTE),
         k(SESSION_CYCLE_ORDER_CLAUDE_CODE),
         k(SESSION_CYCLE_ORDER_SESSION),
@@ -3215,6 +3269,9 @@ export function SessionCardBody({
             k(SESSION_CYCLE_ORDER_FIND_BASE + i),
           )
         : [],
+      // The Show Transcript bar's row, present exactly while minimized
+      // ([P08]) — the same seat the find bar's row takes, and never both.
+      minimized ? [k(SESSION_CYCLE_ORDER_SHOW_TRANSCRIPT)] : [],
       [
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 0),
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 1),
@@ -3229,7 +3286,7 @@ export function SessionCardBody({
         k(SESSION_CYCLE_ORDER_ATTACHMENT_BASE + i),
       ),
     ]);
-  }, [attachmentCount, findBarOpen]);
+  }, [attachmentCount, findBarOpen, minimized]);
   useSpatialOrder(cycle.scopeId, cycleSpatialOrder);
 
   const editorSettings = useSyncExternalStore(
@@ -3315,7 +3372,24 @@ export function SessionCardBody({
   // scrim) but its responder promotion still re-seeds the key view off the
   // dialog's stop, stripping the ring and the arrow walk. `adoptKeyCard` is
   // the same gate `applyBagFocus` runs on every activation claim.
-  const reclaimFocusDestination = useCallback((): void => {
+  //
+  // The [P08] gate above it: a MINIMIZED card has no resting editor to reclaim
+  // — the transcript, the find bar and the composer are all `inert`, and the
+  // browser strips focus from anything inside an inert subtree. Its one
+  // destination is the Show Transcript bar, so every trigger routes there while
+  // the form is worn, ahead of `adoptKeyCard`: a pending Permission or Question
+  // dialog is folded away with the transcript (Risk R05), so re-adopting its
+  // trap would put the key view somewhere the user cannot see or reach. The
+  // dialog is still pending in the store and the ordinary reclaim lands on it
+  // again the moment the transcript is shown.
+  //
+  // `evenIfOccupied` is for the two transitions that MOVE the keyboard rather
+  // than recover it: folding takes the key view off a live editor, and
+  // unfolding takes it off a bar that is unmounting. Neither is a vacant
+  // keyboard, so the vacancy guard below would decline both.
+  const reclaimFocusDestination = useCallback((opts?: {
+    evenIfOccupied?: boolean;
+  }): void => {
     if (cardLifecycle?.getFirstResponderCardId() !== cardId) return;
     // While cycling, the cycle owns focus — a sheet opened from a cycle stop
     // returns to its stop (the retain disposition) or relinquishes via the engine
@@ -3324,6 +3398,14 @@ export function SessionCardBody({
     // retain close ([P15]). This reclaim is for sheets/banners closed outside a
     // cycle (a slash-command picker, a banner).
     if (cycle.cycling) return;
+    if (minimized && focusManager !== null) {
+      focusManager.place(
+        cardId,
+        { kind: "focus-key", focusKey: SHOW_TRANSCRIPT_FOCUS_KEY },
+        { modality: "keyboard" },
+      );
+      return;
+    }
     if (focusManager?.adoptKeyCard(cardId) === true) return;
     if (focusManager !== null) {
       // The engine already holds a realized keyboard position (a
@@ -3332,7 +3414,9 @@ export function SessionCardBody({
       // RESTORE path and the mode pop own focus, and a dom-granted
       // surface stripped by `inert` is re-granted by the watchdog on
       // its own. Claim only into a VACANT keyboard.
-      if (focusManager.keyView() !== null) return;
+      if (opts?.evenIfOccupied !== true && focusManager.keyView() !== null) {
+        return;
+      }
       // Land the resting editor through the engine's one write
       // primitive — route flip + registered hook — never a raw
       // delegate focus (the boot-time steal the watchdog ledgered).
@@ -3340,7 +3424,128 @@ export function SessionCardBody({
       return;
     }
     entryDelegateRef.current?.focus();
-  }, [cardLifecycle, cardId, entryDelegateRef, cycle, focusManager]);
+  }, [cardLifecycle, cardId, entryDelegateRef, cycle, focusManager, minimized]);
+
+  // The fold and the unfold each move the keyboard, and neither is a mount, a
+  // sheet or a banner — so neither reaches the reclaim through any trigger
+  // above. Minimizing pulls the key view off an editor that is about to become
+  // `inert` (Risk R01: without this the card is reachable and unfocused, the
+  // caretless-void failure the `didHide` contract exists to prevent); showing
+  // the transcript pulls it off a bar that is unmounting. Both are the
+  // `evenIfOccupied` case, and both are gated on first responder inside the
+  // reclaim, so a background card folding in a wall moves nobody's keyboard.
+  //
+  // Keyed on the flag's own transition rather than on the effect running: the
+  // reclaim callback is rebuilt whenever the cycle's state moves, and a fold
+  // effect that re-placed on every one of those would yank the keyboard back to
+  // the bar each time the user Tab'd.
+  const lastFoldRef = useRef<boolean | null>(null);
+  useLayoutEffect(() => {
+    if (lastFoldRef.current === minimized) return;
+    const firstRun = lastFoldRef.current === null;
+    lastFoldRef.current = minimized;
+    if (firstRun) return;
+    // Showing the transcript ENDS a cycle rather than continuing one. The walk
+    // the user was in had two kinds of stop, and the one they just pressed —
+    // the bar — has unmounted under them, so a retained cycle would be a mode
+    // with a stale key view and nothing ringed. `exit` pops the mode and lands
+    // the resting caret, which is exactly where the mouse path leaves it.
+    if (!minimized && cyclingRef.current) {
+      exitCycleRef.current();
+      return;
+    }
+    reclaimFocusDestination({ evenIfOccupied: true });
+  }, [minimized, reclaimFocusDestination]);
+
+  // ── The fold's terminal state ([B06], [P03], (#motion-build)) ────────────
+  //
+  // The motion itself is CSS keyed on the pane's `data-minimized` ([L13],
+  // [L06]) and none of it is here. What CSS cannot say is the state the
+  // motion ENDS at, and writing that at the flag's flip is what would cancel
+  // the motion before its first frame: a `display: none` region has no box to
+  // fold, and an `inert` one loses the caret while it is still on screen. So
+  // the flag drives the motion, and this writes the terminal state when the
+  // motion ends.
+  //
+  // `data-fold` on the card root is the whole vocabulary — `"moving"` while a
+  // fold is in flight in either direction, `"settled"` once one has ended with
+  // the card minimized, absent while the card is open. The DOM zone, never
+  // React state ([L06]): a commit per frame of the fold is exactly the stream
+  // the settle holds every session's notifications off for.
+  //
+  // The unfold's `inert` comes off at once rather than at the end. The reclaim
+  // above lands the caret back in the composer on this same commit, and a
+  // composer still `inert` for a beat cannot take it — the terminal state that
+  // has to wait is the folded one, and only ever the folded one.
+  const viewSlotRef = useRef<HTMLDivElement | null>(null);
+  const entryRegionRef = useRef<HTMLDivElement | null>(null);
+  const foldRef = useRef<boolean | null>(null);
+  const foldEndRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const root = sessionCardRootRef.current;
+    if (root === null) return;
+    if (foldRef.current === minimized) return;
+    const firstRun = foldRef.current === null;
+    foldRef.current = minimized;
+
+    const setInert = (on: boolean): void => {
+      for (const el of [viewSlotRef.current, entryRegionRef.current]) {
+        if (el === null) continue;
+        if (on) el.setAttribute("inert", "");
+        else el.removeAttribute("inert");
+      }
+    };
+    const land = (): void => {
+      if (foldEndRef.current !== null) {
+        window.clearTimeout(foldEndRef.current);
+        foldEndRef.current = null;
+      }
+      if (minimized) root.setAttribute("data-fold", "settled");
+      else root.removeAttribute("data-fold");
+      setInert(minimized);
+    };
+
+    if (!minimized) setInert(false);
+
+    // A card that mounts already minimized — a restored deck, a card dropped
+    // into a wall — has no fold to watch: it is there. Same for a reader who
+    // asked for less motion, where the transition is a 1ms cut and the
+    // `transitionend` worth waiting on is not coming.
+    if (
+      firstRun ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      land();
+      return;
+    }
+
+    root.setAttribute("data-fold", "moving");
+    const entry = entryRegionRef.current;
+    const onTransitionEnd = (event: TransitionEvent): void => {
+      if (event.target !== entry) return;
+      if (event.propertyName !== "grid-template-rows") return;
+      land();
+    };
+    entry?.addEventListener("transitionend", onTransitionEnd);
+    // The backstop. `transitionend` never fires for a transition the browser
+    // did not start — a fold in a pane the compositor is not painting, a theme
+    // that took the duration to zero — and a fold that never lands leaves a
+    // live composer behind a card nobody can see. The window is the settle's
+    // own, read off the same property the CSS reads and scaled by the same
+    // `--tug-timing` the settle scales by in `deck-canvas.tsx`, so there is
+    // still one clock and this is only its far edge.
+    foldEndRef.current = window.setTimeout(
+      land,
+      readSettleMs(root) * getTugTiming() + FOLD_END_SLACK_MS,
+    );
+    return () => {
+      entry?.removeEventListener("transitionend", onTransitionEnd);
+      if (foldEndRef.current !== null) {
+        window.clearTimeout(foldEndRef.current);
+        foldEndRef.current = null;
+      }
+    };
+  }, [minimized]);
 
   useCardDelegate(cardId, {
     cardDidActivate: () => {
@@ -4788,6 +4993,37 @@ export function SessionCardBody({
         commitModeController.exit();
         shadeViewController.toggle("history");
       },
+      // The Minimize button ahead of Z4A, Session ▸ Minimize Session, and
+      // ⌥⌘M all land here ([P02]): the card is where the gesture knows which
+      // card it is about, and the deck commit is dispatched from one place so
+      // the three doors cannot drift apart.
+      //
+      // Minimizing closes the surfaces that stand on a transcript there is
+      // about to be none of ([P03]) — the find bar, and whichever landing or
+      // shade is up. Exiting a landing rather than only hiding the shade is
+      // the `TOGGLE_CHANGES_VIEW` handler's own ladder, and a landing draft
+      // survives it because `CommitModeController.leave()` persists one.
+      // Showing runs none of them: what was closed on the way down was closed
+      // deliberately, and re-opening it would be the card guessing.
+      [TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED]: (_event: ActionEvent) => {
+        const deckStore = getDeckStore();
+        if (deckStore === null) return;
+        const minimized = cardMinimizedOf(deckStore.getSnapshot(), cardId);
+        if (!minimized) {
+          if (findBarOpenRef.current) closeFindBar();
+          if (commitModeController.getSnapshot().active) {
+            commitModeController.exit();
+          } else if (joinModeController.getSnapshot().active) {
+            joinModeController.exit();
+          } else {
+            shadeViewController.hide();
+          }
+        }
+        dispatchCommand(TUG_ACTIONS.SET_CARD_MINIMIZED, {
+          cardId,
+          minimized: !minimized,
+        });
+      },
       // ⌃⌘A / ⌃⇧⌘A — the Changes shade's bulk verbs as chords. The composer
       // registers them (it is the surface holding focus under the passive
       // shade) and the card handles them, because the card is what holds
@@ -5008,9 +5244,17 @@ export function SessionCardBody({
   // a card still on its project picker has no transcript for these to be
   // about, and this body is not mounted then.
   useLayoutEffect(() => {
-    paneTitleBarItemsStore.set(cardId, SESSION_TRANSCRIPT_TITLE_BAR_ITEMS);
+    // Minimize leads, as a checked row: it is the verb about the pane the
+    // popup is standing on, where the four transcript verbs are about what is
+    // inside it. The checkmark is the row saying which of its two states the
+    // card is in — the same fact the item's dynamic title carries in the
+    // native menu.
+    paneTitleBarItemsStore.set(cardId, [
+      { commandId: TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED, checked: minimized },
+      ...SESSION_TRANSCRIPT_TITLE_BAR_ITEMS,
+    ]);
     return () => paneTitleBarItemsStore.set(cardId, null);
-  }, [cardId]);
+  }, [cardId, minimized]);
 
   const projectChipText =
     projectDir !== null ? formatPathChipText(projectDir) : null;
@@ -5222,7 +5466,21 @@ export function SessionCardBody({
               is a sibling of all three, at the end of the top column: it
               rises from the top of the prompt entry, over them.
             */}
-              <div className="session-view-slot" data-active-view={activeView}>
+              <div
+                className="session-view-slot"
+                ref={viewSlotRef}
+                data-active-view={activeView}
+                // Folded while minimized ([P03]). The CSS takes it off the
+                // screen; `inert` is what takes it out of the FOCUS walk and
+                // the accessibility tree, and it is the same flag rather than
+                // a second opinion on it. Never unmounted ([L26]) — the
+                // transcript's list view keeps its scroll and its identity.
+                //
+                // `inert` is written by the fold effect rather than declared
+                // here, because it belongs to the END of the fold ([B06]) —
+                // see the terminal-state effect above. React never sets the
+                // attribute on this element, so nothing here fights it.
+              >
                 <div className="session-view-pane" data-view="transcript">
                   <SessionTranscriptHost
                     ref={transcriptRef}
@@ -5440,7 +5698,17 @@ export function SessionCardBody({
         */}
         <div
           className="session-card-entry-region"
+          ref={entryRegionRef}
           data-slot="session-card-entry-region"
+          // The other folded region ([P03]). The composer keeps an unsent
+          // draft, its caret, and its route across a minimize because it is
+          // hidden rather than unmounted ([B05]); `inert` is what keeps a Tab
+          // out of it while it is not on screen — written by the fold effect
+          // at the motion's end, not declared here ([B06]).
+          //
+          // This is the fold's transitioning element: its `grid-template-rows`
+          // is the one property that animates, and its `transitionend` is what
+          // tells the effect the fold has landed.
         >
           <TugBox
             variant="plain"
@@ -5504,6 +5772,29 @@ export function SessionCardBody({
                 commitFocusOrderBase={SESSION_CYCLE_ORDER_COMMIT_BASE}
                 routeFocusGroup={SESSION_CYCLE_GROUP}
                 routeFocusOrder={SESSION_CYCLE_ORDER_ROUTE}
+                // Z4-lead: the card's own Minimize, ahead of the route group
+                // that is about the message ([B04], [P02]). One of the verb's
+                // three doors, so it dispatches the command rather than
+                // calling the setter — the menu item and ⌥⌘M land in the same
+                // handler.
+                leadingContent={
+                  <TugActionTooltip
+                    action={TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED}
+                    content="Minimize"
+                  >
+                    <TugIconButton
+                      icon={<ChevronsDownUp size={14} aria-hidden="true" />}
+                      aria-label="Minimize"
+                      size="sm"
+                      emphasis="outlined"
+                      focusGroup={SESSION_CYCLE_GROUP}
+                      focusOrder={SESSION_CYCLE_ORDER_MINIMIZE}
+                      onClick={() =>
+                        dispatchCommand(TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED)
+                      }
+                    />
+                  </TugActionTooltip>
+                }
                 editorFocusGroup={SESSION_CYCLE_GROUP}
                 editorFocusOrder={SESSION_CYCLE_ORDER_EDITOR}
                 attachmentFocusGroup={SESSION_CYCLE_GROUP}
@@ -5692,6 +5983,23 @@ export function SessionCardBody({
         unmounts via its internal `mounted` state.
       */}
         {renderSessionCardBanner(bannerSpec, setDismissedAt)}
+        {/* The minimized card's one control ([B03], [P08]), mounted only in
+            that form. Chrome that comes and goes with the form rather than
+            content that folds: it holds no state to lose, and mounting it
+            conditionally leaves the open card's DOM exactly as it was. */}
+        {minimized ? (
+          // Under a `CycleScope` of its own, like the status bar above and for
+          // the same reason: the bar sits outside the prompt entry's subtree,
+          // and a stop that is not in the cycle's mode is not a member of the
+          // walk — ⌥⇥ would seed the first Z2 cell and Tab would never reach
+          // the one control the form has ([P08]).
+          <cycle.CycleScope>
+            <SessionShowTranscriptBar
+              focusGroup={SESSION_CYCLE_GROUP}
+              focusOrder={SESSION_CYCLE_ORDER_SHOW_TRANSCRIPT}
+            />
+          </cycle.CycleScope>
+        ) : null}
       </div>
     </CardContentResponderScope>
   );

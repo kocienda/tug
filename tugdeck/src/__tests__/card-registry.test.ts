@@ -15,6 +15,7 @@ import {
   getRegistration,
   getAllRegistrations,
   getStackSizePolicy,
+  getMinimizedSizePolicy,
   DEFAULT_SIZE_POLICY,
   getLayoutRole,
   isSidebarCard,
@@ -39,6 +40,34 @@ function makeRegistration(componentId: string): CardRegistration {
 function registerSized(componentId: string, sizePolicy: CardSizePolicy): void {
   registerCard({ ...makeRegistration(componentId), sizePolicy });
 }
+
+/** Register a card type carrying both an open and a minimized policy. */
+function registerMinimizable(
+  componentId: string,
+  sizePolicy: CardSizePolicy,
+  minimizedSizePolicy: CardSizePolicy,
+): void {
+  registerCard({
+    ...makeRegistration(componentId),
+    sizePolicy,
+    minimizedSizePolicy,
+  });
+}
+
+/**
+ * The Session card's shape ([P04]): a tall open floor, and a minimized policy
+ * pinning the height at the tier while leaving the width unbounded.
+ */
+const TIER = 160;
+const OPEN_POLICY: CardSizePolicy = {
+  min: { width: 675, height: 600 },
+  preferred: { width: 900, height: 1200 },
+};
+const MINIMIZED_POLICY: CardSizePolicy = {
+  min: { width: 675, height: TIER },
+  max: { width: Number.POSITIVE_INFINITY, height: TIER },
+  preferred: { width: 900, height: TIER },
+};
 
 beforeEach(() => {
   _resetForTest();
@@ -270,6 +299,82 @@ describe("getStackSizePolicy", () => {
       width: 800,
       height: 600,
     });
+  });
+});
+
+// ---- getStackSizePolicy — the minimized form ([P04]) ----
+
+describe("getStackSizePolicy({ minimized })", () => {
+  it("returns the tier as both the floor and the ceiling on the height axis", () => {
+    registerMinimizable("session", OPEN_POLICY, MINIMIZED_POLICY);
+    const policy = getStackSizePolicy(["session"], { minimized: true });
+    expect(policy.min.height).toBe(TIER);
+    // `min === max` on the height axis is exactly what `TugPane` reads as
+    // `heightPinned` — the whole point of the declaration.
+    expect(policy.max?.height).toBe(policy.min.height);
+  });
+
+  it("leaves the width unpinned, because a minimized card is as wide as its slot", () => {
+    registerMinimizable("session", OPEN_POLICY, MINIMIZED_POLICY);
+    const policy = getStackSizePolicy(["session"], { minimized: true });
+    expect(policy.max?.width).toBe(Number.POSITIVE_INFINITY);
+    expect(policy.max?.width === policy.min.width).toBe(false);
+  });
+
+  it("a height-only bound survives aggregation — the whole pin rests on it", () => {
+    // The regression this pins: the old emit gate was `isFinite(maxWidth) &&
+    // isFinite(maxHeight)`, which dropped the aggregate `max` ENTIRELY for a
+    // policy whose width is unbounded — and `heightPinned` would then be false
+    // forever, with nothing failing to say so.
+    registerMinimizable("session", OPEN_POLICY, MINIMIZED_POLICY);
+    expect(getStackSizePolicy(["session"], { minimized: true }).max).toEqual({
+      width: Number.POSITIVE_INFINITY,
+      height: TIER,
+    });
+  });
+
+  it("uses the ordinary policy when the option is absent", () => {
+    registerMinimizable("session", OPEN_POLICY, MINIMIZED_POLICY);
+    expect(getStackSizePolicy(["session"]).min.height).toBe(600);
+    expect(getStackSizePolicy(["session"]).max).toBeUndefined();
+  });
+
+  it("aggregates a card with no minimized policy at its ordinary floor", () => {
+    // A pane is one box: a Session tab minimized beside a Text tab still has
+    // to fit the Text tab, so the tier does not win the aggregation and the
+    // pane is not pinned — `min.height` (420) and `max.height` (160) differ.
+    registerMinimizable("session", OPEN_POLICY, MINIMIZED_POLICY);
+    registerSized("text", {
+      min: { width: 300, height: 420 },
+      preferred: { width: 400, height: 500 },
+    });
+    const policy = getStackSizePolicy(["session", "text"], { minimized: true });
+    expect(policy.min).toEqual({ width: 675, height: 420 });
+    expect(policy.max?.height === policy.min.height).toBe(false);
+  });
+});
+
+// ---- getMinimizedSizePolicy — the per-card resolver ----
+
+describe("getMinimizedSizePolicy", () => {
+  it("returns the declared minimized policy", () => {
+    registerMinimizable("session", OPEN_POLICY, MINIMIZED_POLICY);
+    expect(getMinimizedSizePolicy("session")).toEqual(MINIMIZED_POLICY);
+  });
+
+  it("falls back to the ordinary policy for a card with no minimized form", () => {
+    registerSized("text", {
+      min: { width: 300, height: 420 },
+      preferred: { width: 400, height: 500 },
+    });
+    expect(getMinimizedSizePolicy("text").min).toEqual({
+      width: 300,
+      height: 420,
+    });
+  });
+
+  it("falls back to DEFAULT_SIZE_POLICY for an unregistered id", () => {
+    expect(getMinimizedSizePolicy("ghost")).toEqual(DEFAULT_SIZE_POLICY);
   });
 });
 

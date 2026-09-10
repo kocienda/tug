@@ -681,6 +681,27 @@ export function initActionDispatch(
     deckManager.setPaneWidth(paneId, preset);
   });
 
+  // set-card-minimized: write one card's pane into or out of the minimized
+  // form ([P02], Spec S01). Card-addressed rather than pane-addressed because
+  // every door — the Minimize button, Session ▸ Minimize Session, ⌥⌘M, and the
+  // minimized form's Show Transcript bar — knows which card it is about and
+  // not which pane holds it. The validation shape is `set-card-width`'s: warn
+  // and return rather than throw, because a malformed payload is a caller's
+  // defect and taking the deck down over one helps nobody.
+  registerAction(TUG_ACTIONS.SET_CARD_MINIMIZED, (payload) => {
+    const cardId = payload.cardId;
+    if (typeof cardId !== "string") {
+      console.warn("set-card-minimized: missing or invalid cardId", payload);
+      return;
+    }
+    const minimized = payload.minimized;
+    if (typeof minimized !== "boolean") {
+      console.warn("set-card-minimized: missing or invalid minimized", payload);
+      return;
+    }
+    deckManager.setCardMinimized(cardId, minimized);
+  });
+
   // set-bullseye: put one named pane in bullseye, or take it out when it is
   // already there. Dispatched by the pane title bar's target button, which
   // addresses the pane by id — the button you pressed is the pane you meant —

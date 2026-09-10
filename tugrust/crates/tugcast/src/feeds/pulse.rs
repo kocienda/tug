@@ -85,6 +85,15 @@ const PULSE_FORWARD_ALLOWLIST: &[&str] = &[
     // stretch it covers streams nothing, so this is the only frame that
     // tells the strip anything about it.
     "compact_boundary",
+    // A permission request went out to the user, and the withdrawal of one.
+    // A session waiting for permission is the state a watched card is most
+    // often IN, and until these two crossed the tap the strip narrated the
+    // tool call and then froze — the wait, which is the whole of what the
+    // reader wants to know, was the one thing the pulse could not say. The
+    // wait's END rides `tool_result`, already above: it is the only frame
+    // that arrives on both an allow and a deny.
+    "control_request_forward",
+    "control_request_cancel",
 ];
 
 /// Active daemon subprocess handles, mirrored on `SessionChild`'s
@@ -542,6 +551,44 @@ mod tests {
         assert!(received.contains("\"tests green\""));
         assert!(received.contains("\"tug_session_id\":\"s1\""));
         assert_eq!(spawner.spawns.load(Ordering::SeqCst), 1);
+
+        // …and so does a permission forward, which is what lets the voice
+        // narrate a wait instead of freezing on the tool call that opened it.
+        code_tx
+            .send(code_frame(serde_json::json!({
+                "tug_session_id": "s1",
+                "type": "control_request_forward",
+                "request_id": "r1",
+                "tool_name": "Bash",
+                "input": { "command": "cargo nextest run" },
+                "tool_use_id": "t1",
+                "is_question": false,
+                "ipc_version": 2,
+            })))
+            .unwrap();
+        let forwarded = tokio::time::timeout(Duration::from_secs(2), stdin_lines.next_line())
+            .await
+            .expect("daemon received the forward in time")
+            .unwrap()
+            .expect("a line");
+        assert!(forwarded.contains("\"control_request_forward\""));
+        assert!(forwarded.contains("\"cargo nextest run\""));
+
+        // And its withdrawal, which is how a wait that nobody answered ends.
+        code_tx
+            .send(code_frame(serde_json::json!({
+                "tug_session_id": "s1",
+                "type": "control_request_cancel",
+                "request_id": "r1",
+                "ipc_version": 2,
+            })))
+            .unwrap();
+        let cancelled = tokio::time::timeout(Duration::from_secs(2), stdin_lines.next_line())
+            .await
+            .expect("daemon received the cancel in time")
+            .unwrap()
+            .expect("a line");
+        assert!(cancelled.contains("\"control_request_cancel\""));
 
         // Daemon line flows out as a PULSE frame.
         let line = serde_json::json!({

@@ -27,6 +27,29 @@
  */
 
 /**
+ * The beat's second line, as a length — how much taller the tier stands when
+ * the card beneath it is minimized ([P07]).
+ *
+ * Declared at DOCUMENT scope rather than on `.tug-masthead-frame`, because
+ * the reader is the PANE: `tug-pane.css` adds it to `--tug-masthead-height`
+ * to publish `--tugx-pane-chrome-height`, and a custom property declared on
+ * the frame inside the tier is invisible to the frame's own ancestor. The
+ * number stays here all the same — the tier's geometry is this file's, and
+ * splitting it across two would put the sum and one of its terms in different
+ * places.
+ *
+ * 16px, not the 14.4 that `--tug-font-size-xs` (12px) at
+ * `--tug-line-height-tight` (1.2) computes to: the beat's line box is the
+ * floor, and the tier is rounded up from it to a whole even number so the
+ * minimized chrome lands on 88 rather than on a fraction the frame would keep
+ * re-rounding. It is the spike's measured number, and the app-test that
+ * measures the built tier is what holds it honest.
+ */
+:root {
+  --tugx-masthead-beat-extra-line: 16px;
+}
+
+/**
  * The tier. TOP-ALIGNED, not centered: three lines centered in 72px put the
  * title a few pixels from the pane's top edge, where every other card's title
  * sits ten down. So the title line seats exactly where a ONE-LINE title bar

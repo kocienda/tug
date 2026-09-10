@@ -299,6 +299,19 @@ body {
   --tugx-pane-chrome-height: var(--tug-masthead-height);
 }
 
+/* One beat line taller while minimized ([P07]). A minimized card has no body
+   under its masthead to carry the reading on, so the beat run that truncates
+   on an open card wraps to two lines — and the tier grows by exactly one line
+   of it, declared, rather than by whatever the text happens to ask for. Fixed
+   in both directions: a wall of minimized cards must never ripple as their
+   beats change. `MASTHEAD_MINIMIZED_HEIGHT` in `tug-pane.tsx` is the one JS
+   reader of this sum and must match it. */
+.tug-pane[data-masthead="true"][data-minimized="true"] {
+  --tugx-pane-chrome-height: calc(
+    var(--tug-masthead-height) + var(--tugx-masthead-beat-extra-line)
+  );
+}
+
 /* The rail tier's height, published at the same scope and for the same reason:
    the scrim, the sheet clip, and the pane banner all seat below the bar, and a
    rail's bar is shorter than a card's. `TugPane` stamps the role from the

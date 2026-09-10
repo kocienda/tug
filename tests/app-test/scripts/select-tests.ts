@@ -242,6 +242,20 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // a message" is knowledge only the session card holds — so naming a
     // narrower module would be a fiction.
     "tugdeck/src/components/tugways/cards/session-card.tsx": 21,
+
+    // The pane frame. Every card in the deck is drawn inside one, and every
+    // structural fact the deck has about a pane — its chrome tier, its rail
+    // role, its column membership, its bullseye posture — is stamped on that
+    // frame as an attribute, so a test that reads ANY of them by selector
+    // names this module. It sat at exactly 20, which is the budget holding by
+    // luck rather than by design.
+    //
+    // Recorded at 21 when at0551 (the minimized Session card's form) arrived.
+    // The minimized form is one more attribute on the frame and a chrome tier
+    // derived from it, both written here; the CSS files that turn the
+    // attribute into a form are named beside it, but the stamp itself has no
+    // narrower home to name.
+    "tugdeck/src/components/chrome/tug-pane.tsx": 21,
 };
 
 /**

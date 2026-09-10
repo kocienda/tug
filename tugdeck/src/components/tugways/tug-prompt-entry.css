@@ -104,6 +104,24 @@ body {
   background-color: var(--tugx-entry-shell-focus);
 }
 
+/* Z4-lead — the toolbar row's leading seat, ahead of the route group ([D97]).
+ *
+ * The gap is the row's own `--tug-space-md` plus one more of the same, and
+ * that doubling is the whole point of the rule: what sits here is a control
+ * about the CARD, and the route group beside it is about the MESSAGE. At the
+ * row's bare rhythm the two read as one run of buttons, so the wider gap is
+ * what says they are two groups ([B04]).
+ *
+ * `flex: 0 0 auto` for the same reason the route group has it — the leading
+ * slot is fixed against the shell's flanking spacers, which are what centre
+ * Z4B. */
+.tug-prompt-entry-lead {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-inline-end: var(--tug-space-md);
+}
+
 /* Z4A route group — the composer's two routes, Prompt and Changes.
  *
  * The group is a `TugChoiceGroup` at `size="xs"` and keeps its appearance

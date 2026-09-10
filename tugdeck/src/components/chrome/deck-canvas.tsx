@@ -4186,6 +4186,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             // takes the element-wise max of the stack's mins.
             sizePolicy={getStackSizePolicy(
               stackCards.map((c) => c.componentId),
+              // A minimized pane is sized by the minimized policy ([P04]):
+              // the open card's 600px floor is what its transcript and
+              // composer need, and a wall cannot pack while every member
+              // still claims it.
+              { minimized: stackState.minimized === true },
             )}
             zIndex={zIndexMap.get(stackState.id) ?? CARD_ZINDEX_BASE}
             placement={placementFor(stackState)}
@@ -4206,6 +4211,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             contentWidthPx={contentWidthPx}
             slotStack={slotStackByPaneId.get(stackState.id)}
             columnMember={columnMemberByPaneId.get(stackState.id)}
+            // The pane's own field ([P01]) rather than `paneMinimizedOf` over
+            // the deck state: the selector exists for readers holding a state
+            // and an id, and this one is already holding the pane.
+            minimized={stackState.minimized === true}
             onRevealPane={handleRevealPane}
             sidebarStack={stackByPaneId.get(stackState.id)}
             isSidebarPane={sidebarPaneIds.has(stackState.id)}

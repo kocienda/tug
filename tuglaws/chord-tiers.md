@@ -28,7 +28,7 @@ Each operator adds one modifier and keeps the key.
 
 **⇧ — the counterpart.** Reverse, widen, or undo the base command: ⌘Z → ⇧⌘Z Redo, ⌘G → ⇧⌘G Find Previous, ⌘S → ⇧⌘S Save As.
 
-**⌥ — the variant.** Same verb, altered object or form: ⌘W Close → ⌥⌘W Close All, ⌘V Paste → ⌥⌘V Paste as Quote, ⌘N New Session → ⌥⌘N New Text File, ⌘H Hide → ⌥⌘H Hide Others.
+**⌥ — the variant.** Same verb, altered object or form: ⌘W Close → ⌥⌘W Close All, ⌘V Paste → ⌥⌘V Paste as Quote, ⌘N New Session → ⌥⌘N New Text File, ⌘H Hide → ⌥⌘H Hide Others, ⌘M Minimize → ⌥⌘M Minimize Session.
 
 ## The composed sets
 

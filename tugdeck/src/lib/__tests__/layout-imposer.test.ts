@@ -411,6 +411,42 @@ describe("imposeRect", () => {
     expect(xs[1] - (xs[0] + 300)).toBe(xs[2] - (xs[1] + 300));
   });
 
+  // ---- The height pin's anchor ([P04]) ----
+
+  test("a height-pinned frame centers down the run by default", () => {
+    // The span less the top gap and the deeper bottom one is the run. A 160
+    // frame in it takes half the slack, which is what About has always done
+    // and what an absent `anchor` must keep meaning.
+    const runHeight = FULL.height - GAP - impositionGapBottomPx();
+    const r = imposeRect(at(0, 1), 400, FULL, { height: 160 });
+    expect(r.size.height).toBe(160);
+    expect(r.position.y).toBe(GAP + (runHeight - 160) / 2);
+    // Explicit "center" is the same answer — the default is a value, not a
+    // second behaviour.
+    expect(
+      imposeRect(at(0, 1), 400, FULL, { height: 160, anchor: "center" })
+        .position.y,
+    ).toBe(r.position.y);
+  });
+
+  test("anchor start puts the frame at the run's top, spending no slack", () => {
+    // The wall's reading: a minimized card is a row read from the top of its
+    // slot, not a box floating in the middle of an empty one.
+    const r = imposeRect(at(0, 1), 400, FULL, { height: 160, anchor: "start" });
+    expect(r.position.y).toBe(GAP);
+    expect(r.size.height).toBe(160);
+  });
+
+  test("the anchor changes nothing for a frame that fills its run", () => {
+    // No `height` means no slack to be anchored in, so the two agree.
+    const filled = imposeRect(at(0, 1), 400, FULL, { width: 400 });
+    const anchored = imposeRect(at(0, 1), 400, FULL, {
+      width: 400,
+      anchor: "start",
+    });
+    expect(anchored).toEqual(filled);
+  });
+
   test("a crowded band overlaps instead of running past it", () => {
     // Three 500s in a 990 band: 510 too many, shared over two intervals.
     const rects = [0, 1, 2].map((k) => imposeRect(at(k, 3), 500, FULL));

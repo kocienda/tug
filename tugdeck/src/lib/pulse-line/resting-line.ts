@@ -70,6 +70,24 @@ export function completedRestingLine(atMs: number): string {
 }
 
 /**
+ * The same reading with the turn's own goal in front of it:
+ * `Finished: <intent>. Completed at Jul 30, 7:15 PM. Ready.`
+ *
+ * The voice keeps the retained intent across the turn-end marker ([P09].2),
+ * and this is what that costs nothing to say: a card at rest can name what it
+ * last finished rather than only when it stopped. Read on the wall register,
+ * where a session is being WATCHED and "what did that one just do" is the
+ * question the row is being asked; the one-line register keeps
+ * {@link completedRestingLine}, which is what fits there.
+ */
+export function completedWithIntentRestingLine(
+  intent: string,
+  atMs: number,
+): string {
+  return `Finished: ${intent}. ${completedRestingLine(atMs)}`;
+}
+
+/**
  * The resting reading for a session that has said nothing yet — the state
  * the Cards card shows for the whole life of a session nobody has prompted.
  *
@@ -91,10 +109,14 @@ export function createdRestingLine(createdAtMs: number | null): string {
  * voice actually said.
  */
 export function restingActivityText(
-  latest: { text: string; atMs: number } | null,
+  latest: { text: string; atMs: number; intent?: string } | null,
   createdAtMs: number | null,
 ): string {
   if (latest === null) return createdRestingLine(createdAtMs);
-  if (latest.text === TURN_DONE_MARKER) return completedRestingLine(latest.atMs);
+  if (latest.text === TURN_DONE_MARKER) {
+    return latest.intent !== undefined && latest.intent.length > 0
+      ? completedWithIntentRestingLine(latest.intent, latest.atMs)
+      : completedRestingLine(latest.atMs);
+  }
   return latest.text;
 }

@@ -1420,3 +1420,145 @@
   cursor: text;
 }
 
+/* ============================================================================
+   The minimized form ([B01], [P03])
+   ========================================================================= */
+
+/* What a minimized card IS, top to bottom: the masthead tier (the pane's
+   chrome, one beat line taller), the Z2 status row, and the Show Transcript
+   bar. Instruments and one door — no transcript, no find bar, no composer.
+
+   Every one of them is HIDDEN, never unmounted ([L26], [B05]). A composer
+   that unmounted would take an unsent draft with it, the transcript would
+   lose its scroll position and its list-view identity, and the find session
+   would be gone; folding them costs none of that. The card writes `inert` on
+   the same regions from the flag it reads off the deck store, which is the
+   half CSS cannot do — a hidden subtree is out of the FOCUS walk only when it
+   is inert, and out of the accessibility tree either way.
+
+   ── The fold ([B06], (#motion-build)) ────────────────────────────────────
+
+   The motion is candidate (c) of the three the motion spike drew ([D185],
+   the spike itself now graduated and deleted): the masthead is pinned and
+   everything below it collapses, one beat, one curve, no delay anywhere. It
+   is picked over (a) fold-then-slide and (b) fade-then-close for the reason
+   the build turned out to make structural rather than aesthetic: the pane
+   frame's height is a REAL geometry tween — the imposer's settle animates
+   `height` and never smears it ("Height never smears", `deck-canvas.tsx`) —
+   so the card interior is re-laid-out at every intermediate height the
+   settle passes through. Both
+   split-beat candidates would have the interior finish half a beat before or
+   after the frame carrying it, and the seam would show. (c) has no seam to
+   show, because the interior's collapse IS the frame's.
+
+   So there is very little animated here, and that is the point. The frame's
+   own tween does the work; these rules get the floors out of its way and put
+   the one region the frame cannot reach — the content-sized composer — on the
+   same clock:
+
+     - the entry region folds `1fr -> 0fr`, its only transition, timed at
+       `--tugx-imposer-settle-duration` scaled by `--tug-timing` exactly as the
+       settle scales it in JS (`readSettleMs(el) * getTugTiming()`), so one
+       knob retimes both halves and a retune anywhere up the tree retimes both;
+     - the transcript column's floor stands down, so the view slot shrinks with
+       the frame instead of propping it open;
+     - `overflow: hidden` while the fold is in flight, so nothing spills out of
+       a region on its way to zero.
+
+   Z2 and the Show Transcript bar are pinned to the card's bottom by the
+   shrinking column above them, so they ride the frame's own edge. The bar
+   does not animate: it is mounted with the form ([P08]) and appears where it
+   ends, which is what makes the fold read as closing ONTO it rather than
+   revealing it afterwards.
+
+   `data-fold` is the card's own attribute, written by `session-card.tsx`:
+   `"moving"` while a fold is in flight in either direction, `"settled"` once
+   the transition has ended with the card minimized. The terminal state — the
+   view slot's `display: none`, both regions' `inert` — is written there rather
+   than at the flag's flip, so the composer keeps its geometry and its caret
+   through the fold ([L26]).
+
+   The entry region deliberately keeps its box at `"settled"`. It is the
+   transitioning element, and a transition has nothing to start from when its
+   element was `display: none` a moment ago — hiding it would buy a little
+   layout and cost the SHOW its motion, which is the half of the beat a reader
+   is most likely to be watching. Zero-height, clipped and `inert` already
+   costs nothing that `display: none` would save.
+
+   `prefers-reduced-motion: reduce` takes the fold to a cut, and the card
+   writes the terminal state immediately in that case because no
+   `transitionend` is coming. */
+
+.session-card .session-card-entry-region {
+  /* One row holding the entry pane, so the fold has a track to interpolate.
+     A one-item flex column and a one-track grid lay this out identically;
+     the grid is the one of the two that can be animated to zero. */
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows
+    calc(var(--tugx-imposer-settle-duration, 400ms) * var(--tug-timing, 1))
+    ease-out;
+}
+
+.tug-pane[data-minimized="true"] .session-card .session-card-entry-region {
+  grid-template-rows: 0fr;
+}
+
+/* The clip, on for the length of the fold and off at both ends: a composer
+   mid-collapse would otherwise spill over the Z2 row beneath it, and a
+   permanently clipped entry pane would cut off anything that draws outside
+   its box while the card is open. `data-minimized` covers the fold in; the
+   card's own `data-fold="moving"` covers the fold out, where the flag has
+   already flipped back on the first frame. */
+.tug-pane[data-minimized="true"] .session-card .session-card-entry-region > *,
+.session-card[data-fold="moving"] .session-card-entry-region > *,
+.tug-pane[data-minimized="true"] .session-card .session-view-slot,
+.session-card[data-fold="moving"] .session-view-slot {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The transcript column's floor is what the transcript needs to stay usable,
+   and there is no transcript here — left standing it would hold the card
+   `--session-transcript-min` taller than its three bands, and the tier the
+   size policy pins the frame at would not fit its own content. Standing it
+   down is also what lets the view slot shrink with the frame: the column is
+   `flex: 1 1 0`, so with no floor its height is whatever the frame has left
+   after the folding composer and the bar, and the slot inside it follows. */
+.tug-pane[data-minimized="true"] .session-card .session-card-top-column {
+  min-height: 0;
+}
+
+/* At rest, and only at rest, the column becomes content-sized so Z2 sits
+   directly under the masthead rather than at the bottom of a column that
+   still holds the tier's height. Keyed on `data-fold="settled"` rather than
+   on the flag because a content-sized column mid-fold would size to the
+   transcript's max-content — the whole list, not the box it scrolls in — and
+   prop the card open for the length of the motion. */
+.session-card[data-fold="settled"] .session-card-top-column {
+  flex: 0 0 auto;
+}
+
+/* The view slot is not the transitioning element — it folds because the
+   column above it shrinks — so taking its box away at rest costs the motion
+   nothing and takes the transcript's list view out of layout entirely. */
+.session-card[data-fold="settled"] .session-view-slot {
+  display: none;
+}
+
+/* The find bar does not fold: `toggle-session-minimized` closes it on the way
+   in and a closed find bar is unmounted, so this is the belt for the paths
+   that set the flag without going through the toggle ([P02]'s
+   `set-card-minimized`). It cuts rather than folding because there is nothing
+   in it to lose. */
+.tug-pane[data-minimized="true"]
+  .session-card
+  [data-slot="session-card-find-bar"] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-card .session-card-entry-region {
+    transition-duration: 1ms;
+  }
+}
