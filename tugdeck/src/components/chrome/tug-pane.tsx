@@ -62,13 +62,13 @@ interface AutoscrollRun {
   offset: number;
 }
 import { flashCardPane } from "@/lib/flash-pane-border";
-import { getTugZoom } from "@/components/tugways/scale-timing";
+import { getTugTiming, getTugZoom } from "@/components/tugways/scale-timing";
 import { animate, type TugAnimation } from "@/components/tugways/tug-animator";
 import { useResponder } from "@/components/tugways/use-responder";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { TugTabBar } from "@/components/tugways/tug-tab-bar";
-import { useDeckManager } from "@/deck-manager-context";
+import { DeckManagerContext, useDeckManager } from "@/deck-manager-context";
 import { dispatchCommand } from "@/command-dispatch";
 import type { MovePaneOptions } from "@/deck-manager-store";
 import {
@@ -591,6 +591,15 @@ function CardTitleBar({
   const barElRef = useRef<HTMLDivElement | null>(null);
   const controlsElRef = useRef<HTMLDivElement | null>(null);
 
+  // The deck, for one purpose only: the reveal a close question owes the card
+  // it is about (see `openCloseConfirm`). The bar reads nothing else off it.
+  //
+  // Read off the context directly rather than through `useDeckManager`, which
+  // throws when there is no provider — `spike-card-chrome` mounts real title
+  // bars outside any deck, and a bar with no deck behind it simply has no
+  // reveal to ask for.
+  const deck = useContext(DeckManagerContext);
+
   // Whether the pointer is inside the title bar — the fact the rollup's reveal
   // reads. Written to the DOM as `data-pointer-within`, never to React state
   // ([L06]): it is pure appearance, it turns on every pass of the pointer
@@ -717,10 +726,75 @@ function CardTitleBar({
     [isMultiTab, cardCount, onClose],
   );
 
-  const openCloseConfirm = useCallback((intent: CloseIntent) => {
-    setCloseIntent(intent);
-    setCloseOpen(true);
-  }, []);
+  // Deferred open, so the popover is never seeded onto a pane the deck is
+  // still carrying. Cleared on unmount — a pane closed by another route
+  // during the travel must not raise a question about itself afterwards.
+  const openCloseTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (openCloseTimerRef.current !== null)
+        window.clearTimeout(openCloseTimerRef.current);
+    },
+    [],
+  );
+
+  // Every close gesture that asks a question funnels through here, and the
+  // question is asked ON the card it is about: a pane standing half out of
+  // the band is brought whole into view FIRST, and only then does the popover
+  // open. Two reasons, and both are about the reader. A "Close Card?" anchored
+  // to a title bar that is itself half off the band can be clipped by the
+  // band's own edge — the question arrives unreadable, or not at all. And a
+  // reader is being asked to discard something: they are owed a look at what
+  // it is before they answer.
+  //
+  // What the wait keys on is the DECK SETTLING rather than on whether the
+  // reveal below found anything to move, and the difference is the whole
+  // correctness of it. A pointer close is preceded by the gesture
+  // interpreter's own reveal — a release that travelled nowhere brings the
+  // card it clicked into view — which lands BEFORE this handler and leaves
+  // `revealCard` nothing left to commit. Asking "did I travel?" would answer
+  // no on exactly the gesture that is travelling. The settle arms
+  // synchronously on the store notify, whoever committed it, so the attribute
+  // is already standing by the time we look.
+  //
+  // The reveal is still called: the keyboard routes (⌘W, the close-all
+  // command, a remote close box) reach here with no pointer gesture ahead of
+  // them, and for those this IS the travel.
+  //
+  // Nothing is deferred when the deck is at rest, so a close on a card in full
+  // view opens the popover in the same frame it always did. Mid-travel the
+  // popover waits rather than anchoring in flight: Radix positions its content
+  // once at open against the anchor's current rect, and the band's crossing is
+  // a CSS transform it does not follow.
+  const openCloseConfirm = useCallback(
+    (intent: CloseIntent) => {
+      // A second gesture while the deck is already travelling toward the
+      // question is the same gesture arriving twice. Let the first one finish
+      // rather than opening the popover onto a band still in flight.
+      if (openCloseTimerRef.current !== null) return;
+      setCloseIntent(intent);
+      if (deck !== null && activeCardId !== undefined) {
+        deck.revealCard(activeCardId);
+      }
+      // Off this bar's own ancestor rather than a document-wide selector: a
+      // title bar standing outside a deck at all — the component gallery, a
+      // spike — finds nothing and opens immediately, which is right.
+      const canvas =
+        barElRef.current?.closest<HTMLElement>(
+          "[data-deck-canvas-background]",
+        ) ?? null;
+      if (canvas === null || !canvas.hasAttribute("data-imposer-settling")) {
+        setCloseOpen(true);
+        return;
+      }
+      const settleMs = readSettleMs(canvas) * getTugTiming();
+      openCloseTimerRef.current = window.setTimeout(() => {
+        openCloseTimerRef.current = null;
+        setCloseOpen(true);
+      }, settleMs);
+    },
+    [deck, activeCardId],
+  );
 
   const handleClosePointerDown = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -4255,8 +4329,18 @@ export function TugPane({
   // unconditional. Single-card panes follow the active card's opt-in
   // (`confirmClose: true` in its registration). Defaults to no
   // confirm for single-card panes whose card type doesn't opt in.
+  //
+  // A SIDEBAR card confirms too, whatever its registration says, and for a
+  // reason no card type can state about itself: a rail card is a singleton
+  // the deck keeps ONE of, so closing it is not "close this pane" but "put
+  // this tool away" — and the X sits inches from the rail's resize edge and
+  // its stack badge, on a bar the reader is already pointing at for other
+  // reasons. It is the pane most likely to be shut by a stray click and the
+  // one whose closing is least visible afterwards. Rail-ness follows the
+  // active card's `layoutRole`, so a rail card released from its pin still
+  // asks (`isRail`) — it is the same tool wherever it stands.
   const paneConfirmClose =
-    (cards?.length ?? 1) > 1 || effectiveMeta.confirmClose === true;
+    (cards?.length ?? 1) > 1 || effectiveMeta.confirmClose === true || isRail;
 
   // …unless the one card in a single-card pane says it is holding nothing
   // (an empty Session card). Resolved at close time, not here: the card
