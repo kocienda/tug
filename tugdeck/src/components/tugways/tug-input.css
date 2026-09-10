@@ -3,6 +3,7 @@
   --tug7-element-field-border-normal-plain-rest      | --tug7-surface-field-primary-normal-plain-rest     | informational
   --tug7-element-field-text-normal-placeholder-rest  | --tug7-surface-field-primary-normal-plain-rest     | informational
   --tug7-element-field-border-normal-plain-hover     | --tug7-surface-field-primary-normal-plain-hover    | informational
+  --tug7-element-field-border-normal-plain-active    | --tug7-surface-field-primary-normal-plain-focus    | informational
   --tug7-element-field-text-normal-plain-disabled    | --tug7-surface-field-primary-normal-plain-disabled | informational
   --tug7-element-field-border-normal-plain-disabled  | --tug7-surface-field-primary-normal-plain-disabled | informational
   --tug7-element-field-text-normal-plain-readonly    | --tug7-surface-field-primary-normal-plain-readonly | informational
@@ -20,6 +21,7 @@
  * | --tug7-element-field-border-normal-plain-rest   | --tug7-surface-field-primary-normal-plain-rest     | informational | .tug-input (border)                                                  |
  * | --tug7-element-field-text-normal-placeholder-rest | --tug7-surface-field-primary-normal-plain-rest   | informational | .tug-input::placeholder (color)                                      |
  * | --tug7-element-field-border-normal-plain-hover  | --tug7-surface-field-primary-normal-plain-hover    | informational | .tug-input:hover (border-color)                                      |
+ * | --tug7-element-field-border-normal-plain-active | --tug7-surface-field-primary-normal-plain-focus    | informational | .tug-input:focus (border-color)                                      |
  * | --tug7-element-field-text-normal-plain-disabled | --tug7-surface-field-primary-normal-plain-disabled | informational | .tug-input:disabled (color)                                          |
  * | --tug7-element-field-text-normal-plain-disabled | --tug7-surface-field-primary-normal-plain-disabled | informational | .tug-input:disabled::placeholder (color)                             |
  * | --tug7-element-field-border-normal-plain-disabled | --tug7-surface-field-primary-normal-plain-disabled | informational | .tug-input:disabled (border-color)                                 |
@@ -69,7 +71,12 @@
 
 /* ---- Hover ---- */
 
-.tug-input:hover:not(:disabled):not(:read-only):not(:focus) {
+/* A field wearing the ring answers the pointer with nothing. The ring is the
+   element mark and is meant to be the only mark on the stop, so a hover border
+   beside it is a second closed rectangle a few pixels in from the first — the
+   double ring the element-mark doctrine retired. Both the fill and the border
+   stand down, since either one re-marks a stop that is already marked. */
+.tug-input:hover:not(:disabled):not(:read-only):not(:focus):not([data-key-view-kbd]) {
   background-color: var(--tug7-surface-field-primary-normal-plain-hover);
   border-color: var(--tug7-element-field-border-normal-plain-hover);
 }
@@ -78,10 +85,13 @@
 
 .tug-input:focus {
   background-color: var(--tug7-surface-field-primary-normal-plain-focus);
-  /* The focus border rides the Accent axis with the ring (`--tugx-focus-ring`),
-     not the field's key-toned border — so the affordance hue lives in the ring,
-     not the fill (validation classes below repoint it per state). */
-  border-color: var(--tugx-focus-ring);
+  /* The border rides the field family's own KEY-toned token, never the ring's
+     accent hue: the accent belongs to the ring alone, and a border painted in
+     it puts the ring back under another property name — which is what a
+     caret-holding field showed, since the ring stands down under a live caret
+     and this border did not. The validation classes below still repoint per
+     state; those are a state, not the affordance hue. */
+  border-color: var(--tug7-element-field-border-normal-plain-active);
   outline: none;
 }
 

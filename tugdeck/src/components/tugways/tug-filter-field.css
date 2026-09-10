@@ -83,15 +83,29 @@
  * A filter field is a background affordance: it sits in a section band the eye
  * is reading past, so it draws no border at rest. Its own field surface — a
  * distinct tone from every band and sheet it mounts in — carries the bounds.
- * The border box is still there, 1px of transparent, so claiming focus repaints
- * it accent (`.tug-input:focus`) without moving a pixel of text.
+ * The border box is still there, 1px of transparent, so nothing moves a pixel
+ * of text as the field changes state.
  *
- * Hover keeps `TugInput`'s surface shift and drops only the border, so the
- * field still answers the pointer. Specificity clears the hover rule's
- * `:hover:not():not():not()` chain in tug-input.css, which loads after this
- * file (the component imports its own CSS before `TugInput`'s).
+ * The border stays transparent in every state, focus included: the surface is
+ * what carries the bounds, and the focus border has no accent hue left for this
+ * field to opt out of. Hover keeps `TugInput`'s surface shift and drops only
+ * the border, so the field still answers the pointer.
+ *
+ * Two selectors, because one cannot do it. The first, at (0,3,0), beats
+ * `.tug-input:focus` (0,2,0) and `.tug-input:read-only` / `:disabled` (0,2,0)
+ * and covers every resting state. It does NOT beat the hover rule in
+ * tug-input.css, which is (0,6,0) once its `:not([data-key-view-kbd])` is
+ * counted — and that file loads after this one (the component imports its own
+ * CSS before `TugInput`'s), so a tie would lose too. The second selector
+ * mirrors that hover chain term for term and adds this file's two, landing at
+ * (0,8,0), which wins outright whatever the load order turns out to be. An
+ * earlier comment here claimed the first selector alone cleared that chain; it
+ * never did, which is why a parked filter field under the pointer wore a hover
+ * border inside its ring.
  */
-.tug-filter-field .tug-input.tug-filter-field-input:not(:focus) {
+.tug-filter-field .tug-input.tug-filter-field-input,
+.tug-filter-field
+  .tug-input.tug-filter-field-input:hover:not(:disabled):not(:read-only):not(:focus):not([data-key-view-kbd]) {
   border-color: transparent;
 }
 
