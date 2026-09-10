@@ -118,6 +118,7 @@ export const SPIKES: readonly SpikeDef[] = [
   modalHeadersSpike,
   focusLanguageSpike,
   lightChromeSpike,
+  askDialogHeightSpike,
 ];
 
 /**
