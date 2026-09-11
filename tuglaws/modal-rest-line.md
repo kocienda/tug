@@ -57,7 +57,7 @@ The resolution is live rather than decided once, which is what makes folding and
 
 Each is a decision with a reason, recorded so it does not have to be re-argued. A surface not on this list takes the line.
 
-**The Changes shade** rests on the top of the prompt-entry region instead — it covers Z2 and PULSE — because it *is* the commit surface. The message editor below it is part of the same gesture, so its bottom edge belongs on the entry region rather than on Z2. Nothing else has that tie-in, so nothing else pays for it. A refusal of that gesture speaks on it — `SessionLandingNoticeStrip`, in the entry region under the shade's bottom edge, outside the scrim by geometry rather than by z-index — so a landing failure never goes to a lane the scrim covers. [D117], [P17]
+**The Changes shade** rests on the top of the prompt-entry region instead — it covers Z2 — because it *is* the commit surface. The message editor below it is part of the same gesture, so its bottom edge belongs on the entry region rather than on Z2. Nothing else has that tie-in, so nothing else pays for it. A refusal of that gesture speaks on it — `SessionLandingNoticeStrip`, in the entry region under the shade's bottom edge, outside the scrim by geometry rather than by z-index — so a landing failure never goes to a lane the scrim covers. [D117], [P17]
 
 **Choose Session** and **Compacting** keep the top anchor. Both stand where there is no transcript behind them — the cold-start picker before a session exists, and the cover over a compaction run — so a rise from Z2 would be a motion with nothing to reveal.
 

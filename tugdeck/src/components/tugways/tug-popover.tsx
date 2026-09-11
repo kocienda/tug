@@ -712,7 +712,7 @@ export interface TugPopoverContentProps {
    * one that opened it from a focus-cycle trigger, dismisses it. The act
    * dispatch gates this so a Space on an interactive control inside the popover
    * still presses it; only a Space on the popover's own chrome closes. Use for
-   * info popovers (Z2 status cells, PULSE, the route report); leave off for
+   * info popovers (Z2 status cells, the beat, the route report); leave off for
    * pickers, menus, and modal confirms whose Space belongs to their content.
    * @default false
    */

@@ -117,7 +117,7 @@ pub struct ArcConfig {
     /// edges produces a gap this wide, so a reading that survives it is a
     /// reading about the session rather than about the instant it was taken.
     ///
-    /// It gates the runner alone. `is_quiet` still answers Z2, Pulse and the
+    /// It gates the runner alone. `is_quiet` still answers Z2, the beat and the
     /// join offer unsettled, because none of them acts on the answer.
     #[serde(default)]
     pub idle_settle_secs: Option<u64>,

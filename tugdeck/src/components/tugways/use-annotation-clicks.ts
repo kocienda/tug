@@ -4,17 +4,17 @@
  * Everything an interaction layer needs about an annotated element is on the
  * element (`annotation-element.ts`), so one listener on a surface's root
  * services every reference under it, whoever rendered it: prose the annotator
- * marked, a tool header a component stamped, the file reference a pulse beat
+ * marked, a tool header a component stamped, the file reference a beat
  * wears. The registry decides what a click on a given kind does, so a new kind
  * costs a surface nothing.
  *
  * The transcript wrote this layer first and the Overview copied it verbatim; a
- * third surface asking for it (the masthead's pulse line and its recent-pulses
+ * third surface asking for it (the masthead's beat line and its beat-history
  * popover) is what makes it a hook rather than a shape to re-type. What a
  * surface still owns is WHERE the root is and what a click may reach —
  * `activateCard`, and the session store a command seeds into.
  *
- * **A surface with a click of its own asks first.** The pulse line toggles its
+ * **A surface with a click of its own asks first.** The beat line toggles its
  * history popover on click and carries a file reference inside that same run;
  * {@link annotationClaimsClick} is how the host declines the gesture the
  * reference is about to take, so a click on the path opens the file rather

@@ -1,0 +1,215 @@
+/**
+ * tug-activity-line.css — the beat's typographic contract.
+ *
+ * Everything the beat looks like is declared HERE, once, as
+ * `--tugx-activity-line-*` knobs on `body`. The masthead and the Cards card row are
+ * mount sites: they supply the string and the trailing accessory, and
+ * contribute NO typography of their own. Tuning the beat means editing this
+ * file, and every surface moves together.
+ *
+ * ── Leading is a declared number ───────────────────────────────────────
+ * Leading is stated the way a typesetter states it: BASELINE TO BASELINE.
+ * The line is a box exactly `--tugx-activity-line-stacked-baseline-step` tall
+ * carrying a strut of `--tugx-activity-line-stacked-first-baseline`, so its baseline
+ * lands one step below the line above it whatever type is set in it. The room
+ * left for descenders falls out of the same two numbers (step − first
+ * baseline), so the line never clips one either.
+ *
+ * ── One level, one layout ──────────────────────────────────────────────
+ * The headline run, its `›` separator, the legend, the give-way widths and
+ * the `inline` bar they lived on are gone with [D132]'s headline chain, and
+ * the preset ladder went with them. What the shipping rung declared is what
+ * the activity knobs below declare now — there is one set of numbers, and it
+ * is this one.
+ *
+ * @tug-pairings {
+ *   --tug7-element-global-text-normal-muted-rest            | --tugx-pane-bg | content
+ * }
+ *
+ * @tug-pairings
+ * | Element                                               | Surface        | Role    | Context                            |
+ * |-------------------------------------------------------|----------------|---------|------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest           | --tugx-pane-bg | content | .tug-activity-line-activity (color)        |
+ */
+
+body {
+  /* Each run's own line box. Loose enough that a descender is never
+     clipped by the `overflow: hidden` the ellipsis needs. */
+  --tugx-activity-line-run-line-height: 1.2;
+
+  /* Air between the run and the trailing accessory. */
+  --tugx-activity-line-trailing-gap: var(--tug-space-sm);
+
+  /* ── The activity: the operation running now ────────────────────────── */
+  /* Plex Sans Condensed at 12px, regular. The condensed face because the
+     line sits where width is the scarce resource, and
+     regular because the run keeps its color on a dark surface at this size
+     where light starts to go thin. A mount site whose stack wants the
+     ambient face instead overrides these three on its own `.tug-activity-line`
+     element — see `tug-session-row.css`. */
+  --tugx-activity-line-activity-font: var(--tug-font-family-condensed);
+  --tugx-activity-line-activity-size: 0.75rem;
+  --tugx-activity-line-activity-weight: var(--tug-font-weight-regular);
+  --tugx-activity-line-activity-tracking: 0em;
+  --tugx-activity-line-activity-color: var(--tug7-element-global-text-normal-muted-rest);
+
+  /* ── The line's geometry ────────────────────────────────────────────── */
+  /* Top of the block to the first baseline. Must CLEAR the run's ascent — a
+     strut only wins the baseline group while it is the tallest thing in it. */
+  --tugx-activity-line-stacked-first-baseline: 13px;
+  /* Baseline to baseline — the leading, stated as leading. Also the height
+     of the line's box, so the line keeps (step − first baseline) of
+     descender room. */
+  --tugx-activity-line-stacked-baseline-step: 16px;
+  /* What a line ABOVE the accessory's stops short of at the trailing edge —
+     the width of the accessory, plus whatever air it keeps.
+
+     The accessory is a flex item on ITS line, so that line stops short of it
+     by layout. A line above it has no such item and would otherwise run the
+     full width and pass beneath it — the accessory is taller than a line box
+     and lifted above its own besides. This is what such a line reserves so
+     it does not.
+
+     0 by default: a line with no accessory has nothing to stop short of, and
+     the component cannot know a node's width. The mount site declares it,
+     because the mount site is what supplied the accessory. */
+  --tugx-activity-line-stacked-trailing-reserve: 0px;
+  /* How far the trailing accessory is LIFTED off its own line. TUNE HERE.
+     The tape is centered on the activity's line box, which is typographically
+     correct and reads a touch low: it is the bottom-most thing in the block,
+     and the eye measures it against the row's furniture two lines above rather
+     than against the run beside it. A small lift closes that gap without
+     moving any type — it is a transform, so no baseline, line box, or row
+     height changes with it. */
+  --tugx-activity-line-stacked-trailing-rise: 3px;
+}
+
+/* ── Root ─────────────────────────────────────────────────────────────── */
+
+.tug-activity-line {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-inline-size: 0;
+}
+
+/* NO `gap` HERE. The strut is a real flex item, so a container gap opens
+   between it and the run and indents the line by that much — which read as the
+   line hanging right of the name line above it. Air between the run and the
+   accessory is the accessory's own margin instead, so the strut costs exactly
+   the zero width it declares and all three of a Cards card row's lines start on
+   one vertical. */
+.tug-activity-line-line {
+  display: flex;
+  align-items: baseline;
+  min-inline-size: 0;
+  block-size: var(--tugx-activity-line-stacked-baseline-step);
+}
+
+/* The strut. A zero-width, baseline-aligned flex item synthesizes its baseline
+   at its bottom margin edge, so this fixes the line's baseline at
+   --tugx-activity-line-stacked-first-baseline from the top of the box — independent of
+   the face and size in the run beside it. Nothing clips: the box stacks at the
+   step while the glyphs are free to overhang it. */
+.tug-activity-line-line::before {
+  content: "";
+  flex: 0 0 auto;
+  align-self: baseline;
+  inline-size: 0;
+  block-size: var(--tugx-activity-line-stacked-first-baseline);
+}
+
+/* Any line ABOVE the one carrying the accessory stops short of it — see the
+   knob. The accessory's own line needs no rule: it holds the accessory as a
+   flex item and its run stops at it by layout. So the whole block ends on one
+   vertical, and no run passes under the tape. */
+.tug-activity-line .tug-activity-line-line:not(:last-child) {
+  padding-inline-end: var(--tugx-activity-line-stacked-trailing-reserve);
+}
+
+/* The element the mount site hangs its gestures on — the copy target is the
+   text, and not the sparkline beside it. */
+.tug-activity-line-stage {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+/* ── The activity's voice ─────────────────────────────────────────────── */
+
+.tug-activity-line-run {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: var(--tugx-activity-line-run-line-height);
+}
+
+/* `None` and `Done` are activity strings like any other, and set exactly like
+   any other — there is no placeholder voice. A lifecycle word that wore its
+   own weight or tone would be the reader's ONE inconsistent run. */
+/* @tug-renders-on var(--tugx-pane-bg) */
+.tug-activity-line-activity {
+  flex: 1 1 auto;
+  font-family: var(--tugx-activity-line-activity-font);
+  font-size: var(--tugx-activity-line-activity-size);
+  font-weight: var(--tugx-activity-line-activity-weight);
+  letter-spacing: var(--tugx-activity-line-activity-tracking);
+  color: var(--tugx-activity-line-activity-color);
+}
+
+/* ── Middle truncation ────────────────────────────────────────────────────
+   An activity is a command or a path, and both carry their identifying part
+   at the END — the file being read, the test being run, the weights being
+   fetched. End truncation throws exactly that away and leaves a row of
+   `curl --range 4194304- https://huggingf…` that says nothing the next row
+   does not also say. Cutting the MIDDLE keeps both ends: what is running,
+   and what it is running on.
+
+   CSS cannot do it, so the run carries both readings and a data attribute
+   picks one ([L06] — the swap is an attribute and these two rules, not React
+   state). The full text stays in the DOM either way, merely taken out of
+   sight, so assistive technology and a text copy still get the whole string;
+   only the eye sees the shortened one. */
+
+.tug-activity-line-activity-clipped {
+  display: none;
+}
+
+.tug-activity-line-activity[data-truncated="true"] .tug-activity-line-activity-clipped {
+  display: inline;
+}
+
+/* Out of sight, still in the accessibility tree and still in a copy. */
+.tug-activity-line-activity[data-truncated="true"] .tug-activity-line-activity-full {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The accessory is centered on its line, never baseline-aligned. A boxy flex
+   item with no text of its own synthesizes its baseline at its BOTTOM edge,
+   so a 16px sparkline left in the baseline group would out-ascend the strut
+   and become the thing that decides where the line's baseline falls — the
+   type would then sit wherever the chart happened to be tall.
+
+   The `auto` start margin pushes it to the far edge; the padding is the
+   minimum air it keeps when the run beside it fills the line. */
+.tug-activity-line-trailing {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  align-self: center;
+  margin-inline-start: auto;
+  padding-inline-start: var(--tugx-activity-line-trailing-gap);
+  /* The lift off its own line — see the knob's own note above. A transform, so
+     the line box, the baseline, and the row's height are all exactly where
+     they were; only the accessory moves. */
+  transform: translateY(
+    calc(-1 * var(--tugx-activity-line-stacked-trailing-rise, 0px))
+  );
+}

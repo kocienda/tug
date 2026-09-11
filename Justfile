@@ -10,7 +10,6 @@ build:
     cd tugrust && cargo build -p tugcast -p tugexec -p tugtool -p tugrelaunch -p tugbank
     cd ..
     bun build --compile tugcode/src/main.ts --outfile tugrust/target/debug/tugcode
-    bun build --compile tugcode/src/pulse/main-pulse.ts --outfile tugrust/target/debug/tugpulse
     # Only the main checkout owns ~/.local/bin. A linked worktree (an arc under
     # .tug/worktrees/) builds its own ephemeral binaries; pointing the global
     # symlinks at them would dangle every tug* tool the moment the arc is torn
@@ -22,7 +21,7 @@ build:
         # checkout has rebuilt — a stale-cleanup line that outlives its
         # rename is how ~/.local/bin collects junk in the first place.
         rm -f ~/.local/bin/tugutil
-        for bin in tugcast tugexec tugtool tugedit tugcode tugpulse tugrelaunch tugbank; do
+        for bin in tugcast tugexec tugtool tugedit tugcode tugrelaunch tugbank; do
             ln -sf "$(pwd)/tugrust/target/debug/$bin" ~/.local/bin/"$bin"
         done
     else
@@ -87,6 +86,7 @@ test-ts:
 # its line here — an unlisted golden is one nothing here can rebuild.
 golden:
     cd tugdeck && IMPOSER_GOLDEN_UPDATE=1 bun test src/lib/__tests__/layout-imposer-solutions.test.ts
+    cd tugrust && TUG_DIGEST_GOLDEN_UPDATE=1 cargo nextest run -p tugcast session_digest
 
 # Capture Claude Code fixtures + capabilities snapshot (~2-3 min; real-claude)
 capture-capabilities:
@@ -389,8 +389,8 @@ app-release: build wasm
     PRODUCT_NAME="$TUG_PRODUCT_NAME"
     echo "==> Quitting prior $INSTANCE_ID, if running"
     bash tugrust/scripts/quit-tug-bundle.sh "$BUNDLE_ID" "$INSTANCE_ID"
-    # Compile the shared release inputs (Rust binaries, tugcode/tugpulse,
-    # tugdeck assets) — the same script build-app.sh uses, so the developer
+    # Compile the shared release inputs (Rust binaries, tugcode, tugdeck
+    # assets) — the same script build-app.sh uses, so the developer
     # launch build and the distribution build can't drift on what they compile.
     # The xcodebuild copy phase reads these from tugrust/target/release/.
     bash tugrust/scripts/build-release-inputs.sh
@@ -866,7 +866,6 @@ build-app:
     echo "==> [1/5] Rust debug binaries"
     (cd tugrust && cargo build -p tugcast -p tugexec -p tugtool -p tugrelaunch -p tugbank)
     bun build --compile tugcode/src/main.ts --outfile tugrust/target/debug/tugcode
-    bun build --compile tugcode/src/pulse/main-pulse.ts --outfile tugrust/target/debug/tugpulse
 
     echo "==> [2/5] tugdeck deps + prebuilt dist"
     (cd tugdeck && bun install && bun run build)

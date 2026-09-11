@@ -1,5 +1,5 @@
 /**
- * beat-file-target — recognize the file target inside a pulse beat.
+ * beat-file-target — recognize the file target inside a beat.
  *
  * The voice narrates file tools in a fixed grammar — `Reading <path>`,
  * `Writing <path> — 37 lines`, `Editing <path>…`, optionally prefixed with a
@@ -16,7 +16,7 @@
  * that happens to open "Reading the docs." fails both gates and renders as
  * the prose it is.
  *
- * @module lib/pulse-line/beat-file-target
+ * @module lib/beat-line/beat-file-target
  */
 
 /** A beat split around its file target. */

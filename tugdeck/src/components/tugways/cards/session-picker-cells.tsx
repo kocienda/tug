@@ -200,7 +200,7 @@ export const SessionResumeCell: TugListViewCellRenderer<SessionsDataSource> = ({
     sessionIdentityContextFrom(row),
   );
 
-  // What the activity line says INSTEAD of anything the pulse feed could
+  // What the activity line says INSTEAD of anything the digest feed could
   // report. Both cases are rows this app cannot see into: a terminal holds no
   // feed, and a failed row's one fact is the failure. Everything else — the
   // live beat, the rest sentence — is the shared row's ladder.

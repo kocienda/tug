@@ -30,7 +30,7 @@ import { restoreSessions } from "./lib/session-restore";
 import { installDeckSeatingsReporter } from "./lib/deck-seatings-reporter";
 import { attachSessionLedgerStore } from "./lib/session-ledger-store";
 import { attachSessionStateChangesStore } from "./lib/session-state-changes-store";
-import { attachPulseStore } from "./lib/pulse-store";
+import { attachDigestStore } from "./lib/digest-store";
 import { attachOverviewStore } from "./lib/overview-store";
 import { attachSessionActivityStore } from "./lib/session-activity-store";
 import {
@@ -583,10 +583,10 @@ if (!container) {
   // appends live triple transitions from the local pub/sub bus.
   attachSessionStateChangesStore(connection);
 
-  // Wire the app-scoped PULSE store: one `list_pulse_lines` tail
-  // fetch on first observation, live `PULSE` frames folded after.
-  // The Z2 strip reads it via `usePulse`.
-  attachPulseStore(connection);
+  // Wire the app-scoped digest store: one `list_digest_lines` tail
+  // fetch on first observation, live `DIGEST` frames folded after.
+  // The Z2 strip reads it via `useDigest`.
+  attachDigestStore(connection);
 
   // Wire the app-scoped OVERVIEW store: one `list_overview_posts` tail
   // fetch on first observation, live `OVERVIEW` frames folded after.

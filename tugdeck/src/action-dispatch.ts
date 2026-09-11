@@ -95,10 +95,10 @@ import {
 import type {
   CardBinding,
   OverviewPostWire,
-  PulseLineWireRow,
+  DigestLineWireRow,
   SessionStateChangeWireRow,
 } from "./protocol";
-import { publishListPulseLinesOk } from "./lib/pulse-store";
+import { publishListDigestLinesOk } from "./lib/digest-store";
 import { publishListOverviewPostsOk } from "./lib/overview-store";
 import { cardServicesStore } from "./lib/card-services-store";
 import { pendingAskStore } from "./lib/pending-ask-store";
@@ -1838,16 +1838,16 @@ export function initActionDispatch(
     publishListSessionStateChangesErr({ tug_session_id: tugSessionId, reason });
   });
 
-  // list_pulse_lines_ok: response to the pulse-store's app-scoped
+  // list_digest_lines_ok: response to the digest-store's app-scoped
   // ledger-tail request. Lines are oldest-first; an empty ledger is a
   // valid empty array.
-  registerAction("list_pulse_lines_ok", (payload) => {
+  registerAction("list_digest_lines_ok", (payload) => {
     const lines = payload.lines;
     if (!Array.isArray(lines)) {
-      console.warn("list_pulse_lines_ok: missing or invalid lines", payload);
+      console.warn("list_digest_lines_ok: missing or invalid lines", payload);
       return;
     }
-    publishListPulseLinesOk({ lines: lines as PulseLineWireRow[] });
+    publishListDigestLinesOk({ lines: lines as DigestLineWireRow[] });
   });
 
   // list_overview_posts_ok: response to the overview-store's app-scoped

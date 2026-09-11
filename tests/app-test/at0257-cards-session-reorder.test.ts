@@ -314,7 +314,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
                 ".tug-list-view-cell:has(.session-row-content[data-session-id])"
               );
               var row = cell.querySelector(".tug-session-row");
-              var tape = cell.querySelector(".tug-pulse-trailing .tug-sparkline");
+              var tape = cell.querySelector(".tug-activity-line-trailing .tug-sparkline");
               var cs = getComputedStyle(list);
               var lr = list.getBoundingClientRect();
               var cr = cell.getBoundingClientRect();

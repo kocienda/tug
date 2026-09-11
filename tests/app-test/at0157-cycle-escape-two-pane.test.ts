@@ -103,7 +103,7 @@ const EDITOR_FOCUSED = `(function(){
 })()`;
 
 // The Z2 status cells open the shared TugPlacard (`data-slot="tug-placard"`)
-// since the placard refactor; the PULSE label still opens a plain TugPopover.
+// since the placard refactor; the beat label still opens a plain TugPopover.
 // Match either, mirroring at0140.
 const POPOVER_OPEN = `(document.querySelector('[data-slot="tug-popover"]') !== null || document.querySelector('[data-slot="tug-placard"]') !== null)`;
 

@@ -101,9 +101,9 @@ Two lifecycle edges that come with the form:
 
 ---
 
-## Worked example 1 — the event clock end to end (Pulse) {#worked-event-clock}
+## Worked example 1 — the event clock end to end (the activity instrument) {#worked-event-clock}
 
-The S2 rework is the reference implementation of [D7]/[D8] across a full producer→consumer chain. Before: a standing 4Hz sampler per tape, a perpetual 250ms easing interval per readout row, and dormancy machinery whose whole job was to detect that polling had been finding nothing — an idle Pulse card ran ~48 timer wakes/s. After: **zero timers, zero animation objects, zero frames at idle, each stage silent because the stage before it sent nothing.**
+The S2 rework is the reference implementation of [D7]/[D8] across a full producer→consumer chain. Before: a standing 4Hz sampler per tape, a perpetual 250ms easing interval per readout row, and dormancy machinery whose whole job was to detect that polling had been finding nothing — an idle activity card ran ~48 timer wakes/s. After: **zero timers, zero animation objects, zero frames at idle, each stage silent because the stage before it sent nothing.**
 
 - **The wire ([D8]):** tugcast's resource sampler publishes only moved gauge channels (0.5% CPU / 4 MiB rss / exact-delta disk, referenced to last-published), sends no frame when nothing moved, and flushes one final all-zero frame when a session leaves the live set — the falling edge that keeps silence unambiguous. The deck holds indefinitely; the TTL was deleted because under this contract a decay is a lie.
 - **The store gate:** `record()` recognizes change at display grain (gauge moved ≥1% of full scale vs the published reference) and pushes channel-tagged activity events; consumers subscribe, never sample.

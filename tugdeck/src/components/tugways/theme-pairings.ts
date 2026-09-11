@@ -2799,9 +2799,8 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tug7-element-field-border-normal-danger-rest", surface: "--tugx-entry-shell-rest", role: "informational" },
   { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tugx-entry-shell-rest", role: "content" },
 
-  // ---- tug-pulse.css ----
-  { element: "--tug7-element-global-text-normal-default-rest", surface: "--tugx-pane-bg", role: "content" },
-  { element: "--tug7-element-global-text-normal-muted-disabled-rest", surface: "--tugx-pane-bg", role: "content" },
+  // ---- tug-activity-line.css ----
+  { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tugx-pane-bg", role: "content" },
 
   // ---- tug-quiet-line.css ----
   { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "content" },

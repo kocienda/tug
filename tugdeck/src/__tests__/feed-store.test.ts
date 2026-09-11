@@ -277,16 +277,16 @@ describe("FeedStore filter", () => {
     const { conn, mock } = makeMockConn();
     const store = new FeedStore(
       conn,
-      [FeedId.SESSION_SIDEBAND, FeedId.PULSE] as readonly FeedIdValue[],
+      [FeedId.SESSION_SIDEBAND, FeedId.DIGEST] as readonly FeedIdValue[],
     );
     expect(mock.callbackCount(FeedId.SESSION_SIDEBAND)).toBe(1);
-    expect(mock.callbackCount(FeedId.PULSE)).toBe(1);
+    expect(mock.callbackCount(FeedId.DIGEST)).toBe(1);
 
     store.dispose();
 
     // The connection outlives the store; without unregistering, the
     // callback closures would pin the dead store forever.
     expect(mock.callbackCount(FeedId.SESSION_SIDEBAND)).toBe(0);
-    expect(mock.callbackCount(FeedId.PULSE)).toBe(0);
+    expect(mock.callbackCount(FeedId.DIGEST)).toBe(0);
   });
 });

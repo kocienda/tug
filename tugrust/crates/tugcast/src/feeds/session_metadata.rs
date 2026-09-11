@@ -79,7 +79,7 @@ pub fn is_activity_delta(payload: &[u8]) -> bool {
 /// Needle bytes for the two turn-closing frame types. The merger flips the
 /// session's `turn_active` flag off when either crosses the pipe, so the
 /// activity sampler stops attributing OS work the moment the turn ends —
-/// an idle session's Pulse reads zero, not the claude process's idle
+/// an idle session's beat reads zero, not the claude process's idle
 /// event-loop heartbeat.
 const TURN_COMPLETE_NEEDLE: &[u8] = b"\"type\":\"turn_complete\"";
 const TURN_CANCELLED_NEEDLE: &[u8] = b"\"type\":\"turn_cancelled\"";

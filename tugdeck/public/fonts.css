@@ -28,7 +28,7 @@
  * Weight set: the proportional families (Plex Sans, Plex Sans Condensed)
  * ship the full upright range — thin (100), extralight (200), light (300),
  * regular (400), text (450), medium (500), semibold (600), bold (700) —
- * because the PULSE reads at the light end, where a narrower set width buys
+ * because the BEAT reads at the light end, where a narrower set width buys
  * information density on a line whose width is the scarce resource. Plex
  * Mono keeps the pruned 400/500/600/700; nothing renders a light mono cut,
  * and font-synthesis:none means an unused weight is never faked. Italic
@@ -174,7 +174,7 @@
 
 
 /* IBM Plex Sans Condensed — heading / tight-chip display face, and the
-   PULSE's density lever. Shares the Plex skeleton at a narrower set width,
+   beat's density lever. Shares the Plex skeleton at a narrower set width,
    so a condensed run sets the same words in less line. Upright 100–700
    plus regular (400) italic. OFL 1.1. */
 @font-face {

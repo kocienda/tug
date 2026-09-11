@@ -70,7 +70,7 @@ tugdeck/src/lib/image-downsample.ts arc/dev-atoms.md
 tugdeck/src/lib/pane-flip.ts arc/jul30-perf-brief.md
 tugdeck/src/lib/permission-rules-store.ts arc/transport-exploration.md
 tugdeck/src/lib/permission-rules.ts arc/transport-exploration.md
-tugdeck/src/lib/pulse-line/__tests__/render-pulse-line.test.ts arc/pulse.md
+tugdeck/src/lib/beat-line/__tests__/render-beat-line.test.ts arc/pulse.md
 tugdeck/src/lib/synthesize-user-message.ts arc/dev-atoms.md
 tugdeck/src/lib/tug-atom-img.ts arc/dev-atoms.md
 tugdeck/src/lib/workers/image-downsample-worker.ts arc/dev-atoms.md
@@ -82,7 +82,6 @@ tugrust/crates/tugcast/src/feeds/agent_supervisor.rs arc/tugplan-dev-mid-turn-re
 tugrust/crates/tugcast/src/feeds/agent_supervisor.rs arc/tugplan-dev-transcript-resume.md
 tugrust/crates/tugcast/src/feeds/changeset.rs dir/plan.md
 tugrust/crates/tugcast/src/feeds/filetree.rs arc/dev-atoms.md
-tugrust/crates/tugcast/src/feeds/pulse.rs arc/pulse-2.md
 tugrust/crates/tugcast/src/feeds/secret_filter.rs arc/dev-atoms.md
 tugrust/crates/tugcast/src/feeds/shell.rs crates/tugcast/probes/shell-exec/FINDINGS.md
 tugrust/crates/tugcast/src/feeds/workspace_registry.rs arc/dev-atoms.md

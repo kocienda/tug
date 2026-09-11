@@ -12,7 +12,7 @@
 //! back to `sonnet` ([P22]).
 //!
 //! [`ScribeSpawner`] is the test seam (the `ChildSpawner` pattern —
-//! `TugpulseSpawner` in `feeds/pulse.rs` is the sibling): tests drive
+//! `SessionChild` in `feeds/code.rs` is the sibling): tests drive
 //! [`summarize_with`] with a fake spawner (scripting streamed deltas) and
 //! never assert model prose. The production [`ClaudeScribeSpawner`] pipes the
 //! prompt over stdin (a diff can exceed ARG_MAX), scrubs the Anthropic auth

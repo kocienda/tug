@@ -36,7 +36,7 @@
  * fires at rest — which is the shape every waker convicted so far has had.
  *
  * @covers tugdeck/src/lib/perf-monitor.ts
- * @covers tugdeck/src/components/tugways/cards/pulse-card.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-activity-card.tsx
  */
 
 import { describe, expect, test } from "bun:test";

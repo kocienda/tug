@@ -22,9 +22,9 @@
 //! Cadence is a question about feel, and feel is not answerable from a desk.
 //! Each tuning value is a tugbank default read through a closure at the moment
 //! it is used, never cached at startup, so turning one applies without a
-//! restart — the `pulse_enabled` / `scribe_model` pattern in `main.rs`.
+//! restart — the `scribe_model` pattern in `main.rs`.
 //!
-//! One-way isolation, inherited from Pulse's law: nothing in the Overview
+//! One-way isolation, inherited from the digester's law: nothing in the Overview
 //! subsystem writes toward any work session.
 
 // The knob surface is authored ahead of the bridge and the Operator pipeline
@@ -64,8 +64,21 @@ pub const LAST_K_POSTS_KEY: &str = "last_k_posts";
 /// Zero disables the threshold entirely.
 pub const TOKEN_WAKE_TOKENS_KEY: &str = "token_wake_tokens";
 
-/// Per-session buffer cap, in frames.
+/// Per-session window cap, in digest lines.
 pub const BUFFER_MAX_FRAMES_KEY: &str = "buffer_max_frames";
+
+/// The subsystem's one kill switch (bool; absent reads ENABLED).
+///
+/// It gates the Observer's wakes and nothing else, because the wakes are the
+/// only model cost here ([P10]). The digest and the beat under the line are
+/// deterministic and free, so they have no switch: with this off the
+/// masthead's upper line falls through to the turn's ask and then the rest
+/// form, and the beat keeps running. It replaces the retired
+/// `dev.tugapp.pulse/enabled`, which existed to keep a subprocess from being
+/// spawned, and the
+/// `dev.tugapp.shared-agent/synopsis` tenant, which gated a job that no
+/// longer exists.
+pub const OVERVIEW_ENABLED_KEY: &str = "enabled";
 
 /// How much history the card OPENS WITH, in rows — the `limit` on its
 /// mount-time read, and on each older page it asks for afterwards.
@@ -96,18 +109,22 @@ pub const DEFAULT_MAX_WORKERS: usize = 3;
 
 /// The dominant wake, and the number that decides how the channel feels.
 ///
-/// Ninety seconds, chosen by reading three offline replays of the same real
-/// session side by side rather than by reasoning about it: 90 gave a post
-/// roughly every three minutes, 120 every five, 180 every twelve. The channel
-/// at 180 read as a log somebody skims later; at 90 it read as someone telling
-/// you what is happening. Cadence is a question about feel, and this is the
-/// answer the reading gave.
+/// Sixty seconds. The number started at ninety, chosen by reading three
+/// offline replays of the same real session side by side rather than by
+/// reasoning about it: 90 gave a post roughly every three minutes, 120 every
+/// five, 180 every twelve. The channel at 180 read as a log somebody skims
+/// later; at 90 it read as someone telling you what is happening.
+///
+/// It is 60 now because the post is no longer only the channel's: it is the
+/// standing sentence and the masthead's upper line too ([B06]), and 60 is the
+/// cadence the Haiku synopsis it replaces ran at. A line a reader watches
+/// should not be slower than the line it stands in for.
 ///
 /// A faster value is worth trying if this proves too quiet in practice — the
 /// number is a tugbank default, so turning it needs no rebuild and no restart,
 /// and `overview-replay --sitrep-secs` reads any candidate against a real
 /// transcript first.
-pub const DEFAULT_SITREP_SECS: i64 = 90;
+pub const DEFAULT_SITREP_SECS: i64 = 60;
 
 /// How much of its own recent voice the Observer sees per wake.
 ///
@@ -119,12 +136,17 @@ pub const DEFAULT_LAST_K_POSTS: usize = 5;
 /// and a token threshold that fires mid-thought is noise.
 pub const DEFAULT_TOKEN_WAKE_TOKENS: i64 = 0;
 
-/// Per-session frame cap before the oldest are elided from the wake input.
+/// Per-session line cap before the oldest are elided from the wake input.
+///
+/// It counted raw frames while the Observer buffered payloads; it counts
+/// digest lines now, which is a much longer stretch of work for the same
+/// number. Left at 256 rather than retuned — retuning is measured against
+/// `overview_replay`, not guessed here.
 pub const DEFAULT_BUFFER_MAX_FRAMES: usize = 256;
 
-/// Byte ceiling on one wake's buffered frames, alongside the frame cap.
+/// Byte ceiling on one wake's window, alongside the line cap.
 /// Fixed rather than a knob: it exists to bound one turn's input, and the
-/// frame cap is the dial worth turning.
+/// line cap is the dial worth turning.
 pub const BUFFER_MAX_BYTES: usize = 256 * 1024;
 
 /// Starting render window for the card.
@@ -249,8 +271,8 @@ pub fn build_pool(
 /// Two things here are load-bearing downstream and must not drift. The output
 /// is strict JSON with `{"post": null}` as a first-class answer — silence is
 /// the safe failure mode, and a repaired or partial post is worse than none.
-/// And refs must quote their targets **verbatim** from the frames, because a
-/// path or sha the buffered context never contained is validated away Rust-side
+/// And refs must quote their targets **verbatim** from the digest lines,
+/// because a path or sha the window never contained is validated away Rust-side
 /// rather than rendered as a chip that goes nowhere.
 const OBSERVER_POST_INSTRUCTIONS: &str = "\
 You are the Observer for the Overview, a channel that narrates the work happening across a developer's coding sessions. You are shown one session's recent activity and decide whether it is worth posting about, and if so, what to say.
@@ -290,17 +312,34 @@ Report the work; never your view of it. Do not classify what kind of work it was
 
 SETTLED FACTS SINCE YOUR LAST POST: is the durable record of what actually happened — prompts in full, the commands that ran, test verdicts and totals, commits with their SHAs, session lifecycle. It is ground truth, unlike the activity below it, which is whatever the wire happened to carry. Cite a fact's subjects verbatim: a sha, a path, a test count in the facts is exact, and it is the right thing to name. A fact you have already posted about is not news twice — the facts are what settled, not what is new, so a commit you announced last post stays in this section and must not be announced again.
 
+SESSION ACTIVITY SINCE THEN: is one line per event, oldest first — the same lines the session's own card shows: what the human asked, what the assistant said, the tools it ran and what came back. It is the work as it happened, which is why a target you did not see spelled there cannot be linked.
+
 REFS are the clickable provenance on your post. Include one for each file, commit, plan, brief, or session that the post is genuinely about — not everything mentioned. Every ref target MUST be copied EXACTLY as it appears in the activity you were shown: a path spelled differently, or a commit sha you shortened or reconstructed, cannot be linked and will be discarded. If you cannot copy it exactly, leave it out.
 
 Spell a path the way the activity spells it. If the activity says arc/overview-plan.md, the target is arc/overview-plan.md — do not expand it to a full path from the root of the disk, and do not shorten a full path the activity gave you. Copy the characters you were shown. Ref kinds are: session, file, commit, plan, brief.
 
 Answer with JSON and nothing else — no prose before it, no code fence around it.
 
-To post nothing:
-{\"post\": null}
+THE STANDING SENTENCE is the second thing you write, and it is a different job from the post. The post is news — what just happened. The sentence is what this session IS: one line under its name, saying what it is about, weighted toward what it is about NOW. The reader scanning a list of sessions reads it to decide which session this is.
 
-To post:
-{\"post\": {\"body\": \"...\", \"refs\": [{\"kind\": \"commit\", \"target\": \"a1b2c3d4\"}]}}
+Write it from the same material you just read — the newest ask is the subject; earlier work earns a place only if the line has room after it. Its rules:
+
+START WITH A VERB, in the plain command form: Rework, Repair, Trace, Port, Audit, Extend. Not \"Fixing\", not \"Working on\".
+NAME THE WORK AND ITS OBJECT: what is being done, and to what. One subject and one object, with at most one earlier item riding after it — never a list of surfaces or steps.
+BE BRIEF. ROOM FOR ABOUT 65 CHARACTERS, and shorter is better — a line that runs long is cut off on every surface that shows it.
+SENTENCE CASE, with proper names keeping their capitals. Articles and conjunctions are welcome; this is the one line that reads as English.
+No period at the end, no quotes, no leading article, and never an opener about the act of working — no \"Working on\", no \"Currently\", no \"It looks like\".
+Never name a tool, and never write a path.
+
+If the sentence already standing is still right, answer null for it. A stale sentence is worse than a repeated one, but a sentence rewritten every minute reads as noise: change it when the work it names has changed.
+
+The two answers are independent. Post and leave the sentence alone, revise the sentence and post nothing, do both, or do neither.
+
+To say nothing at all:
+{\"post\": null, \"synopsis\": null}
+
+To post and revise the sentence:
+{\"post\": {\"body\": \"...\", \"refs\": [{\"kind\": \"commit\", \"target\": \"a1b2c3d4\"}]}, \"synopsis\": \"Rework how a session names itself\"}
 
 An empty refs list is fine. Answer only from the material below.";
 
@@ -445,7 +484,7 @@ mod tests {
         // Silence is a first-class output, and the parser accepts exactly this
         // shape — a model that was never told so would answer prose.
         let observer = job("observer-post").instructions;
-        assert!(observer.contains(r#"{"post": null}"#));
+        assert!(observer.contains(r#"{"post": null, "synopsis": null}"#));
         assert!(observer.contains(r#""refs""#));
         // …but bounded to the two cases it is for. An open-ended "posting
         // nothing is often right" let the model treat a finished turn whose
@@ -455,6 +494,16 @@ mod tests {
         assert!(observer.contains("Silence is a real answer, and it has exactly two uses"));
         assert!(observer.contains("Outside those two cases, POST."));
         assert!(observer.contains("ALWAYS summarize what the turn did"));
+        // The standing sentence's own contract, absorbed here when one ask
+        // started writing both. `synopsis_register_report` enforces the
+        // mechanical half of it Rust-side; these are the rules only the
+        // wording can carry.
+        assert!(observer.contains(r#""synopsis""#));
+        assert!(observer.contains("START WITH A VERB"));
+        assert!(observer.contains("NAME THE WORK AND ITS OBJECT"));
+        assert!(observer.contains("SENTENCE CASE"));
+        assert!(observer.contains("No period at the end"));
+        assert!(observer.contains("The two answers are independent."));
         assert!(
             !observer.contains("often the right one"),
             "the open-ended silence license is what made a finished turn go unreported",
@@ -723,7 +772,7 @@ mod tests {
     /// nothing to point at.
     #[test]
     fn cadence_defaults_are_the_tuned_starting_values() {
-        assert_eq!(DEFAULT_SITREP_SECS, 90);
+        assert_eq!(DEFAULT_SITREP_SECS, 60);
         assert_eq!(DEFAULT_LAST_K_POSTS, 5);
         assert_eq!(DEFAULT_TOKEN_WAKE_TOKENS, 0, "threshold wake is opt-in");
         assert_eq!(

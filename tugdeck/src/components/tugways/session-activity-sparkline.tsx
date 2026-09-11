@@ -105,7 +105,7 @@ export function SessionActivitySparkline({
       // a test or a stylesheet names to reach THIS instrument rather than
       // walking the structure around it. The Cards card's `.sessions-monitor-spark`
       // used to be that handle and went with the Cards card-only copy of the tape; a
-      // selector that has to spell out `.tug-pulse-trailing .tug-sparkline`
+      // selector that has to spell out `.tug-activity-line-trailing .tug-sparkline`
       // instead is naming three components to find one.
       className={
         className !== undefined

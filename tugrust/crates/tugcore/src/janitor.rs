@@ -1315,11 +1315,11 @@ mod tests {
             "/bin/sh -c 'cargo build -p tugcode'",
             "/Users/x/.claude/local/node --output-format stream-json",
             "rg --files-with-matches stream-json /Users/x/.claude",
-            // Not hypothetical: tugpulse takes transcript text as an
-            // argument, so a live one on this machine had "tugcode" in
-            // its command line purely because a session had discussed
-            // tugcode. Reparent it and the old matcher killed it.
-            "/Applications/Tug.app/Contents/MacOS/tugpulse --seed [\"why 405 tugcode DBs accumulated\"]",
+            // Not hypothetical: a process can carry "tugcode" in its
+            // command line purely because a session's text ended up in
+            // one of its arguments. Reparent it and the old matcher
+            // killed it.
+            "/opt/homebrew/bin/nvim /tmp/why-405-tugcode-dbs-accumulated.md",
         ] {
             assert!(
                 !is_reparented_orphan(&row(42, 1, 3600, command), floor),

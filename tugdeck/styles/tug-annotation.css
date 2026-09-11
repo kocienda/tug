@@ -70,7 +70,7 @@
        so they are what shows.
      - `code` — a whole inline `<code>` span the annotator classified.
      - `.tug-atom-ref-label` — the read-only atom skin's name, whether the
-       skin stamped its own contract (a tool-call header, a pulse beat) or
+       skin stamped its own contract (a tool-call header, a beat line) or
        sits inside a wrapper that stamped one (the Overview's trailing refs
        row). The rule lands on the LABEL rather than on the skin because
        the skin also holds a leading glyph, and a decoration set on the

@@ -60,7 +60,7 @@ impl FeedId {
     /// reserved — never reuse 0x23 for another feed.
     pub const CHANGESET: Self = Self(0x23);
     /// Account-global aggregate changeset snapshot — every open project in
-    /// one frame, delivered process-level like USAGE/PULSE (tugcast → tugdeck)
+    /// one frame, delivered process-level like USAGE/DIGEST (tugcast → tugdeck)
     pub const CHANGESET_ALL: Self = Self(0x24);
     /// Git log response — single-shot per request (tugcast → tugdeck)
     pub const GIT_LOG: Self = Self(0x25);
@@ -162,9 +162,9 @@ impl FeedId {
     /// `SHELL_OUTPUT`/`SHELL_INPUT` and `USAGE`/`USAGE_QUERY` pairs.
     pub const OVERVIEW_INPUT: Self = Self(0x71);
 
-    // -- Pulse (app-wide color commentary) --
-    /// Commentator lines (tugcast → tugdeck)
-    pub const PULSE: Self = Self(0x80);
+    // -- Digest (the per-session beat) --
+    /// Digest lines — what a session is doing now (tugcast → tugdeck)
+    pub const DIGEST: Self = Self(0x80);
 
     // -- Usage (subscription usage panel) --
     /// Usage panel response (tugcast → tugdeck), a single-shot `UsageSnapshot`
@@ -218,7 +218,7 @@ impl FeedId {
             Self::DEFAULTS => Some("Defaults"),
             Self::SESSION_SIDEBAND => Some("SessionSideband"),
             Self::SESSION_STATE => Some("SessionState"),
-            Self::PULSE => Some("Pulse"),
+            Self::DIGEST => Some("Digest"),
             Self::USAGE => Some("Usage"),
             Self::USAGE_QUERY => Some("UsageQuery"),
             Self::JOTS => Some("Jots"),

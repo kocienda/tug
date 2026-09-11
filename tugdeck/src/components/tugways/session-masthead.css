@@ -8,7 +8,7 @@
  * | Element                                       | Surface                          | Role          | Context                                                      |
  * |-----------------------------------------------|----------------------------------|---------------|--------------------------------------------------------------|
  * | --tugx-pane-title-fg-active                   | --tugx-pane-title-bar-bg-active  | display       | .session-masthead-title; the description, activity, and tape |
- * | --tug7-element-global-text-normal-muted-rest  | --tug7-surface-popover-primary-normal-default-rest | informational | .session-pulse-history-intent, inside the pulse popover      |
+ * | --tug7-element-global-text-normal-muted-rest  | --tug7-surface-popover-primary-normal-default-rest | informational | .session-beat-history-intent, inside the beat-history popover      |
  */
 
 /**
@@ -21,7 +21,7 @@
  * `tug-session-row.css`, because both mount the same row.
  *
  * What is left here is what only a SESSION has: the tape and where it sits, the
- * telemetry widget the title line must clear, the PULSE line's popovers, and
+ * telemetry widget the title line must clear, the beat line's popovers, and
  * the ink the instrument needs against a saturated band.
  */
 
@@ -94,14 +94,6 @@
   color: var(--tugx-pane-title-fg-active);
 }
 
-/* TugPulse is composed through its PUBLISHED knobs — the bar is shortened for
-   the stack and the baseline moves with it. Shrinking one without the other
-   clips descenders, which is exactly why the component publishes both. [L20] */
-.session-masthead-row .tug-pulse {
-  --tugx-pulse-bar-height: 18px;
-  --tugx-pulse-baseline: 13px;
-}
-
 /* ── The tape's INK on the chrome band ──────────────────────────────────
    Ink only. WHERE the tape sits is the row's, derived there from the pair it
    centers on, and this file states no lift of its own: a second offset here
@@ -120,18 +112,18 @@
    both directions, so the light themes' pale lid gets a dark tape from the
    same rule that gives the dark themes a light one. */
 /* @tug-renders-on var(--tugx-pane-title-bar-bg-active) */
-.session-masthead-row .tug-pulse-trailing {
+.session-masthead-row .tug-activity-line-trailing {
   color: var(--tugx-pane-title-fg-active);
 }
 
-/* ── The PULSE line's two controls ──────────────────────────────────────
+/* ── The beat line's two controls ──────────────────────────────────────
    Both are pointer-only chrome affordances: the LINE ITSELF opens the
-   recent-pulses history, the tape opens the expanded Activity card. Neither is
+   beat-history history, the tape opens the expanded Activity card. Neither is
    a card-cycle focus stop — that stop retired with the Z2 strip, because
    chrome is the pane's and a card-cycle stop walking into it would cross an
    ownership boundary.
 
-   The line is the trigger because the `PULSE` pill it used to be is now a
+   The line is the trigger because the retired `PULSE` pill it used to be is now a
    placeholder rather than a permanent label. A whole run of prose is a large
    click target for a popover, so it declares nothing but the pointer.
 
@@ -178,7 +170,7 @@
    Flattened to one inline run: this is a single line, so block wrappers from
    the parse lose their box behavior. */
 
-.session-masthead-pulse-text
+.session-masthead-beat-text
   :is(p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, pre) {
   display: inline;
   margin: 0;
@@ -187,52 +179,52 @@
   font-weight: inherit;
 }
 
-.session-masthead-pulse-text li {
+.session-masthead-beat-text li {
   list-style: none;
 }
 
-.session-masthead-pulse-text code {
+.session-masthead-beat-text code {
   font-family: var(--tug-font-family-mono);
   font-size: 0.95em;
 }
 
 /* Transcript parity inside one line: display math flows inline, media shrinks
    to text height, tables flatten to an inline run. */
-.session-masthead-pulse-text .katex-display {
+.session-masthead-beat-text .katex-display {
   display: inline;
   margin: 0;
 }
 
-.session-masthead-pulse-text .katex-display > .katex {
+.session-masthead-beat-text .katex-display > .katex {
   display: inline;
   white-space: nowrap;
 }
 
-.session-masthead-pulse-text :is(img, svg, video) {
+.session-masthead-beat-text :is(img, svg, video) {
   max-height: 1.1em;
   width: auto;
   vertical-align: text-bottom;
 }
 
-.session-masthead-pulse-text :is(table, thead, tbody, tr, th, td) {
+.session-masthead-beat-text :is(table, thead, tbody, tr, th, td) {
   display: inline;
   padding: 0;
   border: none;
 }
 
 /* Clamp KaTeX's 1.21em default so a fraction stack fits the fixed box. */
-.session-masthead-pulse-text .katex {
+.session-masthead-beat-text .katex {
   font-size: 1.05em;
 }
 
-/* ── PULSE legend popover: recent pulses, grouped by intent ─────────────
+/* ── Beat-history popover: recent beats, grouped by intent ─────────────
    Composed on TugPopupListFrame (kind="item") — the titled surface the Z2
-   status popups share, so the recent-pulses list reads as one of that family.
+   status popups share, so the beat-history list reads as one of that family.
    The frame owns width, padding, titlebar chrome, and the scroll cap; these
    rules add only the intent-group vocabulary. */
 
 /* Space between two intent groups so a new goal reads as a fresh section. */
-.session-pulse-history-group + .session-pulse-history-group {
+.session-beat-history-group + .session-beat-history-group {
   margin-block-start: var(--tug-space-sm);
 }
 
@@ -240,7 +232,7 @@
    drops the frame's mono body face for the ambient sans and wraps rather than
    ellipsizing; muted so the beats beneath read as the primary data. */
 /* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
-.session-pulse-history-intent {
+.session-beat-history-intent {
   font-family: var(--tug-font-family-sans);
   font-size: 0.6875rem;
   line-height: 1.35;
@@ -251,18 +243,18 @@
 /* Flatten the goal's markdown so the heading stays calm (no bold/mono
    shouting over the muted context tone), and collapse block wrappers to one
    inline run so it wraps as plain prose. */
-.session-pulse-history-intent :is(p, ul, ol, li, blockquote) {
+.session-beat-history-intent :is(p, ul, ol, li, blockquote) {
   display: inline;
   margin: 0;
   padding: 0;
 }
 
-.session-pulse-history-intent :is(strong, b, em, i) {
+.session-beat-history-intent :is(strong, b, em, i) {
   font-weight: inherit;
   font-style: inherit;
 }
 
-.session-pulse-history-intent code {
+.session-beat-history-intent code {
   font-family: inherit;
   font-size: inherit;
   background: none;
@@ -271,7 +263,7 @@
 
 /* Beat rows flatten their rendered markdown to one inline run so the
    item-primary's single-line ellipsis holds. */
-.session-pulse-history-beat
+.session-beat-history-beat
   :is(p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, pre) {
   display: inline;
   margin: 0;
@@ -280,7 +272,7 @@
   font-weight: inherit;
 }
 
-.session-pulse-history-beat li {
+.session-beat-history-beat li {
   list-style: none;
 }
 
@@ -295,7 +287,7 @@
    disabled one. */
 
 /* ── The telemetry panel ────────────────────────────────────────────────
-   Composed on the same `TugPopupListFrame` the recent-pulses history uses, so
+   Composed on the same `TugPopupListFrame` the beat-history history uses, so
    the masthead's two popovers read as one family. The frame owns the titlebar
    and the padding; this sets the width and the rows inside it. */
 
@@ -444,10 +436,7 @@
    against `clientWidth`, and a run set to wrap never exceeds its width, so
    `data-truncated` is deleted on the resize this form arrives with and the
    clipped reading stays out of the DOM ([R04]). */
-.tug-pane[data-folded="true"] .session-masthead-row .tug-pulse-activity {
-  /* The run has to be able to TAKE the width before it can wrap into it: at
-     rest it is `flex: 0 1 auto` beside a headline that holds 60%. */
-  flex: 1 1 auto;
+.tug-pane[data-folded="true"] .session-masthead-row .tug-activity-line-activity {
   min-inline-size: 0;
   white-space: normal;
   display: -webkit-box;
@@ -455,22 +444,7 @@
   -webkit-line-clamp: 2;
   overflow: hidden;
   min-height: calc(
-    2 * var(--tugx-pulse-activity-size) * var(--tug-line-height-tight)
-  );
-}
-
-/* The bar is an INLINE pulse — one fixed-height band, `overflow: hidden` —
-   so a run that grew to two lines inside it would simply be cut. The band
-   grows by exactly the term the tier grew by, which is what keeps the second
-   line inside the chrome that was widened for it.
-
-   The tape needs nothing: `.tug-pulse-trailing` is `align-self: center`, so
-   it re-centres on the taller band by layout. (`--tugx-pulse-stacked-
-   trailing-rise` is the STACKED layout's knob and is inert on this mount —
-   the masthead's pulse is the bar.) */
-.tug-pane[data-folded="true"] .session-masthead-row .tug-pulse {
-  --tugx-pulse-bar-height: calc(
-    18px + var(--tugx-masthead-beat-extra-line)
+    2 * var(--tugx-activity-line-activity-size) * var(--tug-line-height-tight)
   );
 }
 

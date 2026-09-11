@@ -1,10 +1,10 @@
 /**
- * at0498-masthead-pulse-file-open.test.ts — the pulse line's file reference
+ * at0498-masthead-beat-file-open.test.ts — the beat line's file reference
  * opens the file, on the line and in its history.
  *
  * A file-tool beat wears its target as a file reference — glyph, basename,
  * underline, the full path on hover — in the masthead's activity line and in
- * the recent-pulses popover that line opens. Both wore the affordance and
+ * the beat-history popover that line opens. Both wore the affordance and
  * neither honoured it: the delegated layer that services an annotation was
  * mounted on the transcript root and on the Overview's scroller, and chrome is
  * neither. An underline that opens nothing is a lie the reader can only find
@@ -20,13 +20,13 @@
  *     is portalled out of the masthead's tree, so it carries the layer of its
  *     own, and a beat that has scrolled off the line is still actionable.
  *
- * No live commentator: the beats arrive through `publishPulseFrame`, which
+ * No live commentator: the beats arrive through `publishDigestFrame`, which
  * runs the production parser and fold over bytes the wire would have carried.
  *
  * @covers tugdeck/src/components/tugways/use-annotation-clicks.ts
- * @covers tugdeck/src/components/tugways/pulse-beat-text.tsx
+ * @covers tugdeck/src/components/tugways/beat-text.tsx
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
- * @covers tugdeck/src/lib/pulse-line/beat-file-target.ts
+ * @covers tugdeck/src/lib/beat-line/beat-file-target.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -46,9 +46,9 @@ const CARD = '[data-card-id="A"]';
 const PANE = '.tug-pane[data-pane-id="p1"]';
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 const STAGE = `${MASTHEAD} .session-masthead-stage`;
-const LINE_REF = `${MASTHEAD} [data-slot="pulse-beat-text"] .tug-atom-ref`;
-const HISTORY = '[data-slot="session-pulse-history"]';
-const HISTORY_REF = `${HISTORY} [data-slot="pulse-beat-text"] .tug-atom-ref`;
+const LINE_REF = `${MASTHEAD} [data-slot="beat-text"] .tug-atom-ref`;
+const HISTORY = '[data-slot="session-beat-history"]';
+const HISTORY_REF = `${HISTORY} [data-slot="beat-text"] .tug-atom-ref`;
 const TEXT_CARD = '[data-slot="tug-text-card-editor"] .cm-content';
 
 const OLDER_NAME = "older.md";
@@ -94,10 +94,10 @@ function deckShape() {
   };
 }
 
-/** One PULSE frame body, scoped to this session, as the emitter writes it. */
-function pulseFrame(text: string, beat: number): string {
+/** One DIGEST frame body, scoped to this session, as the emitter writes it. */
+function digestFrame(text: string, beat: number): string {
   return JSON.stringify({
-    type: "pulse",
+    type: "digest",
     text,
     scopes: [SID],
     beat,
@@ -115,13 +115,13 @@ const countJS = (selector: string) =>
   `document.querySelectorAll(${JSON.stringify(selector)}).length`;
 
 describe.skipIf(!SHOULD_RUN)(
-  "AT0498: a pulse beat's file reference opens the file it names",
+  "AT0498: a beat's file reference opens the file it names",
   () => {
     test(
       "the line's reference opens it without toggling the history; the popover's does too",
       async () => {
         const app = await launchTugApp({
-          testName: "at0498-masthead-pulse-file-open",
+          testName: "at0498-masthead-beat-file-open",
         });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -140,10 +140,10 @@ describe.skipIf(!SHOULD_RUN)(
           // Two file beats, oldest first: the newer one is what the line
           // reads, the older one survives only in the history.
           await app.evalJS<boolean>(
-            `window.__tug.publishPulseFrame(${JSON.stringify(pulseFrame(`Reading ${olderPath}`, 1))})`,
+            `window.__tug.publishDigestFrame(${JSON.stringify(digestFrame(`Reading ${olderPath}`, 1))})`,
           );
           await app.evalJS<boolean>(
-            `window.__tug.publishPulseFrame(${JSON.stringify(pulseFrame(`Writing ${newerPath} — 264 lines`, 2))})`,
+            `window.__tug.publishDigestFrame(${JSON.stringify(digestFrame(`Writing ${newerPath} — 264 lines`, 2))})`,
           );
 
           // 1. The line's beat is a real annotation, not a picture of one.

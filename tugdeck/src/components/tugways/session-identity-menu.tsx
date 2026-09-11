@@ -6,7 +6,7 @@
  * through three unrelated claimants over two dead zones. The title span claimed
  * a single-item Copy that wrote the atom; the title's `TugLabel` claimed the
  * blank space beside it with the generic label menu, which copied the name; the
- * pulse stage claimed the activity line with a Copy of the beat. The
+ * beat stage claimed the activity line with a Copy of the beat. The
  * description line and the row's own background claimed nothing at all and fell
  * through to the app's "No Actions" fallback — and the description is the run a
  * reader is most likely to want out of the row, because it is the only one they

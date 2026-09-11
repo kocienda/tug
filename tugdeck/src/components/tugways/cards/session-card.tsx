@@ -348,17 +348,17 @@ const SESSION_PROMPT_PLACEHOLDER = "Ask Tug to build, fix, or explain";
 const SESSION_CYCLE_GROUP = "session-prompt-cycle";
 // Cycle order ([P10], revised): the cycle reads the card bottom toolbar
 // left→right, then up to the find bar (while it is open), the status cells and
-// the PULSE strip, then into the editor and its compose-phase attachment tiles,
+// the beat strip, then into the editor and its compose-phase attachment tiles,
 // and **seeds at the Fold button** (order −1). Forward Tab: Fold →
 // route → Claude Code → Session → Project → Cwd/Changes → AI settings →
 // submit → find query → find options → find previous → find next → STATE →
-// TIME → TOKENS → CONTEXT → WORK → PULSE → editor → attachment-1 …
+// TIME → TOKENS → CONTEXT → WORK → BEAT → editor → attachment-1 …
 // attachment-N → wrap; Shift+Tab reverses.
 // Every Z4B chip (the route indicator, Session / Project badges, and the
-// Mode / Model / Effort pickers), the five Z2 status cells, and the PULSE
+// Mode / Model / Effort pickers), the five Z2 status cells, and the BEAT
 // label are independent leaf stops (no arrow-roving); the editor is a text
 // stop (Return resumes typing); each Z4C attachment tile is a leaf stop
-// (Return / Space opens its preview). PULSE exists only while the strip is
+// (Return / Space opens its preview). BEAT exists only while the line is
 // shown (status bar present AND the `pulse/enabled` default on); attachment
 // stops exist only while the editor holds image atoms — when neither is
 // present the walk runs … WORK → editor → wrap. A disabled stop (the empty
@@ -403,8 +403,8 @@ const SESSION_CYCLE_FIND_STOP_COUNT = 4;
 // The fold control, seated at the TRAILING edge of Z2 in BOTH forms
 // ([B03]–[B06]). It takes 18 — one past the Z2 cells at 13…17 — because that
 // is where it stands on screen: the walk reads the row left to right, and the
-// control is the last thing in it. 18 was free: it was the PULSE label's stop
-// before the PULSE moved to the masthead. This control is present in both
+// control is the last thing in it. 18 was free: it was the beat label's stop
+// before the beat moved to the masthead. This control is present in both
 // forms, so it needs an order of its own.
 //
 // Folded it is the card's Return-home and the one live stop that is not a
@@ -3221,11 +3221,11 @@ export function SessionCardBody({
   // (route → Claude Code → AI settings → submit), the Z2 status cells, and (while
   // composing with attachments) the Z4C tiles — with a vertical seam cycle
   // between the rows. The editor's text stop takes a row of its own between
-  // PULSE and the attachments, which is where it sits on screen: a focused
+  // the BEAT stop and the attachments, which is where it sits on screen: a focused
   // editor no longer keeps its caret arrows unconditionally (its boundary latch
   // hands the second discrete edge press out), so the stop is a legitimate
   // arrow destination and an arrow crossing the composer has somewhere real to
-  // land instead of jumping from PULSE straight to the tiles.
+  // land instead of jumping from BEAT straight to the tiles.
   // The chips disable on the Shell route; the navigator skips a disabled ring
   // target onto the next live stop, so this grid needs no per-route membership.
   // The attachment row is sized to the live tile count (an empty row is dropped
@@ -5442,7 +5442,7 @@ export function SessionCardBody({
               ([P17]) descending over it from the top — modal over the
               transcript region only, while the prompt entry stays live
               beneath the shade's bottom edge. The find overlay, Z2 status
-              bar, and PULSE strip stay OUTSIDE the slot — Find is a
+              bar, and beat strip stay OUTSIDE the slot — Find is a
               target-route over the transcript. The Changes shade's wrapper
               is a sibling of all three, at the end of the top column: it
               rises from the top of the prompt entry, over them.

@@ -35,7 +35,7 @@
  *      diet), and there is no BTW cell (the Z2 diet). Every Z4B chip and Z2 status cell
  *      is its own leaf stop ([P10] revised — no arrow-roving): Tab steps
  *      stop-to-stop and each wears the blue leaf ring in turn. The JOBS cell
- *      is the last leaf before the editor (the PULSE label retired with the Z2
+ *      is the last leaf before the editor (the beat label retired with the Z2
  *      strip; the voice lives in the pane masthead, which takes no card-cycle
  *      stop). The editor is the last stop — a text
  *      stop: the input area takes the border while the editor stays blurred (no
@@ -315,7 +315,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("Tab");
         // fold → editor. JOBS is the row's last cell: the BTW cell went away
         // with the Z2 diet, and `/btw` reaches its placard by being asked rather
-        // than by a stop. The PULSE stop went with the strip — the voice moved
+        // than by a stop. The BEAT stop went with the strip — the voice moved
         // to the masthead, which is pane chrome and takes no card-cycle stop.
         // Arriving by engine movement PARKS the stop ([P12]): the ring lands on
         // the editor's stop and the caret does not.
@@ -694,7 +694,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         expect(await app.evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
 
         // There is no second stop to check the toggle against any more: the
-        // PULSE label was the other one, and it retired with the Z2 strip when
+        // BEAT label was the other one, and it retired with the Z2 strip when
         // the voice moved into the pane's masthead. The label is still a
         // popover trigger there, but as pointer-only chrome — a card-cycle
         // stop that walked out of the card and into its chrome would cross an

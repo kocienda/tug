@@ -1,5 +1,5 @@
 /**
- * render-pulse-line — THE renderer for one-line pulse strings: mixed
+ * render-beat-line — THE renderer for one-line beat strings: mixed
  * partial markdown + TeX, possibly torn mid-stream, rendered with
  * transcript-grade fidelity and a total-function guarantee.
  *
@@ -40,7 +40,7 @@
  * `pending !== null` with escaped-source math; the caller re-invokes
  * when the promise resolves and every later call is synchronous.
  *
- * @module lib/pulse-line/render-pulse-line
+ * @module lib/beat-line/render-beat-line
  */
 
 import { findInlineMathRanges } from "@/lib/markdown/block-transformers/inline-math-walker";
@@ -52,7 +52,7 @@ import {
 } from "@/lib/lazy/load-katex";
 
 /** One rendered line. `html: ""` ⇒ render the source as plain text. */
-export interface PulseLineRender {
+export interface BeatLineRender {
   html: string;
   /** Non-null while KaTeX is still loading — re-render on resolution. */
   pending: Promise<void> | null;
@@ -76,7 +76,7 @@ export function escapeHtml(text: string): string {
 /** Render one TeX source through the engine; never throws. */
 function mathHtml(engine: KaTeXEngine | null, source: string): string {
   if (engine === null) {
-    return `<span class="session-pulse-math-pending">${escapeHtml(source)}</span>`;
+    return `<span class="session-beat-math-pending">${escapeHtml(source)}</span>`;
   }
   try {
     // Inline mode always: the strip is one line; display math in
@@ -86,16 +86,16 @@ function mathHtml(engine: KaTeXEngine | null, source: string): string {
       throwOnError: false,
     });
   } catch {
-    return `<span class="session-pulse-math-error">${escapeHtml(source)}</span>`;
+    return `<span class="session-beat-math-error">${escapeHtml(source)}</span>`;
   }
 }
 
 /**
- * Render a one-line pulse string to sanitized inline HTML. Total: any
+ * Render a one-line beat string to sanitized inline HTML. Total: any
  * internal failure returns `{ html: "", pending: null }` and the
  * caller shows plain text.
  */
-export function renderPulseLine(text: string): PulseLineRender {
+export function renderBeatLine(text: string): BeatLineRender {
   try {
     return renderInner(text);
   } catch {
@@ -103,7 +103,7 @@ export function renderPulseLine(text: string): PulseLineRender {
   }
 }
 
-function renderInner(text: string): PulseLineRender {
+function renderInner(text: string): BeatLineRender {
   if (text.trim().length === 0) return { html: "", pending: null };
 
   const ranges = findInlineMathRanges(text);

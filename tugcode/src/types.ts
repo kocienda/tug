@@ -177,7 +177,8 @@ export interface ToolResult {
  *
  * Display-only telemetry: the authoritative tool input still arrives on the
  * terminal `tool_use` frame. The deck's transcript reducer drops this type
- * (not in `KNOWN_CODE_OUTPUT_TYPES`); the pulse daemon is the consumer.
+ * (not in `KNOWN_CODE_OUTPUT_TYPES`); tugcast's session digester
+ * (`feeds/session_digest.rs`) is the consumer.
  */
 export interface ToolInputProgress {
   type: "tool_input_progress";

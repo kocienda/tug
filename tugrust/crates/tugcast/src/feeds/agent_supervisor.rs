@@ -441,7 +441,7 @@ pub struct LedgerEntry {
     /// `user_message` intercept (and the merger's `wake_started` marker),
     /// cleared when the merger sees `turn_complete` / `turn_cancelled` or
     /// the relay tears the child down. The activity sampler attributes OS
-    /// work only while this is set: Pulse measures the session *working*,
+    /// work only while this is set: The beat measures the session *working*,
     /// not the idle claude process's event-loop heartbeat.
     pub turn_active: bool,
     /// How many turns the claude session named by `claude_session_id` has
@@ -1860,6 +1860,13 @@ pub struct AgentSupervisor {
     /// don't exercise refs restore — the read yields a null run. Set via
     /// [`AgentSupervisor::set_refs_ledger`] in `main.rs`.
     pub refs_ledger: Option<Arc<crate::refs_ledger::RefsLedger>>,
+    /// The one digester, read by the `list_digest_lines` CONTROL op — the
+    /// deck's mount-time tail. Shared with the digest bridge, which is its
+    /// only writer. `None` in tests that don't exercise the read (and before
+    /// `main.rs` wires it), which answers with an empty array — the "no
+    /// history yet" state, same conduct as the other restore reads. Set via
+    /// [`AgentSupervisor::set_digester`] in `main.rs`.
+    pub digester: Option<crate::feeds::session_digest::SharedDigester>,
     /// The changeset scribe ([P11]/[P21]) — spawner + model resolver behind the
     /// maintained-draft engine. `None` (tests, or a boot without wiring) makes
     /// [`AgentSupervisor::start_draft_engine`] a no-op. Set via
@@ -3984,6 +3991,7 @@ impl AgentSupervisor {
             session_ledger,
             shell_ledger: None,
             refs_ledger: None,
+            digester: None,
             scribe: None,
             spawner_factory,
             merger_register_tx,
@@ -4010,7 +4018,7 @@ impl AgentSupervisor {
     /// turn in flight, with its captured `(pid, start_time)` — the input the
     /// activity sampler ([P10]) needs to root each session's subtree walk
     /// and apply the PID-reuse guard ([P20]). Sessions between spawns (no
-    /// live child) and sessions idle between turns are omitted: Pulse
+    /// live child) and sessions idle between turns are omitted: the beat
     /// attributes the session *working*, so an idle session's gauges decay
     /// to zero instead of reporting the claude process's idle heartbeat.
     pub async fn live_session_processes(&self) -> Vec<LiveSessionProcess> {
@@ -4448,9 +4456,9 @@ impl AgentSupervisor {
                 self.do_list_session_state_changes(parsed).await;
                 Ok(())
             }
-            "list_pulse_lines" => {
+            "list_digest_lines" => {
                 // App-scoped read — no session id, no payload fields.
-                self.do_list_pulse_lines().await;
+                self.do_list_digest_lines().await;
                 Ok(())
             }
             "list_overview_posts" => {
@@ -9650,39 +9658,68 @@ impl AgentSupervisor {
         ));
     }
 
-    /// Handle a `list_pulse_lines` CONTROL request — the deck's
-    /// PULSE-ledger tail read (the pulse-store sends it on mount, then
-    /// stays live off the PULSE feed). App-scoped: no session id.
-    /// Broadcasts `list_pulse_lines_ok { lines: PulseLineRow[] }`,
-    /// oldest-first; a missing ledger yields an empty array (the "no
-    /// history yet" state, same conduct as the state-changes read).
+    /// Handle a `list_digest_lines` CONTROL request — the deck's mount-time
+    /// tail (the digest store sends it once, then stays live off the DIGEST
+    /// feed). App-scoped: no session id. Broadcasts
+    /// `list_digest_lines_ok { lines }`, oldest-first; no digester yields an
+    /// empty array (the "no history yet" state, same conduct as the
+    /// state-changes read).
     ///
-    /// The read is per-scope, not a flat app-wide tail: the deck filters
-    /// what it gets by session, so a flat tail hands one chatty session's
-    /// lines to every card and leaves the quiet ones blank.
-    async fn do_list_pulse_lines(&self) {
-        let lines = self
-            .session_ledger
+    /// **Answered from memory, never from disk.** The digester's per-session
+    /// deque (Spec S03) is the one account of what a session has said, and it
+    /// is already per-scope — which is what the read has to be, because the
+    /// deck filters by session and a flat app-wide tail hands one chatty
+    /// session's lines to every card and leaves the quiet ones blank. The
+    /// rolling ledger table this used to read is gone; nothing survives a
+    /// restart, and nothing should: a beat describes work that is running.
+    async fn do_list_digest_lines(&self) {
+        let lines: Vec<serde_json::Value> = self
+            .digester
             .as_ref()
-            .map(|ledger| {
-                ledger
-                    .list_pulse_lines_per_scope(
-                        crate::feeds::pulse::PULSE_TAIL_LEN,
-                        crate::feeds::pulse::PULSE_LEDGER_CAP,
-                    )
-                    .unwrap_or_else(|err| {
-                        warn!(error = %err, "list_pulse_lines failed");
-                        Vec::new()
-                    })
+            .map(|digester| {
+                let guard = crate::feeds::session_digest::lock_digester(digester);
+                let mut rows: Vec<(u64, serde_json::Value)> = Vec::new();
+                for (scope, state) in guard.scopes() {
+                    for line in state
+                        .digest()
+                        .tail(crate::feeds::digest_bridge::DIGEST_TAIL_LEN)
+                    {
+                        rows.push((
+                            line.beat,
+                            serde_json::json!({
+                                // The beat is the row's identity: monotonic
+                                // within the process and across scopes, which
+                                // is exactly what the retired table's rowid
+                                // was standing in for.
+                                "id": line.beat,
+                                "at_ms": line.at_ms,
+                                "beat": line.beat,
+                                "text": line.text,
+                                // The kind rides the tail exactly as it rides
+                                // the live frame: the masthead's ladder reads
+                                // it to tell an Ask line from a tool line and
+                                // an ended turn from a live one, and a card
+                                // mounting mid-turn reads this rather than the
+                                // feed ([D187]).
+                                "kind": line.kind.as_str(),
+                                "scopes": [scope],
+                            }),
+                        ));
+                    }
+                }
+                // Oldest-first across every scope, which is the order the
+                // deck appends in.
+                rows.sort_by_key(|(beat, _)| *beat);
+                rows.into_iter().map(|(_, row)| row).collect()
             })
             .unwrap_or_default();
         let body = serde_json::json!({
-            "action": "list_pulse_lines_ok",
+            "action": "list_digest_lines_ok",
             "lines": lines,
         });
         let _ = self.control_tx.send(Frame::new(
             FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("list_pulse_lines_ok serializes"),
+            serde_json::to_vec(&body).expect("list_digest_lines_ok serializes"),
         ));
     }
 
@@ -9698,7 +9735,7 @@ impl AgentSupervisor {
     ///
     /// Broadcasts `list_overview_posts_ok { posts, has_more, before_id? }`,
     /// posts oldest-first; a missing ledger yields an empty array — the "no
-    /// history yet" state, same conduct as the pulse read.
+    /// history yet" state, same conduct as the digest read.
     ///
     /// **`before_id` is echoed verbatim, and that echo is load-bearing.** This
     /// response goes out on the CONTROL *broadcast* bus with no request
@@ -9745,6 +9782,12 @@ impl AgentSupervisor {
     /// Called once in `main.rs` before the supervisor is shared.
     pub fn set_refs_ledger(&mut self, ledger: Arc<crate::refs_ledger::RefsLedger>) {
         self.refs_ledger = Some(ledger);
+    }
+
+    /// Attach the shared digester (the read side of the `list_digest_lines`
+    /// CONTROL op). Called once in `main.rs` before the supervisor is shared.
+    pub fn set_digester(&mut self, digester: crate::feeds::session_digest::SharedDigester) {
+        self.digester = Some(digester);
     }
 
     /// Attach the changeset scribe (the maintained-draft engine's backend).
@@ -18188,7 +18231,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_turn_active_gates_the_sampler_snapshot() {
-        // Pins the Pulse work-attribution gate: `live_session_processes`
+        // Pins the beat work-attribution gate: `live_session_processes`
         // reports a session only while a turn is in flight. A closing
         // `turn_complete` through the merger ends attribution (so an idle
         // session's CPU/disk read zero); `wake_started` re-opens it; a
@@ -20720,6 +20763,141 @@ mod tests {
             posts[1]["id"].is_i64(),
             "a persisted post carries its rowid onto the wire",
         );
+    }
+
+    /// The deck's mount-time tail is answered from the digester's deque, not
+    /// from disk: `pulse_lines` is dropped, and a beat describes work that is
+    /// running rather than history worth keeping.
+    #[tokio::test]
+    async fn list_digest_lines_answers_a_per_session_tail_from_memory() {
+        use crate::feeds::session_digest::{SharedDigester, lock_digester};
+
+        let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+        let digester: SharedDigester = Default::default();
+        // Two sessions, one chatty and one quiet — the case a flat app-wide
+        // tail loses, and the reason the read is per-scope.
+        {
+            let mut guard = lock_digester(&digester);
+            guard.on_code_frame(
+                "quiet",
+                &serde_json::json!({
+                    "type": "assistant_text",
+                    "tug_session_id": "quiet",
+                    "msg_id": "q1",
+                    "block_index": 0,
+                    "is_partial": false,
+                    "text": "The one thing the quiet session said.",
+                }),
+                1_000,
+            );
+            for i in 0..40 {
+                guard.on_code_frame(
+                    "chatty",
+                    &serde_json::json!({
+                        "type": "assistant_text",
+                        "tug_session_id": "chatty",
+                        "msg_id": format!("c{i}"),
+                        "block_index": 0,
+                        "is_partial": false,
+                        // A settled sentence: the digester takes the last
+                        // terminated one, so a bare fragment is not a line.
+                        "text": format!("Chatty line {i}."),
+                    }),
+                    2_000 + i,
+                );
+            }
+        }
+
+        let (state_tx, _s) = broadcast::channel(64);
+        let (meta_tx, _m) = broadcast::channel(8);
+        let (code_tx, _c) = broadcast::channel(8);
+        let (control_tx, mut rx) = broadcast::channel(128);
+        let recorder: Arc<dyn SessionsRecorder> = Arc::new(LedgerSessionsRecorder::with_broadcast(
+            Arc::clone(&ledger),
+            control_tx.clone(),
+        ));
+        let (mut sup, mut register_rx) = AgentSupervisor::new_with_ledger(
+            SessionScopedFeed::from_sender(FeedId::SESSION_STATE, state_tx, LagPolicy::Warn),
+            SessionScopedFeed::from_sender(FeedId::SESSION_SIDEBAND, meta_tx, LagPolicy::Warn),
+            SessionScopedFeed::from_sender(FeedId::CODE_OUTPUT, code_tx, LagPolicy::Warn),
+            SessionScopedFeed::new(FeedId::ACTIVITY, 64, LagPolicy::Warn),
+            control_tx,
+            recorder,
+            Some(Arc::clone(&ledger)),
+            stall_spawner_factory(),
+            AgentSupervisorConfig::default(),
+            Arc::new(WorkspaceRegistry::new_for_test()),
+            CancellationToken::new(),
+        );
+        sup.set_digester(digester);
+        tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+
+        let payload =
+            serde_json::to_vec(&serde_json::json!({ "action": "list_digest_lines" })).unwrap();
+        sup.handle_control("list_digest_lines", &payload, 10)
+            .await
+            .expect_handled();
+
+        let response = drain_until_action(&mut rx, "list_digest_lines_ok");
+        let lines = response["lines"].as_array().expect("lines array");
+
+        // The quiet session's one line is in the answer. A flat tail of the
+        // newest N across the process would have buried it under `chatty`.
+        assert!(
+            lines
+                .iter()
+                .any(|l| l["text"] == "The one thing the quiet session said."
+                    && l["scopes"] == serde_json::json!(["quiet"])),
+            "the quiet session's line is what a per-scope read exists to keep",
+        );
+        // The chatty session is capped at the tail length rather than handing
+        // over its whole deque.
+        let chatty: Vec<&serde_json::Value> = lines
+            .iter()
+            .filter(|l| l["scopes"] == serde_json::json!(["chatty"]))
+            .collect();
+        assert_eq!(chatty.len(), crate::feeds::digest_bridge::DIGEST_TAIL_LEN);
+        assert_eq!(chatty.last().unwrap()["text"], "Chatty line 39.");
+
+        // Oldest-first across every scope, which is the order the deck appends
+        // in — and the beat is the identity the retired rowid was standing for.
+        let beats: Vec<i64> = lines.iter().map(|l| l["beat"].as_i64().unwrap()).collect();
+        let mut sorted = beats.clone();
+        sorted.sort_unstable();
+        assert_eq!(beats, sorted);
+        assert!(lines.iter().all(|l| l["id"] == l["beat"]));
+
+        // Every row carries its kind. The deck's ladders switch on it, and a
+        // card mounting mid-turn reads this door rather than the feed — so a
+        // tail that dropped the field would make every restored line read as a
+        // turn still running ([D187]).
+        assert!(
+            lines.iter().all(|l| l["kind"].is_string()),
+            "the tail carries `kind` on every row, as the live frame does",
+        );
+        assert_eq!(
+            lines
+                .iter()
+                .find(|l| l["text"] == "The one thing the quiet session said.")
+                .unwrap()["kind"],
+            "said",
+        );
+    }
+
+    /// No digester wired is the "no history yet" state, never an error — the
+    /// same conduct every other restore read has.
+    #[tokio::test]
+    async fn list_digest_lines_answers_empty_with_no_digester() {
+        let (sup, _ledger, mut rx) = make_supervisor_with_ledger();
+
+        let payload =
+            serde_json::to_vec(&serde_json::json!({ "action": "list_digest_lines" })).unwrap();
+        sup.handle_control("list_digest_lines", &payload, 10)
+            .await
+            .expect_handled();
+
+        let response = drain_until_action(&mut rx, "list_digest_lines_ok");
+        assert_eq!(response["lines"].as_array().expect("lines array").len(), 0);
     }
 
     /// An unknown session (or one with no exchanges) yields an empty array,

@@ -279,7 +279,7 @@ function resolveSparklineColors(container: HTMLElement | null): SparklineColors 
   };
   if (container === null) return fallback;
   const style = getComputedStyle(container);
-  // Weight knobs a consumer may retune — the Pulse card's rows draw a
+  // Weight knobs a consumer may retune — the activity card's rows draw a
   // brighter line over a quieter fill than the compact strip does. Declared
   // nowhere by default, so an ancestor's override always wins and the
   // fallback lives at point of use.

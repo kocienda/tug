@@ -4,12 +4,19 @@
 //!
 //! Topology:
 //!
-//!   CODE_OUTPUT ──allowlist tap──▶ per-session FrameBuffer ─┐
-//!   CODE_INPUT submissions ──────▶ (same buffers)           ├─ wake ──▶ observer-post
-//!   SESSION_STATE ───────────────▶ session-end wake ────────┘              │
-//!                                                    silence ◀── envelope ─┤
-//!                                                                          ▼
+//!   CODE_OUTPUT ──allowlist tap──┐
+//!   CODE_INPUT submissions ──────┼▶ session_digest ──▶ per-session window ─┐
+//!   SESSION_STATE ───────────────────▶ session-end wake ───────────────────┼─ wake ──▶ observer-post
+//!                                                                          │              │
+//!                                                    silence ◀── envelope ─────────────────┤
+//!                                                                                         ▼
 //!                                              overview_posts row + OVERVIEW broadcast
+//!
+//! The window holds **digest lines** — the one account of a session's work
+//! ([P01]), the same lines the beat shows — rather than the raw payload JSON it
+//! held while there were three accounts. Refs are still validated against the
+//! window's rendered text verbatim, so what the digest never spelled can never
+//! be linked.
 //!
 //! Everything about *what* a wake means lives in [`super::observer_wake`],
 //! which the offline replay harness drives too — that shared core is why the
@@ -45,16 +52,18 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use tugcast_core::{FeedId, Frame, OverviewAuthor, OverviewPost, StreamFeed};
 
+use crate::feeds::draft_engine::SessionResolver;
 use crate::session_ledger::SessionLedger;
 use crate::shared_agent::SharedAgentPool;
 
 use super::observer_wake::{
-    FactLine, FrameBuffer, OBSERVER_PROSE_GRACE, OBSERVER_PROSE_LIMIT, PriorPost, WakeReason,
-    clamp_post_body, compose_observer_input, counts_as_assistant_activity, forwardable_session,
-    parse_envelope, prose_len, render_facts_section, validate_refs,
+    FactLine, OBSERVER_PROSE_GRACE, OBSERVER_PROSE_LIMIT, PriorPost, WakeReason, clamp_post_body,
+    compose_observer_input, counts_as_assistant_activity, parse_envelope, prose_len,
+    render_facts_section, synopsis_register_report, validate_refs,
 };
 use super::overview_agent::DEFAULT_CARD_ROWS;
 use super::payload_inspector::InspectedPayload;
+use super::session_digest::{SessionDigest, SessionDigester, forwardable_session};
 
 /// How many posts the card's CONTROL tail read answers with when it asks for
 /// no particular number. Matches the opening request `card_rows` sizes, so a
@@ -82,7 +91,7 @@ const FACTS_FETCH_LIMIT: usize = 64;
 ///
 /// Every knob is a closure rather than a value: each is read at the moment it
 /// is used, so turning one in tugbank applies to the next wake with no restart
-/// — the `pulse_enabled` posture, and the reason the cadence is tunable
+/// — the `scribe_model` posture, and the reason the cadence is tunable
 /// against lived experience rather than only against replayed transcripts.
 pub struct ObserverBridgeConfig {
     /// The shared CODE_OUTPUT broadcast — subscribed inside the task.
@@ -96,15 +105,38 @@ pub struct ObserverBridgeConfig {
     /// Where posts are persisted and where a wake reads its own prior posts.
     /// Absent in a build with no ledger, which reads as "post nothing".
     pub ledger: Option<Arc<SessionLedger>>,
+    /// The CONTROL broadcast, for the `session_updated` push that carries a
+    /// revised standing sentence to every surface showing that session. Absent
+    /// in tests and in a ledger-less build; the ledger write still lands, and
+    /// the next listing picks it up.
+    pub control_tx: Option<broadcast::Sender<Frame>>,
+    /// Tug session id → the ledger row the session's sentence belongs to.
+    ///
+    /// Rows are keyed by **claude's** session id, which is the tug id for a
+    /// plain fresh spawn and something else after a rewind fork or an id
+    /// rotation. There is deliberately no fallback to the tug id: the resolver
+    /// returns `None` both for a session it has no entry for and for a
+    /// momentarily contended lock, and those two are indistinguishable here.
+    /// Guessing the tug id would, for a fork, name the *parent's* row —
+    /// writing one session's sentence onto another's, which is the
+    /// confidently-wrong outcome [D132] ranks below saying nothing.
+    pub resolver: SessionResolver,
     /// The Overview's Sonnet pool. Absent means no model, and no wake ever runs.
     pub agent: Option<Arc<SharedAgentPool>>,
+    /// The subsystem's one kill switch, `dev.tugapp.overview/enabled`
+    /// ([P10]). Read at every wake, so a flip is live with no restart.
+    ///
+    /// It gates the wakes and nothing else: the digest keeps filling, the beat
+    /// keeps moving, and the masthead's upper line falls through to the turn's
+    /// ask. What it switches off is the only model cost in the subsystem.
+    pub enabled: Arc<dyn Fn() -> bool + Send + Sync>,
     pub sitrep_secs: Arc<dyn Fn() -> i64 + Send + Sync>,
     pub last_k_posts: Arc<dyn Fn() -> usize + Send + Sync>,
     pub token_wake_tokens: Arc<dyn Fn() -> i64 + Send + Sync>,
     pub buffer_max_frames: Arc<dyn Fn() -> usize + Send + Sync>,
 }
 
-/// The OVERVIEW feed. A [`StreamFeed`] like `PulseBridge`: the router creates
+/// The OVERVIEW feed. A [`StreamFeed`] like `DigestBridge`: the router creates
 /// the channel, records the `Warn` lag policy, and spawns the loop.
 pub struct ObserverBridge {
     config: ObserverBridgeConfig,
@@ -142,7 +174,8 @@ impl StreamFeed for ObserverBridge {
 
 /// One session's window between wakes.
 struct SessionWindow {
-    buffer: FrameBuffer,
+    /// The digest lines this session produced since its last wake.
+    buffer: SessionDigest,
     /// When the buffer stopped being empty. The sitrep deadline is measured
     /// from here, so an idle session has no deadline at all rather than one
     /// that fires over nothing.
@@ -163,7 +196,7 @@ struct SessionWindow {
     /// back. `Some` is also what makes a session's wakes serial — a second
     /// wake while one is in flight would race two posts about overlapping work
     /// into the channel in either order.
-    in_flight: Option<FrameBuffer>,
+    in_flight: Option<SessionDigest>,
     /// The facts section the in-flight wake was shown, verbatim — the second
     /// ref-validation corpus ([P10]). Kept beside the window because a sha the
     /// post cites may appear only here: a `commit` fact carries it, while the
@@ -176,7 +209,7 @@ struct SessionWindow {
 impl SessionWindow {
     fn new(max_frames: usize) -> Self {
         Self {
-            buffer: FrameBuffer::new(max_frames, super::overview_agent::BUFFER_MAX_BYTES),
+            buffer: SessionDigest::new(max_frames, super::overview_agent::BUFFER_MAX_BYTES),
             armed_at: None,
             tokens: 0,
             assistant_activity: false,
@@ -208,6 +241,10 @@ async fn observer_bridge_task(
     let (outcome_tx, mut outcome_rx) = mpsc::channel::<WakeOutcome>(16);
 
     let mut sessions: HashMap<String, SessionWindow> = HashMap::new();
+    // The one digester ([P01]). It turns each frame into the line the beat
+    // shows; the windows above are what the Observer keeps of them, which is
+    // why this reads through `line_for_*` and keeps no deque of its own.
+    let mut digester = SessionDigester::new();
     // Sessions inside a replay bracket. Mute state tracks the wire: a
     // session that entered replay does not get that replay narrated.
     let mut muted: HashSet<String> = HashSet::new();
@@ -245,7 +282,7 @@ async fn observer_bridge_task(
                         return;
                     }
                 };
-                handle_code_frame(&config, &mut sessions, &mut muted, &frame, &outcome_tx);
+                handle_code_frame(&config, &mut sessions, &mut digester, &mut muted, &frame, &outcome_tx);
             }
             recv = submission_rx.recv() => {
                 let frame = match recv {
@@ -256,7 +293,7 @@ async fn observer_bridge_task(
                     }
                     Err(broadcast::error::RecvError::Closed) => continue,
                 };
-                handle_submission_frame(&config, &mut sessions, &frame);
+                handle_submission_frame(&config, &mut sessions, &mut digester, &frame);
             }
             recv = state_rx.recv() => {
                 let frame = match recv {
@@ -305,6 +342,7 @@ async fn sleep_until_opt(deadline: Option<Instant>) {
 fn handle_code_frame(
     config: &ObserverBridgeConfig,
     sessions: &mut HashMap<String, SessionWindow>,
+    digester: &mut SessionDigester,
     muted: &mut HashSet<String>,
     frame: &Frame,
     outcome_tx: &mpsc::Sender<WakeOutcome>,
@@ -325,14 +363,30 @@ fn handle_code_frame(
         .and_then(|p| p.msg_type)
         .unwrap_or_default();
     let turn_ended = matches!(msg_type.as_str(), "turn_complete" | "turn_cancelled");
+    // One frame, one line — or none: several allowlisted types the daemon
+    // never narrated produce nothing, and a window is the lines rather than
+    // the frames.
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&frame.payload) else {
+        return;
+    };
+    let digested = digester.line_for_code_frame(&session_id, &value, now_ms() as u64);
 
     let threshold = (config.token_wake_tokens)();
     let (assistant_activity, tokens) = {
         let window = window_for(config, sessions, &session_id);
+        // The predicate reads the FRAME's type rather than the line's kind:
+        // an `error` or a `task_started` produces no line at all, and a turn
+        // whose only content was one of those still held work. The wake count
+        // is the one number the replay harness reports, so it is the one thing
+        // this port must not move.
         if counts_as_assistant_activity(&msg_type) {
             window.assistant_activity = true;
         }
-        push(window, &String::from_utf8_lossy(&frame.payload));
+        if let Some(digested) = digested
+            && digested.record
+        {
+            push(window, digested.line);
+        }
         (window.assistant_activity, window.tokens)
     };
 
@@ -370,19 +424,19 @@ fn handle_code_frame(
 fn handle_submission_frame(
     config: &ObserverBridgeConfig,
     sessions: &mut HashMap<String, SessionWindow>,
+    digester: &mut SessionDigester,
     frame: &Frame,
 ) {
-    let Some(inspected) = InspectedPayload::from_slice(&frame.payload) else {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&frame.payload) else {
         return;
     };
-    if inspected.msg_type.as_deref() != Some("user_message") {
-        return;
-    }
-    let Some(session_id) = inspected.tug_session_id else {
+    // The digester reads the type, the session and the prompt's own budget —
+    // `submission_beat` is what says a frame is a `user_message` at all.
+    let Some((session_id, digested)) = digester.line_for_submission(&value, now_ms() as u64) else {
         return;
     };
     let window = window_for(config, sessions, &session_id);
-    push(window, &String::from_utf8_lossy(&frame.payload));
+    push(window, digested.line);
 }
 
 fn window_for<'a>(
@@ -395,13 +449,13 @@ fn window_for<'a>(
         .or_insert_with(|| SessionWindow::new((config.buffer_max_frames)()))
 }
 
-/// Append one frame and arm the session's sitrep if this is what ended its
+/// Append one line and arm the session's sitrep if this is what ended its
 /// idleness.
-fn push(window: &mut SessionWindow, payload: &str) {
+fn push(window: &mut SessionWindow, line: crate::feeds::session_digest::DigestLine) {
     if window.buffer.is_empty() {
         window.armed_at = Some(Instant::now());
     }
-    window.buffer.push(payload);
+    window.buffer.push(line);
 }
 
 /// The session id on a SESSION_STATE frame that reports an ended session.
@@ -464,6 +518,13 @@ fn wake(
     let Some(agent) = config.agent.clone() else {
         return;
     };
+    // The kill switch, read beside the privacy flag and for the same reason:
+    // once per wake, on the wake path, never on the frame path. A wake that
+    // does not run leaves the window standing, so flipping the switch back on
+    // resumes from the work that accumulated rather than from nothing.
+    if !(config.enabled)() {
+        return;
+    }
     let Some(window) = sessions.get_mut(session_id) else {
         return;
     };
@@ -627,6 +688,12 @@ fn settle(
         );
         return;
     };
+    // The standing sentence, written independently of the post ([P08]). A
+    // wake may revise the sentence and post nothing, post and leave the
+    // sentence alone, do both, or do neither — so this runs before the post
+    // branch's early return, not after it.
+    write_synopsis(config, &session_id, envelope.synopsis.as_deref());
+
     let Some(post) = envelope.post else {
         debug!(
             session_id,
@@ -713,6 +780,62 @@ fn settle(
     }
 }
 
+/// Write the wake's standing sentence, or leave the one that stands alone.
+///
+/// Silence is the safe failure mode here exactly as it is for the post, and
+/// there are four ways to take it ([P08]): the model answered `null`, the
+/// answer normalized to nothing under the register, the session's row cannot
+/// be identified, or the row already says this. A sentence that blanks on a
+/// bad turn is worse than one that is a minute stale, so nothing on this path
+/// ever clears `sessions.synopsis` — it only ever replaces it with words
+/// somebody wrote.
+fn write_synopsis(config: &ObserverBridgeConfig, session_id: &str, raw: Option<&str>) {
+    let Some(raw) = raw else {
+        return;
+    };
+    let Some(ledger) = config.ledger.as_ref() else {
+        return;
+    };
+    let report = synopsis_register_report(raw);
+    if report.text.is_empty() {
+        debug!(
+            session_id,
+            raw, "overview observer: synopsis normalized to nothing; the sentence stands"
+        );
+        return;
+    }
+    // See `ObserverBridgeConfig::resolver`: no fallback to the tug id.
+    let Some(row_id) = (config.resolver)(session_id) else {
+        return;
+    };
+    match ledger.record_synopsis(&row_id, &report.text) {
+        Ok(true) => {
+            info!(
+                session_id,
+                row = %row_id,
+                synopsis = %report.text,
+                normalized = report.normalized,
+                clipped = report.clipped,
+                "overview observer: standing sentence written",
+            );
+            if let (Some(tx), Ok(Some(row))) = (config.control_tx.as_ref(), ledger.get(&row_id)) {
+                // Every push carries the scan pair, this one included — see
+                // `build_session_updated_frame`, and the usage beside it.
+                let metrics = ledger.scan_metrics_for(&row_id).unwrap_or(None);
+                let usage = ledger.usage_for(&row_id).unwrap_or(None);
+                let _ = tx.send(crate::feeds::agent_supervisor::build_session_updated_frame(
+                    &row, metrics, usage,
+                ));
+            }
+        }
+        // The row already says exactly this.
+        Ok(false) => {}
+        Err(error) => {
+            warn!(%error, session_id, "overview observer: synopsis write failed");
+        }
+    }
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -726,7 +849,7 @@ mod tests {
     use crate::shared_agent::test_support::FakeSpawner;
     use crate::shared_agent::{AgentSpec, AgentWorkerSpawner};
     use std::sync::Mutex;
-    use std::sync::atomic::{AtomicI64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
     /// A pool answering a script, on the real job table so timeouts and
     /// instructions are the shipped ones.
@@ -747,9 +870,12 @@ mod tests {
         submission_tx: broadcast::Sender<Frame>,
         state_tx: broadcast::Sender<Frame>,
         overview_rx: broadcast::Receiver<Frame>,
+        control_rx: broadcast::Receiver<Frame>,
         ledger: Arc<SessionLedger>,
         cancel: CancellationToken,
         sitrep: Arc<AtomicI64>,
+        /// `dev.tugapp.overview/enabled`, as the wake path reads it.
+        enabled: Arc<AtomicBool>,
         /// The tapped channels stay open only while something holds a
         /// receiver; the bridge's own are taken inside its task, so the
         /// harness holds these to keep a send from failing before it starts.
@@ -761,20 +887,47 @@ mod tests {
     }
 
     async fn start(spawner: Arc<dyn AgentWorkerSpawner>, sitrep_secs: i64) -> Harness {
+        start_with(
+            spawner,
+            sitrep_secs,
+            Arc::new(|id: &str| Some(id.to_string())),
+        )
+        .await
+    }
+
+    /// A harness whose resolver never answers — a session the supervisor has
+    /// no entry for, or a contended lock, which are indistinguishable here.
+    async fn start_unresolvable(spawner: Arc<dyn AgentWorkerSpawner>) -> Harness {
+        start_with(spawner, 90, Arc::new(|_| None)).await
+    }
+
+    async fn start_with(
+        spawner: Arc<dyn AgentWorkerSpawner>,
+        sitrep_secs: i64,
+        resolver: SessionResolver,
+    ) -> Harness {
         let (code_tx, keep_code) = broadcast::channel(64);
         let (submission_tx, keep_sub) = broadcast::channel(64);
         let (state_tx, keep_state) = broadcast::channel(64);
         let (overview_tx, overview_rx) = broadcast::channel(64);
+        let (control_tx, control_rx) = broadcast::channel(64);
         let ledger = Arc::new(SessionLedger::open_in_memory().expect("in-memory ledger"));
         let cancel = CancellationToken::new();
         let sitrep = Arc::new(AtomicI64::new(sitrep_secs));
+        let enabled = Arc::new(AtomicBool::new(true));
 
         let bridge = ObserverBridge::new(ObserverBridgeConfig {
             code_tx: code_tx.clone(),
             submission_tx: submission_tx.clone(),
             session_state_tx: state_tx.clone(),
             ledger: Some(Arc::clone(&ledger)),
+            control_tx: Some(control_tx),
+            resolver,
             agent: Some(pool(spawner)),
+            enabled: {
+                let enabled = Arc::clone(&enabled);
+                Arc::new(move || enabled.load(Ordering::SeqCst))
+            },
             sitrep_secs: {
                 let sitrep = Arc::clone(&sitrep);
                 Arc::new(move || sitrep.load(Ordering::SeqCst))
@@ -793,9 +946,11 @@ mod tests {
             submission_tx,
             state_tx,
             overview_rx,
+            control_rx,
             ledger,
             cancel,
             sitrep,
+            enabled,
             _keep: (keep_code, keep_sub, keep_state),
         }
     }
@@ -809,6 +964,24 @@ mod tests {
             "tug_session_id": session,
             "type": "assistant_text",
             "text": text,
+        }))
+    }
+
+    /// A file tool as the wire actually carries it: the streaming progress
+    /// frame is what narrates a Read or a Write, and the settled `tool_use`
+    /// that follows defers to it.
+    fn tool_progress(session: &str, id: &str, tool: &str, file_path: &str) -> Frame {
+        code_frame(serde_json::json!({
+            "tug_session_id": session,
+            "type": "tool_input_progress",
+            "msg_id": "m1",
+            "block_index": 0,
+            "seq": 1,
+            "tool_use_id": id,
+            "tool_name": tool,
+            "bytes": 64,
+            "content_lines": 0,
+            "file_path": file_path,
         }))
     }
 
@@ -844,6 +1017,145 @@ mod tests {
         );
     }
 
+    /// The standing sentence carried by the next `session_updated` push, or
+    /// `None` if none arrives promptly.
+    async fn next_written_synopsis(rx: &mut broadcast::Receiver<Frame>) -> Option<String> {
+        loop {
+            let frame = tokio::time::timeout(Duration::from_millis(800), rx.recv())
+                .await
+                .ok()?
+                .ok()?;
+            let Ok(body) = serde_json::from_slice::<serde_json::Value>(&frame.payload) else {
+                continue;
+            };
+            if body["action"] != "session_updated" {
+                continue;
+            }
+            return body["fields"]["synopsis"].as_str().map(str::to_string);
+        }
+    }
+
+    /// A wake answers with both, and the sentence lands on the session's row
+    /// and on the CONTROL push every surface showing that session reads.
+    #[tokio::test]
+    async fn a_wake_writes_the_standing_sentence_and_pushes_it() {
+        let spawner = FakeSpawner::always(Ok(serde_json::json!({
+            "post": { "body": "Vendored the light faces." },
+            "synopsis": "Rework how a session names itself",
+        })
+        .to_string()));
+        let mut h = start(spawner, 90).await;
+        h.ledger
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+            .expect("spawn");
+
+        h.code_tx
+            .send(assistant_text("s1", "Wiring the bridge into the feed."))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+
+        let post = next_post(&mut h.overview_rx).await;
+        assert_eq!(post.body, "Vendored the light faces.");
+        assert_eq!(
+            h.ledger.get("s1").unwrap().unwrap().synopsis.as_deref(),
+            Some("Rework how a session names itself"),
+        );
+        assert_eq!(
+            next_written_synopsis(&mut h.control_rx).await.as_deref(),
+            Some("Rework how a session names itself"),
+        );
+
+        h.cancel.cancel();
+    }
+
+    /// The sentence and the post are independent answers ([P08]). A wake that
+    /// says nothing worth posting may still revise the sentence.
+    #[tokio::test]
+    async fn a_sentence_lands_even_when_the_wake_posts_nothing() {
+        let spawner = FakeSpawner::always(Ok(serde_json::json!({
+            "post": null,
+            "synopsis": "Chase the wedge in the download resume path",
+        })
+        .to_string()));
+        let mut h = start(spawner, 90).await;
+        h.ledger
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+            .expect("spawn");
+
+        h.code_tx
+            .send(assistant_text("s1", "Reading the resume path first."))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+
+        assert_eq!(
+            next_written_synopsis(&mut h.control_rx).await.as_deref(),
+            Some("Chase the wedge in the download resume path"),
+        );
+        expect_no_post(&mut h.overview_rx).await;
+
+        h.cancel.cancel();
+    }
+
+    /// Every way of saying nothing about the sentence leaves the one that
+    /// stands alone ([P08]). A sentence that blanks on a bad turn is worse
+    /// than one that is a minute stale, so nothing here ever clears the row.
+    #[tokio::test]
+    async fn nothing_usable_leaves_the_standing_sentence_alone() {
+        for answer in [
+            serde_json::json!({ "post": null, "synopsis": null }),
+            // Normalizes to nothing: whitespace, and empty quotes.
+            serde_json::json!({ "post": null, "synopsis": "   " }),
+            serde_json::json!({ "post": null, "synopsis": "\"\"" }),
+        ] {
+            let spawner = FakeSpawner::always(Ok(answer.to_string()));
+            let mut h = start(spawner, 90).await;
+            h.ledger
+                .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+                .expect("spawn");
+            h.ledger
+                .record_synopsis("s1", "Rework how a session names itself")
+                .expect("a sentence already stands");
+
+            h.code_tx
+                .send(assistant_text("s1", "Reading the resume path first."))
+                .unwrap();
+            h.code_tx.send(turn_complete("s1")).unwrap();
+            expect_no_post(&mut h.overview_rx).await;
+
+            assert_eq!(
+                h.ledger.get("s1").unwrap().unwrap().synopsis.as_deref(),
+                Some("Rework how a session names itself"),
+                "answer {answer} moved the sentence",
+            );
+            h.cancel.cancel();
+        }
+    }
+
+    /// A session whose row cannot be identified is not "written and failed",
+    /// it is not written at all — there is no fallback to the tug id, because
+    /// for a fork that would name the parent's row.
+    #[tokio::test]
+    async fn an_unresolvable_session_writes_no_sentence() {
+        let spawner = FakeSpawner::always(Ok(serde_json::json!({
+            "post": null,
+            "synopsis": "Rework how a session names itself",
+        })
+        .to_string()));
+        let mut h = start_unresolvable(spawner).await;
+        h.ledger
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+            .expect("spawn");
+
+        h.code_tx
+            .send(assistant_text("s1", "Reading the resume path first."))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+        expect_no_post(&mut h.overview_rx).await;
+
+        assert!(h.ledger.get("s1").unwrap().unwrap().synopsis.is_none());
+        h.cancel.cancel();
+    }
+
     /// The whole happy path: work arrives, a turn ends, the model writes, the
     /// post is persisted and on the wire.
     #[tokio::test]
@@ -852,7 +1164,7 @@ mod tests {
         let mut h = start(spawner, 90).await;
 
         h.code_tx
-            .send(assistant_text("s1", "wiring the bridge"))
+            .send(assistant_text("s1", "Wiring the bridge into the feed."))
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
 
@@ -878,7 +1190,9 @@ mod tests {
         let spawner = FakeSpawner::always(Ok(r#"{"post": null}"#.to_string()));
         let mut h = start(spawner, 90).await;
 
-        h.code_tx.send(assistant_text("s1", "some work")).unwrap();
+        h.code_tx
+            .send(assistant_text("s1", "Doing some work on the router."))
+            .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
 
         expect_no_post(&mut h.overview_rx).await;
@@ -895,7 +1209,10 @@ mod tests {
         let mut h = start(spawner, 1).await;
 
         h.code_tx
-            .send(assistant_text("s1", "a long tool loop"))
+            .send(assistant_text(
+                "s1",
+                "Running a long tool loop over the crate.",
+            ))
             .unwrap();
 
         let post = next_post(&mut h.overview_rx).await;
@@ -919,6 +1236,37 @@ mod tests {
             .unwrap();
         tokio::time::sleep(Duration::from_millis(1_500)).await;
         expect_no_post(&mut h.overview_rx).await;
+        h.cancel.cancel();
+    }
+
+    /// The subsystem's one switch ([P10]). It gates the wakes and nothing
+    /// else, and a wake that does not run leaves the window standing — so
+    /// turning it back on narrates the work that accumulated while it was off
+    /// rather than starting from nothing. Absent reads as ENABLED, which is
+    /// what every other test here exercises.
+    #[tokio::test]
+    async fn the_overview_switch_gates_the_wake_and_nothing_else() {
+        let spawner = FakeSpawner::always(Ok(envelope("A post the switch decides about")));
+        // Timer off: only the turn end could wake.
+        let mut h = start(spawner, 0).await;
+        h.enabled.store(false, Ordering::SeqCst);
+
+        h.code_tx
+            .send(assistant_text("s1", "Work done while the switch is off."))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+        expect_no_post(&mut h.overview_rx).await;
+        assert!(h.ledger.list_overview_posts_tail(10).unwrap().is_empty());
+
+        // On again, with no restart. The stretch above is still in the window,
+        // so the first wake after the flip narrates it.
+        h.enabled.store(true, Ordering::SeqCst);
+        h.code_tx
+            .send(assistant_text("s1", "And more work after it came back."))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+        let post = next_post(&mut h.overview_rx).await;
+        assert_eq!(post.body, "A post the switch decides about");
         h.cancel.cancel();
     }
 
@@ -952,7 +1300,9 @@ mod tests {
 
         // The window is not lost — the moment real work lands, the next turn
         // end narrates both it and the prompt that asked for it.
-        h.code_tx.send(assistant_text("s1", "real work")).unwrap();
+        h.code_tx
+            .send(assistant_text("s1", "Doing the real work of the turn."))
+            .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
         let post = next_post(&mut h.overview_rx).await;
         assert_eq!(post.wake_reason.as_deref(), Some("turn-end"));
@@ -989,7 +1339,9 @@ mod tests {
             ))
             .expect("fact recorded");
 
-        h.code_tx.send(assistant_text("s1", "landed it")).unwrap();
+        h.code_tx
+            .send(assistant_text("s1", "Landed it on the branch."))
+            .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
         let post = next_post(&mut h.overview_rx).await;
 
@@ -1025,7 +1377,10 @@ mod tests {
             .expect("marked private");
 
         h.code_tx
-            .send(assistant_text("s1", "private work"))
+            .send(assistant_text(
+                "s1",
+                "Doing private work nobody may narrate.",
+            ))
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
         expect_no_post(&mut h.overview_rx).await;
@@ -1035,7 +1390,12 @@ mod tests {
         h.ledger
             .set_session_private("s1", false)
             .expect("marked public");
-        h.code_tx.send(assistant_text("s1", "public work")).unwrap();
+        h.code_tx
+            .send(assistant_text(
+                "s1",
+                "Doing public work, which may be narrated.",
+            ))
+            .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
         let post = next_post(&mut h.overview_rx).await;
         assert_eq!(post.session_id.as_deref(), Some("s1"));
@@ -1056,7 +1416,7 @@ mod tests {
             })))
             .unwrap();
         h.code_tx
-            .send(assistant_text("s1", "replayed history"))
+            .send(assistant_text("s1", "Replayed history, which is not news."))
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
         expect_no_post(&mut h.overview_rx).await;
@@ -1136,7 +1496,7 @@ mod tests {
         let mut h = start(spawner, 0).await;
 
         h.code_tx
-            .send(assistant_text("s1", "the work the failed job never read"))
+            .send(assistant_text("s1", "The work the failed job never read."))
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
         expect_no_post(&mut h.overview_rx).await;
@@ -1149,7 +1509,7 @@ mod tests {
         // windows.
         tokio::time::sleep(Duration::from_secs(6)).await;
         h.code_tx
-            .send(assistant_text("s1", "and what came after"))
+            .send(assistant_text("s1", "And what came after the failure."))
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
         let post = next_post(&mut h.overview_rx).await;
@@ -1158,14 +1518,16 @@ mod tests {
         let turns = seen.lock().unwrap().clone();
         let composed = turns.last().expect("a second turn was asked");
         assert!(
-            composed.contains("the work the failed job never read"),
+            composed.contains("The work the failed job never read."),
             "the returned window rode the next wake",
         );
-        assert!(composed.contains("and what came after"));
+        assert!(composed.contains("And what came after the failure."));
         let first = composed
-            .find("the work the failed job never read")
+            .find("The work the failed job never read.")
             .expect("restored");
-        let second = composed.find("and what came after").expect("kept");
+        let second = composed
+            .find("And what came after the failure.")
+            .expect("kept");
         assert!(first < second, "chronology survives the restore");
 
         h.cancel.cancel();
@@ -1180,6 +1542,7 @@ mod tests {
                 "body": "A commit landed.",
                 "refs": [
                     { "kind": "commit", "target": "9a9051001" },
+                    { "kind": "file", "target": "tugrust/crates/tugcast/src/feeds/observer.rs" },
                     { "kind": "file", "target": "never/shown.rs" },
                 ],
             }
@@ -1189,13 +1552,76 @@ mod tests {
         let mut h = start(spawner, 0).await;
 
         h.code_tx
-            .send(assistant_text("s1", "HEAD is now 9a9051001"))
+            .send(assistant_text(
+                "s1",
+                "HEAD is now 9a9051001 on the arc branch.",
+            ))
+            .unwrap();
+        // The tool line is the ref surface now ([P04]): a path the digest
+        // spelled can be linked, and a path it never spelled cannot.
+        h.code_tx
+            .send(tool_progress(
+                "s1",
+                "toolu_1",
+                "Read",
+                "tugrust/crates/tugcast/src/feeds/observer.rs",
+            ))
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
 
         let post = next_post(&mut h.overview_rx).await;
-        assert_eq!(post.refs.len(), 1);
-        assert_eq!(post.refs[0].target, "9a9051001");
+        let kept: Vec<&str> = post.refs.iter().map(|r| r.target.as_str()).collect();
+        assert_eq!(
+            kept,
+            vec!["9a9051001", "tugrust/crates/tugcast/src/feeds/observer.rs"],
+            "what the window spelled is linkable; what it never spelled is dropped",
+        );
+        h.cancel.cancel();
+    }
+
+    /// [P04]: the window the model reads is digest lines — the same sentences
+    /// the beat shows — rather than the wire's JSON. A wake input carrying a
+    /// payload would mean the Observer and the strip had gone back to
+    /// describing the same work two different ways.
+    #[tokio::test]
+    async fn a_wake_input_carries_digest_lines_rather_than_payloads() {
+        let spawner = FakeSpawner::always(Ok(envelope("Read a file.")));
+        let mut h = start(Arc::clone(&spawner) as Arc<dyn AgentWorkerSpawner>, 0).await;
+
+        h.code_tx
+            .send(assistant_text("s1", "Reading the allowlists first."))
+            .unwrap();
+        h.code_tx
+            .send(tool_progress(
+                "s1",
+                "toolu_1",
+                "Read",
+                "tugrust/crates/tugcast/src/main.rs",
+            ))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+        let _ = next_post(&mut h.overview_rx).await;
+
+        let shown = spawner.turns_seen().last().cloned().expect("a turn ran");
+        // The LAST occurrence: the instructions name the heading too, and the
+        // composed section is what this test is about.
+        let activity = shown
+            .rsplit("SESSION ACTIVITY SINCE THEN:")
+            .next()
+            .expect("the activity section")
+            .to_string();
+        assert!(
+            activity.contains("Reading the allowlists first."),
+            "the monologue is the line the strip shows: {activity}"
+        );
+        assert!(
+            activity.contains("Read tugrust/crates/tugcast/src/main.rs…"),
+            "a tool call is narrated, not spelled as JSON: {activity}"
+        );
+        assert!(
+            !activity.contains("\"type\":\"tool_input_progress\""),
+            "no payload survives into the window: {activity}"
+        );
         h.cancel.cancel();
     }
 
@@ -1207,7 +1633,10 @@ mod tests {
         let mut h = start(spawner, 0).await;
 
         h.code_tx
-            .send(assistant_text("s1", "the last thing it did"))
+            .send(assistant_text(
+                "s1",
+                "The last thing it did before the end.",
+            ))
             .unwrap();
         // Two wires, one loop: let the work land before the end arrives, or
         // the wake finds an empty window and correctly declines it.
@@ -1236,13 +1665,20 @@ mod tests {
         // Start effectively never-firing, then turn it down mid-run.
         let mut h = start(spawner, 86_400).await;
 
-        h.code_tx.send(assistant_text("s1", "some work")).unwrap();
+        h.code_tx
+            .send(assistant_text("s1", "Doing some work on the router."))
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
         expect_no_post(&mut h.overview_rx).await;
 
         h.sitrep.store(1, Ordering::SeqCst);
         // A frame nudges the loop so the new deadline is computed.
-        h.code_tx.send(assistant_text("s1", "more work")).unwrap();
+        h.code_tx
+            .send(assistant_text(
+                "s1",
+                "Doing more work after the first stretch.",
+            ))
+            .unwrap();
         let post = next_post(&mut h.overview_rx).await;
         assert_eq!(post.wake_reason.as_deref(), Some("sitrep-timer"));
         h.cancel.cancel();

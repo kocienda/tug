@@ -110,7 +110,7 @@ export type TugAtomRefEntity =
       range?: { startLine: number; endLine: number };
       /**
        * Stamp the annotation dataset and focus-refuse marks on the skin
-       * itself. Defaults to `true`, which is the tool-header and pulse
+       * itself. Defaults to `true`, which is the tool-header and beat
        * case. Pass `false` when a host wrapper already carries the contract
        * (the Overview's `annotationProps` span) — stamping inside it would
        * duplicate the contract and nest a mark in a mark.

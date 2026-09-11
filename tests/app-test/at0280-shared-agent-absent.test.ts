@@ -1,10 +1,10 @@
 /**
  * at0280-shared-agent-absent.test.ts — what the app looks like with no agent.
  *
- * Shell arbitration and PULSE intent summaries are strict enhancement: with the
+ * Shell arbitration and the composed goal line are strict enhancement: with the
  * `SharedAgent` unavailable, nothing about the app changes. That claim is easy
  * to state and easy to break, because both tenants live on surfaces people touch
- * constantly — the PULSE strip and the prompt composer. This pins the agentless
+ * constantly — the beat strip and the prompt composer. This pins the agentless
  * posture so a regression shows up as a failing test rather than as a stray line
  * or a chip nobody asked for.
  *
@@ -27,7 +27,7 @@
  *
  * Three claims:
  *   1. The masthead renders its activity run, and there is no headline run at
- *      all — nor any `PULSE` ink standing in for one. With no agent no goal is
+ *      all — nor any machinery word standing in for one. With no agent no goal is
  *      ever composed, and the reading for that is now an absence rather than a
  *      placeholder word: the standing-goal level left chrome, so a session with
  *      nothing composed for it simply has two lines that say true things and no
@@ -38,7 +38,7 @@
  *      atom of any kind. Routing is a submit-time decision over the whole
  *      line, so nothing may materialize in the document while the user types.
  *   3. The Cards row for the same session shows no goal line either. The
- *      card's strip and the Cards row read the same PULSE state through two
+ *      card's strip and the Cards row read the same state through two
  *      separate call sites, so absence has to be pinned on both.
  *
  * **Typing only — this test never submits a turn.** A real send into a
@@ -79,13 +79,13 @@ const ATOM = `${CARD} [data-slot="tug-text-editor"] img[data-atom-type]`;
 // The card's activity line lives in its pane chrome, on the masthead.
 const PANE = '.tug-pane[data-pane-id="p1"]';
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
-const STRIP = `${MASTHEAD} .tug-pulse`;
-const HEADLINE = `${PANE} [data-slot="tug-pulse-headline"]`;
+const STRIP = `${MASTHEAD} .tug-activity-line`;
+const HEADLINE = `${PANE} [data-slot="tug-activity-line-headline"]`;
 
 // The Cards card's own row for the same session. Addressed the way
 // `at0257-cards-session-reorder.test.ts` addresses Sessions rows.
 const CARDS_ROW = `.cards-list .session-row-content[data-session-id="${SID}"]`;
-const CARDS_INTENT = `${CARDS_ROW} [data-slot="tug-pulse-headline"]`;
+const CARDS_INTENT = `${CARDS_ROW} [data-slot="tug-activity-line-headline"]`;
 
 let projectDir = "";
 
@@ -184,7 +184,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           );
-          // Bound, not resumed: the composer and the PULSE are what this pins,
+          // Bound, not resumed: the composer and the beat are what this pins,
           // and neither needs a live agent behind them.
           await app.bindSession("A", { tugSessionId: SID, projectDir });
           await app.waitForCondition<boolean>(
@@ -200,6 +200,8 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20_000 },
           );
           expect(await count(app, HEADLINE)).toBe(0);
+          // `PULSE` is a retired word ([D186]) and never was ink ([D132]);
+          // this is the tripwire against it coming back as a stand-in.
           expect(await mastheadText(app)).not.toContain("PULSE");
 
           // 2. Two lines that open with a real PATH executable — the exact
@@ -215,7 +217,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await mastheadText(app)).not.toContain("PULSE");
 
           // 3. The Cards card says the same thing. The strip and the Cards row are
-          //    two separate readers of the same PULSE state, so a regression can
+          //    two separate readers of the same state, so a regression can
           //    land in one and not the other — the claim is only pinned where
           //    it is asserted.
           await app.dispatchControlAction("toggle-cards");

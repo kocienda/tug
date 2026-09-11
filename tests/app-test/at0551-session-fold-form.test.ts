@@ -23,15 +23,15 @@
  *      into the editor is still in it after a fold and a show — which is
  *      the whole reason the fold is a collapse and an `inert` attribute rather
  *      than a conditional mount.
- *   3. **The beat reads in the WALL register** ([P09].3, [B08]). Folded,
- *      the beat is the only thing on screen and gets two lines with two jobs:
- *      the retained intent above, the action below, each its own run and each
- *      set to `block` so the reader meets two facts rather than one
- *      paragraph. At rest the line names what the last turn FINISHED —
- *      `Finished: <intent>. Completed at <stamp>. Ready.` — which is the
- *      question a wall of watched sessions is being asked. Open, the same
- *      feed renders one run and no intent at all, because the transcript
- *      underneath is already saying what the session is for.
+ *   3. **The beat reads in the WALL register** ([B08]). Folded, the beat is
+ *      the only reading on screen, so it is set to `block` and given the two
+ *      lines the tier was widened for. What the turn is FOR stands above it
+ *      on the description line, and during a turn that line is the newest
+ *      Observer POST about this session, falling back to the ask the turn is
+ *      answering ([D187]) — a written sentence where an extracted one used to
+ *      be pinned. At rest the beat's line is the activity rest sentence
+ *      (`No turns. Ready.`) and the description is the standing sentence
+ *      again.
  *   4. **The flag rides the saved layout.** Fold, reload, and the pane's
  *      `folded` is in the layout blob on tugbank disk — the SAVE side of
  *      [P01], driven through the real flush. The load side is a unit test's
@@ -41,7 +41,7 @@
  *      after a reload instead of restoring the saved one — a restored frame
  *      here would be reading the seed back, not the disk.
  *
- * The two-line beat is seeded through `publishPulseFrame`, the same door
+ * The two-line beat is seeded through `publishDigestFrame`, the same door
  * at0498 uses — no live commentator, and a beat long enough that an open card
  * would have had to cut it.
  *
@@ -61,7 +61,9 @@
  * @covers tugdeck/src/components/tugways/session-identity-row.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.css
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
- * @covers tugdeck/src/lib/pulse-line/resting-line.ts
+ * @covers tugdeck/src/lib/session-activity-line.ts
+ * @covers tugdeck/src/lib/digest-store.ts
+ * @covers tugdeck/src/lib/overview-store.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -81,7 +83,7 @@ const PANE_ID = "p1";
 const PANE = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 const CARD = '[data-card-id="A"]';
 const TITLE_BAR = `${PANE} .tug-pane-title-bar[data-masthead="true"]`;
-const BEAT = `${PANE} .session-masthead-row [data-slot="tug-pulse-activity"]`;
+const BEAT = `${PANE} .session-masthead-row [data-slot="tug-activity-line-activity"]`;
 const VIEW_SLOT = `${CARD} .session-view-slot`;
 const ENTRY_REGION = `${CARD} [data-slot="session-card-entry-region"]`;
 const STATUS_BAR = `${CARD} [data-slot="session-card-status-bar"]`;
@@ -89,6 +91,7 @@ const STATUS_CELL = `${STATUS_BAR} [data-slot="tug-status-cell"]`;
 const CONTROL = `${STATUS_BAR} [data-slot="session-fold-control"]`;
 const CONTROL_BUTTON = `${CONTROL} button`;
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
+const DESCRIPTION = `${PANE} .session-masthead-row .tug-session-row-description`;
 
 /**
  * `MASTHEAD_FOLDED_HEIGHT` in `tug-pane.tsx`, which must equal
@@ -126,22 +129,38 @@ function deckShape() {
 }
 
 /** One PULSE frame body, scoped to this session, as the emitter writes it. */
-function pulseFrame(text: string, beat: number, intent?: string): string {
+function digestFrame(text: string, beat: number, kind?: string): string {
   return JSON.stringify({
-    type: "pulse",
+    type: "digest",
     text,
     scopes: [SID],
     beat,
     at: Date.now(),
-    ...(intent !== undefined ? { intent } : {}),
+    ...(kind !== undefined ? { kind } : {}),
   });
 }
 
 /**
- * The retained thought the wall register puts on its own line — real
- * interstitial narration in the register the voice actually emits it in.
+ * One Observer post about this session, as the OVERVIEW feed carries it.
+ * `at_ms` is `Date.now()` so the post is newer than the beats seeded before
+ * it, which is what the masthead's ladder and the history's grouping both
+ * read.
  */
-const WALL_INTENT = "Folding the transcript and the composer on one clock";
+function observerPost(body: string, id: number): string {
+  return JSON.stringify({
+    id,
+    at_ms: Date.now(),
+    author: "observer",
+    session_id: SID,
+    body,
+    refs: [],
+  });
+}
+
+/** What the Observer says about the turn, in the register it writes in. */
+const POST_BODY = "Folding the transcript and the composer on one clock";
+/** What the user asked for — rung (2), and what shows before the first post. */
+const ASK_TEXT = "Fold the card on one clock";
 
 /**
  * The activity line as the two registers render it: which register the row
@@ -152,8 +171,6 @@ async function readActivity(app: App): Promise<{
   register: string | null;
   runs: number;
   text: string;
-  intentRun: string | null;
-  intentBlock: string | null;
   beatRun: string | null;
   beatBlock: string | null;
   truncated: boolean;
@@ -164,12 +181,10 @@ async function readActivity(app: App): Promise<{
       if (run === null) {
         return {
           register: null, runs: 0, text: "",
-          intentRun: null, intentBlock: null,
           beatRun: null, beatBlock: null, truncated: false,
         };
       }
       var wall = run.querySelector('[data-register="wall"]');
-      var intent = run.querySelector(".session-identity-activity-intent");
       var beat = run.querySelector(".session-identity-activity-beat");
       var flat = function (el) {
         return el === null ? null : (el.textContent || "").replace(/\\s+/g, " ").trim();
@@ -178,12 +193,20 @@ async function readActivity(app: App): Promise<{
         register: wall === null ? null : wall.getAttribute("data-register"),
         runs: run.querySelectorAll("span[class]").length,
         text: (run.textContent || "").replace(/\\s+/g, " ").trim(),
-        intentRun: flat(intent),
-        intentBlock: intent === null ? null : getComputedStyle(intent).display,
         beatRun: flat(beat),
         beatBlock: beat === null ? null : getComputedStyle(beat).display,
         truncated: run.hasAttribute("data-truncated"),
       };
+    })()`,
+  );
+}
+
+/** The description line's text, flattened — the masthead's upper line. */
+async function readDescription(app: App): Promise<string> {
+  return app.evalJS(
+    `(function () {
+      var el = document.querySelector(${JSON.stringify(DESCRIPTION)});
+      return el === null ? "" : (el.textContent || "").replace(/\\s+/g, " ").trim();
     })()`,
   );
 }
@@ -235,6 +258,9 @@ async function readForm(app: App): Promise<{
   viewSlotInert: boolean;
   entryDisplay: string;
   entryHeight: number;
+  entryRows: string;
+  entryFoldPhase: string;
+  entryChild: string;
   entryInert: boolean;
   statusBarHeight: number;
   statusCells: number;
@@ -276,6 +302,18 @@ async function readForm(app: App): Promise<{
         viewSlotInert: slot === null ? false : slot.hasAttribute("inert"),
         entryDisplay: entry === null ? "absent" : getComputedStyle(entry).display,
         entryHeight: entry === null ? -1 : entry.getBoundingClientRect().height,
+        entryRows: entry === null ? "absent" : getComputedStyle(entry).gridTemplateRows,
+        entryFoldPhase: (function () {
+          var card = q(${JSON.stringify(CARD)} + " .session-card");
+          return card === null ? "absent" : (card.getAttribute("data-fold") || "none");
+        })(),
+        entryChild: (function () {
+          var kid = entry === null ? null : entry.firstElementChild;
+          if (kid === null) return "absent";
+          var cs = getComputedStyle(kid);
+          return kid.getBoundingClientRect().height + "px child, min-height " +
+            cs.minHeight + ", overflow " + cs.overflow;
+        })(),
         entryInert: entry === null ? false : entry.hasAttribute("inert"),
         statusBarHeight: status === null ? -1 : status.getBoundingClientRect().height,
         statusCells: document.querySelectorAll(${JSON.stringify(STATUS_CELL)}).length,
@@ -305,7 +343,7 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
         // A beat long enough that the open card had to cut it — which is the
         // reading the second line is being bought for.
         await app.evalJS<boolean>(
-          `window.__tug.publishPulseFrame(${JSON.stringify(pulseFrame(LONG_BEAT, 1))})`,
+          `window.__tug.publishDigestFrame(${JSON.stringify(digestFrame(LONG_BEAT, 1))})`,
         );
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BEAT)}) !== null`,
@@ -329,6 +367,8 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
         note("folded beat box px", form.beatHeight);
         note("Z2 cells", form.statusCells);
         note("control px", `${form.controlWidth} wide, inset ${form.controlInset}, ${form.controlToFirstCell} to STATE`);
+        note("entry region", `${form.entryHeight}px, rows ${form.entryRows}, fold ${form.entryFoldPhase}`);
+        note("entry child", form.entryChild);
 
         // 1. The flag reaches the frame — every rule below hangs off it.
         expect(form.frameFolded).toBe("true");
@@ -463,71 +503,104 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
   );
 
   test(
-    "the wall register gives the beat two runs, and names what it finished at rest",
+    "the upper line climbs the post/ask ladder while the beat reads in the wall register",
     async () => {
       const app = await launchTugApp({ testName: "at0551-fold-wall-register" });
       try {
         await openCard(app);
 
-        // ── A live beat with an intent behind it ──
-        // Two facts, and on the folded card two lines to put them on
-        // ([P09].3): the retained goal above, the action below. Open, the
-        // same feed reads in the one-line register, where the transcript
-        // underneath is already saying what the session is for.
+        // ── The turn opens: an ask, then work ──
+        // For the first minute of any turn there is no post yet — the sitrep
+        // is 60 s — so rung (2) is the whole of what the reader gets, and it
+        // is the thing they most want ([D187]).
         await app.evalJS<boolean>(
-          `window.__tug.publishPulseFrame(${JSON.stringify(
-            pulseFrame("Running cargo nextest run", 1, WALL_INTENT),
+          `window.__tug.publishDigestFrame(${JSON.stringify(
+            digestFrame(`asked: ${ASK_TEXT}`, 1, "ask"),
+          )})`,
+        );
+        await app.evalJS<boolean>(
+          `window.__tug.publishDigestFrame(${JSON.stringify(
+            digestFrame("Running cargo nextest run", 2, "tool"),
           )})`,
         );
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BEAT)}) !== null`,
           { timeoutMs: 20_000 },
         );
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(DESCRIPTION)})?.textContent || "").indexOf(${JSON.stringify(ASK_TEXT)}) >= 0`,
+          { timeoutMs: 20_000 },
+        );
+        const asking = await readDescription(app);
+        note("upper line, no post yet", asking);
+        // The ask, without the `asked:` head the strip gives it: on the upper
+        // line it is the only thing there, so the label labels nothing.
+        expect(asking).toBe(ASK_TEXT);
+
+        // ── The first post lands and takes the line ──
+        await app.evalJS<boolean>(
+          `window.__tug.publishOverviewPost(${JSON.stringify(
+            observerPost(POST_BODY, 1),
+          )})`,
+        );
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(DESCRIPTION)})?.textContent || "").indexOf(${JSON.stringify(POST_BODY)}) >= 0`,
+          { timeoutMs: 20_000 },
+        );
+        note("upper line, post landed", await readDescription(app));
+
+        // The beat line paces its swaps (`MIN_DWELL_MS`), so the ask holds it
+        // for a moment before the tool line arrives. Wait for the beat the
+        // register claims are about, rather than for the frame that carried it.
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(BEAT)})?.textContent || "").indexOf("Running cargo nextest run") >= 0`,
+          { timeoutMs: 20_000 },
+        );
         const open = await readActivity(app);
         note("open register", `${open.register} · ${open.runs} run(s)`);
         expect(open.register).toBeNull();
         expect(open.text).toContain("Running cargo nextest run");
-        // Open, the intent does not render at all — one line, one fact.
-        expect(open.intentRun).toBeNull();
 
         await toggleFolded(app, true);
         const folded = await readActivity(app);
-        note(
-          "wall register",
-          `${folded.register} · intent="${folded.intentRun}" beat="${folded.beatRun}"`,
-        );
+        note("wall register", `${folded.register} · beat="${folded.beatRun}"`);
         expect(folded.register).toBe("wall");
-        expect(folded.intentRun).toBe(WALL_INTENT);
         expect(folded.beatRun).toContain("Running cargo nextest run");
-        // Two RUNS is not two lines: the runs are set to block so the reader
-        // meets the goal and the action as two facts rather than one
-        // paragraph, and that is what the claim is about.
-        expect(folded.intentBlock).toBe("block");
+        // `block` is what lets the run take the width before it wraps into the
+        // two lines the tier was widened for.
         expect(folded.beatBlock).toBe("block");
-        // …and the pair still fits the two-line clamp the tier was widened
-        // for, so a wall of these never ripples ([R04], [B02]).
+        // …and it still fits that clamp, so a wall of these never ripples
+        // ([R04], [B02]).
         expect(folded.truncated).toBe(false);
+        // Folded, the post is still the line above it: the two facts a watched
+        // card is being asked for are what it is doing and what that is for.
+        expect(await readDescription(app)).toBe(POST_BODY);
 
-        // ── The turn ends, and the wall says what it finished ──
-        // The voice keeps the turn's intent across the marker ([P09].2), so
-        // the rest sentence can name the work rather than only the clock.
+        // ── The turn ends, and both lines go to rest ──
+        // The marker never reaches the beat line: it is the ABSENCE of a beat,
+        // and the rest sentence is what says so with facts in it.
         await app.evalJS<boolean>(
-          `window.__tug.publishPulseFrame(${JSON.stringify(
-            pulseFrame("Done", 2, WALL_INTENT),
+          `window.__tug.publishDigestFrame(${JSON.stringify(
+            digestFrame("Done", 3, "turn"),
           )})`,
         );
         await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(BEAT)})?.textContent || "").indexOf("Finished:") >= 0`,
+          `(document.querySelector(${JSON.stringify(BEAT)})?.textContent || "").trim().endsWith("Ready.")`,
           { timeoutMs: 20_000 },
         );
         const rested = await readActivity(app);
         note("wall at rest", rested.text);
-        expect(rested.text).toContain(`Finished: ${WALL_INTENT}.`);
-        expect(rested.text).toContain("Completed at ");
         expect(rested.text.endsWith("Ready.")).toBe(true);
-        // The bare marker never reaches the line — it is the ABSENCE of a
-        // beat, and this sentence is what says so with facts in it.
         expect(rested.text).not.toBe("Done");
+        // And the upper line leaves the ladder: at rest it is [D132]'s again.
+        // This session has no standing sentence, no recorded first prompt and
+        // no arc, so what it lands on is that ladder's floor — which is the
+        // point: the post is gone from the line the moment the turn is.
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(DESCRIPTION)})?.textContent || "").indexOf(${JSON.stringify(POST_BODY)}) < 0`,
+          { timeoutMs: 20_000 },
+        );
+        note("upper line at rest", await readDescription(app));
       } finally {
         await app.close();
       }

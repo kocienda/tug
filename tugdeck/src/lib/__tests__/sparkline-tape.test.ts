@@ -1129,7 +1129,7 @@ describe("SparklineTape — the visibility gate does not flap", () => {
     const { h, pauses } = liveTape();
     // Twenty alternations spread across less than one hysteresis window — the
     // shape a row near a list's clip edge makes while the rows around it
-    // re-measure on every pulse beat.
+    // re-measure on every beat.
     for (let i = 0; i < 20; i++) {
       h.tape.setVisible(false);
       h.clock.advance(HIDDEN_PAUSE_DELAY_MS / 40);

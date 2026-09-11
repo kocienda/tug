@@ -357,7 +357,7 @@ exactly which files changed, so the edit stays attributed:
 
   tugtool file edit <<'EDIT'
   file tugdeck/src/main.tsx
-    replace 'attachPulseStore(connection);' with 'attachLocalModelStore(connection);'
+    replace 'attachDigestStore(connection);' with 'attachLocalModelStore(connection);'
     delete 166
   EDIT
 

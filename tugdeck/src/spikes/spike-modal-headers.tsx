@@ -189,7 +189,7 @@ const PICKER_ROWS = (
 
 const RESUME_ROWS = (
   <div className="sp-mh-rows">
-    <MockRow label="Redesign Pulse card" detail="2 hours ago · 14 turns" />
+    <MockRow label="Redesign the Activity card" detail="2 hours ago · 14 turns" />
     <MockRow label="Activity feed emitter" detail="Yesterday · 31 turns" />
   </div>
 );

@@ -83,9 +83,9 @@ const COLD_START_BUDGET: Duration = Duration::from_secs(4);
 const WARMUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// How long a class waits before replacing a worker that **died**, mirroring
-/// the daemon respawn debounce in `feeds::pulse`. This gates replacement after
-/// a failure, never healthy growth — a first spawn and a growth spawn are both
-/// immediate, so nothing pays this cost except a crash loop.
+/// the debounce every supervised subprocess here keeps. This gates replacement
+/// after a failure, never healthy growth — a first spawn and a growth spawn are
+/// both immediate, so nothing pays this cost except a crash loop.
 const RESPAWN_MIN_INTERVAL: Duration = Duration::from_secs(5);
 
 // Reaping and recycling are decided when a job arrives rather than on a timer:
@@ -1063,56 +1063,6 @@ fn send_control(cat: &broadcast::Sender<Frame>, body: serde_json::Value) {
     }
 }
 
-/// Run one synopsis job and broadcast the description it wrote.
-///
-/// The socket-reachable form of the question the session synopsis asks on its
-/// own cadence, so what the model actually says about a given digest can be
-/// read without waiting for a session row to update. The raw answer rides
-/// alongside the normalized one: the two differing is the signal that the
-/// prompt is drifting and the normalizer is covering for it.
-pub fn request_synopsis(
-    agent: SharedAgentHandle,
-    cat: Option<broadcast::Sender<Frame>>,
-    prompt: String,
-) {
-    let task = "synopsis";
-    tokio::spawn(async move {
-        let result = match agent {
-            Some(pool) => pool.run(task, prompt).await,
-            None => Err(UNAVAILABLE.to_string()),
-        };
-        let (ok, text, error) = match result {
-            Ok(raw) => {
-                let report = crate::feeds::session_synopsis::synopsis_register_report(&raw);
-                info!(
-                    task,
-                    %raw,
-                    line = %report.text,
-                    normalized = report.normalized,
-                    clipped = report.clipped,
-                    "shared agent synopsis answered",
-                );
-                (true, Some(report.text), None)
-            }
-            Err(error) => {
-                warn!(task, %error, "shared agent synopsis failed");
-                (false, None, Some(error))
-            }
-        };
-        let Some(cat) = cat else { return };
-        send_control(
-            &cat,
-            serde_json::json!({
-                "action": "shared_agent_synopsis_result",
-                "task": task,
-                "ok": ok,
-                "text": text,
-                "error": error,
-            }),
-        );
-    });
-}
-
 /// Run one classify job and broadcast the verdict.
 ///
 /// The shell-routing tenant asks this on every ambiguous line as part of a
@@ -1168,17 +1118,6 @@ pub fn request_classification(
 /// `tugdeck/src/lib/shared-agent-store.ts`.
 pub const SHARED_AGENT_DOMAIN: &str = "dev.tugapp.shared-agent";
 
-/// Per-tenant kill switch for the session description.
-///
-/// The shell-routing switch under the same domain has no Rust consumer — that
-/// tenant lives entirely in the deck — so its key is declared only in
-/// `shared-agent-store.ts`.
-pub const SYNOPSIS_KEY: &str = "synopsis";
-
-/// What [`SYNOPSIS_KEY`] used to be called, read once at startup by
-/// [`carry_synopsis_tenant_forward`] and never again.
-const LEGACY_PULSE_OVERVIEW_KEY: &str = "pulse-overview";
-
 /// Full model id override, read per spawn.
 pub const MODEL_KEY: &str = "model";
 
@@ -1193,52 +1132,6 @@ pub const DEFAULT_MAX_WORKERS: usize = 2;
 /// The Haiku agent's pinned model ([P03]). A full id, never a bare alias:
 /// aliases drift, and a drifting aux model is a silent behavior change.
 pub const HAIKU_MODEL: &str = "claude-haiku-4-5";
-
-/// Carry the description tenant's kill switch across the key rename, once, at
-/// startup.
-///
-/// The switch is a live user setting and absent reads as *enabled*, so a silent
-/// rename would turn the description back on for everyone who had turned it
-/// off. The copy runs only when [`SYNOPSIS_KEY`] is unset: a value written
-/// since the rename is never overwritten by the world before it.
-///
-/// Copy-only. The stale [`LEGACY_PULSE_OVERVIEW_KEY`] entry is left where it
-/// sits — an unread key in a defaults store costs nothing, and growing a delete
-/// API to tidy one would cost more than it saves. Both this function and that
-/// orphan are deletable once no installation predates this release.
-pub fn carry_synopsis_tenant_forward(bank: &tugbank_core::TugbankClient) {
-    match bank.get(SHARED_AGENT_DOMAIN, SYNOPSIS_KEY) {
-        Ok(None) => {}
-        Ok(Some(_)) => return,
-        Err(err) => {
-            warn!(error = %err, "synopsis tenant: carry-forward read failed");
-            return;
-        }
-    }
-    let legacy = match bank.get(SHARED_AGENT_DOMAIN, LEGACY_PULSE_OVERVIEW_KEY) {
-        Ok(Some(value)) => value,
-        Ok(None) => return,
-        Err(err) => {
-            warn!(error = %err, "synopsis tenant: legacy read failed");
-            return;
-        }
-    };
-    if let Err(err) = bank.set(SHARED_AGENT_DOMAIN, SYNOPSIS_KEY, legacy) {
-        warn!(error = %err, "synopsis tenant: carry-forward failed");
-    }
-}
-
-/// Read a tenant kill switch. Absent — and any non-bool — reads as enabled, so
-/// a tenant is never accidentally dark because a value was never written.
-pub fn tenant_enabled(bank: Option<&tugbank_core::TugbankClient>, key: &str) -> bool {
-    let Some(bank) = bank else {
-        return true;
-    };
-    match bank.get(SHARED_AGENT_DOMAIN, key) {
-        Ok(Some(tugbank_core::Value::Bool(enabled))) => enabled,
-        _ => true,
-    }
-}
 
 // MARK: - The Haiku agent's job table (Spec S01)
 
@@ -1267,12 +1160,6 @@ pub static HAIKU_AGENT_JOBS: &[JobSpec] = &[
         timeout: CLASSIFY_TIMEOUT,
         slow: Some(CLASSIFY_SLOW),
         instructions: CLASSIFY_WITH_GRAMMAR_INSTRUCTIONS,
-    },
-    JobSpec {
-        name: "synopsis",
-        timeout: SENTENCE_TIMEOUT,
-        slow: Some(SENTENCE_SLOW),
-        instructions: SYNOPSIS_INSTRUCTIONS,
     },
     JobSpec {
         name: "expand_query",
@@ -1378,61 +1265,6 @@ docker the worker into a smaller image => PROMPT
 
 The line:"
 );
-
-/// The session's standing description — the line that names what a session is
-/// *about*.
-///
-/// **It is not a headline, and the wording's whole job is to stop it becoming
-/// one.** It shipped asking for headline rules against a stretch-scoped digest,
-/// and produced a headline. Two things carry it:
-///
-///  - **The evidence.** The digest is `compose_synopsis_digest`'s —
-///    session-lifetime and NEWEST FIRST: the most recent ask is the subject,
-///    prior asks are earlier work, the session's opening is context, and the
-///    newest activity lines are explicitly labelled background. The boundaries
-///    between work items are the user's own messages, not idle-barrier
-///    stretches — a stretch swallowed every ask after its first, which is how a
-///    description kept leading with the morning's job after the session had
-///    moved on.
-///  - **The register.** A summary's rules, not a headline's: articles and
-///    conjunctions are allowed, the budget is `MAX_SYNOPSIS_CHARS`, and the
-///    line is asked to name the undertaking and its object. The wording asks
-///    for less than the budget on purpose: the first cut at this line said
-///    "about 110 characters" and the model filled every one of them, which
-///    overran the rail and picker rows and shipped clipped mid-word.
-///
-/// The instruction is deliberately **extractive**: `ground_synopsis` refuses a
-/// description whose words are not in the digest, so telling the model to reuse
-/// the digest's own words is what keeps the refusal rate down.
-const SYNOPSIS_INSTRUCTIONS: &str = "\
-You write the standing description of a coding session — ONE sentence saying what the session is about, weighted toward what it is about NOW. It sits under the session's name. A session moves through work items over time, each new ask closing the one before it, and the reader scanning a list of sessions wants the newest work named first.
-
-The digest comes in labeled sections, and they are not equal.
-
-\"What the session was most recently asked to do\" is THE SUBJECT. The newest ask is the work item the session is on, and the line leads with it.
-
-\"What it worked on before that\" is EARLIER WORK, listed newest first. Mention it only if the line has room after the subject, and at most one item of it; when the line names two undertakings, the more recent one comes first.
-
-\"What the session set out to do at the start\" is CONTEXT. It says where the session began. It earns a place in the line only when the newest ask is still that same undertaking.
-
-\"Where it stands right now\" is BACKGROUND: the raw trail of what the session has just been doing — tool calls written as Name(target), shell commands written after a $, and lines the assistant said, newest last. It is there so you know the work is live and what it currently touches. It is never the subject, and a description that restates one of those lines says nothing.
-
-\"The description you are revising\" is your own last answer. Keep its voice and wording where they still fit — but the subject moves with the work. When the newest ask is a new undertaking, the line changes with it; a description still leading with finished work is stale, not stable.
-
-Write it as a sentence, not as a headline:
-
-START WITH A VERB, in the plain command form: Rework, Repair, Trace, Port, Audit, Bundle, Investigate, Extend. Not \"Fixing\", not \"Working on\" — Rework, Repair.
-ARTICLES AND CONJUNCTIONS ARE ALLOWED. \"the\", \"a\", \"and\" — use them where the sentence wants them. This is the one line that gets to read as English.
-NAME THE WORK AND ITS OBJECT: what is being done, and to what. One subject and one object for the newest work, with at most one earlier item riding after it — never a list of surfaces, parts, or steps.
-BE BRIEF. ROOM FOR ABOUT 65 CHARACTERS, and shorter is better — a line that runs long is cut off mid-word on every surface that shows it.
-SENTENCE CASE. Proper names keep their capitals — Finder, Keychain, CodeMirror, WebKit.
-No period at the end. No quotes.
-
-USE THE DIGEST'S OWN WORDS. Build the line out of words that appear in the digest you were given; do not reach for a synonym when the digest has the word. Never name a tool — Bash, Edit, Read, Write, Grep — and never write a path or a file's location.
-
-Answer only from the digest below. Output only the line.
-
-DIGEST:";
 
 /// Search terms for a question whose own words are nowhere in the record.
 ///
@@ -2085,12 +1917,6 @@ mod tests {
         );
         assert!(!job("classify").instructions.contains(GRAMMAR_PLACEHOLDER));
 
-        // The register rules `synopsis_register_report` and `ground_synopsis`
-        // enforce, and the extractive instruction that keeps grounding passing.
-        let synopsis = job("synopsis").instructions;
-        assert!(synopsis.contains("SENTENCE CASE"));
-        assert!(synopsis.contains("USE THE DIGEST'S OWN WORDS"));
-
         // Expansion's output contract, which `expand_via_model` parses and
         // whose empty case it treats as a real answer. Both halves are pinned:
         // the shape, and the permission to return nothing — without the latter
@@ -2110,10 +1936,20 @@ mod tests {
         // degradation into verb timeouts.
         assert!(job("expand_query").timeout < crate::feeds::operator::VERB_TIMEOUT);
 
-        // Classify's ceiling is the triad's Rust member; a sentence job stays
-        // under the synopsis debounce.
+        // Classify's ceiling is the triad's Rust member.
         assert_eq!(job("classify").timeout, Duration::from_secs(2));
-        assert!(job("synopsis").timeout < crate::feeds::session_synopsis::SYNOPSIS_MIN_INTERVAL);
+    }
+
+    /// The standing sentence is no longer Haiku's job — one Sonnet ask writes
+    /// it beside the Observer's post, and the register rules it is held to are
+    /// the Observer's instructions now.
+    #[test]
+    fn haiku_no_longer_writes_the_standing_sentence() {
+        assert_eq!(HAIKU_AGENT_JOBS.len(), 3);
+        assert!(
+            !HAIKU_AGENT_JOBS.iter().any(|job| job.name == "synopsis"),
+            "the synopsis job is the Observer's, not Haiku's",
+        );
     }
 
     /// The only test that spawns a real `claude` and spends real tokens.
@@ -2135,7 +1971,7 @@ mod tests {
     /// prose, which is the eval harness's business.
     #[tokio::test]
     #[ignore = "requires TUG_REAL_CLAUDE=1 and a live claude binary"]
-    async fn a_real_worker_answers_one_classify_and_one_synopsis() {
+    async fn a_real_worker_answers_one_classify_and_one_sentence_job() {
         if std::env::var("TUG_REAL_CLAUDE").as_deref() != Ok("1") {
             return;
         }
@@ -2168,65 +2004,11 @@ mod tests {
             "a warm classify took {warm_ms}ms, past the {CLASSIFY_TIMEOUT:?} budget",
         );
 
-        let digest = "What the session was most recently asked to do:\n\
-             make the watch loop resilient\n\n\
-             Where it stands right now (background, not the subject):\n\
-             - Edit(watch.rs)\n";
-        let line = pool
-            .run("synopsis", digest.to_string())
+        let terms = pool
+            .run("expand_query", "the watch loop keeps wedging".to_string())
             .await
-            .expect("a synopsis answers");
-        assert!(!line.trim().is_empty(), "an empty description is a failure");
-    }
-
-    /// The rename must not re-enable a tenant somebody turned off. Absent reads
-    /// as enabled, so an uncopied `false` is a description switching itself back
-    /// on — and a value written under the new key is the newer intent, so the
-    /// copy never overwrites one.
-    #[test]
-    fn the_description_tenant_survives_its_key_rename() {
-        use tempfile::NamedTempFile;
-        use tugbank_core::TugbankClient;
-
-        let switched_off = |legacy: Option<bool>, current: Option<bool>| {
-            let tmp = NamedTempFile::new().expect("temp file");
-            let bank = TugbankClient::open(tmp.path()).expect("open bank");
-            if let Some(value) = legacy {
-                bank.set(
-                    SHARED_AGENT_DOMAIN,
-                    LEGACY_PULSE_OVERVIEW_KEY,
-                    tugbank_core::Value::Bool(value),
-                )
-                .unwrap();
-            }
-            if let Some(value) = current {
-                bank.set(
-                    SHARED_AGENT_DOMAIN,
-                    SYNOPSIS_KEY,
-                    tugbank_core::Value::Bool(value),
-                )
-                .unwrap();
-            }
-            carry_synopsis_tenant_forward(&bank);
-            (
-                tenant_enabled(Some(&bank), SYNOPSIS_KEY),
-                bank.get(SHARED_AGENT_DOMAIN, LEGACY_PULSE_OVERVIEW_KEY)
-                    .unwrap()
-                    .is_some(),
-            )
-        };
-
-        assert!(!switched_off(Some(false), None).0, "the off carries");
-        assert!(switched_off(Some(true), None).0, "so does the on");
-        assert!(
-            switched_off(Some(false), Some(true)).0,
-            "a value written since the rename is the newer intent",
-        );
-        assert!(switched_off(None, None).0, "absent reads enabled");
-        assert!(
-            switched_off(Some(false), None).1,
-            "the copy leaves the stale key where it sits",
-        );
+            .expect("an expansion answers");
+        assert!(!terms.trim().is_empty(), "an empty answer is a failure");
     }
 
     #[test]

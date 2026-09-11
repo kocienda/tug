@@ -1,5 +1,5 @@
 /**
- * PulseBeatText — one pulse beat, with its file target worn as a file
+ * BeatText — one beat, with its file target worn as a file
  * reference rather than spelled as a path.
  *
  * The voice narrates file tools as `Editing <path> — 37 lines`, and the path
@@ -20,18 +20,18 @@
  * Laws: [L06] appearance via CSS; [L19] file pair, `data-slot`;
  *       [L20] the file reference is `TugAtomRef`'s own, tokens and all.
  *
- * @module components/tugways/pulse-beat-text
+ * @module components/tugways/beat-text
  */
 
-import "./pulse-beat-text.css";
+import "./beat-text.css";
 
 import React from "react";
 
 import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
-import { parseBeatFileTarget } from "@/lib/pulse-line/beat-file-target";
+import { parseBeatFileTarget } from "@/lib/beat-line/beat-file-target";
 
-export interface PulseBeatTextProps {
-  /** The beat, exactly as the pulse feed carries it. */
+export interface BeatTextProps {
+  /** The beat, exactly as the digest feed carries it. */
   text: string;
   className?: string;
 }
@@ -40,20 +40,20 @@ export interface PulseBeatTextProps {
  * A beat's display form: verb + file reference + suffix when the beat names a
  * file, the verbatim text otherwise.
  */
-export function PulseBeatText({
+export function BeatText({
   text,
   className,
-}: PulseBeatTextProps): React.ReactElement {
+}: BeatTextProps): React.ReactElement {
   const target = React.useMemo(() => parseBeatFileTarget(text), [text]);
   if (target === null) {
     return <span className={className}>{text}</span>;
   }
   return (
-    <span className={className} data-slot="pulse-beat-text">
+    <span className={className} data-slot="beat-text">
       {target.head}
       <TugAtomRef
         entity={{ kind: "file", path: target.path }}
-        className="pulse-beat-file-ref"
+        className="beat-file-ref"
       />
       {target.tail}
     </span>

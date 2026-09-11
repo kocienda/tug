@@ -387,7 +387,7 @@ async fn main() {
     // cliff.
     let (code_submission_tx, _) = broadcast::channel::<Frame>(64);
     let (code_input_relay_tx, code_input_relay_rx) = mpsc::channel::<Frame>(256);
-    tokio::spawn(feeds::session_synopsis::relay_code_input(
+    tokio::spawn(feeds::digest_bridge::relay_code_input(
         code_input_relay_rx,
         code_submission_tx.clone(),
         code_input_tx.clone(),
@@ -1437,7 +1437,7 @@ async fn main() {
     let overview_agent = feeds::overview_agent::build_pool(overview_model, overview_max_workers);
 
     // OVERVIEW — the Observer's live bridge. It taps the same CODE_OUTPUT
-    // frames the Pulse narrates from plus the submission wire and
+    // frames the digester narrates from plus the submission wire and
     // SESSION_STATE, buffers them per session, and wakes the Sonnet pool at
     // structural moments. What a wake *means* lives in `observer_wake`, the
     // pure core the offline replay harness drives too — which is what makes
@@ -1480,50 +1480,68 @@ async fn main() {
         feeds::overview_agent::BUFFER_MAX_FRAMES_KEY,
         feeds::overview_agent::DEFAULT_BUFFER_MAX_FRAMES as i64,
     );
-    let observer_bridge =
-        feeds::observer::ObserverBridge::new(feeds::observer::ObserverBridgeConfig {
-            code_tx: code_output_feed.sender(),
-            submission_tx: code_submission_tx.clone(),
-            session_state_tx: session_state_feed.sender(),
-            ledger: Some(Arc::clone(&ledger)),
-            agent: Some(Arc::clone(&overview_agent)),
-            sitrep_secs: overview_sitrep,
-            token_wake_tokens: overview_token_wake,
-            last_k_posts: Arc::new(move || overview_last_k().max(0) as usize),
-            buffer_max_frames: Arc::new(move || overview_buffer_frames().max(1) as usize),
-        });
-
-    // PULSE — app-wide color commentary. One bridge per process: it
-    // taps the shared CODE_OUTPUT broadcast for the allowlisted frame
-    // subset, lazily spawns/supervises the tugpulse daemon (gated on
-    // the `pulse/enabled` tugbank default, ON by default), and the
-    // daemon's lines land in the capped ledger + the PULSE broadcast.
-    // A StreamFeed: its channel, lag policy, and task come from
-    // `register_stream_feed` below.
-    let tugpulse_path = feeds::pulse::resolve_tugpulse_path(&tugcode_path);
-    let pulse_enabled: Arc<dyn Fn() -> bool + Send + Sync> = {
+    // The subsystem's one switch ([P10]). A bool rather than an i64, so it
+    // gets its own closure instead of riding `overview_knob` — same posture:
+    // read at the wake, so a flip is live with no restart. Absent, wrongly
+    // typed and unreadable all read as ENABLED, the repo's kill-switch
+    // convention.
+    let overview_enabled: Arc<dyn Fn() -> bool + Send + Sync> = {
         let bank = bank_client.clone();
         Arc::new(move || {
             let Some(bank) = bank.as_ref() else {
                 return true;
             };
             match bank.get(
-                feeds::pulse::PULSE_ENABLED_DOMAIN,
-                feeds::pulse::PULSE_ENABLED_KEY,
+                feeds::overview_agent::OVERVIEW_DOMAIN,
+                feeds::overview_agent::OVERVIEW_ENABLED_KEY,
             ) {
                 Ok(Some(tugbank_core::Value::Bool(enabled))) => enabled,
-                // Absent / other-typed / unreadable all read as the
-                // default-ON posture ([P06]).
                 _ => true,
             }
         })
     };
-    let pulse_bridge = feeds::pulse::PulseBridge::new(feeds::pulse::PulseBridgeConfig {
-        spawner: Arc::new(feeds::pulse::TugpulseSpawner { tugpulse_path }),
-        enabled: Arc::clone(&pulse_enabled),
-        ledger: Some(Arc::clone(&ledger)),
-        code_tx: code_output_feed.sender(),
-    });
+    let observer_bridge =
+        feeds::observer::ObserverBridge::new(feeds::observer::ObserverBridgeConfig {
+            code_tx: code_output_feed.sender(),
+            submission_tx: code_submission_tx.clone(),
+            session_state_tx: session_state_feed.sender(),
+            ledger: Some(Arc::clone(&ledger)),
+            // The wake writes the session's standing sentence as well as its
+            // post, so it needs the CONTROL push and the row the sentence
+            // belongs to ([P07]).
+            control_tx: Some(client_action_tx.clone()),
+            resolver: supervisor.session_resolver(),
+            agent: Some(Arc::clone(&overview_agent)),
+            enabled: overview_enabled,
+            sitrep_secs: overview_sitrep,
+            token_wake_tokens: overview_token_wake,
+            last_k_posts: Arc::new(move || overview_last_k().max(0) as usize),
+            buffer_max_frames: Arc::new(move || overview_buffer_frames().max(1) as usize),
+        });
+
+    // DIGEST — the instant beat. One bridge per process, and no subprocess: it
+    // taps CODE_OUTPUT for the allowlisted frame subset, the submission wire
+    // for what the human asked, and SHELL_OUTPUT for exchanges, runs all three
+    // through the in-process digester, and broadcasts the lines it emits on
+    // DIGEST. It has no switch of its own ([P10]): the beat is deterministic
+    // and free, and the one knob in this subsystem gates the Observer's wakes,
+    // which are the only model cost.
+    // A StreamFeed: its channel, lag policy, and task come from
+    // `register_stream_feed` below.
+    // The one digester. The bridge is its only writer — it holds the single
+    // CODE_OUTPUT / CODE_INPUT / SHELL_OUTPUT tap ([P01]) — and the standing
+    // sentence reads the deque it fills rather than taking a tap of its own.
+    let digester: feeds::session_digest::SharedDigester = Default::default();
+    let digest_bridge =
+        feeds::digest_bridge::DigestBridge::new(feeds::digest_bridge::DigestBridgeConfig {
+            code_tx: code_output_feed.sender(),
+            submission_tx: code_submission_tx.clone(),
+            shell_tx: shell_output_feed.sender(),
+            digester: digester.clone(),
+        });
+    // The read side of the deck's mount-time tail: `list_digest_lines` answers
+    // from this deque, so the supervisor holds the same handle the bridge fills.
+    supervisor.set_digester(digester.clone());
 
     let supervisor = Arc::new(supervisor);
 
@@ -1621,10 +1639,10 @@ async fn main() {
     // self-describes its id, lag policy, and channel capacity, and the
     // router creates the channel and spawns the task.
     feed_router.register_stream_feed(Box::new(terminal_feed), cancel.clone());
-    // PULSE commentary lines fan out to every connected deck; the tail
-    // a reconnecting deck needs comes from the `list_pulse_lines`
+    // DIGEST lines fan out to every connected deck; the tail
+    // a reconnecting deck needs comes from the `list_digest_lines`
     // CONTROL read, not feed replay ([P09]).
-    feed_router.register_stream_feed(Box::new(pulse_bridge), cancel.clone());
+    feed_router.register_stream_feed(Box::new(digest_bridge), cancel.clone());
     // OVERVIEW posts fan out to every connected deck; the tail a reconnecting
     // deck needs comes from the `list_overview_posts` CONTROL read. This call's
     // return value is the only source of the OVERVIEW sender, so the Operator
@@ -1704,52 +1722,9 @@ async fn main() {
         }
     });
 
-    // Session synopsis — the SharedAgent's second tenant: one sentence per
-    // session saying what it is about, written to the session's ledger row and
-    // pushed to every surface showing it. Its own tap on CODE_OUTPUT, its own
-    // pacing, and no path back into anything — the digest and the sentence are
-    // the whole feature. Every missing precondition (no model, tenant off, an
-    // unresolvable session identity) ends the tick silently.
-    {
-        if let Some(bank) = bank_client.as_ref() {
-            shared_agent::carry_synopsis_tenant_forward(bank);
-        }
-        let synopsis_tenant: Arc<dyn Fn() -> bool + Send + Sync> = {
-            let bank = bank_client.clone();
-            Arc::new(move || {
-                shared_agent::tenant_enabled(bank.as_deref(), shared_agent::SYNOPSIS_KEY)
-            })
-        };
-        let identity = feeds::session_synopsis::SessionIdentity {
-            resolver: supervisor.session_resolver(),
-            project_dir: {
-                let ledger = Arc::clone(&ledger);
-                Arc::new(move |tug_id: &str| {
-                    ledger.get(tug_id).ok().flatten().map(|row| row.project_dir)
-                })
-            },
-            claude_projects_root: ledger.claude_projects_root().to_path_buf(),
-        };
-        let synopsis_config = feeds::session_synopsis::SessionSynopsisConfig {
-            code_tx: code_output_feed.sender(),
-            shell_tx: shell_output_feed.sender(),
-            submission_tx: code_submission_tx.clone(),
-            ledger: Some(Arc::clone(&ledger)),
-            control_tx: Some(client_action_tx.clone()),
-            tenant_enabled: synopsis_tenant,
-            shared_agent: feed_router.shared_agent.clone(),
-            identity,
-            clocks: feeds::session_synopsis::Clocks::default(),
-        };
-        let synopsis_cancel = cancel.clone();
-        tokio::spawn(async move {
-            feeds::session_synopsis::session_synopsis_task(synopsis_config, synopsis_cancel).await;
-        });
-    }
-
     feed_router.register_session_feed(&code_output_feed);
     // SHELL_OUTPUT — session-scoped exchange frames; the reconnect tail comes
-    // from the ledger CONTROL read, not feed replay (like PULSE).
+    // from the ledger CONTROL read, not feed replay (like DIGEST).
     feed_router.register_session_feed(&shell_output_feed);
     // REFS_OUTPUT — session-scoped result frames; like SHELL_OUTPUT, the
     // reconnect state comes from the ledger CONTROL read, not feed replay.

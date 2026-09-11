@@ -1069,7 +1069,7 @@ body {
   --tugx-term-ansi-bright-white:    --tug-color(white);
 
   /* ---- Activity feed channel hues ([P05]) ----
-   * The compact PULSE sparkline tints its line by the session's dominant
+   * The compact activity sparkline tints its line by the session's dominant
    * channel; each maps to a vetted ANSI term hue so it inherits this
    * theme's accessibility budget. */
   --activity-text:      var(--tugx-term-ansi-bright-blue);

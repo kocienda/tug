@@ -2246,7 +2246,8 @@ function streamingUsageFrame(
 // Tool-input progress — derived from the streaming `input_json_delta`
 // fragments claude emits while assembling a tool's argument JSON. tugcode's
 // reducer otherwise waits for the terminal `tool_use` (assembled input); these
-// fragments let the pulse strip narrate a long Write as it happens.
+// fragments let tugcast's session digester (`feeds/session_digest.rs`) narrate
+// a long Write as it happens.
 //
 // `parseToolInputProgress` is pure and unit-tested: given the partial argument
 // JSON accumulated so far, it returns a best-effort progress summary. While the

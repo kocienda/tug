@@ -22,20 +22,53 @@
  * **During a turn this line is not used at all** — the live beat replaces it,
  * with its own dwell pacing and middle truncation. This is the rest form only.
  *
- * Not `resting-line.ts`, which composes a different sentence (`Completed at …`)
- * for its own callers and stays as it is. This module borrows that module's
- * stamp formatter and the picker's byte formatter rather than re-deriving
- * either: two surfaces spelling one number two ways is the failure the shared
- * formatters exist to prevent.
+ * This module owns the wall stamp ({@link formatRestingStamp}) and the
+ * turn-end marker ({@link TURN_DONE_MARKER}) as well as the sentence, and it
+ * is the one module that recognizes either. It borrows the picker's byte
+ * formatter rather than re-deriving it: two surfaces spelling one number two
+ * ways is the failure the shared formatters exist to prevent.
  *
  * @module lib/session-activity-line
  */
 
 import { formatByteSize } from "@/components/tugways/cards/session-picker-format";
-import {
-  formatRestingStamp,
-  TURN_DONE_MARKER,
-} from "@/lib/pulse-line/resting-line";
+
+/**
+ * The turn-end beat, verbatim as the digester emits it
+ * (`feeds/session_digest.rs`'s `on_turn_end`). Recognized here rather than
+ * rewritten upstream: the marker is what the ledger, the history popover, and
+ * a copied line carry, and only the row's reading of it changes.
+ */
+export const TURN_DONE_MARKER = "Done";
+
+/**
+ * Wall stamp for a session's line: `Jun 17, 6:11 AM`. Locale-formatted, so a
+ * 24-hour locale gets its own clock and a locale that writes the day first
+ * gets that.
+ *
+ * The day and the clock are formatted separately and joined here rather than
+ * asked for in one call: a single `toLocaleString` for both writes its own
+ * connective — `Jun 17 at 6:11 AM` — which reads as a second preposition
+ * inside a sentence that already supplies one.
+ *
+ * The DAY is always there, never dropped for a timestamp that happens to be
+ * today's. A rail of rows is read by comparing them to each other, and a
+ * column where some rows carry a day and some do not is a column the eye has
+ * to sort before it can compare — and the one row that stayed short is
+ * exactly the one whose day the reader then has to infer.
+ */
+export function formatRestingStamp(atMs: number): string {
+  const at = new Date(atMs);
+  const day = at.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  const clock = at.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${day}, ${clock}`;
+}
 
 /** The facts the rest line is made of — a `SessionRow`'s, or a fixture's. */
 export interface SessionActivityFacts {
@@ -82,8 +115,8 @@ export function sessionActivityRestLine(facts: SessionActivityFacts): string {
  * A beat worth putting on the activity line, or `null`.
  *
  * There is exactly one line the voice emits that is not news: the bare
- * turn-end marker `Done` ({@link TURN_DONE_MARKER}, written by the voice's
- * `onTurnEnd`). It is a fine wire marker and a poor thing to read off a row —
+ * turn-end marker `Done` ({@link TURN_DONE_MARKER}, written by the digester's
+ * `on_turn_end`). It is a fine wire marker and a poor thing to read off a row —
  * it says a run ended and nothing about when, and it sits there unchanged for
  * however long the session then stays quiet. It is also, precisely, the state
  * the REST SENTENCE describes, which says the same thing with the facts in it
@@ -91,7 +124,7 @@ export function sessionActivityRestLine(facts: SessionActivityFacts): string {
  *
  * So the marker is not shown, and the surfaces that show a beat call this on
  * the way in. Recognized here rather than suppressed upstream: the marker is
- * what the ledger, the recent-pulses popover, and a copied line carry, and
+ * what the beat-history popover and a copied line carry, and
  * only this reading changes.
  */
 export function sessionActivityBeat<T extends { text: string }>(

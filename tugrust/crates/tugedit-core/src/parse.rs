@@ -867,11 +867,11 @@ mod tests {
     fn the_multi_pair_edit_with_a_body_replacement_parses() {
         let ops = ops(concat!(
             "file tugdeck/src/main.tsx\n",
-            "  replace 'import { attachPulseStore } from \"./lib/pulse-store\";' with <<\n",
-            "import { attachPulseStore } from \"./lib/pulse-store\";\n",
+            "  replace 'import { attachDigestStore } from \"./lib/digest-store\";' with <<\n",
+            "import { attachDigestStore } from \"./lib/digest-store\";\n",
             "import { attachLocalModelStore } from \"./lib/local-model-store\";\n",
             ">>\n",
-            "  after 'attachPulseStore(connection);' insert indented <<\n",
+            "  after 'attachDigestStore(connection);' insert indented <<\n",
             "\n",
             "attachLocalModelStore(connection);\n",
             ">>\n",
@@ -882,7 +882,7 @@ mod tests {
                 assert_eq!(
                     with,
                     &Text::Body(vec![
-                        "import { attachPulseStore } from \"./lib/pulse-store\";".into(),
+                        "import { attachDigestStore } from \"./lib/digest-store\";".into(),
                         "import { attachLocalModelStore } from \"./lib/local-model-store\";".into(),
                     ])
                 );
@@ -898,7 +898,7 @@ mod tests {
                 body,
             } => {
                 assert!(
-                    matches!(anchor, Addr::Literal(l, None) if l == "attachPulseStore(connection);")
+                    matches!(anchor, Addr::Literal(l, None) if l == "attachDigestStore(connection);")
                 );
                 assert_eq!(*side, Side::After);
                 assert!(indented);

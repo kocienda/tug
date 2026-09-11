@@ -356,23 +356,6 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 broadcast_auth_result(cat, state, None);
             });
         }
-        // The session description, asked on demand against a digest the caller
-        // supplies — the same seam and the same normalization the feed uses on
-        // its own cadence.
-        "shared_agent_synopsis" => {
-            let cat = stream_outputs
-                .get(&FeedId::CONTROL)
-                .map(|(tx, _)| tx.clone());
-            let prompt = serde_json::from_slice::<serde_json::Value>(raw_payload)
-                .ok()
-                .and_then(|v| v.get("prompt")?.as_str().map(str::to_owned));
-            match prompt {
-                Some(prompt) => {
-                    crate::shared_agent::request_synopsis(shared_agent.clone(), cat, prompt)
-                }
-                None => info!(action, "dispatch_action: synopsis missing prompt"),
-            }
-        }
         "shared_agent_classify" => {
             let cat = stream_outputs
                 .get(&FeedId::CONTROL)

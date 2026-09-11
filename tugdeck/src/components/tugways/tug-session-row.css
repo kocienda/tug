@@ -2,7 +2,7 @@
  * tug-session-row.css — the session row's packing.
  *
  * The row's TYPE is mostly not here. The title is a `TugLabel` at the row
- * title's size, the activity run is `tug-pulse.css`'s, and the row's padding,
+ * title's size, the activity run is `tug-activity-line.css`'s, and the row's padding,
  * hover, selection, and divider are `tug-list-row.css`'s. What is here is the
  * one thing this component owns: WHERE THE WIDTH GOES — which line each piece
  * of furniture rides and what it costs the text beside it — plus the
@@ -16,19 +16,19 @@
  *  - [L19] component authoring guide — file pair, docstring,
  *    `data-slot="tug-session-row"`.
  *  - [L20] token sovereignty — owns `--tugx-session-row-*`. It declares
- *    `TugPulse`'s geometry knobs on the pulse's OWN element — the stacked
+ *    `TugActivityLine`'s geometry knobs on the line's OWN element — the stacked
  *    layout's tape lift and trailing reserve — which is that component's
  *    documented mount-site override, and reaches into no other component's
  *    internals.
  */
 
 body {
-  /* Air between the row's lines — the name line to the PULSE. The PULSE's own
-     internal leading is baseline-to-baseline and lives in `tug-pulse.css`;
+  /* Air between the row's lines — the name line to the beat. The beat's own
+     internal leading is baseline-to-baseline and lives in `tug-activity-line.css`;
      this is only the step into it. TUNE HERE for row density.
 
      It is the row's height as well as its air: the lines are a content-sized
-     column, so whatever this gives up the row gives up with it. The PULSE
+     column, so whatever this gives up the row gives up with it. The beat
      belongs to the name above it — it reports on that session and nothing
      else — and the gap that made it read as a separate paragraph was buying
      that separation with two pixels off every row in the rail. */
@@ -37,7 +37,7 @@ body {
      furniture past it. */
   --tugx-session-row-name-gap: 8px;
   /* How far the row's whole leading reading — the indicator, the name, and
-     both PULSE runs under them — stands off the row's own leading edge. TUNE
+     both beat runs under them — stands off the row's own leading edge. TUNE
      HERE, per mount.
 
      AIR, and only air. It used to be air plus whatever part of the dot's
@@ -61,24 +61,24 @@ body {
      this advance into the row's block padding. Raise it only if a ring is
      visibly clipping something. */
   --tugx-session-row-dot-advance: 20px;
-  /* How far the PULSE's lines start inside the row's own leading edge, in the
+  /* How far the beat's lines start inside the row's own leading edge, in the
      fits where the indicator rides the name line. TUNE HERE.
 
      The top line sets the margin. With the dot on the name line, the row's
      leading edge is where the dot's BOX starts — and the dot itself is a small
      disc centered in a much larger ring of breath, so its ink begins several
-     pixels in. PULSE lines flush to that edge therefore start left of the
+     pixels in. beat lines flush to that edge therefore start left of the
      first mark above them and read as hanging outside the margin the row just
      set. This is the correction, and it is deliberately smaller than the
      dot's whole advance: aligning the lines to the NAME would indent the
      reading by a fifth of a rail-width row, which the activity run cannot
      afford. Set to 0 for the old flush edge. */
-  --tugx-session-row-pulse-inset: 8px;
+  --tugx-session-row-beat-inset: 8px;
   /* How far the row's trailing furniture stands off the row's own trailing
-     edge — the slot picker on the name line, and the PULSE's tape below it.
+     edge — the slot picker on the name line, and the beat's tape below it.
      TUNE HERE.
 
-     The mirror of `--tugx-session-row-pulse-inset`, and the same argument on
+     The mirror of `--tugx-session-row-beat-inset`, and the same argument on
      the far side: the row's inline padding is a margin for TYPE, and neither
      of these is type. The slot is a pressable box that draws a focus ring
      OUTSIDE its own edge, so a slot flush to the padding line puts the ring on
@@ -90,11 +90,11 @@ body {
      Positive raises it, negative drops it; a transform, so no baseline, line
      box, or row height moves with it — only the tape.
 
-     The row's own name for `TugPulse`'s `--tugx-pulse-stacked-trailing-rise`,
-     declared on the row's pulse element below (that component's documented
+     The row's own name for `TugActivityLine`'s `--tugx-activity-line-stacked-trailing-rise`,
+     declared on the row's activity-line element below (that component's documented
      mount-site override). The knob is aliased rather than reached for so the
      row's tuning numbers read together here, and so tuning the rail
-     cannot move a tape on some other stacked mount.
+     cannot move a tape on some other mount.
 
      This is the TWO-line value — a nudge off the line it rides. The
      three-level stack derives its own from the pair it must center on; see
@@ -430,8 +430,8 @@ body {
    padding rather than a margin so the trailing accessory keeps the row's own
    far edge: the tape is pinned to the end of the line, and only the start of
    the reading moves. */
-.tug-session-row[data-fit="inset"] .tug-pulse {
-  padding-inline-start: var(--tugx-session-row-pulse-inset);
+.tug-session-row[data-fit="inset"] .tug-activity-line {
+  padding-inline-start: var(--tugx-session-row-beat-inset);
 }
 
 /* On the three-level stack the activity joins the indented group instead, so
@@ -439,15 +439,15 @@ body {
    After the fit rule deliberately — the two carry the same specificity, so
    source order is what decides, and the stack's indent is the more specific
    intent. */
-.tug-session-row:has(.tug-session-row-description) .tug-pulse {
+.tug-session-row:has(.tug-session-row-description) .tug-activity-line {
   padding-inline-start: var(--tugx-session-identity-row-indent, 10px);
 }
 
 /* The activity's TYPE on the three-level stack, stated once for every mount
    that wears it — the masthead, the picker's rows, and the rail.
 
-   `TugPulse`'s own presets set the run in the CONDENSED face, which is right
-   where the PULSE is a bar of its own: a tool call is a machine string in a
+   `TugActivityLine`'s own knobs set the run in the CONDENSED face, which is right
+   where the beat is a bar of its own: a tool call is a machine string in a
    place where width is the scarce resource. It is wrong here. On this stack the
    activity is the third line of a paragraph whose other two lines are ambient
    sans — the same voice one size down is what makes them read as one entry, and
@@ -455,16 +455,16 @@ body {
    somewhere else. So the stack sets the ambient face at the row size below the
    description's, which is the gallery's rows section exactly.
 
-   Declared on the pulse's own element ([L20]'s documented mount-site override),
-   and after the preset rules in the cascade by specificity, not by order. */
-.tug-session-row:has(.tug-session-row-description) .tug-pulse {
-  --tugx-pulse-activity-font: var(--tug-font-family-sans);
-  --tugx-pulse-activity-size: var(--tug-font-size-xs);
-  --tugx-pulse-activity-weight: var(--tug-font-weight-regular);
+   Declared on the line's own element ([L20]'s documented mount-site override),
+   which beats the component's own `body` declarations. */
+.tug-session-row:has(.tug-session-row-description) .tug-activity-line {
+  --tugx-activity-line-activity-font: var(--tug-font-family-sans);
+  --tugx-activity-line-activity-size: var(--tug-font-size-xs);
+  --tugx-activity-line-activity-weight: var(--tug-font-weight-regular);
 }
 
-/* Two numbers handed to `TugPulse` under the row's own names — the tape's
-   lift and what the lines must stop short of. Declared on the pulse's own
+/* Two numbers handed to `TugActivityLine` under the row's own names — the tape's
+   lift and what the lines must stop short of. Declared on the line's own
    element, which is that component's documented mount-site override.
 
    The reserve is the tape's own advance plus the gap it keeps from the run
@@ -472,19 +472,19 @@ body {
    `--tugx-session-row-spark-reserve` (0 on a mount that draws no tape), so the
    activity stops on a vertical a clear few pixels off the tape rather than
    running under a graph it cannot be read through. */
-.tug-session-row .tug-pulse[data-layout="stacked"] {
-  --tugx-pulse-stacked-trailing-rise: var(--tugx-session-row-spark-rise);
-  --tugx-pulse-stacked-trailing-reserve: var(--tugx-session-row-spark-reserve);
+.tug-session-row .tug-activity-line {
+  --tugx-activity-line-stacked-trailing-rise: var(--tugx-session-row-spark-rise);
+  --tugx-activity-line-stacked-trailing-reserve: var(--tugx-session-row-spark-reserve);
 }
 
 /* The tape keeps its declared width whatever the run beside it wants.
-   `.tug-pulse-trailing` is already `flex: 0 0 auto`, but the tape INSIDE it is
+   `.tug-activity-line-trailing` is already `flex: 0 0 auto`, but the tape INSIDE it is
    a flex item of its own and would take the shrink instead — a graph drawn at
    one width and laid out at another is a graph that lies about its scale.
 
    Here rather than at a mount site: it was a Cards card-only class on a Cards card-only
    copy of the tape, and the masthead's copy was left to be correct by accident
    of sitting inside a button. */
-.tug-session-row .tug-pulse-trailing .tug-sparkline {
+.tug-session-row .tug-activity-line-trailing .tug-sparkline {
   flex-shrink: 0;
 }

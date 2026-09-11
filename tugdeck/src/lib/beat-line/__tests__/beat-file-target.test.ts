@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { parseBeatFileTarget } from "@/lib/pulse-line/beat-file-target";
+import { parseBeatFileTarget } from "@/lib/beat-line/beat-file-target";
 
 describe("parseBeatFileTarget", () => {
   test("a bare file beat splits verb / path / empty tail", () => {
@@ -42,9 +42,9 @@ describe("parseBeatFileTarget", () => {
   });
 
   test("the streaming ellipsis is a suffix, not part of the path", () => {
-    expect(parseBeatFileTarget("Editing tug-pulse.css…")).toEqual({
+    expect(parseBeatFileTarget("Editing tug-activity-line.css…")).toEqual({
       head: "Editing ",
-      path: "tug-pulse.css",
+      path: "tug-activity-line.css",
       tail: "…",
     });
   });

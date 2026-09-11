@@ -1,7 +1,7 @@
 //! Aggregate changeset feed — the account-global view of every open
 //! project's dirty state (CHANGESET_ALL, 0x24).
 //!
-//! One process-level feed (delivered like USAGE/PULSE, registered once in
+//! One process-level feed (delivered like USAGE/DIGEST, registered once in
 //! `main.rs`, fanned out to every deck), replacing the per-workspace
 //! `ChangesetFeed`. On each recompute it enumerates the current
 //! `WorkspaceRegistry` entries (the open session cards + bootstrap) and composes

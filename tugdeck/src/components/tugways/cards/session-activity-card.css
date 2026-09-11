@@ -1,24 +1,24 @@
 /**
- * pulse-card.css — the expanded PULSE-strip popover ([P12]).
+ * session-activity-card.css — the expanded beat-strip popover ([P12]).
  *
  * Each metric is ONE visual block: a subtly tinted region (Gestalt common
  * region — the label can only belong to the line it shares a box with) whose
  * sparkline fills it edge to edge, with the label top-left and the live value
  * top-right in the channel's hue (the Tufte endpoint tie). All blocks are the
  * card's full content width on one alignment grid; a single uniform card
- * padding sets the only margins, so the PULSE title sets the left edge.
+ * padding sets the only margins, so the beat title sets the left edge.
  * Each color rule names its surface per [L16].
  *
- * @module components/tugways/cards/pulse-card
+ * @module components/tugways/cards/session-activity-card
  */
 
-.session-pulse-card {
+.session-activity-card {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-sm, 8px);
   padding: var(--tug-space-md, 12px);
   /* Width = the sparkline width + the card padding; the SPARK_WIDTH constant
-     in pulse-card.tsx is the single source of the content width. */
+     in session-activity-card.tsx is the single source of the content width. */
   width: max-content;
 }
 
@@ -26,7 +26,7 @@
  * endcap labels — `.session-telemetry-endcap-label`), so the popover reads as
  * part of the same apparatus it expands. */
 /* @tug-renders-on var(--tugx-popover-bg) */
-.session-pulse-card-title {
+.session-activity-card-title {
   font-family: var(--tug-font-family-mono);
   font-size: 0.5625rem;
   font-weight: var(--tug-font-weight-medium);
@@ -36,7 +36,7 @@
   margin-block-end: 2px;
 }
 
-.session-pulse-card-rows {
+.session-activity-card-rows {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-sm, 8px);
@@ -46,7 +46,7 @@
  * the graph flush to the block's bottom and side edges. The tint binds the
  * pair; the zoning guarantees the line never touches the text. */
 /* @tug-renders-on var(--tugx-popover-bg) */
-.session-pulse-card-row {
+.session-activity-card-row {
   display: flex;
   flex-direction: column;
   border-radius: var(--tug-radius-sm, 4px);
@@ -56,31 +56,31 @@
 
 /* The value inherits its channel's hue — the color that ties the number to
  * its line ([Tufte]). `--row-accent` is set per channel below. */
-.session-pulse-card-row[data-activity-channel="text"] {
+.session-activity-card-row[data-activity-channel="text"] {
   --row-accent: var(--activity-text);
 }
-.session-pulse-card-row[data-activity-channel="tokens"] {
+.session-activity-card-row[data-activity-channel="tokens"] {
   --row-accent: var(--activity-tokens);
 }
-.session-pulse-card-row[data-activity-channel="tools"] {
+.session-activity-card-row[data-activity-channel="tools"] {
   --row-accent: var(--activity-tools);
 }
-.session-pulse-card-row[data-activity-channel="subagents"] {
+.session-activity-card-row[data-activity-channel="subagents"] {
   --row-accent: var(--activity-subagents);
 }
-.session-pulse-card-row[data-activity-channel="cpu"] {
+.session-activity-card-row[data-activity-channel="cpu"] {
   --row-accent: var(--activity-cpu);
 }
-.session-pulse-card-row[data-activity-channel="disk"] {
+.session-activity-card-row[data-activity-channel="disk"] {
   --row-accent: var(--activity-disk);
 }
 
-.session-pulse-card-spark {
+.session-activity-card-spark {
   display: block;
 }
 
 /* The head band: its own zone above the graph, inside the same block. */
-.session-pulse-card-row-head {
+.session-activity-card-row-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -90,7 +90,7 @@
 /* Row labels wear the Z2 instrument-legend style verbatim
  * (`.session-telemetry-endcap-label`): mono face, letterspaced small caps. */
 /* @tug-renders-on var(--tugx-popover-bg) */
-.session-pulse-card-label {
+.session-activity-card-label {
   font-family: var(--tug-font-family-mono);
   font-size: 0.5625rem;
   font-weight: var(--tug-font-weight-medium);
@@ -107,7 +107,7 @@
  * channel's hue (the Tufte endpoint tie). The label↔value size relationship
  * is Z2's own, so the pair reads as the same instrument. */
 /* @tug-renders-on var(--tugx-popover-bg) */
-.session-pulse-card-value {
+.session-activity-card-value {
   font-size: 0.8125rem;
   font-weight: var(--tug-font-weight-bold);
   font-variant-numeric: tabular-nums;
@@ -117,7 +117,7 @@
 
 /* The resting state: a dimmed zero in the channel's unit — the hue and
  * weight light up only when there's signal to tie the color to. */
-.session-pulse-card-value[data-idle="true"] {
+.session-activity-card-value[data-idle="true"] {
   font-weight: 400;
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
@@ -125,7 +125,7 @@
 /* The line reads clean over the tinted block; the area fill stays quiet
  * context so a flat gauge never reads as a solid slab ([Tufte data-ink]).
  * Scoped to the card — the compact strip keeps its own weight. */
-.session-pulse-card-spark {
+.session-activity-card-spark {
   --tugx-sparkline-area-alpha: 0.1;
   --tugx-sparkline-line-alpha: 1;
   --tugx-sparkline-line-width: 1.25;

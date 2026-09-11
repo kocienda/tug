@@ -70,7 +70,7 @@ import {
   type CodeSessionState,
 } from "./code-session-store/reducer";
 import { logSessionLifecycle } from "./session-lifecycle-log";
-import { getPulseStore } from "./pulse-store";
+import { getDigestStore } from "./digest-store";
 import {
   clearCachedParses,
   invalidateCachedParsesByPrefix,
@@ -884,11 +884,11 @@ export class CodeSessionStore {
    */
   send(text: string, atoms: AtomSegment[], opts?: { suppress?: boolean }): void {
     if (this._disposed) return;
-    // A fresh submission makes prior PULSE commentary stale for this
+    // A fresh submission makes prior digest lines stale for this
     // card — clear its strip; the new turn's lines repopulate it.
     // Suppressed (programmatic) sends are not user submissions.
     if (opts?.suppress !== true) {
-      getPulseStore()?.clearScope(this.tugSessionId);
+      getDigestStore()?.clearScope(this.tugSessionId);
     }
     // Staged shell / `/btw` context rides an ordinary user submission — [P08]
     // "Claude never sees a shell exchange implicitly" made on-demand. The

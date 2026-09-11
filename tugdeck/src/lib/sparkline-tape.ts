@@ -108,7 +108,7 @@ export const SETTLE_TICKS = 2;
  * tape has really left the screen. Re-entry cancels the wait outright.
  *
  * The flapping is real and constant on the rail: rows change height on
- * every pulse beat (a `ResizeObserver` on the sparkline's own parent rewrites
+ * every beat (a `ResizeObserver` on the sparkline's own parent rewrites
  * the middle-truncated activity run) and the Cards section re-sorts by
  * activity, so a row near the clip edge crosses the intersection boundary
  * repeatedly while nothing about it has actually changed.
@@ -381,7 +381,7 @@ export class SparklineTape {
     this.epochOrigin = originMs;
     this.committed = this.proposedT0(originMs);
     // Stamp the tint once at mount, dormancy-independent: a born-idle tape
-    // never runs the sampler, and a fixed-hue row (the Pulse card) must not
+    // never runs the sampler, and a fixed-hue row (the Activity card) must not
     // sit untinted until its first wake. Not an activity signal —
     // `stampedChannel` is pre-set so the first append sees no change.
     if (this.opts.getColorChannel !== undefined) {
@@ -795,7 +795,7 @@ export class SparklineTape {
     if (channel === this.stampedChannel) return;
     // A dominant-channel CHANGE is on-screen change — the tint is about to
     // move, so it holds the scroll alive like any drawn change. A steady
-    // return is not: a fixed-hue consumer (the Pulse card rows) is always
+    // return is not: a fixed-hue consumer (the Activity card rows) is always
     // non-null, and treating that as change would lock those tapes out of
     // dormancy forever.
     this.lastChangeAt = now;

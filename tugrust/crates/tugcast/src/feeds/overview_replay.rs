@@ -10,8 +10,9 @@
 //! ## What makes it trustworthy
 //!
 //! It runs the **production** wake core. Segmentation is
-//! [`observer_wake::FrameBuffer`] under the real caps, the tap is
-//! [`observer_wake::forwardable_session`], the input is
+//! [`session_digest::SessionDigest`] under the real caps, the lines in it are
+//! [`session_digest::SessionDigester`]'s, the tap is
+//! [`session_digest::forwardable_session`], the input is
 //! [`observer_wake::compose_observer_input`], the job is the real
 //! `observer-post` with the real instructions, and refs are validated by the
 //! real [`observer_wake::validate_refs`]. Nothing here re-implements a
@@ -29,13 +30,16 @@
 //!   block, a tool call, its result, and a user prompt all survive it exactly;
 //!   the streaming-only types (`tool_input_progress`, `api_retry`,
 //!   `wake_started`) never appear because the transcript never recorded them.
-//!   Those types carry little narratable content, so their absence changes the
-//!   volume of a window more than its meaning.
+//!   That matters more than it did when a window was raw payloads: a file
+//!   tool's beat is its `tool_input_progress` line ("Read foo.rs…"), and the
+//!   settled `tool_use` defers to it, so a replayed window names fewer of the
+//!   paths a live one would. What came back is unaffected — every
+//!   `tool_result` with output leaves its own line.
 //!
-//! Frame payloads are **not** truncated on the way in. A single enormous
-//! `tool_result` will dominate a window here exactly as it would live, since
-//! the byte cap keeps one frame no matter its size — surfacing that is more
-//! useful than papering over it, so every window reports its byte count.
+//! Lines are clipped exactly as they are live — the digester's own budgets,
+//! not the harness's — and the byte cap keeps one line no matter its size, so
+//! a single enormous result dominates a window here exactly as it would live.
+//! Every window reports its byte count.
 //!
 //! ## Why it lives on the tugcast binary
 //!
@@ -53,11 +57,13 @@ use serde::Deserialize;
 use crate::cli::OverviewReplayArgs;
 
 use super::observer_wake::{
-    FactLine, FrameBuffer, PriorPost, WakeReason, compose_observer_input,
-    counts_as_assistant_activity, forwardable_session, parse_envelope, render_facts_section,
-    validate_refs,
+    FactLine, PriorPost, WakeReason, compose_observer_input, counts_as_assistant_activity,
+    parse_envelope, render_facts_section, validate_refs,
 };
 use super::overview_agent::{BUFFER_MAX_BYTES, DEFAULT_MODEL};
+use super::session_digest::{
+    DigestKind, DigestLine, SessionDigest, SessionDigester, forwardable_session,
+};
 
 // MARK: - Options
 
@@ -398,7 +404,13 @@ pub fn translate_transcript(jsonl: &str) -> Vec<ReplayFrame> {
                 payload: frame_payload(
                     &session_id,
                     "user_message",
-                    serde_json::json!({ "text": prompt }),
+                    // The live CODE_INPUT frame carries the prompt under
+                    // `content`, as blocks. The digester reads that field, so a
+                    // reconstruction spelling it any other way would hand the
+                    // harness a prompt the bridge would not have narrated.
+                    serde_json::json!({
+                        "content": [{ "type": "text", "text": prompt }]
+                    }),
                 ),
                 via_tap: false,
                 tokens: 0,
@@ -552,7 +564,11 @@ pub struct WakeWindow {
 /// buffer was empty would wake on an idle session, and silence is not news.
 pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWindow> {
     let mut windows = Vec::new();
-    let mut buffer = FrameBuffer::new(opts.max_frames, BUFFER_MAX_BYTES);
+    let mut buffer = SessionDigest::new(opts.max_frames, BUFFER_MAX_BYTES);
+    // The production digester, run here exactly as the bridge runs it: the
+    // window a wake is shown is digest lines, so a harness segmenting raw
+    // payloads would be reporting a window nothing ships.
+    let mut digester = SessionDigester::new();
     let mut muted: HashSet<String> = HashSet::new();
     let mut armed_at: Option<i64> = None;
     let mut tokens_since: i64 = 0;
@@ -564,7 +580,7 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
     /// window off: the buffer starts accumulating the next stretch
     /// immediately, and the timer disarms until something new arrives.
     fn wake(
-        buffer: &mut FrameBuffer,
+        buffer: &mut SessionDigest,
         windows: &mut Vec<WakeWindow>,
         armed_at: &mut Option<i64>,
         tokens_since: &mut i64,
@@ -606,15 +622,37 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
             );
         }
 
-        if frame.via_tap && forwardable_session(frame.payload.as_bytes(), &mut muted).is_none() {
-            continue;
-        }
+        let tapped_session = if frame.via_tap {
+            match forwardable_session(frame.payload.as_bytes(), &mut muted) {
+                Some(session) => Some(session),
+                None => continue,
+            }
+        } else {
+            None
+        };
         if session_id.is_empty()
             && let Ok(v) = serde_json::from_str::<serde_json::Value>(&frame.payload)
             && let Some(id) = v.get("tug_session_id").and_then(|s| s.as_str())
         {
             session_id = id.to_string();
         }
+        // One frame, one line — or none. An allowlisted type the digester
+        // narrates nothing for (an `error`, a `task_started`) leaves the
+        // window untouched, which is the same thing it does live.
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&frame.payload) else {
+            continue;
+        };
+        let digested = match &tapped_session {
+            Some(session) => {
+                digester.line_for_code_frame(session, &value, frame.at_ms.max(0) as u64)
+            }
+            None => digester
+                .line_for_submission(&value, frame.at_ms.max(0) as u64)
+                .map(|(_, digested)| digested),
+        };
+        let Some(digested) = digested.filter(|d| d.record) else {
+            continue;
+        };
 
         if buffer.is_empty() {
             armed_at = Some(frame.at_ms);
@@ -627,7 +665,7 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
         if frame.via_tap && counts_as_assistant_activity(&frame.msg_type) {
             assistant_activity = true;
         }
-        buffer.push(&frame.payload);
+        buffer.push(digested.line);
         tokens_since += frame.tokens;
 
         if frame.msg_type == "turn_complete" || frame.msg_type == "turn_cancelled" {
@@ -858,9 +896,15 @@ fn print_post(
 
 /// Rebuild a buffer holding this window's text so composition runs through the
 /// same code path the bridge uses.
-fn window_buffer(window: &WakeWindow) -> FrameBuffer {
-    let mut buffer = FrameBuffer::new(usize::MAX, usize::MAX);
-    buffer.push(window.rendered.trim_end());
+fn window_buffer(window: &WakeWindow) -> SessionDigest {
+    let mut buffer = SessionDigest::new(usize::MAX, usize::MAX);
+    buffer.push(DigestLine {
+        text: window.rendered.trim_end().to_string(),
+        at_ms: window.at_ms.max(0) as u64,
+        beat: 0,
+        kind: DigestKind::Said,
+        supersede_key: None,
+    });
     buffer
 }
 

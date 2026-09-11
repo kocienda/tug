@@ -550,7 +550,7 @@ interface FocusModeEntry extends FocusMode {
    * act dispatch: a Space that lands on the popover's own (non-interactive)
    * chrome runs {@link FocusModeEntry.onEscapeDismiss}, while a Space on an
    * interactive control inside keeps its native press / select. Set only by
-   * info popovers (Z2 cells, PULSE, the route report); unset for modal confirm
+   * info popovers (Z2 cells, the beat, the route report); unset for modal confirm
    * popovers, menus, and pickers, whose Space belongs to their content.
    */
   spaceDismisses?: boolean;

@@ -154,11 +154,11 @@ files tugrust/crates/tugarc-core/src/ops.rs tugrust/crates/tugarc-core/src/repla
 
 # the multi-pair edit with guards (python3 heredoc with s.count(a) == 1)
 file tugdeck/src/main.tsx
-  replace 'import { attachPulseStore } from "./lib/pulse-store";' with <<
-import { attachPulseStore } from "./lib/pulse-store";
+  replace 'import { attachDigestStore } from "./lib/digest-store";' with <<
+import { attachDigestStore } from "./lib/digest-store";
 import { attachLocalModelStore } from "./lib/local-model-store";
 >>
-  after 'attachPulseStore(connection);' insert indented <<
+  after 'attachDigestStore(connection);' insert indented <<
 
 attachLocalModelStore(connection);
 >>

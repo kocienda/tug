@@ -1,5 +1,5 @@
 /**
- * renderPulseLine — through the REAL pipeline: tugmark WASM parse,
+ * renderBeatLine — through the REAL pipeline: tugmark WASM parse,
  * DOMPurify sanitize, and the actual KaTeX engine. Fixtures include
  * the exact live-session lines that broke every previous approach,
  * plus a deterministic fuzz pass enforcing the total-function
@@ -14,7 +14,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 
 import { initSync } from "../../../../crates/tugmark-wasm/pkg/tugmark_wasm.js";
 import { loadKaTeX } from "@/lib/lazy/load-katex";
-import { renderPulseLine, escapeHtml } from "../render-pulse-line";
+import { renderBeatLine, escapeHtml } from "../render-beat-line";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dir = dirname(__filename);
@@ -30,9 +30,9 @@ beforeAll(async () => {
   await loadKaTeX();
 });
 
-describe("renderPulseLine — the lines that broke previous approaches", () => {
+describe("renderBeatLine — the lines that broke previous approaches", () => {
   test("label + display math typesets, no raw delimiters, no raw markers", () => {
-    const { html, pending } = renderPulseLine(
+    const { html, pending } = renderBeatLine(
       "**2. Gauss's Law for Magnetism** $$\\nabla \\cdot \\mathbf{B} = 0$$",
     );
     expect(pending).toBeNull();
@@ -43,7 +43,7 @@ describe("renderPulseLine — the lines that broke previous approaches", () => {
   });
 
   test("the Ampère line with subscripts and fractions", () => {
-    const { html } = renderPulseLine(
+    const { html } = renderBeatLine(
       "**4. Ampère–Maxwell Law** $$\\nabla \\times \\mathbf{B} = \\mu_0 \\mathbf{J} + \\mu_0 \\varepsilon_0 \\frac{\\partial \\mathbf{E}}{\\partial t}$$",
     );
     expect(html).toContain('class="katex"');
@@ -54,14 +54,14 @@ describe("renderPulseLine — the lines that broke previous approaches", () => {
   });
 
   test("inline math mid-prose", () => {
-    const { html } = renderPulseLine("So the field $E = mc^2$ holds everywhere.");
+    const { html } = renderBeatLine("So the field $E = mc^2$ holds everywhere.");
     expect(html).toContain('class="katex"');
     expect(html).not.toMatch(/\$E/);
     expect(html).toContain("holds everywhere.");
   });
 
   test("plain markdown renders: bold, italics, code", () => {
-    const { html } = renderPulseLine(
+    const { html } = renderBeatLine(
       "Reading **the devise skeleton** first, then `arc/pulse.md` gets *the fix*.",
     );
     expect(html).toContain("<strong>the devise skeleton</strong>");
@@ -70,25 +70,25 @@ describe("renderPulseLine — the lines that broke previous approaches", () => {
   });
 
   test("prose dollars are not math", () => {
-    const { html } = renderPulseLine("It costs $5 and $10 at the door.");
+    const { html } = renderBeatLine("It costs $5 and $10 at the door.");
     expect(html).not.toContain("katex");
     expect(html).toContain("$5 and $10");
   });
 
   test("malformed LaTeX renders KaTeX's inline error form, never throws", () => {
-    const { html } = renderPulseLine("broken math $$\\frac{$$ here");
+    const { html } = renderBeatLine("broken math $$\\frac{$$ here");
     expect(html.length).toBeGreaterThan(0);
     // Whatever KaTeX produced, the raw delimiters are gone.
     expect(html).not.toContain("$$");
   });
 
   test("turn markers and placeholders pass through as plain prose", () => {
-    expect(renderPulseLine("done").html).toContain("done");
-    expect(renderPulseLine("stopped").html).toContain("stopped");
+    expect(renderBeatLine("done").html).toContain("done");
+    expect(renderBeatLine("stopped").html).toContain("stopped");
   });
 
   test("dangerous markup is sanitized", () => {
-    const { html } = renderPulseLine(
+    const { html } = renderBeatLine(
       'evil <script>alert(1)</script> <img src=x onerror=alert(1)> prose',
     );
     expect(html).not.toContain("<script");
@@ -96,12 +96,12 @@ describe("renderPulseLine — the lines that broke previous approaches", () => {
   });
 
   test("empty and whitespace inputs return the plain-text signal", () => {
-    expect(renderPulseLine("").html).toBe("");
-    expect(renderPulseLine("   ").html).toBe("");
+    expect(renderBeatLine("").html).toBe("");
+    expect(renderBeatLine("   ").html).toBe("");
   });
 });
 
-describe("renderPulseLine — total-function fuzz", () => {
+describe("renderBeatLine — total-function fuzz", () => {
   test("never throws and never leaks unbalanced math on line noise", () => {
     // Deterministic LCG so failures reproduce.
     let seed = 0x2bad_cafe;
@@ -119,7 +119,7 @@ describe("renderPulseLine — total-function fuzz", () => {
         input += pieces[Math.floor(rand() * pieces.length)];
         if (rand() < 0.3) input += " ";
       }
-      const out = renderPulseLine(input);
+      const out = renderBeatLine(input);
       expect(typeof out.html).toBe("string");
       // Either rendered HTML or the explicit plain-text signal —
       // never an exception, never undefined.
@@ -152,7 +152,7 @@ describe("renderPulseLine — total-function fuzz", () => {
     for (const block of blocks) {
       for (let end = 25; end <= block.length + 24; end += 25) {
         const slice = block.slice(0, Math.min(end, block.length));
-        const out = renderPulseLine(slice);
+        const out = renderBeatLine(slice);
         expect(typeof out.html).toBe("string");
       }
     }

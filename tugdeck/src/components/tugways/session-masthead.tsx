@@ -24,8 +24,8 @@
  *
  * The pane owns the chrome SLOT and its geometry; this component owns what is
  * inside it and every store behind those lines. That split is what keeps
- * session-domain machinery — the PULSE feed, the activity series, the
- * `pulse/enabled` default, the telemetry the popover reports — out of pane
+ * session-domain machinery — the beat feed, the activity series, the
+ * retired `pulse/enabled` default, the telemetry the popover reports — out of pane
  * code while chrome stays the pane's ([L09]). The precedent is the Session
  * card mounting `TugPaneBanner`: pane-class furniture, session-class content
  * inside it.
@@ -49,7 +49,7 @@
  * The masthead never reflows. Every line truncates rather than wrapping, the
  * description line holds its place when empty, and the slot's height is a
  * fixed token — a chrome tier that changed height with its content would move
- * the card beneath it on every pulse.
+ * the card beneath it on every beat.
  *
  * The trailing widget opens the telemetry popover: branch, state, turns,
  * stamps, and the citation with a copy affordance. A popover is where the copy
@@ -62,7 +62,7 @@
  *       [L06] appearance via CSS/DOM, never React state;
  *       [L09] chrome is the pane's — the pane mounts this into a slot it owns;
  *       [L19] `.tsx`/`.css` pair with `data-slot`;
- *       [L20] `TugPulse` is composed through its published knobs only.
+ *       [L20] `TugActivityLine` is composed through its published knobs only.
  */
 
 import "./masthead-frame.css";
@@ -88,18 +88,18 @@ import {
   TugPopupListScroller,
   TugPopupListToneDot,
 } from "@/components/tugways/tug-popup-list";
-import { SessionPulseCard } from "@/components/tugways/cards/pulse-card";
+import { SessionActivityCard } from "@/components/tugways/cards/session-activity-card";
 import { useCopyableButton } from "@/components/tugways/use-copyable-text";
 import { BlockCopyButton } from "@/components/tugways/body-kinds/affordances";
 import { formatByteSize } from "@/components/tugways/cards/session-picker-format";
-import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
+import { BeatText } from "@/components/tugways/beat-text";
 import {
   annotationClaimsClick,
   useAnnotationClicks,
 } from "@/components/tugways/use-annotation-clicks";
-import { parseBeatFileTarget } from "@/lib/pulse-line/beat-file-target";
-import { renderPulseLine } from "@/lib/pulse-line/render-pulse-line";
-import { formatRestingStamp } from "@/lib/pulse-line/resting-line";
+import { parseBeatFileTarget } from "@/lib/beat-line/beat-file-target";
+import { renderBeatLine } from "@/lib/beat-line/render-beat-line";
+import { formatRestingStamp } from "@/lib/session-activity-line";
 import { useSessionPhase } from "@/lib/code-session-store/use-session-phase";
 import { SESSION_PHASE_LABELS } from "@/lib/code-session-store/session-phase-visual";
 import { useSessionCreatedAtMs } from "@/lib/session-created-at";
@@ -111,12 +111,13 @@ import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session
 import { cardServicesStore } from "@/lib/card-services-store";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { useSessionBranch } from "@/lib/changeset-all-store";
+import { useOverview } from "@/lib/overview-store";
 import {
-  groupPulseHistory,
+  groupBeatHistory,
   linesForScope,
-  usePulse,
-  type PulseLineEntry,
-} from "@/lib/pulse-store";
+  useDigest,
+  type DigestLineEntry,
+} from "@/lib/digest-store";
 import {
   sessionCitation,
   useSessionIdentity,
@@ -156,7 +157,7 @@ export interface SessionMastheadProps {
   /**
    * Whether the pane wearing this masthead is FOLDED ([P01], [P03]).
    *
-   * The one thing it changes is the activity line's register ([P09].3): a
+   * The one thing it changes is the activity line's register ([D185]): a
    * folded card is the masthead and nothing else, so the beat has two
    * lines and two facts to put on them. Everything else about the tier — its
    * extra height, the clamp that holds the beat at two lines — is CSS keyed
@@ -168,59 +169,65 @@ export interface SessionMastheadProps {
   folded?: boolean;
 }
 
-/** How many recent pulses the activity line's popover lists. */
-const PULSE_HISTORY_COUNT = 8;
+/** How many recent beats the activity line's popover lists. */
+const BEAT_HISTORY_COUNT = 8;
 
 /**
- * Raw-text form of a beat for the clipboard: `intent › text`. The history
- * popover's rows carry their group's intent, which is the level that survives
- * there; the masthead's own line copies the beat alone, since the standing goal
- * no longer rides the line beside it.
+ * Raw-text form of a beat for the clipboard: `heading › text`. The history
+ * popover's rows carry their group's heading — the Observer post they ran
+ * under — which is the level that survives there; the masthead's own line
+ * copies the beat alone.
  */
-function composeLineCopy(intent: string | undefined, text: string): string {
-  return intent !== undefined ? `${intent} › ${text}` : text;
+function composeLineCopy(heading: string | undefined, text: string): string {
+  return heading !== undefined ? `${heading} › ${text}` : text;
 }
 
 /**
- * The activity line's popover body: the recent pulses for this session, newest
- * first, GROUPED by intent so a retained goal heads its run of beats instead
- * of repeating on each row. An empty history reads as a quiet placeholder.
+ * The activity line's popover body: the recent beats for this session, newest
+ * first, GROUPED by Observer post ([B08]) so a written sentence heads the run
+ * of beats that happened under it instead of repeating on each row. An empty
+ * history reads as a quiet placeholder.
  */
-function SessionPulseHistory({
+function SessionBeatHistory({
   lines,
+  headings,
 }: {
-  lines: readonly PulseLineEntry[];
+  lines: readonly DigestLineEntry[];
+  headings: readonly { atMs: number; text: string }[];
 }): React.ReactElement {
-  const groups = React.useMemo(() => groupPulseHistory(lines), [lines]);
+  const groups = React.useMemo(
+    () => groupBeatHistory(lines, headings),
+    [lines, headings],
+  );
   // A beat's file reference is a live reference here too, not a picture of
   // one: the popover is portalled out of the masthead's tree, so the
   // delegated layer that services the line has to be mounted again on the
   // frame. No insert target — a popover is not a composer, and the kinds a
-  // pulse line carries open themselves.
+  // beat line carries open themselves.
   const frameRef = React.useRef<HTMLDivElement | null>(null);
   useAnnotationClicks(frameRef, {});
   return (
     <TugPopupListFrame
       ref={frameRef}
-      title="Recent pulses"
+      title="Recent beats"
       kind="item"
-      className="session-pulse-history"
-      data-slot="session-pulse-history"
+      className="session-beat-history"
+      data-slot="session-beat-history"
     >
       {groups.length === 0 ? (
-        <TugPopupListEmpty>No pulses yet.</TugPopupListEmpty>
+        <TugPopupListEmpty>No beats yet.</TugPopupListEmpty>
       ) : (
-        <TugPopupListScroller data-slot="session-pulse-history-body">
+        <TugPopupListScroller data-slot="session-beat-history-body">
           {groups.map((group) => (
-            <div className="session-pulse-history-group" key={group.beats[0].key}>
-              {group.intent !== undefined ? (
-                <SessionPulseHistoryIntent intent={group.intent} />
+            <div className="session-beat-history-group" key={group.beats[0].key}>
+              {group.heading !== undefined ? (
+                <SessionBeatHistoryHeading heading={group.heading} />
               ) : null}
               {group.beats.map((beat) => (
-                <SessionPulseHistoryBeat
+                <SessionBeatHistoryRow
                   key={beat.key}
                   text={beat.text}
-                  intent={group.intent}
+                  heading={group.heading}
                 />
               ))}
             </div>
@@ -231,18 +238,18 @@ function SessionPulseHistory({
   );
 }
 
-/** A group's intent heading — the goal in calm muted prose (emphasis
- *  flattened in CSS), shown once above its beats. */
-function SessionPulseHistoryIntent({
-  intent,
+/** A group's heading — the Observer's post in calm muted prose (emphasis
+ *  flattened in CSS), shown once above the beats that ran under it. */
+function SessionBeatHistoryHeading({
+  heading,
 }: {
-  intent: string;
+  heading: string;
 }): React.ReactElement {
-  const render = React.useMemo(() => renderPulseLine(intent), [intent]);
+  const render = React.useMemo(() => renderBeatLine(heading), [heading]);
   return (
-    <div className="session-pulse-history-intent">
+    <div className="session-beat-history-intent">
       {render.html.length === 0 ? (
-        <>{intent}</>
+        <>{heading}</>
       ) : (
         <span dangerouslySetInnerHTML={{ __html: render.html }} />
       )}
@@ -251,25 +258,25 @@ function SessionPulseHistoryIntent({
 }
 
 /** One beat row: a leading tone dot + the live action, the primary reading of
- *  the row. Right-click copies the raw `intent › beat`. */
-function SessionPulseHistoryBeat({
+ *  the row. Right-click copies the raw `heading › beat`. */
+function SessionBeatHistoryRow({
   text,
-  intent,
+  heading,
 }: {
   text: string;
-  intent?: string;
+  heading?: string;
 }): React.ReactElement {
   // The same split every beat surface makes: a file-tool beat wears its
   // target as a file reference; anything else takes the markdown pipeline.
   const fileBeat = React.useMemo(() => parseBeatFileTarget(text), [text]);
   const render = React.useMemo(
-    () => (fileBeat !== null ? null : renderPulseLine(text)),
+    () => (fileBeat !== null ? null : renderBeatLine(text)),
     [fileBeat, text],
   );
-  const copy = useCopyableButton(composeLineCopy(intent, text));
+  const copy = useCopyableButton(composeLineCopy(heading, text));
   const primary =
     fileBeat !== null ? (
-      <PulseBeatText text={text} />
+      <BeatText text={text} />
     ) : render === null || render.html.length === 0 ? (
       <>{text}</>
     ) : (
@@ -279,7 +286,7 @@ function SessionPulseHistoryBeat({
     <TugPopupListItem
       ref={copy.ref as React.Ref<HTMLDivElement>}
       onContextMenu={copy.onContextMenu}
-      className="session-pulse-history-beat"
+      className="session-beat-history-beat"
       indicator={<TugPopupListToneDot tone="default" />}
     >
       <TugPopupListItemText primary={primary} />
@@ -500,10 +507,11 @@ export function SessionMasthead({
     refreshedDirRef.current = projectDir;
     store.refresh(projectDir);
   }, [projectDir, ledger.status]);
-  const pulse = usePulse();
+  const digest = useDigest();
+  const overview = useOverview();
   const [historyOpen, setHistoryOpen] = React.useState(false);
   /*
-    The PULSE line's own DOM node, so the recent-pulses popover can anchor to
+    The beat line's own DOM node, so the beat-history popover can anchor to
     the run the reader is looking at. An ANCHOR rather than a trigger: the
     stage already carries a right-click copy and its own click toggle, and
     composing Radix's trigger onto an element with click choreography of its
@@ -513,7 +521,7 @@ export function SessionMasthead({
   const stageElRef = useRef<HTMLElement | null>(null);
 
   /*
-    The masthead's own delegated annotation layer. The pulse line's file
+    The masthead's own delegated annotation layer. The beat line's file
     reference is stamped exactly as a path in transcript prose is, and until
     this listener existed the chrome was the one place that stamp bought
     nothing: an underline and a hover that named a file, and no way to open it.
@@ -533,8 +541,22 @@ export function SessionMasthead({
   // project nothing has listed yet. The row above is what it reads — handed
   // over rather than looked up a second time.
   const createdAtMs = useSessionCreatedAtMs(cardId, row);
-  // The last few pulses for this session — shown in the activity line's popover.
-  const history = linesForScope(pulse.lines, sessionId, PULSE_HISTORY_COUNT);
+  // The last few beats for this session — shown in the activity line's popover.
+  const history = linesForScope(digest.lines, sessionId, BEAT_HISTORY_COUNT);
+  // …and the Observer posts they group under ([B08]). Newest-first, to match
+  // the lines, and filtered to this session's own — the channel also carries
+  // the user's questions and the Operator's answers, and neither is a heading
+  // for anything the session did.
+  const postHeadings = React.useMemo(
+    () =>
+      overview.posts
+        .filter(
+          (post) => post.author === "observer" && post.sessionId === sessionId,
+        )
+        .map((post) => ({ atMs: post.atMs, text: post.body }))
+        .reverse(),
+    [overview.posts, sessionId],
+  );
   // Right-click the SUMMARY panel's citation → Copy that flat string alone.
   // The row's own menu offers the atom's whole flavor set; this one writes
   // exactly the text the row it sits on is showing, which is that row's point.
@@ -586,8 +608,8 @@ export function SessionMasthead({
         // commands are exactly what that pipeline is for.
         pace
         markdown
-        activityClassName="session-masthead-pulse-text"
-        // The folded card's beat has two lines and two jobs ([P09].3):
+        activityClassName="session-masthead-beat-text"
+        // The folded card's beat has two lines and two jobs ([D185]):
         // the intent above, the action below, and a finished line at rest.
         // The open card's masthead reads in the one-line register, where the
         // transcript underneath is already saying what the session is for.
@@ -629,13 +651,13 @@ export function SessionMasthead({
                 tabIndex={-1}
                 data-tug-focus="refuse"
                 data-no-activate=""
-                aria-label="Session pulse detail"
+                aria-label="Session beat detail"
               >
                 {tape}
               </button>
             </TugPopoverTrigger>
             <TugPopoverContent side="bottom" align="end" sideOffset={8} arrow>
-              <SessionPulseCard session={sessionId} />
+              <SessionActivityCard session={sessionId} />
             </TugPopoverContent>
           </TugPopover>
         )}
@@ -654,8 +676,8 @@ export function SessionMasthead({
       {copyCitation.contextMenu}
 
       {/*
-        The recent-pulses history, anchored on the line it is the history OF.
-        This used to hang off the `PULSE` pill, and the pill is now a
+        The beat-history history, anchored on the line it is the history OF.
+        This used to hang off the retired `PULSE` pill, and the pill is now a
         placeholder rather than a permanent label — so the affordance moves to
         the reading itself: click what you are reading to see more of it.
 
@@ -672,7 +694,7 @@ export function SessionMasthead({
       >
         <TugPopoverAnchor virtualRef={stageElRef} />
         <TugPopoverContent side="bottom" align="start" sideOffset={8} arrow>
-          <SessionPulseHistory lines={history} />
+          <SessionBeatHistory lines={history} headings={postHeadings} />
         </TugPopoverContent>
       </TugPopover>
 
@@ -814,7 +836,7 @@ export function SessionMasthead({
                     the atom — two enclosures in a row, the quieter fact wearing
                     the louder box. The row above is the chip; this row is the
                     string you would paste. Copy stays on right-click, the same
-                    gesture the title and the pulse line already answer, which
+                    gesture the title and the beat line already answer, which
                     costs the row no ink at all. */}
                 <span
                   ref={copyCitation.ref as React.Ref<HTMLSpanElement>}

@@ -22,82 +22,12 @@
 // as `session_ledger.rs` and `path_resolver.rs` do.
 #![allow(dead_code)]
 
-use std::collections::HashSet;
-
 use serde::Deserialize;
 use tugcast_core::{OverviewRef, OverviewRefKind};
 
-use super::overview_agent::{BUFFER_MAX_BYTES, DEFAULT_BUFFER_MAX_FRAMES};
-use super::payload_inspector::InspectedPayload;
+use super::session_digest::SessionDigest;
 
 // MARK: - The tap
-
-/// Frame types that reach the Observer's buffer.
-///
-/// Starts from the Pulse allowlist — the narratable subset of tugcode's
-/// outbound vocabulary — because the two subsystems want the same evidence:
-/// what the assistant said, what tools it ran and what came back, and how each
-/// turn ended. `replay_started` / `replay_complete` are consumed as mute
-/// brackets and never forwarded, so a reconnect flood cannot re-narrate
-/// history.
-///
-/// The Observer additionally keeps `turn_complete` for its usage numbers,
-/// which is what a token-threshold wake reads and what lets a post say what a
-/// stretch of work cost.
-pub const OBSERVER_FORWARD_ALLOWLIST: &[&str] = &[
-    "tool_use",
-    "tool_result",
-    "tool_input_progress",
-    "assistant_text",
-    "turn_complete",
-    "turn_cancelled",
-    "task_started",
-    "task_updated",
-    "task_progress",
-    "api_retry",
-    "error",
-    "wake_started",
-    "model_refusal_fallback",
-    "output_truncated",
-    "compact_boundary",
-];
-
-/// Classify one CODE_OUTPUT frame for the tap.
-///
-/// Returns the spliced session id when the frame belongs in that session's
-/// buffer. The mute set tracks the wire: a session inside a replay bracket is
-/// muted so the tail of that replay is not narrated as if it were new work.
-///
-/// Mirrors `feeds::pulse::forwardable_session`; the two taps are independent
-/// by construction, and neither can see the other's output.
-pub fn forwardable_session(payload: &[u8], muted: &mut HashSet<String>) -> Option<String> {
-    let inspected = InspectedPayload::from_slice(payload)?;
-    let msg_type = inspected.msg_type.as_deref()?;
-    let session = inspected.tug_session_id.clone();
-    match msg_type {
-        "replay_started" => {
-            if let Some(session) = session {
-                muted.insert(session);
-            }
-            None
-        }
-        "replay_complete" => {
-            if let Some(session) = session {
-                muted.remove(&session);
-            }
-            None
-        }
-        t if OBSERVER_FORWARD_ALLOWLIST.contains(&t) => {
-            let session = session?;
-            if muted.contains(&session) {
-                None
-            } else {
-                Some(session)
-            }
-        }
-        _ => None,
-    }
-}
 
 /// Whether a tapped frame is the session doing work, as opposed to the wire
 /// closing a turn.
@@ -154,139 +84,12 @@ impl WakeReason {
     }
 }
 
-// MARK: - The buffer
-
-/// What the buffer prints in place of frames it dropped.
+/// What a window prints in place of lines it dropped.
 ///
 /// Explicit rather than silent: a model shown a truncated window with no
-/// marker would describe the window as if it were the whole stretch.
+/// marker would describe the window as if it were the whole stretch. Read by
+/// [`SessionDigest::rendered`], which is what a window renders through.
 pub const ELISION_MARKER: &str = "[earlier frames elided]";
-
-/// One session's frames since its last wake.
-///
-/// Bounded in both frames and bytes, dropping oldest-first, because a wake's
-/// input has to fit in one turn and a long-running session can produce far
-/// more than that. The caps are what make the elision marker necessary.
-#[derive(Debug)]
-pub struct FrameBuffer {
-    frames: Vec<String>,
-    bytes: usize,
-    max_frames: usize,
-    max_bytes: usize,
-    /// True once anything has been dropped, so the composed input says so.
-    elided: bool,
-}
-
-impl Default for FrameBuffer {
-    fn default() -> Self {
-        Self::new(DEFAULT_BUFFER_MAX_FRAMES, BUFFER_MAX_BYTES)
-    }
-}
-
-impl FrameBuffer {
-    pub fn new(max_frames: usize, max_bytes: usize) -> Self {
-        Self {
-            frames: Vec::new(),
-            bytes: 0,
-            max_frames: max_frames.max(1),
-            max_bytes: max_bytes.max(1),
-            elided: false,
-        }
-    }
-
-    /// Append one frame's payload verbatim.
-    ///
-    /// Verbatim is load-bearing: refs are validated against this text, so a
-    /// path or sha that gets reshaped on the way in can never be linked on the
-    /// way out.
-    pub fn push(&mut self, payload: &str) {
-        self.bytes += payload.len();
-        self.frames.push(payload.to_string());
-        self.trim();
-    }
-
-    fn trim(&mut self) {
-        while self.frames.len() > self.max_frames
-            || (self.bytes > self.max_bytes && self.frames.len() > 1)
-        {
-            let dropped = self.frames.remove(0);
-            self.bytes -= dropped.len();
-            self.elided = true;
-        }
-    }
-
-    /// True when nothing has arrived since the last wake.
-    ///
-    /// This is the whole of "an idle session never wakes": silence is not
-    /// news, so a sitrep timer that fires over an empty buffer produces no
-    /// wake at all rather than a wake the model then declines.
-    pub fn is_empty(&self) -> bool {
-        self.frames.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.frames.len()
-    }
-
-    pub fn byte_len(&self) -> usize {
-        self.bytes
-    }
-
-    pub fn was_elided(&self) -> bool {
-        self.elided
-    }
-
-    /// The buffered frames as one block, newest last, with the elision marker
-    /// on top when anything was dropped. This exact text is what refs are
-    /// validated against.
-    pub fn rendered(&self) -> String {
-        let mut out = String::new();
-        if self.elided {
-            out.push_str(ELISION_MARKER);
-            out.push('\n');
-        }
-        for frame in &self.frames {
-            out.push_str(frame);
-            out.push('\n');
-        }
-        out
-    }
-
-    /// Hand back the contents and reset, which is what a wake does before it
-    /// runs the job off-thread.
-    pub fn take(&mut self) -> FrameBuffer {
-        let taken = FrameBuffer {
-            frames: std::mem::take(&mut self.frames),
-            bytes: self.bytes,
-            max_frames: self.max_frames,
-            max_bytes: self.max_bytes,
-            elided: self.elided,
-        };
-        self.bytes = 0;
-        self.elided = false;
-        taken
-    }
-
-    /// Put a taken buffer's frames back at the front, for a wake whose job
-    /// failed.
-    ///
-    /// An editorial "no post" and an infrastructure failure are different
-    /// events: the first means the model read the work and judged it not worth
-    /// telling, the second means nobody read it at all. Dropping the window on
-    /// a failure would silently lose a stretch of real work, so it goes back —
-    /// bounded by the same caps, so a persistently failing pool degrades to
-    /// narrating only the most recent window instead of growing without limit.
-    pub fn restore_front(&mut self, mut earlier: FrameBuffer) {
-        if earlier.frames.is_empty() {
-            return;
-        }
-        self.elided |= earlier.elided;
-        earlier.frames.append(&mut self.frames);
-        self.frames = earlier.frames;
-        self.bytes = self.frames.iter().map(String::len).sum();
-        self.trim();
-    }
-}
 
 // MARK: - Composing a wake
 
@@ -382,7 +185,7 @@ pub fn render_facts_section(facts: &[FactLine]) -> String {
 pub fn compose_observer_input(
     reason: WakeReason,
     session_id: &str,
-    buffer: &FrameBuffer,
+    window: &SessionDigest,
     prior_posts: &[PriorPost],
     facts: &[FactLine],
 ) -> String {
@@ -410,13 +213,20 @@ pub fn compose_observer_input(
     out.push_str(&render_facts_section(facts));
 
     out.push_str("\nSESSION ACTIVITY SINCE THEN:\n");
-    out.push_str(&buffer.rendered());
+    out.push_str(&window.rendered());
     out
 }
 
 // MARK: - The envelope
 
 /// What `observer-post` answers with.
+///
+/// One ask writes both accounts of the session: the post that goes to the
+/// Overview, and the standing sentence under the session's callsign. They are
+/// independent answers to one reading of the same work — a wake may post and
+/// not revise the sentence, revise the sentence and not post, do both, or do
+/// neither — and that is the point of carrying them together: a post and a
+/// sentence written from one reading cannot contradict each other.
 ///
 /// `deny_unknown_fields` throughout: the contract is narrow on purpose, and a
 /// model that invented a field has drifted from it in a way worth noticing at
@@ -427,6 +237,12 @@ pub struct ObserverEnvelope {
     /// `None` is a real answer — the model read the work and judged it not
     /// worth telling.
     pub post: Option<ObserverPost>,
+    /// The standing sentence under the session's callsign, or `None` for "what
+    /// stands is still right". Absent as well as null, because an older answer
+    /// shape is a wake that says nothing about the sentence rather than a wake
+    /// that fails.
+    #[serde(default)]
+    pub synopsis: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -581,6 +397,133 @@ pub fn validate_refs(refs: Vec<OverviewRef>, corpora: &[&str]) -> ValidatedRefs 
         }
     }
     ValidatedRefs { kept, dropped }
+}
+
+// MARK: - The standing sentence's register
+
+/// The standing sentence's character budget.
+///
+/// It sits under the callsign on a card-wide row, and it has to say what the
+/// whole session is about. Room for a clause and its qualifier is what lets it
+/// say that.
+///
+/// 72, not more: the line's real display room is the rail row and the picker
+/// row, both of which cut around 96 characters mid-word — and a sentence that
+/// routinely arrives clipped, by this budget's `…` or the row's, reads as a
+/// broken line rather than a standing one. The budget is the display's, and
+/// the wording asks the model for less than it so the clip is the exception.
+pub const MAX_SYNOPSIS_CHARS: usize = 72;
+
+/// Clip to a character budget, on a character boundary, with an ellipsis when
+/// anything was dropped.
+pub fn clip(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let head: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_none() {
+        head
+    } else {
+        format!("{head}…")
+    }
+}
+
+/// Openers a model reaches for when it describes the act of working instead of
+/// naming the work. Matched case-insensitively, on the prefix only.
+const FILLER_OPENERS: &[&str] = &[
+    "working on ",
+    "trying to ",
+    "currently ",
+    "the user is ",
+    "this session is ",
+    "it looks like ",
+];
+
+/// Articles, stripped only from the very front — the line names a thing, and
+/// the article is the one word that never carries any of that name.
+const LEADING_ARTICLES: &[&str] = &["the ", "a ", "an "];
+
+/// Strip a case-insensitive prefix from `text`, returning the remainder.
+///
+/// Compares the original's leading characters rather than lowercasing the whole
+/// string and slicing by the prefix's byte length: lowercasing can change a
+/// character's byte width, and the resulting offset would not be a char
+/// boundary in the original.
+fn strip_prefix_ci<'a>(text: &'a str, prefixes: &[&str]) -> Option<&'a str> {
+    prefixes.iter().find_map(|prefix| {
+        let head: String = text.chars().take(prefix.chars().count()).collect();
+        (head.to_lowercase() == *prefix).then(|| &text[head.len()..])
+    })
+}
+
+/// What the register normalizer produced, and what it had to do to get there.
+///
+/// The two flags are the standing read on whether the prompt is still in
+/// register: a `clipped` answer means the model wrote past its room, and
+/// `normalized` alone means it wrote a sentence with an article or a filler
+/// opener in front. A `String` return cannot express any of that, which is why
+/// the normalizer reports rather than only returning.
+#[derive(Debug, Clone)]
+pub struct RegisterReport {
+    pub text: String,
+    /// The normalizer changed the string at all.
+    pub normalized: bool,
+    /// The character budget clipped.
+    pub clipped: bool,
+}
+
+/// Impose the standing sentence's register on whatever the model wrote, and
+/// report the work.
+///
+/// Mechanical only: it removes the forms a model in the wrong register
+/// produces, and never rewrites content. Paraphrase would be a second model
+/// with none of the first one's context, so the rules stop at quotes, filler
+/// openers, articles, whitespace and terminal punctuation, then clip.
+///
+/// Order is load-bearing. Filler openers go before articles, so
+/// `The user is working on the digest strip` reduces in one pass; clipping is
+/// last, so a stripped prefix buys back budget instead of wasting it.
+///
+/// Total: any input, including empty or whitespace-only, yields a string. An
+/// empty result is how a wake that answered with nothing usable leaves the
+/// standing sentence alone.
+pub fn synopsis_register_report(raw: &str) -> RegisterReport {
+    let mut text = raw.trim();
+
+    // Matched wrapping quotes, straight or curly. A model asked for one line
+    // often hands back that line in quotes.
+    for (open, close) in [('"', '"'), ('\'', '\''), ('\u{201c}', '\u{201d}')] {
+        if text.chars().count() >= 2 && text.starts_with(open) && text.ends_with(close) {
+            let mut chars = text.chars();
+            chars.next();
+            chars.next_back();
+            text = chars.as_str().trim();
+            break;
+        }
+    }
+
+    while let Some(rest) = strip_prefix_ci(text, FILLER_OPENERS) {
+        text = rest.trim_start();
+    }
+    if let Some(rest) = strip_prefix_ci(text, LEADING_ARTICLES) {
+        text = rest.trim_start();
+    }
+
+    // Collapse internal whitespace runs, including any the model wrapped with.
+    let mut collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    // A trailing period is sentence punctuation and never belongs on a line of
+    // chrome. `?` and `!` are content; `…` is `clip`'s own marker and is a
+    // different character entirely, and a spelled-out `...` is left alone too.
+    if collapsed.ends_with('.') && !collapsed.ends_with("..") {
+        collapsed.pop();
+    }
+
+    let collapsed = collapsed.trim().to_string();
+    let text = clip(&collapsed, MAX_SYNOPSIS_CHARS);
+    RegisterReport {
+        normalized: text != raw.trim(),
+        clipped: text != collapsed,
+        text,
+    }
 }
 
 // MARK: - The prose budget
@@ -794,6 +737,158 @@ fn token_is_exempt(token: &str) -> bool {
 mod tests {
     use super::*;
 
+    // MARK: - The standing sentence's register
+
+    fn register(raw: &str) -> String {
+        synopsis_register_report(raw).text
+    }
+
+    #[test]
+    fn clip_only_marks_text_it_actually_shortened() {
+        assert_eq!(clip("short", 10), "short");
+        assert_eq!(clip("exactly-10", 10), "exactly-10");
+        assert_eq!(clip("more than ten", 10), "more than …");
+    }
+
+    #[test]
+    fn clip_respects_character_boundaries() {
+        // Four multi-byte characters: a naive byte slice here would panic.
+        assert_eq!(clip("日本語です", 3), "日本語…");
+    }
+
+    /// Every shape the normalizer is expected to fix, paired with what it owes.
+    /// Reused by the idempotence test so a rule that is not stable under a
+    /// second pass cannot pass the first.
+    const REGISTER_CORPUS: &[(&str, &str)] = &[
+        ("\"Wiring the watch loop\"", "Wiring the watch loop"),
+        ("'Wiring the watch loop'", "Wiring the watch loop"),
+        (
+            "\u{201c}Wiring the watch loop\u{201d}",
+            "Wiring the watch loop",
+        ),
+        ("Working on the digest strip", "digest strip"),
+        ("Trying to fix download resume", "fix download resume"),
+        ("Currently hunting focus drift", "hunting focus drift"),
+        ("The user is working on the digest strip", "digest strip"),
+        (
+            "This session is wiring cadence gates",
+            "wiring cadence gates",
+        ),
+        (
+            "It looks like a refactor of the ledger",
+            "refactor of the ledger",
+        ),
+        ("The digest strip", "digest strip"),
+        ("A cadence gate", "cadence gate"),
+        ("An idle barrier crossing", "idle barrier crossing"),
+        ("Fixing   spaced\tout  text", "Fixing spaced out text"),
+        // Articles come off the front only — one inside the line is part of
+        // what the line says.
+        ("Wiring the cadence gate.", "Wiring the cadence gate"),
+        ("What broke the resume?", "What broke the resume?"),
+        ("Ship it!", "Ship it!"),
+        ("Wiring the gate...", "Wiring the gate..."),
+        ("   ", ""),
+        ("", ""),
+    ];
+
+    #[test]
+    fn the_normalizer_imposes_the_sentences_register() {
+        for (raw, want) in REGISTER_CORPUS {
+            assert_eq!(&register(raw), want, "input: {raw:?}");
+        }
+    }
+
+    #[test]
+    fn the_normalizer_is_idempotent() {
+        for (raw, _) in REGISTER_CORPUS {
+            let once = register(raw);
+            assert_eq!(register(&once), once, "input: {raw:?}");
+        }
+    }
+
+    #[test]
+    fn the_normalizer_clips_to_the_budget() {
+        let long = "x".repeat(MAX_SYNOPSIS_CHARS + 20);
+        let out = register(&long);
+        assert_eq!(out.chars().count(), MAX_SYNOPSIS_CHARS + 1);
+        assert!(out.ends_with('…'));
+        // The clip marker is not a trailing period, so a second pass leaves it.
+        assert_eq!(register(&out), out);
+    }
+
+    #[test]
+    fn the_normalizer_clips_on_character_boundaries() {
+        let long = "日".repeat(MAX_SYNOPSIS_CHARS + 5);
+        let out = register(&long);
+        assert_eq!(out.chars().count(), MAX_SYNOPSIS_CHARS + 1);
+    }
+
+    #[test]
+    fn the_normalizer_strips_a_prefix_before_it_counts_the_budget() {
+        // The filler opener comes off first, so the line underneath fits where
+        // the raw string would have been clipped.
+        let raw = format!("The user is working on {}", "y".repeat(MAX_SYNOPSIS_CHARS));
+        let out = register(&raw);
+        assert_eq!(out, "y".repeat(MAX_SYNOPSIS_CHARS));
+        assert!(!out.ends_with('…'));
+    }
+
+    /// The normalizer's work rate is only readable if a line it left alone
+    /// says so.
+    #[test]
+    fn a_line_already_in_register_reports_no_work() {
+        let report = synopsis_register_report("Wire the synopsis trigger to the beats");
+        assert_eq!(report.text, "Wire the synopsis trigger to the beats");
+        assert!(!report.normalized);
+        assert!(!report.clipped);
+    }
+
+    /// Article stripping alone is work worth reporting, with the budget
+    /// uninvolved.
+    #[test]
+    fn article_stripping_alone_reports_normalized() {
+        let report = synopsis_register_report("The download resume path");
+        assert_eq!(report.text, "download resume path");
+        assert!(report.normalized);
+        assert!(!report.clipped);
+    }
+
+    /// The sentence is allowed to be one with two halves. "Rework how a session
+    /// names itself **and** adopt it at every surface" is the line doing its
+    /// job, and the half past `and` is the half that says how far the work
+    /// reaches.
+    #[test]
+    fn a_two_part_sentence_survives_the_register_whole() {
+        let long = "Rework how a session names itself and adopt it at every surface";
+        let report = synopsis_register_report(long);
+        assert_eq!(report.text, long);
+        assert!(!report.clipped);
+        assert!(report.text.chars().count() <= MAX_SYNOPSIS_CHARS);
+
+        // Everything mechanical is still imposed: quotes, filler openers, the
+        // leading article, the terminal period.
+        let messy = "\"The user is working on the wedge recovery path.\"";
+        assert_eq!(synopsis_register_report(messy).text, "wedge recovery path");
+
+        // And the budget really does clip — the line is chrome, not prose.
+        let overlong = "x".repeat(MAX_SYNOPSIS_CHARS + 40);
+        assert_eq!(
+            synopsis_register_report(&overlong).text.chars().count(),
+            MAX_SYNOPSIS_CHARS + 1,
+            "clip marks what it dropped with one ellipsis"
+        );
+    }
+
+    /// Nothing usable in, nothing out — which is what leaves the standing
+    /// sentence alone rather than blanking it.
+    #[test]
+    fn a_synopsis_of_nothing_normalizes_to_nothing() {
+        assert!(synopsis_register_report("").text.is_empty());
+        assert!(synopsis_register_report("   \n\t ").text.is_empty());
+        assert!(synopsis_register_report("\"\"").text.is_empty());
+    }
+
     // MARK: - The prose budget
 
     #[test]
@@ -938,179 +1033,34 @@ mod tests {
         assert!(prose_len(&clamped) <= OBSERVER_PROSE_LIMIT + 1);
     }
 
-    fn frame(session: &str, msg_type: &str, extra: &str) -> String {
-        format!(r#"{{"tug_session_id":"{session}","type":"{msg_type}"{extra}}}"#)
-    }
-
-    // MARK: - The tap
-
-    #[test]
-    fn the_tap_forwards_only_allowlisted_spliced_frames() {
-        let mut muted = HashSet::new();
-        assert_eq!(
-            forwardable_session(
-                br#"{"tug_session_id":"s1","type":"tool_use","tool_name":"Bash"}"#,
-                &mut muted,
-            ),
-            Some("s1".to_string()),
-        );
-        // Usage frames are kept: a threshold wake reads them, and a post that
-        // can say what a stretch cost needs them.
-        assert_eq!(
-            forwardable_session(
-                br#"{"tug_session_id":"s1","type":"turn_complete","usage":{"input_tokens":10}}"#,
-                &mut muted,
-            ),
-            Some("s1".to_string()),
-        );
-        // Not narratable.
-        assert_eq!(
-            forwardable_session(
-                br#"{"tug_session_id":"s1","type":"system_metadata"}"#,
-                &mut muted,
-            ),
-            None,
-        );
-        // Unspliced (defensive — relay lines always carry the id).
-        assert_eq!(
-            forwardable_session(br#"{"type":"tool_use"}"#, &mut muted),
-            None
-        );
-        // Malformed input never panics.
-        assert_eq!(forwardable_session(b"not json at all", &mut muted), None);
-    }
-
-    /// A reconnect replays a session's whole history onto the wire. None of it
-    /// is news, and narrating it would post a week of work as if it had just
-    /// happened.
-    #[test]
-    fn replay_brackets_mute_one_session_without_blocking_others() {
-        let mut muted = HashSet::new();
-        assert_eq!(
-            forwardable_session(frame("s1", "replay_started", "").as_bytes(), &mut muted),
-            None,
-            "the bracket itself is consumed, never forwarded",
-        );
-        assert!(muted.contains("s1"));
-        assert_eq!(
-            forwardable_session(frame("s1", "tool_result", "").as_bytes(), &mut muted),
-            None,
-            "replayed history is not narrated",
-        );
-        assert_eq!(
-            forwardable_session(frame("s2", "tool_result", "").as_bytes(), &mut muted),
-            Some("s2".to_string()),
-            "a concurrent live session is unaffected",
-        );
-        assert_eq!(
-            forwardable_session(frame("s1", "replay_complete", "").as_bytes(), &mut muted),
-            None,
-        );
-        assert!(muted.is_empty());
-        assert_eq!(
-            forwardable_session(frame("s1", "tool_result", "").as_bytes(), &mut muted),
-            Some("s1".to_string()),
-            "live again once the bracket closes",
-        );
-    }
-
-    // MARK: - The buffer
-
-    /// Silence is not news. An idle session produces an empty buffer, and an
-    /// empty buffer is what the bridge checks before arming or firing a sitrep.
-    #[test]
-    fn an_idle_session_leaves_an_empty_buffer() {
-        let buffer = FrameBuffer::default();
-        assert!(buffer.is_empty());
-        assert!(!buffer.was_elided());
-        assert_eq!(buffer.rendered(), "");
-    }
-
-    #[test]
-    fn the_buffer_drops_oldest_past_its_frame_cap_and_says_so() {
-        let mut buffer = FrameBuffer::new(3, 1_000_000);
-        for i in 1..=5 {
-            buffer.push(&format!("frame {i}"));
-        }
-        assert_eq!(buffer.len(), 3);
-        let rendered = buffer.rendered();
-        assert!(rendered.starts_with(ELISION_MARKER));
-        assert!(!rendered.contains("frame 1"));
-        assert!(rendered.contains("frame 5"));
-    }
-
-    #[test]
-    fn the_buffer_drops_oldest_past_its_byte_cap() {
-        let mut buffer = FrameBuffer::new(1_000, 20);
-        buffer.push("aaaaaaaaaa");
-        buffer.push("bbbbbbbbbb");
-        buffer.push("cccccccccc");
-        assert!(buffer.byte_len() <= 20);
-        assert!(buffer.was_elided());
-        assert_eq!(buffer.len(), 2);
-        assert!(!buffer.rendered().contains("aaaaaaaaaa"), "oldest dropped");
-        assert!(buffer.rendered().contains("cccccccccc"), "newest kept");
-
-        // A single frame larger than the whole cap is kept rather than
-        // dropped: an empty window would tell the model nothing at all.
-        let mut fat = FrameBuffer::new(1_000, 4);
-        fat.push("a frame far larger than the byte cap");
-        assert_eq!(fat.len(), 1);
-    }
-
-    #[test]
-    fn taking_the_buffer_empties_it_and_hands_over_the_contents() {
-        let mut buffer = FrameBuffer::default();
-        buffer.push("one");
-        buffer.push("two");
-        let taken = buffer.take();
-        assert!(buffer.is_empty());
-        assert_eq!(taken.len(), 2);
-        assert!(taken.rendered().contains("two"));
-    }
-
-    /// A failed job must not silently cost a window of real work.
-    #[test]
-    fn a_restored_window_precedes_what_arrived_while_the_job_ran() {
-        let mut buffer = FrameBuffer::default();
-        buffer.push("older one");
-        buffer.push("older two");
-        let in_flight = buffer.take();
-
-        buffer.push("arrived during the job");
-        buffer.restore_front(in_flight);
-
-        let rendered = buffer.rendered();
-        let older = rendered.find("older one").expect("restored");
-        let newer = rendered.find("arrived during the job").expect("kept");
-        assert!(older < newer, "chronology survives the restore");
-        assert_eq!(buffer.len(), 3);
-    }
-
-    #[test]
-    fn a_restore_still_honors_the_caps() {
-        let mut buffer = FrameBuffer::new(2, 1_000_000);
-        buffer.push("a");
-        buffer.push("b");
-        let in_flight = buffer.take();
-        buffer.push("c");
-        buffer.push("d");
-        buffer.restore_front(in_flight);
-        assert_eq!(buffer.len(), 2, "a failing pool cannot grow the buffer");
-        assert!(buffer.rendered().contains('d'));
-    }
-
     // MARK: - Composition
+
+    /// A window holding the digest lines a stretch of work produced. The
+    /// Observer never sees a payload again, so a composition test that built
+    /// one from JSON would be testing a shape nothing produces.
+    fn window_of(texts: &[&str]) -> SessionDigest {
+        use crate::feeds::session_digest::{DigestKind, DigestLine};
+        let mut window = SessionDigest::default();
+        for (i, text) in texts.iter().enumerate() {
+            window.push(DigestLine {
+                text: (*text).to_string(),
+                at_ms: 1_700_000_000_000 + i as u64,
+                beat: i as u64 + 1,
+                kind: DigestKind::Said,
+                supersede_key: None,
+            });
+        }
+        window
+    }
 
     #[test]
     fn a_wake_input_carries_its_reason_session_and_prior_posts() {
-        let mut buffer = FrameBuffer::default();
-        buffer.push(r#"{"type":"assistant_text","text":"wiring the bridge"}"#);
+        let window = window_of(&["Wiring the bridge"]);
         let priors = vec![PriorPost {
             at_ms: 1_700_000_000_000,
             body: "Started on the bridge".to_string(),
         }];
-        let input = compose_observer_input(WakeReason::SitrepTimer, "s1", &buffer, &priors, &[]);
+        let input = compose_observer_input(WakeReason::SitrepTimer, "s1", &window, &priors, &[]);
 
         assert!(input.contains("WAKE REASON: sitrep-timer"));
         assert!(input.contains("SESSION: s1"));
@@ -1118,7 +1068,7 @@ mod tests {
             input.contains("Started on the bridge"),
             "dedup needs the priors"
         );
-        assert!(input.contains("wiring the bridge"));
+        assert!(input.contains("Wiring the bridge"));
     }
 
     /// A first post for a session must say so rather than showing an empty
@@ -1126,9 +1076,8 @@ mod tests {
     /// history here".
     #[test]
     fn a_first_wake_says_there_are_no_prior_posts() {
-        let mut buffer = FrameBuffer::default();
-        buffer.push("something happened");
-        let input = compose_observer_input(WakeReason::TurnEnd, "s1", &buffer, &[], &[]);
+        let window = window_of(&["Something happened"]);
+        let input = compose_observer_input(WakeReason::TurnEnd, "s1", &window, &[], &[]);
         assert!(input.contains("(none"));
     }
 
@@ -1141,8 +1090,7 @@ mod tests {
 
     #[test]
     fn the_facts_section_renders_between_the_priors_and_the_activity() {
-        let mut buffer = FrameBuffer::default();
-        buffer.push(r#"{"type":"assistant_text","text":"ran the suite"}"#);
+        let window = window_of(&["Ran the suite"]);
         let facts = vec![
             fact(1_700_000_000_000, "$ cargo nextest run -p tugcast → ok"),
             fact(
@@ -1150,7 +1098,7 @@ mod tests {
                 "tests: cargo nextest — passed (1574 passed, 0 failed)",
             ),
         ];
-        let input = compose_observer_input(WakeReason::TurnEnd, "s1", &buffer, &[], &facts);
+        let input = compose_observer_input(WakeReason::TurnEnd, "s1", &window, &[], &facts);
 
         assert!(input.contains(FACTS_SECTION_HEADER));
         assert!(input.contains("- [1700000000000] $ cargo nextest run -p tugcast → ok"));
@@ -1244,6 +1192,44 @@ mod tests {
         assert!(bare.post.expect("a post").refs.is_empty());
     }
 
+    /// One ask, two answers, and each of the four combinations is a real one.
+    /// The pair is independent by design ([P08]): a wake may post and not
+    /// revise the sentence, or revise it and not post.
+    #[test]
+    fn both_fields_are_read_and_either_may_be_absent() {
+        let both = parse_envelope(
+            r#"{"post": {"body": "Landed it"}, "synopsis": "Consolidate the narration producers"}"#,
+        )
+        .expect("parses");
+        assert_eq!(both.post.expect("a post").body, "Landed it");
+        assert_eq!(
+            both.synopsis.as_deref(),
+            Some("Consolidate the narration producers")
+        );
+
+        let sentence_only = parse_envelope(r#"{"post": null, "synopsis": "Chase the parser bug"}"#)
+            .expect("parses");
+        assert!(sentence_only.post.is_none());
+        assert_eq!(
+            sentence_only.synopsis.as_deref(),
+            Some("Chase the parser bug")
+        );
+
+        let post_only =
+            parse_envelope(r#"{"post": {"body": "Landed it"}, "synopsis": null}"#).expect("parses");
+        assert!(post_only.post.is_some());
+        assert!(post_only.synopsis.is_none());
+
+        let neither = parse_envelope(r#"{"post": null, "synopsis": null}"#).expect("parses");
+        assert!(neither.post.is_none());
+        assert!(neither.synopsis.is_none());
+
+        // An answer that says nothing about the sentence at all is the same as
+        // one that says null, so the older shape still parses.
+        let omitted = parse_envelope(r#"{"post": null}"#).expect("parses");
+        assert!(omitted.synopsis.is_none());
+    }
+
     /// Every malformed shape posts nothing. Silence is the safe failure mode;
     /// a salvaged half-post would put words in the channel nobody wrote.
     #[test]
@@ -1254,6 +1240,7 @@ mod tests {
             r#"{"post": {}}"#,                               // body is required
             r#"{"post": {"body": "x", "urgency": "high"}}"#, // unknown field
             r#"{"posts": null}"#,                            // wrong key
+            r#"{"post": null, "summary": "x"}"#,             // unknown field beside a known one
             r#"{"post": {"body": "x", "refs": [{"kind": "wiki", "target": "y"}]}}"#, // unknown kind
             "",
         ] {
@@ -1451,15 +1438,14 @@ mod tests {
     /// keep only what it can prove.
     #[test]
     fn parse_then_validate_is_the_whole_post_path() {
-        let mut buffer = FrameBuffer::default();
-        buffer.push(r#"{"type":"tool_result","output":"HEAD is now 9a9051001"}"#);
+        let window = window_of(&["Bash → HEAD is now 9a9051001"]);
         let raw = r#"{"post": {"body": "A commit landed.", "refs": [
             {"kind": "commit", "target": "9a9051001"},
             {"kind": "commit", "target": "deadbeef"}
         ]}}"#;
         let envelope = parse_envelope(raw).expect("parses");
         let post = envelope.post.expect("a post");
-        let validated = validate_refs(post.refs, &[&buffer.rendered()]);
+        let validated = validate_refs(post.refs, &[&window.rendered()]);
         assert_eq!(validated.kept.len(), 1);
         assert_eq!(validated.kept[0].target, "9a9051001");
         assert_eq!(validated.dropped.len(), 1);

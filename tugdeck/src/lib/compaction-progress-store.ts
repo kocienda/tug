@@ -50,11 +50,11 @@ export type CompactionRuns = ReadonlyMap<string, CompactionProgress>;
 const NO_RUNS: CompactionRuns = new Map();
 
 /**
- * What every pulse surface says for the length of a `/compact` run — the
+ * What every beat surface says for the length of a `/compact` run — the
  * card's `session-masthead` and the Cards card **Sessions** row read the same
  * string, so a compacting session says one thing wherever it is shown.
  */
-export const COMPACTING_PULSE_TEXT = "Compacting context…";
+export const COMPACTING_BEAT_TEXT = "Compacting context…";
 
 /** Whether `runs` holds a still-in-flight run for `cardId`. */
 export function isCompactingCard(

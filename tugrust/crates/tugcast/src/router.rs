@@ -2353,9 +2353,9 @@ mod tests {
     #[test]
     fn record_dropped_touches_only_the_drop_column() {
         let mut c = FeedCounters::new();
-        c.record_dropped(FeedId::PULSE);
+        c.record_dropped(FeedId::DIGEST);
 
-        let i = FeedId::PULSE.as_byte() as usize;
+        let i = FeedId::DIGEST.as_byte() as usize;
         assert_eq!(c.dropped[i], 1);
         assert_eq!(
             (c.frames[i], c.bytes[i]),

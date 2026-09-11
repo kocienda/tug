@@ -17,7 +17,7 @@
  * the shape was written three times. Three description ladders (two of which
  * had three rungs and one two), three activity ladders (one with a compaction
  * pin, one without, one with a dwell queue), three spellings of the
- * `pulse/enabled` gate, and two copies of the sparkline. A shape can only make
+ * retired `pulse/enabled` gate, and two copies of the sparkline. A shape can only make
  * three surfaces agree about how a row PACKS; it cannot make them agree about
  * what a row SAYS. This can.
  *
@@ -44,7 +44,7 @@
  *     be told apart from one that is broken.
  *
  * Everything past those three is either the same on every surface (both
- * ladders, the beat grammar, the `pulse/enabled` gate) or is a piece of the
+ * ladders, the beat grammar, the retired `pulse/enabled` gate) or is a piece of the
  * mount's own furniture handed straight through (the Cards card's slot picker, the
  * picker's badges and trash, the masthead's popovers and copy handles).
  *
@@ -90,7 +90,7 @@
  *
  * ── The activity ladder ──────────────────────────────────────────────────
  * A caller's override, else the compaction pin, else the live beat, else the
- * rest sentence. The overrides exist for facts a row knows that the pulse feed
+ * rest sentence. The overrides exist for facts a row knows that the digest feed
  * cannot report — a session held by a terminal, a row whose one fact is that it
  * failed to resume.
  *
@@ -125,7 +125,7 @@ import {
   type ArcTrackModel,
 } from "@/components/tugways/tug-arc-track";
 import { arcGlanceFraction } from "@/lib/arc-meta-facts";
-import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
+import { BeatText } from "@/components/tugways/beat-text";
 import { SessionActivitySparkline } from "@/components/tugways/session-activity-sparkline";
 import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
 
@@ -139,16 +139,20 @@ import {
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
 import { truncateForDisplay } from "@/components/tugways/cards/session-picker-format";
 import {
-  COMPACTING_PULSE_TEXT,
+  COMPACTING_BEAT_TEXT,
   useIsCompactingCard,
 } from "@/lib/compaction-progress-store";
-import { parseBeatFileTarget } from "@/lib/pulse-line/beat-file-target";
+import { parseBeatFileTarget } from "@/lib/beat-line/beat-file-target";
+import { formatRestingStamp } from "@/lib/session-activity-line";
+import { renderBeatLine } from "@/lib/beat-line/render-beat-line";
 import {
-  completedWithIntentRestingLine,
-  formatRestingStamp,
-} from "@/lib/pulse-line/resting-line";
-import { renderPulseLine } from "@/lib/pulse-line/render-pulse-line";
-import { latestLineForScope, usePulse } from "@/lib/pulse-store";
+  askPromptText,
+  latestAskForScope,
+  latestLineForScope,
+  turnInFlightForScope,
+  useDigest,
+} from "@/lib/digest-store";
+import { latestPostForSession, useOverview } from "@/lib/overview-store";
 import {
   sessionActivityBeat,
   sessionActivityRestLine,
@@ -240,12 +244,6 @@ interface DisplayEntry {
    * own clear and the compaction pin both answer a gesture.
    */
   immediate?: boolean;
-  /**
-   * The retained thought behind a low-level beat, when the feed carried one.
-   * Read only by the wall register ([P09].3), which gives it a line of its
-   * own; the one-line register has nowhere to put it and ignores it.
-   */
-  intent?: string;
 }
 
 /**
@@ -271,8 +269,8 @@ function composedEntry(text: string): DisplayEntry {
  * sheet down and has only this line to go on. Held for the run's lifetime.
  */
 const COMPACTING_ENTRY: DisplayEntry = Object.freeze({
-  key: "__pulse_compacting__",
-  text: COMPACTING_PULSE_TEXT,
+  key: "__digest_compacting__",
+  text: COMPACTING_BEAT_TEXT,
   placeholder: false,
   immediate: true,
 });
@@ -316,7 +314,7 @@ function ActivityText({
     );
   }
   if (fileBeat !== null) {
-    return <PulseBeatText text={entry.text} className={className} />;
+    return <BeatText text={entry.text} className={className} />;
   }
   return <span className={className}>{entry.text}</span>;
 }
@@ -325,7 +323,7 @@ function ActivityText({
  * The activity run, through the markdown pipeline.
  *
  * A beat is a tool call, so backticked paths and commands are exactly what the
- * pipeline is for. The pulse-line library owns fidelity and safety (math-first
+ * pipeline is for. The beat-line library owns fidelity and safety (math-first
  * split, sanitized markdown, KaTeX, total-function fallback); this only
  * re-renders once a lazy KaTeX load resolves, then every render is synchronous.
  * `html: ""` is the library's render-as-plain-text signal.
@@ -352,7 +350,7 @@ function ActivityMarkdownText({
   // while the engine loaded).
   const render = React.useMemo(
     () =>
-      entry.placeholder || fileBeat !== null ? null : renderPulseLine(entry.text),
+      entry.placeholder || fileBeat !== null ? null : renderBeatLine(entry.text),
     [entry, fileBeat, engineEpoch],
   );
   React.useEffect(() => {
@@ -374,7 +372,7 @@ function ActivityMarkdownText({
     );
   }
   if (fileBeat !== null) {
-    return <PulseBeatText text={entry.text} className={className} />;
+    return <BeatText text={entry.text} className={className} />;
   }
   if (render === null || render.html.length === 0) {
     return <span className={className}>{entry.text}</span>;
@@ -399,8 +397,8 @@ function ActivityMarkdownText({
  * effect returns before it reads anything, and no timer is ever scheduled. A
  * knob rather than a second component for two reasons. Hooks cannot be called
  * conditionally — and, the load-bearing one, the swap has to re-render the ROW
- * rather than a leaf inside it. `TugPulse` measures its own middle truncation in
- * an effect that runs when `TugPulse` renders; a dwell living below it swaps the
+ * rather than a leaf inside it. `TugActivityLine` measures its own middle truncation in
+ * an effect that runs when `TugActivityLine` renders; a dwell living below it swaps the
  * text where that effect cannot see it, and the run silently stops truncating
  * (at0375's tape-gap assertion is what says so).
  *
@@ -592,7 +590,7 @@ export interface SessionIdentityRowProps
    */
   activityOverride?: string | null;
   /**
-   * Whether this row reads the live pulse feed.
+   * Whether this row reads the live digest feed.
    *
    * Load-bearing rather than an optimization: `latestLineForScope` answers with
    * app-wide ambience for any scope, so a row for a session this app is not
@@ -617,7 +615,7 @@ export interface SessionIdentityRowProps
   /** Class on the activity run itself, for a surface styling its ink. */
   activityClassName?: string;
   /**
-   * Which REGISTER the activity line reads in ([P09].3).
+   * Which REGISTER the activity line reads in ([D185]).
    *
    * `"line"` — the default, and every surface but one: the row is one line
    * tall, so a beat is the beat and a resting session says when it last
@@ -751,7 +749,11 @@ export function SessionIdentityRow({
   const createdAtMs =
     cardCreatedAtMs !== null && cardCreatedAtMs > 0 ? cardCreatedAtMs : null;
 
-  const pulse = usePulse();
+  const digest = useDigest();
+  // The Observer's channel, for the description's live-turn rungs ([D187]).
+  // The whole snapshot rather than a per-session slice: the store publishes one
+  // list and every selector here filters it, the same shape the beat store has.
+  const overview = useOverview();
   // Scoped to THIS card, not the whole runs map: a map snapshot changes
   // identity on every write to any card, so one `/compact` re-rendered every
   // session row in the app. A row with no card subscribes to nothing at all.
@@ -759,12 +761,50 @@ export function SessionIdentityRow({
 
   // ── The description ladder ([D132]) ───────────────────────────────────
   const prompt = facts?.last_user_prompt?.trim() ?? "";
-  const descriptionSource = sessionDescription({
+  const restDescription = sessionDescription({
     synopsis: identity.description,
     prompt,
     arc: arcModel,
     createdAtMs,
   });
+  // The newest line the feed has about this session, unfiltered. Two readers
+  // want it: the activity ladder below, and nothing else — the turn-in-flight
+  // test cannot be read off it, because the newest line is often a shell
+  // command or a background job's notice, neither of which is part of a turn.
+  // {@link turnInFlightForScope} walks past those; see its docblock.
+  const latestLine = beats
+    ? latestLineForScope(digest.lines, sessionId, digest.cleared.get(sessionId))
+    : null;
+  const turnInFlight =
+    beats &&
+    turnInFlightForScope(
+      digest.lines,
+      sessionId,
+      digest.cleared.get(sessionId),
+    );
+  // [D187]'s ladder, over the top of [D132]'s. During a turn the line says what
+  // is happening: the Observer's newest post about this session, else the ask
+  // the turn is answering. At rest it is the standing sentence and the rungs
+  // under it, unchanged.
+  //
+  // The ask rung is not a nicety. With a 60 s sitrep the first post of a turn
+  // lands no sooner than a minute in, and for that minute the ask is both the
+  // thing the reader most wants and the one line that cannot be wrong.
+  //
+  // All three are derived in render from stores already attached — no state,
+  // no effect, nothing to keep in step ([L02]).
+  const livePost = turnInFlight
+    ? latestPostForSession(overview.posts, sessionId)
+    : null;
+  const liveAsk = turnInFlight
+    ? latestAskForScope(digest.lines, sessionId)
+    : null;
+  const descriptionSource =
+    livePost !== null
+      ? livePost.body
+      : liveAsk !== null
+        ? askPromptText(liveAsk)
+        : restDescription;
   // Flattened always, capped only where the caller asks. A prompt is the one
   // rung that can carry newlines, and a multi-line run inside a `nowrap` box
   // is a line whose break the reader cannot see.
@@ -784,38 +824,23 @@ export function SessionIdentityRow({
     () => truncateForDisplay(descriptionSource, Number.MAX_SAFE_INTEGER),
     [descriptionSource],
   );
-  const descriptionStandIn = identity.description === null;
+  // A written line is not a stand-in; a fact wearing one's clothes is. The
+  // Observer's post and the standing sentence are both written ABOUT the
+  // session, so neither is marked. The ask is the user's own words standing in
+  // for a line nobody has written yet, which is exactly what the prompt rung
+  // under it already is.
+  const descriptionStandIn =
+    livePost === null && (liveAsk !== null || identity.description === null);
 
   // ── The activity ladder ───────────────────────────────────────────────
   // The bare `Done` marker is filtered on the way in: it is the ABSENCE of a
   // beat, and the rest sentence says the same thing with facts in it.
-  // The newest line the feed has about this session, unfiltered — the wall
-  // register's rest form needs the `Done` marker's own INTENT, which the
-  // filter below is about to throw away with the marker.
-  const latestLine =
-    beats && pulse.enabled
-      ? latestLineForScope(pulse.lines, sessionId, pulse.cleared.get(sessionId))
-      : null;
   const beat = sessionActivityBeat(latestLine);
   const restLine = sessionActivityRestLine({
     turnCount: facts?.turn_count ?? 0,
     fileSize: facts?.file_size ?? null,
     lastUsedAtMs: facts?.last_used_at ?? null,
   });
-  // The wall register's rest form ([P09].3). The voice now carries the turn's
-  // retained intent across the `Done` marker, so a watched card at rest can
-  // say what it last finished rather than only that it is ready. `Stopped` is
-  // deliberately not here: `sessionActivityBeat` filters `Done` alone, so a
-  // cancelled turn keeps its marker on the line and never reaches the rest
-  // sentence at all.
-  const wallRestLine =
-    activityRegister === "wall" &&
-    beat === null &&
-    latestLine !== null &&
-    latestLine.intent !== undefined &&
-    latestLine.intent.length > 0
-      ? completedWithIntentRestingLine(latestLine.intent, latestLine.atMs)
-      : null;
   const target: DisplayEntry =
     activityOverride !== null && activityOverride.length > 0
       ? composedEntry(activityOverride)
@@ -826,11 +851,10 @@ export function SessionIdentityRow({
               key: beat.key,
               text: beat.text,
               placeholder: false,
-              ...(beat.intent !== undefined ? { intent: beat.intent } : {}),
             }
-          : composedEntry(wallRestLine ?? restLine);
+          : composedEntry(restLine);
   // Paced HERE rather than in a leaf, so a swap re-renders the row and
-  // `TugPulse` measures the new text — see {@link useDwellDisplay}.
+  // `TugActivityLine` measures the new text — see {@link useDwellDisplay}.
   const entry = useDwellDisplay(target, pace);
 
   // ── The row's own menu ────────────────────────────────────────────────
@@ -842,17 +866,19 @@ export function SessionIdentityRow({
   const menu = useSessionIdentityMenu({
     identity,
     description:
-      identity.description === null && prompt.length === 0 ? null : descriptionFull,
+      livePost === null && identity.description === null && prompt.length === 0
+        ? null
+        : descriptionFull,
     activity: beat?.text ?? null,
     hostCardId,
     enabled: identityMenu,
   });
   const ActivityRun = markdown ? ActivityMarkdownText : ActivityText;
-  // The wall register gives the beat two lines with two jobs ([P09].3,
-  // [B08]): the retained intent above, the action below, both through the
-  // same run component so a backticked path reads the same on either. With no
-  // intent to show the beat simply wraps over both lines, which is the second
-  // line earning its keep rather than sitting empty.
+  // The wall register gives the beat two lines to wrap into ([B08]): a folded
+  // card is the masthead and nothing else, so the run that is a caption on an
+  // open card becomes the reading. What stands over it is the description
+  // line, which during a turn is the Observer's post — the written sentence
+  // that took the pinned intent's place.
   //
   // `data-register` is what the CSS keys the stacking on. It rides a wrapper
   // rather than the run itself because the run is also the middle-truncation
@@ -872,17 +898,6 @@ export function SessionIdentityRow({
   const activity =
     activityRegister === "wall" ? (
       <span className={activityClassName} data-register="wall">
-        {entry.intent !== undefined && entry.intent.length > 0 ? (
-          <ActivityRun
-            entry={{
-              key: `${entry.key}:intent`,
-              text: entry.intent,
-              placeholder: false,
-            }}
-            highlight={highlight}
-            className="session-identity-activity-intent"
-          />
-        ) : null}
         {activityBeatRun}
       </span>
     ) : (
@@ -896,7 +911,7 @@ export function SessionIdentityRow({
   // data it reports is one the reader cannot trust: nothing on screen
   // distinguishes "this session is quiet" from "the tape is not here", and the
   // line beneath it moves out to the row's edge and back every time the
-  // distinction flips. `pulse/enabled` does not gate it either, for the same
+  // distinction flips. The retired `pulse/enabled` did not gate it either, for the same
   // reason the activity line survives that toggle: chrome that got shorter
   // when a preference changed would move every card in the pane.
   const tapeNode = tape ? (

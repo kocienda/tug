@@ -186,10 +186,10 @@
 }
 
 /* The third line rides the chrome band too: chrome foreground at 65%, the last
-   step of the ladder. `TugPulse` is composed through its published knob. [L20] */
+   step of the ladder. `TugActivityLine` is composed through its published knob. [L20] */
 /* @tug-renders-on var(--tugx-pane-title-bar-bg-active) */
-.tug-masthead-frame-row .tug-pulse {
-  --tugx-pulse-activity-color: color-mix(
+.tug-masthead-frame-row .tug-activity-line {
+  --tugx-activity-line-activity-color: color-mix(
     in oklab,
     var(--tugx-pane-title-fg-active) 65%,
     transparent

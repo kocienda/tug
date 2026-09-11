@@ -2,7 +2,7 @@
  * `OverviewStore` — app-scoped snapshot cache for the Overview narration channel.
  *
  * Hydrates from tugcast's `overview_posts` ledger on first observation (one
- * `list_overview_posts` CONTROL round-trip — the `pulse-store` pattern), then
+ * `list_overview_posts` CONTROL round-trip — the `digest-store` pattern), then
  * folds live `OVERVIEW` feed frames as the Observer, the Operator, and the user
  * speak. Both wires carry the same post shape, so one parse serves both and the
  * merge dedupes on ledger identity.
@@ -140,6 +140,34 @@ export interface OverviewSnapshot {
  * clear the row.
  */
 export const PENDING_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * The newest **Observer** post about `sessionId` — rung (1) of the masthead's
+ * ladder ([D187]), and the heading the beat history groups under ([B08]).
+ *
+ * The mirror of `digest-store.ts`'s `latestLineForScope`, and a selector rather
+ * than a wire change: `OverviewPostEntry.sessionId` has always been there.
+ *
+ * The author filter is the whole of it. The channel also carries the user's
+ * own questions, the Operator's answers and the tripwire's notices, and none
+ * of those is an account of what the session is doing — a masthead that showed
+ * the reader their own question back would be saying less than the blank it
+ * replaced. An app-wide post (`sessionId` null) is never returned either: this
+ * line is about ONE session, and ambience is not.
+ */
+export function latestPostForSession(
+  posts: readonly OverviewPostEntry[],
+  sessionId: string,
+): OverviewPostEntry | null {
+  if (sessionId.length === 0) return null;
+  for (let i = posts.length - 1; i >= 0; i--) {
+    const post = posts[i];
+    if (post.author !== "observer") continue;
+    if (post.sessionId !== sessionId) continue;
+    return post;
+  }
+  return null;
+}
 
 const EMPTY_POSTS: readonly OverviewPostEntry[] = Object.freeze([]);
 const IDLE_SNAPSHOT: OverviewSnapshot = Object.freeze({

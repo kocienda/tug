@@ -64,7 +64,7 @@ import { useFrontmostProjectBinding } from "@/lib/frontmost-project";
 import { getJotsStore } from "@/lib/jots-store";
 import { jotAtomSegments, jotIncipit, type Jot } from "@/lib/jots-doc";
 import { jotDragStart } from "@/lib/jot-drag";
-import { renderPulseLine } from "@/lib/pulse-line/render-pulse-line";
+import { renderBeatLine } from "@/lib/beat-line/render-beat-line";
 import { copyAtomTextWithOrigins, formatAtomTextForCopy } from "@/lib/atom-text";
 import type { TugTextSubstrate } from "@/lib/tug-text-types";
 import { animate } from "@/components/tugways/tug-animator";
@@ -306,12 +306,12 @@ function JotDisplayRow({
   const incipit = jotIncipit(jot);
   const empty = incipit.length === 0;
   // The incipit renders INLINE markdown (`*hello*` → italic) via the same
-  // sanitized one-line renderer the pulse strip uses, unwrapped to inline. An
+  // sanitized one-line renderer the beat line uses, unwrapped to inline. An
   // empty `html` is its plain-text signal (no markup, or a parse fallback).
   // While a filter is active the row shows PLAIN text instead, so the match can
   // be marked: highlight ranges are offsets into the incipit string, which
   // rendered markup would not agree with.
-  const rendered = empty || filterQuery !== "" ? null : renderPulseLine(incipit);
+  const rendered = empty || filterQuery !== "" ? null : renderBeatLine(incipit);
   const incipitHtml =
     rendered !== null && rendered.html.length > 0
       ? inlineMarkdownHtml(rendered.html)
@@ -798,7 +798,7 @@ function JotEditorRow({
   const ctx = React.useContext(JotsCellContext);
   const incipit = jotIncipit(jot);
   const empty = incipit.length === 0;
-  const rendered = empty ? null : renderPulseLine(incipit);
+  const rendered = empty ? null : renderBeatLine(incipit);
   const incipitHtml =
     rendered !== null && rendered.html.length > 0
       ? inlineMarkdownHtml(rendered.html)

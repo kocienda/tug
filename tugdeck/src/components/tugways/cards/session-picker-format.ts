@@ -30,7 +30,7 @@ export function truncateForDisplay(s: string, max: number): string {
  * line dates itself with an absolute `Last updated: <stamp>` instead, because a
  * relative age beside a turn count and a size left the reader working out which
  * of the three it was measuring. `formatRestingStamp` in
- * `lib/pulse-line/resting-line.ts` is what composes that stamp now.
+ * `lib/session-activity-line.ts` is what composes that stamp now.
  */
 
 /**

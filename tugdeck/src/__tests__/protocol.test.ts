@@ -19,7 +19,7 @@ import {
   isControlFrame,
   normalizeSessionRow,
   parseActivityFrame,
-  parsePulseFrame,
+  parseDigestFrame,
 } from "../protocol";
 
 const encode = (obj: unknown): Uint8Array =>
@@ -511,13 +511,13 @@ describe("session ledger CONTROL encoders / decoders", () => {
   });
 });
 
-describe("parsePulseFrame", () => {
+describe("parseDigestFrame", () => {
   const encode = (body: Record<string, unknown>): Uint8Array =>
     new TextEncoder().encode(JSON.stringify(body));
 
   test("a beat decodes with its scopes and counters", () => {
-    const line = parsePulseFrame(
-      encode({ type: "pulse", text: "reading files", scopes: ["s1"], beat: 3, at: 9 }),
+    const line = parseDigestFrame(
+      encode({ type: "digest", text: "reading files", scopes: ["s1"], beat: 3, at: 9 }),
     );
     expect(line?.text).toBe("reading files");
     expect(line?.scopes).toEqual(["s1"]);
@@ -525,11 +525,24 @@ describe("parsePulseFrame", () => {
   });
 
   test("a field the deck does not know is ignored, not fatal", () => {
-    const line = parsePulseFrame(
-      encode({ type: "pulse", kind: "prophecy", text: "hm", scopes: [], beat: 0, at: 0 }),
+    const line = parseDigestFrame(
+      encode({ type: "digest", prophecy: "soon", text: "hm", scopes: [], beat: 0, at: 0 }),
     );
     expect(line?.text).toBe("hm");
-    expect(line && "kind" in line).toBe(false);
+    expect(line && "prophecy" in line).toBe(false);
+  });
+
+  test("the kind rides through — it is what tells an ask from a tool line", () => {
+    const line = parseDigestFrame(
+      encode({ type: "digest", kind: "ask", text: "asked: go", scopes: ["s1"], beat: 1, at: 2 }),
+    );
+    expect(line?.kind).toBe("ask");
+    // Absent on a frame that carries none, rather than an empty string: the
+    // store spreads it conditionally and an empty kind is not a kind.
+    const bare = parseDigestFrame(
+      encode({ type: "digest", text: "hm", scopes: [], beat: 0, at: 0 }),
+    );
+    expect(bare && "kind" in bare).toBe(false);
   });
 });
 

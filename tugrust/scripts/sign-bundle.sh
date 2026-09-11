@@ -155,15 +155,6 @@ fi
 sign "tugcode (bun): permissive entitlements" "$TUGCODE_BIN" \
     --entitlements "$TUGCODE_ENTITLEMENTS"
 
-# (3b) tugpulse — also bun-compiled (the PULSE commentator daemon);
-# same permissive entitlements as tugcode. Present-if-shipped: older
-# bundle configurations without it sign fine.
-TUGPULSE_BIN="$APP_PATH/Contents/MacOS/tugpulse"
-if [ -x "$TUGPULSE_BIN" ]; then
-    sign "tugpulse (bun): permissive entitlements" "$TUGPULSE_BIN" \
-        --entitlements "$TUGCODE_ENTITLEMENTS"
-fi
-
 # (3c) Bundled tmux (built from source, statically linked). Native code
 # with no JIT — hardened-runtime defaults and no custom entitlements, like
 # the Rust helpers. Lives in Resources/bin/ rather than MacOS/. Signing it

@@ -13,7 +13,7 @@
  *
  * - **The Changes shade** rests on the prompt-entry region instead, because it
  *   *is* the commit surface — the message editor below it belongs to the same
- *   gesture, so it covers Z2 and PULSE deliberately.
+ *   gesture, so it covers Z2 and the beat deliberately.
  * - **Choose Session** and **Compacting** keep the top anchor. Both stand where
  *   there is no transcript behind them — the cold-start picker before a session
  *   exists, and the cover over a compaction run — so a rise from Z2 would be a

@@ -42,40 +42,22 @@
 }
 
 /* ============================================================================
-   The activity line's WALL register ([P09].3, [B08])
+   The activity line's WALL register ([B08])
    ========================================================================= */
 
-/* Two lines with two jobs, on the one surface that has two lines to give: the
-   folded Session card's masthead. Line one is the retained INTENT — what
-   the turn is for — and line two the action; with no intent to show, the beat
-   simply wraps over both.
+/* The beat's own register on the one surface that gives it two lines: the
+   folded Session card's masthead. What the turn is FOR stands above it on the
+   description line, written by the Observer rather than extracted from the
+   assistant's own narration — so the beat has both lines to wrap into.
 
-   The runs are set to `block` rather than left inline, because inline they
-   would be one paragraph the reader has to parse into two facts, which is
-   exactly the reading the one-line register already gives. The clamp that
-   holds the pair at two lines and the tier that was widened for the second
-   are `session-masthead.css`'s and `tug-pane.css`'s — this file only says
-   that the two facts are two lines.
+   The run is set to `block` rather than left inline so it takes the width
+   before it wraps. The clamp that holds it at two lines and the tier that was
+   widened for the second are `session-masthead.css`'s and `tug-pane.css`'s.
 
    `[data-register="wall"]` rather than a class, so the register the row was
    asked for and the register it drew are the same fact wherever it is read —
    a test, a stylesheet, or the DOM. */
-[data-register="wall"] > .session-identity-activity-intent,
 [data-register="wall"] > .session-identity-activity-beat {
   display: block;
   min-width: 0;
-}
-
-/* The intent is the standing goal and the beat is the news, so the goal reads
-   quieter — the same relation the pulse history's group heading has to the
-   beats under it. Emphasis inside it is flattened for the same reason: a
-   monologue line's own italics would out-shout the action beneath it. */
-[data-register="wall"] > .session-identity-activity-intent {
-  opacity: var(--tugx-session-identity-intent-fade, 0.72);
-}
-
-[data-register="wall"] > .session-identity-activity-intent em,
-[data-register="wall"] > .session-identity-activity-intent strong {
-  font-style: normal;
-  font-weight: inherit;
 }

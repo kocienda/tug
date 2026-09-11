@@ -88,7 +88,7 @@
   min-height: var(--session-transcript-min, 140px);
   min-width: 0;
   /* Positioning context for the Changes shade wrapper, which overlays the
-     WHOLE column (view slot + find bar + Z2 + PULSE) so the shade rises from
+     WHOLE column (view slot + find bar + Z2 + the beat) so the shade rises from
      the top edge of the prompt-entry region below. History's shade stays
      inside `.session-view-slot` and rises from Z2 as before. */
   position: relative;
@@ -130,7 +130,7 @@
    The two wrappers differ only in the box they cover, which is the box their
    shade's bottom edge rests on. History fills the view slot (rising from Z2).
    Changes is a child of `.session-card-top-column` and fills the WHOLE column
-   — view slot, find bar, Z2, and PULSE — so it rises from the top of the
+   — view slot, find bar, Z2, and the beat — so it rises from the top of the
    prompt-entry region, the first thing below the column. */
 .session-view-pane[data-view="changes"],
 .session-view-pane[data-view="history"] {
@@ -394,7 +394,7 @@
   background-color: var(--tug7-surface-card-primary-normal-status-rest);
   /* Borders top and bottom frame the status bar: the top rule separates it
      from the transcript above, the bottom rule from the prompt entry below.
-     When the PULSE strip follows, the bottom rule is dropped (see below) —
+     When the beat strip follows, the bottom rule is dropped (see below) —
      the strip's transcript-colored background does the separating instead.
      Both render on the status surface set on this same rule (self-documenting
      per [L16]). */

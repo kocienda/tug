@@ -258,7 +258,7 @@ export interface CardRegistration {
    *
    * `true` for the cards whose whole content is engine focus stops the
    * keyboard walks: the rail, Jots, Settings and its bodies, Keyboard, About,
-   * Overview, Pulse, DevTools. Their rings and arrow movement are the interface,
+   * Overview, Activity, DevTools. Their rings and arrow movement are the interface,
    * so the mode is on the moment the card is key and no ⌥⇥ is needed.
    *
    * Omit (the default) for a card whose resting state is a caret in a text

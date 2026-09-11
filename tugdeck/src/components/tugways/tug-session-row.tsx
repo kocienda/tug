@@ -41,7 +41,7 @@
  * Laws: [L06] appearance is CSS on data attributes, never React state;
  *       [L19] `.tsx`/`.css` pair, `data-slot="tug-session-row"`;
  *       [L20] token sovereignty — owns `--tugx-session-row-*` and composes
- *       `TugListRow` / `TugPulse` without reaching into their tokens or
+ *       `TugListRow` / `TugActivityLine` without reaching into their tokens or
  *       their internals.
  *
  * @module components/tugways/tug-session-row
@@ -56,7 +56,7 @@ import { sizeGeometry } from "./internal/tug-progress-pulsing-dot";
 import { sparklineCurves } from "./tug-sparkline";
 import { TugLabel } from "./tug-label";
 import { TugListRow, type TugListRowProps } from "./tug-list-row";
-import { TugPulse, type TugPulsePreset } from "./tug-pulse";
+import { TugActivityLine } from "./tug-activity-line";
 import { TugTooltip } from "./tug-tooltip";
 
 /**
@@ -215,7 +215,7 @@ export const TUG_SESSION_SPARK_CURVE = sparklineCurves.gamma(0.6);
  */
 const SPARK_RESERVE_STYLE = {
   "--tugx-session-row-spark-width": `${TUG_SESSION_ROW_SPARK_WIDTH}px`,
-  "--tugx-session-row-spark-reserve": `calc(${TUG_SESSION_ROW_SPARK_WIDTH}px + var(--tugx-pulse-trailing-gap))`,
+  "--tugx-session-row-spark-reserve": `calc(${TUG_SESSION_ROW_SPARK_WIDTH}px + var(--tugx-activity-line-trailing-gap))`,
 } as React.CSSProperties;
 
 const NO_SPARK_RESERVE_STYLE = {
@@ -315,9 +315,6 @@ export interface TugSessionRowProps
    */
   subAlign?: TugSessionRowSubAlign;
 
-  /** The PULSE's typographic preset, forwarded whole to {@link TugPulse}. */
-  preset?: TugPulsePreset;
-
   /** Phase indicator — the caller's progress dot. */
   indicator?: React.ReactNode;
 
@@ -405,9 +402,9 @@ export interface TugSessionRowProps
 
   /**
    * Props for the element wrapping the activity run, forwarded whole to
-   * {@link TugPulse}. The gesture surface for anything acting on the activity
+   * {@link TugActivityLine}. The gesture surface for anything acting on the activity
    * as a whole — the masthead hangs its right-click copy and its
-   * recent-pulses toggle here, so the target is the reading and not the tape
+   * beat-history toggle here, so the target is the reading and not the tape
    * beside it.
    */
   stageProps?: React.ComponentProps<"span">;
@@ -477,7 +474,6 @@ export const TugSessionRow = React.forwardRef<
   {
     fit = TUG_SESSION_ROW_DEFAULT_FIT,
     subAlign = "title",
-    preset,
     indicator,
     indicatorSize,
     name,
@@ -571,13 +567,9 @@ export const TugSessionRow = React.forwardRef<
             )
           : null}
         {/* The activity, and the tape that rides it. Nothing about how the line
-            reads is decided here: `TugPulse` owns the face, the leading, where
-            the baseline falls, and what a line with nothing to say says. Its
-            `headline` level is deliberately not passed — the description above
-            already says what the session is for ([D132]). */}
-        <TugPulse
-          layout="stacked"
-          preset={preset}
+            reads is decided here: `TugActivityLine` owns the face, the leading, where
+            the baseline falls, and what a line with nothing to say says. */}
+        <TugActivityLine
           activity={activity}
           trailing={sparkline}
           stageProps={stageProps}

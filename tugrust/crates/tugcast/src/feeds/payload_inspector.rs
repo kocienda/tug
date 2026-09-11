@@ -48,7 +48,7 @@ pub struct InspectedPayload {
     /// The session id tugcast spliced into the line
     /// (`splice_tug_session_id`) before the CODE_OUTPUT broadcast.
     /// `None` on inbound payloads and anything not yet spliced. The
-    /// pulse bridge keys its replay-mute set and per-scope forwarding
+    /// digest bridge keys its replay-mute set and per-scope forwarding
     /// on this.
     #[serde(default)]
     pub tug_session_id: Option<String>,

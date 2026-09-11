@@ -1,17 +1,17 @@
 /* @tug-pairings:
    - (currentColor) | (inherit)  (the beat and its file reference inherit the
-     pulse run's own face, size, and tone — this file adds no color of its own)
+     beat run's own face, size, and tone — this file adds no color of its own)
 */
 
 /**
- * pulse-beat-text.css — a beat's file reference inside a pulse run.
+ * beat-text.css — a beat's file reference inside a beat run.
  *
  * `TugAtomRef` already brings its own font and inherits color; the only rule here keeps the
- * reference from breaking across the pulse line's single-line reading.
+ * reference from breaking across the beat line's single-line reading.
  *
  * Laws: [L06] appearance via CSS; [L19] file pair.
  */
 
-.pulse-beat-file-ref {
+.beat-file-ref {
   white-space: nowrap;
 }

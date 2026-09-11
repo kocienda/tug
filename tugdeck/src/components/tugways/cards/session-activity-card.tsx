@@ -1,5 +1,5 @@
 /**
- * SessionPulseCard — the expanded view of the compact PULSE sparkline ([P12]).
+ * SessionActivityCard — the expanded view of the compact activity sparkline ([P12]).
  * Small-multiples: one metric block per channel, always all of them.
  *
  * Design canon (see the plan's research note): Tufte sparklines — no chrome,
@@ -12,7 +12,7 @@
  * baseline with a dimmed zero until work arrives. Nothing appears or
  * disappears; the card never re-renders after mount.
  *
- * Surface: rendered inside the PULSE strip's activity popover (the compact
+ * Surface: rendered inside the beat strip's activity popover (the compact
  * strip is the entry point; this is its expansion).
  *
  * Laws:
@@ -21,12 +21,12 @@
  *         sampled imperatively off the render path ([P03]).
  *   [L06] the numeric value is written to the DOM imperatively on a calm tick
  *         — never React state, so a busy session doesn't re-render the card.
- *   [L19] `.tsx`/`.css` pair, `data-slot="session-pulse-card"`.
+ *   [L19] `.tsx`/`.css` pair, `data-slot="session-activity-card"`.
  *
- * @module components/tugways/cards/pulse-card
+ * @module components/tugways/cards/session-activity-card
  */
 
-import "./pulse-card.css";
+import "./session-activity-card.css";
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 
@@ -153,7 +153,7 @@ function formatValue(channel: ActivityChannel, value: number): string {
   return `${Math.round(value)}/s`;
 }
 
-function PulseRow({
+function ActivityRow({
   session,
   channel,
 }: {
@@ -281,19 +281,19 @@ function PulseRow({
   }, [session, channel]);
 
   return (
-    <div className="session-pulse-card-row" data-activity-channel={channel}>
+    <div className="session-activity-card-row" data-activity-channel={channel}>
       {/* One tinted block per metric (Gestalt common region — the label can
           only belong to the line it shares a box with), split into two
           zones: a reserved head band (label left, value right), then the
           graph beneath it. Separate zones, so the line can never run into
           the text no matter how hard it bursts. */}
-      <div className="session-pulse-card-row-head">
+      <div className="session-activity-card-row-head">
         <TugTooltip content={meta.blurb} side="left" align="center">
-          <span className="session-pulse-card-label" tabIndex={-1}>
+          <span className="session-activity-card-label" tabIndex={-1}>
             {meta.label}
           </span>
         </TugTooltip>
-        <span ref={valueRef} className="session-pulse-card-value" data-idle="true" />
+        <span ref={valueRef} className="session-activity-card-value" data-idle="true" />
       </div>
       <TugSparkline
         getSeries={getSeries}
@@ -304,14 +304,14 @@ function PulseRow({
         curve={descriptor.curve}
         width={SPARK_WIDTH}
         height={SPARK_HEIGHT}
-        className="session-pulse-card-spark"
+        className="session-activity-card-spark"
         title={`${meta.label} — ${meta.blurb}`}
       />
     </div>
   );
 }
 
-export function SessionPulseCard({
+export function SessionActivityCard({
   session,
 }: {
   session: string;
@@ -320,11 +320,11 @@ export function SessionPulseCard({
   // a flat baseline, and lights up when work arrives. No membership state,
   // no empty-state swap — the card never re-renders after mount.
   return (
-    <div className="session-pulse-card" data-slot="session-pulse-card">
-      <div className="session-pulse-card-title">Pulse</div>
-      <div className="session-pulse-card-rows">
+    <div className="session-activity-card" data-slot="session-activity-card">
+      <div className="session-activity-card-title">Activity</div>
+      <div className="session-activity-card-rows">
         {VISIBLE_CHANNELS.map((channel) => (
-          <PulseRow key={channel} session={session} channel={channel} />
+          <ActivityRow key={channel} session={session} channel={channel} />
         ))}
       </div>
     </div>

@@ -398,7 +398,7 @@ export interface CardTitleBarProps {
    * the Session masthead, and to nothing else. The tier's own geometry is CSS
    * keyed on the frame's `data-folded` ([L06]); the one thing a stylesheet
    * cannot decide is that the beat renders as two runs rather than one, which
-   * is the register this carries ([P09].3).
+   * is the register this carries ([D185]).
    * @default false
    */
   folded?: boolean;
@@ -1002,7 +1002,7 @@ function CardTitleBar({
       ) : (
         // Keyed by session, so a payload naming a DIFFERENT session remounts
         // rather than reconciling. A new session is a new entity, which is
-        // what [L26]'s test asks: the masthead holds the PULSE dwell queue's
+        // what [L26]'s test asks: the masthead holds the beat dwell queue's
         // current line and an open telemetry placard, and reconciling would
         // carry both across — the previous session's line reading under the
         // new session's callsign for a dwell window. Reachable two ways:
@@ -1012,7 +1012,7 @@ function CardTitleBar({
           key={masthead.sessionId}
           sessionId={masthead.sessionId}
           cardId={activeCardId}
-          // The register the beat reads in ([P09].3).
+          // The register the beat reads in ([D185]).
           folded={folded}
           // Its telemetry widget stands in the pane's control cluster, not
           // beside it — see the host below.

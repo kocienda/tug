@@ -1,0 +1,123 @@
+# The digester's drift-guard stream. One spliced payload per line; `#` lines and
+# blank lines are comments the reader skips. See README.md for what this is and
+# what it is not.
+#
+# The wire a line arrived on is read off its own `type`: `user_message` is
+# CODE_INPUT, `exchange_*` is SHELL_OUTPUT, everything else is CODE_OUTPUT.
+#
+# ── s-alpha: an ordinary turn, from the ask to the marker ────────────────────
+# The ask. The beat has never had this — it arrives on the submission wire,
+# which the daemon's tap never saw.
+{"type":"user_message","tug_session_id":"s-alpha","content":[{"type":"text","text":"Consolidate the three taps into one digester."}]}
+# system_metadata is in no allowlist and never crosses the tap. It is here so
+# the golden shows it producing nothing, which is what `display_path`'s root
+# being permanently None rests on.
+{"type":"system_metadata","tug_session_id":"s-alpha","cwd":"/u/src/tug","ipc_version":2}
+# The monologue: partials append, and one block earns one line however many
+# deltas carry it.
+{"type":"assistant_text","tug_session_id":"s-alpha","msg_id":"msg_a1","block_index":0,"is_partial":true,"seq":0,"text":"I'll fold the three taps into one Rust digester ","ipc_version":2}
+{"type":"assistant_text","tug_session_id":"s-alpha","msg_id":"msg_a1","block_index":0,"is_partial":true,"seq":1,"text":"so every reader reads one vocabulary.","ipc_version":2}
+# A new block is a new thought, and a new line.
+{"type":"assistant_text","tug_session_id":"s-alpha","msg_id":"msg_a2","block_index":0,"is_partial":false,"seq":2,"text":"Reading the allowlists first.","ipc_version":2}
+# A file tool's empty-input content_block_start says nothing.
+{"type":"tool_use","tug_session_id":"s-alpha","msg_id":"msg_a2","block_index":1,"seq":3,"tool_use_id":"toolu_read1","tool_name":"Read","input":{},"ipc_version":2}
+# …and its settled frame defers to the progress line, as a file tool always has.
+{"type":"tool_use","tug_session_id":"s-alpha","msg_id":"msg_a2","block_index":1,"seq":4,"tool_use_id":"toolu_read1","tool_name":"Read","input":{"file_path":"tugrust/crates/tugcast/src/feeds/pulse.rs"},"ipc_version":2}
+# The result. New to the beat, and most of what makes the Observer's posts good.
+{"type":"tool_result","tug_session_id":"s-alpha","tool_use_id":"toolu_read1","is_error":false,"output":"751 lines read from tugrust/crates/tugcast/src/feeds/pulse.rs","ipc_version":2}
+# A streaming Write: a hundred of these in a real turn, one line in the deque.
+{"type":"tool_input_progress","tug_session_id":"s-alpha","msg_id":"msg_a3","block_index":0,"seq":5,"tool_use_id":"toolu_write1","tool_name":"Write","file_path":"tugrust/crates/tugcast/src/feeds/session_digest.rs","bytes":40,"content_lines":0,"ipc_version":2}
+{"type":"tool_input_progress","tug_session_id":"s-alpha","msg_id":"msg_a3","block_index":0,"seq":6,"tool_use_id":"toolu_write1","tool_name":"Write","file_path":"tugrust/crates/tugcast/src/feeds/session_digest.rs","bytes":900,"content_lines":1,"ipc_version":2}
+{"type":"tool_input_progress","tug_session_id":"s-alpha","msg_id":"msg_a3","block_index":0,"seq":7,"tool_use_id":"toolu_write1","tool_name":"Write","file_path":"tugrust/crates/tugcast/src/feeds/session_digest.rs","bytes":41000,"content_lines":1704,"ipc_version":2}
+# A path far past the target budget keeps its basename: the ref surface.
+{"type":"tool_input_progress","tug_session_id":"s-alpha","msg_id":"msg_a3","block_index":1,"seq":8,"tool_use_id":"toolu_write2","tool_name":"Write","file_path":"/Users/kocienda/Mounts/u/src/tug/.tug/worktrees/session-narration/tugrust/crates/tugcast/tests/fixtures/session-digest/a-very-deeply-nested-directory/frames.jsonl","bytes":120,"content_lines":9,"ipc_version":2}
+# An error result says so.
+{"type":"tool_result","tug_session_id":"s-alpha","tool_use_id":"toolu_write2","is_error":true,"output":"EACCES: permission denied, open 'frames.jsonl'","ipc_version":2}
+# A retry is recovery, not a hang.
+{"type":"api_retry","tug_session_id":"s-alpha","attempt":2,"ipc_version":2}
+# The shell wire. A start speaks; a clean exit adds nothing; a failure does.
+{"type":"exchange_started","tug_session_id":"s-alpha","exchange_id":"e1","command":"cargo nextest run -p tugcast","cwd":"/u/src/tug/tugrust","started_at":1,"ipc_version":2}
+{"type":"exchange_complete","tug_session_id":"s-alpha","exchange_id":"e1","command":"cargo nextest run -p tugcast","exit_code":0,"output":"2558 passed","duration_ms":30000,"ipc_version":2}
+{"type":"exchange_started","tug_session_id":"s-alpha","exchange_id":"e2","command":"cargo clippy --workspace --all-targets -- -D warnings","cwd":"/u/src/tug/tugrust","started_at":2,"ipc_version":2}
+{"type":"exchange_complete","tug_session_id":"s-alpha","exchange_id":"e2","command":"cargo clippy --workspace --all-targets -- -D warnings","exit_code":101,"output":"error: unused import","duration_ms":8000,"ipc_version":2}
+# The turn ends, carrying the intent it was working toward.
+{"type":"turn_complete","tug_session_id":"s-alpha","msg_id":"msg_a3","seq":9,"result":"success","ipc_version":2}
+#
+# ── s-bravo: a replay flood, then live work ──────────────────────────────────
+# Everything between the brackets is history re-arriving on a reconnect. A
+# digest that re-narrated it would say the session is doing what it already did.
+{"type":"replay_started","tug_session_id":"s-bravo","ipc_version":2}
+{"type":"assistant_text","tug_session_id":"s-bravo","msg_id":"msg_b0","block_index":0,"is_partial":false,"seq":0,"text":"This sentence is history and must not be narrated again.","ipc_version":2}
+{"type":"tool_use","tug_session_id":"s-bravo","msg_id":"msg_b0","block_index":1,"seq":1,"tool_use_id":"toolu_old","tool_name":"Grep","input":{"pattern":"replayed"},"ipc_version":2}
+# One session's replay never blocks another's live work.
+{"type":"tool_use","tug_session_id":"s-alpha","msg_id":"msg_a4","block_index":0,"seq":10,"tool_use_id":"toolu_glob1","tool_name":"Glob","input":{"pattern":"tugrust/crates/tugcast/src/feeds/*.rs"},"ipc_version":2}
+{"type":"replay_complete","tug_session_id":"s-bravo","ipc_version":2}
+# Live, past the bracket: a tool-only stretch with no monologue to own the beat.
+{"type":"tool_use","tug_session_id":"s-bravo","msg_id":"msg_b1","block_index":0,"seq":2,"tool_use_id":"toolu_grep1","tool_name":"Grep","input":{"pattern":"FORWARD_ALLOWLIST"},"ipc_version":2}
+# A launched agent, and the tool calls it streams back to the parent.
+{"type":"tool_use","tug_session_id":"s-bravo","msg_id":"msg_b1","block_index":1,"seq":3,"tool_use_id":"toolu_agent1","tool_name":"Agent","input":{"subagent_type":"general-purpose","description":"sweep the pulse footprint"},"ipc_version":2}
+{"type":"task_started","tug_session_id":"s-bravo","task_id":"task_1","tool_use_id":"toolu_agent1","subagent_type":"general-purpose","task_type":"local_agent","description":"sweep the pulse footprint","ipc_version":2}
+{"type":"tool_use","tug_session_id":"s-bravo","msg_id":"msg_b2","block_index":0,"seq":4,"tool_use_id":"toolu_sub1","parent_tool_use_id":"toolu_agent1","tool_name":"Bash","input":{"command":"rg -i pulse Justfile"},"ipc_version":2}
+# A BACKGROUNDED agent's calls do not stream, so this per-step frame is the only
+# thing keeping the beat alive while it works.
+{"type":"task_progress","tug_session_id":"s-bravo","task_id":"task_1","tool_use_id":"toolu_agent1","subagent_type":"general-purpose","last_tool_name":"Grep","ipc_version":2}
+{"type":"task_updated","tug_session_id":"s-bravo","task_id":"task_1","status":"completed","end_time":2,"ipc_version":2}
+# Woke from idle to service the completion.
+{"type":"wake_started","tug_session_id":"s-bravo","session_id":"s-bravo","wake_trigger":{"status":"completed","task_id":"task_1"},"ipc_version":2}
+# Task-list lifecycle, which the prose monologue glosses over.
+{"type":"tool_use","tug_session_id":"s-bravo","msg_id":"msg_b3","block_index":0,"seq":5,"tool_use_id":"toolu_tc1","tool_name":"TaskCreate","input":{"subject":"Retire the narration daemon"},"ipc_version":2}
+{"type":"tool_use","tug_session_id":"s-bravo","msg_id":"msg_b3","block_index":1,"seq":6,"tool_use_id":"toolu_tu1","tool_name":"TaskUpdate","input":{"taskId":1,"status":"in_progress"},"ipc_version":2}
+{"type":"tool_use","tug_session_id":"s-bravo","msg_id":"msg_b3","block_index":2,"seq":7,"tool_use_id":"toolu_tu2","tool_name":"TaskUpdate","input":{"taskId":1,"status":"completed"},"ipc_version":2}
+# A skill drives its own turn with little narration, so it is always shown.
+{"type":"tool_use","tug_session_id":"s-bravo","msg_id":"msg_b4","block_index":0,"seq":8,"tool_use_id":"toolu_skill1","tool_name":"tugplug:arc-implement","input":{},"ipc_version":2}
+# The model declined and the SDK fell back; then the turn hit the ceiling.
+{"type":"model_refusal_fallback","tug_session_id":"s-bravo","fallback_model":"claude-haiku-4-5","ipc_version":2}
+{"type":"output_truncated","tug_session_id":"s-bravo","ipc_version":2}
+# An `error` frame is allowlisted and narrated by nothing — the daemon had no
+# case for it either, and landing this consolidation must change nothing the
+# reader sees. The golden pins that it produces no line.
+{"type":"error","tug_session_id":"s-bravo","message":"upstream connection reset","ipc_version":2}
+# The user stopped it.
+{"type":"turn_cancelled","tug_session_id":"s-bravo","msg_id":"msg_b4","seq":9,"ipc_version":2}
+#
+# ── s-charlie: the narrated wait, both of its endings, and a compaction ──────
+{"type":"tool_input_progress","tug_session_id":"s-charlie","msg_id":"msg_c1","block_index":0,"seq":0,"tool_use_id":"toolu_c_write","tool_name":"Write","file_path":"tugdeck/src/deck-manager.ts","bytes":300,"content_lines":12,"ipc_version":2}
+# A permission request went out. This is the state a watched card is most often
+# in, and it is why the beat moves off the tool call rather than freezing on it.
+{"type":"control_request_forward","tug_session_id":"s-charlie","request_id":"req_1","tool_use_id":"toolu_c_bash","tool_name":"Bash","input":{"command":"rm -rf build"},"is_question":false,"ipc_version":2}
+# Withdrawn: the superseded line goes back so the beat moves off the wait.
+{"type":"control_request_cancel","tug_session_id":"s-charlie","request_id":"req_1","ipc_version":2}
+# A forwarded QUESTION names no call, so any result answers it.
+{"type":"control_request_forward","tug_session_id":"s-charlie","request_id":"req_2","tool_name":"AskUserQuestion","input":{"questions":[{"header":"Auth method","question":"Which one?"}]},"is_question":true,"ipc_version":2}
+{"type":"tool_result","tug_session_id":"s-charlie","tool_use_id":"toolu_unrelated","is_error":false,"ipc_version":2}
+# The same question announced as a tool call reads its header the same way.
+{"type":"tool_use","tug_session_id":"s-charlie","msg_id":"msg_c2","block_index":0,"seq":1,"tool_use_id":"toolu_c_ask","tool_name":"AskUserQuestion","input":{"questions":[{"header":"Auth method","question":"Which one?"}]},"ipc_version":2}
+# A permission wait that ends on the named call's own result — the ALLOW path,
+# which nothing outbound announces.
+{"type":"control_request_forward","tug_session_id":"s-charlie","request_id":"req_3","tool_use_id":"toolu_c_lint","tool_name":"Bash","input":{"command":"just lint"},"is_question":false,"ipc_version":2}
+{"type":"tool_result","tug_session_id":"s-charlie","tool_use_id":"toolu_c_lint","is_error":false,"output":"lint clean","ipc_version":2}
+# A substantial thought, pinned as intent over what follows.
+{"type":"assistant_text","tug_session_id":"s-charlie","msg_id":"msg_c3","block_index":0,"is_partial":false,"seq":2,"text":"Now folding the composer and the transcript on the settle's own clock.","ipc_version":2}
+{"type":"tool_input_progress","tug_session_id":"s-charlie","msg_id":"msg_c4","block_index":0,"seq":3,"tool_use_id":"toolu_c_imposer","tool_name":"Edit","file_path":"tugdeck/src/lib/layout-imposer.ts","bytes":80,"content_lines":6,"ipc_version":2}
+# A compaction at capacity. Everything the scope was carrying described the
+# context that was just summarized away, so it speaks now rather than through
+# the throttle: on a manual /compact the boundary is followed within a frame or
+# two by turn_complete, which resets the scope.
+{"type":"compact_boundary","tug_session_id":"s-charlie","trigger":"auto","pre_tokens":154000,"ipc_version":2}
+# A manual boundary with no metadata stays plain.
+{"type":"compact_boundary","tug_session_id":"s-charlie","trigger":"manual","ipc_version":2}
+{"type":"turn_complete","tug_session_id":"s-charlie","msg_id":"msg_c4","seq":4,"result":"success","ipc_version":2}
+#
+# ── the defensive edges ──────────────────────────────────────────────────────
+# Malformed JSON never panics and never produces a line.
+not json at all
+# Allowlisted but unspliced: relay lines always carry a session, so this is the
+# defensive case.
+{"type":"tool_use","tool_name":"Read","input":{"file_path":"unspliced.rs"}}
+# Math is atomic for extraction: no sentence boundary and no clip point ever
+# lands inside a span, and a math-only segment borrows its short label.
+{"type":"assistant_text","tug_session_id":"s-delta","msg_id":"msg_d1","block_index":0,"is_partial":false,"seq":0,"text":"**2. Gauss's Law for Magnetism**\n\n$$\\nabla \\cdot \\mathbf{B} = 0$$","ipc_version":2}
+# A heading label introduces the next segment but says nothing itself.
+{"type":"assistant_text","tug_session_id":"s-delta","msg_id":"msg_d2","block_index":0,"is_partial":false,"seq":1,"text":"The parser handles precedence correctly now.\n\n**What's next:**\n\n- add modulo","ipc_version":2}
+# An enumerator's dot introduces an item; it never ends a thought.
+{"type":"assistant_text","tug_session_id":"s-delta","msg_id":"msg_d3","block_index":0,"is_partial":false,"seq":2,"text":"The four equations follow. **3.** Faraday describes induction quite neatly here","ipc_version":2}

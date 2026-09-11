@@ -54,7 +54,7 @@ import {
   _ingestOverviewPageForTest,
   getOverviewStore,
 } from "./lib/overview-store";
-import { _ingestPulseFrameForTest, getPulseStore } from "./lib/pulse-store";
+import { _ingestDigestFrameForTest, getDigestStore } from "./lib/digest-store";
 import { _ingestDraftFrameForTest } from "./lib/changeset-draft-store";
 import {
   ACTIVITY_DESCRIPTORS,
@@ -206,9 +206,9 @@ import {
  * rather than a residue of the transitions that wrote them. Additive; major
  * stays `1`.
  *
- * `1.17.0`: adds {@link TugTestSurface.publishPulseFrame} — delivers a PULSE
- * frame body as if it arrived over the wire, so a test can put a beat on
- * screen without a live commentator behind it.
+ * `1.17.0`: adds `publishPulseFrame` — delivers a PULSE frame body as if it
+ * arrived over the wire, so a test can put a beat on screen without a live
+ * commentator behind it. Renamed in `2.18.0`.
  *
  * `1.16.0`: adds {@link TugTestSurface.currentGesture} — the live pointer
  * gesture's classification record, so a test can assert what the interpreter
@@ -374,8 +374,16 @@ import {
  * than off the frame's `data-folded` because a step that lands the flag
  * before the form has anything to say still needs to assert the commit.
  * Additive; major stays `2`.
+ *
+ * `2.18.0`: renames the beat trio for the vocabulary the whole subsystem now
+ * carries — `publishPulseFrame` → {@link TugTestSurface.publishDigestFrame},
+ * `_ingestPulseFrameForTest` → `_ingestDigestFrameForTest`, `getPulseStore` →
+ * `getDigestStore`. The frame body's `"type"` is `"digest"` too, so a test
+ * carrying the old spelling is dropped by the parser rather than misread.
+ * Renaming, not adding; major stays `2` because the surface is the app's own
+ * test seam and its only clients are in this repository.
  */
-export const SURFACE_VERSION = "2.17.0" as const;
+export const SURFACE_VERSION = "2.18.0" as const;
 
 /**
  * A {@link TugTestSurface.dictionaryLookupProbe} reading: the payload Look Up
@@ -956,19 +964,19 @@ export interface TugTestSurface {
   } | null;
 
   /**
-   * Deliver a PULSE frame body as if it had arrived over the wire
-   * (SURFACE_VERSION 1.17.0).
+   * Deliver a DIGEST frame body as if it had arrived over the wire
+   * (SURFACE_VERSION 1.17.0, renamed 2.18.0).
    *
    * `payloadJson` is the emitter's own shape —
-   * `{"type":"pulse","text":…,"scopes":[…],"beat":N,"at":ms}`. The bytes go
+   * `{"type":"digest","text":…,"scopes":[…],"beat":N,"at":ms}`. The bytes go
    * through the production parser and fold, so this puts a real beat on the
-   * strip without a live commentator.
+   * masthead without a live commentator.
    *
    * Returns `false` when no store is attached. A `true` return only means the
    * bytes were handed over: the parser drops a malformed body silently, so
    * assert on what rendered, never on this alone.
    */
-  publishPulseFrame(payloadJson: string): boolean;
+  publishDigestFrame(payloadJson: string): boolean;
 
   /**
    * Deliver a changeset-draft CONTROL body as if it had arrived over the wire
@@ -2246,10 +2254,10 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       };
     },
 
-    publishPulseFrame(payloadJson: string): boolean {
-      if (getPulseStore() === null) return false;
+    publishDigestFrame(payloadJson: string): boolean {
+      if (getDigestStore() === null) return false;
       try {
-        _ingestPulseFrameForTest(JSON.parse(payloadJson));
+        _ingestDigestFrameForTest(JSON.parse(payloadJson));
       } catch {
         return false;
       }

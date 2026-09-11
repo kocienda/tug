@@ -20,7 +20,7 @@ use crate::lag::LagPolicy;
 use crate::protocol::{FeedId, Frame};
 
 /// Default broadcast-channel capacity for stream feeds. Feeds with lighter
-/// traffic (e.g. pulse commentary) override [`StreamFeed::channel_capacity`].
+/// traffic (e.g. digest lines) override [`StreamFeed::channel_capacity`].
 pub const DEFAULT_BROADCAST_CAPACITY: usize = 4096;
 
 /// A feed that produces a continuous stream of frames

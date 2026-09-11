@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  formatRestingStamp,
   sessionActivityBeat,
   sessionActivityRestLine,
 } from "@/lib/session-activity-line";
@@ -83,5 +84,59 @@ describe("sessionActivityBeat", () => {
 
   test("no beat is no beat", () => {
     expect(sessionActivityBeat(null)).toBeNull();
+  });
+});
+
+describe("formatRestingStamp", () => {
+  // The stamp's exact string is locale- and timezone-dependent, so what is
+  // pinned is its SHAPE: the day is always there, and so is the clock.
+  const LAST_MONTH = new Date(2026, 5, 17, 6, 11).getTime();
+  const EARLIER_TODAY = new Date(2026, 6, 30, 9, 3).getTime();
+
+  test("carries the day AND the clock", () => {
+    const stamp = formatRestingStamp(LAST_MONTH);
+    expect(stamp).toContain(
+      new Date(LAST_MONTH).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      }),
+    );
+    expect(stamp).toContain(
+      new Date(LAST_MONTH).toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      }),
+    );
+  });
+
+  test("a timestamp from today keeps its day like any other", () => {
+    // No same-day shortening: a rail of rows is read by comparing the rows to
+    // each other, and one row that dropped its day is the one whose day the
+    // reader has to infer.
+    expect(formatRestingStamp(EARLIER_TODAY)).toContain(
+      new Date(EARLIER_TODAY).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      }),
+    );
+  });
+
+  test("two different days never read the same", () => {
+    expect(formatRestingStamp(LAST_MONTH)).not.toBe(
+      formatRestingStamp(new Date(2026, 6, 30, 6, 11).getTime()),
+    );
+  });
+
+  test("joins the day and the clock itself, so the sentence supplies its own connective", () => {
+    // One `toLocaleString` for both writes its own (`Jun 17 at 6:11 AM`),
+    // which lands inside the rest line as a preposition nobody asked for.
+    expect(formatRestingStamp(LAST_MONTH)).not.toContain(" at ");
+    expect(
+      sessionActivityRestLine({
+        turnCount: 2,
+        fileSize: 1_024,
+        lastUsedAtMs: LAST_MONTH,
+      }).match(/\bat\b/g),
+    ).toBeNull();
   });
 });

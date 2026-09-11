@@ -32,7 +32,6 @@ import type React from "react";
 import { registerCard, type CardSizePolicy } from "@/card-registry";
 import { SpikeHome } from "./spike-home";
 import { spike as slotLayoutSpike } from "./spike-slot-layout";
-import { spike as pulseDisplaySpike } from "./spike-pulse-display";
 import { spike as configureTugSpike } from "./spike-configure-tug";
 import { spike as sessionIdentitySpike } from "./spike-session-identity";
 import { spike as transcriptRegistersSpike } from "./spike-transcript-registers";
@@ -103,7 +102,6 @@ export function spikeComponentId(name: string): string {
  */
 export const SPIKES: readonly SpikeDef[] = [
   slotLayoutSpike,
-  pulseDisplaySpike,
   configureTugSpike,
   sessionIdentitySpike,
   transcriptRegistersSpike,

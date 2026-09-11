@@ -214,13 +214,13 @@ describe("TugConnection — feed subscriptions", () => {
 
     conn.onFrame(FeedId.JOTS, noop);
     conn.onFrame(FeedId.DEFAULTS, noop);
-    conn.onFrame(FeedId.PULSE, noop);
+    conn.onFrame(FeedId.DIGEST, noop);
     await settle();
 
     const sent = subscriptions(ws);
     expect(sent.length).toBe(1);
     expect(sent[0]).toEqual(
-      [FeedId.DEFAULTS, FeedId.PULSE, FeedId.JOTS].sort((a, b) => a - b),
+      [FeedId.DEFAULTS, FeedId.DIGEST, FeedId.JOTS].sort((a, b) => a - b),
     );
   });
 
@@ -240,10 +240,10 @@ describe("TugConnection — feed subscriptions", () => {
     // And the feed is still in the set, which is what keeps the replay cache
     // warm for a store that mounts later. Prove it by growing the set and
     // reading what the next frame carries.
-    conn.onFrame(FeedId.PULSE, noop);
+    conn.onFrame(FeedId.DIGEST, noop);
     await settle();
     expect(subscriptions(ws)).toEqual([
-      [FeedId.PULSE, FeedId.JOTS].sort((a, b) => a - b),
+      [FeedId.DIGEST, FeedId.JOTS].sort((a, b) => a - b),
     ]);
   });
 

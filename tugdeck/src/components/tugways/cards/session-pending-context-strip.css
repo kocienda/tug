@@ -16,7 +16,7 @@
   flex-wrap: wrap;
   gap: var(--tug-space-xs) var(--tug-space-sm);
   padding: var(--tug-space-xs) var(--tug-space-sm);
-  /* Same surface as the prompt-entry field (not the pane / pulse background),
+  /* Same surface as the prompt-entry field (not the pane background),
      framed by a rule above and below. */
   background: var(--tugx-entry-shell-rest);
   border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);

@@ -669,30 +669,6 @@ pub struct SessionStateChangeRow {
     pub interrupt_in_flight: bool,
 }
 
-/// One row of the `pulse_lines` table — a single commentator line from
-/// the app-scoped PULSE daemon. The table is a capped rolling log
-/// (`record_pulse_line` prunes past the cap): the deck reads the tail
-/// via the `list_pulse_lines` CONTROL verb on mount, and the daemon
-/// re-seeds its inner session from the same tail after restarts.
-///
-/// App-scoped by design — no session-id column and no cascade: a line
-/// may cover several scopes (carried in `scopes` as a JSON array of
-/// scope ids) and outlives any one session row.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct PulseLineRow {
-    pub id: i64,
-    pub at_ms: i64,
-    pub beat: i64,
-    pub text: String,
-    /// The retained high-level thought behind a low-level `text` beat
-    /// ("intent • action" in the strip); absent when `text` is itself
-    /// the monologue or a turn marker. Omitted from serialization when
-    /// `None` so pre-intent rows round-trip unchanged.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub intent: Option<String>,
-    pub scopes: Vec<String>,
-}
-
 /// The canonical turn-rule version stamped on every freshly-written
 /// `external_scan_cache` row. Bump this whenever the scanner's turn rule
 /// changes: existing rows (stamped a lower epoch, or the `DEFAULT 0` of a
@@ -1789,7 +1765,6 @@ impl SessionLedger {
         Self::migrate_sessions_add_demoted(conn)?;
         Self::migrate_sessions_add_hand_back_owed(conn)?;
         Self::migrate_scan_cache_add_resume_columns(conn)?;
-        Self::migrate_pulse_lines_add_intent(conn)?;
         Self::migrate_overview_posts_add_elapsed_ms(conn)?;
         Self::migrate_overview_posts_add_project_dir(conn)?;
         Self::migrate_overview_posts_add_attachments(conn)?;
@@ -1798,6 +1773,7 @@ impl SessionLedger {
         Self::migrate_facts_add_tokens(conn)?;
         Self::migrate_overview_posts_add_tokens(conn)?;
         Self::migrate_drop_pulse_overviews(conn)?;
+        Self::migrate_drop_pulse_lines(conn)?;
         // Before the batch, because `migrate_sessions_to_lines` writes both
         // columns and the batch only declares them on a table it creates.
         Self::migrate_minted_tags_add_line_id(conn)?;
@@ -2177,23 +2153,6 @@ impl SessionLedger {
                 DELETE FROM session_state_changes WHERE session_id = OLD.session_id;
             END;
 
-            -- App-scoped PULSE commentary lines — a capped rolling log
-            -- written by the pulse bridge as daemon lines arrive and
-            -- read two ways: the deck fetches the tail through the
-            -- `list_pulse_lines` CONTROL verb on mount, and the daemon
-            -- is re-seeded from the same tail at spawn. `scopes` is a
-            -- JSON array of the scope ids the line's source beat
-            -- covered. Deliberately NO session cascade: a line may span
-            -- scopes and the narrative log outlives any one session.
-            CREATE TABLE IF NOT EXISTS pulse_lines (
-                id     INTEGER PRIMARY KEY AUTOINCREMENT,
-                at_ms  INTEGER NOT NULL,
-                beat   INTEGER NOT NULL,
-                text   TEXT NOT NULL,
-                intent TEXT,
-                scopes TEXT NOT NULL
-            );
-
             -- App-scoped Overview channel — every post by any of its three
             -- authors ('observer' | 'operator' | 'user'). `session_id` is
             -- the provenance link a Observer digest carries back to the
@@ -2202,25 +2161,23 @@ impl SessionLedger {
             -- session); `wake_reason` records which structural moment woke
             -- the Observer, and is NULL for the other two authors. `refs`
             -- is a JSON array of {kind, target}, serialized like
-            -- `pulse_lines.scopes`.
+            -- a scope-id list: `json!` in, `serde_json::from_str` out.
             --
-            -- Deliberately NO session cascade, for the same reason
-            -- `pulse_lines` has none and one more besides: the channel
-            -- outlives any single session, and a digest's whole value is
-            -- that it still says what happened after the session row it
-            -- points at has been evicted.
+            -- Deliberately NO session cascade: the channel outlives any
+            -- single session, and a digest's whole value is that it still
+            -- says what happened after the session row it points at has
+            -- been evicted.
             --
-            -- UNCAPPED, and unlike `pulse_lines` that is the point rather
-            -- than an oversight. `pulse_lines` is a rolling log the strip
-            -- reads the tail of; this is permanent history the Operator
-            -- searches. Nothing prunes it.
+            -- UNCAPPED, and that is the point rather than an oversight:
+            -- this is permanent history the Operator searches, not a
+            -- rolling log somebody reads the tail of. Nothing prunes it.
             --
             -- NEVER register this table with `rebuild_table_if_schema_drifted`.
             -- That guard resolves a column-set change by DROPPING and
             -- recreating, which is harmless for a rolling log and total
             -- data loss here. A future column is added with an ALTER-based
             -- `migrate_overview_posts_add_*` alongside the other migrations,
-            -- following `migrate_pulse_lines_add_intent`. The FTS5 shadow
+            -- following `migrate_overview_posts_add_elapsed_ms`. The FTS5 shadow
             -- tables below are the opposite case: they are derived from
             -- this table and may be dropped and rebuilt freely.
             CREATE TABLE IF NOT EXISTS overview_posts (
@@ -3490,22 +3447,6 @@ impl SessionLedger {
         Ok(())
     }
 
-    /// Self-healing add of the `pulse_lines.intent` column — the retained
-    /// high-level thought behind a low-level beat ("intent • action" in
-    /// the strip). Pre-column rows read `NULL` (no intent), which is
-    /// exactly what they carried. No-op on a fresh DB (the CREATE TABLE
-    /// defines it) or when already migrated.
-    fn migrate_pulse_lines_add_intent(conn: &Connection) -> Result<(), LedgerError> {
-        let cols = Self::table_columns(conn, "pulse_lines")?;
-        if cols.is_empty() {
-            return Ok(());
-        }
-        if !cols.iter().any(|(n, _)| n == "intent") {
-            conn.execute("ALTER TABLE pulse_lines ADD COLUMN intent TEXT", [])?;
-        }
-        Ok(())
-    }
-
     /// Drop the `pulse_overviews` cache and its cascade trigger.
     ///
     /// The table held one latest-per-scope row so a card could come back from
@@ -3527,6 +3468,24 @@ impl SessionLedger {
             DROP TABLE IF EXISTS pulse_overviews;
             ",
         )?;
+        Ok(())
+    }
+
+    /// Drop the `pulse_lines` rolling log.
+    ///
+    /// The table was the app-scoped commentary log the retired `tugpulse`
+    /// daemon wrote and the deck read the tail of on mount. The digester
+    /// keeps the same window in memory instead (`feeds/digest_bridge.rs`),
+    /// which is where the `list_digest_lines` CONTROL verb now answers from,
+    /// so what is left on disk is a table with no writer and no reader.
+    ///
+    /// A drop rather than a rename, and with no write-lock guard: the
+    /// statement is idempotent, and nothing here was worth carrying — the
+    /// rows were a capped tail of beats about work that has since finished.
+    ///
+    /// Deletable once no installation predates this release.
+    fn migrate_drop_pulse_lines(conn: &Connection) -> Result<(), LedgerError> {
+        conn.execute_batch("DROP TABLE IF EXISTS pulse_lines;")?;
         Ok(())
     }
 
@@ -7665,120 +7624,6 @@ impl SessionLedger {
         Ok(rows)
     }
 
-    /// Append a `pulse_lines` row and prune the log to `cap` rows
-    /// (oldest first). `scopes` is persisted as a JSON array string.
-    pub fn record_pulse_line(
-        &self,
-        at_ms: i64,
-        beat: i64,
-        text: &str,
-        intent: Option<&str>,
-        scopes: &[String],
-        cap: usize,
-    ) -> Result<(), LedgerError> {
-        let scopes_json = serde_json::to_string(scopes).unwrap_or_else(|_| "[]".to_string());
-        let mut conn = self.db.lock().expect("ledger mutex");
-        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        tx.execute(
-            "INSERT INTO pulse_lines (at_ms, beat, text, intent, scopes)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![at_ms, beat, text, intent, scopes_json],
-        )?;
-        tx.execute(
-            "DELETE FROM pulse_lines
-             WHERE id NOT IN (
-                 SELECT id FROM pulse_lines ORDER BY id DESC LIMIT ?1
-             )",
-            params![cap as i64],
-        )?;
-        tx.commit()?;
-        Ok(())
-    }
-
-    /// The newest `limit` pulse lines, returned OLDEST-first (display /
-    /// seed order). Empty vec when the log is empty.
-    pub fn list_pulse_lines_tail(&self, limit: usize) -> Result<Vec<PulseLineRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT id, at_ms, beat, text, intent, scopes FROM (
-                 SELECT id, at_ms, beat, text, intent, scopes
-                 FROM pulse_lines ORDER BY id DESC LIMIT ?1
-             ) ORDER BY id ASC",
-        )?;
-        let rows = stmt
-            .query_map(params![limit as i64], |row| {
-                let scopes_json: String = row.get(5)?;
-                Ok(PulseLineRow {
-                    id: row.get(0)?,
-                    at_ms: row.get(1)?,
-                    beat: row.get(2)?,
-                    text: row.get(3)?,
-                    intent: row.get(4)?,
-                    scopes: serde_json::from_str(&scopes_json).unwrap_or_default(),
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(rows)
-    }
-
-    /// The newest `per_scope` lines for EACH scope the log's last `scan`
-    /// rows mention, returned OLDEST-first (display order).
-    ///
-    /// The deck's restore read, and deliberately not `list_pulse_lines_tail`:
-    /// a flat app-wide tail is whatever the last-chatty session said, so a
-    /// quiet card rehydrates empty even though its lines are sitting in the
-    /// table. Selecting per scope gives every session its own window. A line
-    /// covering several scopes counts against all of them but is returned
-    /// once; an unscoped (app-wide ambience) line gets a window of its own.
-    pub fn list_pulse_lines_per_scope(
-        &self,
-        per_scope: usize,
-        scan: usize,
-    ) -> Result<Vec<PulseLineRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT id, at_ms, beat, text, intent, scopes
-             FROM pulse_lines ORDER BY id DESC LIMIT ?1",
-        )?;
-        let newest_first = stmt
-            .query_map(params![scan as i64], |row| {
-                let scopes_json: String = row.get(5)?;
-                Ok(PulseLineRow {
-                    id: row.get(0)?,
-                    at_ms: row.get(1)?,
-                    beat: row.get(2)?,
-                    text: row.get(3)?,
-                    intent: row.get(4)?,
-                    scopes: serde_json::from_str(&scopes_json).unwrap_or_default(),
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        // Where an unscoped line's window is kept — not a scope id, and the
-        // empty string can never collide with one.
-        const UNSCOPED: &str = "";
-        let mut taken: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        let mut kept: Vec<PulseLineRow> = Vec::new();
-        for row in newest_first {
-            let keys: Vec<&str> = if row.scopes.is_empty() {
-                vec![UNSCOPED]
-            } else {
-                row.scopes.iter().map(String::as_str).collect()
-            };
-            if !keys
-                .iter()
-                .any(|k| taken.get(*k).copied().unwrap_or(0) < per_scope)
-            {
-                continue;
-            }
-            for key in keys {
-                *taken.entry(key.to_string()).or_insert(0) += 1;
-            }
-            kept.push(row);
-        }
-        kept.reverse();
-        Ok(kept)
-    }
-
     // MARK: - Overview posts
 
     /// Append one Overview post and return its rowid.
@@ -11187,99 +11032,49 @@ mod tests {
         assert!(!has_table(&conn) && !has_trigger(&conn));
     }
 
-    // ── pulse_lines: capped rolling log + tail read ──────────────────────────
+    // ── pulse_lines: the retired daemon's rolling log ────────────────────────
 
     #[test]
-    fn pulse_lines_cap_and_tail() {
-        let ledger = fresh();
-        // Empty log → empty tail.
-        assert!(ledger.list_pulse_lines_tail(20).unwrap().is_empty());
-
-        // Write past the cap; only the newest `cap` rows survive.
-        // Even beats carry an intent, odd beats none — the tail must
-        // round-trip both.
-        let scopes = vec!["scope-a".to_string(), "scope-b".to_string()];
-        for i in 1..=250_i64 {
-            let intent = (i % 2 == 0).then(|| format!("intent {i}"));
-            ledger
-                .record_pulse_line(
-                    1_000 + i,
-                    i,
-                    &format!("line {i}"),
-                    intent.as_deref(),
-                    &scopes,
-                    200,
-                )
-                .expect("record_pulse_line");
+    fn a_ledger_carrying_the_pulse_lines_log_drops_it() {
+        fn has_table(conn: &Connection) -> bool {
+            conn.query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pulse_lines'",
+                [],
+                |_| Ok(()),
+            )
+            .is_ok()
         }
-        let all = ledger.list_pulse_lines_tail(1_000).unwrap();
-        assert_eq!(all.len(), 200);
-        assert_eq!(all.first().unwrap().text, "line 51");
-        assert_eq!(all.last().unwrap().text, "line 250");
 
-        // Tail read returns the newest N, OLDEST-first, scopes intact.
-        let tail = ledger.list_pulse_lines_tail(20).unwrap();
-        assert_eq!(tail.len(), 20);
-        assert_eq!(tail.first().unwrap().text, "line 231");
-        assert_eq!(tail.last().unwrap().text, "line 250");
-        assert_eq!(tail.last().unwrap().beat, 250);
-        assert_eq!(tail.last().unwrap().scopes, scopes);
-        assert_eq!(tail.last().unwrap().intent.as_deref(), Some("intent 250"));
-        assert_eq!(tail.first().unwrap().intent, None); // beat 231, odd
-    }
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE pulse_lines (
+                 id     INTEGER PRIMARY KEY AUTOINCREMENT,
+                 at_ms  INTEGER NOT NULL,
+                 beat   INTEGER NOT NULL,
+                 text   TEXT NOT NULL,
+                 intent TEXT,
+                 scopes TEXT NOT NULL
+             );
+             INSERT INTO pulse_lines (at_ms, beat, text, intent, scopes)
+             VALUES (1000, 1, 'Reading src/main.tsx', NULL, '[\"scope-a\"]');",
+        )
+        .expect("legacy schema");
+        assert!(has_table(&conn));
 
-    #[test]
-    fn pulse_lines_per_scope_gives_every_session_its_own_window() {
+        SessionLedger::migrate_drop_pulse_lines(&conn).expect("migrate");
+        assert!(!has_table(&conn), "the log survived the drop");
+        // Idempotent: a second open of the same database must not fail.
+        SessionLedger::migrate_drop_pulse_lines(&conn).expect("re-migrate");
+        assert!(!has_table(&conn));
+
+        // A database that never had it is untouched, and a ledger opened the
+        // ordinary way never grows one — the DDL is gone and the migration is
+        // wired into the bootstrap.
+        let empty = Connection::open_in_memory().expect("in-memory db");
+        SessionLedger::migrate_drop_pulse_lines(&empty).expect("no-op");
         let ledger = fresh();
-        assert!(
-            ledger
-                .list_pulse_lines_per_scope(3, 200)
-                .unwrap()
-                .is_empty()
-        );
-
-        // A quiet session speaks once, then a chatty one floods the log —
-        // the flat tail would bury the quiet line past any window.
-        let quiet = vec!["quiet".to_string()];
-        let chatty = vec!["chatty".to_string()];
-        ledger
-            .record_pulse_line(1_000, 1, "quiet beat", None, &quiet, 200)
-            .unwrap();
-        for i in 2..=50_i64 {
-            ledger
-                .record_pulse_line(1_000 + i, i, &format!("chatty {i}"), None, &chatty, 200)
-                .unwrap();
-        }
-        assert!(
-            !ledger
-                .list_pulse_lines_tail(3)
-                .unwrap()
-                .iter()
-                .any(|r| r.scopes == quiet),
-            "the flat tail is exactly what loses the quiet session"
-        );
-
-        let per_scope = ledger.list_pulse_lines_per_scope(3, 200).unwrap();
-        let texts: Vec<&str> = per_scope.iter().map(|r| r.text.as_str()).collect();
-        assert_eq!(
-            texts,
-            vec!["quiet beat", "chatty 48", "chatty 49", "chatty 50"],
-            "each scope keeps its own newest 3; order stays oldest-first"
-        );
-
-        // A line covering both scopes is returned once and counts for each.
-        let woven = vec!["quiet".to_string(), "chatty".to_string()];
-        ledger
-            .record_pulse_line(2_000, 51, "woven", None, &woven, 200)
-            .unwrap();
-        let per_scope = ledger.list_pulse_lines_per_scope(1, 200).unwrap();
-        assert_eq!(
-            per_scope
-                .iter()
-                .map(|r| r.text.as_str())
-                .collect::<Vec<_>>(),
-            vec!["woven"],
-        );
+        let conn = ledger.db.lock().expect("ledger mutex");
+        assert!(!has_table(&conn));
     }
 
     // MARK: - Overview posts

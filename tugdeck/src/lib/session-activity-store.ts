@@ -1,7 +1,7 @@
 /**
  * `SessionActivityStore` — the app-scoped, per-session activity model
  * ([P01], Spec S01). One store keyed by `tug_session_id` (mirroring
- * `PulseStore`), holding a per-channel {@link ActivityMeterLike} for each
+ * `DigestStore`), holding a per-channel {@link ActivityMeterLike} for each
  * session, fed by one `ACTIVITY` subscription ([P13] wire contract).
  *
  * The store is a **pure consumer** ([P01]–[P04]): the wire frame maps 1:1
@@ -180,7 +180,7 @@ const DOMINANT_HOLD_MS = 500;
 /** Membership snapshot — the only activity state React observes ([P03]). */
 export interface ActivitySnapshot {
   /** Reserved kill switch; always true today (the strip's visibility is
-   *  governed by `pulse/enabled`). Kept for API parity with Spec S01. */
+   *  governed by the retired `pulse/enabled`). Kept for API parity with Spec S01. */
   enabled: boolean;
   /** Which channels each session has produced at least one sample on. */
   sessions: ReadonlyMap<string, readonly ActivityChannel[]>;
@@ -276,7 +276,7 @@ export class SessionActivityStore {
    * channel that moved, so a dormant consumer wakes in the same tick its
    * activity frame arrives ([P03] — this is imperative plumbing for the
    * meters' timers, not React state). Consumers filter by channel at the
-   * subscription (a composite tape listens to rate channels; a Pulse row
+   * subscription (a composite tape listens to rate channels; an Activity row
    * listens to its own) and apply any finer display-space judgment —
    * e.g. the sparkline's plotted-pixel deadband — themselves.
    */
@@ -522,7 +522,7 @@ function trailingSum(series: number[], count: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Singleton + hook (mirrors PulseStore)
+// Singleton + hook (mirrors DigestStore)
 // ---------------------------------------------------------------------------
 
 let _activeStore: SessionActivityStore | null = null;

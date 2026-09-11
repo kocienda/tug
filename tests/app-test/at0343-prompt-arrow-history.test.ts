@@ -101,7 +101,7 @@ function docText(app: App): Promise<string> {
 /**
  * A short address for whichever stop wears the keyboard ring: its authored
  * focus key when it has one, else its class list. (Not every cycle stop
- * carries a focus-key attribute — the PULSE strip's legend, for one — so the
+ * carries a focus-key attribute — the beat strip's legend, for one — so the
  * class is the reliable identity here.)
  */
 function ringAddress(app: App): Promise<string | null> {

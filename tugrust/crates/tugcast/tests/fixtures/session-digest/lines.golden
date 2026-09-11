@@ -1,0 +1,110 @@
+# What each frame produced, in wire order
+#
+# <session> <kind> <emission> | <text>
+
+s-alpha ask now | asked: Consolidate the three taps into one digester.
+s-alpha — | (no line)
+s-alpha said throttled | I'll fold the three taps into one Rust digester…
+s-alpha said throttled | I'll fold the three taps into one Rust digester so every reader reads one vocabulary.
+s-alpha said throttled | Reading the allowlists first.
+s-alpha — | (no line)
+s-alpha — | (no line)
+s-alpha result throttled | → 751 lines read from tugrust/crates/tugcast/src/feeds/pulse.rs
+s-alpha tool throttled | Writing tugrust/crates/tugcast/src/feeds/session_digest.rs…
+s-alpha tool throttled | Writing tugrust/crates/tugcast/src/feeds/session_digest.rs — 1 line
+s-alpha tool throttled | Writing tugrust/crates/tugcast/src/feeds/session_digest.rs — 1704 lines
+s-alpha tool throttled | Writing …ers/kocienda/Mounts/u/src/tug/.tug/worktrees/session-narration/tugrust/crates/tugcast/tests/fixtures/session-digest/a-very-deeply-nested-directory/frames.jsonl — 9 lines
+s-alpha result throttled | → error: EACCES: permission denied, open 'frames.jsonl'
+s-alpha notice throttled | Retrying (attempt 2)…
+s-alpha shell throttled | $ cargo nextest run -p tugcast
+s-alpha — | (no line)
+s-alpha shell throttled | $ cargo clippy --workspace --all-targets -- -D warnings
+s-alpha shell throttled | $ cargo clippy --workspace --all-targets -- -D warnings → exit 101
+s-alpha turn now | Done
+s-bravo — | (no line)
+s-bravo — | (no line)
+s-bravo — | (no line)
+s-alpha tool throttled | Finding tugrust/crates/tugcast/src/feeds/*.rs
+s-bravo — | (no line)
+s-bravo tool throttled | Searching FORWARD_ALLOWLIST
+s-bravo tool throttled | Launching General…
+s-bravo — | (no line)
+s-bravo tool throttled | General · Running rg -i pulse Justfile
+s-bravo tool throttled | General · Grep
+s-bravo notice throttled | Background job finished
+s-bravo notice throttled | Resumed
+s-bravo tool throttled | Created: Retire the narration daemon
+s-bravo tool throttled | Started task 1
+s-bravo tool throttled | Completed task 1
+s-bravo tool throttled | Running arc-implement
+s-bravo notice throttled | Switched to claude-haiku-4-5
+s-bravo notice throttled | Response truncated
+s-bravo — | (no line)
+s-bravo turn now | Stopped
+s-charlie tool throttled | Writing tugdeck/src/deck-manager.ts — 12 lines
+s-charlie wait now | Waiting for permission: Running rm -rf build
+s-charlie tool now | Writing tugdeck/src/deck-manager.ts — 12 lines
+s-charlie wait now | Waiting on: Auth method
+s-charlie tool now | Writing tugdeck/src/deck-manager.ts — 12 lines
+s-charlie tool throttled | Asking: Auth method
+s-charlie wait now | Waiting for permission: Running just lint
+s-charlie result now | → lint clean
+s-charlie said throttled | Now folding the composer and the transcript on the settle's own clock.
+s-charlie tool throttled | Editing tugdeck/src/lib/layout-imposer.ts — 6 lines
+s-charlie notice now | Auto-compacted context (was 154k)
+s-charlie notice now | Compacted context
+s-charlie turn now | Done
+— — | (no line)
+s-delta said throttled | **2. Gauss's Law for Magnetism** $$\nabla \cdot \mathbf{B} = 0$$
+s-delta said throttled | The parser handles precedence correctly now.
+s-delta said throttled | The four equations follow.
+
+# What each session's digest holds at the end
+
+## s-alpha
+asked: Consolidate the three taps into one digester.
+I'll fold the three taps into one Rust digester so every reader reads one vocabulary.
+Reading the allowlists first.
+→ 751 lines read from tugrust/crates/tugcast/src/feeds/pulse.rs
+Writing tugrust/crates/tugcast/src/feeds/session_digest.rs — 1704 lines
+Writing …ers/kocienda/Mounts/u/src/tug/.tug/worktrees/session-narration/tugrust/crates/tugcast/tests/fixtures/session-digest/a-very-deeply-nested-directory/frames.jsonl — 9 lines
+→ error: EACCES: permission denied, open 'frames.jsonl'
+Retrying (attempt 2)…
+$ cargo nextest run -p tugcast
+$ cargo clippy --workspace --all-targets -- -D warnings
+$ cargo clippy --workspace --all-targets -- -D warnings → exit 101
+Done
+Finding tugrust/crates/tugcast/src/feeds/*.rs
+
+## s-bravo
+Searching FORWARD_ALLOWLIST
+Launching General…
+General · Running rg -i pulse Justfile
+General · Grep
+Background job finished
+Resumed
+Created: Retire the narration daemon
+Started task 1
+Completed task 1
+Running arc-implement
+Switched to claude-haiku-4-5
+Response truncated
+Stopped
+
+## s-charlie
+Writing tugdeck/src/deck-manager.ts — 12 lines
+Waiting for permission: Running rm -rf build
+Waiting on: Auth method
+Asking: Auth method
+Waiting for permission: Running just lint
+→ lint clean
+Now folding the composer and the transcript on the settle's own clock.
+Editing tugdeck/src/lib/layout-imposer.ts — 6 lines
+Auto-compacted context (was 154k)
+Compacted context
+Done
+
+## s-delta
+**2. Gauss's Law for Magnetism** $$\nabla \cdot \mathbf{B} = 0$$
+The parser handles precedence correctly now.
+The four equations follow.

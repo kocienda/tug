@@ -4,7 +4,7 @@
  *
  *   [dot] <session name>^<arc> ⚒ 7/12           <slot layout>
  *   <description>
- *   <latest pulse line>                        <activity sparkline>
+ *   <latest beat line>                        <activity sparkline>
  *
  * Three lines, always. A session on a counted arc swaps its dot for the step
  * ring and carries the stage glyph and the count on the title line — all of

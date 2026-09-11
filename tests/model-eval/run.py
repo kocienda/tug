@@ -30,7 +30,7 @@ CORPUS = Path(__file__).parent / "corpus"
 PROMPTS = Path(__file__).parents[2] / "tugrust/crates/tugcast/src/shared_agent.rs"
 
 # Punctuation to ignore when matching an example's words against a digest, so
-# `tug-pulse.css` and `tug-pulse.css)` are the same word. Hyphens and slashes
+# `tug-activity-line.css` and `tug-activity-line.css)` are the same word. Hyphens and slashes
 # SPLIT rather than being trimmed: an example reading `command-line calculator`
 # has to match a digest asking for a `command line calculator`, and the first
 # version of this check missed exactly that pair.

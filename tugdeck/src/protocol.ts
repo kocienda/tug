@@ -62,8 +62,8 @@ export const FeedId = {
   // the card's questions up)
   OVERVIEW: 0x70,
   OVERVIEW_INPUT: 0x71,
-  // Pulse (app-wide color commentary)
-  PULSE: 0x80,
+  // Digest (the per-session beat: what a session is doing now)
+  DIGEST: 0x80,
   // Usage (subscription usage panel: `claude -p "/usage"` response + request)
   USAGE: 0x90,
   USAGE_QUERY: 0x91,
@@ -1197,62 +1197,73 @@ export function parseOverviewFrame(payload: Uint8Array): OverviewPostWire | null
 }
 
 /**
- * One row of the `list_pulse_lines_ok` response — a persisted PULSE
- * commentary line from tugcast's capped ledger, oldest-first.
+ * One row of the `list_digest_lines_ok` response — one digest line from
+ * tugcast's in-memory per-session deque, oldest-first.
  */
-export interface PulseLineWireRow {
+export interface DigestLineWireRow {
   id: number;
   at_ms: number;
   beat: number;
   text: string;
-  /** Retained high-level thought behind a low-level `text` beat
-   *  ("intent • action" in the strip); absent on pre-intent rows and
-   *  when `text` is itself the monologue. */
-  intent?: string;
+  /**
+   * The line's kind, spelled as {@link DigestFramePayload.kind} spells it.
+   *
+   * The tail carries it for the same reason the live frame does — it is what
+   * the masthead's ladder switches on — so a card mounting mid-turn reads the
+   * same ladder a card that watched the turn reads.
+   */
+  kind?: string;
   scopes: string[];
 }
 
-/** Decoded `list_pulse_lines_ok` response payload (app-scoped). */
-export interface ListPulseLinesOk {
-  lines: PulseLineWireRow[];
+/** Decoded `list_digest_lines_ok` response payload (app-scoped). */
+export interface ListDigestLinesOk {
+  lines: DigestLineWireRow[];
 }
 
 /**
- * Request the PULSE ledger tail. App-scoped — no session id. The
- * response is `list_pulse_lines_ok { lines }`; the pulse-store sends
- * this once on mount, then stays live off the PULSE feed.
+ * Request the digest tail. App-scoped — no session id. The response is
+ * `list_digest_lines_ok { lines }`; the digest store sends this once on
+ * mount, then stays live off the DIGEST feed.
  */
-export function encodeListPulseLines(): Frame {
-  return controlFrame("list_pulse_lines", {});
+export function encodeListDigestLines(): Frame {
+  return controlFrame("list_digest_lines", {});
 }
 
 /**
- * Decoded live `PULSE` feed frame — one commentator line as broadcast
- * by tugcast's pulse bridge (Spec S01 in the pulse design).
+ * Decoded live `DIGEST` feed frame — one line as broadcast by tugcast's
+ * digest bridge (Spec S01).
  */
-export interface PulseFramePayload {
+export interface DigestFramePayload {
   text: string;
-  /** Retained high-level thought behind a low-level `text` beat;
-   *  absent when `text` is itself the monologue or a turn marker. */
-  intent?: string;
+  /**
+   * What the line is an account of — `ask`, `said`, `tool`, `result`,
+   * `shell`, `turn`, `notice`, `wait` (the digester's `DigestKind`).
+   *
+   * It took the place of the retired `intent` pin, and it is the one thing on
+   * this payload the masthead's ladder cannot be built without: an ask and a
+   * tool line are both `text`, so without a kind the deck can only answer
+   * with the newest line of any sort.
+   */
+  kind?: string;
   scopes: string[];
   beat: number;
   at: number;
 }
 
-/** Parse a PULSE feed frame's payload; null on malformed/foreign shapes. */
-export function parsePulseFrame(payload: Uint8Array): PulseFramePayload | null {
+/** Parse a DIGEST feed frame's payload; null on malformed/foreign shapes. */
+export function parseDigestFrame(payload: Uint8Array): DigestFramePayload | null {
   try {
     const parsed: unknown = JSON.parse(new TextDecoder().decode(payload));
     if (typeof parsed !== "object" || parsed === null) return null;
     const p = parsed as Record<string, unknown>;
-    if (p.type !== "pulse" || typeof p.text !== "string" || p.text.length === 0) {
+    if (p.type !== "digest" || typeof p.text !== "string" || p.text.length === 0) {
       return null;
     }
     return {
       text: p.text,
-      ...(typeof p.intent === "string" && p.intent.length > 0
-        ? { intent: p.intent }
+      ...(typeof p.kind === "string" && p.kind.length > 0
+        ? { kind: p.kind }
         : {}),
       scopes: Array.isArray(p.scopes)
         ? p.scopes.filter((s): s is string => typeof s === "string")

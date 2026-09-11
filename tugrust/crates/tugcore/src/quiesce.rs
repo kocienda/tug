@@ -1,7 +1,7 @@
 //! The `tug-quiesce` shutdown contract — one ladder, one set of numbers.
 //!
-//! Every Tug **service** (tugcast, tugcode, tugpulse; Tug.app as the
-//! shutdown supervisor) shuts down the same way:
+//! Every Tug **service** (tugcast, tugcode; Tug.app as the shutdown
+//! supervisor) shuts down the same way:
 //!
 //! 1. **Quiesce request** — the parent asks the child to stop: an explicit
 //!    `shutdown` message where a control channel exists, `SIGTERM`

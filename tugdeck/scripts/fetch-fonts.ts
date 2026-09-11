@@ -61,9 +61,9 @@ interface Family {
 }
 
 /**
- * The proportional Latin families carry the light end too. The PULSE is the
- * surface where set width buys information density, so Thin/ExtraLight/Light/
- * Text are real faces there.
+ * The proportional Latin families carry the light end too. The session's beat
+ * line is the surface where set width buys information density, so
+ * Thin/ExtraLight/Light/Text are real faces there.
  *
  * Plex Mono is deliberately absent: the committed mono woff2 predate this
  * manifest and carry 82 glyphs the npm build drops, and the editor reads in

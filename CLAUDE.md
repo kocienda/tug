@@ -116,8 +116,8 @@ file tugdeck/src/deck-manager.ts
      );
 >>
   delete 166 .. 178
-files tugdeck/src/lib/pulse-store.ts tugdeck/src/lib/local-model-store.ts
-  sub /\bpulse_(\w+)/ 'local_model_$1' all
+files tugdeck/src/lib/digest-store.ts tugdeck/src/lib/local-model-store.ts
+  sub /\bdigest_(\w+)/ 'local_model_$1' all
 EDIT
 ```
 

@@ -125,7 +125,7 @@ export function CardMasthead({
           )
         }
         /* An EMPTY string, never `undefined`, when the card has no third line.
-           The row always draws its last level, and `TugPulse` stands in for an
+           The row always draws its last level, and `TugActivityLine` stands in for an
            absent activity with the word "None" — right for a session, which
            always has something it is or is not doing, and wrong for a document,
            which simply has nothing more to say. An empty run holds the band, so

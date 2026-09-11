@@ -2,7 +2,7 @@
  * Account-global changeset store — the aggregate CHANGESET_ALL feed (0x24)
  * as app-level external state.
  *
- * Modeled on `UsageStore` / `PulseStore`: an app-level singleton holding a
+ * Modeled on `UsageStore` / `DigestStore`: an app-level singleton holding a
  * `FeedStore` over CHANGESET_ALL with **no workspace filter**. The aggregate
  * frame carries every open project at once (server-composed over the
  * `WorkspaceRegistry` entries), so there is nothing to filter and it must not
