@@ -1,0 +1,363 @@
+/**
+ * spike-light-tint.css — the fixtures, and the tuner's own furniture.
+ *
+ * A treatment is a set of SURFACE TOKEN overrides written onto the preview
+ * root by the card's effect, because that is the shape the fix takes in a
+ * theme file. Nothing here paints a lid, a rail, or a strip from a color of
+ * its own: every fixture reads the same `--tug7-*` token the shipping
+ * component reads, so what the preview shows is what the theme file would.
+ *
+ * ── Where the aliases are re-declared, and why ───────────────────────────
+ * `tug-pane.css` declares the pane's `--tugx-*` aliases on `body`, and a
+ * custom property's `var()` is substituted where the property is DECLARED.
+ * An override of `--tug7-surface-card-primary-normal-titlebar-active` on the
+ * preview root therefore never reaches `--tugx-pane-title-bar-bg-active`,
+ * which was resolved at `body` against the theme's own value. So the
+ * aliases the fixtures depend on are restated here, on the preview root,
+ * where the treatment's overrides are in scope.
+ *
+ * ── Why the unfocused fixture restates the ACTIVE tokens ─────────────────
+ * `tug-pane.css` selects the focused state as `.tug-pane[data-focused="true"]
+ * .tug-pane-title-bar` — a DESCENDANT selector. A fixture pane stands inside
+ * the spike card's own pane, which is focused whenever you are looking at it,
+ * so an unfocused fixture matches every active rule through its ancestor.
+ * The unfocused fixture aliases the active family onto the inactive one and
+ * lets the ancestor's rule paint the right thing. Same trick as
+ * `spike-light-chrome.css`, same reason.
+ *
+ * @tug-pairings
+ * | Element                                           | Surface                                               | Role          | Context                         |
+ * |---------------------------------------------------|-------------------------------------------------------|---------------|---------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-global-primary-normal-sunken-rest      | informational | .sp-lt-band                     |
+ * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-global-primary-normal-content-rest     | content       | .sp-lt-transcript               |
+ * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-card-primary-normal-block-rest         | informational | .sp-lt-block-head               |
+ * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-card-primary-normal-well-rest          | content       | .sp-lt-block-well               |
+ * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-card-primary-normal-status-rest        | informational | .sp-lt-z2-label                 |
+ * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-card-primary-normal-status-rest        | content       | .sp-lt-z2-value                 |
+ * | --tug7-element-selection-text-normal-selected-rest | --tug7-surface-selection-primary-normal-selected-rest | content      | .sp-lt-row[data-selected="true"] |
+ * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-global-primary-normal-raised-rest      | content       | .sp-lt-readout, .sp-lt-notice   |
+ * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-global-primary-normal-default-rest     | informational | .sp-lt-sources                  |
+ */
+
+/* ── The preview root ─────────────────────────────────────────────────── */
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-canvas-rest */
+.sp-lt-preview {
+  /* The deck's own field behind the fixtures, so the field→card step —
+     which is part of the look under judgment — is in the picture. */
+  background-color: var(--tug7-surface-global-primary-normal-canvas-rest);
+  padding: 16px;
+  border-radius: var(--tug-radius-md);
+  display: grid;
+  grid-template-columns: minmax(200px, 240px) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: start;
+
+  /* The two HUE SOURCES. Read from tokens no treatment ever overrides, so a
+     treatment's own writes cannot cycle back into them: the muted text ink
+     carries the theme's neutral TINT hue, and the focused card-type glyph
+     carries the theme's KEY hue at full chroma. Only `h` is taken from
+     either; the treatment supplies L and C. */
+  --sp-lt-tint: var(--tug7-element-global-text-normal-muted-rest);
+  --sp-lt-key: var(--tug7-element-card-icon-normal-title-active);
+
+  /* The aliases the fixtures depend on, restated in the overrides' scope. */
+  --tugx-pane-title-bar-bg-active: var(--tugx-chrome-key-surface);
+  --tugx-pane-title-bar-bg-inactive: var(--tug7-surface-card-primary-normal-titlebar-inactive);
+  --tugx-pane-title-bar-divider: var(--tug7-element-global-divider-normal-default-rest);
+  --tugx-pane-border: var(--tug7-element-card-border-normal-frame-rest);
+
+  /* The Key rule a treatment may draw along the focused lid's top edge —
+     the mark that carries focus once the lid itself has gone neutral.
+     0 by default; a treatment sets the height. */
+  --sp-lt-lid-rule: 0px;
+  /* The masthead's own surface. Defaults to the lid's; the one-tinted-surface
+     treatment points it at a Key tint the utility lids do not get. */
+  --sp-lt-masthead-bg: var(--tugx-pane-title-bar-bg-active);
+}
+
+/* ── The fixture panes ────────────────────────────────────────────────── */
+
+.sp-lt-pane {
+  position: relative;
+  border: 1px solid var(--tugx-pane-border);
+  border-radius: var(--tug-radius-md);
+  overflow: hidden;
+  background-color: var(--tug7-surface-global-primary-normal-content-rest);
+  box-shadow: var(--tugx-pane-shadow-inactive);
+}
+
+.sp-lt-pane[data-focused="true"] {
+  box-shadow: var(--tugx-pane-shadow-active);
+}
+
+/* `styles/chrome.css` makes every unfocused pane `position: absolute` (the
+   deck lays panes out by hand), which would float the unfocused fixture over
+   its neighbour. A fixture is in flow, so this outranks that rule. The escape
+   from the ancestor's descendant selector is also here — see the file header. */
+.sp-lt-preview .sp-lt-pane:not([data-focused="true"]) {
+  position: relative;
+  --tugx-pane-title-bar-bg-active: var(--tugx-pane-title-bar-bg-inactive);
+  --tugx-pane-title-fg-active: var(--tugx-pane-title-fg-inactive);
+  --tugx-pane-title-bar-icon-active: var(--tugx-pane-title-bar-icon-inactive);
+  --tugx-pane-control-on-fg-rest: var(--tugx-pane-control-off-fg-rest);
+  --tugx-pane-control-on-fg-hover: var(--tugx-pane-control-off-fg-hover);
+}
+
+/* A title bar in a fixture is not a drag surface. */
+.sp-lt-bar,
+.sp-lt-bar:active {
+  cursor: default;
+}
+
+/* The focused lid's Key rule: drawn as an inset shadow along the top edge so
+   it adds no height and moves nothing. Zero-height by default. */
+.sp-lt-pane[data-focused="true"] .sp-lt-bar {
+  box-shadow: inset 0 var(--sp-lt-lid-rule) 0 0 var(--sp-lt-key);
+}
+
+/* The rail: a PANEL, as the rail-panel arc settled it — square, flush, one
+   strong hairline on its inner edge, no shadow, on the sunken surface. The
+   sunken surface is the one the sidebars in the screenshot are painted with,
+   so this is the fixture the complaint is about. */
+.sp-lt-rail {
+  --tugx-pane-bg: var(--tug7-surface-global-primary-normal-sunken-rest);
+  background-color: var(--tugx-pane-bg);
+  border-radius: 0;
+  box-shadow: none;
+  border-width: 0 1px 0 0;
+  border-color: var(--tug7-element-global-border-normal-strong-rest);
+  min-height: 300px;
+}
+
+/* A section band in the rail — the SESSIONS / FILES row grammar. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-sunken-rest */
+.sp-lt-band {
+  padding: var(--tug-space-sm) var(--tug-space-md) var(--tug-space-2xs);
+  font-size: var(--tug-font-size-3xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  user-select: none;
+}
+
+.sp-lt-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A rail row. Selection is a MARK — the Key hue at full strength — and stays
+   at full strength in every treatment: what changes is the field it lies on. */
+.sp-lt-row {
+  padding: var(--tug-space-xs) var(--tug-space-md);
+  border-radius: var(--tug-radius-sm);
+  margin-inline: var(--tug-space-xs);
+}
+
+/* @tug-renders-on: --tug7-surface-selection-primary-normal-selected-rest */
+.sp-lt-row[data-selected="true"] {
+  background-color: var(--tug7-surface-selection-primary-normal-selected-rest);
+  --tug7-element-global-text-normal-default-rest: var(--tug7-element-selection-text-normal-selected-rest);
+  --tug7-element-global-text-normal-muted-rest: var(--tug7-element-selection-text-normal-selected-rest);
+}
+
+/* The masthead tier is three lines tall, not one. Asked for through the
+   pane's own chrome-height knob, as the shipping Session card asks. */
+.sp-lt-bar-masthead {
+  --tugx-pane-chrome-height: 72px;
+  align-items: flex-start;
+  padding-block-start: 0;
+  background-color: var(--sp-lt-masthead-bg);
+}
+
+/* The cluster centers in the first chrome band, not in the 72px tier. */
+.sp-lt-bar-masthead .tug-pane-title-bar-controls {
+  height: var(--tug-chrome-height);
+  display: flex;
+  align-items: center;
+}
+
+.sp-lt-callsign {
+  color: color-mix(in oklab, var(--tugx-pane-title-fg-active) 55%, transparent);
+}
+
+/* The transcript: the card's content ground, with one tool block on it. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-lt-transcript {
+  padding: var(--tug-space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-md);
+  font-size: var(--tug-font-size-xs);
+  line-height: var(--tug-line-height-normal);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  background-color: var(--tug7-surface-global-primary-normal-content-rest);
+  user-select: none;
+}
+
+.sp-lt-block {
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tug-radius-sm);
+  overflow: hidden;
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-block-rest */
+.sp-lt-block-head {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  background-color: var(--tug7-surface-card-primary-normal-block-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
+.sp-lt-block-well {
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  white-space: pre;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  background-color: var(--tug7-surface-card-primary-normal-well-rest);
+}
+
+/* Z2 — the STATE / CONTEXT strip. Its surface is the subject; the cells are
+   a drawing of the legend, not the shipping `TugStatusCell`, which needs a
+   focus group this fixture has no business joining. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-status-rest */
+.sp-lt-z2 {
+  display: flex;
+  gap: var(--tug-space-2xl);
+  padding: var(--tug-space-xs) var(--tug-space-lg);
+  border-top: 1px solid var(--tug7-element-global-divider-normal-default-rest);
+  background-color: var(--tug7-surface-card-primary-normal-status-rest);
+  user-select: none;
+}
+
+.sp-lt-z2-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.sp-lt-z2-label {
+  font-size: var(--tug-font-size-5xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-lt-z2-value {
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* Z0 — the control band above the transcript. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-controlbar-rest */
+.sp-lt-z0 {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding: var(--tug-space-2xs) var(--tug-space-md);
+  border-bottom: 1px solid var(--tug7-element-global-divider-normal-default-rest);
+  background-color: var(--tug7-surface-card-primary-normal-controlbar-rest);
+}
+
+/* The utility card's one-line body. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-lt-body {
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  background-color: var(--tug7-surface-global-primary-normal-content-rest);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.sp-lt-column {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ── The tuner's furniture ────────────────────────────────────────────── */
+
+.sp-lt-tuner {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(220px, 320px);
+  gap: 20px;
+  align-items: start;
+}
+
+.sp-lt-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.sp-lt-readout {
+  margin: 0;
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border-radius: var(--tug-radius-md);
+  background-color: var(--tug7-surface-global-primary-normal-raised-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  line-height: var(--tug-line-height-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
+.sp-lt-notice {
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border: 1px solid var(--tug7-element-global-border-normal-accent-rest);
+  border-radius: var(--tug-radius-md);
+  background-color: var(--tug7-surface-global-primary-normal-raised-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-size: var(--tug-font-size-xs);
+  line-height: var(--tug-line-height-normal);
+}
+
+/* The argument and the borrowed numbers, as reading. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-lt-sources {
+  margin: 0;
+  padding-inline-start: 18px;
+  max-width: 72ch;
+  font-size: var(--tug-font-size-xs);
+  line-height: var(--tug-line-height-normal);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sp-lt-sources strong {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.sp-lt-sources code {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.95em;
+}
+
+.sp-lt-thesis {
+  margin: 0;
+  max-width: 72ch;
+  font-size: var(--tug-font-size-sm);
+  line-height: var(--tug-line-height-normal);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
