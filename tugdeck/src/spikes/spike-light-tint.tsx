@@ -149,6 +149,11 @@ interface Field {
   knobL?: "rail" | "content";
   /** True for the focused lid, whose chroma the `Lid c` slider owns. */
   lid?: boolean;
+  /**
+   * True for the selected row's surface, whose chroma the `Selection c`
+   * slider owns. A mark, so the field cap never touches it.
+   */
+  sel?: boolean;
 }
 
 interface Treatment {
@@ -158,6 +163,8 @@ interface Treatment {
   fields: readonly Field[];
   /** Height of the Key rule along the focused lid's top edge, in px. */
   lidRule: number;
+  /** Width of the Key rule along the selected row's leading edge, in px. */
+  selRule: number;
   /** The Session masthead's own surface, when it differs from the lid's. */
   masthead?: Omit<Field, "token">;
 }
@@ -178,6 +185,8 @@ const T = {
   border: "--tug7-element-global-border-normal-default-rest",
   borderStrong: "--tug7-element-global-border-normal-strong-rest",
   divider: "--tug7-element-global-divider-normal-default-rest",
+  selection: "--tug7-surface-selection-primary-normal-selected-rest",
+  selectionText: "--tug7-element-selection-text-normal-selected-rest",
 } as const;
 
 /**
@@ -190,6 +199,7 @@ const SHIPPING: Treatment = {
   title: "Shipping",
   blurb: "What the light themes paint today. Nothing overridden.",
   lidRule: 0,
+  selRule: 0,
   fields: [],
 };
 
@@ -199,6 +209,7 @@ const WHISPER: Treatment = {
   blurb:
     "Today's ladder, chroma capped. One hue on every field; the lid keeps a trace of Key.",
   lidRule: 0,
+  selRule: 0,
   fields: [
     { token: T.content, hue: "tint", l: 960, c: 6, knobL: "content" },
     { token: T.default, hue: "tint", l: 960, c: 8 },
@@ -222,9 +233,16 @@ const PAPER: Treatment = {
   id: "paper",
   title: "Paper",
   blurb:
-    "The GitHub shape. Near-white content, the rail one step down, every field neutral; Key lives in marks and a rule on the focused lid.",
+    "The GitHub shape. Near-white content, the rail one step down, every field neutral; Key lives in marks and a rule on the focused lid. Selection is a pale Key wash under dark ink with a Key rule on its leading edge.",
   lidRule: 2,
+  selRule: 3,
   fields: [
+    // Selection: a MARK, but a mark the size of a row. A solid vivid fill is
+    // the loudest thing on a light screen, so it becomes a pale wash of the
+    // Key hue under the theme's own dark ink, and the leading-edge rule says
+    // "selected" at full chroma in three pixels.
+    { token: T.selection, hue: "key", l: 930, c: 50, sel: true },
+    { token: T.selectionText, hue: "gray", l: 150, c: 0 },
     { token: T.content, hue: "tint", l: 985, c: 4, knobL: "content" },
     { token: T.default, hue: "tint", l: 985, c: 4 },
     { token: T.raised, hue: "tint", l: 985, c: 4 },
@@ -249,6 +267,7 @@ const ONE_TINT: Treatment = {
   blurb:
     "Paper, plus Primer's rule: exactly one surface — the focused Session masthead — wears the Key tint. Utility lids stay neutral.",
   lidRule: 0,
+  selRule: 3,
   fields: PAPER.fields,
   masthead: { hue: "key", l: 950, c: 30 },
 };
@@ -263,6 +282,8 @@ interface Knobs {
   railL: number;
   contentL: number;
   lidC: number;
+  /** The selected row's chroma. */
+  selC: number;
   /** Every field's chroma is clamped to this. */
   cap: number;
 }
@@ -271,11 +292,15 @@ function seedKnobs(t: Treatment): Knobs {
   const rail = t.fields.find((f) => f.knobL === "rail");
   const content = t.fields.find((f) => f.knobL === "content");
   const lid = t.fields.find((f) => f.lid === true);
+  const sel = t.fields.find((f) => f.sel === true);
   return {
     railL: rail?.l ?? 910,
     contentL: content?.l ?? 960,
     lidC: lid?.c ?? 65,
-    cap: t.fields.reduce((m, f) => Math.max(m, f.c), 0) || 40,
+    selC: sel?.c ?? 360,
+    cap:
+      t.fields.filter((f) => f.sel !== true).reduce((m, f) => Math.max(m, f.c), 0) ||
+      40,
   };
 }
 
@@ -283,7 +308,8 @@ function resolveFields(t: Treatment, k: Knobs): Field[] {
   return t.fields.map((f) => {
     const l =
       f.knobL === "rail" ? k.railL : f.knobL === "content" ? k.contentL : f.l;
-    const c = f.lid === true ? k.lidC : Math.min(f.c, k.cap);
+    const c =
+      f.lid === true ? k.lidC : f.sel === true ? k.selC : Math.min(f.c, k.cap);
     return { ...f, l, c };
   });
 }
@@ -557,6 +583,7 @@ function SpikeLightTint(): React.ReactElement {
   const railLId = useId();
   const contentLId = useId();
   const lidCId = useId();
+  const selCId = useId();
   const capId = useId();
   const { ResponderScope, responderRef } = useResponderForm({
     selectValue: {
@@ -566,6 +593,7 @@ function SpikeLightTint(): React.ReactElement {
       [railLId]: (v) => setKnobs((k) => ({ ...k, railL: v })),
       [contentLId]: (v) => setKnobs((k) => ({ ...k, contentL: v })),
       [lidCId]: (v) => setKnobs((k) => ({ ...k, lidC: v })),
+      [selCId]: (v) => setKnobs((k) => ({ ...k, selC: v })),
       [capId]: (v) => setKnobs((k) => ({ ...k, cap: v })),
     },
   });
@@ -583,6 +611,7 @@ function SpikeLightTint(): React.ReactElement {
     for (const token of Object.values(T)) el.style.removeProperty(token);
     for (const f of fields) el.style.setProperty(f.token, cssValue(f));
     el.style.setProperty("--sp-lt-lid-rule", `${treatment.lidRule}px`);
+    el.style.setProperty("--sp-lt-sel-rule", `${treatment.selRule}px`);
     if (treatment.masthead !== undefined) {
       el.style.setProperty("--sp-lt-masthead-bg", cssValue(treatment.masthead));
     } else {
@@ -597,6 +626,9 @@ function SpikeLightTint(): React.ReactElement {
           ...fields.map((f) => declaration(f, hues)),
           ...(treatment.lidRule > 0
             ? [`/* focused lid: ${treatment.lidRule}px Key rule along the top edge, at the glyph's own color */`]
+            : []),
+          ...(treatment.selRule > 0
+            ? [`/* selected row: ${treatment.selRule}px Key rule along the leading edge, at the glyph's own color */`]
             : []),
           ...(treatment.masthead !== undefined
             ? [
@@ -677,6 +709,16 @@ function SpikeLightTint(): React.ReactElement {
                 min={0}
                 max={80}
                 step={2}
+                size="sm"
+                disabled={fields.length === 0}
+              />
+              <TugSlider
+                label="Selection c"
+                senderId={selCId}
+                value={knobs.selC}
+                min={0}
+                max={200}
+                step={5}
                 size="sm"
                 disabled={fields.length === 0}
               />
