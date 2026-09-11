@@ -683,6 +683,37 @@ body {
   background-color: var(--tugx-pane-title-bar-bg-active);
 }
 
+/* The focused lid's Key rule — a 2px mark along the bar's top edge. On a light
+   theme the lid is paper, the same near-neutral as the rail beside it, so the
+   band can no longer say "focused" by being a color; the rule says it instead,
+   at the glyph's own coordinates. An INSET box-shadow rather than a border or a
+   pseudo-element: it paints inside the bar's existing box, so the lid's height
+   is untouched and nothing below it moves.
+
+   The FOCUSED state is the base and the recede is the override — the same
+   polarity the rail tier above uses, and for the same reason: a
+   `.tug-pane[data-focused="true"] …` descendant selector matches a lid nested
+   under ANY focused pane, which is the mistake the gallery's pane-in-a-pane
+   fixture caught. Keyed off the pane's own `:not([data-focused="true"])`, the
+   nearest unfocused ancestor wins, which is the answer we want.
+
+   `:not([data-role="sidebar"])` is load-bearing: a sidebar pane's title bar is
+   a rail's chrome, repainted with `--tugx-pane-bg` and carrying its own
+   racing-stripe grammar, and a Key rule across every rail is the colored panel
+   this treatment exists to remove.
+
+   Both knobs default to nothing, so a theme declaring neither paints neither.
+   Appearance only ([L06]). */
+/* @tug-renders-on: --tugx-pane-title-bar-bg-active */
+.tug-pane-title-bar:not([data-role="sidebar"]) {
+  box-shadow: inset 0 var(--tugx-chrome-lid-rule-width, 0px) 0 0
+    var(--tugx-chrome-lid-rule-color, transparent);
+}
+
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar:not([data-role="sidebar"]) {
+  --tugx-chrome-lid-rule-width: 0px;
+}
+
 .tug-pane-title-bar:active {
   cursor: grabbing;
 }

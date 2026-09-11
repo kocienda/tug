@@ -26,11 +26,17 @@ low-chroma Keys read as pale tints, high-chroma Keys as vivid.
 | Theme | Mode | Tint | Key (chroma) | Accent (chroma) |
 |---|---|---|---|---|
 | `brio` | dark | indigo-violet | cobalt (vivid) | orange (vivid) |
-| `nocturne` | dark | cobalt | sapphire (vivid) | tangerine (vivid) |
-| `bravura` | dark | plum | cerise (pale rose) | aqua (vivid) |
-| `harmony` | light | indigo | cobalt (vivid) | orange (vivid) |
-| `aria` | light | rose | purple (muted) | sky (vivid) |
-| `vivace` | light | teal | seafoam (pale) | fuchsia (vivid) |
+| `nocturne` | dark | teal | seafoam (vivid) | orange (vivid) |
+| `bravura` | dark | grape | purple (vivid) | orange (vivid) |
+| `harmony` | light | indigo | blue (vivid) | orange (vivid) |
+| `aria` | light | orchid | iris (vivid) | orange (vivid) |
+| `vivace` | light | cyan | seafoam (vivid) | orange (vivid) |
+
+Two repetitions in that table are the files' own and not transcription slips: every theme currently
+declares the same `--tugx-accent`, so the Accent column is one hue six times, and every Key is vivid
+(`c: 400` dark, `c: 320` light on the filled action), so the chroma note distinguishes nothing today.
+The duet above is the *authoring* rule; the Accent column is where the six files have not yet taken
+it up. Read the table against `styles/themes/*.css` before copying a row — it has drifted twice.
 
 Every theme is a peer — none depends on another at runtime. `brio` is special only as
 `BASE_THEME_NAME` (the bundled base; see `tugdeck/src/theme-constants.ts`). Each theme is a
@@ -51,7 +57,29 @@ largely a hue swap: keep the *lightness* ladder, change the *hue*.
    (content/raised/overlay near white), darker recessed wells (sunken). No hue jumps, no
    dark-surface-in-a-light-theme surprises. `screen` (tooltips, dev panel) is the lone exception in
    light themes — it stays light because tooltips render *default* text, not inverse.
-3. **Signals are fixed across themes** by hue: `danger`=red, `success`=green, `caution`=yellow/gold,
+3. **In a light theme, color is a MARK and never a field.** Every surface larger than a control — the
+   canvas, the card, the rail, the lid, the status band, the tool block, the tooltip — is a tinted
+   *neutral* on the theme's one tint hue at authored `c ≤ 14` (OKLCH C ≤ 0.007, about where Tailwind's
+   `slate-100` sits). The **Key hue appears only in marks**: badges, atoms, glyphs, the focus ring,
+   the caret, the selection wash, and any rule drawn to carry focus or selection once the fields have
+   gone quiet. Elevation is lightness in a *short* ladder — two or three points of L between adjacent
+   rungs, near the top of the range — not saturation, and not a fourth hue.
+
+   The shipped ladder, which a fourth light theme should copy rather than re-derive: content, card,
+   raised, overlay and the tool-block well at `l: 985`; the rail, the focused lid band, the status
+   rung and the tool block at `l: 965`; the Z0 control band at `l: 955`; chroma `c: 4`–`c: 6`
+   throughout. The inactive lid is *lighter* than the focused band, not darker (`gray, l: 970`) —
+   on paper the focused thing is the one with more ink, so an unfocused card recedes by bleaching.
+   Borders and dividers run `l: 800`–`l: 880` at `c: 8`–`c: 10`, and inactive ink `l: 640, c: 20`.
+
+   The reason is that chroma reads louder as lightness rises. A shared `l`/`c` skeleton therefore does
+   NOT transfer between modes: the same authored `c` that is a whisper at L 0.3 is a colored panel at
+   L 0.96, so a light theme built by re-hueing a dark one arrives with a dozen fields each wearing a
+   little of the Key hue and reads as two hues at once rather than one. Authoring a field on the Key
+   hue is the specific mistake — it puts the action color under everything instead of on the things
+   that act. `tugdeck/src/__tests__/light-theme-paper.test.ts` holds the ceiling, the ladder and the
+   one-hue rule for the three shipped light themes; a fourth joins that list.
+4. **Signals are fixed across themes** by hue: `danger`=red, `success`=green, `caution`=yellow/gold,
    `data`=teal, `agent`=violet. The **selection / primary-action axis is no longer a fixed blue** —
    each theme picks its own **Key** hue (the `selection`/`active`/`toggle-on`/`link`/filled-action
    tokens) and a partnered **Accent** hue (the affordance axis: caret, focus ring, drag-drop, flash).
@@ -60,11 +88,11 @@ largely a hue swap: keep the *lightness* ladder, change the *hue*.
    `tugdeck/scripts/apply-theme-editor.ts` (additive l/c deltas) from a clean theme file, then run the contrast audit.
    Keep Key and Accent ≥~30° from every signal hue and from each other; on-fill contrast text stays a
    near-white (dark) / near-black (light) neutral — never the Key hue, or it vanishes on its own fill.
-4. **Signal tuning is per-mode.** Dark: bright, mid-tone, saturated. Light: darker and more saturated
+5. **Signal tuning is per-mode.** Dark: bright, mid-tone, saturated. Light: darker and more saturated
    so a mark holds contrast on near-white. Saturated light hues (orange/yellow/teal) can't reach 3:1
    on white without turning muddy — that is an accepted light-theme tension, the mirror of dark
    themes' dark-on-dark limits.
-5. **Consistent authoring style** (uniform `l:`/`c:` usage) so themes diff cleanly and the next tint
+6. **Consistent authoring style** (uniform `l:`/`c:` usage) so themes diff cleanly and the next tint
    swap stays mechanical.
 
 A new theme: copy the same-mode reference (brio for dark, harmony for light), remap the neutral-tint

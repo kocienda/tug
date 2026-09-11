@@ -98,14 +98,14 @@ body {
      are recessed-within-card and tooltip surfaces, so they stay light and
      hold dark default text. */
   --tug7-surface-global-primary-normal-canvas-rest: --tug-color(cerulean, l: 380, c: 20);
-  --tug7-surface-global-primary-normal-content-rest: --tug-color(indigo, l: 960, c: 0);
+  --tug7-surface-global-primary-normal-content-rest: --tug-color(indigo, l: 985, c: 4);
   --tug7-surface-global-primary-normal-control-rest: var(--tug7-surface-control-primary-outlined-action-rest);
-  --tug7-surface-global-primary-normal-default-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-surface-global-primary-normal-default-rest: --tug-color(indigo, l: 985, c: 4);
   --tug7-surface-global-primary-normal-grid-rest: --tug-color(cerulean, l: 910, c: 60, a: 200);
-  --tug7-surface-global-primary-normal-overlay-rest: --tug-color(indigo, l: 960, c: 20);
-  --tug7-surface-global-primary-normal-raised-rest: --tug-color(indigo, l: 960, c: 20);
-  --tug7-surface-global-primary-normal-screen-rest: --tug-color(indigo, l: 940, c: 40);
-  --tug7-surface-global-primary-normal-sunken-rest: --tug-color(indigo, l: 910, c: 40);
+  --tug7-surface-global-primary-normal-overlay-rest: --tug-color(indigo, l: 985, c: 4);
+  --tug7-surface-global-primary-normal-raised-rest: --tug-color(indigo, l: 985, c: 4);
+  --tug7-surface-global-primary-normal-screen-rest: --tug-color(indigo, l: 940, c: 12);
+  --tug7-surface-global-primary-normal-sunken-rest: --tug-color(indigo, l: 965, c: 6);
 
   /* Element — Text */
   --tug7-element-global-text-normal-default-rest: --tug-color(gray, l: 150);
@@ -139,15 +139,15 @@ body {
   /* Element — Border */
   --tug7-element-global-border-normal-accent-rest: var(--tugx-accent);
   --tug7-element-global-border-normal-danger-rest: --tug-color(red, l: 510, c: 460);
-  --tug7-element-global-border-normal-default-rest: --tug-color(indigo, l: 770, c: 40);
+  --tug7-element-global-border-normal-default-rest: --tug-color(indigo, l: 860, c: 8);
   --tug7-element-global-border-normal-inverse-rest: --tug-color(indigo, l: 240, c: 20);
-  --tug7-element-global-border-normal-muted-rest: --tug-color(indigo, l: 780, c: 40);
-  --tug7-element-global-border-normal-strong-rest: --tug-color(indigo-cobalt, l: 740, c: 60);
+  --tug7-element-global-border-normal-muted-rest: --tug-color(indigo, l: 780, c: 8);
+  --tug7-element-global-border-normal-strong-rest: --tug-color(indigo, l: 800, c: 10);
 
   /* Element — Divider */
-  --tug7-element-global-divider-normal-default-rest: --tug-color(indigo, l: 770, c: 80);
-  --tug7-element-global-divider-normal-muted-rest: --tug-color(indigo, l: 880, c: 20);
-  --tug7-element-global-divider-normal-separator-rest: --tug-color(indigo, l: 830, c: 40);
+  --tug7-element-global-divider-normal-default-rest: --tug-color(indigo, l: 880, c: 8);
+  --tug7-element-global-divider-normal-muted-rest: --tug-color(indigo, l: 880, c: 8);
+  --tug7-element-global-divider-normal-separator-rest: --tug-color(indigo, l: 830, c: 8);
 
   /* Element — Shadow */
   --tug7-element-global-shadow-normal-lg-rest: --tug-color(black, a: 350);
@@ -229,14 +229,16 @@ body {
      chosen item, independent of the accent/action roles and of the focus axis
      (orange). The same blue carries the toggle `on` role (group / checkbox /
      switch on-states) above. Two intensities for two contexts: `selected` is
-     the vibrant fill for a *transient*, small target (the menus' highlighted
-     item); `quiet` is the same hue at low ALPHA — a wash for a *persistent*,
+     the opaque fill for a *transient*, small target (the menus' highlighted
+     item); `quiet` is the same color at low ALPHA — a wash for a *persistent*,
      large mark (list/flush rows), where an opaque fill would glare and would
-     force the row to recolor its own text. Only `selected` carries white text;
-     a washed row keeps its own. Text/character selection (`plain`, above)
-     stays blue. */
-  --tug7-surface-selection-primary-normal-selected-rest: --tug-color(blue, l: 710, c: 360);
-  --tug7-surface-selection-primary-normal-selected-hover: --tug-color(blue, l: 650, c: 340);
+     force the row to recolor its own text. On a paper field the fill is a PALE
+     wash of the Key hue under DARK ink, not a vivid slab under white: a mid-tone
+     fill is the one thing a light screen cannot afford, because it is louder
+     than every field around it. A washed row still keeps its own ink.
+     Text/character selection (`plain`, above) stays on the Key hue. */
+  --tug7-surface-selection-primary-normal-selected-rest: --tug-color(blue, l: 930, c: 50);
+  --tug7-surface-selection-primary-normal-selected-hover: --tug-color(blue, l: 900, c: 70);
   /* The row-selection WASH — the `selected` hue above at low alpha, three rungs:
      rest (selected) < hover (selected + mouse) < strong (the press preview).
      A committed row selection is a mark laid OVER the row, not a slab painted in
@@ -248,9 +250,9 @@ body {
      alphas as the dark ones: a wash over a pale ground darkens where a wash over
      a dark ground lightens, and the step reads at the same strength either way.
      Sole consumer is the list row. */
-  --tug7-surface-selection-primary-normal-quiet-rest: --tug-color(blue, l: 710, c: 360, a: 180);
-  --tug7-surface-selection-primary-normal-quiet-hover: --tug-color(blue, l: 710, c: 360, a: 240);
-  --tug7-surface-selection-primary-normal-quiet-strong: --tug-color(blue, l: 710, c: 360, a: 320);
+  --tug7-surface-selection-primary-normal-quiet-rest: --tug-color(blue, l: 930, c: 50, a: 180);
+  --tug7-surface-selection-primary-normal-quiet-hover: --tug-color(blue, l: 930, c: 50, a: 240);
+  --tug7-surface-selection-primary-normal-quiet-strong: --tug-color(blue, l: 930, c: 50, a: 320);
   /* Demoted selection — a selected list row whose descended trailing
      accessory holds the keyboard key view yields its fill to the live
      control: the row drops to a calmer wash TINGED BY THE ACCESSORY'S ROLE
@@ -264,7 +266,7 @@ body {
   --tug7-surface-selection-primary-demoted-accent-rest: --tug-color(orange, l: 650, c: 160, a: 130);
   --tug7-surface-selection-primary-demoted-data-rest: --tug-color(teal, l: 670, c: 160, a: 130);
   --tug7-surface-selection-primary-demoted-agent-rest: --tug-color(violet, l: 600, c: 160, a: 130);
-  --tug7-element-selection-text-normal-selected-rest: --tug-color(indigo, l: 960, c: 20);
+  --tug7-element-selection-text-normal-selected-rest: --tug-color(gray, l: 150);
 
   /* tug-text-editor selection overlay — saturated blue painted as a layer behind
      the editable surface. tug-input and other native-::selection-driven
@@ -281,7 +283,11 @@ body {
   /* Surface — Highlight */
   --tug7-surface-highlight-primary-normal-drop-rest: --tug-color(blue, l: 770, c: 280, a: 180);
   --tug7-surface-highlight-primary-normal-flash-rest: --tug-color(orange, l: 780, c: 300, a: 350);
-  --tug7-surface-highlight-primary-normal-hover-rest: --tug-color(white, a: 50);
+  /* The unselected row's hover graze. BLACK here, not white: a graze has to be
+     a step away from the field it lands on, and on paper at l: 985 a lightening
+     wash has nowhere left to go. The dark themes' white wash is the same idea
+     pointing the other way. */
+  --tug7-surface-highlight-primary-normal-hover-rest: --tug-color(black, a: 40);
   --tug7-surface-highlight-primary-normal-inspector-rest: --tug-color(blue, l: 770, c: 280, a: 220);
   --tug7-surface-highlight-primary-normal-preview-rest: --tug-color(blue, l: 770, c: 280, a: 120);
   --tug7-surface-highlight-primary-normal-snap-rest: --tug-color(blue, l: 770, c: 280, a: 500);
@@ -297,12 +303,14 @@ body {
   --tug7-element-tab-close-normal-plain-hover: --tug-color(indigo, l: 270, c: 20);
   --tug7-surface-tab-primary-normal-plain-active: var(--tugx-chrome-key-surface);
   /* The strip's recede runs in the band's own direction: the active tab is the
-     TINTED one, and the two resting states step down in gray from it — keeping
-     the distance-from-active ordering the saturated band had (inactive furthest,
-     collapsed between) now that the direction of travel has reversed. */
-  --tug7-surface-tab-primary-normal-plain-collapsed: --tug-color(gray, l: 915);
+     LIGHTEST one, and the two resting states step down in gray from it —
+     keeping the distance-from-active ordering the saturated band had (inactive
+     furthest, collapsed between) now that the direction of travel has reversed.
+     Both sit on the paper ladder rather than 70 points below it: on a near-white
+     screen the old band was the darkest large field there was. */
+  --tug7-surface-tab-primary-normal-plain-collapsed: --tug-color(gray, l: 955);
   --tug7-surface-tab-primary-normal-plain-hover: --tug-color(black, a: 45);
-  --tug7-surface-tab-primary-normal-plain-inactive: --tug-color(gray, l: 895);
+  --tug7-surface-tab-primary-normal-plain-inactive: --tug-color(gray, l: 945);
   --tug7-surface-tab-close-normal-plain-hover: --tug-color(black, a: 70);
 
   /* Slider — Track */
@@ -342,52 +350,69 @@ body {
      The rail learned this one tier down (see tug-pane.css): a surface change is
      a token FAMILY change. So every ink on this band below comes from the
      global text family, and every wash over it is black rather than white. */
-  /* One shared Key-tinted chrome surface — the single knob for the focused
-     title bar and its merged active tab, keeping them unified with the theme's
-     Key hue (the action family the Z4B buttons/badges use). Tune this value. */
-  --tugx-chrome-key-surface: --tug-color(blue, l: 925, c: 65);
+  /* One shared chrome surface — the single knob for the focused title bar and
+     its merged active tab. It is PAPER: the theme's tint hue at a chroma the
+     eye reads as a warm neutral, not the Key hue. A light field carries its
+     hue as a wash the whole screen shares, so the Key hue has to leave the
+     fields to survive in the marks. Tune this value. */
+  --tugx-chrome-key-surface: --tug-color(indigo, l: 965, c: 6);
   --tug7-surface-card-primary-normal-titlebar-active: var(--tugx-chrome-key-surface);
-  --tug7-surface-card-primary-normal-titlebar-inactive: --tug-color(gray, l: 935);
-  --tug7-surface-card-primary-normal-titlebar-collapsed: --tug-color(gray, l: 910);
+  --tug7-surface-card-primary-normal-titlebar-inactive: --tug-color(gray, l: 970);
+  /* A collapsed lid is a QUIETER state than an inactive one, not a heavier one,
+     so it sits with the inactive lid rather than 60 points under the focused
+     band — which on paper would make a collapsed card the darkest chrome on
+     screen, the very fault this treatment is about. */
+  --tug7-surface-card-primary-normal-titlebar-collapsed: --tug-color(gray, l: 970);
+
+  /* The two Key rules. Once the fields go neutral, focus and selection have no
+     field left to say themselves in, so each gets a MARK instead: a rule along
+     the focused lid's top edge, and one down a selected row's leading edge.
+     Both at the focused card glyph's coordinates, which is the one vivid thing
+     the lid already carried. Declared per light theme only — a dark theme
+     declares none of the four and its consumers fall back to a zero width and a
+     transparent color, so nothing is painted and nothing moved. */
+  --tugx-chrome-lid-rule-width: 2px;
+  --tugx-chrome-lid-rule-color: --tug-color(blue, l: 500, c: 132);
+  --tugx-chrome-selection-rule-width: 3px;
+  --tugx-chrome-selection-rule-color: --tug-color(blue, l: 500, c: 132);
 
   /* Card — Status Bar (Z2) — the STATE/TIME/TOKENS strip beneath the transcript.
-     Chrome level C2: a pale rung of the C1 Key hue, landing midway between the Z0
-     control band (l:890 c:22) and the tool-block surface (l:925 c:10). Tuned
-     independently of Z0 below. */
-  --tug7-surface-card-primary-normal-status-rest: --tug-color(blue, l: 908, c: 16);
+     Chrome level C2: the same paper rung as the rail and the lid band, one step
+     lighter than the Z0 control band below it. Tuned independently of Z0. */
+  --tug7-surface-card-primary-normal-status-rest: --tug-color(indigo, l: 965, c: 6);
 
   /* Card — Control band (Z0) — the transcript's top load / session strip. Its own
      surface so Z0 and Z2 tune separately (seeded equal to Z2). */
-  --tug7-surface-card-primary-normal-controlbar-rest: --tug-color(blue, l: 890, c: 22);
+  --tug7-surface-card-primary-normal-controlbar-rest: --tug-color(indigo, l: 955, c: 6);
 
   /* Card — Frame border (.tug-pane-chrome outer edge). A step stronger than the
      global default so the card edge still reads, but nowhere near the old value:
      that one was chosen not to glare against a DARK C1 band, and around a pale
      lid it drew a hard outline on every card. */
-  --tug7-element-card-border-normal-frame-rest: --tug-color(indigo, l: 730, c: 40);
+  --tug7-element-card-border-normal-frame-rest: --tug-color(indigo, l: 850, c: 8);
 
   /* Card — Tool-block surface (header strip + body panel share it).
-     CONTENT level, not chrome: a near-neutral gray, far less colorful than the
-     Key-tinted C2 status rung, so tool blocks recede into the transcript flow
-     instead of reading as tinted chrome. */
-  --tug7-surface-card-primary-normal-block-rest: --tug-color(indigo, l: 925, c: 10);
+     CONTENT level, not chrome: the rail's lightness at a lower chroma still, so
+     a tool block recedes into the transcript flow rather than reading as a
+     tinted band of its own. */
+  --tug7-surface-card-primary-normal-block-rest: --tug-color(indigo, l: 965, c: 4);
   /* Card — Tool-block expanded content well. A step lighter than the block
      surface so an expanded body reads as a brighter recessed well, giving
      diff/edit content a cleaner ground for its tint lines to read against. */
-  --tug7-surface-card-primary-normal-well-rest: --tug-color(indigo, l: 958, c: 10);
+  --tug7-surface-card-primary-normal-well-rest: --tug-color(indigo, l: 985, c: 4);
 
   /* Card — Title Bar Element Tokens. DARK-on-pale: the ground is a light
      surface, so the ink is the global text family's, at the same two strengths
      every other light surface uses. */
   --tug7-element-card-text-normal-title-active: --tug-color(gray, l: 150);
-  --tug7-element-card-text-normal-title-inactive: --tug-color(indigo, l: 480, c: 40);
+  --tug7-element-card-text-normal-title-inactive: --tug-color(indigo, l: 640, c: 20);
   /* Card-type glyph carries the Key hue at FULL saturation — the mid-tone the
      whole band used to be. On a pale lid it can be the one vivid thing in the
      bar, which is what makes it read as the mark that NAMES the card rather
      than as more chrome. It had to be lightened to survive the old band; here
      it does not. */
   --tug7-element-card-icon-normal-title-active: --tug-color(blue, l: 500, c: 132);
-  --tug7-element-card-icon-normal-title-inactive: --tug-color(indigo, l: 560, c: 30);
+  --tug7-element-card-icon-normal-title-inactive: --tug-color(indigo, l: 640, c: 20);
   --tug7-element-card-icon-normal-title-hover: --tug-color(blue, l: 420, c: 140);
 
   /* Card — Title Bar Control Buttons (ghost-style, focused card).
@@ -406,7 +431,7 @@ body {
 
   /* Card — Title Bar Control Buttons (ghost-style, unfocused card). The same
      ladder one notch weaker; the deck's own recede supplies the rest. */
-  --tug7-element-card-control-normal-muted-rest: --tug-color(indigo, l: 560, c: 30);
+  --tug7-element-card-control-normal-muted-rest: --tug-color(indigo, l: 640, c: 20);
   --tug7-element-card-control-normal-muted-hover: --tug-color(gray, l: 150);
   --tug7-element-card-control-normal-muted-active: --tug-color(gray, l: 150);
   --tug7-surface-card-control-normal-muted-rest: transparent;

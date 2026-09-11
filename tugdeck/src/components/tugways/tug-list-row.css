@@ -529,6 +529,37 @@ body {
   --tugx-list-row-selection-fill: var(--tugx-list-row-selected-bg);
 }
 
+/* The selected row's Key rule — a 3px mark down the leading edge, above the
+   wash. Once the selection fill goes pale the wash alone is a whisper on a
+   light ground; the rule is what makes a chosen row findable at a glance,
+   at the same coordinates the focused lid's rule uses.
+
+   A gradient LAYER rather than a box-shadow: this row already owns
+   `box-shadow` for the accent selection border two rules down
+   (`[data-selected-accent="true"]`), and a second declaration would replace it
+   rather than join it. So the rule rides as a first background-image layer and
+   the fill is restated beneath it — a background-image list replaces wholesale,
+   so the fill cannot simply be inherited from the rule above.
+
+   Scoped to `flush` rather than `[data-variant]` presence: a `pill` carries
+   `border-radius`, which would clip a hard-edged stripe into a curved sliver.
+   A selected pill keeps the one-layer fill above and takes no rule.
+
+   `to right` is physical on purpose: `linear-gradient` has no logical direction
+   keyword and the deck renders LTR only. Both knobs default to nothing, so a
+   theme declaring neither paints neither. Appearance only ([L06]). */
+/* @tug-renders-on: --tugx-list-row-ground */
+.tug-list-row[data-variant="flush"][data-selected="true"]:not([data-selection-surface="control"]) {
+  background-image:
+    linear-gradient(
+      to right,
+      var(--tugx-chrome-selection-rule-color, transparent) 0
+        var(--tugx-chrome-selection-rule-width, 0px),
+      transparent var(--tugx-chrome-selection-rule-width, 0px)
+    ),
+    linear-gradient(var(--tugx-list-row-selection-fill), var(--tugx-list-row-selection-fill));
+}
+
 /* Selected + hover — a distinct, stronger rung so a hovered selected row reads
    apart from a resting selected one. The extra `:not([data-disabled])` lifts
    this above the plain `:hover` rule's specificity, so hovering a selected row
