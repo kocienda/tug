@@ -1600,13 +1600,20 @@ export const TugPanePortalContext = createContext<HTMLDivElement | null>(null);
  * React context: the pane frame element (`HTMLDivElement`, the `.tug-pane`
  * outer frame, parent of the chrome). Pane-modal surfaces (`TugSheet`,
  * future modal-class surfaces) portal into this element so their panel
- * sits inside the pane's stacking context — peer panes z-stacked above
- * paint above the panel without manual z coordination [D19, D20].
+ * moves with the pane through drags, resizes and column reflows with no
+ * applier of its own [D19, D20]. Paint ORDER against peer panes is a
+ * separate question and the frame answers it the other way: while a
+ * pane-modal surface is up the frame wears `data-sheet-open` and is
+ * lifted above every peer (`tug-pane.css`), because a surface the user
+ * is being asked to answer should not be partly under a neighbour.
+ * `tuglaws/pane-model.md` carries the argument.
  *
  * The frame's `position: absolute` + inline `z-index` makes it its own
  * stacking context. The frame has `overflow: visible` (default) so a
  * panel whose natural height exceeds the chrome's body can extend into
- * the canvas grid below — without escaping the pane's stacking context.
+ * the canvas grid below, and past the frame's own edges in either
+ * direction — which is what the ban on `overflow`/`transform`/`contain`
+ * in `tug-pane.css` exists to keep possible.
  *
  * Standalone consumers (gallery preview, tests rendered without a
  * `TugPane` ancestor) read `null` and fall back to `document.body` —

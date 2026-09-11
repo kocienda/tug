@@ -44,6 +44,29 @@
   --tug-z-overlay-menu-in-dialog:  9600;
 }
 
+/* ---- Pane tier: a pane holding an open sheet ([B03]) ----
+ *
+ * A sheet is pane-modal, but it is not pane-CONFINED. While one is up its host
+ * frame paints above every peer pane, so a panel that has grown past the frame
+ * is not painted over by whichever card the user happens to be working in —
+ * and a sheet raised by a watcher rather than by a click gets the same
+ * treatment, which is the case focus order cannot answer.
+ *
+ * Free panes take a tiny array-order z (`CARD_ZINDEX_BASE + i`, 1..N in
+ * `deck-canvas.tsx`), so any flat value clears all of them. The ceiling is the
+ * rail band (`SIDEBAR_PANE_ZINDEX_BASE`, 8990) and the margin caps one below it
+ * (8989), which have to keep painting over a card travelling past a rail's
+ * edge, and above those the overlay root at `--tug-z-overlay-base`. 8900 clears
+ * every card with room to spare and leaves all of that untouched.
+ *
+ * Flat rather than ranked, deliberately: the deck's focus-order z-index map is
+ * neither consulted nor changed, so focusing another pane still reorders the
+ * rest of the wall exactly as it does today.
+ */
+:root {
+  --tug-z-pane-sheet-open: 8900;
+}
+
 /* ---- Canvas overlay root ----
  *
  * The single deck-level overlay container (one per <DeckCanvas />).

@@ -62,11 +62,18 @@ body {
  *     it and the `max-height` fallback below needs no change.
  *   * `height: 100vh` accommodates panels taller than the host
  *     pane (panel scrolls inside `.tug-sheet-content` via
- *     `overflow-y: auto`). Where the clip extends past the
- *     chrome's bottom edge into the canvas grid below, the panel
- *     paints over empty canvas if there is no peer pane there, or
- *     under a higher-z peer pane otherwise — both correct stacking
- *     behavior for an in-pane modal.
+ *     `overflow-y: auto`). The clip may extend past the chrome's
+ *     bottom edge into the canvas grid below, and past the frame's
+ *     own edges in either direction — the frame carries no
+ *     `overflow`, `transform` or `contain`, and `tug-pane.css`
+ *     forbids adding any. Where it does, the panel paints over
+ *     whatever is under it: empty canvas, or a peer pane, which is
+ *     NOT allowed to paint back over it. A pane holding an open
+ *     sheet is lifted above every peer for as long as the panel is
+ *     up (`.tug-pane[data-sheet-open]` in `tug-pane.css`). Paint
+ *     containment was never what made a sheet pane-modal —
+ *     `tuglaws/pane-model.md` has the argument — so the lift costs
+ *     none of it.
  *   * `pointer-events: none` makes the empty clip area pass
  *     clicks through; the panel sets `pointer-events: auto` to
  *     absorb interaction.
@@ -116,6 +123,23 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+}
+
+/* Radix's `FocusScope` renders a real `div` of its own between the clip and
+ * the panel. As a layout box it broke the cap below in two ways at once: the
+ * panel's `max-height: calc(100% - 24px)` resolved its percentage against THIS
+ * element's `auto` height (so the cap computed to nothing at all), and this
+ * element, being the clip's flex item with `min-height: auto` and visible
+ * overflow, could not shrink below its own min-content height either — so it
+ * hung past the clip's top edge, where `overflow: hidden` cut the panel's
+ * header off. Measured at 610.28px inside a 587px clip.
+ *
+ * `display: contents` removes the box without removing the element: the focus
+ * scope keeps its ref, its key handling and its `tabindex`, and the panel
+ * becomes the clip's own flex item, which is the containing block the
+ * percentage was always written against. */
+.tug-sheet-focus-scope {
+  display: contents;
 }
 
 .tug-sheet-clip[data-vertical-anchor="bottom"] .tug-sheet-content {

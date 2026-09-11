@@ -11,8 +11,11 @@
  * Compound API: TugSheet (Root) / TugSheetTrigger / TugSheetContent.
  * The panel + slide-in clip portal into the host pane's frame element
  * via `TugPaneFrameContext` so the panel sits inside the pane's
- * stacking context [D19, D20]. Peer panes z-stacked above paint above
- * the panel without manual z coordination — modal scope IS the pane.
+ * stacking context and follows the pane through every move [D19, D20].
+ * Modal scope IS the pane — but paint order is not how that is
+ * enforced, and is the other way around: a pane holding an open sheet
+ * is lifted above every peer for as long as the panel is up. See
+ * `tuglaws/pane-model.md`.
  * Open state is internal — consumers open the sheet via
  * `TugSheetTrigger` (click-to-open), an imperative ref handle
  * (`TugSheetHandle.open()`), or the `useTugSheet()` hook's
@@ -230,6 +233,60 @@ const SHEET_RESIZE_MIN_WIDTH = 460;
 const SHEET_RESIZE_MIN_HEIGHT = 250;
 /** Gap kept between the sheet's bottom and the canvas bottom (px). */
 const SHEET_CANVAS_GAP = 32;
+
+/**
+ * Does this anchor actually occupy space? [B04] — a rest line with no box is
+ * treated as no rest line.
+ *
+ * A folded Session card keeps its view slot in the tree and takes it out of
+ * layout (`.session-card[data-fold="settled"] .session-view-slot { display:
+ * none }`), so the element the selector matches is real and its rect is all
+ * zeros. Anchoring to it put the clip's bottom edge at the top of the viewport
+ * and told every sheet on a folded card to fit inside a 144px card.
+ *
+ * The rect is the whole test. `offsetParent === null` is the same symptom seen
+ * from the other side — it is null exactly when the element or an ancestor is
+ * `display: none` — but it is ALSO null for a perfectly visible
+ * `position: fixed` element, so reading it would stand an anchor down for
+ * being fixed. A zero rect says what we actually need to know.
+ */
+function anchorHasBox(el: Element | null): boolean {
+  return el !== null && el.getBoundingClientRect().height > 0;
+}
+
+/**
+ * How many open sheets each pane frame currently holds ([B03]).
+ *
+ * The raise is one attribute, so two sheets sharing a frame would have the
+ * first to close clear it out from under the second. The count is the same
+ * shape the pane scrim's registry already takes, and for the same reason it
+ * gives — "multiple sheets, future modal-class surfaces sharing the chrome".
+ * A `WeakMap` because the key is a DOM node whose pane may be closed at any
+ * time, and nothing here should be what keeps it alive.
+ */
+const PANE_SHEET_OPEN_COUNTS = new WeakMap<HTMLElement, number>();
+
+/**
+ * Mark a pane frame as holding an open sheet, and return the balanced release.
+ * The attribute is read only by `tug-pane.css`, which lifts the frame above
+ * every peer pane while it is set.
+ */
+function raisePaneForSheet(frame: HTMLElement): () => void {
+  PANE_SHEET_OPEN_COUNTS.set(frame, (PANE_SHEET_OPEN_COUNTS.get(frame) ?? 0) + 1);
+  frame.setAttribute("data-sheet-open", "");
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = (PANE_SHEET_OPEN_COUNTS.get(frame) ?? 1) - 1;
+    if (remaining > 0) {
+      PANE_SHEET_OPEN_COUNTS.set(frame, remaining);
+      return;
+    }
+    PANE_SHEET_OPEN_COUNTS.delete(frame);
+    frame.removeAttribute("data-sheet-open");
+  };
+}
 
 /** Enter/exit keyframe pair for one presentation style. */
 interface SheetPresentationMotion {
@@ -835,8 +892,10 @@ export interface TugSheetContentProps {
  *
  * Portals into the pane frame element (from `TugPaneFrameContext`),
  * which is the `.tug-pane` outer frame and its own stacking context.
- * The panel paints inside the pane's stacking context — peer panes
- * z-stacked above paint above the panel automatically [D19, D20].
+ * The panel follows that frame through every move the pane makes, and
+ * is not confined by it: the clip may grow past the frame's edges in
+ * either direction, and while it is up the frame is lifted above every
+ * peer pane so nothing paints back over it [D19, D20].
  *
  * Visual scrim is provided by the pane's built-in scrim layer raised
  * via `useTugPaneScrim()`; this component does not own a scrim
@@ -1078,19 +1137,96 @@ export function TugSheetContent({
     [cardEl, bottomAnchorSelector],
   );
 
+  // The anchor as RESOLVED: the matched element when it has a box, and null
+  // when it does not ([B04]). Everything downstream — the geometry effect, the
+  // canvas clamp's stand-down, the clip's `data-vertical-anchor`, the resize
+  // handles' edge set — reads this rather than the raw match, so a folded card
+  // takes the default top anchor by exactly the path a card with no view slot
+  // at all already took.
+  //
+  // `anchorGeneration` is how the observer asks for a re-read. It is bumped
+  // only when the anchor CROSSES between having a box and not having one, not
+  // on every resize: the slot's height changes with every line the composer
+  // grows, and a re-render of the sheet per keystroke would be the cost of
+  // watching the wrong thing. Crossing it is the fold and the unfold, which is
+  // what makes both safe while a sheet is up — a slot that regains its box is
+  // re-read here, and the geometry effect re-measures off the same observer it
+  // already held.
+  const [anchorGeneration, setAnchorGeneration] = useState(0);
+  const restAnchorEl = useMemo(
+    () => (anchorHasBox(bottomAnchorEl) ? bottomAnchorEl : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `anchorGeneration` is the re-read signal, not a value read below.
+    [bottomAnchorEl, anchorGeneration],
+  );
+  useLayoutEffect(() => {
+    if (bottomAnchorEl === null) return;
+    let boxed = anchorHasBox(bottomAnchorEl);
+    const observer = new ResizeObserver(() => {
+      const next = anchorHasBox(bottomAnchorEl);
+      if (next === boxed) return;
+      boxed = next;
+      setAnchorGeneration((n) => n + 1);
+    });
+    observer.observe(bottomAnchorEl);
+    return () => observer.disconnect();
+  }, [bottomAnchorEl]);
+
+  // [B05] The entrance follows the ANCHOR, not the call site. A sheet that
+  // asked to rise from a rest line and found none should not rise from a line
+  // that is not there — it drops from the masthead, the way a folded card's
+  // `Compacting` cover already does, and the same sheet on the same card rises
+  // again once the card is unfolded.
+  //
+  // The stand-down is keyed on having ASKED for a line. A caller that passes
+  // `rise` with no `bottomAnchorSelector` is not falling back to anything; it
+  // is using `rise` as a plain entrance, which is what the gallery's
+  // presentation demo does, and it keeps it.
+  const anchorStoodDown = bottomAnchorSelector !== undefined && restAnchorEl === null;
+  const entrance: TugSheetPresentation =
+    presentation === "rise" && anchorStoodDown ? "top" : presentation;
+
   // Write the clip's bottom edge from the measured anchor, in frame
   // coordinates ([L06] — DOM write, no React state). The clip's top stays
-  // pinned under the chrome via CSS, so setting `bottom` makes the clip exactly
-  // the band between the title bar and the anchor; `tug-sheet.css` bottom-aligns
-  // the panel within it and caps its height to that band. Re-measured whenever
-  // the pane or the anchor resizes — dragging the Session card's sash and
-  // growing the Z2 telemetry row both change the anchor's height.
+  // pinned under the chrome via CSS while the panel fits, so setting `bottom`
+  // makes the clip exactly the band between the title bar and the anchor;
+  // `tug-sheet.css` bottom-aligns the panel within it and caps its height to
+  // that band. Re-measured whenever the pane, the canvas or the anchor resizes
+  // — dragging the Session card's sash and growing the Z2 telemetry row both
+  // change the anchor's height.
+  //
+  // A panel that does NOT fit is sized against the visible CANVAS rather than
+  // against this pane's frame ([B02], sheet-visibility). The frame does not
+  // clip — `.tug-pane` carries no `overflow`, no `transform` and no `contain`,
+  // and `tug-pane.css` forbids adding any — so the only thing that ever
+  // confined a sheet to its own pane was this arithmetic. The clip grows DOWN
+  // over the region below the rest line first, past the frame's own bottom
+  // edge if it must, and only then UP past the masthead; both stop
+  // `SHEET_CANVAS_GAP` short of the visible canvas, and a panel taller than
+  // the canvas itself scrolls, which is a limit the window imposes rather than
+  // one the pane does.
   useLayoutEffect(() => {
     const clip = clipRef.current;
-    if (clip === null || bottomAnchorEl === null || paneFrameEl === null) return;
+    if (clip === null || restAnchorEl === null || paneFrameEl === null) return;
+    const canvas = paneFrameEl.parentElement;
     const measure = (): void => {
+      // Read the clip's RESTING top — the CSS `calc(chrome-height + 1px)` —
+      // rather than whatever this effect wrote last pass, so the upward growth
+      // below measures against a fixed origin and cannot walk itself off the
+      // top of the canvas one observer callback at a time.
+      clip.style.top = "";
       const frame = paneFrameEl.getBoundingClientRect();
-      const anchor = bottomAnchorEl.getBoundingClientRect();
+      const anchor = restAnchorEl.getBoundingClientRect();
+      const restingTop = clip.getBoundingClientRect().top;
+      // The visible canvas, in viewport coordinates: the canvas element's own
+      // box, but never past the window in either direction (the canvas can be
+      // taller than the window, and scrolled). The same reading the top-anchor
+      // clamp takes for its bottom limit, now taken for both edges.
+      const canvasBox = canvas?.getBoundingClientRect() ?? null;
+      const visibleBottom = Math.min(
+        canvasBox?.bottom ?? frame.bottom,
+        window.innerHeight,
+      );
+      const visibleTop = Math.max(canvasBox?.top ?? frame.top, 0);
       // Where the panel would rest if the band above the anchor held it.
       const restInset = Math.max(0, frame.bottom - anchor.bottom);
       // The anchor is a PREFERENCE, not a ceiling. When the panel needs more
@@ -1101,14 +1237,16 @@ export function TugSheetContent({
       // and the region below the anchor is exactly what a modal is entitled
       // to paint over. So the clip's bottom edge slides DOWN over that region
       // by however much the panel is short, stopping `SHEET_CANVAS_GAP` above
-      // the frame's bottom edge. A panel that fits stays where its chips are.
+      // the visible canvas bottom. A panel that fits stays where its chips are.
       const content = sheetContentRef.current;
       let inset = restInset;
+      let topInset: number | null = null;
       if (content !== null) {
         const cs = getComputedStyle(content);
         const px = (value: string): number => Number.parseFloat(value) || 0;
         const marginBottom = px(cs.marginBottom);
-        const gutters = px(cs.marginTop) + marginBottom;
+        const marginTop = px(cs.marginTop);
+        const gutters = marginTop + marginBottom;
         // `scrollHeight` is the panel's natural height whether or not the cap
         // is currently biting, so this measure is stable against its own
         // write — the loop quiesces on the second pass.
@@ -1117,30 +1255,41 @@ export function TugSheetContent({
           px(cs.borderTopWidth) +
           px(cs.borderBottomWidth) +
           gutters;
-        const band = frame.bottom - restInset - clip.getBoundingClientRect().top;
-        const shortfall = needed - band;
+        const band = frame.bottom - restInset - restingTop;
+        let shortfall = needed - band;
         if (shortfall > 0) {
-          // How far down the panel may go: `SHEET_CANVAS_GAP` above the frame's
-          // bottom edge, or above the viewport's when the pane runs off the
-          // bottom of the window (the same "never below the viewport" reading
-          // the canvas clamp takes). Expressed as an inset from the frame
-          // bottom, which is what the clip's `bottom` is measured in.
-          const floor = Math.max(
-            0,
-            frame.bottom -
-              Math.min(frame.bottom, window.innerHeight) +
-              SHEET_CANVAS_GAP -
-              marginBottom,
-          );
+          // How far down the panel may go: `SHEET_CANVAS_GAP` above the
+          // VISIBLE CANVAS bottom, which on a pane that does not reach the
+          // bottom of the wall is well below the frame's own bottom edge.
+          // Expressed as an inset from the frame bottom, which is what the
+          // clip's `bottom` is measured in — so this floor is routinely
+          // NEGATIVE, and that is the point: the clip hangs past the frame.
+          const floor =
+            frame.bottom - visibleBottom + SHEET_CANVAS_GAP - marginBottom;
           inset = Math.max(floor, restInset - shortfall);
+          // Down first, then up: whatever the downward growth could not absorb
+          // comes off the top, past the masthead, stopping the same gap short
+          // of the visible canvas top. A negative `top` is the clip hanging
+          // above the frame, and nothing clips it there either.
+          shortfall -= restInset - inset;
+          if (shortfall > 0) {
+            const ceiling = visibleTop + SHEET_CANVAS_GAP + marginTop;
+            const nextTop = Math.max(ceiling, restingTop - shortfall);
+            if (nextTop < restingTop) topInset = nextTop - frame.top;
+          }
         }
       }
       clip.style.bottom = `${inset}px`;
+      if (topInset !== null) clip.style.top = `${topInset}px`;
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(paneFrameEl);
-    observer.observe(bottomAnchorEl);
+    observer.observe(restAnchorEl);
+    // The canvas is an input now that it, rather than the frame, is what the
+    // panel is sized against — a column reflow that moves the wall's bottom
+    // edge changes how far this clip may grow.
+    if (canvas !== null) observer.observe(canvas);
     // The panel's own height is an input now: an accordion row opening inside
     // the AI mixer is what tips a fitting sheet into an overflowing one.
     if (sheetContentRef.current !== null) observer.observe(sheetContentRef.current);
@@ -1148,8 +1297,16 @@ export function TugSheetContent({
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", measure);
+      // The resolved anchor can CHANGE for a mounted sheet now ([B04]) — a
+      // card folded while its sheet is up stands the rest line down and this
+      // effect stops running. Leave no inline geometry behind: the top
+      // anchor's CSS gives the clip `height: 100vh` and its own `top`, and a
+      // stale inline `bottom`/`top` from the other anchor is state nothing
+      // else will ever clear.
+      clip.style.bottom = "";
+      clip.style.top = "";
     };
-  }, [bottomAnchorEl, paneFrameEl, mounted]);
+  }, [restAnchorEl, paneFrameEl, mounted]);
 
   useLayoutEffect(() => {
     // The shade's height is fraction-driven CSS against its slot — no
@@ -1166,8 +1323,16 @@ export function TugSheetContent({
     // all. So aspect-lock runs either way, taking its available height from
     // the clip (which, bounded on both edges, IS the band) instead of from a
     // canvas bottom.
-    if (bottomAnchorEl !== null && !aspectLockContent) return;
     const content = sheetContentRef.current;
+    if (restAnchorEl !== null && !aspectLockContent) {
+      // Same reason as the bottom-anchor effect's cleanup: a sheet that was
+      // top-anchored a moment ago (its card was folded) carries the inline
+      // `max-height` this effect measured against the canvas, and a
+      // bottom-anchored panel capped at a number computed for the other
+      // anchor is a cap nobody can account for. Clear it on the way out.
+      if (content !== null) content.style.maxHeight = "";
+      return;
+    }
     const clip = clipRef.current;
     if (content === null || clip === null || paneFrameEl === null) return;
     const canvas = paneFrameEl.parentElement;
@@ -1188,7 +1353,7 @@ export function TugSheetContent({
       // less its own gutters. Top-anchored, the clip is open at the bottom and
       // the limit is the canvas.
       const available =
-        bottomAnchorEl !== null
+        restAnchorEl !== null
           ? clipBox.height - marginTop - marginBottom
           : bottomLimit - SHEET_CANVAS_GAP - clipBox.top - marginTop;
       const frac = maxHostFraction ?? 0.8;
@@ -1261,7 +1426,7 @@ export function TugSheetContent({
       observer.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [paneFrameEl, mounted, maxHostFraction, aspectLockContent, presentation, bottomAnchorEl]);
+  }, [paneFrameEl, mounted, maxHostFraction, aspectLockContent, presentation, restAnchorEl]);
 
   // ---- Drag-resize ([D15] resizable sheets) ----
   //
@@ -1461,11 +1626,11 @@ export function TugSheetContent({
     if (!contentEl) return;
 
     const g = group({ duration: "--tug-motion-duration-moderate" });
-    const isShade = presentation === "shade";
+    const isShade = entrance === "shade";
     const motion =
       isShade && shadeAnchor === "bottom"
         ? SHADE_BOTTOM_MOTION
-        : SHEET_PRESENTATION_MOTION[presentation];
+        : SHEET_PRESENTATION_MOTION[entrance];
     // The shade fades from transparent to its resting alpha as it rolls; other
     // presentations use their keyframes as-is.
     const enterFrames = isShade
@@ -1497,7 +1662,7 @@ export function TugSheetContent({
       // didn't complete; subscribers will hear about the next
       // transition (will-hide / did-hide) instead.
     });
-  }, [open, mounted, cardIdForLifecycle, sheetLifecycle, presentation, shadeAnchor, paneFrameEl]);
+  }, [open, mounted, cardIdForLifecycle, sheetLifecycle, entrance, shadeAnchor, paneFrameEl]);
 
   // Exit animation: runs when !open && mounted (DOM still present for animation).
   useLayoutEffect(() => {
@@ -1509,11 +1674,11 @@ export function TugSheetContent({
     }
 
     const g = group({ duration: "--tug-motion-duration-moderate" });
-    const isShade = presentation === "shade";
+    const isShade = entrance === "shade";
     const motion =
       isShade && shadeAnchor === "bottom"
         ? SHADE_BOTTOM_MOTION
-        : SHEET_PRESENTATION_MOTION[presentation];
+        : SHEET_PRESENTATION_MOTION[entrance];
     // The shade fades from its resting alpha to transparent as it rolls out, so
     // it dismisses as a fade rather than popping when the DOM unmounts.
     const exitFrames = isShade
@@ -1540,7 +1705,7 @@ export function TugSheetContent({
       // Animation interrupted — unmount anyway to avoid stuck state.
       setMounted(false);
     });
-  }, [open, mounted, presentation, shadeAnchor]);
+  }, [open, mounted, entrance, shadeAnchor]);
 
   // Scrim show/hide: raise the host pane's built-in scrim while the
   // sheet is open. The cleanup return guarantees a balanced decrement
@@ -1556,6 +1721,20 @@ export function TugSheetContent({
     paneScrim.show();
     return () => paneScrim.hide();
   }, [open, paneScrim, presentation]);
+
+  // And raise the host pane itself above its peers for as long as the panel is
+  // in the DOM ([B03]). Keyed on `mounted` rather than on `open`, which is the
+  // one difference from the scrim above: the scrim drops the instant a close
+  // begins, on purpose, but a panel still animating out is still on screen and
+  // would spend the whole exit under whichever card the user clicked next.
+  //
+  // The shade is excluded because it does not paint past its own frame — it is
+  // rendered in place at a fraction of its slot, not portaled into the clip —
+  // so there is nothing for a peer to occlude.
+  useLayoutEffect(() => {
+    if (!mounted || presentation === "shade" || paneFrameEl === null) return;
+    return raisePaneForSheet(paneFrameEl);
+  }, [mounted, presentation, paneFrameEl]);
 
   // Dev warning: aria-labelledby requires a target.
   if (process.env.NODE_ENV !== "production" && !title) {
@@ -1811,7 +1990,7 @@ export function TugSheetContent({
       <div
         className="tug-sheet-clip"
         ref={clipRef}
-        data-vertical-anchor={bottomAnchorEl !== null ? "bottom" : undefined}
+        data-vertical-anchor={restAnchorEl !== null ? "bottom" : undefined}
       >
         {/* A sheet is PANE-modal, never app-modal: its modality must not leak
             to other panes ([D15], pane-model). Same-pane modality is enforced
@@ -1823,6 +2002,15 @@ export function TugSheetContent({
             open in one pane would block focusing a card in another. `loop` +
             `inert` give full pane-modal containment without that leak. */}
         <FocusScopeRadix.FocusScope
+          // Radix renders this scope as a real `div` between the clip and the
+          // panel, and left as a layout box it is why the panel's
+          // `max-height: calc(100% - 24px)` computed to nothing: the
+          // percentage resolved against THIS element's `auto` height rather
+          // than the clip's. `display: contents` (tug-sheet.css) takes the box
+          // out, so the panel is the clip's own flex item and the cap resolves
+          // against the clip. The class exists to give that rule something to
+          // name — an unclassed `div` selector is what kept this invisible.
+          className="tug-sheet-focus-scope"
           trapped={false}
           loop
           onMountAutoFocus={handleMountAutoFocus}
@@ -1837,7 +2025,7 @@ export function TugSheetContent({
             aria-label={hideHeader ? title : undefined}
             aria-describedby={description ? descriptionId : undefined}
             data-slot="tug-sheet"
-            data-tug-sheet-presentation={presentation}
+            data-tug-sheet-presentation={entrance}
             data-display-width={displayWidth}
             data-resizable={resizable ? "true" : undefined}
             data-aspect-lock={aspectLockContent ? "true" : undefined}
@@ -1897,7 +2085,7 @@ export function TugSheetContent({
                 — the seeded default button (e.g. Done) keeps its ring + filled
                 promotion across a resize. */}
             {resizable &&
-              (bottomAnchorEl !== null
+              (restAnchorEl !== null
                 ? SHEET_RESIZE_EDGES_BOTTOM
                 : SHEET_RESIZE_EDGES_TOP)
                 // Aspect-locked resize is width-driven (height follows the

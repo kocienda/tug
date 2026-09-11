@@ -21,7 +21,7 @@ Which mechanism a surface uses depends on what kind of surface it is. All three 
 | A **pane-modal alert** raised through a card's `showSheet` | the same pair, once, inside `presentAlertSheet` | `tug-alert-sheet.tsx` |
 | A **canvas-level alert** | the anchor is captured, not resolved — see below | `TugAlert` |
 
-The `rise` entrance goes with the anchor. A surface that rests low should arrive with a short settle onto its line rather than a full-height sweep from the top; the two together are what make the geometry read as intentional instead of as a panel that happens to be positioned oddly.
+The `rise` entrance goes with the anchor — and it goes with the anchor the sheet actually **resolved**, not with the pair the call site passed. A surface that rests low should arrive with a short settle onto its line rather than a full-height sweep from the top; the two together are what make the geometry read as intentional instead of as a panel that happens to be positioned oddly. Where there is no line to rest on, there is nothing to rise from either, so a surface that asked for the pair and found no line drops from the masthead instead, and the same surface on the same card rises again the moment the line comes back. Call sites keep passing the pair; the sheet decides what the pair means when the line is absent.
 
 ### The alert's anchor is captured, not contextual
 
@@ -33,9 +33,25 @@ So the alert captures its anchor at the moment the host **raises** it, in `alert
 
 The alert is centred horizontally on its anchor's box, not on the viewport. Bottom-pinned to one card while centred on the whole window would read as unmoored from the card it belongs to; one rule places both axes on the same card.
 
+## Where a panel that does not fit grows
+
+The line is a **preference**, not a ceiling. A panel needing more height than the band between the title bar and the line — the Session card's prompt entry grown tall leaves the slot a sliver — is not pushed up against the title bar and made to scroll: a sheet is a panel, read at a glance, and the region below the line is exactly what a modal is entitled to paint over.
+
+So it grows **down first, then up**, and both edges are measured against the **visible canvas** rather than against the host pane's own frame.
+
+- Down: the clip's bottom edge slides past the line, and past the frame's own bottom edge if it must, stopping `SHEET_CANVAS_GAP` above the canvas bottom and never below the viewport.
+- Up: whatever the downward growth could not absorb comes off the top, so the clip's top goes negative — above the masthead — stopping the same gap short of the canvas top.
+- Only a panel taller than the canvas itself scrolls. That is a limit the window imposes, not one the pane does.
+
+Nothing about the ordinary case moves: a panel that fits rests on its line exactly where this doc has always put it. What the growth order rules out is any per-pane cap on a sheet's height — a pane too short to hold the panel is not a reason to cut the panel down, because the frame does not clip and the panel is allowed past it. `tuglaws/pane-model.md` carries the paint-order half of that: the pane holding the panel is lifted above its peers while it is up, so growing past the frame does not mean growing under a neighbour.
+
 ## The fallback is not an exemption
 
 A host with no view slot — the settings session card body, a text or image or PDF card — matches nothing, and the surface keeps the sheet's default top anchor. That is the right answer there and needs no exception clause: the rest line is a fact about a transcript's shape, and a card that is not a transcript has none.
+
+**A slot with no box is no slot.** A folded Session card keeps its view slot in the tree and takes it out of layout (`.session-card[data-fold="settled"] .session-view-slot { display: none }`), so the selector matches a real element whose rect is all zeros. Anchoring to that is worse than not anchoring at all — the arithmetic runs on zeros and puts the clip's bottom edge at the top of the viewport, from which the shortfall branch drives it to the floor and tells every sheet on a folded card to fit inside a 144px card. So the resolved anchor is the matched element **when it has a box**, and null when it does not, and a folded card takes the top anchor by exactly the path a card with no view slot at all already takes. This is the same fallback extended by one clause, not a second rule.
+
+The resolution is live rather than decided once, which is what makes folding and unfolding safe while a surface is up: a `ResizeObserver` on the anchor re-reads it when it crosses between having a box and not having one — the fold and the unfold, and nothing else, so an ordinary resize of the slot costs nothing.
 
 ## The exemptions
 
@@ -53,7 +69,7 @@ A resizable sheet renders the handle set its anchor calls for, chosen in `tug-sh
 
 The drag math is a mirror and nothing more — `height = startH - dy` against the top-anchored `startH + dy` — because the bottom-anchored clip already bottom-aligns the panel (`justify-content: flex-end`), so a taller panel extends toward the masthead on its own. Nothing is repositioned.
 
-One coupling is easy to miss and is why this section exists. The canvas-clamp effect stands down for a bottom anchor, on the correct reasoning that a clip bounded on both edges is capped by CSS — but **aspect-locked content is the exception**, because its height comes from its width, so `max-height` caps nothing that matters and its only cap is the width cap that effect writes. The guard is `bottomAnchorEl !== null && !aspectLockContent`, and the aspect-lock branch reads its available height from the clip, which bounded on both edges *is* the band.
+One coupling is easy to miss and is why this section exists. The canvas-clamp effect stands down for a bottom anchor, on the correct reasoning that a clip bounded on both edges is capped by CSS — but **aspect-locked content is the exception**, because its height comes from its width, so `max-height` caps nothing that matters and its only cap is the width cap that effect writes. The guard is `restAnchorEl !== null && !aspectLockContent` — the *resolved* anchor, per the fallback above — and the aspect-lock branch reads its available height from the clip, which bounded on both edges *is* the band. Standing down clears the inline `max-height` on the way out, because the resolved anchor can change under a mounted sheet and a panel capped at a number computed for the other anchor is a cap nobody can account for.
 
 ## What is not on the card, and does not move
 

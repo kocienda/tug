@@ -1380,6 +1380,36 @@ body {
 }
 
 /*
+ * And the frame it belongs to paints above every peer pane while that surface
+ * is up ([B03]). `TugSheetContent` writes `data-sheet-open` on this frame for
+ * as long as its panel is in the DOM and removes it after the exit animation —
+ * appearance through a DOM attribute and a stylesheet rule ([F07], [L06]), with
+ * the deck's focus-order z-index map neither read nor written.
+ *
+ * The `!important` is load-bearing rather than a shortcut. The deck writes each
+ * pane's z-index as an INLINE style (`style={{ zIndex }}` in `tug-pane.tsx`),
+ * and an inline declaration outranks a stylesheet rule at any specificity. The
+ * other spelling — publishing the deck's value as a custom property this rule
+ * reads back — would route every pane's z through a second hop to serve this
+ * one case.
+ *
+ * What this trades away is a peer pane's right to paint over a neighbour's open
+ * sheet. A sheet is a surface the user is being asked to read or answer, and
+ * there is no case where the reader wants it partly under something else.
+ *
+ * Rails are excluded, and the `!important` is why. A sidebar pane's inline z is
+ * the rail band (`SIDEBAR_PANE_ZINDEX_BASE` 8990 and the nine values above it),
+ * so on a rail this rule would not be a lift but a DROP — below the margin caps
+ * at 8989, which would then paint canvas ground over a rail's own edge, and
+ * below whichever band peer it was standing in front of. A rail already
+ * outranks every free pane, which is the whole of what the lift is for, so the
+ * correct value for a rail holding a sheet is the one it already has.
+ */
+.tug-pane[data-sheet-open]:not([data-sidebar-pane]) {
+  z-index: var(--tug-z-pane-sheet-open) !important;
+}
+
+/*
  * Active selection uses native ::selection. No suppression needed — the
  * browser paints it directly. Selection color tokens are applied here so
  * all card content uses the same selection appearance.
