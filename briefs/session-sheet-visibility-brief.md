@@ -54,11 +54,13 @@ The "Z2 popups" the user clicks on are those chips' sheets. The Z2 telemetry pla
 
 **[B06] `pane-model.md` is amended to say what [F09] found: modality is pane-scoped, paint is not.** The sentence "peer Panes z-stacked above paint above the modal panel automatically" is replaced by the rule in [B03], and the reasoning paragraph keeps its point — interaction bleed is prevented structurally by scrim, `inert` and focus scope — without claiming that paint containment is part of the mechanism. `modal-rest-line.md` gains [B02]'s growth order and [B04]'s boxless clause. The clip's CSS comment at `tug-sheet.css:63–68` is rewritten to match, since it is the line a future reader will cite back at this brief.
 
+**[B07] A folded card raises its `Compacting` cover exactly as an unfolded one does, and the cover must be fully visible.** The open question this brief carried — whether the fold should suppress the cover and let the masthead beat carry it — is answered no by the user: the sheet is raised, and being raised it is subject to the same requirement as every other surface here. No fold-aware guard is written in `session-compaction-run.tsx`; instead [B04] drops the cover from the masthead on a boxless rest line, [B02] sizes it against the visible canvas, and [B03] lifts its pane above its peers, which together are the whole of "fully visible" for the second screenshot. The cost this accepts is the one [B03] already named: a watcher-raised cover on a folded card paints over the card below it, and that is the correct trade for a surface the user is meant to see.
+
 ---
 
 ## Open Questions {#open-questions}
 
-- **Should a folded card raise the `Compacting` cover at all?** The fold is "a run of sessions being watched rather than talked to," and the masthead beat already reads `Compacting context…` (second screenshot). A cover that holds the card is doing work the beat already does, and under [B03] it will now paint over the card the user is typing in. The alternative is to suppress the cover on a folded card and let the beat carry it, raising the cover only if the card is unfolded mid-run. This changes what gets built — a fold-aware guard in `session-compaction-run.tsx` rather than nothing — and it is the user's call about what a folded card is for, not a fact the code can settle.
+None. The one question this brief opened — whether a folded card should raise its `Compacting` cover — is settled at [B07]: it does, and it must be fully visible there.
 
 ---
 
