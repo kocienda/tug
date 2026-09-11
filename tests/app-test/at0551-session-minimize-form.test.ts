@@ -5,8 +5,9 @@
  *
  * The flag is the pane's ([P01]) and at0550 gates the doors that set it. This
  * file gates the FORM it produces ([B01], [P03]): a masthead tier one beat
- * line taller with the beat wrapped to two lines, the Z2 status row, and a
- * full-width Show Transcript bar — and nothing else on screen.
+ * line taller with the beat wrapped to two lines and the Z2 status row, whose
+ * leading edge carries the card's one minimize control ([B03]) — and nothing
+ * else on screen.
  *
  * Four claims:
  *
@@ -15,7 +16,9 @@
  *      tall and carries no `data-truncated` (the wrap is what retires the
  *      middle-truncation reading, [R04]); the transcript slot and the entry
  *      region are neither displayed nor reachable; Z2 is still on screen with
- *      its cells; and the bar is there, full width, reading `Show Transcript`.
+ *      its cells; and the control at Z2's leading edge has turned over to
+ *      `Show Transcript` — the one thing the form change costs the reader,
+ *      now that the verb has one seat instead of two ([B03], [B04]).
  *   2. **The composer folds, it does not unmount** ([B05], [L26]). Text typed
  *      into the editor is still in it after a minimize and a show — which is
  *      the whole reason the fold is a collapse and an `inert` attribute rather
@@ -53,8 +56,8 @@
  * @covers tugdeck/src/components/tugways/masthead-frame.css
  * @covers tugdeck/src/components/tugways/session-masthead.css
  * @covers tugdeck/src/components/tugways/cards/session-card.css
- * @covers tugdeck/src/components/tugways/cards/session-show-transcript-bar.tsx
- * @covers tugdeck/src/components/tugways/cards/session-show-transcript-bar.css
+ * @covers tugdeck/src/components/tugways/cards/session-minimize-control.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-minimize-control.css
  * @covers tugdeck/src/components/tugways/session-identity-row.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.css
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
@@ -83,8 +86,8 @@ const VIEW_SLOT = `${CARD} .session-view-slot`;
 const ENTRY_REGION = `${CARD} [data-slot="session-card-entry-region"]`;
 const STATUS_BAR = `${CARD} [data-slot="session-card-status-bar"]`;
 const STATUS_CELL = `${STATUS_BAR} [data-slot="tug-status-cell"]`;
-const BAR = `${CARD} [data-slot="session-show-transcript"]`;
-const BAR_BUTTON = `${BAR} button`;
+const CONTROL = `${STATUS_BAR} [data-slot="session-minimize-control"]`;
+const CONTROL_BUTTON = `${CONTROL} button`;
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 
 /**
@@ -235,10 +238,12 @@ async function readForm(app: App): Promise<{
   entryInert: boolean;
   statusBarHeight: number;
   statusCells: number;
-  barHeight: number;
-  barWidth: number;
-  cardWidth: number;
-  barLabel: string;
+  controlWidth: number;
+  /** The control's inset from the strip's own leading edge, in px. */
+  controlInset: number;
+  /** The gap between the control's trailing edge and the first cell's. */
+  controlToFirstCell: number;
+  controlLabel: string;
 }> {
   return app.evalJS(
     `(function () {
@@ -249,9 +254,9 @@ async function readForm(app: App): Promise<{
       var slot = q(${JSON.stringify(VIEW_SLOT)});
       var entry = q(${JSON.stringify(ENTRY_REGION)});
       var status = q(${JSON.stringify(STATUS_BAR)});
-      var showBar = q(${JSON.stringify(BAR)});
-      var showButton = q(${JSON.stringify(BAR_BUTTON)});
-      var card = q(${JSON.stringify(CARD)} + " .session-card");
+      var control = q(${JSON.stringify(CONTROL)});
+      var controlButton = q(${JSON.stringify(CONTROL_BUTTON)});
+      var firstCell = q(${JSON.stringify(STATUS_CELL)});
       var lineHeight = beat === null
         ? 0
         : parseFloat(getComputedStyle(beat).lineHeight) || 0;
@@ -274,10 +279,16 @@ async function readForm(app: App): Promise<{
         entryInert: entry === null ? false : entry.hasAttribute("inert"),
         statusBarHeight: status === null ? -1 : status.getBoundingClientRect().height,
         statusCells: document.querySelectorAll(${JSON.stringify(STATUS_CELL)}).length,
-        barHeight: showBar === null ? -1 : showBar.getBoundingClientRect().height,
-        barWidth: showBar === null ? -1 : showBar.getBoundingClientRect().width,
-        cardWidth: card === null ? -1 : card.getBoundingClientRect().width,
-        barLabel: showButton === null ? "" : (showButton.textContent || "").trim(),
+        controlWidth: control === null ? -1 : control.getBoundingClientRect().width,
+        controlInset: control === null || status === null
+          ? -1
+          : control.getBoundingClientRect().left - status.getBoundingClientRect().left,
+        controlToFirstCell: control === null || firstCell === null
+          ? -1
+          : firstCell.getBoundingClientRect().left - control.getBoundingClientRect().right,
+        controlLabel: controlButton === null
+          ? ""
+          : (controlButton.getAttribute("aria-label") || ""),
       };
     })()`,
   );
@@ -306,7 +317,10 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
 
         await toggleMinimized(app, true);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(BAR)}) !== null`,
+          `(function () {
+             var button = document.querySelector(${JSON.stringify(CONTROL_BUTTON)});
+             return button !== null && button.getAttribute("aria-label") === "Show Transcript";
+           })()`,
           { timeoutMs: 8000 },
         );
 
@@ -314,7 +328,7 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
         note("minimized masthead tier px", form.titleBarHeight);
         note("minimized beat box px", form.beatHeight);
         note("Z2 cells", form.statusCells);
-        note("Show Transcript bar px", form.barHeight);
+        note("control px", `${form.controlWidth} wide, inset ${form.controlInset}, ${form.controlToFirstCell} to STATE`);
 
         // 1. The flag reaches the frame — every rule below hangs off it.
         expect(form.frameMinimized).toBe("true");
@@ -347,13 +361,17 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
         expect(form.statusBarHeight).toBeGreaterThan(0);
         expect(form.statusCells).toBe(5);
 
-        // 6. The bar is the door, and it is the whole width of the card.
-        expect(form.barLabel).toBe("Show Transcript");
-        expect(form.barHeight).toBeGreaterThan(0);
-        expect(form.cardWidth - form.barWidth).toBeLessThanOrEqual(2);
+        // 6. The door is in the row rather than under it ([B03], [B04]): one
+        // control at Z2's leading edge, inside the strip's own 8px inset, with
+        // the cells still to its trailing side — and its label is the whole of
+        // what the form change tells the reader.
+        expect(form.controlLabel).toBe("Show Transcript");
+        expect(form.controlWidth).toBeGreaterThan(0);
+        expect(form.controlInset).toBeLessThanOrEqual(9);
+        expect(form.controlToFirstCell).toBeGreaterThan(0);
 
-        // 7. And the bar is a door: clicking it shows the transcript again.
-        await app.nativeClickAtElement(BAR_BUTTON);
+        // 7. And it is a door: clicking it shows the transcript again.
+        await app.nativeClickAtElement(CONTROL_BUTTON);
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).minimized === false`,
           { timeoutMs: 8000 },

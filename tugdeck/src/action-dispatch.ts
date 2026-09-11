@@ -683,9 +683,9 @@ export function initActionDispatch(
 
   // set-card-minimized: write one card's pane into or out of the minimized
   // form ([P02], Spec S01). Card-addressed rather than pane-addressed because
-  // every door — the Minimize button, Session ▸ Minimize Session, ⌥⌘M, and the
-  // minimized form's Show Transcript bar — knows which card it is about and
-  // not which pane holds it. The validation shape is `set-card-width`'s: warn
+  // every door — the Z2 minimize control, Session ▸ Minimize Session, and
+  // ⌥⌘M — knows which card it is about and not which pane holds it. The
+  // validation shape is `set-card-width`'s: warn
   // and return rather than throw, because a malformed payload is a caller's
   // defect and taking the deck down over one helps nobody.
   registerAction(TUG_ACTIONS.SET_CARD_MINIMIZED, (payload) => {

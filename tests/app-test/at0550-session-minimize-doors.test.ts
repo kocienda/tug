@@ -4,8 +4,8 @@
  *
  * ## What this gates
  *
- * The Session card's minimized form has three ways in ([B04], [P02]) — a
- * button ahead of Z4A, Session ▸ Minimize Session, and ⌥⌘M — and they are one
+ * The Session card's minimized form has three ways in ([B03], [P02]) — the
+ * control at Z2's leading edge, Session ▸ Minimize Session, and ⌥⌘M — one
  * `toggle-session-minimized` command rather than three handlers, so the state
  * they read and the deck commit they land cannot drift apart. This file drives
  * the doors that exist at the vocabulary layer (the control frame the menu
@@ -29,8 +29,8 @@
  *      whatever pane happens to be frontmost.
  *
  * What this file deliberately does NOT read is the FORM — no folded
- * transcript, no Show Transcript bar, no tier arithmetic. That is at0551's
- * subject. The one thing it does read past the flag is `data-minimized` on
+ * transcript, no tier arithmetic. That is at0551's subject. The one thing it
+ * does read past the flag is `data-minimized` on
  * the pane frame, because that attribute is the JOINT: the flag is where the
  * state lives and the attribute is the whole of how it is worn ([P03]), so a
  * door that lands the flag without reaching the frame has landed nothing a
@@ -67,9 +67,12 @@ const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const PANE_ID = "p1";
 const PANE_FRAME = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 
-/** The Z4-lead seat and the button it holds ([D97]). */
+/** The Z4-lead seat, retired with the control's move into Z2 ([B03]). */
 const LEAD = `${CARD} .tug-prompt-entry-lead`;
-const MINIMIZE_BUTTON = `${LEAD} [aria-label="Minimize"]`;
+/** The control's one seat: the leading edge of the Z2 status row. */
+const STATUS_BAR = `${CARD} [data-slot="session-card-status-bar"]`;
+const MINIMIZE_BUTTON = `${STATUS_BAR} [data-slot="session-minimize-control"] button`;
+const FIRST_CELL = `${STATUS_BAR} [data-slot="tug-status-cell"]`;
 
 /** One Session card — the doors' subject. */
 function deckShape() {
@@ -165,12 +168,16 @@ async function waitMenuTitle(
 }
 
 /**
- * The toolbar row's geometry: the Minimize button's box, the route group's,
- * Z4B's, and Z5's, all in viewport space so the assertions read as the row
- * reads.
+ * Two rows' geometry: where the control stands in Z2, and — in the composer's
+ * toolbar the control LEFT — the route group's box, Z4B's and Z5's, all in
+ * viewport space so the assertions read as the rows read.
  */
 async function toolbarGeometry(app: App): Promise<{
-  leadRight: number;
+  leadPresent: boolean;
+  controlLeft: number;
+  controlRight: number;
+  stripLeft: number;
+  firstCellLeft: number;
   routeLeft: number;
   routeRight: number;
   centerLeft: number;
@@ -183,12 +190,18 @@ async function toolbarGeometry(app: App): Promise<{
         var el = document.querySelector(sel);
         return el === null ? null : el.getBoundingClientRect();
       };
-      var lead = rect(${JSON.stringify(MINIMIZE_BUTTON)});
+      var control = rect(${JSON.stringify(MINIMIZE_BUTTON)});
+      var strip = rect(${JSON.stringify(STATUS_BAR)});
+      var firstCell = rect(${JSON.stringify(FIRST_CELL)});
       var route = rect(${JSON.stringify(`${CARD} .tug-prompt-entry-route-group`)});
       var center = rect(${JSON.stringify(`${CARD} [data-slot="entry-shell-indicators"]`)});
       var submit = rect(${JSON.stringify(`${CARD} .tug-prompt-entry-toolbar button[data-mode]`)});
       return {
-        leadRight: lead === null ? -1 : lead.right,
+        leadPresent: document.querySelector(${JSON.stringify(LEAD)}) !== null,
+        controlLeft: control === null ? -1 : control.left,
+        controlRight: control === null ? -1 : control.right,
+        stripLeft: strip === null ? -1 : strip.left,
+        firstCellLeft: firstCell === null ? -1 : firstCell.left,
         routeLeft: route === null ? -1 : route.left,
         routeRight: route === null ? -1 : route.right,
         centerLeft: center === null ? -1 : center.left,
@@ -289,7 +302,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
   );
 
   test(
-    "the button sits in Z4-lead, clear of the route group, and Z4B stays centred",
+    "the control sits at Z2's leading edge, clear of the cells, and the composer's row lays out as it did before Z4-lead",
     async () => {
       const app = await launchTugApp({ testName: "at0550-minimize-button" });
       try {
@@ -307,17 +320,18 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
 
         const geo = await toolbarGeometry(app);
 
-        // Ahead of the route group, and clear of it by more than the row's own
-        // gap. The wider gap is the seat's whole argument ([B04]): a control
-        // about the CARD standing next to a group about the MESSAGE, at the
-        // row's bare rhythm, reads as one run of buttons. `--tug-space-md` is
-        // 8px, so the seat's doubled gap is 16.
-        expect(geo.leadRight).toBeGreaterThan(0);
-        expect(geo.routeLeft).toBeGreaterThan(geo.leadRight);
-        expect(geo.routeLeft - geo.leadRight).toBeGreaterThanOrEqual(15);
+        // The seat is the leading edge of Z2: inside the strip's own 8px
+        // inset, and ahead of the first cell with air between them ([B03]).
+        expect(geo.controlLeft).toBeGreaterThan(0);
+        expect(geo.controlLeft - geo.stripLeft).toBeLessThanOrEqual(9);
+        expect(geo.firstCellLeft).toBeGreaterThan(geo.controlRight);
+
+        // And the Z4-lead seat it came from is gone rather than empty ([B03]):
+        // the composer's toolbar has the shape it had before the seat existed.
+        expect(geo.leadPresent).toBe(false);
 
         // Z4B is still centred between the route group's right edge and Z5's
-        // left — the seat is a fourth leading-fixed occupant, not a fourth
+        // left — the retired seat was a leading-fixed occupant rather than a
         // slot, so the shell's flanking spacers do their arithmetic unchanged.
         const centerMid = (geo.centerLeft + geo.centerRight) / 2;
         const gapMid = (geo.routeRight + geo.submitLeft) / 2;

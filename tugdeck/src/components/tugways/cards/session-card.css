@@ -353,7 +353,13 @@
      but is kept so a future content-sized Z2 occupant (one not `width:
      100%`) still centers in the row. */
   justify-content: center;
-  gap: var(--tug-space-md);
+  /* The gap is the minimize control's separation from the status row, and it
+     is 4px rather than the row's usual 8px because the whole seat is budgeted:
+     a 28px `sm` icon button plus this gap is the 32px the Z2 cell cuts cleared
+     ([B09]), measured at the slim preset with 3px to spare. The strip had one
+     child until the control arrived, so this gap was inert — it is a live
+     number now and the budget is what sets it. */
+  gap: var(--tug-space-xs);
   padding: var(--tug-space-md);
   background-color: var(--tug7-surface-card-primary-normal-status-rest);
   /* Borders top and bottom frame the status bar: the top rule separates it
@@ -1425,8 +1431,11 @@
    ========================================================================= */
 
 /* What a minimized card IS, top to bottom: the masthead tier (the pane's
-   chrome, one beat line taller), the Z2 status row, and the Show Transcript
-   bar. Instruments and one door — no transcript, no find bar, no composer.
+   chrome, one beat line taller) and the Z2 status row, whose leading edge
+   carries the card's one minimize control ([B03]). Instruments and one door —
+   no transcript, no find bar, no composer — and the door is IN the
+   instruments rather than a band of its own, which is what took the tier down
+   to the masthead and Z2 with nothing under them ([B04]).
 
    Every one of them is HIDDEN, never unmounted ([L26], [B05]). A composer
    that unmounted would take an unsent draft with it, the transcript would
@@ -1465,11 +1474,11 @@
      - `overflow: hidden` while the fold is in flight, so nothing spills out of
        a region on its way to zero.
 
-   Z2 and the Show Transcript bar are pinned to the card's bottom by the
-   shrinking column above them, so they ride the frame's own edge. The bar
-   does not animate: it is mounted with the form ([P08]) and appears where it
-   ends, which is what makes the fold read as closing ONTO it rather than
-   revealing it afterwards.
+   Z2 is pinned to the card's bottom by the shrinking column above it, so it
+   rides the frame's own edge. Nothing about it animates: the row and its
+   control are on screen the whole time and only the glyph changes, which is
+   what makes the fold read as closing ONTO the instruments rather than
+   swapping one band for another at the end.
 
    `data-fold` is the card's own attribute, written by `session-card.tsx`:
    `"moving"` while a fold is in flight in either direction, `"settled"` once

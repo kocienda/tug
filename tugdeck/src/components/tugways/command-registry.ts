@@ -2076,9 +2076,9 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its doors are `toggle-session-minimized`, the Minimize button ahead of
-    // Z4A, and the minimized form's Show Transcript bar — every one of them a
-    // card-addressed gesture, and this is the one write path they share.
+    // Its doors are `toggle-session-minimized` and the minimize control at Z2's
+    // leading edge — both card-addressed gestures, and this is the one write
+    // path they share.
     id: TUG_ACTIONS.SET_CARD_MINIMIZED,
     title: "Set Card Minimized",
     routing: "registry",

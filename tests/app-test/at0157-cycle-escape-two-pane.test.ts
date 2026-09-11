@@ -186,11 +186,13 @@ describe.skipIf(!SHOULD_RUN)("AT0157: Escape over a cycle is mode-stack ordering
 
         // Tab to the TIME status cell and Return to open its popover. The editor
         // is the LAST stop, so the first Tab wraps to the route:
-        // editor→route→Claude Code→AI→submit→STATE→TIME — 6 Tabs, with the
-        // submit a live stop now that the editor has content. (The chip count
-        // used to be seven: Session / Project left the route with the Z4B diet
-        // and Mode / Model / Effort merged into the one AI chip.)
-        for (let i = 0; i < 6; i++) await app.nativeKey("Tab");
+        // editor→route→Claude Code→AI→submit→minimize→STATE→TIME — 7 Tabs,
+        // with the submit a live stop now that the editor has content. (The
+        // chip count used to be seven the other way: Session / Project left
+        // the route with the Z4B diet and Mode / Model / Effort merged into
+        // the one AI chip; the minimize control then took a seat at the head
+        // of the Z2 row, [B03].)
+        for (let i = 0; i < 7; i++) await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
         await app.nativeKey("Return");
         await app.waitForCondition<boolean>(POPOVER_OPEN, { timeoutMs: 6000 });

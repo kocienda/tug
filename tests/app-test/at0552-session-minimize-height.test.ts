@@ -4,12 +4,13 @@
  * ## What this gates
  *
  * `SESSION_MINIMIZED_HEIGHT_PX` is a declared number that has to equal a
- * measured one ([P04]). The three bands of the minimized form — the masthead
- * tier, the Z2 status row, and the Show Transcript bar — add up to whatever
- * the built app's cascade says they do, and the size policy pins the frame at
- * the constant. If the two disagree the card either clips its own bar or
- * carries dead air under it, and neither is visible in a unit test: the
- * constant would agree with itself.
+ * measured one ([P04]). The two bands of the minimized form — the masthead
+ * tier and the Z2 status row, whose leading edge carries the card's one
+ * minimize control ([B03]) — add up to whatever the built app's cascade says
+ * they do, and the size policy pins the frame at the constant. If the two
+ * disagree the card either clips its own instruments or carries dead air
+ * under them, and neither is visible in a unit test: the constant would agree
+ * with itself.
  *
  * So this file measures the built app and asserts four things:
  *
@@ -19,8 +20,10 @@
  *      is; a minimized card is a row in a wall and reads from the top.
  *   3. **Nothing is clipped**: the card body's `scrollHeight` equals its
  *      `clientHeight`, so the tier is not one pixel short of its own content.
- *   4. **No dead air**: the slack between the bar's bottom and the frame's is
- *      under 2px, so the tier is not generous either.
+ *   4. **No dead air**: the slack between Z2's bottom and the frame's is
+ *      under 2px, so the tier is not generous either. Z2 is the form's last
+ *      band now that the Show Transcript bar has retired into it, so it is
+ *      the edge the frame has to meet.
  *
  * And it `note()`s the measured height and how many minimized cards fit a
  * 900px run, which is the number [Q02] asked for and this is the only place
@@ -47,14 +50,16 @@ const SID = "at0552-session";
 const PANE_ID = "p1";
 const PANE = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 const CARD = '[data-card-id="A"]';
-const BAR = `${CARD} [data-slot="session-show-transcript"]`;
+/** The form's last band — and the seat of its one door ([B03]). */
+const STATUS_BAR = `${CARD} [data-slot="session-card-status-bar"]`;
+const CONTROL = `${STATUS_BAR} [data-slot="session-minimize-control"] button`;
 
 /**
  * `SESSION_MINIMIZED_HEIGHT_PX` from `session-card-registration.tsx`,
  * duplicated rather than imported: an app-test drives the BUILT app, and
  * importing the constant would assert the source against itself.
  */
-const SESSION_MINIMIZED_HEIGHT_PX = 173;
+const SESSION_MINIMIZED_HEIGHT_PX = 144;
 
 /** The imposition's gaps (`lib/layout-imposer.ts`). */
 const GAP = 5;
@@ -103,11 +108,11 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the minimized card's tier", () => {
           `(window.__tug.dispatchControlAction("toggle-session-minimized"), null)`,
         );
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(BAR)}) !== null`,
+          `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).minimized === true`,
           { timeoutMs: 8000 },
         );
-        // The bar arrives with the FORM; the fit is a claim about where the
-        // form comes to REST, and between the two is the fold ([B06]). The
+        // The flag flips at once; the fit is a claim about where the form
+        // comes to REST, and between the two is the fold ([B06]). The
         // card writes `data-fold="settled"` when the motion lands, so this is
         // the edge to measure from — reading before it measures a card
         // halfway through collapsing, whose content genuinely does overflow
@@ -127,11 +132,13 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the minimized card's tier", () => {
           bodyClient: number;
           bodyScroll: number;
           barBottom: number;
+          controlLabel: string;
         }>(
           `(function () {
             var frame = document.querySelector(${JSON.stringify(PANE)});
             var body = document.querySelector(${JSON.stringify(CARD)} + " .session-card");
-            var bar = document.querySelector(${JSON.stringify(BAR)});
+            var bar = document.querySelector(${JSON.stringify(STATUS_BAR)});
+            var control = document.querySelector(${JSON.stringify(CONTROL)});
             var fr = frame.getBoundingClientRect();
             return {
               frameTop: fr.top,
@@ -140,6 +147,7 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the minimized card's tier", () => {
               bodyClient: body === null ? -1 : body.clientHeight,
               bodyScroll: body === null ? -1 : body.scrollHeight,
               barBottom: bar === null ? -1 : bar.getBoundingClientRect().bottom,
+              controlLabel: control === null ? "" : (control.getAttribute("aria-label") || ""),
             };
           })()`,
         );
@@ -152,7 +160,7 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the minimized card's tier", () => {
           Math.floor((900 + GAP) / (geo.frameHeight + GAP)),
         );
         note("body scroll vs client", `${geo.bodyScroll} / ${geo.bodyClient}`);
-        note("slack under the bar px", geo.frameBottom - geo.barBottom);
+        note("slack under Z2 px", geo.frameBottom - geo.barBottom);
 
         // 1. The declared tier is the measured one.
         expect(Math.abs(geo.frameHeight - SESSION_MINIMIZED_HEIGHT_PX)).toBeLessThanOrEqual(1);
@@ -180,8 +188,12 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the minimized card's tier", () => {
         // 3. Nothing is clipped: the tier is not a pixel short of its bands.
         expect(geo.bodyScroll).toBeLessThanOrEqual(geo.bodyClient);
 
-        // 4. …and not generous either: the bar's bottom is the card's bottom.
+        // 4. …and not generous either: Z2's bottom is the card's bottom.
         expect(geo.frameBottom - geo.barBottom).toBeLessThan(2);
+
+        // …and the door the tier no longer pays a band for is in the row it
+        // came down to, wearing the verb the form is asking for ([B03]).
+        expect(geo.controlLabel).toBe("Show Transcript");
       } finally {
         await app.close();
       }

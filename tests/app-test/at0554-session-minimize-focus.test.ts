@@ -8,8 +8,15 @@
  * is worn ([P03]), and the browser strips focus from anything inside an inert
  * subtree. So the fold is a focus event as much as a geometry one — without a
  * destination of its own the card would come out reachable and unfocused, the
- * caretless-void failure Risk R01 names. [P08] gives it one: the Show
- * Transcript bar is the minimized card's key view AND its Return-home.
+ * caretless-void failure Risk R01 names. [P08] gives it one: the minimize
+ * control at Z2's leading edge is the minimized card's key view AND its
+ * Return-home.
+ *
+ * The control stands in BOTH forms now ([B03]) — the Show Transcript bar it
+ * replaced existed only while minimized — so what the fold changes is which
+ * verb the one seat wears and whether it carries the scope's default ring,
+ * not whether it is in the DOM. Every "the bar has gone" reading below is
+ * therefore a reading of the FLAG and of the control's own label instead.
  *
  * Two tests, because the mouse path and the keyboard path prove different
  * halves and mixing them would prove neither.
@@ -19,11 +26,11 @@
  *      holding no keyboard position at all; showing the transcript again lands
  *      the caret back in the composer. Nothing here presses ⌥⇥, because the
  *      whole point is the path a person takes with the mouse.
- *   2. **The walk.** ⌥⇥ engages keyboard-focus mode and lights the bar exactly
- *      where the fold already put it — one placement, not two. Tab from there
- *      reaches the STATE cell (the bar's order, 11, sits between the folded
- *      toolbar's block and the Z2 cells at 12), ⇧⇥ comes back, and Return on
- *      the bar shows the transcript.
+ *   2. **The walk.** ⌥⇥ engages keyboard-focus mode and lights the control
+ *      exactly where the fold already put it — one placement, not two. Tab
+ *      from there reaches the STATE cell (the control's order, 12, sits
+ *      between the folded toolbar's block and the Z2 cells at 13), ⇧⇥ comes
+ *      back, and Return on the control shows the transcript.
  *
  * The RING is deliberately read as the key view's own (`data-key-view-kbd`)
  * rather than as `data-default-ring`. `persistentDefaultRing` does two things,
@@ -42,7 +49,7 @@
  * ring too. A declaration is a claim about what a test would CATCH first
  * rather than about every file it reaches.
  *
- * @covers tugdeck/src/components/tugways/cards/session-show-transcript-bar.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-minimize-control.tsx
  * @covers tugdeck/src/components/tugways/focus-manager.ts
  */
 
@@ -56,9 +63,18 @@ const SID = "at0554-session";
 const PANE_ID = "p1";
 const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-const BAR_ROOT = `${CARD} [data-slot="session-show-transcript"]`;
-const BAR = `${BAR_ROOT} button`;
 const STATUS_BAR = `${CARD} [data-slot="session-card-status-bar"]`;
+const BAR_ROOT = `${STATUS_BAR} [data-slot="session-minimize-control"]`;
+const BAR = `${BAR_ROOT} button`;
+/**
+ * The seat turned back over to the open card's verb. It is what "the bar has
+ * gone" used to mean: the control stands in both forms, so what a show
+ * changes is the label rather than the node ([B03]).
+ */
+const CONTROL_READS_MINIMIZE = `(function () {
+  var el = document.querySelector(${JSON.stringify(BAR)});
+  return el !== null && el.getAttribute("aria-label") === "Minimize";
+})()`;
 const STATE_CELL = `${STATUS_BAR} [data-slot="tug-status-cell"]`;
 const DIALOG = `${CARD} [data-slot="session-permission-dialog"]`;
 const ALLOW = `${DIALOG} .tug-inline-dialog-actions .tug-button-primary-action`;
@@ -105,7 +121,7 @@ async function keyboardMarks(app: App): Promise<{
        if (card === null) return { keyView: null, defaultRing: null, keyViewCount: 0, ringCount: 0 };
        var name = function (el) {
          if (el === null) return null;
-         if (el.closest(${JSON.stringify(BAR_ROOT)}) !== null) return "show-transcript-bar";
+         if (el.closest(${JSON.stringify(BAR_ROOT)}) !== null) return "minimize-control";
          if (el.closest(${JSON.stringify(STATUS_BAR)}) !== null) return "status-cell";
          var slotted = el.closest("[data-slot]");
          return slotted === null ? el.tagName.toLowerCase() : slotted.getAttribute("data-slot");
@@ -206,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the minimized form", () =>
           { timeoutMs: 8000 },
         );
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(BAR)}) === null`,
+          CONTROL_READS_MINIMIZE,
           { timeoutMs: 8000 },
         );
         await app.waitForCondition<boolean>(
@@ -264,7 +280,7 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the minimized form", () =>
         const folded = await keyboardMarks(app);
         note(`folded: keyView=${folded.keyView} x${folded.keyViewCount}, ring=${folded.defaultRing} x${folded.ringCount}`);
         expect(folded.keyView, "the bar holds the card's keyboard").toBe(
-          "show-transcript-bar",
+          "minimize-control",
         );
         expect(folded.keyViewCount, "exactly one lit stop in the card").toBe(1);
         // The engine strips the persistent ring while its own button holds the
@@ -311,7 +327,7 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the minimized form", () =>
           { timeoutMs: 8000 },
         );
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(BAR)}) === null`,
+          CONTROL_READS_MINIMIZE,
           { timeoutMs: 8000 },
         );
         // Showing the transcript ends the cycle: the stop the user pressed has
@@ -385,7 +401,7 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the minimized form", () =>
         const marks = await keyboardMarks(app);
         note(`with a dialog pending: keyView=${marks.keyView} x${marks.keyViewCount}, ring=${marks.defaultRing} x${marks.ringCount}`);
         expect(marks.keyView, "the bar, not the folded dialog").toBe(
-          "show-transcript-bar",
+          "minimize-control",
         );
         expect(
           marks.keyViewCount + marks.ringCount,

@@ -1008,23 +1008,6 @@ export interface TugPromptEntryProps {
   /** Order of the route within {@link routeFocusGroup}. Defaults to 0. */
   routeFocusOrder?: number;
   /**
-   * Z4-lead — the toolbar row's leading seat, ahead of the Z4A route group
-   * ([D97]).
-   *
-   * What goes here is a control about the CARD rather than about the message
-   * being written, which is why it sits outside the route group instead of
-   * beside it: the Session card's Minimize button is the first of them
-   * ([B04]). The gap between it and the route group is the row's own gap plus
-   * one more rhythm, authored in `.tug-prompt-entry-lead`, so the two read as
-   * two groups rather than one run of buttons.
-   *
-   * Omitted ⇒ the seat renders nothing and the row lays out exactly as before:
-   * `TugEntryShell`'s flanking spacers still centre Z4B between the route
-   * group's right edge and Z5, which is what the Component Gallery's prompt
-   * entry relies on.
-   */
-  leadingContent?: React.ReactNode;
-  /**
    * Authors the **editor input area** itself into a focus group ([P02]) as a
    * **text stop** — the last stop of the session card's keyboard-focus cycle
    * ([P10]/[P11]). When set, the editor substrate itself registers as the
@@ -1168,7 +1151,6 @@ export const TugPromptEntry = React.forwardRef<
     commitFocusOrderBase,
     routeFocusGroup,
     routeFocusOrder,
-    leadingContent,
     editorFocusGroup,
     editorFocusOrder,
     attachmentFocusGroup,
@@ -3699,18 +3681,13 @@ export const TugPromptEntry = React.forwardRef<
       />
     ) : undefined;
 
-  // The leading slot: Z4-lead, then the route group. Rendered as a fragment so
-  // the shell's `[leading][spacer][center][spacer][trailing]` row is unchanged
-  // — a fourth leading-fixed occupant, not a fourth slot.
-  const toolbarLeadingContent =
-    leadingContent !== undefined || entryRouteChoice !== undefined ? (
-      <>
-        {leadingContent !== undefined ? (
-          <span className="tug-prompt-entry-lead">{leadingContent}</span>
-        ) : null}
-        {entryRouteChoice}
-      </>
-    ) : undefined;
+  // The leading slot: the route group alone. It held a Z4-lead seat ahead of
+  // the group for one occupant — the Session card's Minimize button ([D97]) —
+  // and that control moved to the leading edge of Z2, where it stands in both
+  // of the card's forms. The seat retires with it rather than waiting for
+  // another card-scoped control to want it: an empty slot is a shape nothing
+  // has, and the row lays out exactly as it did before the seat existed.
+  const toolbarLeadingContent = entryRouteChoice;
 
   // What the primary Z5's bubble says the keyboard does. In `submit` the
   // button is the submit key's pointer twin, so it shows that key.

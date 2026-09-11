@@ -22,15 +22,15 @@
  *   1. **rest:** clicking the editor puts the caret there (base mode); the card
  *      reads `data-cycling="false"` and the submit holds no key view.
  *   2. **empty editor → submit is skipped:** ⌥⇥ rings the editor's stop and one
- *      Tab wraps to the Z4-lead Minimize button (the editor is the LAST stop
- *      and Minimize is now the FIRST, [D97]), and one more reaches the route;
- *      touring the live stops (Minimize → route → Claude Code → AI → STATE → TIME
+ *      Tab wraps to the route (the editor is the LAST stop and the route is
+ *      the FIRST, now that the minimize seat has moved into Z2, [B03]);
+ *      touring the live stops (route → Claude Code → AI → minimize → STATE → TIME
  *      → CONTEXT → TASKS → JOBS → editor → wrap) never lands on the
  *      submit, because its empty-input gate disables it. ⌥⇥ off restores caret.
  *   3. **typed editor:** with content, the same entry — ring on the editor's
- *      stop, Tab past Minimize to the route — and now the submit is live.
- *   4. **Tab tours the stops:** Minimize → route → Claude Code → AI →
- *      submit → STATE → TIME → CONTEXT → TASKS → JOBS → editor → wrap
+ *      stop, Tab to the route — and now the submit is live.
+ *   4. **Tab tours the stops:** route → Claude Code → AI → submit →
+ *      minimize → STATE → TIME → CONTEXT → TASKS → JOBS → editor → wrap
  *      (trapped). The Session and Project chips are not on this route (the Z4B
  *      diet), and there is no BTW cell (the Z2 diet). Every Z4B chip and Z2 status cell
  *      is its own leaf stop ([P10] revised — no arrow-roving): Tab steps
@@ -86,9 +86,10 @@ const CARD = '[data-card-id="A"]';
 const ROOT = `${CARD} [data-testid="session-card"]`;
 const SUBMIT = `${CARD} .tug-prompt-entry-submit-button`;
 const ROUTE = `${CARD} ${ROUTE_CHOICE}`;
-// The Z4-lead Minimize button ([D97]) — the row's leftmost control and so the
-// cycle's first stop, ahead of the route group.
-const MINIMIZE = `${CARD} .tug-prompt-entry-lead [aria-label="Minimize"]`;
+// The card's one minimize control ([B03]) — at the leading edge of the Z2
+// status row, in both of the card's forms, and so the stop just before the
+// five cells rather than the toolbar row's first member.
+const MINIMIZE = `${CARD} [data-slot="session-minimize-control"] button`;
 // The three Z4B indicator chips now in the cycle ([P10] revised — no control
 // left behind): the route indicator (Claude Code / Shell), the Session badge,
 // and the Project button. Each is a leaf stop carrying `data-key-view-kbd`
@@ -163,8 +164,8 @@ const ROUTE_HAS_KEY_VIEW = `(function(){
   return el ? el.hasAttribute("data-key-view-kbd") : false;
 })()`;
 
-// Whether the Z4-lead Minimize button holds the keyboard key view. A leaf stop
-// like the route beside it, so the attribute rides the button itself.
+// Whether the minimize control holds the keyboard key view. A leaf stop like
+// the cells beside it, so the attribute rides the button itself.
 const MINIMIZE_HAS_KEY_VIEW = `(function(){
   var el = document.querySelector(${JSON.stringify(MINIMIZE)});
   return el ? el.hasAttribute("data-key-view-kbd") : false;
@@ -195,12 +196,9 @@ const EDITOR_STOP_RINGED = `(function(){
  * they had asked to go anywhere.
  *
  * The editor is the LAST stop in the card's order, so the first Tab out of it
- * wraps to the FIRST — which is the Z4-lead Minimize button ([D97]), the
- * leftmost control in the toolbar row. One more Tab reaches the route, which
- * is where the tours below all begin, unchanged. The wrap is asserted on the
- * way past rather than skipped: that the walk reads the row left to right is
- * the whole of what the order means, and a helper that Tabbed twice without
- * looking would pass just as well if the seat were somewhere else entirely.
+ * wraps to the FIRST — which is the route group, the toolbar row's leftmost
+ * control now that the minimize seat has moved down to Z2 ([B03]). That is
+ * where the tours below all begin.
  */
 async function engageAndTabToRoute(app: App): Promise<void> {
   await app.nativeKey("Tab", ["alt"]);
@@ -210,8 +208,6 @@ async function engageAndTabToRoute(app: App): Promise<void> {
     await app.evalJS<boolean>(EDITOR_FOCUSED),
     "engaging the mode parks the editor stop — ring, no caret",
   ).toBe(false);
-  await app.nativeKey("Tab");
-  await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
   await app.nativeKey("Tab");
   await app.waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
 }
@@ -289,8 +285,9 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // (2) Empty editor → ⌥⇥ rings the editor's stop, Tab wraps to the route.
         // The submit is disabled (its
         // empty-input gate), so it is NOT a Tab target — touring the live stops
-        // (route → Claude Code → AI → STATE → … → JOBS → editor → wrap)
-        // skips it: Tab steps from AI straight to STATE, never the submit.
+        // (route → Claude Code → AI → minimize → STATE → … → JOBS → editor →
+        // wrap) skips it: Tab steps from AI straight to the minimize control,
+        // never the submit.
         await engageAndTabToRoute(app);
         await app.nativeKey("Tab");
         // route → Claude Code: the Session and Project chips left the code route
@@ -300,8 +297,13 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // Claude Code → AI: Mode / Model / Effort merged into this one chip.
         await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        // AI → STATE (the disabled submit is skipped). Each Z2 cell is
-        // its own leaf stop, so Tab steps cell-to-cell through the row.
+        // AI → the minimize control (the disabled submit is skipped). The
+        // control is the first thing in the Z2 row and the stop before the
+        // cells ([B03]).
+        await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.nativeKey("Tab");
+        // → STATE. Each Z2 cell is its own leaf stop, so Tab steps
+        // cell-to-cell through the rest of the row.
         await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
         expect(await app.evalJS<boolean>(SUBMIT_HAS_KEY_VIEW)).toBe(false);
         await app.nativeKey("Tab");
@@ -322,11 +324,8 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.waitForCondition<boolean>(EDITOR_STOP_RINGED, { timeoutMs: 6000 });
         expect(await app.evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
         // Tab from the parked stop keeps walking the cycle and wraps to the
-        // FIRST stop — the Z4-lead Minimize button ([D97]), leftmost in the
-        // toolbar row — and one more reaches the route. The stop has no caret
-        // to indent for.
-        await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        // FIRST stop — the route group, leftmost in the toolbar row. The stop
+        // has no caret to indent for.
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
         // ⌥⇥ off → back to the editor caret.
@@ -363,9 +362,12 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
-        // submit → the five Z2 cells, each its own leaf stop ([P10] revised):
-        // STATE → TIME → CONTEXT → TASKS → JOBS. Each cell carries the
-        // leaf key view (and the blue ring) in turn — no arrow-roving.
+        // submit → the minimize control, the first thing in the Z2 row
+        // ([B03]) → the five cells, each its own leaf stop ([P10] revised):
+        // STATE → TIME → CONTEXT → TASKS → JOBS. Each carries the leaf key
+        // view (and the blue ring) in turn — no arrow-roving.
+        await app.nativeKey("Tab");
+        await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
         expect(await app.evalJS<boolean>(SUBMIT_HAS_KEY_VIEW)).toBe(false);
@@ -404,10 +406,12 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // cell — focus is NOT yanked to the editor and the cycle position is not
         // lost.
         await engageAndTabToRoute(app);
-        // route→Claude Code→AI→submit→STATE→TIME (5 Tabs). Two fewer than
-        // before the Z4B diet (which took Session and Project off this route),
-        // and two fewer again since Mode / Model / Effort became one chip.
-        for (let i = 0; i < 5; i++) await app.nativeKey("Tab");
+        // route→Claude Code→AI→submit→minimize→STATE→TIME (6 Tabs). Two fewer
+        // than before the Z4B diet (which took Session and Project off this
+        // route), two fewer again since Mode / Model / Effort became one chip,
+        // and one more since the minimize control took its seat at the head of
+        // the Z2 row ([B03]).
+        for (let i = 0; i < 6; i++) await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
         // Return opens the TIME cell's popover (the cell `<button>` activates).
         await app.nativeKey("Return");
@@ -496,7 +500,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // Empty editor → the submit is disabled. Engage and reach the route; Tab to the
         // AI chip, then ArrowRight resolves toward the (disabled) submit — the
         // navigator must NOT strand the ring on it: it skips to the next live stop
-        // (the STATE cell), never beeping.
+        // (the minimize control, the Z2 row's first member), never beeping.
         await engageAndTabToRoute(app);
         // route→Claude Code→AI (2 Tabs).
         await app.nativeKey("Tab");
@@ -504,14 +508,14 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("ArrowRight");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
+        await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
         expect(await app.evalJS<boolean>(SUBMIT_HAS_KEY_VIEW)).toBe(false);
 
-        // ArrowUp from the status row seams back to the toolbar (its first
-        // member, now the Z4-lead Minimize button) — and NOT to the editor,
-        // which is excluded from the grid.
+        // ArrowUp from the Z2 row seams back to the toolbar (its first member,
+        // the route group) — and NOT to the editor, which is excluded from the
+        // grid.
         await app.nativeKey("ArrowUp");
-        await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
         expect(await app.evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
 
         // Exit, type so the full toolbar (incl. submit) is live.
@@ -536,10 +540,11 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("ArrowRight");
         await app.waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
         // Right off the last toolbar member wraps the closed ring back to the
-        // row's first — the Minimize button.
+        // row's first — the route group, now that the minimize seat has moved
+        // down into Z2 ([B03]).
         await app.nativeKey("ArrowRight");
-        await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
-        // Left reverses (Minimize → submit, the ring's other edge).
+        await app.waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        // Left reverses (route → submit, the ring's other edge).
         await app.nativeKey("ArrowLeft");
         await app.waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
 
@@ -548,9 +553,13 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("ArrowLeft"); // submit → AI
         await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("ArrowDown");
+        // Down from a toolbar chip enters the Z2 row at its first member — the
+        // minimize control ([B03]) — and Right from there is STATE.
+        await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.nativeKey("ArrowRight");
         await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
         await app.nativeKey("ArrowUp");
-        await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
         // Across the whole arrow sequence the caret never landed in the editor
         // and the card never left cycling (no dead-end, no beep).
         expect(await app.evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
@@ -664,12 +673,15 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
 
         // Tab off the route popup onto the Claude Code chip, then the AI chip —
         // toolbar leaves — then ArrowDown seams from the toolbar straight to the
-        // status row's first cell (STATE), independent of which stops are live.
+        // Z2 row's first member — the minimize control ([B03]) — independent of
+        // which stops are live; ArrowRight from there is the STATE cell.
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("ArrowDown");
+        await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.nativeKey("ArrowRight");
         await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
 
         // Space OPENS the STATE popover (the cell button activates).

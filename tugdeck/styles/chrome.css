@@ -105,6 +105,21 @@
   transition: none;
 }
 
+/* …and it stands down for the same reason while the imposer is settling. The
+   settle carries a frame's height as a real geometry tween over
+   `--tugx-imposer-settle-duration`; the shade ease is a different clock on the
+   same property, armed by the very layout write the tween is there to carry.
+   Two clocks on one height is what a minimize on a free pane used to look
+   like: a 100ms snap with a 400ms interior collapse happening inside it.
+
+   The animation would win the cascade for its own duration either way, so this
+   is not a correctness patch on the paint — it is the second clock not being
+   started at all, which is what keeps the frame's first moving sample and its
+   last belonging to one motion. */
+[data-imposer-settling] .tug-pane {
+  transition: none;
+}
+
 /* ---- Card focus: border-radius on focused, dim overlay on unfocused ---- */
 .tug-pane[data-focused="true"] {
   border-radius: var(--tug-radius-md);

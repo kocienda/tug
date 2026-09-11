@@ -30,22 +30,29 @@
  * older clock, while the right one started fresh. So the bare glyphs are
  * marked before the bind and neither may survive it.
  *
- * **The widths are the row's promise, and they are read as the cells' own
- * `--tugx-session-status-cell-width`.** Binding takes the ARC cell from 14ch
- * to 18ch — STATE's width, for the word — and JOBS gives back exactly that,
- * 14ch to 10ch, so the five cells still sum to 80ch and nothing to the left of
- * the arc moves under the reader's eye. The custom property is what
- * `tug-status-cell.css` authors, it is un-animated, and it is what the
- * `@container` rungs are measured against; `offsetWidth` would fold in the
- * endcap wings and the 10px font and measure the wrong thing.
+ * **The widths are the row's promise, and the promise is that the ROW does not
+ * move.** Binding takes the ARC cell from 13ch to 17ch — what the word itself
+ * measures — and the give-back comes from JOBS as far as JOBS can go and from
+ * CONTEXT for the rest, so the five cells and their gaps occupy the same row
+ * they did and nothing outside them moves under the reader's eye.
  *
- * The sum alone would be a vacuous assertion. `tug-status-cell.css` ends in
- * three `@container` rungs that hide cells with `display: none`, and a custom
- * property computes perfectly well on a hidden element — so a card narrow
- * enough to have dropped a cell would still sum to 80 while the row had
- * plainly moved. The pane is therefore fixed at 900×680, and every reading
- * also asserts each of the five cells computes a `display` other than `none`.
- * That check is what makes the sum a statement about the ROW.
+ * The authored `--tugx-session-status-cell-width` is read alongside, because
+ * it is what `tug-status-cell.css` states and what the `@container` rungs are
+ * measured against — but it is not what the row is asserted in. A budget is a
+ * `min-width` on two stretched rows, so a cell whose reading outgrows it
+ * renders wider than it declares: JOBS's `None` between two dots does exactly
+ * that at every budget it has ever held, which is how a `ch` sum that balanced
+ * perfectly sat over a row 16px wider than the box holding it. The cells'
+ * RENDERED boxes are the reading, and the row's own content box is what they
+ * are held against.
+ *
+ * The fit alone would be a vacuous assertion. `tug-status-cell.css` ends in
+ * three `@container` rungs that hide cells with `display: none`, and a hidden
+ * cell occupies nothing — so a card narrow enough to have dropped a cell would
+ * fit comfortably while the row had plainly moved. The pane is therefore fixed
+ * at 900×680, and every reading also asserts each of the five cells computes a
+ * `display` other than `none`. That check is what makes the fit a statement
+ * about the ROW.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  * @covers tugdeck/src/components/tugways/tug-status-cell.tsx
@@ -102,8 +109,6 @@ const VALUE = `${cell("tasks")} [data-slot="session-telemetry-arc-value"]`;
 
 /** The five cells, left to right, and the widths they hold with no arc up. */
 const PRIORITIES = ["state", "time", "context", "tasks", "jobs"] as const;
-/** The row's whole width, in `ch`. It is the same number in every reading. */
-const ROW_WIDTH_CH = 80;
 
 /** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -171,10 +176,23 @@ function deckShape() {
 
 interface RowWidths {
   arc: string | null;
-  cells: Record<string, { width: string; display: string }>;
+  cells: Record<string, { width: string; display: string; box: number }>;
+  /** The gap between two cells, and the row's own content box. */
+  gap: number;
+  rowContent: number;
 }
 
-/** Every cell's authored width and its computed display, plus the row's flag. */
+/**
+ * Every cell's authored width, its computed display and its RENDERED box,
+ * plus the row's own content box.
+ *
+ * The rendered box is what the claim is actually about. An authored budget is
+ * a `min-width` on two stretched rows, so a cell whose reading is wider than
+ * its budget renders wider than it declares — which is exactly JOBS, whose
+ * `None` between two dots outgrows every budget it has ever been given. A
+ * reading measured only in `ch` therefore says the row held still while the
+ * row moved.
+ */
 const widths = (app: App): Promise<RowWidths> =>
   app.evalJS<RowWidths>(
     `(() => {
@@ -184,29 +202,41 @@ const widths = (app: App): Promise<RowWidths> =>
            '${CARD} [data-slot="tug-status-cell"][data-priority=' + JSON.stringify(p) + ']',
          );
          cells[p] = el === null
-           ? { width: "", display: "" }
+           ? { width: "", display: "", box: -1 }
            : {
                width: getComputedStyle(el)
                  .getPropertyValue("--tugx-session-status-cell-width")
                  .trim(),
                display: getComputedStyle(el).display,
+               box: el.getBoundingClientRect().width,
              };
        }
        const row = document.querySelector(${JSON.stringify(ROW)});
-       return { arc: row === null ? null : row.getAttribute("data-arc"), cells };
+       const rowStyle = row === null ? null : getComputedStyle(row);
+       return {
+         arc: row === null ? null : row.getAttribute("data-arc"),
+         cells,
+         gap: rowStyle === null ? -1 : parseFloat(rowStyle.gap),
+         rowContent: row === null || rowStyle === null
+           ? -1
+           : row.getBoundingClientRect().width -
+             parseFloat(rowStyle.paddingLeft) -
+             parseFloat(rowStyle.paddingRight),
+       };
      })()`,
   );
 
-/** The row's total width in `ch`, from the same five reads. */
-const sumCh = (reading: RowWidths): number =>
-  PRIORITIES.reduce((total, p) => total + parseFloat(reading.cells[p].width), 0);
+/** What the five cells and their four gaps actually occupy, in pixels. */
+const groupPx = (reading: RowWidths): number =>
+  PRIORITIES.reduce((total, p) => total + reading.cells[p].box, 0) +
+  4 * reading.gap;
 
-/** Every cell still stands — which is what makes the sum mean the ROW. */
+/** Every cell still stands — which is what makes the group mean the ROW. */
 const expectWholeRow = (reading: RowWidths): void => {
   for (const p of PRIORITIES) {
     expect(reading.cells[p].display).not.toBe("none");
   }
-  expect(sumCh(reading)).toBe(ROW_WIDTH_CH);
+  expect(groupPx(reading)).toBeLessThanOrEqual(reading.rowContent);
 };
 
 const readingText = (app: App): Promise<string> =>
@@ -250,8 +280,10 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         const bare = await widths(app);
         note("at0484 bare row", JSON.stringify(bare));
         expect(bare.arc).toBeNull();
-        expect(bare.cells.tasks.width).toBe("14ch");
-        expect(bare.cells.jobs.width).toBe("14ch");
+        // The work pair, equal — which is the claim, and the reason the two
+        // are read as one assertion rather than against separate constants.
+        expect(bare.cells.tasks.width).toBe("13ch");
+        expect(bare.cells.jobs.width).toBe("13ch");
         expectWholeRow(bare);
 
         // ── A reviewed plan nobody has started: the stage's word, not 0/4 ─
@@ -353,14 +385,21 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
 
         const bound = await widths(app);
         note("at0484 bound row", JSON.stringify(bound));
-        // The cell takes STATE's 18ch for the word, and JOBS gives back
-        // exactly that much — so nothing left of the arc moves.
+        // The cell takes what the word measures — `Implement` between two dots
+        // needs 111px in the built app, and 17ch holds 113 — and the width
+        // comes back out of JOBS and CONTEXT, the two cells with wings to
+        // spend. JOBS alone could not pay it: it is already standing on its
+        // own reading, so four characters off its budget buy 2px.
         expect(bound.arc).toBe("true");
-        expect(bound.cells.tasks.width).toBe("18ch");
-        expect(bound.cells.jobs.width).toBe("10ch");
+        expect(bound.cells.tasks.width).toBe("17ch");
+        expect(bound.cells.jobs.width).toBe("9ch");
+        expect(bound.cells.context.width).toBe("14ch");
+        // The two cells LEFT of the arc are the ones the reader's eye is on,
+        // and neither of them moves at all.
         expect(bound.cells.state.width).toBe(bare.cells.state.width);
         expect(bound.cells.time.width).toBe(bare.cells.time.width);
-        expect(bound.cells.context.width).toBe(bare.cells.context.width);
+        expect(bound.cells.state.box).toBeCloseTo(bare.cells.state.box, 0);
+        expect(bound.cells.time.box).toBeCloseTo(bare.cells.time.box, 0);
         expectWholeRow(bound);
 
         // ── The label rule is centred over the value it names ─────────────
@@ -434,8 +473,8 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         const unbound = await widths(app);
         note("at0484 unbound row", JSON.stringify(unbound));
         expect(unbound.arc).toBeNull();
-        expect(unbound.cells.tasks.width).toBe("14ch");
-        expect(unbound.cells.jobs.width).toBe("14ch");
+        expect(unbound.cells.tasks.width).toBe("13ch");
+        expect(unbound.cells.jobs.width).toBe("13ch");
         expectWholeRow(unbound);
       } finally {
         await app.close();

@@ -91,6 +91,7 @@ import {
 } from "@/lib/layout-imposer";
 import { motionKeyframes, velocityAlongTravel } from "@/lib/imposer-motion";
 import { DRAG_MOVE_THRESHOLD_PX } from "@/lib/press-travel";
+import { isSecondaryPress } from "@/lib/whole-entity-press";
 import { TugButton } from "@/components/tugways/internal/tug-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugActionTooltip } from "@/components/tugways/tug-action-tooltip";
@@ -590,17 +591,25 @@ function CardTitleBar({
     (event: React.PointerEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
       if (target.closest(".tug-button")) return;
-      // Only the primary button moves a pane, and the guard is load-bearing
+      // Only a PRIMARY press moves a pane, and the guard is load-bearing
       // rather than tidy. The drag takes POINTER CAPTURE on the frame at
       // pointer-down; WebKit then retargets every later event of that pointer
-      // to the capture element — including the `contextmenu` that a right
-      // press raises. So a right-click anywhere in the title bar arrived at
-      // `.tug-pane` rather than at the thing under the cursor, no handler
+      // to the capture element — including the `contextmenu` that a secondary
+      // press raises. So a secondary press anywhere in the title bar arrived
+      // at `.tug-pane` rather than at the thing under the cursor, no handler
       // inside the bar ever saw it, and the app's own document-level fallback
       // answered every one of them with "No Actions". The masthead's three
       // lines live in that bar, which is how a session row with copies on it
       // came to look like a surface with nothing to offer.
-      if (event.button !== 0) return;
+      //
+      // The test is `isSecondaryPress`, not `button !== 0`, and the difference
+      // is the whole of this bug's second life. A macOS Control-click is
+      // button 0: it passed a button-only guard, took the capture, and put the
+      // masthead back where it started for every reader who right-clicks that
+      // way. One spelling of "secondary" for the app, in the one place that
+      // already defines it. The button test stays beside it: a middle press is
+      // not a secondary press and still has no business moving a pane.
+      if (event.button !== 0 || isSecondaryPress(event.nativeEvent)) return;
       onDragStart?.(event);
     },
     [onDragStart],
@@ -2079,8 +2088,8 @@ export interface TugPaneProps {
   sizePolicy?: CardSizePolicy;
   /**
    * The pane wears its minimized form ([P01], [P03]) — masthead, the Z2
-   * status row, and the Show Transcript bar, with the transcript and the
-   * composer folded away.
+   * status row and the minimize control at its leading edge, with the
+   * transcript and the composer folded away.
    *
    * Projected onto the frame as `data-minimized`, which is the whole of how
    * the form is worn: every visual difference is a CSS rule under

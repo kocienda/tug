@@ -106,7 +106,7 @@ import { useHelpSheet } from "./help-sheet";
 import { useRenameSessionSheet } from "./rename-session-sheet";
 import { useResumeSheet } from "./resume-sheet";
 import { SessionPendingContextStrip } from "./session-pending-context-strip";
-import { SessionShowTranscriptBar } from "./session-show-transcript-bar";
+import { SessionMinimizeControl } from "./session-minimize-control";
 import { readSettleMs } from "@/lib/layout-imposer";
 import { getTugTiming } from "../scale-timing";
 import { useEffort } from "@/lib/use-effort";
@@ -135,7 +135,7 @@ import { TugPushButton } from "../tug-push-button";
 import { TugActionTooltip } from "../tug-action-tooltip";
 import { TugTooltip } from "../tug-tooltip";
 import { TugInlineAlert, type TugInlineAlertTone } from "../tug-inline-alert";
-import { AlertTriangle, ChevronsDownUp, Trash2 } from "lucide-react";
+import { AlertTriangle, Trash2 } from "lucide-react";
 
 import { TugLabel } from "../tug-label";
 import {
@@ -367,18 +367,6 @@ const SESSION_CYCLE_GROUP = "session-prompt-cycle";
 // submit) drops out of the walk via the engine's interactivity filter, so the
 // seed lands on the next live stop; a chip a route doesn't show simply
 // unmounts (Table T01), so it is not in the walk at all.
-// The Minimize button's Z4-lead seat ([B04], [D97]) is the row's leftmost
-// control, so it takes the lowest order — and a NEGATIVE one, rather than
-// renumbering the whole grid to make room at the front. That is the same
-// bargain the gaps below take: the constants describe the SHAPE of the row,
-// and the shape gained a seat on the left rather than shifting everything
-// right by one.
-//
-// Being lowest, it is also what `focusFirstInMode` seeds on entry, and what
-// the walk wraps to out of the editor. That is the honest reading of a
-// control that stands there: the walk reads the row left to right, and this
-// is now the leftmost thing in it.
-const SESSION_CYCLE_ORDER_MINIMIZE = -1;
 const SESSION_CYCLE_ORDER_ROUTE = 0;
 const SESSION_CYCLE_ORDER_CLAUDE_CODE = 1;
 // 2 was the Session chip's. The Z4B diet unmounted that chip from the code
@@ -414,16 +402,21 @@ const SESSION_CYCLE_ORDER_COMMIT_BASE = 5;
 // where the bar sits: the cycle reads the card upward from its bottom edge.
 const SESSION_CYCLE_ORDER_FIND_BASE = 8;
 const SESSION_CYCLE_FIND_STOP_COUNT = 4;
-// The Show Transcript bar, the minimized card's one control ([P08]). It takes
-// 11 — the last slot of the find bar's 8…11 block — because the two never
-// co-mount: the find bar is closed while minimized and the bar exists only
-// while minimized, so the orders cannot collide. It sits between the toolbar
-// and the Z2 cells for the same reason the find bar does, which is where the
-// bar sits on screen.
-const SESSION_CYCLE_ORDER_SHOW_TRANSCRIPT = 11;
-// The bar's stable focus key — the `group:order` form every `focus-key`
+// The minimize control, seated at the leading edge of Z2 in BOTH forms
+// ([B03]–[B06]). It takes 12 — one below the Z2 cells, which moved up to 13 to
+// make room — because that is where it stands on screen: the cycle reads the
+// card upward from its bottom edge, and the control is the first thing in the
+// row the cells finish. It cannot take the Show Transcript bar's old 11: that
+// was the last slot of the find bar's 8…11 block, which was free only because
+// the bar existed exactly while the find bar was closed. This control is
+// present in both forms, so it needs an order of its own.
+//
+// Minimized it is the card's Return-home and the one live stop that is not a
+// cell; open it is simply the stop before them ([P08]).
+const SESSION_CYCLE_ORDER_MINIMIZE = 12;
+// The control's stable focus key — the `group:order` form every `focus-key`
 // placement addresses a stop by.
-const SHOW_TRANSCRIPT_FOCUS_KEY = `${SESSION_CYCLE_GROUP}:${SESSION_CYCLE_ORDER_SHOW_TRANSCRIPT}`;
+const MINIMIZE_FOCUS_KEY = `${SESSION_CYCLE_GROUP}:${SESSION_CYCLE_ORDER_MINIMIZE}`;
 // How long past the settle's own window the fold's backstop waits before it
 // writes the terminal state without a `transitionend` ([B06], (#motion-build)).
 // Generous against the window it guards for the reason the settle's session
@@ -432,12 +425,12 @@ const SHOW_TRANSCRIPT_FOCUS_KEY = `${SESSION_CYCLE_GROUP}:${SESSION_CYCLE_ORDER_
 const FOLD_END_SLACK_MS = 150;
 // The Z2 status cells are five independent leaf stops ([P10] revised —
 // no arrow-roving): STATE / TIME / TOKENS / CONTEXT / WORK take
-// orders 12…16 (base + 0…4). The editor (the text body) follows at 19; and
+// orders 13…17 (base + 0…4). The editor (the text body) follows at 19; and
 // the Z4C compose-phase attachment tiles — one leaf stop each — take the
 // orders from 20 upward (base + tile index), so they Tab right after the
 // editor. 18 is a gap: it was the PULSE label's stop, and the PULSE moved to
 // the masthead, which is pane chrome and takes no card-cycle stop.
-const SESSION_CYCLE_ORDER_STATUS_BASE = 12;
+const SESSION_CYCLE_ORDER_STATUS_BASE = 13;
 const SESSION_CYCLE_ORDER_EDITOR = 19;
 const SESSION_CYCLE_ORDER_ATTACHMENT_BASE = 20;
 
@@ -3249,7 +3242,6 @@ export function SessionCardBody({
     const k = (order: number) => `${SESSION_CYCLE_GROUP}:${order}`;
     return rowGridOrder([
       [
-        k(SESSION_CYCLE_ORDER_MINIMIZE),
         k(SESSION_CYCLE_ORDER_ROUTE),
         k(SESSION_CYCLE_ORDER_CLAUDE_CODE),
         k(SESSION_CYCLE_ORDER_SESSION),
@@ -3269,10 +3261,12 @@ export function SessionCardBody({
             k(SESSION_CYCLE_ORDER_FIND_BASE + i),
           )
         : [],
-      // The Show Transcript bar's row, present exactly while minimized
-      // ([P08]) — the same seat the find bar's row takes, and never both.
-      minimized ? [k(SESSION_CYCLE_ORDER_SHOW_TRANSCRIPT)] : [],
       [
+        // The minimize control shares the Z2 row because it STANDS in it, at
+        // the row's leading edge in both forms ([B03]). So Left from STATE
+        // reaches it and Right from it reaches STATE, which is what the eye
+        // reads off the strip.
+        k(SESSION_CYCLE_ORDER_MINIMIZE),
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 0),
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 1),
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 2),
@@ -3286,7 +3280,7 @@ export function SessionCardBody({
         k(SESSION_CYCLE_ORDER_ATTACHMENT_BASE + i),
       ),
     ]);
-  }, [attachmentCount, findBarOpen, minimized]);
+  }, [attachmentCount, findBarOpen]);
   useSpatialOrder(cycle.scopeId, cycleSpatialOrder);
 
   const editorSettings = useSyncExternalStore(
@@ -3401,7 +3395,7 @@ export function SessionCardBody({
     if (minimized && focusManager !== null) {
       focusManager.place(
         cardId,
-        { kind: "focus-key", focusKey: SHOW_TRANSCRIPT_FOCUS_KEY },
+        { kind: "focus-key", focusKey: MINIMIZE_FOCUS_KEY },
         { modality: "keyboard" },
       );
       return;
@@ -3446,16 +3440,27 @@ export function SessionCardBody({
     lastFoldRef.current = minimized;
     if (firstRun) return;
     // Showing the transcript ENDS a cycle rather than continuing one. The walk
-    // the user was in had two kinds of stop, and the one they just pressed —
-    // the bar — has unmounted under them, so a retained cycle would be a mode
-    // with a stale key view and nothing ringed. `exit` pops the mode and lands
-    // the resting caret, which is exactly where the mouse path leaves it.
+    // the user was in had two kinds of stop, and the form under it has just
+    // changed out from beneath them, so a retained cycle would be a mode
+    // walking a card that is no longer the one they entered. `exit` pops the
+    // mode and lands the resting caret, which is exactly where the mouse path
+    // leaves it.
     if (!minimized && cyclingRef.current) {
       exitCycleRef.current();
       return;
     }
+    // A show hands the keyboard back, and the RELEASE half of that used to be
+    // free: the Show Transcript bar unmounted with the form, taking its key
+    // view with it, and the reclaim below then ran against an empty keyboard.
+    // The control that replaced it stands in both forms ([B03]), so nothing
+    // unmounts and the release has to be performed. It matters in exactly the
+    // case the reclaim cannot overrule: a pending dialog owns the card's
+    // keyboard through a trapped mode, and its Return-home can only take the
+    // card's one mark back if no button is holding the key view when
+    // `adoptKeyCard` runs.
+    if (!minimized) focusManager?.setKeyView(null);
     reclaimFocusDestination({ evenIfOccupied: true });
-  }, [minimized, reclaimFocusDestination]);
+  }, [focusManager, minimized, reclaimFocusDestination]);
 
   // ── The fold's terminal state ([B06], [P03], (#motion-build)) ────────────
   //
@@ -5606,6 +5611,24 @@ export function SessionCardBody({
             className="session-card-status-bar"
             data-slot="session-card-status-bar"
           >
+            {/* The card's one minimize control ([B03]–[B06]), at the leading
+                edge of the row in BOTH forms — a sibling of the status
+                content rather than a child of it, because `-main` refuses
+                focus for its cells and gaps and a door must not ([F07]).
+
+                Under a `CycleScope` of its own for the same reason the status
+                content below takes one: the strip sits outside the prompt
+                entry's subtree, and a stop that is not in the cycle's mode is
+                not a member of the walk — minimized, ⌥⇥ would seed the first
+                Z2 cell and Tab would never reach the one door the form has
+                ([P08]). */}
+            <cycle.CycleScope>
+              <SessionMinimizeControl
+                minimized={minimized}
+                focusGroup={SESSION_CYCLE_GROUP}
+                focusOrder={SESSION_CYCLE_ORDER_MINIMIZE}
+              />
+            </cycle.CycleScope>
             {/*
                 Z2 status content. Rendered only when Z2 has content: an
                 empty slot leaves the wrapper `:empty`, which collapses the
@@ -5772,29 +5795,6 @@ export function SessionCardBody({
                 commitFocusOrderBase={SESSION_CYCLE_ORDER_COMMIT_BASE}
                 routeFocusGroup={SESSION_CYCLE_GROUP}
                 routeFocusOrder={SESSION_CYCLE_ORDER_ROUTE}
-                // Z4-lead: the card's own Minimize, ahead of the route group
-                // that is about the message ([B04], [P02]). One of the verb's
-                // three doors, so it dispatches the command rather than
-                // calling the setter — the menu item and ⌥⌘M land in the same
-                // handler.
-                leadingContent={
-                  <TugActionTooltip
-                    action={TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED}
-                    content="Minimize"
-                  >
-                    <TugIconButton
-                      icon={<ChevronsDownUp size={14} aria-hidden="true" />}
-                      aria-label="Minimize"
-                      size="sm"
-                      emphasis="outlined"
-                      focusGroup={SESSION_CYCLE_GROUP}
-                      focusOrder={SESSION_CYCLE_ORDER_MINIMIZE}
-                      onClick={() =>
-                        dispatchCommand(TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED)
-                      }
-                    />
-                  </TugActionTooltip>
-                }
                 editorFocusGroup={SESSION_CYCLE_GROUP}
                 editorFocusOrder={SESSION_CYCLE_ORDER_EDITOR}
                 attachmentFocusGroup={SESSION_CYCLE_GROUP}
@@ -5983,23 +5983,6 @@ export function SessionCardBody({
         unmounts via its internal `mounted` state.
       */}
         {renderSessionCardBanner(bannerSpec, setDismissedAt)}
-        {/* The minimized card's one control ([B03], [P08]), mounted only in
-            that form. Chrome that comes and goes with the form rather than
-            content that folds: it holds no state to lose, and mounting it
-            conditionally leaves the open card's DOM exactly as it was. */}
-        {minimized ? (
-          // Under a `CycleScope` of its own, like the status bar above and for
-          // the same reason: the bar sits outside the prompt entry's subtree,
-          // and a stop that is not in the cycle's mode is not a member of the
-          // walk — ⌥⇥ would seed the first Z2 cell and Tab would never reach
-          // the one control the form has ([P08]).
-          <cycle.CycleScope>
-            <SessionShowTranscriptBar
-              focusGroup={SESSION_CYCLE_GROUP}
-              focusOrder={SESSION_CYCLE_ORDER_SHOW_TRANSCRIPT}
-            />
-          </cycle.CycleScope>
-        ) : null}
       </div>
     </CardContentResponderScope>
   );

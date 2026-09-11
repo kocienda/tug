@@ -312,8 +312,9 @@ export interface TugPaneState {
    */
   slot?: number;
   /**
-   * The pane wears its minimized form: masthead, the Z2 status row, and the
-   * Show Transcript bar, with the transcript and composer folded away ([B05]).
+   * The pane wears its minimized form: the masthead and the Z2 status row,
+   * whose leading edge carries the minimize control, with the transcript and
+   * the composer folded away.
    * Absent means not minimized — `true` is the only value the field ever
    * carries, and the key is deleted rather than written `false`.
    *

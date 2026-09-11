@@ -545,15 +545,17 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
                .sort((a, b) => a - b).join(",")`,
           ),
           "the find bar's four stops occupy 8…11 in the card's cycle group",
-          // −1 is the Z4-lead Minimize button ([D97]) — the row's leftmost
-          // control, negative rather than a renumbering of everything after
-          // it. 4 and 6 are gaps by design: slot 4 is the off-code-route chip
+          // 12 is the minimize control at the leading edge of Z2 ([B03]) —
+          // one below the five cells, which moved up to 13…17 to seat it, and
+          // deliberately NOT the find bar's 11: the bar it replaced existed
+          // only while minimized, and this control stands in both forms.
+          // 4 and 6 are gaps by design: slot 4 is the off-code-route chip
           // (Cwd / Changes, never mounted on the code route this fixture
           // seeds) and slot 6's Effort chip merged into the AI chip in the
           // Z4B diet. The constants keep their places — the grid describes
           // the SHAPE of the toolbar row — and the walk skips what is not
           // mounted.
-        ).toBe(`-1,0,1,5,7,8,9,10,11,${EDITOR_ORDER}`);
+        ).toBe(`0,1,5,7,8,9,10,11,12,${EDITOR_ORDER}`);
 
         // ⌥⇥ engages the cycle AT the query field's own seat — entering keeps
         // the key view where the keyboard already is, and the landing is a
@@ -577,9 +579,15 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         }
 
         // Past the bar's last stop the walk carries straight on into the Z2
-        // status cells. This is the assertion that separates "participates in
-        // the card's order" from "has an order of its own" — a private walk
-        // would have wrapped back to the query field here.
+        // row — its minimize control first ([B03]), then the status cells.
+        // This is the assertion that separates "participates in the card's
+        // order" from "has an order of its own": a private walk would have
+        // wrapped back to the query field here.
+        await app.nativeKey("Tab");
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-key-view]')?.closest('[data-slot="session-minimize-control"]') !== null`,
+          { timeoutMs: 6000 },
+        );
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-key-view]')?.getAttribute('data-slot') === "tug-status-cell"`,
@@ -587,6 +595,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         );
 
         // ⇧Tab walks back into the bar the same way — not a one-way door.
+        await app.nativeKey("Tab", ["shift"]);
         await app.nativeKey("Tab", ["shift"]);
         await app.waitForCondition<boolean>(
           `${FOCUS_KEY_EXPR} === ${JSON.stringify(`${CYCLE_GROUP}:${FIND_ORDER_NEXT}`)}`,

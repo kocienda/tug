@@ -1,0 +1,23 @@
+/**
+ * session-minimize-control.css — the control's seat at Z2's leading edge.
+ *
+ * The seat costs the row 32px: a 28px `sm` icon button and the strip's own 4px
+ * column gap beside it. That is the number the cell budgets were cut to clear
+ * ([B09]) — CONTEXT 19ch → 17ch, TASKS and JOBS 14ch → 13ch, and the row's own
+ * inset 8px → 4px a side — which at the slim preset left 35px of measured
+ * slack between the row's content box and its centred group of cells. So the
+ * control is paid for out of the budgets rather than out of TIME, and the
+ * cells never shift to make room for it.
+ *
+ * `flex: 0 0 auto` because the row beside it is `flex: 1 1 auto`: the strip
+ * gives the control its intrinsic width first and the status row takes what is
+ * left, which is what keeps the control at a constant size while the card is
+ * resized and what makes the slack measurement a claim about the row rather
+ * than about the button.
+ */
+
+.session-card-minimize-control {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}

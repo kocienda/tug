@@ -466,8 +466,33 @@ let focusTravelRun: { cardId: string; goal: FocusTravelSpan } | null = null;
  * its title bar — moves every seam in the chain and resizes the panes it lands
  * on. It is the one arrangement input a pointer also writes: a hand-dragged
  * edge changes it too, and arms a window whose tweens are the same no-ops a
- * rail drag's are, for the same reason. Height is not a term, because no
- * arrangement gesture changes one and the settle does not interpolate it.
+ * rail drag's are, for the same reason.
+ *
+ * A pane's MINIMIZED flag is a term, and the frame's stored height is still
+ * not one. The two facts belong together. A stored height moves only when a
+ * pointer is already writing the frame live, so a term for it would arm
+ * windows full of no-ops; but minimizing is an arrangement gesture in every
+ * sense that matters here — it re-pins the frame from the open card's tier to
+ * the minimized one ([P04]), and in a split column it re-allocates every
+ * sibling — and the Last pass has always been willing to interpolate a real
+ * height delta.
+ *
+ * Without the term the fold armed nothing except where some OTHER term
+ * happened to move: a split column's allocation changes, so a wall folded on
+ * the settle's clock, while the same card on a free pane or alone in a stacked
+ * slot cut. The free pane looked animated only because `.tug-pane` carries the
+ * [D07] window-shade ease, a 100ms snap underneath a 400ms interior collapse;
+ * the stacked slot, whose height the imposer writes as geometry with no
+ * transition, did not even have that. One gesture drew three different ways
+ * depending on where the card happened to be standing.
+ *
+ * The flag rather than the resolved height, because the flag is what the
+ * gesture writes and the height is what the layout derives from it: a term
+ * reading the derived value would have to be recomputed here against the size
+ * policy, the slot, and the column's allocation — three answers this function
+ * does not otherwise need — and would go wrong exactly when one of them
+ * changed. The frame's real before-and-after height is measured by the First
+ * and Last passes, which is where a height belongs.
  *
  * The rail terms are read through `sidebarRailsOf`, which orders its members by
  * the imposition and by registration — never by the panes array. Until a rail
@@ -505,7 +530,12 @@ let focusTravelRun: { cardId: string; goal: FocusTravelSpan } | null = null;
  */
 function arrangementSignature(state: DeckState, runs: PlaceRuns): string {
   const panes = state.panes
-    .map((pane) => `${pane.id}:${pane.slot ?? ""}:${pane.size.width}`)
+    .map(
+      (pane) =>
+        `${pane.id}:${pane.slot ?? ""}:${pane.size.width}:${
+          pane.minimized === true ? "m" : ""
+        }`,
+    )
     .sort();
   const bullseye = bullseyePaneIdOf(state) ?? "";
   const rails = sidebarRailsOf(state, runs)

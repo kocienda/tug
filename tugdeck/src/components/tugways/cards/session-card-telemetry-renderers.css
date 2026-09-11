@@ -159,14 +159,26 @@
   /* The row's own inset, inside the strip's 8px. Kept small on purpose: the
      cells are what should hold the row's width, and every pixel spent here is a
      pixel of wing the instruments do not get. The strip's padding already keeps
-     the outermost wing off the card edge. */
-  padding-inline: var(--tug-space-md);
+     the outermost wing off the card edge.
+
+     Halved to seat the minimize control at the row's leading edge: 8px a side
+     was 16px the control could have, and the argument above already says this
+     inset is the least valuable width in the row. The strip's own 8px is
+     untouched, so the outermost wing keeps its clearance from the card edge. */
+  padding-inline: var(--tug-space-xs);
   box-sizing: border-box;
 
   /* Cell-width fallback — the generous default each cell inherits
      before its own `[data-priority]` rule (in `tug-status-cell.css`)
      overrides it to a content-sized width. */
   --tugx-session-status-cell-width: 21ch;
+
+  /* The one height every cell's value row holds, whichever construction it is
+     built from — see `.session-telemetry-status-value-wrap` in
+     `tug-status-cell.css`, where the two measured heights and the reason are
+     written down. The taller construction's natural box, so the declaration
+     squeezes nothing. */
+  --tugx-session-status-value-row-height: 18px;
 }
 
 /* The row is NOT a focusable — each cell is its own leaf cycle stop

@@ -50,7 +50,7 @@ const TEST_TIMEOUT_MS = 180_000;
 /** The imposition's top gap (`lib/layout-imposer.ts`). */
 const GAP = 5;
 /** `SESSION_MINIMIZED_HEIGHT_PX` — see at0552, which measures it. */
-const TIER = 173;
+const TIER = 144;
 /** The Session card's open height floor, from its registration. */
 const OPEN_FLOOR = 600;
 /** Geometry tolerance: every member's top carries the offset's own rounding. */

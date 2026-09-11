@@ -125,7 +125,37 @@
    did when it carried TOKENS and a merged WORK cell: the 28ch those two held
    between them is what TASKS and JOBS divide evenly. Holding the sum fixed is
    what lets the `@container` rungs below keep their measured values — the full
-   set and each post-collapse subset need exactly what they needed before. */
+   set and each post-collapse subset need exactly what they needed before.
+
+   **The total came down from 80ch to 76ch to seat the minimize control.** The
+   control stands at the row's leading edge and needs ~32px the row did not
+   have: at slim it had ~5px of slack, and halving the row's own inset
+   (`session-card-telemetry-renderers.css`, 8px → 4px a side) found 8 more, so
+   ~20px had to come out of the cells. Measured after the cut and before the
+   control took its seat, the row leaves 35px at slim — the control's 32 with
+   3 to spare, which is the same 3px the first `@container` rung below is
+   placed against.
+
+   Two characters came off CONTEXT and one off each of the work pair, and each
+   of the three was measured rather than reasoned. CONTEXT gives the most
+   because it had the most: its widest face needs 58px against what was a 126px
+   box, and at 17ch it still holds 113px, which is 55px of wings and still the
+   second-widest cell in the row.
+
+   **The work pair gives one character each rather than two off JOBS**, which
+   is the arithmetic's first suggestion and the wrong one. The pair rule above
+   is not decoration: TASKS and JOBS are one division of one subject, and two
+   characters between adjacent cells is exactly the width difference the eye
+   reads as a claim that one matters more. One character each gives back the
+   same two and leaves the pair equal. It also clears both readings with room:
+   TASKS's face measures 80px and JOBS's `None` between two dots measures 75px,
+   against 89px at 13ch.
+
+   The width order the row is built on therefore survives the cut intact —
+   STATE 120px, CONTEXT 113, TIME 102, the work pair 89 — which taking the
+   whole give-back from CONTEXT would not have done: at 16ch CONTEXT falls to
+   108 and at 15ch it drops under TIME, and neither the slack nor the hierarchy
+   survives the other. */
 .session-telemetry-status-cell[data-priority="state"] {
   --tugx-session-status-cell-width: 18ch;
 }
@@ -133,13 +163,13 @@
   --tugx-session-status-cell-width: 15ch;
 }
 .session-telemetry-status-cell[data-priority="context"] {
-  --tugx-session-status-cell-width: 19ch;
+  --tugx-session-status-cell-width: 17ch;
 }
 .session-telemetry-status-cell[data-priority="tasks"] {
-  --tugx-session-status-cell-width: 14ch;
+  --tugx-session-status-cell-width: 13ch;
 }
 .session-telemetry-status-cell[data-priority="jobs"] {
-  --tugx-session-status-cell-width: 14ch;
+  --tugx-session-status-cell-width: 13ch;
 }
 
 /* The ARC reading needs STATE's box, because it wears STATE's shape.
@@ -152,22 +182,47 @@
    needs what `Disconnected` needs, so it is given the same 18ch rather than a
    number arrived at separately for the same shape.
 
-   JOBS gives back exactly what ARC takes, so the row's total is 80ch either
-   way and every `@container` rung below keeps the value it was measured at.
-   JOBS can afford it: its widest face is the label `JOBS` at 36px, so 10ch
-   still leaves it more surplus for endcap wings than any other cell has.
+   17ch is what the word measures. `Implement` between two 12px dots with a
+   minimum channel on each side needs 111px in the built app, and 17ch holds
+   113. The old 18ch was STATE's number borrowed for STATE's shape rather than
+   a measurement of this cell's own widest face; the measurement is tighter and
+   is what the exchange is sized on.
 
-   The row's outer edges therefore do not move when a session picks an arc up;
-   one internal boundary does. That is the least motion the widening can cost,
-   and the alternative — a permanent 18ch for a reading most rows never show —
-   would spend the surplus on nothing for every card with no arc on it. */
+   **What ARC takes, JOBS gives as far as JOBS can go and CONTEXT gives the
+   rest.** The exchange was once stated as four characters off JOBS alone, and
+   in `ch` it balanced exactly; in PIXELS it never did, because JOBS is already
+   standing on its own content. `None` between two dots measures 75px and the
+   cell's two stretched rows render it at 87 — so JOBS at 13ch (89px) gives
+   back 2px rather than the 27 its four characters name, while ARC takes its
+   full 22 (92 → 114). Measured at slim, the five cells came to 633px in a
+   617px row and the STATE cell overhung the minimize control's seat by the
+   difference. The declared sum was right and the row was over.
+
+   So CONTEXT gives what JOBS cannot: 17ch → 14ch, which is 20px, and the ARC
+   reading fits the row the plain one fits. CONTEXT is the donor here for the
+   reason it was the donor when the control took its seat — it has the most
+   wings to spend. Its widest face is a numerator like `236.2K` with `/ 1M`
+   beside it, about 80px, and 14ch holds 94.
+
+   TWO internal boundaries move when a session picks an arc up rather than
+   one, and that is what the row's outer edges standing still actually costs.
+   The edges are the promise — the slim preset is the width Z2 was sized to
+   show everything at — and a boundary moving inside them is not; the
+   alternative, a permanent 18ch for a reading most rows never show, spends
+   the surplus on nothing for every card with no arc on it. `at0558` measures
+   the ARC reading's group against the row it stands in, so the fit is
+   asserted rather than the declared sum alone. */
 .session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="tasks"] {
-  --tugx-session-status-cell-width: 18ch;
+  --tugx-session-status-cell-width: 17ch;
 }
 .session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="jobs"] {
-  --tugx-session-status-cell-width: 10ch;
+  --tugx-session-status-cell-width: 9ch;
+}
+.session-telemetry-status-row[data-arc="true"]
+  .session-telemetry-status-cell[data-priority="context"] {
+  --tugx-session-status-cell-width: 14ch;
 }
 .session-telemetry-status-value-wrap {
   /* Wrap centers its single child value across the whole cell — so values
@@ -178,6 +233,27 @@
   justify-content: center;
   align-items: center;
   min-width: var(--tugx-session-status-cell-width);
+  /* And ONE declared height, which is the whole of why the five label rules
+     line up.
+
+     The two constructions in this row do not agree on a natural height. STATE,
+     TIME and CONTEXT put a `.session-telemetry-status-value` span in the wrap
+     and the wrap takes that span's line box: 14px, measured. TASKS and JOBS
+     put one `.tug-progress-indicator` there, stretched to the cell, carrying
+     its two 12px glyphs and its count inside itself: 18px, measured. The row
+     centres its cells vertically, so a 4px difference in the value row puts
+     the endcap rule above it 2px higher — which is what was visible as TASKS
+     and JOBS sitting a smidge high against the other three.
+
+     Declared at the taller of the two, so nothing is squeezed: the indicator
+     keeps the box it needs and the three spans centre inside it. A
+     `translateY` on the two work cells would have fixed the picture and been
+     wrong again at the next face change, because it corrects the symptom at
+     one pair of heights rather than making the two constructions one height.
+
+     One property on the row, so the number has a single home and the endcap
+     rule can be brought to the same clock later without hunting for it. */
+  height: var(--tugx-session-status-value-row-height);
 }
 
 /* STATE value row — the phase title centered between two label-less
@@ -468,33 +544,42 @@
    standing reading that keeps. STATE / CONTEXT stay as the most-persistent
    set.
 
-   Five cells at the budgets above are ~649px including the 24px gaps and the
-   row's inline padding, so the full set holds down to a ~645px query width —
-   which slim clears by only ~8px, deliberately: the budgets were sized to
-   spend the slim row rather than to leave headroom in it. The query width is
+   Five cells at the budgets above measure 614px including the 24px gaps, and
+   the row's own 4px-a-side inset puts the set's need at 622px. The minimize
+   control stands inside the same query, at the row's leading edge, and takes
+   32px more of it — a 28px button and the strip's 4px gap ([B03]) — so the
+   full set needs 654px of query width and holds down to a 653px query. Slim
+   clears that by 3px, which is the whole of what the budget cut bought and
+   the control now spends. The query width is
    the strip's CONTENT box (~657px at slim), not the card and not the strip's
    border box. Each rung then fires just under what the remaining set needs.
    Degradation is therefore something the slim preset never reaches: it is
    there for a card dragged narrower than any preset offers.
 
    The three thresholds are the measured ones, and they survive the TOKENS
-   retirement because the budgets above hold the row's total at 80ch: the full
-   set needs what it needed, and so does each set left standing after a rung
-   fires. */
+   retirement because the budgets above held the row's total at 80ch through
+   it. They moved twice for the control: once when the total came down to 76ch
+   to clear its seat, and again by exactly the 32px of that seat once it was
+   taken. Each rung is one pixel under what the set left standing after it
+   actually needs, measured in the built app as the cells' own boxes plus
+   their gaps plus the row's inset plus the control's seat. Stated that way
+   rather than as a round number less a margin, because the first rung once
+   sat four pixels late and the row overflowed its content box by a pixel in
+   the band between. */
 
-@container session-status (max-width: 645px) {
+@container session-status (max-width: 653px) {
   .session-telemetry-status-cell[data-priority="time"] {
     display: none;
   }
 }
 
-@container session-status (max-width: 520px) {
+@container session-status (max-width: 527px) {
   .session-telemetry-status-cell[data-priority="tasks"] {
     display: none;
   }
 }
 
-@container session-status (max-width: 405px) {
+@container session-status (max-width: 411px) {
   .session-telemetry-status-cell[data-priority="jobs"] {
     display: none;
   }
