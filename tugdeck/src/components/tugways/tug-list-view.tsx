@@ -103,6 +103,11 @@ import {
   anchorDepthFromEnd,
   anchorRowIndexInWindow,
 } from "@/lib/session-restore-window";
+import {
+  createRevealSeam,
+  type RevealSeam,
+  type VisibleScrollSample,
+} from "@/lib/list-view-reveal";
 
 import { HeightIndex } from "./internal/list-view-height-index";
 import {
@@ -2107,6 +2112,21 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     const preserveReleaseRef = React.useRef<ReturnType<typeof setTimeout> | null>(
       null,
     );
+    /**
+     * The scroll state and anchor sampled the last time this scroller had a
+     * box, written by the anchor-state writer effect below (which already
+     * reads both, and already stands down while the scroller is hidden).
+     *
+     * This is the hidden-box cycle's only honest source. `display: none`
+     * resets `scrollTop` to 0 and destroys the position *before* any
+     * observer can fire, so the reveal seam reads its memo from here rather
+     * than from a live scroller that no longer knows where it was.
+     */
+    const lastVisibleScrollRef = React.useRef<
+      (VisibleScrollSample & { anchorIndex: number; anchorRowOffset: number }) | null
+    >(null);
+    /** The hidden-box cycle's memory — installed with the SmartScroll below. */
+    const revealSeamRef = React.useRef<RevealSeam | null>(null);
 
     // Latest `onFollowBottomChange` — read from the SmartScroll
     // callback (installed once on mount) so a consumer that passes a
@@ -3487,6 +3507,72 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       el.addEventListener(RESIZE_PRESERVE_BEGIN, onPreserveBegin);
       el.addEventListener(RESIZE_PRESERVE_END, onPreserveEnd);
 
+      // The hidden-box cycle. A scroller inside a minimized Session card —
+      // or an inactive card tab — is `display: none`, which destroys its
+      // scrollport and resets `scrollTop` to 0 while the component stays
+      // mounted. Both edges of that cycle are observable here: a delivery
+      // at zero width is the box going away, and the `0 → real` delivery
+      // after it is the reveal. Neither was owned by anything before this;
+      // the transcript came back at the top with its follow-bottom intent
+      // released, which is the whole of the fold's scroll defect.
+      //
+      // The seam is a separate observer from the width-invalidation one
+      // above so it can sit here, where the live `SmartScroll` and the
+      // anchor resolver both are. It is also created later, so its
+      // callback runs after the width observer has classified the same
+      // delivery — the restore lands on a scroller whose ledger policy for
+      // this reveal is already decided.
+      //
+      // A tab switch that UNMOUNTS instead takes this ref with it, so the
+      // [A9] bag's restore path stays the only actor there; the two cannot
+      // fight over one reveal.
+      const revealSeam = createRevealSeam({
+        getScroll: () => smartScrollRef.current,
+        // The transcript's in-flight glyphs are cells of this list, so
+        // the scroller is the subtree whose loops went dark with the box.
+        // A wave that comes back sitting in its rest pose reads as a turn
+        // that stopped, which is the fold's other defect.
+        getRevealRoot: () => el,
+        getLastVisible: () => lastVisibleScrollRef.current,
+        // The remembered anchor, resolved against the data source as it
+        // stands at the reveal. Raw index, like the resize-preserve path:
+        // a session streaming behind a folded card appends below the
+        // anchor, which moves no index above it, while the depth-from-end
+        // relocation the reload path needs would be wrong by exactly those
+        // appended rows.
+        makeResolver: () => {
+          const sample = lastVisibleScrollRef.current;
+          if (sample === null) return null;
+          return makeAnchorResolver(
+            sample.anchorIndex,
+            sample.anchorRowOffset,
+            undefined,
+            undefined,
+          );
+        },
+      });
+      revealSeamRef.current = revealSeam;
+      const revealObserver = new ResizeObserver(() => {
+        if (el.clientWidth === 0 || el.clientHeight === 0) {
+          revealSeam.noteBoxLost();
+          return;
+        }
+        const outcome = revealSeam.noteRevealed();
+        if (outcome !== "anchored" && outcome !== "positioned") return;
+        // A restore target that never releases would fight the next thing
+        // to move the scroller, so it rides a trailing window and then lets
+        // go — the same release `onPreserveEnd` uses, through the same ref,
+        // because only one restore target exists at a time.
+        if (preserveReleaseRef.current !== null) {
+          clearTimeout(preserveReleaseRef.current);
+        }
+        preserveReleaseRef.current = setTimeout(() => {
+          preserveReleaseRef.current = null;
+          smartScrollRef.current?.clearRestoreTarget();
+        }, RESIZE_SETTLE_TAIL_MS);
+      });
+      revealObserver.observe(el);
+
       // Publish the same façade `ScrollerProvider` gives descendants under
       // the scroll container itself, so a DOM-side caller that never sees the
       // React tree — the focus engine's reveal — can release follow-bottom
@@ -3506,6 +3592,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         el.removeEventListener("tug-region-scroll-set", onRegionScrollSet);
         el.removeEventListener(RESIZE_PRESERVE_BEGIN, onPreserveBegin);
         el.removeEventListener(RESIZE_PRESERVE_END, onPreserveEnd);
+        revealObserver.disconnect();
+        revealSeamRef.current = null;
         smartScroll.dispose();
         smartScrollRef.current = null;
       };
@@ -3515,6 +3603,19 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // handle (a follow-on if the need arises) or by remounting.
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // A data source swapped while the scroller is hidden takes the
+    // remembered position with it: the memo and its anchor index address
+    // rows that are no longer in the list, and applying them at the
+    // reveal would land the reader somewhere in content they never
+    // scrolled. Drop both, and only while hidden — a swap on a visible
+    // scroller has no memo to spoil, and the live sample the anchor
+    // writer keeps must survive it.
+    React.useLayoutEffect(() => {
+      if (revealSeamRef.current?.isHidden !== true) return;
+      lastVisibleScrollRef.current = null;
+      revealSeamRef.current.forget();
+    }, [dataSource]);
 
     // ResizeObserver on the scroll container itself. Without this,
     // `viewportHeight` (read inline from `clientHeight` at render
@@ -4315,6 +4416,18 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       }
       const live = deriveLiveAnchor();
       if (live === null) return;
+      // The reveal seam's sample, taken at the one moment it can be taken:
+      // the scroller has a box, so `scrollTop` is a position rather than the
+      // 0 a hidden scroller reports. Same read, same commit, no extra
+      // layout — the anchor this effect already derived is the instrument
+      // the non-following restore rides, because cells above the
+      // remembered position can re-measure while the box is gone.
+      lastVisibleScrollRef.current = {
+        top: el.scrollTop,
+        following: smartScrollRef.current?.isFollowingBottom ?? false,
+        anchorIndex: live.index,
+        anchorRowOffset: live.rowOffset,
+      };
       const anchor: {
         index: number;
         offset: number;
