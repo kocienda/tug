@@ -312,20 +312,20 @@ export interface TugPaneState {
    */
   slot?: number;
   /**
-   * The pane wears its minimized form: the masthead and the Z2 status row,
-   * whose leading edge carries the minimize control, with the transcript and
+   * The pane wears its folded form: the masthead and the Z2 status row,
+   * whose trailing edge carries the fold control, with the transcript and
    * the composer folded away.
-   * Absent means not minimized — `true` is the only value the field ever
+   * Absent means not folded — `true` is the only value the field ever
    * carries, and the key is deleted rather than written `false`.
    *
    * Geometry is the pane's ([L09]), and a pane is one box shared by its tabs,
    * so the flag describes the box rather than any card in it. Written only by
-   * {@link DeckManager.setPaneMinimized} and its card-addressed twin.
+   * {@link DeckManager.setPaneFolded} and its card-addressed twin.
    * Additive-optional like `widthPreset?` and `slot?` — no serialization
    * version bump, and {@link validateDeckState} gains no invariant, because
    * the field constrains nothing about the rest of the state.
    */
-  minimized?: true;
+  folded?: true;
 }
 
 /**

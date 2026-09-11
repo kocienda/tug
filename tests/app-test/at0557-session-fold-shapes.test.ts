@@ -1,5 +1,5 @@
 /**
- * at0557-session-minimize-shapes.test.ts — the fold is one motion on a FREE
+ * at0557-session-fold-shapes.test.ts — the fold is one motion on a FREE
  * pane and in a stacked slot, frame included.
  *
  * ## What this gates
@@ -8,7 +8,7 @@
  * in which two of the three shapes a card can stand in did not animate at all.
  * That is not a gap in its assertions; it is a gap in its fixture. The fold is
  * carried by the imposer's settle, the settle arms on a change to
- * `arrangementSignature`, and a pane's minimized state was not one of that
+ * `arrangementSignature`, and a pane's folded state was not one of that
  * signature's terms. A split column's ALLOCATION changes when a member folds,
  * so the wall armed a settle by accident of what else moved. A free pane and a
  * card alone in a stacked slot moved nothing the signature read, so no settle
@@ -142,7 +142,7 @@ async function census(app: App, value: boolean): Promise<Sample[]> {
     })()`,
   );
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("set-card-minimized", { cardId: ${JSON.stringify(CARD_ID)}, minimized: ${value} }), null)`,
+    `(window.__tug.dispatchControlAction("set-card-folded", { cardId: ${JSON.stringify(CARD_ID)}, folded: ${value} }), null)`,
   );
   await wait(CENSUS_MS + 300);
   return app.evalJS<Sample[]>(`window.__at0557`);
@@ -262,7 +262,7 @@ async function runShape(app: App, stacked: boolean): Promise<void> {
   const beatMs = await declaredClock(app);
   note(`${label} clock`, `${beatMs}ms`);
 
-  assertOneMotion(`${label} minimize`, await census(app, true), beatMs);
+  assertOneMotion(`${label} fold`, await census(app, true), beatMs);
   await wait(AFTER_LAND_MS);
   assertOneMotion(`${label} show`, await census(app, false), beatMs);
   await wait(AFTER_LAND_MS);
@@ -272,7 +272,7 @@ describe.skipIf(!SHOULD_RUN)("AT0557: the fold on every shape", () => {
   test(
     "a free pane and a stacked slot fold on the settle's clock, frame included",
     async () => {
-      const app = await launchTugApp({ testName: "at0557-minimize-shapes" });
+      const app = await launchTugApp({ testName: "at0557-fold-shapes" });
       try {
         await app.enableDeckTrace(true);
         await runShape(app, false);

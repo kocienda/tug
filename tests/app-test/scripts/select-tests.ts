@@ -250,8 +250,8 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // names this module. It sat at exactly 20, which is the budget holding by
     // luck rather than by design.
     //
-    // Recorded at 21 when at0551 (the minimized Session card's form) arrived.
-    // The minimized form is one more attribute on the frame and a chrome tier
+    // Recorded at 21 when at0551 (the folded Session card's form) arrived.
+    // The folded form is one more attribute on the frame and a chrome tier
     // derived from it, both written here; the CSS files that turn the
     // attribute into a form are named beside it, but the stamp itself has no
     // narrower home to name.

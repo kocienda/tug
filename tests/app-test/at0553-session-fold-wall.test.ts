@@ -1,5 +1,5 @@
 /**
- * at0553-session-minimize-wall.test.ts — a slot full of folded sessions.
+ * at0553-session-fold-wall.test.ts — a slot full of folded sessions.
  *
  * ## What this gates
  *
@@ -15,7 +15,7 @@
  *      third card stands it at its own floor, folds nothing else open, and
  *      scrolls the column so the SECOND card — the neighbour above — sits at
  *      the top of the run.
- *   3. **Opening another folds the first.** Showing the fifth minimizes the
+ *   3. **Opening another folds the first.** Showing the fifth folds the
  *      third again, so the wall stays a wall.
  *
  * The cards are unbound: what is under test is the allocator and the commit,
@@ -26,14 +26,14 @@
  * (21 accepted), and the recorded debt may be paid down but not refinanced.
  * What the omission costs is small, because the wall's decisions are pure
  * helpers with unit tests of their own — `columnIsWall` and
- * `panesWithWallFolded` in `pane-minimized.test.ts`, one case of which names
+ * `panesWithWallFolded` in `pane-folded.test.ts`, one case of which names
  * the exact defect this file found while it was being written: the reveal was
  * gated on the FOLD having changed something, so a settled wall, the common
  * case, never scrolled. A unit test that names the bug is a better gate for
  * it than a five-card app-test anyway.
  *
- * The minimize goes through `set-card-minimized`, the registry-routed setter
- * ([P02]), rather than through `toggle-session-minimized` — the toggle is
+ * The fold goes through `set-card-folded`, the registry-routed setter
+ * ([P02]), rather than through `toggle-session-fold` — the toggle is
  * key-card-scoped and this test needs to name WHICH of five cards it means.
  * at0550 is where the doors themselves are gated.
  *
@@ -49,7 +49,7 @@ const TEST_TIMEOUT_MS = 180_000;
 
 /** The imposition's top gap (`lib/layout-imposer.ts`). */
 const GAP = 5;
-/** `SESSION_MINIMIZED_HEIGHT_PX` — see at0552, which measures it. */
+/** `SESSION_FOLDED_HEIGHT_PX` — see at0552, which measures it. */
 const TIER = 144;
 /** The Session card's open height floor, from its registration. */
 const OPEN_FLOOR = 600;
@@ -127,21 +127,21 @@ async function columnOffset(app: App): Promise<number> {
   );
 }
 
-/** Whether a pane reads as minimized in the deck's own record. */
-async function minimized(app: App, paneId: string): Promise<boolean> {
+/** Whether a pane reads as folded in the deck's own record. */
+async function folded(app: App, paneId: string): Promise<boolean> {
   return app.evalJS<boolean>(
-    `window.__tug.getPaneRecord(${JSON.stringify(paneId)}).minimized`,
+    `window.__tug.getPaneRecord(${JSON.stringify(paneId)}).folded`,
   );
 }
 
 /** Fold or show one named card, through the one write path ([P02]). */
-async function setMinimized(
+async function setFolded(
   app: App,
   cardId: string,
   value: boolean,
 ): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("set-card-minimized", { cardId: ${JSON.stringify(cardId)}, minimized: ${value} }), null)`,
+    `(window.__tug.dispatchControlAction("set-card-folded", { cardId: ${JSON.stringify(cardId)}, folded: ${value} }), null)`,
   );
   await wait(AFTER_LAND_MS);
 }
@@ -150,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)("AT0553: a wall of folded sessions", () => {
   test(
     "five fold into a wall, one opens at a time, and the reveal keeps the neighbour above in view",
     async () => {
-      const app = await launchTugApp({ testName: "at0553-minimize-wall" });
+      const app = await launchTugApp({ testName: "at0553-fold-wall" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -167,7 +167,7 @@ describe.skipIf(!SHOULD_RUN)("AT0553: a wall of folded sessions", () => {
         await wait(AFTER_LAND_MS);
 
         // ── 1. The wall packs ──
-        for (const cardId of CARD_IDS) await setMinimized(app, cardId, true);
+        for (const cardId of CARD_IDS) await setFolded(app, cardId, true);
 
         const top = await runTop(app);
         const wall = await rects(app);
@@ -195,7 +195,7 @@ describe.skipIf(!SHOULD_RUN)("AT0553: a wall of folded sessions", () => {
         expect(await columnOffset(app)).toBe(0);
 
         // ── 2. One open, with the neighbour above in view ──
-        await setMinimized(app, "C", false);
+        await setFolded(app, "C", false);
 
         const opened = await rects(app);
         const offset = await columnOffset(app);
@@ -205,7 +205,7 @@ describe.skipIf(!SHOULD_RUN)("AT0553: a wall of folded sessions", () => {
           PANE_IDS.map((id) => Math.round(opened[id].height)).join(", "),
         );
 
-        expect(await minimized(app, "p3")).toBe(false);
+        expect(await folded(app, "p3")).toBe(false);
         // The opened card takes its own floor — a reading share, not the
         // whole column.
         expect(
@@ -218,7 +218,7 @@ describe.skipIf(!SHOULD_RUN)("AT0553: a wall of folded sessions", () => {
             Math.abs(opened[id].height - TIER),
             `${id} holds the tier`,
           ).toBeLessThan(EPSILON);
-          expect(await minimized(app, id)).toBe(true);
+          expect(await folded(app, id)).toBe(true);
         }
         // And the reveal's whole claim ([B07]): the member ABOVE the opened
         // one sits at the top of the run, so the reader keeps their place.
@@ -229,10 +229,10 @@ describe.skipIf(!SHOULD_RUN)("AT0553: a wall of folded sessions", () => {
         expect(offset).toBeGreaterThan(0);
 
         // ── 3. Opening another folds the first ──
-        await setMinimized(app, "E", false);
+        await setFolded(app, "E", false);
 
-        expect(await minimized(app, "p5")).toBe(false);
-        expect(await minimized(app, "p3")).toBe(true);
+        expect(await folded(app, "p5")).toBe(false);
+        expect(await folded(app, "p3")).toBe(true);
         const second = await rects(app);
         expect(
           Math.abs(second.p3.height - TIER),

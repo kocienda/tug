@@ -369,9 +369,9 @@ import {
  * property write and one store commit, with the landing named, which is the
  * only way to assert that a cut arms nothing. Additive; major stays `2`.
  *
- * `2.17.0`: {@link TugTestSurface.getPaneRecord} gains `minimized` — the pane
- * flag the minimized Session form is written from ([P01]). Read here rather
- * than off the frame's `data-minimized` because a step that lands the flag
+ * `2.17.0`: {@link TugTestSurface.getPaneRecord} gains `folded` — the pane
+ * flag the folded Session form is written from ([P01]). Read here rather
+ * than off the frame's `data-folded` because a step that lands the flag
  * before the form has anything to say still needs to assert the commit.
  * Additive; major stays `2`.
  */
@@ -757,8 +757,8 @@ export interface TugTestSurface {
     size: { width: number; height: number };
     slot: number | null;
     widthPreset: string | null;
-    /** The pane wears the minimized form ([P01]). */
-    minimized: boolean;
+    /** The pane wears the folded form ([P01]). */
+    folded: boolean;
   } | null;
   getActiveCardId(): string | null;
   getFocusedCardId(): string | null;
@@ -1928,7 +1928,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         size: { ...pane.size },
         slot: pane.slot ?? null,
         widthPreset: pane.widthPreset ?? null,
-        minimized: pane.minimized === true,
+        folded: pane.folded === true,
       };
     },
 

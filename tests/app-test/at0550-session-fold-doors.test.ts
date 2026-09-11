@@ -1,12 +1,12 @@
 /**
- * at0550-session-minimize-doors.test.ts — one action, three doors: the card's
- * minimize is the same commit however it is reached.
+ * at0550-session-fold-doors.test.ts — one action, three doors: the card's
+ * fold is the same commit however it is reached.
  *
  * ## What this gates
  *
- * The Session card's minimized form has three ways in ([B03], [P02]) — the
- * control at Z2's trailing edge, Session ▸ Minimize Session, and ⌥⌘M — one
- * `toggle-session-minimized` command rather than three handlers, so the state
+ * The Session card's folded form has three ways in ([B03], [P02]) — the
+ * control at Z2's trailing edge, Session ▸ Fold Session, and ⌥⌘M — one
+ * `toggle-session-fold` command rather than three handlers, so the state
  * they read and the deck commit they land cannot drift apart. This file drives
  * the doors that exist at the vocabulary layer (the control frame the menu
  * item posts, and the item's own validated state) and reads the flag off the
@@ -15,14 +15,14 @@
  *
  * Three claims:
  *
- *   1. **The wire lands on the pane.** `toggle-session-minimized` — byte for
- *      byte what the Swift item sends — flips `getPaneRecord(pane).minimized`,
+ *   1. **The wire lands on the pane.** `toggle-session-fold` — byte for
+ *      byte what the Swift item sends — flips `getPaneRecord(pane).folded`,
  *      and flips it back. The toggle reads the live flag rather than a card's
  *      memory of it, so a second press is a show rather than a second
- *      minimize.
- *   2. **The item says what the gesture will do.** `session.minimize` reads
- *      enabled with the title `Minimize Session` over an open card and `Show
- *      Transcript` over a minimized one, and it carries ⌥⌘M — the ⌥ variant of
+ *      fold.
+ *   2. **The item says what the gesture will do.** `session.fold` reads
+ *      enabled with the title `Fold Session` over an open card and `Unfold
+ *      Session` over a folded one, and it carries ⌥⌘M — the ⌥ variant of
  *      the window's own ⌘M, which is untouched.
  *   3. **A non-Session key card disables it.** The verb has no pane to fold
  *      there, so the item dims and the chord beeps rather than reaching
@@ -30,7 +30,7 @@
  *
  * What this file deliberately does NOT read is the FORM — no folded
  * transcript, no tier arithmetic. That is at0551's subject. The one thing it
- * does read past the flag is `data-minimized` on
+ * does read past the flag is `data-folded` on
  * the pane frame, because that attribute is the JOINT: the flag is where the
  * state lives and the attribute is the whole of how it is worn ([P03]), so a
  * door that lands the flag without reaching the frame has landed nothing a
@@ -71,7 +71,7 @@ const PANE_FRAME = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 const LEAD = `${CARD} .tug-prompt-entry-lead`;
 /** The control's one seat: the leading edge of the Z2 status row. */
 const STATUS_BAR = `${CARD} [data-slot="session-card-status-bar"]`;
-const MINIMIZE_BUTTON = `${STATUS_BAR} [data-slot="session-minimize-control"] button`;
+const FOLD_BUTTON = `${STATUS_BAR} [data-slot="session-fold-control"] button`;
 const FIRST_CELL = `${STATUS_BAR} [data-slot="tug-status-cell"]`;
 
 /** One Session card — the doors' subject. */
@@ -123,10 +123,10 @@ function plainCardDeck() {
   };
 }
 
-/** The pane's stored `minimized` flag — the deck's own answer, not a frame's. */
-async function paneMinimized(app: App): Promise<boolean> {
+/** The pane's stored `folded` flag — the deck's own answer, not a frame's. */
+async function paneFolded(app: App): Promise<boolean> {
   return app.evalJS<boolean>(
-    `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).minimized`,
+    `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded`,
   );
 }
 
@@ -190,7 +190,7 @@ async function toolbarGeometry(app: App): Promise<{
         var el = document.querySelector(sel);
         return el === null ? null : el.getBoundingClientRect();
       };
-      var control = rect(${JSON.stringify(MINIMIZE_BUTTON)});
+      var control = rect(${JSON.stringify(FOLD_BUTTON)});
       var strip = rect(${JSON.stringify(STATUS_BAR)});
       var firstCell = rect(${JSON.stringify(FIRST_CELL)});
       var route = rect(${JSON.stringify(`${CARD} .tug-prompt-entry-route-group`)});
@@ -212,11 +212,11 @@ async function toolbarGeometry(app: App): Promise<{
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
+describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
   test(
     "the control frame flips the pane flag, and the menu item says which way it goes",
     async () => {
-      const app = await launchTugApp({ testName: "at0550-minimize-doors" });
+      const app = await launchTugApp({ testName: "at0550-fold-doors" });
       try {
         // `isEngineReady` reads the deck trace ring, so the trace has to be
         // recording before the engine reports.
@@ -229,15 +229,15 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
         await app.awaitEngineReady("A");
 
         // ── The resting state ──
-        expect(await paneMinimized(app)).toBe(false);
-        const open = await waitMenuEnabled(app, "session.minimize", true);
-        expect(open.found, "session.minimize must exist").toBe(true);
+        expect(await paneFolded(app)).toBe(false);
+        const open = await waitMenuEnabled(app, "session.fold", true);
+        expect(open.found, "session.fold must exist").toBe(true);
         expect(open.enabled).toBe(true);
-        await waitMenuTitle(app, "session.minimize", "Minimize Session");
+        await waitMenuTitle(app, "session.fold", "Fold Session");
 
         // The chord is the ⌥ variant of the window's ⌘M, carried on the item
         // so the menu bar is where the match happens.
-        const item = await app.menuItemState("session.minimize");
+        const item = await app.menuItemState("session.fold");
         expect(item.found).toBe(true);
         if (item.found) {
           expect(item.keyEquivalent).toBe("m");
@@ -257,10 +257,10 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
         // Focus the card first, so the key-card-scoped dispatch resolves it.
         await app.nativeClickAtElement(PROMPT_INPUT);
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-minimized"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
-          `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).minimized === true`,
+          `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === true`,
           { timeoutMs: 8000 },
         );
         // …and the frame wears it. One attribute is the whole of the form's
@@ -268,20 +268,20 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
         await app.waitForCondition<boolean>(
           `(function () {
              var frame = document.querySelector(${JSON.stringify(PANE_FRAME)});
-             return frame !== null && frame.getAttribute("data-minimized") === "true";
+             return frame !== null && frame.getAttribute("data-folded") === "true";
            })()`,
           { timeoutMs: 8000 },
         );
         // The item's verb followed the flag — one published fact, two faces.
-        await waitMenuTitle(app, "session.minimize", "Show Transcript");
+        await waitMenuTitle(app, "session.fold", "Unfold Session");
 
         // ── And back: the toggle reads the live flag, so a second press shows
-        // rather than minimizing twice.
+        // rather than folding twice.
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-minimized"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
-          `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).minimized === false`,
+          `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === false`,
           { timeoutMs: 8000 },
         );
         // And the attribute goes with it — the key is deleted rather than
@@ -289,11 +289,11 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
         await app.waitForCondition<boolean>(
           `(function () {
              var frame = document.querySelector(${JSON.stringify(PANE_FRAME)});
-             return frame !== null && frame.getAttribute("data-minimized") === null;
+             return frame !== null && frame.getAttribute("data-folded") === null;
            })()`,
           { timeoutMs: 8000 },
         );
-        await waitMenuTitle(app, "session.minimize", "Minimize Session");
+        await waitMenuTitle(app, "session.fold", "Fold Session");
       } finally {
         await app.close();
       }
@@ -304,7 +304,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
   test(
     "the control stands in Z2, and the composer's row lays out as it did before Z4-lead",
     async () => {
-      const app = await launchTugApp({ testName: "at0550-minimize-button" });
+      const app = await launchTugApp({ testName: "at0550-fold-button" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -314,7 +314,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
         await app.bindSession("A", { tugSessionId: SID });
         await app.awaitEngineReady("A");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(MINIMIZE_BUTTON)}) !== null`,
+          `document.querySelector(${JSON.stringify(FOLD_BUTTON)}) !== null`,
           { timeoutMs: 8000 },
         );
 
@@ -337,10 +337,10 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
 
         // And it is the third door: a click lands the same flag the wire and
         // the menu item land.
-        expect(await paneMinimized(app)).toBe(false);
-        await app.nativeClickAtElement(MINIMIZE_BUTTON);
+        expect(await paneFolded(app)).toBe(false);
+        await app.nativeClickAtElement(FOLD_BUTTON);
         await app.waitForCondition<boolean>(
-          `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).minimized === true`,
+          `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === true`,
           { timeoutMs: 8000 },
         );
       } finally {
@@ -353,7 +353,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
   test(
     "a non-Session key card disables the item",
     async () => {
-      const app = await launchTugApp({ testName: "at0550-minimize-gate" });
+      const app = await launchTugApp({ testName: "at0550-fold-gate" });
       try {
         await app.seedDeckState({ state: plainCardDeck(), focusCardId: "B" });
         await app.waitForCondition<boolean>(
@@ -362,8 +362,8 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card minimize's doors", () => {
 
         // The verb has no pane to fold from here, so the item dims and the
         // chord beeps rather than reaching the Session card next door.
-        const dark = await waitMenuEnabled(app, "session.minimize", false);
-        expect(dark.found, "session.minimize must exist").toBe(true);
+        const dark = await waitMenuEnabled(app, "session.fold", false);
+        expect(dark.found, "session.fold must exist").toBe(true);
         expect(dark.enabled).toBe(false);
       } finally {
         await app.close();

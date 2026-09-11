@@ -23,14 +23,14 @@
  *      reads `data-cycling="false"` and the submit holds no key view.
  *   2. **empty editor → submit is skipped:** ⌥⇥ rings the editor's stop and one
  *      Tab wraps to the route (the editor is the LAST stop and the route is
- *      the FIRST, now that the minimize seat has moved into Z2, [B03]);
- *      touring the live stops (route → Claude Code → AI → minimize → STATE → TIME
+ *      the FIRST, now that the fold seat has moved into Z2, [B03]);
+ *      touring the live stops (route → Claude Code → AI → fold → STATE → TIME
  *      → CONTEXT → TASKS → JOBS → editor → wrap) never lands on the
  *      submit, because its empty-input gate disables it. ⌥⇥ off restores caret.
  *   3. **typed editor:** with content, the same entry — ring on the editor's
  *      stop, Tab to the route — and now the submit is live.
  *   4. **Tab tours the stops:** route → Claude Code → AI → submit →
- *      minimize → STATE → TIME → CONTEXT → TASKS → JOBS → editor → wrap
+ *      fold → STATE → TIME → CONTEXT → TASKS → JOBS → editor → wrap
  *      (trapped). The Session and Project chips are not on this route (the Z4B
  *      diet), and there is no BTW cell (the Z2 diet). Every Z4B chip and Z2 status cell
  *      is its own leaf stop ([P10] revised — no arrow-roving): Tab steps
@@ -86,10 +86,10 @@ const CARD = '[data-card-id="A"]';
 const ROOT = `${CARD} [data-testid="session-card"]`;
 const SUBMIT = `${CARD} .tug-prompt-entry-submit-button`;
 const ROUTE = `${CARD} ${ROUTE_CHOICE}`;
-// The card's one minimize control ([B03]) — at the trailing edge of the Z2
+// The card's one fold control ([B03]) — at the trailing edge of the Z2
 // status row, in both of the card's forms, and so the stop just after the
 // five cells.
-const MINIMIZE = `${CARD} [data-slot="session-minimize-control"] button`;
+const FOLD = `${CARD} [data-slot="session-fold-control"] button`;
 // The three Z4B indicator chips now in the cycle ([P10] revised — no control
 // left behind): the route indicator (Claude Code / Shell), the Session badge,
 // and the Project button. Each is a leaf stop carrying `data-key-view-kbd`
@@ -164,10 +164,10 @@ const ROUTE_HAS_KEY_VIEW = `(function(){
   return el ? el.hasAttribute("data-key-view-kbd") : false;
 })()`;
 
-// Whether the minimize control holds the keyboard key view. A leaf stop like
+// Whether the fold control holds the keyboard key view. A leaf stop like
 // the cells beside it, so the attribute rides the button itself.
-const MINIMIZE_HAS_KEY_VIEW = `(function(){
-  var el = document.querySelector(${JSON.stringify(MINIMIZE)});
+const FOLD_HAS_KEY_VIEW = `(function(){
+  var el = document.querySelector(${JSON.stringify(FOLD)});
   return el ? el.hasAttribute("data-key-view-kbd") : false;
 })()`;
 
@@ -197,7 +197,7 @@ const EDITOR_STOP_RINGED = `(function(){
  *
  * The editor is the LAST stop in the card's order, so the first Tab out of it
  * wraps to the FIRST — which is the route group, the toolbar row's leftmost
- * control now that the minimize seat has moved down to Z2 ([B03]). That is
+ * control now that the fold seat has moved down to Z2 ([B03]). That is
  * where the tours below all begin.
  */
 async function engageAndTabToRoute(app: App): Promise<void> {
@@ -285,7 +285,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // (2) Empty editor → ⌥⇥ rings the editor's stop, Tab wraps to the route.
         // The submit is disabled (its
         // empty-input gate), so it is NOT a Tab target — touring the live stops
-        // (route → Claude Code → AI → STATE → … → JOBS → minimize → editor →
+        // (route → Claude Code → AI → STATE → … → JOBS → fold → editor →
         // wrap) skips it: Tab steps from AI straight to the STATE cell,
         // never the submit.
         await engageAndTabToRoute(app);
@@ -310,10 +310,10 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(hasKeyView(Z2_JOBS), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        // JOBS → the minimize control, the last thing in the Z2 row ([B03]).
-        await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        // JOBS → the fold control, the last thing in the Z2 row ([B03]).
+        await app.waitForCondition<boolean>(FOLD_HAS_KEY_VIEW, { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        // minimize → editor. JOBS is the row's last cell: the BTW cell went away
+        // fold → editor. JOBS is the row's last cell: the BTW cell went away
         // with the Z2 diet, and `/btw` reaches its placard by being asked rather
         // than by a stop. The PULSE stop went with the strip — the voice moved
         // to the masthead, which is pane chrome and takes no card-cycle stop.
@@ -362,7 +362,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
         // submit → the five cells, each its own leaf stop ([P10] revised):
         // STATE → TIME → CONTEXT → TASKS → JOBS. Each carries the leaf key
-        // view (and the blue ring) in turn — no arrow-roving. The minimize
+        // view (and the blue ring) in turn — no arrow-roving. The fold
         // control follows JOBS at the row's trailing edge ([B03]).
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
@@ -377,9 +377,9 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(hasKeyView(Z2_JOBS), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(MINIMIZE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.waitForCondition<boolean>(FOLD_HAS_KEY_VIEW, { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        // minimize → editor: the control is the last leaf before it. Under KBF mode
+        // fold → editor: the control is the last leaf before it. Under KBF mode
         // the landing PARKS the stop rather than granting it ([P12]) — the ring
         // lands on the editor's stop and the caret does not, because arriving by
         // engine movement is a request to move the ring, not to type. Return or
@@ -407,7 +407,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // route→Claude Code→AI→submit→STATE→TIME (5 Tabs). Two fewer
         // than before the Z4B diet (which took Session and Project off this
         // route), two fewer again since Mode / Model / Effort became one chip.
-        // The minimize control sits after JOBS, so it is not on this path.
+        // The fold control sits after JOBS, so it is not on this path.
         for (let i = 0; i < 5; i++) await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
         // Return opens the TIME cell's popover (the cell `<button>` activates).
@@ -537,7 +537,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("ArrowRight");
         await app.waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
         // Right off the last toolbar member wraps the closed ring back to the
-        // row's first — the route group, now that the minimize seat has moved
+        // row's first — the route group, now that the fold seat has moved
         // down into Z2 ([B03]).
         await app.nativeKey("ArrowRight");
         await app.waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
@@ -551,7 +551,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("ArrowDown");
         // Down from a toolbar chip enters the Z2 row at its first member —
-        // STATE — and Right from there is TIME. The minimize control is the
+        // STATE — and Right from there is TIME. The fold control is the
         // row's LAST member ([B03]).
         await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
         await app.nativeKey("ArrowRight");

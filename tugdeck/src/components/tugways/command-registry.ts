@@ -144,14 +144,14 @@ export interface CommandMenuFacts {
     readonly historyVisible: boolean;
     readonly commitReady: boolean;
     /**
-     * The frontmost session card's pane wears the minimized form. Drives the
-     * Minimize Session item's dynamic verb. An inline mirror of
+     * The frontmost session card's pane wears the folded form. Drives the
+     * Fold Session item's dynamic verb. An inline mirror of
      * `MenuStateSessionBlock`'s own field rather than an import of it, which
      * is how this block already stands — so the field is declared in three
      * places, and missing any of them is a type error rather than a silent
      * disagreement.
      */
-    readonly minimized: boolean;
+    readonly folded: boolean;
     /** The bound session carries a user-set name — there is one to clear. */
     readonly hasCustomName: boolean;
   } | null;
@@ -1721,12 +1721,12 @@ export const COMMANDS: readonly CommandEntry[] = [
         : "Show Commit History",
   },
   {
-    // The card-scoped minimize ([B04], [P02]). Its three doors are the button
-    // ahead of Z4A, this item, and ⌥⌘M — one action, so the state the doors
-    // read and the commit they land are the same one ([L11]).
+    // The card-scoped fold ([B04], [P02]). Its three doors are the control at
+    // Z2's trailing edge, this item, and ⌥⌘M — one action, so the state the
+    // doors read and the commit they land are the same one ([L11]).
     //
     // ⌥ is the variant operator (`tuglaws/chord-tiers.md`): ⌘M minimizes the
-    // window, ⌥⌘M minimizes the card. `menuEligible` puts the match at the
+    // window, ⌥⌘M folds the card. `menuEligible` puts the match at the
     // menu bar, so the item's gate is what answers the chord too — a non-
     // Session key card disables the item and beeps the chord, which is honest
     // about a verb that has nothing to act on.
@@ -1734,13 +1734,13 @@ export const COMMANDS: readonly CommandEntry[] = [
     // Gated on a BOUND session, not merely on a Session card being frontmost.
     // An unbound card renders `SessionProjectPicker` rather than
     // `SessionCardBody`, and the responder that answers this command — along
-    // with the masthead, the Z2 row and the bar the minimized form IS — lives
+    // with the masthead, the Z2 row and the bar the folded form IS — lives
     // in the body. Validating on the card type alone would leave the item
     // enabled and the chord live over a card that can do nothing with either.
-    id: TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED,
-    title: "Minimize Session",
+    id: TUG_ACTIONS.TOGGLE_SESSION_FOLD,
+    title: "Fold Session",
     routing: "key-card",
-    menuItemId: "session.minimize",
+    menuItemId: "session.fold",
     bindings: [
       chord(
         { key: "KeyM", alt: true, meta: true, label: "m" },
@@ -1752,9 +1752,9 @@ export const COMMANDS: readonly CommandEntry[] = [
     // One command, two verbs — the item says what the gesture will do, the
     // shape the two shade toggles above already take.
     dynamicTitle: (chain) =>
-      (chain.menu.session?.minimized ?? false)
-        ? "Show Transcript"
-        : "Minimize Session",
+      (chain.menu.session?.folded ?? false)
+        ? "Unfold Session"
+        : "Fold Session",
   },
   ...SLASH_BRIDGE_COMMANDS,
 
@@ -2076,11 +2076,11 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
-    // Its doors are `toggle-session-minimized` and the minimize control at Z2's
+    // Its doors are `toggle-session-fold` and the fold control at Z2's
     // leading edge — both card-addressed gestures, and this is the one write
     // path they share.
-    id: TUG_ACTIONS.SET_CARD_MINIMIZED,
-    title: "Set Card Minimized",
+    id: TUG_ACTIONS.SET_CARD_FOLDED,
+    title: "Set Card Folded",
     routing: "registry",
     internal: true,
   },

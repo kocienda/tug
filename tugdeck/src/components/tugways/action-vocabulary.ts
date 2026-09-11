@@ -593,27 +593,25 @@ export const TUG_ACTIONS = {
   //                 must not slam the door.
   REVEAL_CHANGES: "reveal-changes",
   TOGGLE_HISTORY_VIEW: "toggle-history-view",
-  // TOGGLE_SESSION_MINIMIZED: payload — none. Put the frontmost Session card
-  //                           into its minimized form, or take it out — the
-  //                           masthead with its two-line beat, the Z2 status
-  //                           row, and the minimize control at that row's
-  //                           leading edge, with the transcript and composer
-  //                           folded away. Its three doors are that control,
-  //                           Session ▸ Minimize Session, and ⌥⌘M
-  //                           ([L11]: one action, three doors). The card's
-  //                           `card-content` responder handles it and
-  //                           dispatches SET_CARD_MINIMIZED with the negated
-  //                           flag; ⌘M without the ⌥ is the window's MINIMIZE
-  //                           and is untouched.
-  TOGGLE_SESSION_MINIMIZED: "toggle-session-minimized",
-  // SET_CARD_MINIMIZED: payload — `{ cardId: string, minimized: boolean }`.
-  //                     Write one card's pane into or out of the minimized
-  //                     form. Internal: its doors are TOGGLE_SESSION_MINIMIZED
-  //                     and the Z2 minimize control, and it is the one write
-  //                     path, so every door lands the same deck commit.
-  //                     Handled in `action-dispatch.ts` on the
-  //                     deck manager, the shape SET_CARD_WIDTH's handler takes.
-  SET_CARD_MINIMIZED: "set-card-minimized",
+  // TOGGLE_SESSION_FOLD: payload — none. Put the frontmost Session card into
+  //                      its folded form, or take it out — the masthead with
+  //                      its two-line beat, the Z2 status row, and the fold
+  //                      control at that row's trailing edge, with the
+  //                      transcript and composer folded away. Its three doors
+  //                      are that control, Session ▸ Fold Session, and ⌥⌘M
+  //                      ([L11]: one action, three doors). The card's
+  //                      `card-content` responder handles it and dispatches
+  //                      SET_CARD_FOLDED with the negated flag; ⌘M without
+  //                      the ⌥ is the window's MINIMIZE and is untouched.
+  TOGGLE_SESSION_FOLD: "toggle-session-fold",
+  // SET_CARD_FOLDED: payload — `{ cardId: string, folded: boolean }`. Write
+  //                  one card's pane into or out of the folded form.
+  //                  Internal: its doors are TOGGLE_SESSION_FOLD and the Z2
+  //                  fold control, and it is the one write path, so every
+  //                  door lands the same deck commit. Handled in
+  //                  `action-dispatch.ts` on the deck manager, the shape
+  //                  SET_CARD_WIDTH's handler takes.
+  SET_CARD_FOLDED: "set-card-folded",
   SHOW_SLASH_COMMAND_NOTICE: "show-slash-command-notice",
 
   // ---- Dialog / popover ----
@@ -751,7 +749,7 @@ export const TUG_ACTIONS = {
   //                         under its own id.
   // MINIMIZE:               payload — none. Window ▸ Minimize — the WINDOW's,
   //                         routed native on ⌘M. Nothing to do with a card:
-  //                         the card-scoped verb is TOGGLE_SESSION_MINIMIZED
+  //                         the card-scoped verb is TOGGLE_SESSION_FOLD
   //                         on ⌥⌘M, and the two are neighbours in the chord
   //                         space and nowhere else.
   // MAXIMIZE:               payload — none. Maximize the first card.

@@ -190,7 +190,7 @@ describe.skipIf(!SHOULD_RUN)("AT0157: Escape over a cycle is mode-stack ordering
         // with the submit a live stop now that the editor has content. (The
         // chip count used to be seven the other way: Session / Project left
         // the route with the Z4B diet and Mode / Model / Effort merged into
-        // the one AI chip; the minimize control sits after JOBS at the Z2
+        // the one AI chip; the fold control sits after JOBS at the Z2
         // row's trailing edge, [B03], so it is not on this path.)
         for (let i = 0; i < 6; i++) await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });

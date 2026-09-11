@@ -591,11 +591,11 @@ export function filterDeckStateByRegistration(
 }
 
 /**
- * The pane array a minimize commit writes: `paneId`'s entry carries
- * `minimized: true`, or has the key DELETED on `false`.
+ * The pane array a fold commit writes: `paneId`'s entry carries
+ * `folded: true`, or has the key DELETED on `false`.
  *
  * Deleted rather than written `false` because the field's contract is
- * absent-means-not-minimized ([P01]) — a persisted `minimized: false` would
+ * absent-means-not-folded ([P01]) — a persisted `folded: false` would
  * be a second spelling of the resting state, and the two would then have to
  * agree forever. The array is returned by IDENTITY when nothing changes, so
  * the caller can short-circuit its commit on `panes === state.panes` rather
@@ -607,18 +607,18 @@ export function filterDeckStateByRegistration(
  * the wall's membership, which needs the imposition; see
  * {@link panesWithWallFolded}, which this composes with.
  */
-export function panesWithMinimized(
+export function panesWithFolded(
   panes: readonly TugPaneState[],
   paneId: string,
-  minimized: boolean,
+  folded: boolean,
 ): readonly TugPaneState[] {
   const pane = panes.find((p) => p.id === paneId);
   if (!pane) return panes;
-  if ((pane.minimized === true) === minimized) return panes;
+  if ((pane.folded === true) === folded) return panes;
   return panes.map((p) => {
     if (p.id !== paneId) return p;
-    if (minimized) return { ...p, minimized: true as const };
-    const { minimized: _dropped, ...rest } = p;
+    if (folded) return { ...p, folded: true as const };
+    const { folded: _dropped, ...rest } = p;
     return rest;
   });
 }
@@ -642,26 +642,26 @@ export function columnIsWall(
   const members = new Set(memberIds);
   members.delete(openPaneId);
   if (members.size === 0) return false;
-  return panes.some((p) => members.has(p.id) && p.minimized === true);
+  return panes.some((p) => members.has(p.id) && p.folded === true);
 }
 
 /**
  * The pane array a WALL OPEN writes: every other member of the column folded,
  * so the wall stays a wall ([P06]).
  *
- * A wall is a split column with at least one MINIMIZED member. Opening a card
+ * A wall is a split column with at least one FOLDED member. Opening a card
  * in one folds its siblings, because the whole shape rests on a wall having
  * exactly one card being read at a time — a second open card takes the run the
  * first one needs and the wall stops being legible as a wall.
  *
- * The guard is the definition: a split column with no minimized member is not
+ * The guard is the definition: a split column with no folded member is not
  * a wall, it is two or three full sessions sharing a slot, and a fold there
  * would take away a division the user made with the seams. So `memberIds` is
- * checked for another minimized member first, and the array comes back by
+ * checked for another folded member first, and the array comes back by
  * IDENTITY when there is none.
  *
  * `openPaneId` is expected to be already open in `panes` — this composes after
- * {@link panesWithMinimized}, which is what cleared its flag.
+ * {@link panesWithFolded}, which is what cleared its flag.
  */
 export function panesWithWallFolded(
   panes: readonly TugPaneState[],
@@ -672,12 +672,12 @@ export function panesWithWallFolded(
   const members = new Set(memberIds);
   members.delete(openPaneId);
   const toFold = panes.filter(
-    (p) => members.has(p.id) && p.minimized !== true,
+    (p) => members.has(p.id) && p.folded !== true,
   );
   if (toFold.length === 0) return panes;
   const foldIds = new Set(toFold.map((p) => p.id));
   return panes.map((p) =>
-    foldIds.has(p.id) ? { ...p, minimized: true as const } : p,
+    foldIds.has(p.id) ? { ...p, folded: true as const } : p,
   );
 }
 
@@ -5923,40 +5923,40 @@ export class DeckManager implements IDeckManagerStore {
     });
   }
 
-  // ---- Minimize ----
+  // ---- Fold ----
 
   /**
-   * Minimize or show one content pane.
+   * Fold or show one content pane.
    *
    * The flag is the pane's ([P01]): a pane is one box shared by its tabs, and
-   * minimized describes the box. This is the one writer, and it lands in ONE
+   * folded describes the box. This is the one writer, and it lands in ONE
    * commit — the flag, the bullseye clear, and the reveal together — because
    * the settle is FLIP and a gesture that notifies twice offers that
    * measurement a half-changed deck the first time. Same reasoning as
-   * {@link setCardWidths}, and the same `retuneRails: false`: minimizing a
+   * {@link setCardWidths}, and the same `retuneRails: false`: folding a
    * card never mentioned the rails, so it may not spend the user's rail width
    * on a re-solve.
    *
    * A sidebar pane is refused with a warning, as `_setPaneWidth` refuses one:
-   * a rail's height is the allocator's and it wears no masthead to minimize
+   * a rail's height is the allocator's and it wears no masthead to fold
    * into.
    *
    * Showing a card in a WALL folds its siblings ([P06]) and scrolls the column
    * to put the opened card under its neighbour above ([B07]) — both in the
    * same commit, for the same one-notify reason. A split column with nothing
-   * minimized in it is not a wall and is left alone.
+   * folded in it is not a wall and is left alone.
    */
-  setPaneMinimized(paneId: string, minimized: boolean): void {
+  setPaneFolded(paneId: string, folded: boolean): void {
     const pane = this.deckState.panes.find((p) => p.id === paneId);
     if (!pane) return;
     if (this._sidebarComponentIdOfPane(paneId) !== undefined) {
       console.warn(
-        `setPaneMinimized: pane "${paneId}" hosts a sidebar card; rails do not minimize`,
+        `setPaneFolded: pane "${paneId}" hosts a sidebar card; rails do not fold`,
       );
       return;
     }
 
-    let panes = panesWithMinimized(this.deckState.panes, paneId, minimized);
+    let panes = panesWithFolded(this.deckState.panes, paneId, folded);
     // Identity means the pane already read the way it was asked to read.
     if (panes === this.deckState.panes) return;
 
@@ -5965,7 +5965,7 @@ export class DeckManager implements IDeckManagerStore {
     // fold just made, and computing it from the pre-fold heights would land
     // the column at a coordinate that no longer exists.
     let columnReveal: { slot: number; offset: number } | undefined;
-    if (!minimized) {
+    if (!folded) {
       const run = this._placeRunHeight("column");
       const column = deckColumnsOf(
         { ...this.deckState, panes },
@@ -5994,15 +5994,15 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * The card-addressed twin of {@link setPaneMinimized}: resolve the hosting
-   * pane and minimize that. This is what the action handler calls, because
-   * every door to minimize — the button, the menu item, the chord, the bar —
+   * The card-addressed twin of {@link setPaneFolded}: resolve the hosting
+   * pane and fold that. This is what the action handler calls, because
+   * every door to fold — the control, the menu item, the chord —
    * knows which card it is about and not which pane holds it.
    */
-  setCardMinimized(cardId: string, minimized: boolean): void {
+  setCardFolded(cardId: string, folded: boolean): void {
     const pane = this.deckState.panes.find((p) => p.cardIds.includes(cardId));
     if (!pane) return;
-    this.setPaneMinimized(pane.id, minimized);
+    this.setPaneFolded(pane.id, folded);
   }
 
   // ---- Cascade positioning ----

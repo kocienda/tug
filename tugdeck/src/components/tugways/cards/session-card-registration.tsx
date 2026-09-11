@@ -20,24 +20,24 @@ import { FeedId } from "@/protocol";
 import { SessionCardContent } from "./session-card";
 
 /**
- * The height a minimized Session card stands at, in pixels ([P04]).
+ * The height a folded Session card stands at, in pixels ([P04]).
  *
- * The two bands of the minimized form add up here: the masthead tier at
- * `MASTHEAD_MINIMIZED_HEIGHT` (88) plus its 1px bottom rule, and the 53px the
+ * The two bands of the folded form add up here: the masthead tier at
+ * `MASTHEAD_FOLDED_HEIGHT` (88) plus its 1px bottom rule, and the 53px the
  * card body needs for the Z2 status row alone. It was 173 while the form
  * carried a Show Transcript bar under Z2; retiring that band into a control at
  * Z2's leading edge ([B03], [B04]) is what took 29px off the tier, and a 900px
- * run now holds six minimized cards where it held five.
+ * run now holds six folded cards where it held five.
  * MEASURED, not derived: `at0552` reads the built app's own numbers and fails
  * if Z2 overhangs the frame or leaves air under it, which is what caught the
  * plan's starting 160 — the spike's 159 was measured without the pane frame
  * around it — and what settled this number one pixel at a time.
  *
  * Pinned rather than a floor: it is BOTH `min.height` and `max.height` in the
- * minimized policy, which is what makes `TugPane` place the frame at the tier
- * instead of filling its run, and what makes a wall of minimized cards pack.
+ * folded policy, which is what makes `TugPane` place the frame at the tier
+ * instead of filling its run, and what makes a wall of folded cards pack.
  */
-export const SESSION_MINIMIZED_HEIGHT_PX = 144;
+export const SESSION_FOLDED_HEIGHT_PX = 144;
 
 export function registerSessionCard(): void {
   registerCard({
@@ -76,21 +76,21 @@ export function registerSessionCard(): void {
       // card opens at canvas * 0.9 instead of pushing past the viewport.
       preferred: { width: CONTENT_WIDTH_COMFY_PX, height: 1200 },
     },
-    // The minimized form is a different card for sizing ([P04]): the 600px
+    // The folded form is a different card for sizing ([P04]): the 600px
     // floor above is what the TRANSCRIPT and the composer need, and neither is
-    // on screen here. The width policy is unchanged — a minimized card is as
+    // on screen here. The width policy is unchanged — a folded card is as
     // wide as its slot — so `max.width` is declared unbounded rather than
     // omitted, which `CardSizePolicy` requires and which leaves `widthPinned`
     // false where a finite width would have pinned it.
-    minimizedSizePolicy: {
-      min: { width: CONTENT_WIDTH_SLIM_PX, height: SESSION_MINIMIZED_HEIGHT_PX },
+    foldedSizePolicy: {
+      min: { width: CONTENT_WIDTH_SLIM_PX, height: SESSION_FOLDED_HEIGHT_PX },
       max: {
         width: Number.POSITIVE_INFINITY,
-        height: SESSION_MINIMIZED_HEIGHT_PX,
+        height: SESSION_FOLDED_HEIGHT_PX,
       },
       preferred: {
         width: CONTENT_WIDTH_COMFY_PX,
-        height: SESSION_MINIMIZED_HEIGHT_PX,
+        height: SESSION_FOLDED_HEIGHT_PX,
       },
     },
     takesContentWidth: true,

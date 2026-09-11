@@ -1487,7 +1487,7 @@ export interface PinnedFrame {
    *
    * The distinction is what the card IS. About is centred because a dialog box
    * is centred — it is the only thing on the canvas while it stands there. A
-   * minimized card is a ROW IN A WALL ([P04]): it is read from the top with
+   * folded card is a ROW IN A WALL ([P04]): it is read from the top with
    * its neighbours, and one of them floating in the middle of an empty slot
    * would read as a card that failed to lay out rather than as a card at rest.
    *
@@ -3328,10 +3328,10 @@ export interface PlaceMember {
    * place has to give. `undefined` for every ordinary member: a card that can
    * use more room takes it.
    *
-   * It exists for the MINIMIZED member ([P05]), whose registered policy pins
+   * It exists for the FOLDED member ([P05]), whose registered policy pins
    * its height (`min.height === max.height`), and it is what keeps a wall a
    * wall. Without it, a column whose members all weigh zero would divide its
-   * run equally by the allocator's own stated reading — and five minimized
+   * run equally by the allocator's own stated reading — and five folded
    * cards on a tall run would each stand at a fifth of it instead of at the
    * tier, which is not a wall but five stretched cards.
    */
@@ -3348,7 +3348,7 @@ export interface PlaceMember {
  * longer than the run and slides behind it by the place's offset.
  *
  * The one shared place where the strip is SHORTER than the run is a place
- * every member of which is held at a ceiling ([P05]) — a wall of minimized
+ * every member of which is held at a ceiling ([P05]) — a wall of folded
  * cards on a run taller than they add up to. `stripLength` is then less than
  * `run` and the last member's bottom stands above the run's, which is the
  * correct picture: the surplus is run left over beneath the wall rather than
@@ -3505,7 +3505,7 @@ const PLACE_POOL_EPSILON = 1e-9;
  * A CEILING is the floor read the other way ([P05]): a member whose target
  * would put it above its ceiling stands at the ceiling instead and gives the
  * surplus back, by the same pass structure and in the same loop. It is what
- * makes a wall of minimized members hold at their tier — every one of them
+ * makes a wall of folded members hold at their tier — every one of them
  * weighs zero, the equal division above would hand each a fifth of the run,
  * and the ceiling is what turns that surplus into run left over beneath the
  * wall rather than air stretched into the cards.
@@ -3783,7 +3783,7 @@ export function seamDragBounds(
   // The seam's travel is bounded by BOTH members at BOTH ends: `a` may not go
   // under its floor or over its ceiling, and neither may `b` — and `b`'s
   // bounds are `a`'s read from the other end of the span ([P05]). Without the
-  // ceiling terms a hand could drag a minimized member to twice its tier and
+  // ceiling terms a hand could drag a folded member to twice its tier and
   // the next allocation would snap it straight back.
   const lower = Math.max(a.floor, span - (b.ceiling ?? Infinity));
   const upper = Math.min(span - b.floor, a.ceiling ?? Infinity);

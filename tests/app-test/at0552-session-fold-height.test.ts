@@ -1,12 +1,12 @@
 /**
- * at0552-session-minimize-height.test.ts — the tier a minimized card stands at.
+ * at0552-session-fold-height.test.ts — the tier a folded card stands at.
  *
  * ## What this gates
  *
- * `SESSION_MINIMIZED_HEIGHT_PX` is a declared number that has to equal a
- * measured one ([P04]). The two bands of the minimized form — the masthead
+ * `SESSION_FOLDED_HEIGHT_PX` is a declared number that has to equal a
+ * measured one ([P04]). The two bands of the folded form — the masthead
  * tier and the Z2 status row, whose leading edge carries the card's one
- * minimize control ([B03]) — add up to whatever the built app's cascade says
+ * fold control ([B03]) — add up to whatever the built app's cascade says
  * they do, and the size policy pins the frame at the constant. If the two
  * disagree the card either clips its own instruments or carries dead air
  * under them, and neither is visible in a unit test: the constant would agree
@@ -17,21 +17,21 @@
  *   1. **The frame stands at the constant**, within a pixel.
  *   2. **It sits at the top of its run**, not floating mid-canvas — the
  *      `anchor: "start"` half of [P04]. About is centred because a dialog box
- *      is; a minimized card is a row in a wall and reads from the top.
+ *      is; a folded card is a row in a wall and reads from the top.
  *   3. **Nothing is clipped**: the card body's `scrollHeight` equals its
  *      `clientHeight`, so the tier is not one pixel short of its own content.
  *   4. **No dead air**: the slack between Z2's bottom and the frame's is
  *      under 2px, so the tier is not generous either. Z2 is the form's last
- *      band now that the Show Transcript bar has retired into it, so it is
+ *      band now that the transcript bar has retired into it, so it is
  *      the edge the frame has to meet.
  *
- * And it `note()`s the measured height and how many minimized cards fit a
+ * And it `note()`s the measured height and how many folded cards fit a
  * 900px run, which is the number [Q02] asked for and this is the only place
  * that can answer it.
  *
  * The seeded pane's stored height is the OPEN card's 620, which is what the
  * ceiling added to `frameHeight` has to override — nothing rewrites a stored
- * size on a minimize, and nothing should, because showing the card again must
+ * size on a fold, and nothing should, because showing the card again must
  * put it back at the size it was. That number is what the imposer is handed as
  * the pinned height, so claim 1 is the clamp's test as well as the tier's.
  *
@@ -52,14 +52,14 @@ const PANE = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 const CARD = '[data-card-id="A"]';
 /** The form's last band — and the seat of its one door ([B03]). */
 const STATUS_BAR = `${CARD} [data-slot="session-card-status-bar"]`;
-const CONTROL = `${STATUS_BAR} [data-slot="session-minimize-control"] button`;
+const CONTROL = `${STATUS_BAR} [data-slot="session-fold-control"] button`;
 
 /**
- * `SESSION_MINIMIZED_HEIGHT_PX` from `session-card-registration.tsx`,
+ * `SESSION_FOLDED_HEIGHT_PX` from `session-card-registration.tsx`,
  * duplicated rather than imported: an app-test drives the BUILT app, and
  * importing the constant would assert the source against itself.
  */
-const SESSION_MINIMIZED_HEIGHT_PX = 144;
+const SESSION_FOLDED_HEIGHT_PX = 144;
 
 /** The imposition's gaps (`lib/layout-imposer.ts`). */
 const GAP = 5;
@@ -89,11 +89,11 @@ function deckShape() {
   };
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0552: the minimized card's tier", () => {
+describe.skipIf(!SHOULD_RUN)("AT0552: the folded card's tier", () => {
   test(
     "the frame stands at the tier, at the top of its run, fitting its content exactly",
     async () => {
-      const app = await launchTugApp({ testName: "at0552-minimize-height" });
+      const app = await launchTugApp({ testName: "at0552-fold-height" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -105,10 +105,10 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the minimized card's tier", () => {
         await app.awaitEngineReady("A");
 
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-minimized"), null)`,
+          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
         );
         await app.waitForCondition<boolean>(
-          `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).minimized === true`,
+          `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === true`,
           { timeoutMs: 8000 },
         );
         // The flag flips at once; the fit is a claim about where the form
@@ -152,8 +152,8 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the minimized card's tier", () => {
           })()`,
         );
 
-        note("minimized tier px", geo.frameHeight);
-        // [Q02]'s number: how many minimized cards a 900px run holds, at the
+        note("folded tier px", geo.frameHeight);
+        // [Q02]'s number: how many folded cards a 900px run holds, at the
         // imposer's 5px seam between members.
         note(
           "fit at 900px",
@@ -163,7 +163,7 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the minimized card's tier", () => {
         note("slack under Z2 px", geo.frameBottom - geo.barBottom);
 
         // 1. The declared tier is the measured one.
-        expect(Math.abs(geo.frameHeight - SESSION_MINIMIZED_HEIGHT_PX)).toBeLessThanOrEqual(1);
+        expect(Math.abs(geo.frameHeight - SESSION_FOLDED_HEIGHT_PX)).toBeLessThanOrEqual(1);
 
         // 2. Anchored to the run's START ([P04]). The run is the canvas less
         // its top gap and the deeper bottom one, read off the canvas the deck
@@ -193,7 +193,7 @@ describe.skipIf(!SHOULD_RUN)("AT0552: the minimized card's tier", () => {
 
         // …and the door the tier no longer pays a band for is in the row it
         // came down to, wearing the verb the form is asking for ([B03]).
-        expect(geo.controlLabel).toBe("Show Transcript");
+        expect(geo.controlLabel).toBe("Unfold");
       } finally {
         await app.close();
       }

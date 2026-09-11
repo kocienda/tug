@@ -28,7 +28,7 @@
 
 /**
  * The beat's second line, as a length — how much taller the tier stands when
- * the card beneath it is minimized ([P07]).
+ * the card beneath it is folded ([P07]).
  *
  * Declared at DOCUMENT scope rather than on `.tug-masthead-frame`, because
  * the reader is the PANE: `tug-pane.css` adds it to `--tug-masthead-height`
@@ -41,7 +41,7 @@
  * 16px, not the 14.4 that `--tug-font-size-xs` (12px) at
  * `--tug-line-height-tight` (1.2) computes to: the beat's line box is the
  * floor, and the tier is rounded up from it to a whole even number so the
- * minimized chrome lands on 88 rather than on a fraction the frame would keep
+ * folded chrome lands on 88 rather than on a fraction the frame would keep
  * re-rounding. It is the spike's measured number, and the app-test that
  * measures the built tier is what holds it honest.
  */

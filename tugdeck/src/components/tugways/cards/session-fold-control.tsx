@@ -1,14 +1,14 @@
 /**
- * session-minimize-control.tsx — the card's one minimize control, seated at
+ * session-fold-control.tsx — the card's one fold control, seated at
  * the trailing edge of Z2.
  *
  * ## One control, one seat, two glyphs
  *
  * The verb used to wear two faces in two places: a Z4-lead button in the
  * prompt entry while the card was open, and a full-width Show Transcript bar
- * under Z2 while it was minimized. Two seats for one verb meant the control
+ * under Z2 while it was folded. Two seats for one verb meant the control
  * moved when the card changed form — the reader had to find it again — and the
- * minimized form paid a whole band for a door the open form already had a
+ * folded form paid a whole band for a door the open form already had a
  * button for. Both retire here ([B03]–[B06]): the control stands at the
  * trailing edge of the Z2 status row in BOTH forms, and only its glyph and its
  * label change with the flag.
@@ -29,7 +29,7 @@
  *
  * ## The seat in the cycle
  *
- * Minimized, it is the one live stop in the card that is not a Z2 cell, and it
+ * Folded, it is the one live stop in the card that is not a Z2 cell, and it
  * is the card's Return-home: `persistentDefaultRing` registers it as the
  * scope's default button, which is what makes Return mean "show the
  * transcript" while the transcript, the find bar and the composer are all
@@ -43,10 +43,10 @@
  *
  * `ghost`, by the user's call: the control is a quiet door beside the
  * instruments, not a boxed button. Ghost carries no `[data-default-ring]`
- * arm, so the minimized form's Return-home registration below still routes
+ * arm, so the folded form's Return-home registration below still routes
  * Return here but draws no persistent mark on the button.
  *
- * The button is a plain door onto the same `toggle-session-minimized` command
+ * The button is a plain door onto the same `toggle-session-fold` command
  * the toolbar button and the menu item reach ([P02], [L11]).
  */
 
@@ -57,30 +57,30 @@ import { TugActionTooltip } from "@/components/tugways/tug-action-tooltip";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
 
-import "./session-minimize-control.css";
+import "./session-fold-control.css";
 
-export interface SessionMinimizeControlProps {
-  /** Whether the card's pane currently wears the minimized form ([P01]). */
-  minimized: boolean;
+export interface SessionFoldControlProps {
+  /** Whether the card's pane currently wears the folded form ([P01]). */
+  folded: boolean;
   /** The card cycle's focus group — `SESSION_CYCLE_GROUP`. */
   focusGroup: string;
-  /** The control's order within it — `SESSION_CYCLE_ORDER_MINIMIZE`. */
+  /** The control's order within it — `SESSION_CYCLE_ORDER_FOLD`. */
   focusOrder: number;
 }
 
-export function SessionMinimizeControl({
-  minimized,
+export function SessionFoldControl({
+  folded,
   focusGroup,
   focusOrder,
-}: SessionMinimizeControlProps): React.ReactElement {
-  const label = minimized ? "Show Transcript" : "Minimize";
+}: SessionFoldControlProps): React.ReactElement {
+  const label = folded ? "Unfold" : "Fold";
   return (
     <div
-      className="session-card-minimize-control"
-      data-slot="session-minimize-control"
+      className="session-card-fold-control"
+      data-slot="session-fold-control"
     >
       <TugActionTooltip
-        action={TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED}
+        action={TUG_ACTIONS.TOGGLE_SESSION_FOLD}
         content={label}
       >
         <TugPushButton
@@ -89,19 +89,19 @@ export function SessionMinimizeControl({
           role="action"
           size="sm"
           aria-label={label}
-          // Only the minimized form has a Return to give away — see the
+          // Only the folded form has a Return to give away — see the
           // docblock. Open, the composer's submit is the card's Return.
-          persistentDefaultRing={minimized}
+          persistentDefaultRing={folded}
           focusGroup={focusGroup}
           focusOrder={focusOrder}
           icon={
-            minimized ? (
+            folded ? (
               <ChevronsUpDown size={14} aria-hidden="true" />
             ) : (
               <ChevronsDownUp size={14} aria-hidden="true" />
             )
           }
-          onClick={() => dispatchCommand(TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED)}
+          onClick={() => dispatchCommand(TUG_ACTIONS.TOGGLE_SESSION_FOLD)}
         />
       </TugActionTooltip>
     </div>

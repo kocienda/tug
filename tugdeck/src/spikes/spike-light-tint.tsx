@@ -427,8 +427,8 @@ function Rail(): React.ReactElement {
       <div className="sp-lt-band">Sessions</div>
       <div className="sp-lt-rows">
         <Row
-          name="session-minimize"
-          description="Trace follow-bottom scrolling and minimize behavior"
+          name="session-fold"
+          description="Trace follow-bottom scrolling and fold behavior"
           badge={
             <TugBadge emphasis="filled" role="action" size="sm">
               1
@@ -462,7 +462,7 @@ function Rail(): React.ReactElement {
       <div className="sp-lt-band">Files</div>
       <div className="sp-lt-rows">
         <Row name="sidebar-rail-issues.md" description="briefs" />
-        <Row name="session-minimize-issues.md" description="briefs" />
+        <Row name="session-fold-issues.md" description="briefs" />
       </div>
     </div>
   );
@@ -544,7 +544,7 @@ function DiffCard(): React.ReactElement {
         <span className="tug-pane-icon">
           <FileDiff size={13} />
         </span>
-        <span className="tug-pane-title">session-minimize-issues.md</span>
+        <span className="tug-pane-title">session-fold-issues.md</span>
         <Cluster />
       </div>
       <div className="sp-lt-body">an unfocused card&rsquo;s content ground</div>

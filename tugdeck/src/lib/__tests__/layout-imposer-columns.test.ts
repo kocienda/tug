@@ -804,15 +804,15 @@ describe("the reveal rule is one rule, read on either axis", () => {
 // The wall ([P05], [P06])
 // ---------------------------------------------------------------------------
 
-describe("a wall of minimized members", () => {
-  /** The tier a minimized Session card stands at, and an open one's floor. */
+describe("a wall of folded members", () => {
+  /** The tier a folded Session card stands at, and an open one's floor. */
   const TIER = 160;
   const OPEN = 600;
   const SEAM = 5;
   /** A 900px canvas gives a column this much run: 900 − 5 − 32. */
   const RUN = 900 - 5 - 32;
 
-  /** A minimized member: floor pinned to ceiling, and no share of the run. */
+  /** A folded member: floor pinned to ceiling, and no share of the run. */
   const folded = (id: string): PlaceMember => ({
     id,
     floor: TIER,

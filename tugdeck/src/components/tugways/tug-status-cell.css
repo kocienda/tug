@@ -127,8 +127,8 @@
    what lets the `@container` rungs below keep their measured values — the full
    set and each post-collapse subset need exactly what they needed before.
 
-   **The total came down from 80ch to 76ch to seat the minimize control.** The
-   control stands at the row's leading edge and needs ~32px the row did not
+   **The total came down from 80ch to 76ch to seat the fold control.** The
+   control stands at the row's trailing edge and needs ~32px the row did not
    have: at slim it had ~5px of slack, and halving the row's own inset
    (`session-card-telemetry-renderers.css`, 8px → 4px a side) found 8 more, so
    ~20px had to come out of the cells. Measured after the cut and before the
@@ -195,7 +195,7 @@
    cell's two stretched rows render it at 87 — so JOBS at 13ch (89px) gives
    back 2px rather than the 27 its four characters name, while ARC takes its
    full 22 (92 → 114). Measured at slim, the five cells came to 633px in a
-   617px row and the STATE cell overhung the minimize control's seat by the
+   617px row and the STATE cell overhung the fold control's seat by the
    difference. The declared sum was right and the row was over.
 
    So CONTEXT gives what JOBS cannot: 17ch → 14ch, which is 20px, and the ARC
@@ -548,8 +548,8 @@
    set.
 
    Five cells at the budgets above measure 614px including the 24px gaps, and
-   the row's own 4px-a-side inset puts the set's need at 622px. The minimize
-   control stands inside the same query, at the row's leading edge, and takes
+   the row's own 4px-a-side inset puts the set's need at 622px. The fold
+   control stands inside the same query, at the row's trailing edge, and takes
    32px more of it — a 28px button and the strip's 4px gap ([B03]) — so the
    full set needs 654px of query width and holds down to a 653px query. Slim
    clears that by 3px, which is the whole of what the budget cut bought and

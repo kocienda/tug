@@ -106,7 +106,7 @@ import { useHelpSheet } from "./help-sheet";
 import { useRenameSessionSheet } from "./rename-session-sheet";
 import { useResumeSheet } from "./resume-sheet";
 import { SessionPendingContextStrip } from "./session-pending-context-strip";
-import { SessionMinimizeControl } from "./session-minimize-control";
+import { SessionFoldControl } from "./session-fold-control";
 import { readSettleMs } from "@/lib/layout-imposer";
 import { getTugTiming } from "../scale-timing";
 import { useEffort } from "@/lib/use-effort";
@@ -261,7 +261,7 @@ import {
 } from "@/lib/card-services-store";
 import { cardTitleStore } from "@/lib/card-title-store";
 import { getDeckStore } from "@/lib/deck-store-registry";
-import { cardMinimizedOf } from "@/deck-store-selectors";
+import { cardFoldedOf } from "@/deck-store-selectors";
 import { registerCardCloseAdvice } from "@/lib/card-close-advice";
 import { readSessionCardCloseAdvice } from "@/lib/session-card-close-advice";
 import {
@@ -349,7 +349,7 @@ const SESSION_CYCLE_GROUP = "session-prompt-cycle";
 // Cycle order ([P10], revised): the cycle reads the card bottom toolbar
 // left→right, then up to the find bar (while it is open), the status cells and
 // the PULSE strip, then into the editor and its compose-phase attachment tiles,
-// and **seeds at the Minimize button** (order −1). Forward Tab: Minimize →
+// and **seeds at the Fold button** (order −1). Forward Tab: Fold →
 // route → Claude Code → Session → Project → Cwd/Changes → AI settings →
 // submit → find query → find options → find previous → find next → STATE →
 // TIME → TOKENS → CONTEXT → WORK → PULSE → editor → attachment-1 …
@@ -400,19 +400,19 @@ const SESSION_CYCLE_ORDER_COMMIT_BASE = 5;
 // where the bar sits: the cycle reads the card upward from its bottom edge.
 const SESSION_CYCLE_ORDER_FIND_BASE = 8;
 const SESSION_CYCLE_FIND_STOP_COUNT = 4;
-// The minimize control, seated at the TRAILING edge of Z2 in BOTH forms
+// The fold control, seated at the TRAILING edge of Z2 in BOTH forms
 // ([B03]–[B06]). It takes 18 — one past the Z2 cells at 13…17 — because that
 // is where it stands on screen: the walk reads the row left to right, and the
 // control is the last thing in it. 18 was free: it was the PULSE label's stop
 // before the PULSE moved to the masthead. This control is present in both
 // forms, so it needs an order of its own.
 //
-// Minimized it is the card's Return-home and the one live stop that is not a
+// Folded it is the card's Return-home and the one live stop that is not a
 // cell; open it is simply the stop after them ([P08]).
-const SESSION_CYCLE_ORDER_MINIMIZE = 18;
+const SESSION_CYCLE_ORDER_FOLD = 18;
 // The control's stable focus key — the `group:order` form every `focus-key`
 // placement addresses a stop by.
-const MINIMIZE_FOCUS_KEY = `${SESSION_CYCLE_GROUP}:${SESSION_CYCLE_ORDER_MINIMIZE}`;
+const FOLD_FOCUS_KEY = `${SESSION_CYCLE_GROUP}:${SESSION_CYCLE_ORDER_FOLD}`;
 // How long past the settle's own window the fold's backstop waits before it
 // writes the terminal state without a `transitionend` ([B06], (#motion-build)).
 // Generous against the window it guards for the reason the settle's session
@@ -424,7 +424,7 @@ const FOLD_END_SLACK_MS = 150;
 // orders 13…17 (base + 0…4). The editor (the text body) follows at 19; and
 // the Z4C compose-phase attachment tiles — one leaf stop each — take the
 // orders from 20 upward (base + tile index), so they Tab right after the
-// editor. 18 is the minimize control at Z2's trailing edge (above).
+// editor. 18 is the fold control at Z2's trailing edge (above).
 const SESSION_CYCLE_ORDER_STATUS_BASE = 13;
 const SESSION_CYCLE_ORDER_EDITOR = 19;
 const SESSION_CYCLE_ORDER_ATTACHMENT_BASE = 20;
@@ -2684,24 +2684,24 @@ export function SessionCardBody({
   }
   const shadeViewController = shadeViewControllerRef.current;
 
-  // Whether this card's PANE wears the minimized form ([P01], [P03]). The
+  // Whether this card's PANE wears the folded form ([P01], [P03]). The
   // flag is deck state, so it enters React through `useSyncExternalStore`
   // ([L02]); everything the form does in CSS is keyed on the pane's
-  // `data-minimized` instead, and this value is only for what CSS cannot do —
+  // `data-folded` instead, and this value is only for what CSS cannot do —
   // here, the popup row's checkmark.
   //
   // Read off the process-wide registry rather than `useDeckManager()`, which
   // throws without a provider: a Session card renders in the gallery and in
   // tests that bootstrap no DeckManager, and the honest answer there is
-  // not-minimized rather than a crash.
+  // not-folded rather than a crash.
   const subscribeToDeck = useCallback((onStoreChange: () => void) => {
     const store = getDeckStore();
     if (store === null) return () => {};
     return store.subscribe(onStoreChange);
   }, []);
-  const minimized = useSyncExternalStore(subscribeToDeck, () => {
+  const folded = useSyncExternalStore(subscribeToDeck, () => {
     const store = getDeckStore();
-    return store === null ? false : cardMinimizedOf(store.getSnapshot(), cardId);
+    return store === null ? false : cardFoldedOf(store.getSnapshot(), cardId);
   });
 
   // Commit mode's per-card state + land path ([P03], Spec S03). User-driven —
@@ -3257,7 +3257,7 @@ export function SessionCardBody({
           )
         : [],
       [
-        // The minimize control shares the Z2 row because it STANDS in it, at
+        // The fold control shares the Z2 row because it STANDS in it, at
         // the row's trailing edge in both forms ([B03]). So Right from JOBS
         // reaches it and Left from it reaches JOBS, which is what the eye
         // reads off the strip.
@@ -3266,7 +3266,7 @@ export function SessionCardBody({
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 2),
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 3),
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 4),
-        k(SESSION_CYCLE_ORDER_MINIMIZE),
+        k(SESSION_CYCLE_ORDER_FOLD),
       ],
       // The editor's text stop — the input-area wrapper, which is what wears
       // the ring while the editor itself stays blurred. Also a lone node.
@@ -3362,10 +3362,10 @@ export function SessionCardBody({
   // dialog's stop, stripping the ring and the arrow walk. `adoptKeyCard` is
   // the same gate `applyBagFocus` runs on every activation claim.
   //
-  // The [P08] gate above it: a MINIMIZED card has no resting editor to reclaim
+  // The [P08] gate above it: a FOLDED card has no resting editor to reclaim
   // — the transcript, the find bar and the composer are all `inert`, and the
   // browser strips focus from anything inside an inert subtree. Its one
-  // destination is the Show Transcript bar, so every trigger routes there while
+  // destination is the fold control, so every trigger routes there while
   // the form is worn, ahead of `adoptKeyCard`: a pending Permission or Question
   // dialog is folded away with the transcript (Risk R05), so re-adopting its
   // trap would put the key view somewhere the user cannot see or reach. The
@@ -3387,10 +3387,10 @@ export function SessionCardBody({
     // retain close ([P15]). This reclaim is for sheets/banners closed outside a
     // cycle (a slash-command picker, a banner).
     if (cycle.cycling) return;
-    if (minimized && focusManager !== null) {
+    if (folded && focusManager !== null) {
       focusManager.place(
         cardId,
-        { kind: "focus-key", focusKey: MINIMIZE_FOCUS_KEY },
+        { kind: "focus-key", focusKey: FOLD_FOCUS_KEY },
         { modality: "keyboard" },
       );
       return;
@@ -3413,11 +3413,11 @@ export function SessionCardBody({
       return;
     }
     entryDelegateRef.current?.focus();
-  }, [cardLifecycle, cardId, entryDelegateRef, cycle, focusManager, minimized]);
+  }, [cardLifecycle, cardId, entryDelegateRef, cycle, focusManager, folded]);
 
   // The fold and the unfold each move the keyboard, and neither is a mount, a
   // sheet or a banner — so neither reaches the reclaim through any trigger
-  // above. Minimizing pulls the key view off an editor that is about to become
+  // above. Folding pulls the key view off an editor that is about to become
   // `inert` (Risk R01: without this the card is reachable and unfocused, the
   // caretless-void failure the `didHide` contract exists to prevent); showing
   // the transcript pulls it off a bar that is unmounting. Both are the
@@ -3430,9 +3430,9 @@ export function SessionCardBody({
   // the bar each time the user Tab'd.
   const lastFoldRef = useRef<boolean | null>(null);
   useLayoutEffect(() => {
-    if (lastFoldRef.current === minimized) return;
+    if (lastFoldRef.current === folded) return;
     const firstRun = lastFoldRef.current === null;
-    lastFoldRef.current = minimized;
+    lastFoldRef.current = folded;
     if (firstRun) return;
     // Showing the transcript ENDS a cycle rather than continuing one. The walk
     // the user was in had two kinds of stop, and the form under it has just
@@ -3440,7 +3440,7 @@ export function SessionCardBody({
     // walking a card that is no longer the one they entered. `exit` pops the
     // mode and lands the resting caret, which is exactly where the mouse path
     // leaves it.
-    if (!minimized && cyclingRef.current) {
+    if (!folded && cyclingRef.current) {
       exitCycleRef.current();
       return;
     }
@@ -3453,13 +3453,13 @@ export function SessionCardBody({
     // keyboard through a trapped mode, and its Return-home can only take the
     // card's one mark back if no button is holding the key view when
     // `adoptKeyCard` runs.
-    if (!minimized) focusManager?.setKeyView(null);
+    if (!folded) focusManager?.setKeyView(null);
     reclaimFocusDestination({ evenIfOccupied: true });
-  }, [focusManager, minimized, reclaimFocusDestination]);
+  }, [focusManager, folded, reclaimFocusDestination]);
 
   // ── The fold's terminal state ([B06], [P03], (#motion-build)) ────────────
   //
-  // The motion itself is CSS keyed on the pane's `data-minimized` ([L13],
+  // The motion itself is CSS keyed on the pane's `data-folded` ([L13],
   // [L06]) and none of it is here. What CSS cannot say is the state the
   // motion ENDS at, and writing that at the flag's flip is what would cancel
   // the motion before its first frame: a `display: none` region has no box to
@@ -3469,7 +3469,7 @@ export function SessionCardBody({
   //
   // `data-fold` on the card root is the whole vocabulary — `"moving"` while a
   // fold is in flight in either direction, `"settled"` once one has ended with
-  // the card minimized, absent while the card is open. The DOM zone, never
+  // the card folded, absent while the card is open. The DOM zone, never
   // React state ([L06]): a commit per frame of the fold is exactly the stream
   // the settle holds every session's notifications off for.
   //
@@ -3484,9 +3484,9 @@ export function SessionCardBody({
   useLayoutEffect(() => {
     const root = sessionCardRootRef.current;
     if (root === null) return;
-    if (foldRef.current === minimized) return;
+    if (foldRef.current === folded) return;
     const firstRun = foldRef.current === null;
-    foldRef.current = minimized;
+    foldRef.current = folded;
 
     const setInert = (on: boolean): void => {
       for (const el of [viewSlotRef.current, entryRegionRef.current]) {
@@ -3500,14 +3500,14 @@ export function SessionCardBody({
         window.clearTimeout(foldEndRef.current);
         foldEndRef.current = null;
       }
-      if (minimized) root.setAttribute("data-fold", "settled");
+      if (folded) root.setAttribute("data-fold", "settled");
       else root.removeAttribute("data-fold");
-      setInert(minimized);
+      setInert(folded);
     };
 
-    if (!minimized) setInert(false);
+    if (!folded) setInert(false);
 
-    // A card that mounts already minimized — a restored deck, a card dropped
+    // A card that mounts already folded — a restored deck, a card dropped
     // into a wall — has no fold to watch: it is there. Same for a reader who
     // asked for less motion, where the transition is a 1ms cut and the
     // `transitionend` worth waiting on is not coming.
@@ -3545,7 +3545,7 @@ export function SessionCardBody({
         foldEndRef.current = null;
       }
     };
-  }, [minimized]);
+  }, [folded]);
 
   useCardDelegate(cardId, {
     cardDidActivate: () => {
@@ -4993,23 +4993,23 @@ export function SessionCardBody({
         commitModeController.exit();
         shadeViewController.toggle("history");
       },
-      // The Minimize button ahead of Z4A, Session ▸ Minimize Session, and
+      // The Fold control at Z2's trailing edge, Session ▸ Fold Session, and
       // ⌥⌘M all land here ([P02]): the card is where the gesture knows which
       // card it is about, and the deck commit is dispatched from one place so
       // the three doors cannot drift apart.
       //
-      // Minimizing closes the surfaces that stand on a transcript there is
+      // Folding closes the surfaces that stand on a transcript there is
       // about to be none of ([P03]) — the find bar, and whichever landing or
       // shade is up. Exiting a landing rather than only hiding the shade is
       // the `TOGGLE_CHANGES_VIEW` handler's own ladder, and a landing draft
       // survives it because `CommitModeController.leave()` persists one.
       // Showing runs none of them: what was closed on the way down was closed
       // deliberately, and re-opening it would be the card guessing.
-      [TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED]: (_event: ActionEvent) => {
+      [TUG_ACTIONS.TOGGLE_SESSION_FOLD]: (_event: ActionEvent) => {
         const deckStore = getDeckStore();
         if (deckStore === null) return;
-        const minimized = cardMinimizedOf(deckStore.getSnapshot(), cardId);
-        if (!minimized) {
+        const folded = cardFoldedOf(deckStore.getSnapshot(), cardId);
+        if (!folded) {
           if (findBarOpenRef.current) closeFindBar();
           if (commitModeController.getSnapshot().active) {
             commitModeController.exit();
@@ -5019,9 +5019,9 @@ export function SessionCardBody({
             shadeViewController.hide();
           }
         }
-        dispatchCommand(TUG_ACTIONS.SET_CARD_MINIMIZED, {
+        dispatchCommand(TUG_ACTIONS.SET_CARD_FOLDED, {
           cardId,
-          minimized: !minimized,
+          folded: !folded,
         });
       },
       // ⌃⌘A / ⌃⇧⌘A — the Changes shade's bulk verbs as chords. The composer
@@ -5451,7 +5451,7 @@ export function SessionCardBody({
                 className="session-view-slot"
                 ref={viewSlotRef}
                 data-active-view={activeView}
-                // Folded while minimized ([P03]). The CSS takes it off the
+                // Folded away with the card ([P03]). The CSS takes it off the
                 // screen; `inert` is what takes it out of the FOCUS walk and
                 // the accessibility tree, and it is the same flag rather than
                 // a second opinion on it. Never unmounted ([L26]) — the
@@ -5620,7 +5620,7 @@ export function SessionCardBody({
                 <cycle.CycleScope>{effectiveStatusBarContent}</cycle.CycleScope>
               </div>
             )}
-            {/* The card's one minimize control ([B03]–[B06]), at the trailing
+            {/* The card's one fold control ([B03]–[B06]), at the trailing
                 edge of the row in BOTH forms — a sibling of the status
                 content rather than a child of it, because `-main` refuses
                 focus for its cells and gaps and a door must not ([F07]).
@@ -5628,14 +5628,14 @@ export function SessionCardBody({
                 Under a `CycleScope` of its own for the same reason the status
                 content above takes one: the strip sits outside the prompt
                 entry's subtree, and a stop that is not in the cycle's mode is
-                not a member of the walk — minimized, ⌥⇥ would seed the first
+                not a member of the walk — folded, ⌥⇥ would seed the first
                 Z2 cell and Tab would never reach the one door the form has
                 ([P08]). */}
             <cycle.CycleScope>
-              <SessionMinimizeControl
-                minimized={minimized}
+              <SessionFoldControl
+                folded={folded}
                 focusGroup={SESSION_CYCLE_GROUP}
-                focusOrder={SESSION_CYCLE_ORDER_MINIMIZE}
+                focusOrder={SESSION_CYCLE_ORDER_FOLD}
               />
             </cycle.CycleScope>
           </div>
@@ -5700,7 +5700,7 @@ export function SessionCardBody({
           ref={entryRegionRef}
           data-slot="session-card-entry-region"
           // The other folded region ([P03]). The composer keeps an unsent
-          // draft, its caret, and its route across a minimize because it is
+          // draft, its caret, and its route across a fold because it is
           // hidden rather than unmounted ([B05]); `inert` is what keeps a Tab
           // out of it while it is not on screen — written by the fold effect
           // at the motion's end, not declared here ([B06]).

@@ -1,29 +1,29 @@
 /**
- * at0551-session-minimize-form.test.ts — what a minimized Session card IS.
+ * at0551-session-fold-form.test.ts — what a folded Session card IS.
  *
  * ## What this gates
  *
  * The flag is the pane's ([P01]) and at0550 gates the doors that set it. This
  * file gates the FORM it produces ([B01], [P03]): a masthead tier one beat
  * line taller with the beat wrapped to two lines and the Z2 status row, whose
- * leading edge carries the card's one minimize control ([B03]) — and nothing
+ * leading edge carries the card's one fold control ([B03]) — and nothing
  * else on screen.
  *
  * Four claims:
  *
- *   1. **The form.** `data-minimized="true"` reaches the pane frame; the title
- *      bar stands at `MASTHEAD_MINIMIZED_HEIGHT`; the beat run is two lines
+ *   1. **The form.** `data-folded="true"` reaches the pane frame; the title
+ *      bar stands at `MASTHEAD_FOLDED_HEIGHT`; the beat run is two lines
  *      tall and carries no `data-truncated` (the wrap is what retires the
  *      middle-truncation reading, [R04]); the transcript slot and the entry
  *      region are neither displayed nor reachable; Z2 is still on screen with
  *      its cells; and the control at Z2's leading edge has turned over to
- *      `Show Transcript` — the one thing the form change costs the reader,
+ *      `Unfold` — the one thing the form change costs the reader,
  *      now that the verb has one seat instead of two ([B03], [B04]).
  *   2. **The composer folds, it does not unmount** ([B05], [L26]). Text typed
- *      into the editor is still in it after a minimize and a show — which is
+ *      into the editor is still in it after a fold and a show — which is
  *      the whole reason the fold is a collapse and an `inert` attribute rather
  *      than a conditional mount.
- *   3. **The beat reads in the WALL register** ([P09].3, [B08]). Minimized,
+ *   3. **The beat reads in the WALL register** ([P09].3, [B08]). Folded,
  *      the beat is the only thing on screen and gets two lines with two jobs:
  *      the retained intent above, the action below, each its own run and each
  *      set to `block` so the reader meets two facts rather than one
@@ -32,8 +32,8 @@
  *      question a wall of watched sessions is being asked. Open, the same
  *      feed renders one run and no intent at all, because the transcript
  *      underneath is already saying what the session is for.
- *   4. **The flag rides the saved layout.** Minimize, reload, and the pane's
- *      `minimized` is in the layout blob on tugbank disk — the SAVE side of
+ *   4. **The flag rides the saved layout.** Fold, reload, and the pane's
+ *      `folded` is in the layout blob on tugbank disk — the SAVE side of
  *      [P01], driven through the real flush. The load side is a unit test's
  *      subject (`serialization.ts`'s `parseV4` rebuilds a pane field by
  *      field, so an additive field it does not read is one that does not come
@@ -56,8 +56,8 @@
  * @covers tugdeck/src/components/tugways/masthead-frame.css
  * @covers tugdeck/src/components/tugways/session-masthead.css
  * @covers tugdeck/src/components/tugways/cards/session-card.css
- * @covers tugdeck/src/components/tugways/cards/session-minimize-control.tsx
- * @covers tugdeck/src/components/tugways/cards/session-minimize-control.css
+ * @covers tugdeck/src/components/tugways/cards/session-fold-control.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-fold-control.css
  * @covers tugdeck/src/components/tugways/session-identity-row.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.css
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
@@ -86,18 +86,18 @@ const VIEW_SLOT = `${CARD} .session-view-slot`;
 const ENTRY_REGION = `${CARD} [data-slot="session-card-entry-region"]`;
 const STATUS_BAR = `${CARD} [data-slot="session-card-status-bar"]`;
 const STATUS_CELL = `${STATUS_BAR} [data-slot="tug-status-cell"]`;
-const CONTROL = `${STATUS_BAR} [data-slot="session-minimize-control"]`;
+const CONTROL = `${STATUS_BAR} [data-slot="session-fold-control"]`;
 const CONTROL_BUTTON = `${CONTROL} button`;
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 
 /**
- * `MASTHEAD_MINIMIZED_HEIGHT` in `tug-pane.tsx`, which must equal
+ * `MASTHEAD_FOLDED_HEIGHT` in `tug-pane.tsx`, which must equal
  * `--tug-masthead-height` (72) + `--tugx-masthead-beat-extra-line` (16). The
  * constant is duplicated here rather than imported because an app-test drives
  * the BUILT app: importing the module would assert the source against itself
  * and say nothing about the cascade that actually produced the tier.
  */
-const MASTHEAD_MINIMIZED_HEIGHT = 88;
+const MASTHEAD_FOLDED_HEIGHT = 88;
 
 /** A beat no open card could show whole — the second line's whole reason. */
 const LONG_BEAT =
@@ -201,19 +201,19 @@ async function openCard(app: App): Promise<void> {
 }
 
 /** Flip the flag through the one command every door reaches ([P02]). */
-async function toggleMinimized(app: App, want: boolean): Promise<void> {
+async function toggleFolded(app: App, want: boolean): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("toggle-session-minimized"), null)`,
+    `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
   );
   await app.waitForCondition<boolean>(
-    `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).minimized === ${want}`,
+    `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === ${want}`,
     { timeoutMs: 8000 },
   );
   // And then on the fold itself. The flag arms the motion; the card writes the
   // terminal state — the view slot's `display`, both regions' `inert` — when
   // the motion ENDS ([B06]), so the record moving is not yet the form being
   // worn. `data-fold` is the card's own account of that: `"settled"` once a
-  // fold has landed minimized, absent once one has landed open.
+  // fold has landed folded, absent once one has landed open.
   await app.waitForCondition<boolean>(
     `(function () {
        var card = document.querySelector(${JSON.stringify(CARD)} + " .session-card");
@@ -226,7 +226,7 @@ async function toggleMinimized(app: App, want: boolean): Promise<void> {
 
 /** The whole form, read off the built DOM in one round trip. */
 async function readForm(app: App): Promise<{
-  frameMinimized: string | null;
+  frameFolded: string | null;
   titleBarHeight: number;
   beatHeight: number;
   beatTruncated: boolean;
@@ -261,7 +261,7 @@ async function readForm(app: App): Promise<{
         ? 0
         : parseFloat(getComputedStyle(beat).lineHeight) || 0;
       return {
-        frameMinimized: frame === null ? null : frame.getAttribute("data-minimized"),
+        frameFolded: frame === null ? null : frame.getAttribute("data-folded"),
         // The CONTENT height, not the border box: the tier's height rule is
         // content-box and the bar draws a 1px bottom rule under it, so a rect
         // would report the constant plus one and the arithmetic would read as
@@ -294,11 +294,11 @@ async function readForm(app: App): Promise<{
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => {
+describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
   test(
     "the tier grows a beat line, the body folds to Z2, and the bar takes the width",
     async () => {
-      const app = await launchTugApp({ testName: "at0551-minimize-form" });
+      const app = await launchTugApp({ testName: "at0551-fold-form" });
       try {
         await openCard(app);
 
@@ -315,27 +315,27 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
         const openTier = (await readForm(app)).titleBarHeight;
         note("open masthead tier px", openTier);
 
-        await toggleMinimized(app, true);
+        await toggleFolded(app, true);
         await app.waitForCondition<boolean>(
           `(function () {
              var button = document.querySelector(${JSON.stringify(CONTROL_BUTTON)});
-             return button !== null && button.getAttribute("aria-label") === "Show Transcript";
+             return button !== null && button.getAttribute("aria-label") === "Unfold";
            })()`,
           { timeoutMs: 8000 },
         );
 
         const form = await readForm(app);
-        note("minimized masthead tier px", form.titleBarHeight);
-        note("minimized beat box px", form.beatHeight);
+        note("folded masthead tier px", form.titleBarHeight);
+        note("folded beat box px", form.beatHeight);
         note("Z2 cells", form.statusCells);
         note("control px", `${form.controlWidth} wide, inset ${form.controlInset}, ${form.controlToFirstCell} to STATE`);
 
         // 1. The flag reaches the frame — every rule below hangs off it.
-        expect(form.frameMinimized).toBe("true");
+        expect(form.frameFolded).toBe("true");
 
         // 2. The tier is one beat line taller, and it is the DECLARED number
         // rather than whatever the text asked for.
-        expect(form.titleBarHeight).toBeCloseTo(MASTHEAD_MINIMIZED_HEIGHT, 0);
+        expect(form.titleBarHeight).toBeCloseTo(MASTHEAD_FOLDED_HEIGHT, 0);
         expect(form.titleBarHeight).toBeGreaterThan(openTier);
 
         // 3. The beat wraps to two lines and stops there, and the wrap is what
@@ -356,7 +356,7 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
         expect(form.entryHeight).toBeLessThanOrEqual(1);
         expect(form.entryInert).toBe(true);
 
-        // 5. Z2 stays whole: a minimized card is instruments plus one door,
+        // 5. Z2 stays whole: a folded card is instruments plus one door,
         // and the instruments are the same five cells the open card shows.
         expect(form.statusBarHeight).toBeGreaterThan(0);
         expect(form.statusCells).toBe(5);
@@ -364,16 +364,16 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
         // 6. The door is in the row rather than under it ([B03], [B04]), and
         // its label is the whole of what the form change tells the reader.
         // Where in the row it sits is layout, hand-tuned and not pinned.
-        expect(form.controlLabel).toBe("Show Transcript");
+        expect(form.controlLabel).toBe("Unfold");
 
         // 7. And it is a door: clicking it shows the transcript again.
         await app.nativeClickAtElement(CONTROL_BUTTON);
         await app.waitForCondition<boolean>(
-          `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).minimized === false`,
+          `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === false`,
           { timeoutMs: 8000 },
         );
         const shown = await readForm(app);
-        expect(shown.frameMinimized).toBe(null);
+        expect(shown.frameFolded).toBe(null);
         expect(shown.viewSlotDisplay).not.toBe("none");
         expect(shown.viewSlotInert).toBe(false);
         expect(shown.entryInert).toBe(false);
@@ -387,7 +387,7 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
   test(
     "an unsent draft survives the fold",
     async () => {
-      const app = await launchTugApp({ testName: "at0551-minimize-draft" });
+      const app = await launchTugApp({ testName: "at0551-fold-draft" });
       try {
         await openCard(app);
 
@@ -399,8 +399,8 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
           { timeoutMs: 8000 },
         );
 
-        await toggleMinimized(app, true);
-        await toggleMinimized(app, false);
+        await toggleFolded(app, true);
+        await toggleFolded(app, false);
 
         // The editor is the same element it was: `display: none` costs a draft
         // nothing, and a conditional mount would have cost it everything.
@@ -427,17 +427,17 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          testName: "at0551-minimize-reload",
+          testName: "at0551-fold-reload",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
         });
         try {
           await openCard(app);
-          await toggleMinimized(app, true);
+          await toggleFolded(app, true);
 
           // The reload's `prepareForReload` flushes every save callback
           // synchronously before navigating, so the layout on disk afterwards
-          // is the one the minimize produced.
+          // is the one the fold produced.
           await app.appReload({ timeoutMs: 20_000 });
 
           const onDisk = tugbankRead<Record<string, unknown>>(
@@ -451,7 +451,7 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
           expect(Array.isArray(panes)).toBe(true);
           const saved = (panes ?? []).find((p) => p["id"] === PANE_ID);
           expect(saved, `pane ${PANE_ID} must be in the saved layout`).toBeDefined();
-          expect(saved!["minimized"]).toBe(true);
+          expect(saved!["folded"]).toBe(true);
         } finally {
           await app.close();
         }
@@ -465,12 +465,12 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
   test(
     "the wall register gives the beat two runs, and names what it finished at rest",
     async () => {
-      const app = await launchTugApp({ testName: "at0551-minimize-wall-register" });
+      const app = await launchTugApp({ testName: "at0551-fold-wall-register" });
       try {
         await openCard(app);
 
         // ── A live beat with an intent behind it ──
-        // Two facts, and on the minimized card two lines to put them on
+        // Two facts, and on the folded card two lines to put them on
         // ([P09].3): the retained goal above, the action below. Open, the
         // same feed reads in the one-line register, where the transcript
         // underneath is already saying what the session is for.
@@ -490,7 +490,7 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
         // Open, the intent does not render at all — one line, one fact.
         expect(open.intentRun).toBeNull();
 
-        await toggleMinimized(app, true);
+        await toggleFolded(app, true);
         const folded = await readActivity(app);
         note(
           "wall register",

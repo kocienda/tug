@@ -831,7 +831,7 @@ export interface TugPromptEntryProps {
    * Only fires on the idle path. When a turn is in flight the entry's
    * conditional `CANCEL_DIALOG` handler claims Escape upstream (Stop ≡
    * Esc) and the keystroke never reaches the editor's keymap, so a
-   * minimize can never race an interrupt. A non-empty editor falls
+   * fold can never race an interrupt. A non-empty editor falls
    * through to the editor's own Escape semantics (e.g. autocomplete
    * dismiss). Omit to disable the gesture (the gallery harness does).
    */
@@ -3682,8 +3682,8 @@ export const TugPromptEntry = React.forwardRef<
     ) : undefined;
 
   // The leading slot: the route group alone. It held a Z4-lead seat ahead of
-  // the group for one occupant — the Session card's Minimize button ([D97]) —
-  // and that control moved to the leading edge of Z2, where it stands in both
+  // the group for one occupant — the Session card's Fold button ([D97]) —
+  // and that control moved to the trailing edge of Z2, where it stands in both
   // of the card's forms. The seat retires with it rather than waiting for
   // another card-scoped control to want it: an empty slot is a shape nothing
   // has, and the row lays out exactly as it did before the seat existed.

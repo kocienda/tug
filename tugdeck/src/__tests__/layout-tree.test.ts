@@ -95,10 +95,10 @@ describe("TugPaneState (two-table model)", () => {
   });
 });
 
-// ---- the additive-optional `minimized` flag ----
+// ---- the additive-optional `folded` flag ----
 
-describe("TugPaneState.minimized", () => {
-  function minimizedPane(): TugPaneState {
+describe("TugPaneState.folded", () => {
+  function foldedPane(): TugPaneState {
     return {
       id: "pane-min",
       position: { x: 10, y: 20 },
@@ -107,11 +107,11 @@ describe("TugPaneState.minimized", () => {
       activeCardId: "card-min",
       title: "",
       acceptsFamilies: ["standard"],
-      minimized: true,
+      folded: true,
     };
   }
 
-  function minimizedState(): DeckState {
+  function foldedState(): DeckState {
     const card: CardState = {
       id: "card-min",
       componentId: "session",
@@ -120,32 +120,32 @@ describe("TugPaneState.minimized", () => {
     };
     return {
       cards: [card],
-      panes: [minimizedPane()],
+      panes: [foldedPane()],
       imposition: { sidebars: { tripwires: { side: "right" } } },
       hasFocus: true,
     };
   }
 
-  test("a minimized pane passes validateDeckState — the flag constrains nothing", () => {
-    expect(() => validateDeckState(minimizedState())).not.toThrow();
+  test("a folded pane passes validateDeckState — the flag constrains nothing", () => {
+    expect(() => validateDeckState(foldedState())).not.toThrow();
   });
 
   test("the flag survives serialize / deserialize", () => {
-    const json = JSON.stringify(serialize(minimizedState()));
+    const json = JSON.stringify(serialize(foldedState()));
     const restored = deserialize(json, 1920, 1080);
     expect(restored.panes.length).toBe(1);
-    expect(restored.panes[0].minimized).toBe(true);
+    expect(restored.panes[0].folded).toBe(true);
   });
 
   test("a pane without the flag restores without the key, not with false", () => {
-    const state = minimizedState();
-    const { minimized: _dropped, ...bare } = state.panes[0];
+    const state = foldedState();
+    const { folded: _dropped, ...bare } = state.panes[0];
     const json = JSON.stringify(serialize({ ...state, panes: [bare] }));
     const restored = deserialize(json, 1920, 1080);
-    expect("minimized" in restored.panes[0]).toBe(false);
+    expect("folded" in restored.panes[0]).toBe(false);
   });
 
-  test("a blob saved before the field restores as not minimized", () => {
+  test("a blob saved before the field restores as not folded", () => {
     // The additive-optional contract: no version bump, and an older blob
     // simply has no key to read.
     const legacy = {
@@ -167,7 +167,7 @@ describe("TugPaneState.minimized", () => {
       imposition: { sidebars: { tripwires: { side: "right" } } },
     };
     const restored = deserialize(JSON.stringify(legacy), 1920, 1080);
-    expect(restored.panes[0].minimized).toBeUndefined();
+    expect(restored.panes[0].folded).toBeUndefined();
   });
 });
 

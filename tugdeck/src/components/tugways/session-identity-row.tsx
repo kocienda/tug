@@ -624,7 +624,7 @@ export interface SessionIdentityRowProps
    * finished. The Cards card's rows, the picker's rows and the open card's
    * masthead all read here.
    *
-   * `"wall"` — the minimized Session card, where the beat is the only thing
+   * `"wall"` — the folded Session card, where the beat is the only thing
    * on screen and has two lines to say it in ([B08], [P07]). Two facts get
    * their own line: the retained INTENT above, the action below; and at rest
    * the line names what the last turn finished rather than only when it

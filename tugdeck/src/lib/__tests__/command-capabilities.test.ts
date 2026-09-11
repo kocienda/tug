@@ -238,7 +238,7 @@ describe("computeCommandCapabilities", () => {
       hasTurns: false,
       changesVisible: false,
       historyVisible: false,
-      minimized: false,
+      folded: false,
       commitReady: false,
       hasCustomName: false,
     };
@@ -298,7 +298,7 @@ describe("computeCommandCapabilities", () => {
       hasTurns: false,
       changesVisible: false,
       historyVisible: true,
-      minimized: false,
+      folded: false,
       commitReady: false,
       hasCustomName: false,
     };
@@ -310,8 +310,8 @@ describe("computeCommandCapabilities", () => {
     expect(gates["session.toggleHistory"].title).toBe("Hide Commit History");
   });
 
-  test("Minimize Session says what the gesture will do, and needs a bound session", () => {
-    // The card-scoped minimize ([P02]). Two facts, one test, because they are
+  test("Fold Session says what the gesture will do, and needs a bound session", () => {
+    // The card-scoped fold ([P02]). Two facts, one test, because they are
     // the same claim from both sides: the item is a state display whose verb
     // flips on the published flag, and it needs a BOUND session rather than
     // merely a Session card. The form it produces — the masthead, the Z2 row,
@@ -330,7 +330,7 @@ describe("computeCommandCapabilities", () => {
       hasTurns: false,
       changesVisible: false,
       historyVisible: false,
-      minimized: false,
+      folded: false,
       commitReady: false,
       hasCustomName: false,
     };
@@ -338,33 +338,33 @@ describe("computeCommandCapabilities", () => {
     const open = computeCommandCapabilities(
       source(chain, { sessionCardFrontmost: true, session }),
     );
-    expect(open["session.minimize"].enabled).toBe(true);
-    expect(open["session.minimize"].title).toBe("Minimize Session");
+    expect(open["session.fold"].enabled).toBe(true);
+    expect(open["session.fold"].title).toBe("Fold Session");
 
     const folded = computeCommandCapabilities(
       source(chain, {
         sessionCardFrontmost: true,
-        session: { ...session, minimized: true },
+        session: { ...session, folded: true },
       }),
     );
-    expect(folded["session.minimize"].title).toBe("Show Transcript");
+    expect(folded["session.fold"].title).toBe("Unfold Session");
 
     // A Session card with no session bound: there is a pane, but nothing in it
-    // answers the command and nothing in it is the minimized form.
+    // answers the command and nothing in it is the folded form.
     const unbound = computeCommandCapabilities(
       source(chain, {
         sessionCardFrontmost: true,
         session: { ...session, sessionBound: false },
       }),
     );
-    expect(unbound["session.minimize"].enabled).toBe(false);
+    expect(unbound["session.fold"].enabled).toBe(false);
 
     // A non-Session key card: the verb has nothing to act on, so the item
     // dims and the chord beeps rather than reaching some other card's pane.
     const dark = computeCommandCapabilities(
       source(chain, { sessionCardFrontmost: false, session: null }),
     );
-    expect(dark["session.minimize"].enabled).toBe(false);
+    expect(dark["session.fold"].enabled).toBe(false);
   });
 
   test("Unname is enabled only when there is a name to clear", () => {
@@ -381,7 +381,7 @@ describe("computeCommandCapabilities", () => {
       hasTurns: false,
       changesVisible: false,
       historyVisible: false,
-      minimized: false,
+      folded: false,
       commitReady: false,
       hasCustomName: false,
     };
@@ -605,7 +605,7 @@ describe("computeCommandCapabilities", () => {
           hasTurns: true,
           changesVisible: false,
           historyVisible: false,
-          minimized: false,
+          folded: false,
           commitReady: false,
           hasCustomName: false,
         },

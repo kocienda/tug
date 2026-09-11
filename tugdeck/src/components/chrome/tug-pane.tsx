@@ -164,18 +164,18 @@ export const CARD_TITLE_BAR_HEIGHT = 36;
 export const MASTHEAD_HEIGHT = 72;
 
 /**
- * Height of the masthead tier on a MINIMIZED pane. Must match
+ * Height of the masthead tier on a FOLDED pane. Must match
  * `calc(var(--tug-masthead-height) + var(--tugx-masthead-beat-extra-line))`
  * — the rule in `tug-pane.css` that raises `--tugx-pane-chrome-height` for
- * `[data-masthead="true"][data-minimized="true"]`.
+ * `[data-masthead="true"][data-folded="true"]`.
  *
- * The extra line is the beat's second one ([P07]): a minimized card has no
+ * The extra line is the beat's second one ([P07]): a folded card has no
  * body beneath its masthead to carry the reading on, so the run that
  * truncates on an open card wraps to two lines here, and the tier grows by
  * exactly one line of it rather than by whatever the text asks for. Fixed in
- * both directions, so a wall of minimized cards never ripples.
+ * both directions, so a wall of folded cards never ripples.
  */
-export const MASTHEAD_MINIMIZED_HEIGHT = 88;
+export const MASTHEAD_FOLDED_HEIGHT = 88;
 
 /**
  * Imperative handle on CardTitleBar — lets the surrounding TugPane
@@ -394,14 +394,14 @@ export interface CardTitleBarProps {
    */
   sidebar?: boolean;
   /**
-   * Whether this pane wears the MINIMIZED form ([P01], [P03]) — passed on to
+   * Whether this pane wears the FOLDED form ([P01], [P03]) — passed on to
    * the Session masthead, and to nothing else. The tier's own geometry is CSS
-   * keyed on the frame's `data-minimized` ([L06]); the one thing a stylesheet
+   * keyed on the frame's `data-folded` ([L06]); the one thing a stylesheet
    * cannot decide is that the beat renders as two runs rather than one, which
    * is the register this carries ([P09].3).
    * @default false
    */
-  minimized?: boolean;
+  folded?: boolean;
   onClose?: () => void;
   onDragStart?: (event: React.PointerEvent) => void;
 }
@@ -468,7 +468,7 @@ function CardTitleBar({
   onSetWidth,
   masthead = null,
   sidebar = false,
-  minimized = false,
+  folded = false,
   onClose,
   onDragStart,
 }: CardTitleBarProps, ref) {
@@ -1013,7 +1013,7 @@ function CardTitleBar({
           sessionId={masthead.sessionId}
           cardId={activeCardId}
           // The register the beat reads in ([P09].3).
-          minimized={minimized}
+          folded={folded}
           // Its telemetry widget stands in the pane's control cluster, not
           // beside it — see the host below.
           accessoryHost={controlsAccessoryEl}
@@ -1997,19 +1997,19 @@ export interface TugPaneProps {
    */
   sizePolicy?: CardSizePolicy;
   /**
-   * The pane wears its minimized form ([P01], [P03]) — masthead, the Z2
-   * status row and the minimize control at its leading edge, with the
+   * The pane wears its folded form ([P01], [P03]) — masthead, the Z2
+   * status row and the fold control at its trailing edge, with the
    * transcript and the composer folded away.
    *
-   * Projected onto the frame as `data-minimized`, which is the whole of how
+   * Projected onto the frame as `data-folded`, which is the whole of how
    * the form is worn: every visual difference is a CSS rule under
-   * `.tug-pane[data-minimized="true"]` ([L06]), and the card reads the same
+   * `.tug-pane[data-folded="true"]` ([L06]), and the card reads the same
    * flag off the deck store for the handful of things CSS cannot do.
    *
    * Resolved by `DeckCanvas` from the pane's own state, like every other
    * structural fact the frame stamps.
    */
-  minimized?: boolean;
+  folded?: boolean;
 }
 
 /**
@@ -2083,7 +2083,7 @@ export function TugPane({
   bullseye = false,
   bullseyeExit,
   columnMember,
-  minimized = false,
+  folded = false,
 }: TugPaneProps) {
   const sidebarSide = sidebarStack?.side;
   // A split rail's member takes its share of the run instead of the whole of
@@ -4208,9 +4208,9 @@ export function TugPane({
   // corrected size back to the store.
   const renderWidth = Math.max(size.width, minSize.width);
   // …and a CEILING as well as a floor, because the policy can now bound one
-  // axis alone ([P04]). A minimized pane's stored height is the open card's —
+  // axis alone ([P04]). A folded pane's stored height is the open card's —
   // nothing rewrites it, and nothing should: showing the card again must put
-  // it back at the size it was. So the ceiling is what makes a FREE minimized
+  // it back at the size it was. So the ceiling is what makes a FREE folded
   // pane paint at its tier rather than at the 620px box it remembers. An
   // unbounded axis carries `Infinity`, where the clamp is a no-op.
   const frameHeight = Math.min(
@@ -4235,10 +4235,10 @@ export function TugPane({
       ? {
           ...(widthPinned ? { width: renderWidth } : {}),
           ...(heightPinned ? { height: frameHeight } : {}),
-          // A minimized card reads from the top of its slot; About floats in
+          // A folded card reads from the top of its slot; About floats in
           // the middle of one. Both are height-pinned, and this is the whole
           // of the difference ([P04]).
-          ...(minimized ? { anchor: "start" as const } : {}),
+          ...(folded ? { anchor: "start" as const } : {}),
         }
       : undefined;
   // A width-pinned card's slot is the deck's content width, not its own — but
@@ -4428,11 +4428,11 @@ export function TugPane({
       // banner. A custom property rather than a measured number, so the 72↔36
       // swap is one cascade and not four subscriptions ([L06]).
       {...(activeCardMasthead !== null ? { "data-masthead": "true" } : {})}
-      // The minimized form ([P03]). Stamped beside the chrome tier because it
+      // The folded form ([P03]). Stamped beside the chrome tier because it
       // MOVES that tier: the two together are what raise
       // `--tugx-pane-chrome-height` by the beat's second line, and every
       // surface that seats below the title bar follows without being told.
-      {...(minimized ? { "data-minimized": "true" } : {})}
+      {...(folded ? { "data-folded": "true" } : {})}
       // The rail tier, stamped here as well as on the bar so the height is a
       // pane fact: the scrim, the sheet clip, and the banner all seat below a
       // 32px bar. CSS cannot read the bar's own attribute from up here —
@@ -4600,7 +4600,7 @@ export function TugPane({
                 : {})}
             masthead={activeCardMasthead}
             sidebar={isRail}
-            minimized={minimized}
+            folded={folded}
             onClose={handleTitleBarClose}
             onDragStart={handleDragStart}
           />

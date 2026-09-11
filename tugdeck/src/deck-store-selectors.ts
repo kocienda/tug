@@ -154,23 +154,23 @@ export function slotStackOf(
 }
 
 /**
- * `paneMinimizedOf(state, paneId)` — whether that pane wears its minimized
+ * `paneFoldedOf(state, paneId)` — whether that pane wears its folded
  * form. A pane id naming no live pane reads false, as an absent flag does:
  * the field is additive-optional and its absence is the resting state, so
  * there is nothing here for a caller to distinguish ([P01]).
  */
-export function paneMinimizedOf(state: DeckState, paneId: string): boolean {
-  return state.panes.find((p) => p.id === paneId)?.minimized === true;
+export function paneFoldedOf(state: DeckState, paneId: string): boolean {
+  return state.panes.find((p) => p.id === paneId)?.folded === true;
 }
 
 /**
- * `cardMinimizedOf(state, cardId)` — whether the pane HOSTING that card is
- * minimized. The flag is the pane's ([L09]), so every tab of a minimized pane
+ * `cardFoldedOf(state, cardId)` — whether the pane HOSTING that card is
+ * folded. The flag is the pane's ([L09]), so every tab of a folded pane
  * reads true; a card in no pane reads false.
  */
-export function cardMinimizedOf(state: DeckState, cardId: string): boolean {
+export function cardFoldedOf(state: DeckState, cardId: string): boolean {
   return (
-    state.panes.find((p) => p.cardIds.includes(cardId))?.minimized === true
+    state.panes.find((p) => p.cardIds.includes(cardId))?.folded === true
   );
 }
 
@@ -517,8 +517,8 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
  * content height runs on request rather than from a settled mirror of a
  * measurement store.
  *
- * The one member that reads differently is a MINIMIZED column member ([P05]).
- * Its floor is its stack's minimized policy, its ceiling is the same number —
+ * The one member that reads differently is a FOLDED column member ([P05]).
+ * Its floor is its stack's folded policy, its ceiling is the same number —
  * the two together are what pin it at its tier — and its weight is zero
  * whatever the stored shares say, because a folded card asks for no share of
  * the run. All three are DERIVED from the flag on every allocation, so the
@@ -548,11 +548,11 @@ export function placeMembers(
         : state.cards
             .filter((card) => pane.cardIds.includes(card.id))
             .map((card) => card.componentId);
-    // Rails do not minimize (`setPaneMinimized` refuses one), so this is a
+    // Rails do not fold (`setPaneFolded` refuses one), so this is a
     // column-only reading and the rail branch is untouched by it.
-    const minimized = kind === "column" && pane?.minimized === true;
-    if (minimized) {
-      const policy = getStackSizePolicy(componentIds, { minimized: true });
+    const folded = kind === "column" && pane?.folded === true;
+    if (folded) {
+      const policy = getStackSizePolicy(componentIds, { folded: true });
       return {
         id,
         floor: policy.min.height,

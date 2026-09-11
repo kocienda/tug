@@ -1,5 +1,5 @@
 /**
- * at0555-session-minimize-motion.test.ts — the fold runs on the settle's clock.
+ * at0555-session-fold-motion.test.ts — the fold runs on the settle's clock.
  *
  * ## What this gates
  *
@@ -23,7 +23,7 @@
  *      exact assertion — no sampling, no tolerance — and it is what makes a
  *      retune anywhere up the tree retime both halves.
  *   2. **One clock, observed.** Sampling every frame through a show and then a
- *      minimize: the composer's own collapse and the sibling below it start
+ *      fold: the composer's own collapse and the sibling below it start
  *      together and END together. The plan asked for "no sibling frame's rect
  *      changes before the settle's end", and in a wall that reads wrong —
  *      opening the middle card MUST move the card beneath it. What the claim
@@ -107,13 +107,13 @@ function deckShape() {
 }
 
 /** Fold or show one named card, through the one write path ([P02]). */
-async function setMinimized(
+async function setFolded(
   app: App,
   cardId: string,
   value: boolean,
 ): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("set-card-minimized", { cardId: ${JSON.stringify(cardId)}, minimized: ${value} }), null)`,
+    `(window.__tug.dispatchControlAction("set-card-folded", { cardId: ${JSON.stringify(cardId)}, folded: ${value} }), null)`,
   );
   await wait(AFTER_LAND_MS);
 }
@@ -159,7 +159,7 @@ async function census(
     })()`,
   );
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("set-card-minimized", { cardId: ${JSON.stringify(cardId)}, minimized: ${value} }), null)`,
+    `(window.__tug.dispatchControlAction("set-card-folded", { cardId: ${JSON.stringify(cardId)}, folded: ${value} }), null)`,
   );
   await wait(CENSUS_MS + 300);
   return app.evalJS<Sample[]>(`window.__at0555`);
@@ -196,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("AT0555: the fold's clock", () => {
   test(
     "the composer's collapse and the wall's travel are one motion, and the draft survives it",
     async () => {
-      const app = await launchTugApp({ testName: "at0555-minimize-motion" });
+      const app = await launchTugApp({ testName: "at0555-fold-motion" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: SUBJECT });
@@ -260,7 +260,7 @@ describe.skipIf(!SHOULD_RUN)("AT0555: the fold's clock", () => {
         ).toBeLessThan(0.1 * clock.settleMs * clock.timing);
 
         // Fold the wall, then watch the middle card come back out of it.
-        for (const cardId of CARD_IDS) await setMinimized(app, cardId, true);
+        for (const cardId of CARD_IDS) await setFolded(app, cardId, true);
 
         // ── 2. One clock, observed — the show ──
         const show = await census(app, SUBJECT, false);
@@ -313,25 +313,25 @@ describe.skipIf(!SHOULD_RUN)("AT0555: the fold's clock", () => {
 
         // ── 2b. And the same on the way in ──
         const fold = await census(app, SUBJECT, true);
-        const foldFold = windowOf(fold, (s) => s.entry);
-        const foldWall = windowOf(fold, (s) => s.neighbour);
+        const foldEntry = windowOf(fold, (s) => s.entry);
+        const foldNeighbour = windowOf(fold, (s) => s.neighbour);
         note(
-          "minimize",
-          `fold=${JSON.stringify(foldFold)} wall=${JSON.stringify(foldWall)}`,
+          "fold",
+          `fold=${JSON.stringify(foldEntry)} wall=${JSON.stringify(foldNeighbour)}`,
         );
-        expect(foldFold, "the composer folds").not.toBeNull();
-        expect(foldWall, "the card below travels back").not.toBeNull();
-        if (foldFold !== null && foldWall !== null) {
+        expect(foldEntry, "the composer folds").not.toBeNull();
+        expect(foldNeighbour, "the card below travels back").not.toBeNull();
+        if (foldEntry !== null && foldNeighbour !== null) {
           expect(
-            Math.abs(foldFold.start - foldWall.start),
+            Math.abs(foldEntry.start - foldNeighbour.start),
             "the fold and the wall start together",
           ).toBeLessThan(80);
           expect(
-            Math.abs(foldFold.end - foldWall.end),
+            Math.abs(foldEntry.end - foldNeighbour.end),
             "the fold and the wall end together",
           ).toBeLessThan(0.35 * clock.settleMs);
           expect(
-            foldFold.end - foldFold.start,
+            foldEntry.end - foldEntry.start,
             "the fold does not outrun its declared beat",
           ).toBeLessThan(1.35 * clock.transitionMs);
         }

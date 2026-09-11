@@ -681,25 +681,25 @@ export function initActionDispatch(
     deckManager.setPaneWidth(paneId, preset);
   });
 
-  // set-card-minimized: write one card's pane into or out of the minimized
+  // set-card-folded: write one card's pane into or out of the folded
   // form ([P02], Spec S01). Card-addressed rather than pane-addressed because
-  // every door — the Z2 minimize control, Session ▸ Minimize Session, and
+  // every door — the Z2 fold control, Session ▸ Fold Session, and
   // ⌥⌘M — knows which card it is about and not which pane holds it. The
   // validation shape is `set-card-width`'s: warn
   // and return rather than throw, because a malformed payload is a caller's
   // defect and taking the deck down over one helps nobody.
-  registerAction(TUG_ACTIONS.SET_CARD_MINIMIZED, (payload) => {
+  registerAction(TUG_ACTIONS.SET_CARD_FOLDED, (payload) => {
     const cardId = payload.cardId;
     if (typeof cardId !== "string") {
-      console.warn("set-card-minimized: missing or invalid cardId", payload);
+      console.warn("set-card-folded: missing or invalid cardId", payload);
       return;
     }
-    const minimized = payload.minimized;
-    if (typeof minimized !== "boolean") {
-      console.warn("set-card-minimized: missing or invalid minimized", payload);
+    const folded = payload.folded;
+    if (typeof folded !== "boolean") {
+      console.warn("set-card-folded: missing or invalid folded", payload);
       return;
     }
-    deckManager.setCardMinimized(cardId, minimized);
+    deckManager.setCardFolded(cardId, folded);
   });
 
   // set-bullseye: put one named pane in bullseye, or take it out when it is

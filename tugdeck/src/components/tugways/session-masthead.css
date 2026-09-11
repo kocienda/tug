@@ -424,18 +424,18 @@
    the project the callsign names, and `tug-session-identity.css` styles it. */
 
 /* ============================================================================
-   The minimized form: the beat takes a second line ([P07])
+   The folded form: the beat takes a second line ([P07])
    ========================================================================= */
 
 /* The masthead's beat run TRUNCATES on an open card by design ([F01]) — a
    card stands beneath it, and whatever the beat had to cut is readable there.
-   Minimized there is no card beneath it: the masthead, the Z2 row and the
-   control at its leading edge are the whole of what the reader gets, so the
+   Folded there is no card beneath it: the masthead, the Z2 row and the
+   control at its trailing edge are the whole of what the reader gets, so the
    run that was a caption becomes the reading. That is what buys it the second
    line.
 
    TWO lines and not more, and the box is fixed at two whether the text fills
-   them or not — a wall of minimized cards whose tiers moved as their beats
+   them or not — a wall of folded cards whose tiers moved as their beats
    changed would ripple every few seconds ([B02]). The tier's own height comes
    from the same term (`tug-pane.css`, `--tugx-masthead-beat-extra-line`), so
    the box and the chrome it stands in grow together.
@@ -444,7 +444,7 @@
    against `clientWidth`, and a run set to wrap never exceeds its width, so
    `data-truncated` is deleted on the resize this form arrives with and the
    clipped reading stays out of the DOM ([R04]). */
-.tug-pane[data-minimized="true"] .session-masthead-row .tug-pulse-activity {
+.tug-pane[data-folded="true"] .session-masthead-row .tug-pulse-activity {
   /* The run has to be able to TAKE the width before it can wrap into it: at
      rest it is `flex: 0 1 auto` beside a headline that holds 60%. */
   flex: 1 1 auto;
@@ -468,7 +468,7 @@
    it re-centres on the taller band by layout. (`--tugx-pulse-stacked-
    trailing-rise` is the STACKED layout's knob and is inert on this mount —
    the masthead's pulse is the bar.) */
-.tug-pane[data-minimized="true"] .session-masthead-row .tug-pulse {
+.tug-pane[data-folded="true"] .session-masthead-row .tug-pulse {
   --tugx-pulse-bar-height: calc(
     18px + var(--tugx-masthead-beat-extra-line)
   );

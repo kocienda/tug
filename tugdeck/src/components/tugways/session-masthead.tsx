@@ -154,18 +154,18 @@ export interface SessionMastheadProps {
    */
   accessoryHost?: HTMLElement | null;
   /**
-   * Whether the pane wearing this masthead is MINIMIZED ([P01], [P03]).
+   * Whether the pane wearing this masthead is FOLDED ([P01], [P03]).
    *
    * The one thing it changes is the activity line's register ([P09].3): a
-   * minimized card is the masthead and nothing else, so the beat has two
+   * folded card is the masthead and nothing else, so the beat has two
    * lines and two facts to put on them. Everything else about the tier — its
    * extra height, the clamp that holds the beat at two lines — is CSS keyed
-   * on the frame's own `data-minimized` and needs nothing passed ([L06]);
+   * on the frame's own `data-folded` and needs nothing passed ([L06]);
    * this is here because which runs get RENDERED is not something a
    * stylesheet can decide.
    * @default false
    */
-  minimized?: boolean;
+  folded?: boolean;
 }
 
 /** How many recent pulses the activity line's popover lists. */
@@ -459,7 +459,7 @@ export function SessionMasthead({
   sessionId,
   cardId,
   accessoryHost = null,
-  minimized = false,
+  folded = false,
 }: SessionMastheadProps): React.ReactElement {
   // The project dir behind this chrome. Read from the card binding — a pane
   // fact — rather than carried on the identity record, which deliberately
@@ -587,11 +587,11 @@ export function SessionMasthead({
         pace
         markdown
         activityClassName="session-masthead-pulse-text"
-        // The minimized card's beat has two lines and two jobs ([P09].3):
+        // The folded card's beat has two lines and two jobs ([P09].3):
         // the intent above, the action below, and a finished line at rest.
         // The open card's masthead reads in the one-line register, where the
         // transcript underneath is already saying what the session is for.
-        activityRegister={minimized ? "wall" : "line"}
+        activityRegister={folded ? "wall" : "line"}
         /*
           Right-click ANYWHERE on the three lines offers the session's copies —
           the atom, the citation, the id, the description, the newest beat.

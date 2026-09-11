@@ -16,8 +16,8 @@ import {
   deckColumnsOf,
   deckFlowStrip,
   isFocusDestination,
-  paneMinimizedOf,
-  cardMinimizedOf,
+  paneFoldedOf,
+  cardFoldedOf,
   placeMembers,
   slotStackOf,
 } from "../deck-store-selectors";
@@ -159,46 +159,46 @@ describe("slotStackOf", () => {
   });
 });
 
-describe("paneMinimizedOf / cardMinimizedOf", () => {
-  function minimizedState(): DeckState {
+describe("paneFoldedOf / cardFoldedOf", () => {
+  function foldedState(): DeckState {
     const s = baseState();
     return {
       ...s,
       panes: [
-        { ...s.panes[0], minimized: true },
+        { ...s.panes[0], folded: true },
         s.panes[1],
       ],
     };
   }
 
   test("an absent flag reads false", () => {
-    expect(paneMinimizedOf(baseState(), "pane-1")).toBe(false);
-    expect(cardMinimizedOf(baseState(), "card-a")).toBe(false);
+    expect(paneFoldedOf(baseState(), "pane-1")).toBe(false);
+    expect(cardFoldedOf(baseState(), "card-a")).toBe(false);
   });
 
   test("a pane carrying the flag reads true", () => {
-    expect(paneMinimizedOf(minimizedState(), "pane-1")).toBe(true);
+    expect(paneFoldedOf(foldedState(), "pane-1")).toBe(true);
   });
 
   test("a sibling pane without the flag still reads false", () => {
-    expect(paneMinimizedOf(minimizedState(), "pane-2")).toBe(false);
+    expect(paneFoldedOf(foldedState(), "pane-2")).toBe(false);
   });
 
   test("a pane id naming no live pane reads false", () => {
-    expect(paneMinimizedOf(minimizedState(), "pane-gone")).toBe(false);
+    expect(paneFoldedOf(foldedState(), "pane-gone")).toBe(false);
   });
 
-  test("every tab of a minimized pane reads true — the flag is the box's", () => {
-    expect(cardMinimizedOf(minimizedState(), "card-a")).toBe(true);
-    expect(cardMinimizedOf(minimizedState(), "card-b")).toBe(true);
+  test("every tab of a folded pane reads true — the flag is the box's", () => {
+    expect(cardFoldedOf(foldedState(), "card-a")).toBe(true);
+    expect(cardFoldedOf(foldedState(), "card-b")).toBe(true);
   });
 
-  test("a card in an unminimized pane reads false", () => {
-    expect(cardMinimizedOf(minimizedState(), "card-c")).toBe(false);
+  test("a card in an unfolded pane reads false", () => {
+    expect(cardFoldedOf(foldedState(), "card-c")).toBe(false);
   });
 
   test("a card in no pane reads false", () => {
-    expect(cardMinimizedOf(minimizedState(), "card-orphan")).toBe(false);
+    expect(cardFoldedOf(foldedState(), "card-orphan")).toBe(false);
   });
 });
 
@@ -573,12 +573,12 @@ describe("columnBadgeFactsOf", () => {
 // placeMembers and the wall ([P05])
 // ---------------------------------------------------------------------------
 
-describe("placeMembers reads the minimized flag", () => {
+describe("placeMembers reads the folded flag", () => {
   const TIER = 173;
   const OPEN = 600;
 
   /** A card type shaped like the Session card: a tall open floor, a pinned
-   *  minimized tier. */
+   *  folded tier. */
   function registerFoldable(): void {
     _resetForTest();
     registerCard({
@@ -589,7 +589,7 @@ describe("placeMembers reads the minimized flag", () => {
         min: { width: 400, height: OPEN },
         preferred: { width: 600, height: 900 },
       },
-      minimizedSizePolicy: {
+      foldedSizePolicy: {
         min: { width: 400, height: TIER },
         max: { width: Number.POSITIVE_INFINITY, height: TIER },
         preferred: { width: 600, height: TIER },
@@ -599,10 +599,10 @@ describe("placeMembers reads the minimized flag", () => {
 
   /** Two panes in one slot, the first optionally folded. */
   function wallState(foldFirst: boolean): DeckState {
-    const pane = (id: string, cardId: string, minimized: boolean) => ({
+    const pane = (id: string, cardId: string, folded: boolean) => ({
       ...makePane(id, [cardId], cardId),
       slot: 0,
-      ...(minimized ? { minimized: true as const } : {}),
+      ...(folded ? { folded: true as const } : {}),
     });
     return {
       cards: [makeCard("card-a", "foldable"), makeCard("card-b", "foldable")],
@@ -645,7 +645,7 @@ describe("placeMembers reads the minimized flag", () => {
 
   test("the stored share comes back the moment the card is open again", () => {
     // The share is DERIVED from the flag on every allocation ([P05]), never
-    // rewritten, so a minimize and a show is not a gesture that costs the user
+    // rewritten, so a fold and a show is not a gesture that costs the user
     // the division they made with the seams.
     registerFoldable();
     const members = placeMembers(

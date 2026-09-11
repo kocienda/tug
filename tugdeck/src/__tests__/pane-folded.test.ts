@@ -1,8 +1,8 @@
 /**
- * pane-minimized.test.ts — unit tests for the pure core of the minimize
- * commit: `panesWithMinimized` ([P01]) and `panesWithWallFolded` ([P06]).
+ * pane-folded.test.ts — unit tests for the pure core of the fold
+ * commit: `panesWithFolded` ([P01]) and `panesWithWallFolded` ([P06]).
  *
- * The verb around it (`DeckManager.setPaneMinimized`) needs a live manager —
+ * The verb around it (`DeckManager.setPaneFolded`) needs a live manager —
  * a container, a connection, the imposer — and no unit test in this project
  * builds one; the deck-manager behaviour it adds (the rail refusal, the single
  * commit) is covered from the app-test side. What IS pure is the decision this
@@ -14,11 +14,11 @@ import { describe, test, expect } from "bun:test";
 import type { TugPaneState } from "../layout-tree";
 import {
   columnIsWall,
-  panesWithMinimized,
+  panesWithFolded,
   panesWithWallFolded,
 } from "../deck-manager";
 
-function pane(id: string, minimized?: true): TugPaneState {
+function pane(id: string, folded?: true): TugPaneState {
   return {
     id,
     position: { x: 0, y: 0 },
@@ -27,44 +27,44 @@ function pane(id: string, minimized?: true): TugPaneState {
     activeCardId: `card-${id}`,
     title: "",
     acceptsFamilies: ["standard"],
-    ...(minimized !== undefined ? { minimized } : {}),
+    ...(folded !== undefined ? { folded } : {}),
   };
 }
 
-describe("panesWithMinimized", () => {
+describe("panesWithFolded", () => {
   test("writes the flag on the named pane and leaves its siblings alone", () => {
     const panes = [pane("a"), pane("b")];
-    const next = panesWithMinimized(panes, "a", true);
-    expect(next[0].minimized).toBe(true);
+    const next = panesWithFolded(panes, "a", true);
+    expect(next[0].folded).toBe(true);
     expect(next[1]).toBe(panes[1]);
   });
 
   test("DELETES the key rather than writing false", () => {
-    const next = panesWithMinimized([pane("a", true)], "a", false);
-    expect("minimized" in next[0]).toBe(false);
+    const next = panesWithFolded([pane("a", true)], "a", false);
+    expect("folded" in next[0]).toBe(false);
   });
 
   test("returns the array by identity when the pane already reads that way", () => {
-    const minimized = [pane("a", true)];
-    expect(panesWithMinimized(minimized, "a", true)).toBe(minimized);
+    const folded = [pane("a", true)];
+    expect(panesWithFolded(folded, "a", true)).toBe(folded);
     const open = [pane("a")];
-    expect(panesWithMinimized(open, "a", false)).toBe(open);
+    expect(panesWithFolded(open, "a", false)).toBe(open);
   });
 
   test("returns the array by identity for a pane id naming no pane", () => {
     const panes = [pane("a")];
-    expect(panesWithMinimized(panes, "pane-gone", true)).toBe(panes);
+    expect(panesWithFolded(panes, "pane-gone", true)).toBe(panes);
   });
 
   test("does not mutate the array it was handed", () => {
     const panes = [pane("a")];
-    panesWithMinimized(panes, "a", true);
-    expect(panes[0].minimized).toBeUndefined();
+    panesWithFolded(panes, "a", true);
+    expect(panes[0].folded).toBeUndefined();
   });
 
   test("carries every other field of the pane through untouched", () => {
     const original = { ...pane("a"), slot: 2, widthPreset: "slim" as const };
-    const next = panesWithMinimized([original], "a", true);
+    const next = panesWithFolded([original], "a", true);
     expect(next[0].slot).toBe(2);
     expect(next[0].widthPreset).toBe("slim");
     expect(next[0].cardIds).toEqual(["card-a"]);
@@ -91,9 +91,9 @@ describe("panesWithWallFolded", () => {
     const panes = [pane("a"), pane("b"), pane("c", true)];
     const next = panesWithWallFolded(panes, "a", MEMBERS);
     expect(next).not.toBe(panes);
-    expect(next[0].minimized).toBeUndefined();
-    expect(next[1].minimized).toBe(true);
-    expect(next[2].minimized).toBe(true);
+    expect(next[0].folded).toBeUndefined();
+    expect(next[1].folded).toBe(true);
+    expect(next[2].folded).toBe(true);
   });
 
   test("a plain split of full sessions is left alone", () => {
@@ -110,18 +110,18 @@ describe("panesWithWallFolded", () => {
   });
 
   test("panes outside the column are never touched", () => {
-    // The membership is the imposition's answer, not "every minimized pane on
+    // The membership is the imposition's answer, not "every folded pane on
     // the deck": a wall in slot 0 says nothing about a card in slot 1.
     const panes = [pane("a"), pane("b"), pane("c", true), pane("elsewhere")];
     const next = panesWithWallFolded(panes, "a", MEMBERS);
-    expect(next[3].minimized).toBeUndefined();
+    expect(next[3].folded).toBeUndefined();
     expect(next[3]).toBe(panes[3]);
   });
 
   test("does not mutate the array it was handed", () => {
     const panes = [pane("a"), pane("b"), pane("c", true)];
     panesWithWallFolded(panes, "a", MEMBERS);
-    expect(panes[1].minimized).toBeUndefined();
+    expect(panes[1].folded).toBeUndefined();
   });
 
   test("carries every other field of a folded sibling through", () => {
@@ -129,7 +129,7 @@ describe("panesWithWallFolded", () => {
     const next = panesWithWallFolded([pane("a"), b, pane("c", true)], "a", MEMBERS);
     expect(next[1].slot).toBe(0);
     expect(next[1].widthPreset).toBe("comfy");
-    expect(next[1].minimized).toBe(true);
+    expect(next[1].folded).toBe(true);
   });
 });
 

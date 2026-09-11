@@ -430,7 +430,7 @@ describe("imposeRect", () => {
   });
 
   test("anchor start puts the frame at the run's top, spending no slack", () => {
-    // The wall's reading: a minimized card is a row read from the top of its
+    // The wall's reading: a folded card is a row read from the top of its
     // slot, not a box floating in the middle of an empty one.
     const r = imposeRect(at(0, 1), 400, FULL, { height: 160, anchor: "start" });
     expect(r.position.y).toBe(GAP);

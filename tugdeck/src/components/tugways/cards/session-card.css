@@ -348,7 +348,7 @@
      strip reads from here and nowhere else.
 
        --tugx-z2-strip-padding   the strip's own padding, all four sides
-       --tugx-z2-control-gap     between the cells' row and the minimize control
+       --tugx-z2-control-gap     between the cells' row and the fold control
        --tugx-z2-row-inset       the cells' row's inline inset, inside the strip
        --tugx-z2-cell-gap        between adjacent cells
        --tugx-z2-cell-*          each cell's width (a `min-width` on both of its
@@ -358,8 +358,8 @@
      Two things do NOT read from here. The `@container` rungs in
      `tug-status-cell.css` that hide TIME, TASKS and JOBS as the card narrows
      are literal pixel widths, because a container query cannot read a custom
-     property; retune them by hand after these. And the minimized tier —
-     `SESSION_MINIMIZED_HEIGHT_PX` in `session-card-registration.tsx` — is the
+     property; retune them by hand after these. And the folded tier —
+     `SESSION_FOLDED_HEIGHT_PX` in `session-card-registration.tsx` — is the
      strip's built height plus the masthead's, so a change to the padding here
      moves it.
      ======================================================================== */
@@ -386,7 +386,7 @@
      but is kept so a future content-sized Z2 occupant (one not `width:
      100%`) still centers in the row. */
   justify-content: center;
-  /* The gap is the minimize control's separation from the status row. The
+  /* The gap is the fold control's separation from the status row. The
      strip had one child until the control arrived, so this gap was inert — it
      is a live number now. Tuned above. */
   gap: var(--tugx-z2-control-gap);
@@ -1457,12 +1457,12 @@
 }
 
 /* ============================================================================
-   The minimized form ([B01], [P03])
+   The folded form ([B01], [P03])
    ========================================================================= */
 
-/* What a minimized card IS, top to bottom: the masthead tier (the pane's
+/* What a folded card IS, top to bottom: the masthead tier (the pane's
    chrome, one beat line taller) and the Z2 status row, whose leading edge
-   carries the card's one minimize control ([B03]). Instruments and one door —
+   carries the card's one fold control ([B03]). Instruments and one door —
    no transcript, no find bar, no composer — and the door is IN the
    instruments rather than a band of its own, which is what took the tier down
    to the masthead and Z2 with nothing under them ([B04]).
@@ -1512,7 +1512,7 @@
 
    `data-fold` is the card's own attribute, written by `session-card.tsx`:
    `"moving"` while a fold is in flight in either direction, `"settled"` once
-   the transition has ended with the card minimized. The terminal state — the
+   the transition has ended with the card folded. The terminal state — the
    view slot's `display: none`, both regions' `inert` — is written there rather
    than at the flag's flip, so the composer keeps its geometry and its caret
    through the fold ([L26]).
@@ -1539,19 +1539,19 @@
     ease-out;
 }
 
-.tug-pane[data-minimized="true"] .session-card .session-card-entry-region {
+.tug-pane[data-folded="true"] .session-card .session-card-entry-region {
   grid-template-rows: 0fr;
 }
 
 /* The clip, on for the length of the fold and off at both ends: a composer
    mid-collapse would otherwise spill over the Z2 row beneath it, and a
    permanently clipped entry pane would cut off anything that draws outside
-   its box while the card is open. `data-minimized` covers the fold in; the
+   its box while the card is open. `data-folded` covers the fold in; the
    card's own `data-fold="moving"` covers the fold out, where the flag has
    already flipped back on the first frame. */
-.tug-pane[data-minimized="true"] .session-card .session-card-entry-region > *,
+.tug-pane[data-folded="true"] .session-card .session-card-entry-region > *,
 .session-card[data-fold="moving"] .session-card-entry-region > *,
-.tug-pane[data-minimized="true"] .session-card .session-view-slot,
+.tug-pane[data-folded="true"] .session-card .session-view-slot,
 .session-card[data-fold="moving"] .session-view-slot {
   min-height: 0;
   overflow: hidden;
@@ -1564,7 +1564,7 @@
    down is also what lets the view slot shrink with the frame: the column is
    `flex: 1 1 0`, so with no floor its height is whatever the frame has left
    after the folding composer and the bar, and the slot inside it follows. */
-.tug-pane[data-minimized="true"] .session-card .session-card-top-column {
+.tug-pane[data-folded="true"] .session-card .session-card-top-column {
   min-height: 0;
 }
 
@@ -1585,12 +1585,12 @@
   display: none;
 }
 
-/* The find bar does not fold: `toggle-session-minimized` closes it on the way
+/* The find bar does not fold: `toggle-session-fold` closes it on the way
    in and a closed find bar is unmounted, so this is the belt for the paths
    that set the flag without going through the toggle ([P02]'s
-   `set-card-minimized`). It cuts rather than folding because there is nothing
+   `set-card-folded`). It cuts rather than folding because there is nothing
    in it to lose. */
-.tug-pane[data-minimized="true"]
+.tug-pane[data-folded="true"]
   .session-card
   [data-slot="session-card-find-bar"] {
   display: none;

@@ -30,7 +30,7 @@ import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { sessionNameStore } from "@/lib/session-name-store";
 import { clearSessionMenuState, publishSessionMenuState } from "@/lib/host-menu-state";
 import { getDeckStore } from "@/lib/deck-store-registry";
-import { cardMinimizedOf } from "@/deck-store-selectors";
+import { cardFoldedOf } from "@/deck-store-selectors";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import {
   PERMISSION_MODE_DOMAIN,
@@ -113,15 +113,15 @@ export function useMenuStatePublication(
         }),
         changesVisible: shadeView === "changes",
         historyVisible: shadeView === "history",
-        // The minimized flag is the PANE's, so it is read from the deck store
+        // The folded flag is the PANE's, so it is read from the deck store
         // rather than from anything this card holds. Null-tolerant because the
         // registry is: a test that bootstraps a card without a DeckManager
-        // reads not-minimized, which is the resting answer anyway.
-        minimized: (() => {
+        // reads not-folded, which is the resting answer anyway.
+        folded: (() => {
           const deckStore = getDeckStore();
           return deckStore === null
             ? false
-            : cardMinimizedOf(deckStore.getSnapshot(), cardId);
+            : cardFoldedOf(deckStore.getSnapshot(), cardId);
         })(),
         // Whichever landing is up is the one the menu item acts on ([P01]), so
         // the published bit is the active mode's readiness rather than
@@ -159,7 +159,7 @@ export function useMenuStatePublication(
       sessionNameStore.subscribe(publish),
     ];
     // The deck store is one more input for the same reason the others are: a
-    // minimize lands as a deck commit, and the item's verb has to move with it
+    // fold lands as a deck commit, and the item's verb has to move with it
     // without waiting for some other store to happen to emit. Null when no
     // DeckManager was constructed, which the publish above already tolerates.
     const deckStore = getDeckStore();

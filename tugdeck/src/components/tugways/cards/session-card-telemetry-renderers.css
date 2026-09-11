@@ -161,7 +161,7 @@
      pixel of wing the instruments do not get. The strip's padding already keeps
      the outermost wing off the card edge.
 
-     Halved to seat the minimize control at the row's leading edge: 8px a side
+     Halved to seat the fold control at the row's trailing edge: 8px a side
      was 16px the control could have, and the argument above already says this
      inset is the least valuable width in the row. The strip's own 8px is
      untouched, so the outermost wing keeps its clearance from the card edge. */

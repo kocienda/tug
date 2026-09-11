@@ -142,19 +142,19 @@ describe("routing matches the pre-migration mechanism", () => {
     }
   });
 
-  test("the minimize pair routes the way [P02] declares", () => {
+  test("the fold pair routes the way [P02] declares", () => {
     // Not in the pre-migration table above: neither command existed before
     // the migration, so there is no historical mechanism for them to have
     // drifted from. What CAN drift is the pair's own split — the user-facing
     // toggle answered by the key card, and the setter it dispatches handled
     // in the registry — and that split is the whole of why there are two.
-    const toggle = COMMANDS_BY_ID.get(TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED);
+    const toggle = COMMANDS_BY_ID.get(TUG_ACTIONS.TOGGLE_SESSION_FOLD);
     expect(toggle?.routing).toBe("key-card");
-    expect(toggle?.menuItemId).toBe("session.minimize");
+    expect(toggle?.menuItemId).toBe("session.fold");
     expect(toggle?.mirrored).toBe(true);
     expect(toggle?.internal ?? false).toBe(false);
 
-    const setter = COMMANDS_BY_ID.get(TUG_ACTIONS.SET_CARD_MINIMIZED);
+    const setter = COMMANDS_BY_ID.get(TUG_ACTIONS.SET_CARD_FOLDED);
     expect(setter?.routing).toBe("registry");
     expect(setter?.internal).toBe(true);
     // Internal: its doors are the toggle, the button and the bar, so it
@@ -163,11 +163,11 @@ describe("routing matches the pre-migration mechanism", () => {
     expect(setter?.menuItemId).toBeUndefined();
   });
 
-  test("the card's minimize is ⌥⌘M and the window's is still ⌘M", () => {
-    // ⌥ is the variant operator: same verb, smaller object. The two are
+  test("the card's fold is ⌥⌘M and the window's minimize is still ⌘M", () => {
+    // ⌥ is the variant operator: same form of gesture, smaller object. The two are
     // asserted together because the pair is the point — a rebinding that
     // collapsed them would take the window's minimize with it.
-    const card = COMMANDS_BY_ID.get(TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED);
+    const card = COMMANDS_BY_ID.get(TUG_ACTIONS.TOGGLE_SESSION_FOLD);
     expect(card?.bindings?.map((b) => formatChord(b.chord))).toEqual(["⌥⌘M"]);
     expect(card?.bindings?.[0]?.menuEligible).toBe(true);
 
@@ -256,7 +256,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "cycle-permission-mode": "command",
   "toggle-history-view": "command",
   "toggle-changes-view": "command",
-  "toggle-session-minimized": "command",
+  "toggle-session-fold": "command",
   undo: "command",
   redo: "command",
   "copy-as-plain-text": "command",
@@ -470,10 +470,11 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   ["⌃⌘T", TUG_ACTIONS.TOGGLE_TRIPWIRES],
   ["⌥⌘[", TUG_ACTIONS.PREVIOUS_STACK_CARD],
   ["⌥⌘]", TUG_ACTIONS.NEXT_STACK_CARD],
-  // The card's minimize. ⌥ is the variant operator: ⌘M minimizes the window
-  // and stays AppKit's, ⌥⌘M minimizes the card — the same verb aimed at the
-  // smaller object, which is why the two share the letter and nothing else.
-  ["⌥⌘M", TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED],
+  // The card's fold. ⌥ is the variant operator: ⌘M minimizes the window
+  // and stays AppKit's, ⌥⌘M folds the card — the same form of gesture aimed
+  // at the smaller object, which is why the two share the letter and nothing
+  // else.
+  ["⌥⌘M", TUG_ACTIONS.TOGGLE_SESSION_FOLD],
   // The slash bridges that earned a chord. The family is reachable by typing
   // its names, which is why the rest carry none; these two are reached often
   // enough that typing the name is the slow path.

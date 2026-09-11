@@ -8,7 +8,7 @@
  * view is only the component that happens to own one.
  *
  * A scroller can lose its box without unmounting: `display: none` is
- * what an inactive card tab sits in, and what a minimized Session card's
+ * what an inactive card tab sits in, and what a folded Session card's
  * view slot sits in. The browser resets `scrollTop` to 0 when the box is
  * destroyed and nobody is told, so the reveal — the `0 → real`
  * transition on the way back — lands the list at the top with its
@@ -38,7 +38,7 @@
  *
  * A non-following position is re-applied as a **restore target**, not as
  * a one-shot `scrollTop` write. A session keeps streaming while it is
- * minimized, so cells above the remembered position can change height
+ * folded, so cells above the remembered position can change height
  * while the box is gone and a raw pixel offset is stale by exactly that
  * much. The caller supplies an anchor resolver when it can build one
  * (the same instrument the region-scroll restore rides); the pixel offset
@@ -108,7 +108,7 @@ export interface RevealSeamOptions {
   /**
    * An anchor resolver for the remembered position, or `null` when the
    * list has nothing to anchor to. Built at the reveal so it resolves
-   * against the data source as it is *now* — a minimized session keeps
+   * against the data source as it is *now* — a folded session keeps
    * streaming, and the anchor's whole point is to survive that.
    */
   makeResolver?: () => (() => number | null) | null;

@@ -105,20 +105,20 @@ describe("_clearBullseyeFor is called from every geometry-writing path", () => {
     expect(body).toContain("this._clearBullseyeFor(");
   });
 
-  test("setPaneMinimized clears — minimizing changes the pane's height", () => {
-    // The minimize commit ([P01]) builds its pane array inline and hands it to
+  test("setPaneFolded clears — folding changes the pane's height", () => {
+    // The fold commit ([P01]) builds its pane array inline and hands it to
     // `_commitImposition`, bypassing `movePane` so the settle measures once —
     // the same shape `setCardWidths` takes, and it owes the same clear. A
     // bullseye that survived a fold would be a posture claimed for a card whose
     // transcript is no longer on screen.
-    const body = stripComments(bodyOf("  setPaneMinimized("));
+    const body = stripComments(bodyOf("  setPaneFolded("));
     expect(body).toContain("this._clearBullseyeFor(");
   });
 
-  test("setCardMinimized does NOT clear — it delegates to setPaneMinimized", () => {
-    const body = stripComments(bodyOf("  setCardMinimized("));
+  test("setCardFolded does NOT clear — it delegates to setPaneFolded", () => {
+    const body = stripComments(bodyOf("  setCardFolded("));
     expect(body).not.toContain("_clearBullseyeFor");
-    expect(body).toContain("this.setPaneMinimized(");
+    expect(body).toContain("this.setPaneFolded(");
   });
 
   test("_setPaneWidth does NOT clear — it reaches movePane, and one rule is enough", () => {

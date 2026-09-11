@@ -140,26 +140,26 @@ export interface CardRegistration {
   /** Size policy for this card type. Falls back to DEFAULT_SIZE_POLICY when omitted. */
   sizePolicy?: CardSizePolicy;
   /**
-   * The policy this card type takes while its pane is MINIMIZED ([P04]).
+   * The policy this card type takes while its pane is FOLDED ([P04]).
    *
-   * A minimized card is a different card for sizing purposes: its floor is
+   * A folded card is a different card for sizing purposes: its floor is
    * what the open form needed only because the open form has a transcript and
-   * a composer in it, and a wall of minimized cards cannot pack at all while
-   * every member still claims that floor. So the minimized form declares its
+   * a composer in it, and a wall of folded cards cannot pack at all while
+   * every member still claims that floor. So the folded form declares its
    * own policy rather than having the open one relaxed — the open card's floor
    * is still the truth about the open card.
    *
    * Declared with `min.height === max.height`, which is how a registration
    * already says "exactly one correct size" and what `TugPane` reads as
-   * `heightPinned`. The width is left unbounded: a minimized card is as wide
+   * `heightPinned`. The width is left unbounded: a folded card is as wide
    * as the slot it stands in.
    *
-   * Omitted by every card type that has no minimized form, in which case
-   * `getStackSizePolicy({ minimized: true })` falls back to that card's
+   * Omitted by every card type that has no folded form, in which case
+   * `getStackSizePolicy({ folded: true })` falls back to that card's
    * ordinary policy — the aggregate over a mixed stack is then the honest
    * answer rather than a tier the other card cannot live at.
    */
-  minimizedSizePolicy?: CardSizePolicy;
+  foldedSizePolicy?: CardSizePolicy;
   /**
    * Where a fresh pane for this card type opens on the canvas.
    * `"cascade"` (the default) walks the standard cascade origin;
@@ -376,18 +376,18 @@ export function getSizePolicy(componentId: string): CardSizePolicy {
 }
 
 /**
- * The size policy for a registered card type in its MINIMIZED form ([P04]).
+ * The size policy for a registered card type in its FOLDED form ([P04]).
  *
  * Falls back to {@link getSizePolicy} — the card's ordinary policy — for a
- * card type that declares no minimized form, which is every type but the
+ * card type that declares no folded form, which is every type but the
  * Session card today. The fallback is what keeps a mixed stack honest: a pane
  * hosting a Session tab and a Text tab is one box, and the box still has to
  * fit the Text card.
  */
-export function getMinimizedSizePolicy(componentId: string): CardSizePolicy {
+export function getFoldedSizePolicy(componentId: string): CardSizePolicy {
   const registration = registry.get(componentId);
   return (
-    registration?.minimizedSizePolicy ??
+    registration?.foldedSizePolicy ??
     registration?.sizePolicy ??
     DEFAULT_SIZE_POLICY
   );
@@ -417,18 +417,18 @@ export function getMinimizedSizePolicy(componentId: string): CardSizePolicy {
  * Each id resolves through `getSizePolicy`, so unknown ids contribute
  * `DEFAULT_SIZE_POLICY`. An empty list returns `DEFAULT_SIZE_POLICY`.
  *
- * `options.minimized` resolves each id through {@link getMinimizedSizePolicy}
+ * `options.folded` resolves each id through {@link getFoldedSizePolicy}
  * instead ([P04]). Everything else is unchanged, including the aggregation —
- * a pane is still one box, and a minimized Session card sharing a pane with a
+ * a pane is still one box, and a folded Session card sharing a pane with a
  * Text tab still has to fit the Text tab.
  */
 export function getStackSizePolicy(
   componentIds: readonly string[],
-  options: { minimized?: boolean } = {},
+  options: { folded?: boolean } = {},
 ): CardSizePolicy {
   if (componentIds.length === 0) return DEFAULT_SIZE_POLICY;
   const policies = componentIds.map(
-    options.minimized === true ? getMinimizedSizePolicy : getSizePolicy,
+    options.folded === true ? getFoldedSizePolicy : getSizePolicy,
   );
 
   let minWidth = 0;
@@ -454,7 +454,7 @@ export function getStackSizePolicy(
   // PER-AXIS, not both-or-nothing. `CardSizePolicy.max` requires both numbers,
   // so a policy bounded on ONE axis declares the other `Infinity` — and the
   // both-finite gate this replaced would then drop the whole `max`, taking the
-  // bounded axis down with the unbounded one. That is exactly the minimized
+  // bounded axis down with the unbounded one. That is exactly the folded
   // policy's shape ([P04]: pinned height, unbounded width), and under the old
   // gate `heightPinned` would silently never fire.
   //

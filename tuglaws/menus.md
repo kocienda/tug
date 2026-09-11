@@ -237,7 +237,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⌘/ | `show-devtools` | Show DevTools | menu bar (swept) |
 | ⌥⌘H | `hide-others` | Hide Others | menu bar (AppKit's own) |
 | ⌥⌘L | `make-lowercase` | Make Lowercase | menu bar (swept) |
-| ⌥⌘M | `toggle-session-minimized` | Minimize Session | menu bar (swept) |
+| ⌥⌘M | `toggle-session-fold` | Fold Session | menu bar (swept) |
 | ⌥⌘U | `make-uppercase` | Make Uppercase | menu bar (swept) |
 | ⌥⌘V | `paste-as-quote` | Paste as Quote | JS, global |
 | ⌥⌘W | `close-all` | Close All Tabs | JS, global |
@@ -325,11 +325,11 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.diff` | `run-slash-command:diff` | key card | registry gate |
 | `session.firstTurn` | `first-turn` | key card | registry gate |
 | `session.focusPrompt` | `focus-prompt` | key card | registry gate |
+| `session.fold` | `toggle-session-fold` | key card | registry gate |
 | `session.hooks` | `run-slash-command:hooks` | key card | registry gate |
 | `session.insertFile` | `insert-file` | first responder | registry gate |
 | `session.lastTurn` | `last-turn` | key card | registry gate |
 | `session.memory` | `run-slash-command:memory` | key card | registry gate |
-| `session.minimize` | `toggle-session-minimized` | key card | registry gate |
 | `session.new` | `run-slash-command:clear` | key card | registry gate |
 | `session.nextTurn` | `next-turn` | key card | registry gate |
 | `session.permissionMode.cycle` | `cycle-permission-mode` | key card | registry gate |

@@ -1171,13 +1171,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         toggleHistoryItem.representedObject = "history"
         sessionMenu.addItem(toggleHistoryItem)
 
-        // Minimize Session — the CARD's minimize, on ⌥⌘M. Window ▸ Minimize
+        // Fold Session — the CARD's fold, on ⌥⌘M. Window ▸ Minimize
         // keeps ⌘M and is untouched: ⌥ is the variant operator, so the same
-        // verb aimed at the smaller object. The title's verb rides the
-        // registry gate's dynamic title on the menuState push ("Show
-        // Transcript" once the card is minimized), the same way the two shade
+        // form of gesture aimed at the smaller object. The title's verb rides
+        // the registry gate's dynamic title on the menuState push ("Unfold
+        // Session" once the card is folded), the same way the two shade
         // toggles above take theirs.
-        sessionMenu.addItem(NSMenuItem(title: "Minimize Session", action: #selector(toggleSessionMinimized(_:)), keyEquivalent: "m", modifierMask: [.command, .option]).identified("session.minimize"))
+        sessionMenu.addItem(NSMenuItem(title: "Fold Session", action: #selector(toggleSessionFold(_:)), keyEquivalent: "m", modifierMask: [.command, .option]).identified("session.fold"))
         sessionMenu.addItem(NSMenuItem.separator())
 
         sessionMenu.addItem(sessionCommandItem("Resume Session…", "resume", "session.resume"))
@@ -1880,11 +1880,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl(view == "history" ? "toggle-history-view" : "toggle-changes-view")
     }
 
-    // Session ▸ Minimize Session. One control name for the card-scoped verb;
+    // Session ▸ Fold Session. One control name for the card-scoped verb;
     // the frontend's `card-content` responder resolves which card it is about
     // and lands the deck commit.
-    @objc private func toggleSessionMinimized(_ sender: NSMenuItem) {
-        sendControl("toggle-session-minimized")
+    @objc private func toggleSessionFold(_ sender: NSMenuItem) {
+        sendControl("toggle-session-fold")
     }
 
     // Edit ▸ Undo / Redo — two execution paths, matching the two

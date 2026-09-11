@@ -545,10 +545,10 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
                .sort((a, b) => a - b).join(",")`,
           ),
           "the find bar's four stops occupy 8…11 in the card's cycle group",
-          // 18 is the minimize control at the trailing edge of Z2 ([B03]) —
+          // 18 is the fold control at the trailing edge of Z2 ([B03]) —
           // one past the five cells at 13…17, and
           // deliberately NOT the find bar's 11: the bar it replaced existed
-          // only while minimized, and this control stands in both forms.
+          // only while folded, and this control stands in both forms.
           // 4 and 6 are gaps by design: slot 4 is the off-code-route chip
           // (Cwd / Changes, never mounted on the code route this fixture
           // seeds) and slot 6's Effort chip merged into the AI chip in the
@@ -579,7 +579,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         }
 
         // Past the bar's last stop the walk carries straight on into the Z2
-        // row — the status cells, with the minimize control after them ([B03]).
+        // row — the status cells, with the fold control after them ([B03]).
         // This is the assertion that separates "participates in the card's
         // order" from "has an order of its own": a private walk would have
         // wrapped back to the query field here.

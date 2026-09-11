@@ -28,7 +28,9 @@ Each operator adds one modifier and keeps the key.
 
 **⇧ — the counterpart.** Reverse, widen, or undo the base command: ⌘Z → ⇧⌘Z Redo, ⌘G → ⇧⌘G Find Previous, ⌘S → ⇧⌘S Save As.
 
-**⌥ — the variant.** Same verb, altered object or form: ⌘W Close → ⌥⌘W Close All, ⌘V Paste → ⌥⌘V Paste as Quote, ⌘N New Session → ⌥⌘N New Text File, ⌘H Hide → ⌥⌘H Hide Others, ⌘M Minimize → ⌥⌘M Minimize Session.
+**⌥ — the variant.** Same verb, altered object or form: ⌘W Close → ⌥⌘W Close All, ⌘V Paste → ⌥⌘V Paste as Quote, ⌘N New Session → ⌥⌘N New Text File, ⌘H Hide → ⌥⌘H Hide Others.
+
+⌘M Minimize → ⌥⌘M Fold Session is the *form* half of that rule rather than the verb half, and it is worth saying why it still belongs here. ⌘M puts the window away and keeps it; ⌥⌘M puts the card's body away and keeps it. The two verbs differ because the objects do — a window leaves the screen for the Dock, a folded card stays on the wall reporting — but the gesture is the same shape aimed at the smaller object, which is what this tier is for. The key is ⌘M's rather than an F-shaped one because every F is spoken for: ⌘F is Find, a ⌥ twist of it has to read as a variant of opening the find bar (see the ⌘F entry below), and ⌃⌘F is Full Screen.
 
 ## The composed sets
 

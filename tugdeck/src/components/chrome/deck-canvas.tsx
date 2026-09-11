@@ -468,12 +468,12 @@ let focusTravelRun: { cardId: string; goal: FocusTravelSpan } | null = null;
  * edge changes it too, and arms a window whose tweens are the same no-ops a
  * rail drag's are, for the same reason.
  *
- * A pane's MINIMIZED flag is a term, and the frame's stored height is still
+ * A pane's FOLDED flag is a term, and the frame's stored height is still
  * not one. The two facts belong together. A stored height moves only when a
  * pointer is already writing the frame live, so a term for it would arm
- * windows full of no-ops; but minimizing is an arrangement gesture in every
+ * windows full of no-ops; but folding is an arrangement gesture in every
  * sense that matters here — it re-pins the frame from the open card's tier to
- * the minimized one ([P04]), and in a split column it re-allocates every
+ * the folded one ([P04]), and in a split column it re-allocates every
  * sibling — and the Last pass has always been willing to interpolate a real
  * height delta.
  *
@@ -533,7 +533,7 @@ function arrangementSignature(state: DeckState, runs: PlaceRuns): string {
     .map(
       (pane) =>
         `${pane.id}:${pane.slot ?? ""}:${pane.size.width}:${
-          pane.minimized === true ? "m" : ""
+          pane.folded === true ? "m" : ""
         }`,
     )
     .sort();
@@ -4216,11 +4216,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             // takes the element-wise max of the stack's mins.
             sizePolicy={getStackSizePolicy(
               stackCards.map((c) => c.componentId),
-              // A minimized pane is sized by the minimized policy ([P04]):
+              // A folded pane is sized by the folded policy ([P04]):
               // the open card's 600px floor is what its transcript and
               // composer need, and a wall cannot pack while every member
               // still claims it.
-              { minimized: stackState.minimized === true },
+              { folded: stackState.folded === true },
             )}
             zIndex={zIndexMap.get(stackState.id) ?? CARD_ZINDEX_BASE}
             placement={placementFor(stackState)}
@@ -4241,10 +4241,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             contentWidthPx={contentWidthPx}
             slotStack={slotStackByPaneId.get(stackState.id)}
             columnMember={columnMemberByPaneId.get(stackState.id)}
-            // The pane's own field ([P01]) rather than `paneMinimizedOf` over
+            // The pane's own field ([P01]) rather than `paneFoldedOf` over
             // the deck state: the selector exists for readers holding a state
             // and an id, and this one is already holding the pane.
-            minimized={stackState.minimized === true}
+            folded={stackState.folded === true}
             onRevealPane={handleRevealPane}
             sidebarStack={stackByPaneId.get(stackState.id)}
             isSidebarPane={sidebarPaneIds.has(stackState.id)}

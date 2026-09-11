@@ -299,14 +299,14 @@ body {
   --tugx-pane-chrome-height: var(--tug-masthead-height);
 }
 
-/* One beat line taller while minimized ([P07]). A minimized card has no body
+/* One beat line taller while folded ([P07]). A folded card has no body
    under its masthead to carry the reading on, so the beat run that truncates
    on an open card wraps to two lines — and the tier grows by exactly one line
    of it, declared, rather than by whatever the text happens to ask for. Fixed
-   in both directions: a wall of minimized cards must never ripple as their
-   beats change. `MASTHEAD_MINIMIZED_HEIGHT` in `tug-pane.tsx` is the one JS
+   in both directions: a wall of folded cards must never ripple as their
+   beats change. `MASTHEAD_FOLDED_HEIGHT` in `tug-pane.tsx` is the one JS
    reader of this sum and must match it. */
-.tug-pane[data-masthead="true"][data-minimized="true"] {
+.tug-pane[data-masthead="true"][data-folded="true"] {
   --tugx-pane-chrome-height: calc(
     var(--tug-masthead-height) + var(--tugx-masthead-beat-extra-line)
   );

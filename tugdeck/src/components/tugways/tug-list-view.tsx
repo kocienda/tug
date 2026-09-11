@@ -3507,7 +3507,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       el.addEventListener(RESIZE_PRESERVE_BEGIN, onPreserveBegin);
       el.addEventListener(RESIZE_PRESERVE_END, onPreserveEnd);
 
-      // The hidden-box cycle. A scroller inside a minimized Session card —
+      // The hidden-box cycle. A scroller inside a folded Session card —
       // or an inactive card tab — is `display: none`, which destroys its
       // scrollport and resets `scrollTop` to 0 while the component stays
       // mounted. Both edges of that cycle are observable here: a delivery
