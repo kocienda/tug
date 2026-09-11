@@ -1,6 +1,6 @@
 /**
  * session-minimize-control.tsx — the card's one minimize control, seated at
- * the leading edge of Z2.
+ * the trailing edge of Z2.
  *
  * ## One control, one seat, two glyphs
  *
@@ -10,7 +10,7 @@
  * moved when the card changed form — the reader had to find it again — and the
  * minimized form paid a whole band for a door the open form already had a
  * button for. Both retire here ([B03]–[B06]): the control stands at the
- * leading edge of the Z2 status row in BOTH forms, and only its glyph and its
+ * trailing edge of the Z2 status row in BOTH forms, and only its glyph and its
  * label change with the flag.
  *
  * `ChevronsDownUp` collapses, `ChevronsUpDown` expands — the same pair the two
@@ -41,8 +41,10 @@
  * persistent mark in a card that already has one is the thing [P08]'s
  * one-mark-per-scope rule exists to prevent.
  *
- * `outlined`, not `ghost`: ghost carries no `[data-default-ring]` arm, so it
- * could never wear the Return mark the minimized form needs ([P08]).
+ * `ghost`, by the user's call: the control is a quiet door beside the
+ * instruments, not a boxed button. Ghost carries no `[data-default-ring]`
+ * arm, so the minimized form's Return-home registration below still routes
+ * Return here but draws no persistent mark on the button.
  *
  * The button is a plain door onto the same `toggle-session-minimized` command
  * the toolbar button and the menu item reach ([P02], [L11]).
@@ -83,7 +85,7 @@ export function SessionMinimizeControl({
       >
         <TugPushButton
           subtype="icon"
-          emphasis="outlined"
+          emphasis="ghost"
           role="action"
           size="sm"
           aria-label={label}

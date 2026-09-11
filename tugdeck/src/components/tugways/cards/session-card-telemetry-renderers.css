@@ -154,7 +154,7 @@
      read as a cluster, not as a panel of instruments. The cell budgets in
      `tug-status-cell.css` are sized against this gap; the two numbers are one
      decision. */
-  gap: var(--tug-space-2xl);
+  gap: var(--tugx-z2-cell-gap, var(--tug-space-2xl));
   width: 100%;
   /* The row's own inset, inside the strip's 8px. Kept small on purpose: the
      cells are what should hold the row's width, and every pixel spent here is a
@@ -165,7 +165,7 @@
      was 16px the control could have, and the argument above already says this
      inset is the least valuable width in the row. The strip's own 8px is
      untouched, so the outermost wing keeps its clearance from the card edge. */
-  padding-inline: var(--tug-space-xs);
+  padding-inline: var(--tugx-z2-row-inset, var(--tug-space-xs));
   box-sizing: border-box;
 
   /* Cell-width fallback — the generous default each cell inherits

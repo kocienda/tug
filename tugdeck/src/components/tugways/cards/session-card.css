@@ -343,6 +343,39 @@
 }
 
 .session-card-status-bar {
+  /* ==========================================================================
+     Z2 TUNING — hand-edit these. Every width, margin and gap in the Z2 status
+     strip reads from here and nowhere else.
+
+       --tugx-z2-strip-padding   the strip's own padding, all four sides
+       --tugx-z2-control-gap     between the cells' row and the minimize control
+       --tugx-z2-row-inset       the cells' row's inline inset, inside the strip
+       --tugx-z2-cell-gap        between adjacent cells
+       --tugx-z2-cell-*          each cell's width (a `min-width` on both of its
+                                 rows, in `ch` of the row's 10px sans)
+       --tugx-z2-cell-*-arc      the widths while the row reads ARC
+
+     Two things do NOT read from here. The `@container` rungs in
+     `tug-status-cell.css` that hide TIME, TASKS and JOBS as the card narrows
+     are literal pixel widths, because a container query cannot read a custom
+     property; retune them by hand after these. And the minimized tier —
+     `SESSION_MINIMIZED_HEIGHT_PX` in `session-card-registration.tsx` — is the
+     strip's built height plus the masthead's, so a change to the padding here
+     moves it.
+     ======================================================================== */
+  --tugx-z2-strip-padding: var(--tug-space-md);
+  --tugx-z2-control-gap: var(--tug-space-xs);
+  --tugx-z2-row-inset: var(--tug-space-xs);
+  --tugx-z2-cell-gap: 27px;
+  --tugx-z2-cell-state: 18ch;
+  --tugx-z2-cell-time: 15ch;
+  --tugx-z2-cell-context: 18ch;
+  --tugx-z2-cell-tasks: 17ch;
+  --tugx-z2-cell-jobs: 14ch;
+  --tugx-z2-cell-tasks-arc: 17ch;
+  --tugx-z2-cell-jobs-arc: 9ch;
+  --tugx-z2-cell-context-arc: 14ch;
+
   flex: 0 0 auto;
   display: flex;
   flex-direction: row;
@@ -353,14 +386,11 @@
      but is kept so a future content-sized Z2 occupant (one not `width:
      100%`) still centers in the row. */
   justify-content: center;
-  /* The gap is the minimize control's separation from the status row, and it
-     is 4px rather than the row's usual 8px because the whole seat is budgeted:
-     a 28px `sm` icon button plus this gap is the 32px the Z2 cell cuts cleared
-     ([B09]), measured at the slim preset with 3px to spare. The strip had one
-     child until the control arrived, so this gap was inert — it is a live
-     number now and the budget is what sets it. */
-  gap: var(--tug-space-xs);
-  padding: var(--tug-space-md);
+  /* The gap is the minimize control's separation from the status row. The
+     strip had one child until the control arrived, so this gap was inert — it
+     is a live number now. Tuned above. */
+  gap: var(--tugx-z2-control-gap);
+  padding: var(--tugx-z2-strip-padding);
   background-color: var(--tug7-surface-card-primary-normal-status-rest);
   /* Borders top and bottom frame the status bar: the top rule separates it
      from the transcript above, the bottom rule from the prompt entry below.

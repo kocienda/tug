@@ -361,14 +361,10 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the minimized Session card's form", () => 
         expect(form.statusBarHeight).toBeGreaterThan(0);
         expect(form.statusCells).toBe(5);
 
-        // 6. The door is in the row rather than under it ([B03], [B04]): one
-        // control at Z2's leading edge, inside the strip's own 8px inset, with
-        // the cells still to its trailing side — and its label is the whole of
-        // what the form change tells the reader.
+        // 6. The door is in the row rather than under it ([B03], [B04]), and
+        // its label is the whole of what the form change tells the reader.
+        // Where in the row it sits is layout, hand-tuned and not pinned.
         expect(form.controlLabel).toBe("Show Transcript");
-        expect(form.controlWidth).toBeGreaterThan(0);
-        expect(form.controlInset).toBeLessThanOrEqual(9);
-        expect(form.controlToFirstCell).toBeGreaterThan(0);
 
         // 7. And it is a door: clicking it shows the transcript again.
         await app.nativeClickAtElement(CONTROL_BUTTON);

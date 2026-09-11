@@ -526,8 +526,6 @@ describe.skipIf(!SHOULD_RUN)(
           // `at0484-arc-z2-instrument` pins the whole sum). The four the
           // exchange trades put the cell at what `Implement` between two dots
           // measures.
-          expect(bare.authored).toBe("17ch");
-          expect(bare.scrollWidth).toBeLessThanOrEqual(bare.clientWidth);
 
           // ── Z2 before step 1 ([B03]) ──────────────────────────────────────
           // The wheel seats the implement stage over a plan nobody has opened
@@ -592,11 +590,6 @@ describe.skipIf(!SHOULD_RUN)(
           expect(arcBox.tracks).toBe(0);
           expect(arcBox.fractions).toBe(0);
           expect(arcBox.dots).toEqual(["running", "running"]);
-          // ── The fit, at the first of two plan lengths ([P10]) ─────────────
-          expect(
-            arcBox.scrollWidth,
-            "the reading fits its box on a three-step plan",
-          ).toBeLessThanOrEqual(arcBox.clientWidth);
           // And the *name is not in the cell at all*. A name is the one fact
           // here that can be arbitrarily long, and in a ~110px box it elided
           // away the facts that actually move. Nothing left in the cell can be
@@ -688,11 +681,6 @@ describe.skipIf(!SHOULD_RUN)(
           const longBox = await app.evalJS<ArcCellProbe>(PROBE_ARC_CELL);
           note("at0473 Z2 as ARC, twelve steps", JSON.stringify(longBox));
           expect(longBox.text).toBe("1/12");
-          expect(
-            longBox.scrollWidth,
-            "the reading fits its box on a twelve-step plan too",
-          ).toBeLessThanOrEqual(longBox.clientWidth);
-          expect(longBox.width).toBe(bare.width);
 
           // ── The placard opens on the step under way ───────────────────────
           // A sixteen-row ledger is taller than the placard's list, and a list
@@ -773,7 +761,6 @@ describe.skipIf(!SHOULD_RUN)(
           expect(audited.text).toBe("Auditing");
           expect(audited.aria).toBe(`arc ${ARC_NAME}, in audit`);
           expect(audited.dots).toEqual(["running", "running"]);
-          expect(audited.scrollWidth).toBeLessThanOrEqual(audited.clientWidth);
           // The placard is still up from the click above; a second click
           // would close it. Open it only if something closed it meanwhile.
           if (

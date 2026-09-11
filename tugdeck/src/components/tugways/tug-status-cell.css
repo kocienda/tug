@@ -157,19 +157,19 @@
    108 and at 15ch it drops under TIME, and neither the slack nor the hierarchy
    survives the other. */
 .session-telemetry-status-cell[data-priority="state"] {
-  --tugx-session-status-cell-width: 18ch;
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-state, 18ch);
 }
 .session-telemetry-status-cell[data-priority="time"] {
-  --tugx-session-status-cell-width: 15ch;
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-time, 15ch);
 }
 .session-telemetry-status-cell[data-priority="context"] {
-  --tugx-session-status-cell-width: 17ch;
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-context, 17ch);
 }
 .session-telemetry-status-cell[data-priority="tasks"] {
-  --tugx-session-status-cell-width: 13ch;
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-tasks, 13ch);
 }
 .session-telemetry-status-cell[data-priority="jobs"] {
-  --tugx-session-status-cell-width: 13ch;
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-jobs, 13ch);
 }
 
 /* The ARC reading needs STATE's box, because it wears STATE's shape.
@@ -209,20 +209,23 @@
    The edges are the promise — the slim preset is the width Z2 was sized to
    show everything at — and a boundary moving inside them is not; the
    alternative, a permanent 18ch for a reading most rows never show, spends
-   the surplus on nothing for every card with no arc on it. `at0558` measures
-   the ARC reading's group against the row it stands in, so the fit is
-   asserted rather than the declared sum alone. */
+   the surplus on nothing for every card with no arc on it.
+
+   All of these widths are hand-tuned from the Z2 TUNING block on
+   `.session-card-status-bar` in `session-card.css`; the numbers here are the
+   fallbacks only. No test pins them — the row is looked at all day, and a
+   regression in it is obvious. */
 .session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="tasks"] {
-  --tugx-session-status-cell-width: 17ch;
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-tasks-arc, 17ch);
 }
 .session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="jobs"] {
-  --tugx-session-status-cell-width: 9ch;
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-jobs-arc, 9ch);
 }
 .session-telemetry-status-row[data-arc="true"]
   .session-telemetry-status-cell[data-priority="context"] {
-  --tugx-session-status-cell-width: 14ch;
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-context-arc, 14ch);
 }
 .session-telemetry-status-value-wrap {
   /* Wrap centers its single child value across the whole cell — so values

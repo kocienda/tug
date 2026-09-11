@@ -9,7 +9,7 @@
  * subtree. So the fold is a focus event as much as a geometry one — without a
  * destination of its own the card would come out reachable and unfocused, the
  * caretless-void failure Risk R01 names. [P08] gives it one: the minimize
- * control at Z2's leading edge is the minimized card's key view AND its
+ * control at Z2's trailing edge is the minimized card's key view AND its
  * Return-home.
  *
  * The control stands in BOTH forms now ([B03]) — the Show Transcript bar it
@@ -28,9 +28,9 @@
  *      whole point is the path a person takes with the mouse.
  *   2. **The walk.** ⌥⇥ engages keyboard-focus mode and lights the control
  *      exactly where the fold already put it — one placement, not two. Tab
- *      from there reaches the STATE cell (the control's order, 12, sits
- *      between the folded toolbar's block and the Z2 cells at 13), ⇧⇥ comes
- *      back, and Return on the control shows the transcript.
+ *      from there reaches the STATE cell (the control's order, 18, is the last
+ *      live stop, so Tab wraps to the first Z2 cell at 13), ⇧⇥ comes back,
+ *      and Return on the control shows the transcript.
  *
  * The RING is deliberately read as the key view's own (`data-key-view-kbd`)
  * rather than as `data-default-ring`. `persistentDefaultRing` does two things,
@@ -76,6 +76,7 @@ const CONTROL_READS_MINIMIZE = `(function () {
   return el !== null && el.getAttribute("aria-label") === "Minimize";
 })()`;
 const STATE_CELL = `${STATUS_BAR} [data-slot="tug-status-cell"]`;
+const JOBS_CELL = `${STATUS_BAR} [data-slot="tug-status-cell"][data-priority="jobs"]`;
 const DIALOG = `${CARD} [data-slot="session-permission-dialog"]`;
 const ALLOW = `${DIALOG} .tug-inline-dialog-actions .tug-button-primary-action`;
 
@@ -287,11 +288,12 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the minimized form", () =>
         // key view — one filled+ring per scope, never two.
         expect(folded.ringCount, "no second mark beside the key view").toBe(0);
 
-        // ── Tab reaches the Z2 cells, which stay leaf stops ──
-        await app.nativeKey("Tab");
+        // ── ⇧⇥ reaches the Z2 cells, which stay leaf stops. The control is
+        // the row's last stop, so the cell before it is JOBS. ──
+        await app.nativeKey("Tab", ["shift"]);
         await app.waitForCondition<boolean>(
           `(function () {
-             var cell = document.querySelector(${JSON.stringify(STATE_CELL)});
+             var cell = document.querySelector(${JSON.stringify(JOBS_CELL)});
              return cell !== null && cell.hasAttribute("data-key-view-kbd");
            })()`,
           { timeoutMs: 8000 },
@@ -299,7 +301,7 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the minimized form", () =>
         const tabbed = await keyboardMarks(app);
         note(`after Tab: keyView=${tabbed.keyView} x${tabbed.keyViewCount}, ring=${tabbed.defaultRing} x${tabbed.ringCount}`);
         expect(tabbed.keyViewCount, "still one lit stop").toBe(1);
-        expect(tabbed.keyView, "Tab from the bar reaches the Z2 row").toBe(
+        expect(tabbed.keyView, "⇧⇥ from the bar reaches the Z2 row").toBe(
           "status-cell",
         );
 
@@ -311,9 +313,9 @@ describe.skipIf(!SHOULD_RUN)("AT0554: the keyboard in the minimized form", () =>
         // always worn by whoever holds the keyboard and the persistent ring
         // never has a non-button key view to stand beside. What
         // `persistentDefaultRing` buys is the registration underneath it —
-        // the bar IS the scope's default button — and ⇧⇥ is the same walk read
-        // backwards.
-        await app.nativeKey("Tab", ["shift"]);
+        // the bar IS the scope's default button — and Tab is the same walk read
+        // forwards.
+        await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(
           `(function () {
              var bar = document.querySelector(${JSON.stringify(BAR)});

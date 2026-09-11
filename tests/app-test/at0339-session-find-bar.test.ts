@@ -545,8 +545,8 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
                .sort((a, b) => a - b).join(",")`,
           ),
           "the find bar's four stops occupy 8…11 in the card's cycle group",
-          // 12 is the minimize control at the leading edge of Z2 ([B03]) —
-          // one below the five cells, which moved up to 13…17 to seat it, and
+          // 18 is the minimize control at the trailing edge of Z2 ([B03]) —
+          // one past the five cells at 13…17, and
           // deliberately NOT the find bar's 11: the bar it replaced existed
           // only while minimized, and this control stands in both forms.
           // 4 and 6 are gaps by design: slot 4 is the off-code-route chip
@@ -555,7 +555,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           // Z4B diet. The constants keep their places — the grid describes
           // the SHAPE of the toolbar row — and the walk skips what is not
           // mounted.
-        ).toBe(`0,1,5,7,8,9,10,11,12,${EDITOR_ORDER}`);
+        ).toBe(`0,1,5,7,8,9,10,11,18,${EDITOR_ORDER}`);
 
         // ⌥⇥ engages the cycle AT the query field's own seat — entering keeps
         // the key view where the keyboard already is, and the landing is a
@@ -579,18 +579,18 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         }
 
         // Past the bar's last stop the walk carries straight on into the Z2
-        // row — its minimize control first ([B03]), then the status cells.
+        // row — the status cells, with the minimize control after them ([B03]).
         // This is the assertion that separates "participates in the card's
         // order" from "has an order of its own": a private walk would have
         // wrapped back to the query field here.
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-key-view]')?.closest('[data-slot="session-minimize-control"]') !== null`,
+          `document.querySelector('[data-key-view]')?.getAttribute('data-priority') === "state"`,
           { timeoutMs: 6000 },
         );
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-key-view]')?.getAttribute('data-slot') === "tug-status-cell"`,
+          `document.querySelector('[data-key-view]')?.getAttribute('data-priority') === "time"`,
           { timeoutMs: 6000 },
         );
 

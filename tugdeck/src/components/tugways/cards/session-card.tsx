@@ -402,18 +402,16 @@ const SESSION_CYCLE_ORDER_COMMIT_BASE = 5;
 // where the bar sits: the cycle reads the card upward from its bottom edge.
 const SESSION_CYCLE_ORDER_FIND_BASE = 8;
 const SESSION_CYCLE_FIND_STOP_COUNT = 4;
-// The minimize control, seated at the leading edge of Z2 in BOTH forms
-// ([B03]–[B06]). It takes 12 — one below the Z2 cells, which moved up to 13 to
-// make room — because that is where it stands on screen: the cycle reads the
-// card upward from its bottom edge, and the control is the first thing in the
-// row the cells finish. It cannot take the Show Transcript bar's old 11: that
-// was the last slot of the find bar's 8…11 block, which was free only because
-// the bar existed exactly while the find bar was closed. This control is
-// present in both forms, so it needs an order of its own.
+// The minimize control, seated at the TRAILING edge of Z2 in BOTH forms
+// ([B03]–[B06]). It takes 18 — one past the Z2 cells at 13…17 — because that
+// is where it stands on screen: the walk reads the row left to right, and the
+// control is the last thing in it. 18 was free: it was the PULSE label's stop
+// before the PULSE moved to the masthead. This control is present in both
+// forms, so it needs an order of its own.
 //
 // Minimized it is the card's Return-home and the one live stop that is not a
-// cell; open it is simply the stop before them ([P08]).
-const SESSION_CYCLE_ORDER_MINIMIZE = 12;
+// cell; open it is simply the stop after them ([P08]).
+const SESSION_CYCLE_ORDER_MINIMIZE = 18;
 // The control's stable focus key — the `group:order` form every `focus-key`
 // placement addresses a stop by.
 const MINIMIZE_FOCUS_KEY = `${SESSION_CYCLE_GROUP}:${SESSION_CYCLE_ORDER_MINIMIZE}`;
@@ -428,8 +426,7 @@ const FOLD_END_SLACK_MS = 150;
 // orders 13…17 (base + 0…4). The editor (the text body) follows at 19; and
 // the Z4C compose-phase attachment tiles — one leaf stop each — take the
 // orders from 20 upward (base + tile index), so they Tab right after the
-// editor. 18 is a gap: it was the PULSE label's stop, and the PULSE moved to
-// the masthead, which is pane chrome and takes no card-cycle stop.
+// editor. 18 is the minimize control at Z2's trailing edge (above).
 const SESSION_CYCLE_ORDER_STATUS_BASE = 13;
 const SESSION_CYCLE_ORDER_EDITOR = 19;
 const SESSION_CYCLE_ORDER_ATTACHMENT_BASE = 20;
@@ -3263,15 +3260,15 @@ export function SessionCardBody({
         : [],
       [
         // The minimize control shares the Z2 row because it STANDS in it, at
-        // the row's leading edge in both forms ([B03]). So Left from STATE
-        // reaches it and Right from it reaches STATE, which is what the eye
+        // the row's trailing edge in both forms ([B03]). So Right from JOBS
+        // reaches it and Left from it reaches JOBS, which is what the eye
         // reads off the strip.
-        k(SESSION_CYCLE_ORDER_MINIMIZE),
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 0),
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 1),
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 2),
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 3),
         k(SESSION_CYCLE_ORDER_STATUS_BASE + 4),
+        k(SESSION_CYCLE_ORDER_MINIMIZE),
       ],
       // The editor's text stop — the input-area wrapper, which is what wears
       // the ring while the editor itself stays blurred. Also a lone node.
@@ -5611,24 +5608,6 @@ export function SessionCardBody({
             className="session-card-status-bar"
             data-slot="session-card-status-bar"
           >
-            {/* The card's one minimize control ([B03]–[B06]), at the leading
-                edge of the row in BOTH forms — a sibling of the status
-                content rather than a child of it, because `-main` refuses
-                focus for its cells and gaps and a door must not ([F07]).
-
-                Under a `CycleScope` of its own for the same reason the status
-                content below takes one: the strip sits outside the prompt
-                entry's subtree, and a stop that is not in the cycle's mode is
-                not a member of the walk — minimized, ⌥⇥ would seed the first
-                Z2 cell and Tab would never reach the one door the form has
-                ([P08]). */}
-            <cycle.CycleScope>
-              <SessionMinimizeControl
-                minimized={minimized}
-                focusGroup={SESSION_CYCLE_GROUP}
-                focusOrder={SESSION_CYCLE_ORDER_MINIMIZE}
-              />
-            </cycle.CycleScope>
             {/*
                 Z2 status content. Rendered only when Z2 has content: an
                 empty slot leaves the wrapper `:empty`, which collapses the
@@ -5662,6 +5641,24 @@ export function SessionCardBody({
                 <cycle.CycleScope>{effectiveStatusBarContent}</cycle.CycleScope>
               </div>
             )}
+            {/* The card's one minimize control ([B03]–[B06]), at the trailing
+                edge of the row in BOTH forms — a sibling of the status
+                content rather than a child of it, because `-main` refuses
+                focus for its cells and gaps and a door must not ([F07]).
+
+                Under a `CycleScope` of its own for the same reason the status
+                content above takes one: the strip sits outside the prompt
+                entry's subtree, and a stop that is not in the cycle's mode is
+                not a member of the walk — minimized, ⌥⇥ would seed the first
+                Z2 cell and Tab would never reach the one door the form has
+                ([P08]). */}
+            <cycle.CycleScope>
+              <SessionMinimizeControl
+                minimized={minimized}
+                focusGroup={SESSION_CYCLE_GROUP}
+                focusOrder={SESSION_CYCLE_ORDER_MINIMIZE}
+              />
+            </cycle.CycleScope>
           </div>
           {/*
               Changes glance ([P03] revised): a bottom-anchored PASSIVE shade

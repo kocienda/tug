@@ -1,5 +1,5 @@
 /**
- * session-minimize-control.css — the control's seat at Z2's leading edge.
+ * session-minimize-control.css — the control's seat at Z2's trailing edge.
  *
  * The seat costs the row 32px: a 28px `sm` icon button and the strip's own 4px
  * column gap beside it. That is the number the cell budgets were cut to clear
