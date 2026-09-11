@@ -511,15 +511,24 @@ describe("columnBadgeFactsOf", () => {
     ).toEqual([2, 1, 0]);
   });
 
-  test("a stored split standing one card deep is not a split", () => {
-    // Membership churn never destroys the arrangement, so a slot that was
-    // split and lost a member keeps `mode: "split"` waiting for it to come
-    // back — and renders that one member across the whole undivided run
-    // meanwhile. Reading `mode` alone put a band letter on a card that was not
-    // in a band, and the card's own masthead (which gates on the same two
-    // members the geometry does) said `stack` about the same place.
+  test("a split standing one card deep is a split, and reads A", () => {
+    // The badge names the arrangement the slot is SET to, not what the
+    // geometry is drawing. Splitting a slot that holds one card is a legal
+    // act that commits `mode: "split"`, and the lone member goes on taking
+    // the undivided run — so a badge gated on a second member reported the
+    // user's Split as having done nothing, and only produced the letter when
+    // a neighbour arrived. Membership churn reaches the same state from the
+    // other side: a split slot that LOST a member is still split, waiting for
+    // one to come back, and says so.
     const deck = state({ "pane-a": 0, "pane-b": 1 }, { 0: { mode: "split" } });
     expect(columnBadgeFactsOf(deck, "card-pane-a")).toEqual({
+      kind: "split",
+      count: 1,
+      index: 0,
+    });
+    // And the slot next to it, set to nothing, is the control: one card deep
+    // in a stacked place still reads `1`.
+    expect(columnBadgeFactsOf(deck, "card-pane-b")).toEqual({
       kind: "stack",
       count: 1,
       index: 0,

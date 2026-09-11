@@ -1183,6 +1183,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     }
     return map;
   }, [deckColumns]);
+  // And the arrangement each member's column is SET to, which is a different
+  // question from the one above: membership never destroys an arrangement, and
+  // a slot split while it holds one card is split from that moment even though
+  // its lone member goes on taking the undivided run. The badge in a pane's
+  // cluster names the arrangement — so it reads THIS map, and reads the
+  // placement above only for the band index and the depth ([D121]).
+  const columnModeByPaneId = useMemo(() => {
+    const map = new Map<string, ColumnMode>();
+    for (const column of deckColumns) {
+      for (const paneId of column.members) map.set(paneId, column.mode);
+    }
+    return map;
+  }, [deckColumns]);
   const railWidthOf = (side: SidebarSide): number =>
     sidebarRails.find((rail) => rail.side === side)?.width ?? 0;
   // The held-open deck edge ([B10]). A side with no rail has no frame the
@@ -4241,6 +4254,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             contentWidthPx={contentWidthPx}
             slotStack={slotStackByPaneId.get(stackState.id)}
             columnMember={columnMemberByPaneId.get(stackState.id)}
+            columnMode={columnModeByPaneId.get(stackState.id)}
             // The pane's own field ([P01]) rather than `paneFoldedOf` over
             // the deck state: the selector exists for readers holding a state
             // and an id, and this one is already holding the pane.

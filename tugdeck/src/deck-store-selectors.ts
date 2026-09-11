@@ -724,14 +724,18 @@ export function placeSeamFractions(
  * divided while it stands alone, and anything describing what is ON SCREEN has
  * to say so.
  *
- * It exists as a function because two surfaces were each deciding it for
- * themselves and drifted: `deck-canvas.tsx` gated the member placement on
- * `mode === "split" && members.length >= 2`, which is what the pane's own
- * cluster reads, while `columnBadgeFactsOf` asked only about `mode`. The same
- * lone card then wore a stack badge on its masthead and a split band letter —
- * `A`, an address matched against nothing — on its rail row. Two surfaces
- * contradicting each other about one card is not a bug either of them can be
- * blamed for; it is a rule that was written down twice.
+ * It exists as a function because the frames, the seams and the focus walk
+ * were each deciding it for themselves and drifted. This is GEOMETRY's
+ * question and only geometry's: a lone member takes the undivided run in
+ * either mode, and every reader that allocates, pins, or walks bands reads
+ * this one answer.
+ *
+ * **The badges do not read it.** A badge names the arrangement the place is
+ * SET to — `columnBadgeFactsOf` asks `columnModeOf` — for the same reason the
+ * Layout card's marks do: a slot set to split and standing one card deep is a
+ * split slot, the user having just said so, and a badge answering `1` there
+ * reported the act as having failed. The two surfaces that once contradicted
+ * each other about that lone card now agree in the other direction: both `A`.
  */
 export function columnDrawsSplit(column: DeckColumn): boolean {
   return column.mode === "split" && column.members.length >= 2;
@@ -752,13 +756,23 @@ export interface ColumnBadgeFacts {
  * that says so. `null` when there is nothing to say: no host pane, or no
  * imposition to stand in.
  *
- * **A place one card deep is still a place**, and it reads `1`. The pane's own
- * cluster has said so since the badge became unconditional there, and a rail
- * row that went blank for the same card said the opposite about it — one
- * surface claiming the card stands somewhere and the other claiming it stands
- * nowhere. The absence also cost the reader the one case where the badge is a
- * door worth opening: a lone card is exactly the card whose place can still be
- * split, and a row with no badge on it gives no hint that it can.
+ * **A place one card deep is still a place**, and it reads `1` — or `A`. The
+ * pane's own cluster has said the first since the badge became unconditional
+ * there, and a rail row that went blank for the same card said the opposite
+ * about it — one surface claiming the card stands somewhere and the other
+ * claiming it stands nowhere. The absence also cost the reader the one case
+ * where the badge is a door worth opening: a lone card is exactly the card
+ * whose place can still be split, and a row with no badge on it gives no hint
+ * that it can.
+ *
+ * **The kind is the arrangement the place is SET to, not what the geometry is
+ * drawing** — `columnModeOf`, never {@link columnDrawsSplit}. Splitting a slot
+ * that holds one card is a legal act committing `mode: "split"`, and a badge
+ * gated on a second member left the masthead reading `1` afterwards: the user
+ * pressed Split, nothing on the badge moved, and the letter arrived only when
+ * a neighbour did. The arrangement is the fact this badge is for; the
+ * undivided run a lone member takes is geometry's business, and geometry says
+ * so by drawing the one card across the whole slot.
  *
  * Read over {@link deckColumnsOf} and nothing else, which is the deck's one
  * reading of its columns — so a rail row and the pane's own cluster cannot
@@ -800,11 +814,9 @@ export function columnBadgeFactsOf(
   // walks, so the marked end and the direction that verb travels agree by
   // construction rather than by two functions happening to match.
   const index = Math.max(columnMoveOrder(state, host.id).indexOf(host.id), 0);
-  const drawsSplit =
-    columnModeOf(state.imposition, clampSlot(kind, host.slot)) === "split" &&
-    count >= 2;
-  if (!drawsSplit) return { kind: "stack", count, index };
-  return { kind: "split", count, index };
+  const split =
+    columnModeOf(state.imposition, clampSlot(kind, host.slot)) === "split";
+  return { kind: split ? "split" : "stack", count, index };
 }
 
 /**

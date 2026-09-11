@@ -491,11 +491,12 @@ function CardTitleBar({
   const badgeKind = placeSplit ? "split" : "stack";
   const badgeCount = placeArrangement?.count ?? Math.max(slotStack.length, 1);
   const badgeIndex = placeArrangement?.index ?? 0;
-  // A place one card deep. The badge draws the count all the same — one-of-one
-  // is a true sentence in the vocabulary the badge already speaks, and
-  // inventing a fourth glyph for solitude would say nothing the numeral does
-  // not. What DOES turn is the prose: a menu holding one card cannot offer to
-  // show you another, so the phrasing below asks a different question of it.
+  // A place one card deep. The badge draws its place all the same — `1` for a
+  // stack, `A` for a slot set to split, both true sentences in the vocabulary
+  // it already speaks, and inventing a fourth glyph for solitude would say
+  // nothing either one does not. What DOES turn is the prose: a place holding
+  // one card cannot offer to show you another, so the phrasing below asks a
+  // different question of it.
   const placeAlone = badgeCount < 2;
   // Generic title-bar contributions: the active card may publish items via
   // `paneTitleBarItemsStore`. The pane renders them without knowing what
@@ -1376,7 +1377,9 @@ function CardTitleBar({
             content={
               onArrangePlace !== undefined && placeArrangement !== undefined
                 ? placeSplit
-                  ? `Band ${columnBadgeCharacter("split", badgeCount, badgeIndex)} of ${badgeCount} — press to show a card, or re-stack this ${placeArrangement.kind}`
+                  ? placeAlone
+                    ? `Band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}, alone in this split ${placeArrangement.kind} — press to re-stack it`
+                    : `Band ${columnBadgeCharacter("split", badgeCount, badgeIndex)} of ${badgeCount} — press to show a card, or re-stack this ${placeArrangement.kind}`
                   : placeAlone
                     ? `One card in this ${placeArrangement.kind} — press to split it`
                     : `${badgeCount} cards in this ${placeArrangement.kind} — press to show one, or split it`
@@ -1417,7 +1420,9 @@ function CardTitleBar({
                     className="tug-pane-title-bar-stack-badge"
                     aria-label={
                       placeSplit
-                        ? `Split of ${badgeCount} cards, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}`
+                        ? placeAlone
+                          ? `Split place, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}, alone in it`
+                          : `Split of ${badgeCount} cards, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}`
                         : placeAlone
                           ? "Alone in this place"
                           : `Stack of ${badgeCount} cards`
@@ -1969,6 +1974,18 @@ export interface TugPaneProps {
    */
   columnMember?: ColumnMemberPlacement;
   /**
+   * The arrangement the pane's slot is SET to, for a pane standing in one.
+   *
+   * Not derivable from {@link columnMember}, and that is the whole point:
+   * `columnMember` is geometry and is absent from a column of one, while a
+   * slot split while it holds a single card is split from the moment the verb
+   * commits. The badge names the arrangement, so it reads this; the frame
+   * reads `columnMember`, which still says the lone member takes the whole
+   * run. Absent on a free pane and on a rail, neither of which stands in a
+   * column at all.
+   */
+  columnMode?: ColumnMode;
+  /**
    * Set on a pane hosting a sidebar card, pinned or not. Separate from
    * {@link sidebarStack}, which says only where a PINNED rail stands: a rail
    * dragged off its pin is an ordinary free pane for geometry purposes but is
@@ -2090,6 +2107,7 @@ export function TugPane({
   bullseye = false,
   bullseyeExit,
   columnMember,
+  columnMode,
   folded = false,
 }: TugPaneProps) {
   const sidebarSide = sidebarStack?.side;
@@ -4587,14 +4605,18 @@ export function TugPane({
                     // card with no door to it. A slot is a place at depth one.
                     //
                     // The mode is read off
-                    // `columnMember`, which `DeckCanvas` sets exactly when the
-                    // column is split and has two or more members — the same
-                    // condition the geometry uses, so the badge cannot offer
-                    // "Stack" for a column that is already drawing as one.
+                    // `columnMode` — the arrangement the slot is SET to —
+                    // rather than off `columnMember`, which is geometry and is
+                    // absent from a column of one. Reading the geometry left
+                    // the badge on `1` after the user split a slot holding a
+                    // single card: the act had committed, the picture could
+                    // not show it (one card still takes the whole run), and
+                    // the only surface that could say so said nothing until a
+                    // neighbour arrived. The band letter is the report that
+                    // the verb landed, and "Stack" below it is then the way
+                    // back.
                     placeArrangement: {
-                      mode: (columnMember !== undefined
-                        ? "split"
-                        : "stack") as ColumnMode,
+                      mode: columnMode ?? ("stack" as ColumnMode),
                       kind: "column" as const,
                       // A stacked column has no member record and needs none:
                       // the badge draws the depth, and every pane in the stack

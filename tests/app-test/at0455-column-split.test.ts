@@ -592,6 +592,26 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
           survivor,
           "the slot kept the split it was set to when its second card left",
         ).toBe("split");
+        // ── And the survivor's own masthead says the same word. ──
+        //
+        // The badge names the arrangement the slot is SET to, which at one
+        // card deep is the only surface that can: the run legitimately does
+        // not divide, so the picture alone cannot tell a split slot from a
+        // stacked one. Reading the geometry here made the badge answer `1`
+        // for a place the user had split — the same `1` a never-split slot
+        // wears — and the band letter only appeared when a second card
+        // arrived, as a change attributed to the wrong gesture
+        // (`tuglaws/pane-model.md`, "A badge names the arrangement the place
+        // is SET to").
+        expect(
+          await app.evalJS<string | null>(
+            `(function () {
+              var el = document.querySelector(${JSON.stringify(frame("p1"))} + ' [data-slot="tug-column-badge"]');
+              return el === null ? null : el.getAttribute("data-kind") + ":" + el.textContent.trim();
+            })()`,
+          ),
+          "the lone member of a split slot wears its band letter, not a count",
+        ).toBe("split:A");
         // And the way back is a press, on the mark that was unreachable before.
         expect(await placeOffers(app, "col-0")).toBe("stack");
         await app.click(placeMark("col-0"));
