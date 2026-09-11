@@ -54,11 +54,21 @@
  *      lid's top edge, which is where focus goes when chroma no longer
  *      carries it.
  *
- * Four treatments make that argument comparable against the shipping look.
- * `whisper` keeps today's ladder and caps the chroma; `paper` is the GitHub
- * shape; `one-tint` is `paper` plus Primer's rule that exactly one surface —
- * the focused Session masthead — may wear the Key tint. Four sliders tune
- * whichever is selected, and the readout is the declaration to paste.
+ * `paper` is the GitHub shape, and it is the treatment that was chosen; the
+ * shipping look stays in the picker as the thing to compare against. (Two
+ * others — a chroma-capped version of today's ladder, and paper with one
+ * Key-tinted masthead — were drawn, looked at, and dropped.) The sliders tune
+ * paper, and the readout is the declaration to paste.
+ *
+ * ── The inactive card ────────────────────────────────────────────────────
+ * Once the lid is neutral, chroma no longer tells a focused card from an
+ * unfocused one, so the second half of the preview is the same two cards
+ * unfocused, under the deck's real recede (the fixtures stand inside a
+ * `.tug-pane-chrome`, so the two blend layers apply as they do on the deck).
+ * What carries focus in paper: the Key rule on the lid, full ink on the
+ * title, and — the knob under tune here — DIMMED ink on the inactive title
+ * bar and masthead. `Inactive ink L` is the lightness of that ink; the
+ * masthead's own ladder (85% / 65%) steps down from it.
  *
  * Every override is written as `oklch(from <hue source> L C h)` — the theme's
  * own hue with the treatment's lightness and chroma substituted — so a
@@ -146,7 +156,7 @@ interface Field {
   l: number;
   c: number;
   /** Which slider, if any, owns this field's lightness. */
-  knobL?: "rail" | "content";
+  knobL?: "rail" | "content" | "inactive";
   /** True for the focused lid, whose chroma the `Lid c` slider owns. */
   lid?: boolean;
   /**
@@ -165,8 +175,6 @@ interface Treatment {
   lidRule: number;
   /** Width of the Key rule along the selected row's leading edge, in px. */
   selRule: number;
-  /** The Session masthead's own surface, when it differs from the lid's. */
-  masthead?: Omit<Field, "token">;
 }
 
 const T = {
@@ -187,6 +195,9 @@ const T = {
   divider: "--tug7-element-global-divider-normal-default-rest",
   selection: "--tug7-surface-selection-primary-normal-selected-rest",
   selectionText: "--tug7-element-selection-text-normal-selected-rest",
+  titleInactive: "--tug7-element-card-text-normal-title-inactive",
+  iconInactive: "--tug7-element-card-icon-normal-title-inactive",
+  controlInactive: "--tug7-element-card-control-normal-muted-rest",
 } as const;
 
 /**
@@ -203,32 +214,6 @@ const SHIPPING: Treatment = {
   fields: [],
 };
 
-const WHISPER: Treatment = {
-  id: "whisper",
-  title: "Whisper",
-  blurb:
-    "Today's ladder, chroma capped. One hue on every field; the lid keeps a trace of Key.",
-  lidRule: 0,
-  selRule: 0,
-  fields: [
-    { token: T.content, hue: "tint", l: 960, c: 6, knobL: "content" },
-    { token: T.default, hue: "tint", l: 960, c: 8 },
-    { token: T.raised, hue: "tint", l: 960, c: 8 },
-    { token: T.overlay, hue: "tint", l: 960, c: 8 },
-    { token: T.sunken, hue: "tint", l: 925, c: 10, knobL: "rail" },
-    { token: T.lid, hue: "key", l: 935, c: 24, lid: true },
-    { token: T.lidOff, hue: "gray", l: 945, c: 0 },
-    { token: T.status, hue: "tint", l: 930, c: 8 },
-    { token: T.controlbar, hue: "tint", l: 915, c: 10 },
-    { token: T.block, hue: "tint", l: 935, c: 4 },
-    { token: T.well, hue: "tint", l: 965, c: 4 },
-    { token: T.frame, hue: "tint", l: 760, c: 14 },
-    { token: T.border, hue: "tint", l: 800, c: 12 },
-    { token: T.borderStrong, hue: "tint", l: 730, c: 16 },
-    { token: T.divider, hue: "tint", l: 820, c: 12 },
-  ],
-};
-
 const PAPER: Treatment = {
   id: "paper",
   title: "Paper",
@@ -243,6 +228,13 @@ const PAPER: Treatment = {
     // "selected" at full chroma in three pixels.
     { token: T.selection, hue: "key", l: 930, c: 50, sel: true },
     { token: T.selectionText, hue: "gray", l: 150, c: 0 },
+    // The inactive card's ink. On the deck an unfocused card is already
+    // washed by the recede; on a neutral lid that wash is nearly all there
+    // is, so the title, glyph, and controls step down in lightness as well.
+    // One slider, one lightness, three tokens.
+    { token: T.titleInactive, hue: "tint", l: 640, c: 20, knobL: "inactive" },
+    { token: T.iconInactive, hue: "tint", l: 640, c: 20, knobL: "inactive" },
+    { token: T.controlInactive, hue: "tint", l: 640, c: 20, knobL: "inactive" },
     { token: T.content, hue: "tint", l: 985, c: 4, knobL: "content" },
     { token: T.default, hue: "tint", l: 985, c: 4 },
     { token: T.raised, hue: "tint", l: 985, c: 4 },
@@ -261,18 +253,7 @@ const PAPER: Treatment = {
   ],
 };
 
-const ONE_TINT: Treatment = {
-  id: "one-tint",
-  title: "One tint",
-  blurb:
-    "Paper, plus Primer's rule: exactly one surface — the focused Session masthead — wears the Key tint. Utility lids stay neutral.",
-  lidRule: 0,
-  selRule: 3,
-  fields: PAPER.fields,
-  masthead: { hue: "key", l: 950, c: 30 },
-};
-
-const TREATMENTS: readonly Treatment[] = [SHIPPING, WHISPER, PAPER, ONE_TINT];
+const TREATMENTS: readonly Treatment[] = [SHIPPING, PAPER];
 
 // ---------------------------------------------------------------------------
 // Resolution — knobs applied over a treatment
@@ -284,6 +265,8 @@ interface Knobs {
   lidC: number;
   /** The selected row's chroma. */
   selC: number;
+  /** The inactive title bar's ink lightness. */
+  inactiveL: number;
   /** Every field's chroma is clamped to this. */
   cap: number;
 }
@@ -293,7 +276,9 @@ function seedKnobs(t: Treatment): Knobs {
   const content = t.fields.find((f) => f.knobL === "content");
   const lid = t.fields.find((f) => f.lid === true);
   const sel = t.fields.find((f) => f.sel === true);
+  const inactive = t.fields.find((f) => f.knobL === "inactive");
   return {
+    inactiveL: inactive?.l ?? 480,
     railL: rail?.l ?? 910,
     contentL: content?.l ?? 960,
     lidC: lid?.c ?? 65,
@@ -307,7 +292,13 @@ function seedKnobs(t: Treatment): Knobs {
 function resolveFields(t: Treatment, k: Knobs): Field[] {
   return t.fields.map((f) => {
     const l =
-      f.knobL === "rail" ? k.railL : f.knobL === "content" ? k.contentL : f.l;
+      f.knobL === "rail"
+        ? k.railL
+        : f.knobL === "content"
+          ? k.contentL
+          : f.knobL === "inactive"
+            ? k.inactiveL
+            : f.l;
     const c =
       f.lid === true ? k.lidC : f.sel === true ? k.selC : Math.min(f.c, k.cap);
     return { ...f, l, c };
@@ -468,10 +459,18 @@ function Rail(): React.ReactElement {
   );
 }
 
-/** The focused Session card: masthead, Z0, a transcript with a block, Z2. */
-function SessionCard(): React.ReactElement {
+/**
+ * A Session card: masthead, Z0, a transcript with a block, Z2. The body
+ * stands inside a real `.tug-pane-chrome`, so an unfocused one takes the
+ * deck's own two recede layers.
+ */
+function SessionCard({ focused }: { focused: boolean }): React.ReactElement {
   return (
-    <div className="tug-pane sp-lt-pane" data-focused="true">
+    <div
+      className="tug-pane sp-lt-pane"
+      {...(focused ? { "data-focused": "true" } : {})}
+    >
+      <div className="tug-pane-chrome sp-lt-chrome">
       <div className="tug-pane-title-bar sp-lt-bar sp-lt-bar-masthead" data-masthead="true">
         <div className="tug-masthead-frame">
           <TugSessionRow
@@ -481,7 +480,7 @@ function SessionCard(): React.ReactElement {
               <TugProgressIndicator
                 variant="pulsing-dot"
                 size={DOT_SIZE}
-                phase="streaming"
+                phase={focused ? "streaming" : "idle"}
                 phaseVisual={sessionSessionPhaseVisual}
                 aria-hidden
               />
@@ -532,22 +531,30 @@ function SessionCard(): React.ReactElement {
           <span className="sp-lt-z2-value">None</span>
         </div>
       </div>
+      </div>
     </div>
   );
 }
 
-/** An unfocused utility card, one-line lid. */
-function DiffCard(): React.ReactElement {
+/** A utility card, one-line lid. */
+function DiffCard({ focused }: { focused: boolean }): React.ReactElement {
   return (
-    <div className="tug-pane sp-lt-pane">
-      <div className="tug-pane-title-bar sp-lt-bar">
-        <span className="tug-pane-icon">
-          <FileDiff size={13} />
-        </span>
-        <span className="tug-pane-title">session-fold-issues.md</span>
-        <Cluster />
+    <div
+      className="tug-pane sp-lt-pane"
+      {...(focused ? { "data-focused": "true" } : {})}
+    >
+      <div className="tug-pane-chrome sp-lt-chrome">
+        <div className="tug-pane-title-bar sp-lt-bar">
+          <span className="tug-pane-icon">
+            <FileDiff size={13} />
+          </span>
+          <span className="tug-pane-title">session-fold-issues.md</span>
+          <Cluster />
+        </div>
+        <div className="sp-lt-body">
+          {focused ? "a focused" : "an unfocused"} card&rsquo;s content ground
+        </div>
       </div>
-      <div className="sp-lt-body">an unfocused card&rsquo;s content ground</div>
     </div>
   );
 }
@@ -584,6 +591,7 @@ function SpikeLightTint(): React.ReactElement {
   const contentLId = useId();
   const lidCId = useId();
   const selCId = useId();
+  const inactiveLId = useId();
   const capId = useId();
   const { ResponderScope, responderRef } = useResponderForm({
     selectValue: {
@@ -594,6 +602,7 @@ function SpikeLightTint(): React.ReactElement {
       [contentLId]: (v) => setKnobs((k) => ({ ...k, contentL: v })),
       [lidCId]: (v) => setKnobs((k) => ({ ...k, lidC: v })),
       [selCId]: (v) => setKnobs((k) => ({ ...k, selC: v })),
+      [inactiveLId]: (v) => setKnobs((k) => ({ ...k, inactiveL: v })),
       [capId]: (v) => setKnobs((k) => ({ ...k, cap: v })),
     },
   });
@@ -612,11 +621,6 @@ function SpikeLightTint(): React.ReactElement {
     for (const f of fields) el.style.setProperty(f.token, cssValue(f));
     el.style.setProperty("--sp-lt-lid-rule", `${treatment.lidRule}px`);
     el.style.setProperty("--sp-lt-sel-rule", `${treatment.selRule}px`);
-    if (treatment.masthead !== undefined) {
-      el.style.setProperty("--sp-lt-masthead-bg", cssValue(treatment.masthead));
-    } else {
-      el.style.removeProperty("--sp-lt-masthead-bg");
-    }
   }, [fields, treatment]);
 
   const readout =
@@ -629,12 +633,6 @@ function SpikeLightTint(): React.ReactElement {
             : []),
           ...(treatment.selRule > 0
             ? [`/* selected row: ${treatment.selRule}px Key rule along the leading edge, at the glyph's own color */`]
-            : []),
-          ...(treatment.masthead !== undefined
-            ? [
-                `/* Session masthead only: */`,
-                declaration({ ...treatment.masthead, token: "--tugx-masthead-key-surface" }, hues),
-              ]
             : []),
         ].join("\n");
 
@@ -723,6 +721,16 @@ function SpikeLightTint(): React.ReactElement {
                 disabled={fields.length === 0}
               />
               <TugSlider
+                label="Inactive ink L"
+                senderId={inactiveLId}
+                value={knobs.inactiveL}
+                min={400}
+                max={850}
+                step={10}
+                size="sm"
+                disabled={fields.length === 0}
+              />
+              <TugSlider
                 label="Field c cap"
                 senderId={capId}
                 value={knobs.cap}
@@ -741,9 +749,11 @@ function SpikeLightTint(): React.ReactElement {
           <h2 className="sp-section-title">Preview</h2>
           <div className="sp-lt-preview" ref={previewRef}>
             <Rail />
-            <div className="sp-lt-column">
-              <SessionCard />
-              <DiffCard />
+            <div className="sp-lt-grid">
+              <SessionCard focused />
+              <SessionCard focused={false} />
+              <DiffCard focused />
+              <DiffCard focused={false} />
             </div>
           </div>
         </section>

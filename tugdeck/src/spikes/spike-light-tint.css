@@ -49,7 +49,7 @@
   padding: 16px;
   border-radius: var(--tug-radius-md);
   display: grid;
-  grid-template-columns: minmax(200px, 240px) minmax(280px, 1fr);
+  grid-template-columns: minmax(180px, 210px) minmax(280px, 1fr);
   gap: 16px;
   align-items: start;
 
@@ -66,14 +66,17 @@
   --tugx-pane-title-bar-bg-inactive: var(--tug7-surface-card-primary-normal-titlebar-inactive);
   --tugx-pane-title-bar-divider: var(--tug7-element-global-divider-normal-default-rest);
   --tugx-pane-border: var(--tug7-element-card-border-normal-frame-rest);
+  --tugx-pane-title-fg-inactive: var(--tug7-element-card-text-normal-title-inactive);
+  --tugx-pane-title-bar-icon-inactive: var(--tug7-element-card-icon-normal-title-inactive);
+  --tugx-pane-control-off-fg-rest: var(--tug7-element-card-control-normal-muted-rest);
 
   /* The Key rule a treatment may draw along the focused lid's top edge —
      the mark that carries focus once the lid itself has gone neutral.
      0 by default; a treatment sets the height. */
   --sp-lt-lid-rule: 0px;
-  /* The masthead's own surface. Defaults to the lid's; the one-tinted-surface
-     treatment points it at a Key tint the utility lids do not get. */
-  --sp-lt-masthead-bg: var(--tugx-pane-title-bar-bg-active);
+  /* The Key rule a treatment may draw along the selected row's leading edge —
+     what says "selected" once the fill has gone pale. 0 by default. */
+  --sp-lt-sel-rule: 0px;
 }
 
 /* ── The fixture panes ────────────────────────────────────────────────── */
@@ -158,6 +161,7 @@
 /* @tug-renders-on: --tug7-surface-selection-primary-normal-selected-rest */
 .sp-lt-row[data-selected="true"] {
   background-color: var(--tug7-surface-selection-primary-normal-selected-rest);
+  box-shadow: inset var(--sp-lt-sel-rule) 0 0 0 var(--sp-lt-key);
   --tug7-element-global-text-normal-default-rest: var(--tug7-element-selection-text-normal-selected-rest);
   --tug7-element-global-text-normal-muted-rest: var(--tug7-element-selection-text-normal-selected-rest);
 }
@@ -168,7 +172,6 @@
   --tugx-pane-chrome-height: 72px;
   align-items: flex-start;
   padding-block-start: 0;
-  background-color: var(--sp-lt-masthead-bg);
 }
 
 /* The cluster centers in the first chrome band, not in the 72px tier. */
@@ -176,6 +179,14 @@
   height: var(--tug-chrome-height);
   display: flex;
   align-items: center;
+}
+
+/* The masthead's name line paints from the title-bar ink, as the shipping
+   Session masthead's does (`session-masthead.css`), so an unfocused card's
+   name dims with its bar. Without this the row would take the global text
+   ink and the name would stay at full strength on a receded card. */
+.sp-lt-bar-masthead .tug-session-row-name-line .tug-list-row-title {
+  color: var(--tugx-pane-title-fg-active);
 }
 
 .sp-lt-callsign {
@@ -282,10 +293,19 @@
   user-select: none;
 }
 
-.sp-lt-column {
-  display: flex;
-  flex-direction: column;
+/* Focused beside unfocused, twice: the Session pair on top, the utility pair
+   below. What differs across each pair is the whole question. */
+.sp-lt-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
+  min-width: 0;
+  align-items: start;
+}
+
+/* The deck's chrome wrapper, so the recede layers land. The wrapper's own
+   rules give it the flex column and the isolation; nothing more is needed. */
+.sp-lt-chrome {
   min-width: 0;
 }
 
