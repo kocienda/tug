@@ -10,7 +10,7 @@
  *  1. Escape and ⌘. dismissed it directly.
  *  2. The pane's control cluster sits above the modal scrim by design, so the
  *     `⋯` rollup, the badges, and the ✕ stayed pressable throughout — and the
- *     rollup's `⋮` menu is how a second sheet got opened on a card that hosts
+ *     rollup's verbs are how a second sheet got opened on a card that hosts
  *     only one, which REPLACED the compaction sheet rather than stacking over
  *     it, so dismissing that second sheet left the card looking as though the
  *     compaction had been dismissed too, while it compacted on.
@@ -27,7 +27,7 @@
  *
  * **Why nothing here opens a second sheet directly.** The supersede half is
  * covered by closing the door that reached it: the rollup row is asserted
- * `display: none`, which is where the `⋮` menu lives. Driving `/usage` itself
+ * `display: none`, which is where every card verb lives. Driving `/usage` itself
  * is not available to this harness — its doors are the ⌃⌘U key equivalent and
  * the native Session menu, both of which need a foreground app, and every
  * in-page dispatch of it (`run-card-command`, `run-slash-command`) is routed
@@ -152,8 +152,8 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(1);
 
           // (2) The pane's controls. The close box is disabled outright, and
-          // the rollup — the `⋯`, the `⋮` card menu behind it, and every verb
-          // in the row — does not unfurl for a pointer or a keyboard walk.
+          // the rollup — the `⋯` and every verb in the row behind it — does
+          // not unfurl for a pointer or a keyboard walk.
           expect(
             await app.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold")`,

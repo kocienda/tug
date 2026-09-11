@@ -315,14 +315,12 @@ export function FileViewCardContent({ cardId }: { cardId: string }) {
     paneTitleBarItemsStore.set(cardId, [
       {
         commandId: TUG_ACTIONS.REVEAL_CARD_FILE,
-        presentation: "button",
         icon: "FolderOpenDot",
       },
       ...(settableKind
         ? [
             {
               commandId: TUG_ACTIONS.SHOW_CARD_SETTINGS,
-              presentation: "button" as const,
               icon: "Settings",
             },
           ]

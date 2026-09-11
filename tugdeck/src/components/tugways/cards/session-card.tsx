@@ -260,8 +260,6 @@ import {
   type CardServices,
 } from "@/lib/card-services-store";
 import { cardTitleStore } from "@/lib/card-title-store";
-import { paneTitleBarItemsStore } from "@/lib/pane-title-bar-items-store";
-import { SESSION_TRANSCRIPT_TITLE_BAR_ITEMS } from "@/lib/session-transcript-title-bar-items";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { cardMinimizedOf } from "@/deck-store-selectors";
 import { registerCardCloseAdvice } from "@/lib/card-close-advice";
@@ -5238,25 +5236,6 @@ export function SessionCardBody({
       cardTitleStore.clear(cardId);
     };
   }, [cardId, sessionLine, boundSessionId]);
-
-  // The four Go in Transcript verbs, as rows in the pane title bar's `…`
-  // popup ([D184]) — the list and the argument for it live in
-  // `session-transcript-title-bar-items.ts`. Membership is unconditional for
-  // as long as this body stands, which is the whole of what the card decides;
-  // a card still on its project picker has no transcript for these to be
-  // about, and this body is not mounted then.
-  useLayoutEffect(() => {
-    // Minimize leads, as a checked row: it is the verb about the pane the
-    // popup is standing on, where the four transcript verbs are about what is
-    // inside it. The checkmark is the row saying which of its two states the
-    // card is in — the same fact the item's dynamic title carries in the
-    // native menu.
-    paneTitleBarItemsStore.set(cardId, [
-      { commandId: TUG_ACTIONS.TOGGLE_SESSION_MINIMIZED, checked: minimized },
-      ...SESSION_TRANSCRIPT_TITLE_BAR_ITEMS,
-    ]);
-    return () => paneTitleBarItemsStore.set(cardId, null);
-  }, [cardId, minimized]);
 
   const projectChipText =
     projectDir !== null ? formatPathChipText(projectDir) : null;

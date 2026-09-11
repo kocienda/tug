@@ -971,13 +971,11 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     const items: PaneTitleBarItem[] = [
       {
         commandId: TUG_ACTIONS.REVEAL_CARD_FILE,
-        presentation: "button",
         icon: "FolderOpenDot",
         unavailableHint: "No file",
       },
       {
         commandId: TUG_ACTIONS.SHOW_CARD_SETTINGS,
-        presentation: "button",
         icon: "Settings",
       },
     ];

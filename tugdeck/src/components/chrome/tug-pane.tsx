@@ -35,7 +35,6 @@ import React, {
 import {
   CircleDot,
   MoreHorizontal,
-  MoreVertical,
   MoveHorizontal,
   X,
   icons,
@@ -116,15 +115,11 @@ import {
   refuseCardModalHold,
   useCardModalHold,
 } from "@/lib/card-modal-hold-store";
-import {
-  TugPopupMenu,
-  type TugPopupMenuEntry,
-} from "@/components/tugways/internal/tug-popup-menu";
+import { TugPopupMenu } from "@/components/tugways/internal/tug-popup-menu";
 import {
   commandEntry,
   validateCommand,
 } from "@/components/tugways/command-registry";
-import { commandShortcut } from "@/components/tugways/keymap-registry";
 import { commandValidationSource } from "@/lib/host-menu-state";
 import {
   getCardCloseGuard,
@@ -505,9 +500,12 @@ function CardTitleBar({
   // Generic title-bar contributions: the active card may publish items via
   // `paneTitleBarItemsStore`. The pane renders them without knowing what
   // card published them (the `cardTitleStore` precedent) — no cards-card import.
-  // An item wears itself as a standing button or as a `…` row; the two are
-  // split here so each side renders only what belongs to it, and the `…`
-  // button itself appears only when a row asked for it.
+  // Every item is a standing ghost icon button in the control cluster, and
+  // that is the only shape there is. A `⋮` popup of rows was the second one
+  // until it was cut: a verb reached by opening a menu that sits inside a row
+  // that is itself revealed on hover is two gestures deep before it is a verb
+  // at all, and the transcript family it was carrying already has its chords
+  // and its native submenu.
   const titleBarItems = useSyncExternalStore(
     paneTitleBarItemsStore.subscribe,
     () => paneTitleBarItemsStore.get(activeCardId ?? null),
@@ -525,7 +523,6 @@ function CardTitleBar({
   const titleBarButtonItems = useMemo(
     () =>
       (titleBarItems ?? [])
-        .filter((item) => item.presentation === "button")
         .map((item, index) => ({ item, index }))
         .sort(
           (a, b) =>
@@ -537,56 +534,7 @@ function CardTitleBar({
         .map((entry) => entry.item),
     [titleBarItems],
   );
-  const titleBarMenuItems = useMemo(
-    () => (titleBarItems ?? []).filter((item) => item.presentation !== "button"),
-    [titleBarItems],
-  );
 
-  // Every row is a command reference, so a row's title, its enablement, and
-  // its shortcut glyph are all the TABLE's answers — the same ones the chord
-  // and the native menu item get ([L30]). A card chooses which commands are
-  // on its menu and in what order; it never says whether one is enabled,
-  // because a second opinion beside the entry that already answers is exactly
-  // what drifts from ⌘S the first time a gate changes.
-  //
-  // Sampled at OPEN, keyed on the open flag: `commandValidationSource()` is a
-  // snapshot of the last menu-state flush, and open time is the moment an
-  // in-page menu wants it — the same rule `buildTextEditingMenuItems` follows.
-  // Closed, the rows are not rendered and not worth computing.
-  //
-  // A row whose command is invalid renders DISABLED rather than vanishing: a
-  // menu whose rows come and go is one the hand cannot learn.
-  const [titleBarMenuOpen, setTitleBarMenuOpen] = useState(false);
-
-  // A chosen row's command runs once the menu is GONE, not while it stands.
-  // An open menu owns focus — its content is portalled outside the card — so a
-  // command dispatched from inside the selection handler is asked to find a
-  // key card and a first responder that the menu is currently holding, and it
-  // finds neither. Parking the id and dispatching from a layout effect that
-  // runs after the close commits is what makes the row mean the same thing
-  // its chord does.
-  const [pendingCommandId, setPendingCommandId] = useState<string | null>(null);
-  useLayoutEffect(() => {
-    if (pendingCommandId === null || titleBarMenuOpen) return;
-    setPendingCommandId(null);
-    dispatchCommand(pendingCommandId);
-  }, [pendingCommandId, titleBarMenuOpen]);
-  const titleBarMenuRows = useMemo<TugPopupMenuEntry[]>(() => {
-    if (!titleBarMenuOpen) return [];
-    const source = commandValidationSource();
-    return titleBarMenuItems.map((item) => {
-      const entry = commandEntry(item.commandId);
-      const shortcut = commandShortcut(item.commandId);
-      return {
-        id: item.commandId,
-        label:
-          entry?.dynamicTitle?.(source) ?? entry?.title ?? item.commandId,
-        disabled: entry === undefined || !validateCommand(entry, source),
-        ...(item.checked !== undefined ? { selected: item.checked } : {}),
-        ...(shortcut !== undefined ? { shortcut } : {}),
-      };
-    });
-  }, [titleBarMenuOpen, titleBarMenuItems]);
   const handleTitleBarPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
@@ -717,10 +665,10 @@ function CardTitleBar({
   // That is load-bearing rather than tidy. A `TugPopupMenu` portals its content
   // outside the card, so the moment the pointer leaves the bar for the menu the
   // hover ends, the row collapses, and the menu is left hanging off an anchor
-  // that is no longer painted. Both menus inside the row are therefore
-  // CONTROLLED, and while either stands the row is held open.
+  // that is no longer painted. The card-width menu inside the row is therefore
+  // CONTROLLED, and while it stands the row is held open.
   const [widthMenuOpen, setWidthMenuOpen] = useState(false);
-  const rollupHeld = titleBarMenuOpen || widthMenuOpen;
+  const rollupHeld = widthMenuOpen;
 
   // Where a masthead's own chrome affordance mounts: an empty host inside the
   // control cluster, directly AFTER the stack badge. Held as state rather than
@@ -1131,52 +1079,14 @@ function CardTitleBar({
                 Reveal is on a Text card finds it at the same offset on a
                 Session card. Ahead of them, filling leftward, whatever this
                 particular card adds: Card Settings on a Text card, the session
-                summary on a Session card, the `⋮` overflow on any card with
-                one. Those are different glyphs meaning different things, so
-                those are the ones that should move between card kinds.
+                summary on a Session card. Those are different glyphs meaning
+                different things, so those are the ones that should move
+                between card kinds.
 
                 Two mechanisms enforce it, because card verbs arrive by two
                 routes. `SHARED_VERB_RANK` sorts the items a card publishes
                 through the items store; the masthead orders its own portal by
                 hand, with the argument written at the site. */}
-            {/* The `⋮` overflow leads: it is the least shared thing in the
-                row — most cards publish no menu rows at all — and its own
-                contents are already a list, so it has the least claim on a
-                fixed offset. */}
-            {titleBarMenuItems.length > 0 && (
-              // Same span anchor as the stack badge, for the same reason. The
-              // phrase names what the menu HOLDS — the commands for the card
-              // the title bar belongs to — rather than describing the press.
-              //
-              // VERTICAL ellipsis, and it must stay vertical: the rollup's own
-              // mark is a horizontal `⋯`, and two identical glyphs in one row
-              // meaning different things is the one thing this cluster cannot
-              // afford. The convention does the teaching — `⋯` reads as "more
-              // of this row", `⋮` as "this thing's own menu" — so the pair is
-              // learnable rather than merely distinct.
-              <TugTooltip content="Assorted commands">
-                <span className="tug-pane-title-bar-tooltip-anchor">
-                  <TugPopupMenu
-                    trigger={
-                      <TugButton
-                        subtype="icon"
-                        emphasis="ghost"
-                        role="action"
-                        size="sm"
-                        icon={<MoreVertical />}
-                        aria-label="Card menu"
-                        data-testid="tug-pane-title-bar-menu-button"
-                      />
-                    }
-                    align="end"
-                    open={titleBarMenuOpen}
-                    onOpenChange={setTitleBarMenuOpen}
-                    items={titleBarMenuRows}
-                    onSelect={setPendingCommandId}
-                  />
-                </span>
-              </TugTooltip>
-            )}
             {/* The masthead's own chrome affordances — on a Session card, the
                 summary popover's trigger and then Reveal in Finder — mount
                 HERE, portaled in by the masthead that owns them. They are

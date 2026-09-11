@@ -9,12 +9,13 @@
  * and nothing when there are none. `tug-pane.tsx` imports only this store —
  * never a card-specific module ([L10]/[L25]).
  *
- * An item says how it wants to be worn. A `"button"` stands in the title
- * bar's control cluster as its own ghost icon button, which is what a verb
- * a card offers *every* time it is open wants — one press, no menu to open
- * first. A `"menu"` item is a row in the shared `…` popup, which is where a
- * verb that is rare, or one of many, belongs; the `…` renders only when at
- * least one such row is published.
+ * An item is worn one way and only one: a ghost icon button standing in the
+ * title bar's control cluster, one press with no menu to open first. A second
+ * shape — a row in a shared `⋮` popup — stood here until it was cut. A card's
+ * verb the reader has to open a menu to see, inside a row that is itself
+ * revealed on hover, was two gestures deep before it was a verb, and the one
+ * family that ever used it (Go in Transcript) has its chords and its native
+ * submenu. A card that wants a verb on its title bar gives it a glyph.
  *
  * The exact precedent is `card-title-store.ts`: a card publishes into a
  * per-card store, the pane subscribes and renders — no card coupling in
@@ -33,11 +34,11 @@
  * label and a callback.
  *
  * An item is a command ([L30] names one first in its list), so a card says
- * only *which* commands belong on its pane's title bar, in what order, and
- * in which of the two shapes. `CardTitleBar` resolves the item's title, its
- * enablement, and its shortcut glyph from `command-registry.ts` and invokes
- * it with `dispatchCommand`, so an item can never disagree with the same
- * command's chord or its item in the native menu bar.
+ * only *which* commands belong on its pane's title bar and in what order.
+ * `CardTitleBar` resolves the item's title and its enablement from
+ * `command-registry.ts` and invokes it with `dispatchCommand`, so an item can
+ * never disagree with the same command's chord or its item in the native menu
+ * bar.
  *
  * There is deliberately no `disabled` field. Enablement is the registry's
  * answer via `validate(chain)`; a card-supplied one would be the second
@@ -49,18 +50,11 @@ export interface PaneTitleBarItem {
   /** The command this item names — a `TUG_ACTIONS` value / command id. */
   commandId: string;
   /**
-   * How the item is worn: a standing ghost icon button in the control
-   * cluster, or a row in the shared `…` popup. Defaults to `"menu"`.
-   */
-  presentation?: "button" | "menu";
-  /**
-   * Lucide icon name for a `"button"` item, resolved against the `icons`
-   * map by the chrome (the `card-title-store` rule). Ignored by a menu row,
-   * which wears the registry's title instead.
+   * Lucide icon name, resolved against the `icons` map by the chrome (the
+   * `card-title-store` rule). An item with no icon the chrome can resolve
+   * renders nothing — a button is its glyph.
    */
   icon?: string;
-  /** Checkmark state for a toggle row; omit for a plain verb. */
-  checked?: boolean;
   /**
    * What to say while the command validates disabled — "No file", not
    * "Reveal in Finder" greyed out with no explanation.
