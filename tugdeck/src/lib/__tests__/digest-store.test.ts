@@ -18,7 +18,7 @@ import {
   DigestStore,
   groupBeatHistory,
   latestAskForScope,
-  latestLineForScope,
+  latestBeatForScope,
   publishListDigestLinesOk,
   turnInFlightForScope,
   type DigestLineEntry,
@@ -181,14 +181,14 @@ describe("DigestStore", () => {
       conn.pushDigestFrame(liveLine(beat, `line ${beat}`));
     }
     const snap = store.getSnapshot();
-    expect(latestLineForScope(snap.lines, "s2")?.text).toBe("quiet beat");
+    expect(latestBeatForScope(snap.lines, "s2")?.text).toBe("quiet beat");
     // …and the chatty session is still capped at its own window.
     expect(snap.lines.filter((l) => l.scopes.includes("s1")).length).toBe(
       DIGEST_LINES_CAP,
     );
   });
 
-  it("latestLineForScope shows own-session, app-wide, and woven lines only", () => {
+  it("latestBeatForScope shows own-session, app-wide, and woven lines only", () => {
     const entry = (
       key: string,
       text: string,
@@ -201,20 +201,20 @@ describe("DigestStore", () => {
       entry("4", "about session B", ["sess-b"]),
     ];
     // Card B sees its own newest line — never A's.
-    expect(latestLineForScope(lines, "sess-b")?.text).toBe("about session B");
+    expect(latestBeatForScope(lines, "sess-b")?.text).toBe("about session B");
     // Card A's newest match is the woven line (it covers A).
-    expect(latestLineForScope(lines, "sess-a")?.text).toBe("A and B weave");
+    expect(latestBeatForScope(lines, "sess-a")?.text).toBe("A and B weave");
     // A brand-new session never wears another session's line; its
     // newest match is the app-wide ambience (tugcode never emits
     // "app"-scoped lines, so in practice a fresh session reads None).
-    expect(latestLineForScope(lines, "sess-new")?.text).toBe(
+    expect(latestBeatForScope(lines, "sess-new")?.text).toBe(
       "ambience for everyone",
     );
-    expect(latestLineForScope([lines[0], lines[3]], "sess-new")).toBeNull();
+    expect(latestBeatForScope([lines[0], lines[3]], "sess-new")).toBeNull();
     // No bound session → nothing.
-    expect(latestLineForScope(lines, "")).toBeNull();
+    expect(latestBeatForScope(lines, "")).toBeNull();
     // Scope-less lines are ambience.
-    expect(latestLineForScope([entry("5", "bare", [])], "sess-x")?.text).toBe("bare");
+    expect(latestBeatForScope([entry("5", "bare", [])], "sess-x")?.text).toBe("bare");
   });
 
   it("snapshots are referentially stable between folds", () => {
@@ -376,6 +376,75 @@ describe("latestAskForScope", () => {
   });
 });
 
+describe("latestBeatForScope — what is recorded and not a beat", () => {
+  const line = (
+    key: string,
+    text: string,
+    kind: string,
+    scope = "s1",
+  ): DigestLineEntry => ({
+    key,
+    text,
+    kind,
+    scopes: [scope],
+    beat: Number(key),
+    atMs: Number(key),
+  });
+
+  it("walks past a result to the call it answers", () => {
+    // The result is newer than the call by construction, and it is what the
+    // line read for most of every turn: a grep hit, a file's first bytes.
+    const lines = [
+      line("1", "Searching tugx-progress", "tool"),
+      line("2", "→ 38: --tugx-progress-indicator-size: 16px;", "result"),
+    ];
+    expect(latestBeatForScope(lines, "s1")?.text).toBe(
+      "Searching tugx-progress",
+    );
+  });
+
+  it("shows an error result — a failure is news", () => {
+    const lines = [
+      line("1", "Running just lint", "tool"),
+      line("2", "→ error: exit 1", "error"),
+    ];
+    expect(latestBeatForScope(lines, "s1")?.text).toBe("→ error: exit 1");
+  });
+
+  it("shows a wait while it is newest, and the call that ran once anything follows", () => {
+    const call = line("1", "Running just lint", "tool");
+    const wait = line("2", "Waiting for permission: Running just lint", "wait");
+    expect(latestBeatForScope([call, wait], "s1")?.text).toBe(
+      "Waiting for permission: Running just lint",
+    );
+    // The result that answered it is walked past too, so the reading is the
+    // same for a card that watched the wait end and one that mounts from the
+    // tail with all three lines.
+    const result = line("3", "→ lint clean", "result");
+    expect(latestBeatForScope([call, wait, result], "s1")?.text).toBe(
+      "Running just lint",
+    );
+  });
+
+  it("a line another scope owns does not count as the newest", () => {
+    // s2's line sits on top; s1's wait is still the newest thing s1 said.
+    const lines = [
+      line("1", "Running just lint", "tool"),
+      line("2", "Waiting for permission: Running just lint", "wait"),
+      line("3", "Reading foo.ts", "tool", "s2"),
+    ];
+    expect(latestBeatForScope(lines, "s1")?.text).toBe(
+      "Waiting for permission: Running just lint",
+    );
+  });
+
+  it("answers null when only evidence remains", () => {
+    expect(
+      latestBeatForScope([line("1", "→ 751 lines read", "result")], "s1"),
+    ).toBeNull();
+  });
+});
+
 describe("turnInFlightForScope", () => {
   const line = (
     key: string,
@@ -469,19 +538,19 @@ describe("clearScope", () => {
     conn.pushDigestFrame(liveLine(1, "before submit"));
     let snap = store.getSnapshot();
     expect(
-      latestLineForScope(snap.lines, "s1", snap.cleared.get("s1"))?.text,
+      latestBeatForScope(snap.lines, "s1", snap.cleared.get("s1"))?.text,
     ).toBe("before submit");
 
     store.clearScope("s1");
     snap = store.getSnapshot();
     expect(
-      latestLineForScope(snap.lines, "s1", snap.cleared.get("s1")),
+      latestBeatForScope(snap.lines, "s1", snap.cleared.get("s1")),
     ).toBeNull();
 
     conn.pushDigestFrame(liveLine(2, "fresh commentary"));
     snap = store.getSnapshot();
     expect(
-      latestLineForScope(snap.lines, "s1", snap.cleared.get("s1"))?.text,
+      latestBeatForScope(snap.lines, "s1", snap.cleared.get("s1"))?.text,
     ).toBe("fresh commentary");
   });
 
@@ -493,7 +562,7 @@ describe("clearScope", () => {
     store.clearScope("s1");
     const snap = store.getSnapshot();
     expect(
-      latestLineForScope(snap.lines, "s2", snap.cleared.get("s2"))?.text,
+      latestBeatForScope(snap.lines, "s2", snap.cleared.get("s2"))?.text,
     ).toBe("s2 line");
   });
 });

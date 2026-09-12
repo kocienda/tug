@@ -302,7 +302,7 @@ export const SessionResumeCell: TugListViewCellRenderer<SessionsDataSource> = ({
       // rather than a paced one — and a `TugListView` cell may hold no state
       // anyway ([D17]).
       pace={false}
-      // Only a row live in THIS app has a feed to read. `latestLineForScope`
+      // Only a row live in THIS app has a feed to read. `latestBeatForScope`
       // answers with app-wide ambience for any scope, so a closed session's row
       // would otherwise narrate whatever the app happened to be saying.
       beats={isLive}

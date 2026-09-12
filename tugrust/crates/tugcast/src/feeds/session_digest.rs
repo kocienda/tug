@@ -179,8 +179,16 @@ pub enum DigestKind {
     Said,
     /// A tool call, narrated.
     Tool,
-    /// What a tool call came back with. New to the beat.
+    /// What a tool call came back with. Evidence for the Observer's window,
+    /// and NOT a beat: the deck's beat walks past it to the call it answers,
+    /// because 200 characters of a grep hit or a file's first bytes read as
+    /// line noise on a card, and the Tool line above it already says what the
+    /// session is doing.
     Result,
+    /// A tool call that came back with an error. Distinct from [`Self::Result`]
+    /// so the deck can show it: a failure is news at the session's own pace,
+    /// where a success is only evidence.
+    Error,
     /// A shell exchange.
     Shell,
     /// A turn ended — `Done` or `Stopped`.
@@ -200,6 +208,7 @@ impl DigestKind {
             Self::Said => "said",
             Self::Tool => "tool",
             Self::Result => "result",
+            Self::Error => "error",
             Self::Shell => "shell",
             Self::Turn => "turn",
             Self::Notice => "notice",
@@ -1734,22 +1743,24 @@ pub fn digest_line_for_code_frame(
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             let clipped = clip(&one_line(output), RESULT_CLIP);
-            let text = if is_error {
-                format!("→ error: {clipped}")
+            let (text, kind) = if is_error {
+                (format!("→ error: {clipped}"), DigestKind::Error)
             } else {
-                format!("→ {clipped}")
+                (format!("→ {clipped}"), DigestKind::Result)
             };
             Some(Digested {
                 line: DigestLine {
                     text,
                     at_ms,
                     beat,
-                    kind: DigestKind::Result,
+                    kind,
                     supersede_key: tool_use_id.map(|id| format!("result:{id}")),
                 },
                 // When a wait ended here, this line is what moves the beat off
-                // it — and what came back is a better thing to show than the
-                // line the wait superseded, which by now is stale.
+                // it. A success is not itself shown — the deck's beat walks
+                // past a Result, and past a Wait that anything follows — so
+                // what the reader sees is the call that ran; but the line has
+                // to arrive NOW for that walk to happen at all.
                 emission: if ends_wait {
                     Emission::Now
                 } else {
@@ -2574,8 +2585,8 @@ mod tests {
             digester
                 .digest("s1")
                 .and_then(|d| d.newest())
-                .map(|l| l.text.as_str()),
-            Some("→ error: File not found")
+                .map(|l| (l.text.as_str(), l.kind)),
+            Some(("→ error: File not found", DigestKind::Error))
         );
     }
 
@@ -3442,6 +3453,7 @@ mod tests {
             DigestKind::Said,
             DigestKind::Tool,
             DigestKind::Result,
+            DigestKind::Error,
             DigestKind::Shell,
             DigestKind::Turn,
             DigestKind::Notice,
@@ -3613,6 +3625,7 @@ mod golden {
             DigestKind::Said,
             DigestKind::Tool,
             DigestKind::Result,
+            DigestKind::Error,
             DigestKind::Shell,
             DigestKind::Turn,
             DigestKind::Notice,

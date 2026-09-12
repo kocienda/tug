@@ -14,7 +14,7 @@ s-alpha tool throttled | Writing tugrust/crates/tugcast/src/feeds/session_digest
 s-alpha tool throttled | Writing tugrust/crates/tugcast/src/feeds/session_digest.rs — 1 line
 s-alpha tool throttled | Writing tugrust/crates/tugcast/src/feeds/session_digest.rs — 1704 lines
 s-alpha tool throttled | Writing …ers/kocienda/Mounts/u/src/tug/.tug/worktrees/session-narration/tugrust/crates/tugcast/tests/fixtures/session-digest/a-very-deeply-nested-directory/frames.jsonl — 9 lines
-s-alpha result throttled | → error: EACCES: permission denied, open 'frames.jsonl'
+s-alpha error throttled | → error: EACCES: permission denied, open 'frames.jsonl'
 s-alpha notice throttled | Retrying (attempt 2)…
 s-alpha shell throttled | $ cargo nextest run -p tugcast
 s-alpha — | (no line)

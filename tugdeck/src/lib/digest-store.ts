@@ -48,6 +48,20 @@ export const DIGEST_LINES_CAP = 20;
 export const ASK_KIND = "ask";
 
 /**
+ * The digester's spelling for what a tool call came back with.
+ *
+ * Recorded for the Observer's window and the beat history, and walked past by
+ * {@link latestBeatForScope}: two hundred characters of a grep hit are
+ * evidence, not an account of what the session is doing, and the `tool` line
+ * before it already says that. An `error` result is a kind of its own on the
+ * wire precisely so it is NOT walked past — a failure is news.
+ */
+export const RESULT_KIND = "result";
+
+/** The digester's spelling for a permission wait. */
+export const WAIT_KIND = "wait";
+
+/**
  * The digester's spelling for a turn that has ended — `Done` or `Stopped`.
  *
  * What it is read for here is the negative, through
@@ -135,8 +149,8 @@ export interface DigestLineEntry {
   text: string;
   /**
    * What the line is an account of, as the digester spelled it — `ask`,
-   * `said`, `tool`, `result`, `shell`, `turn`, `notice`, `wait`. Carried by
-   * both doors the lines arrive through — the live DIGEST frame and the
+   * `said`, `tool`, `result`, `error`, `shell`, `turn`, `notice`, `wait`.
+   * Carried by both doors the lines arrive through — the live DIGEST frame and the
    * mount-time tail read — because the ladders that switch on it cannot tell
    * an absent kind from a turn still running.
    */
@@ -188,29 +202,53 @@ export function capLinesPerScope(
 }
 
 /**
- * The newest line about `scope` — a card's strip shows commentary
- * about ITS session, never another card's. A line whose `scopes`
- * include the literal `"app"` (or carry no scopes at all) is
- * app-wide ambience and shows everywhere; a multi-scope line shows
- * on every card it covers — that's the cross-session weave working,
- * not a leak.
+ * The newest BEAT about `scope` — what a card's line shows.
+ *
+ * Scope first: a card's strip shows commentary about ITS session, never
+ * another card's. A line whose `scopes` include the literal `"app"` (or carry
+ * no scopes at all) is app-wide ambience and shows everywhere; a multi-scope
+ * line shows on every card it covers — that's the cross-session weave
+ * working, not a leak.
+ *
+ * Then kind. Not every line the digester records is a beat, and the walk
+ * steps past two:
+ *
+ * - a `result` ({@link RESULT_KIND}) is what a tool call came back with, kept
+ *   for the Observer and the history and never shown on the line. The
+ *   digester writes one after nearly every call, and it is by construction
+ *   newer than the call, so without this rule the line reads a grep hit or a
+ *   file's first bytes for most of every turn. [D186] says the newest line is
+ *   the beat; this is the newest line that NARRATES;
+ * - a `wait` ({@link WAIT_KIND}) that anything at all follows. A wait is a
+ *   beat only while it is the newest thing the session said; a later line —
+ *   the result that answered it, most often — means the wait is over, and the
+ *   line under it is the call that ran. The digester re-emits that call when
+ *   the wait ends without recording it, which serves a card that was watching
+ *   and nothing to one that mounts from the tail; this rule gives both the
+ *   same reading.
  */
-export function latestLineForScope(
+export function latestBeatForScope(
   lines: readonly DigestLineEntry[],
   scope: string,
   clearedKeys?: ReadonlySet<string>,
 ): DigestLineEntry | null {
   if (scope.length === 0) return null;
+  let newest = true;
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (clearedKeys?.has(line.key) === true) continue;
     if (
-      line.scopes.length === 0 ||
-      line.scopes.includes(scope) ||
-      line.scopes.includes("app")
+      line.scopes.length > 0 &&
+      !line.scopes.includes(scope) &&
+      !line.scopes.includes("app")
     ) {
-      return line;
+      continue;
     }
+    const evidence =
+      line.kind === RESULT_KIND || (line.kind === WAIT_KIND && !newest);
+    newest = false;
+    if (evidence) continue;
+    return line;
   }
   return null;
 }
@@ -219,7 +257,7 @@ export function latestLineForScope(
  * The newest ASK about `scope` — the user's own submission for the turn in
  * flight, and rung (2) of the masthead's ladder ([D187]).
  *
- * Separate from {@link latestLineForScope} rather than a filter over it
+ * Separate from {@link latestBeatForScope} rather than a filter over it
  * because the two answer different questions: the beat is whatever the session
  * said most recently, and the ask is what the whole turn is FOR, which every
  * beat after it buries. The distinction only became expressible when the
@@ -246,7 +284,7 @@ export function latestAskForScope(
 
 /**
  * The newest `limit` lines about `scope`, newest-first — the strip's history
- * popover. Same scope rule as {@link latestLineForScope} (the session's own
+ * popover. Same scope rule as {@link latestBeatForScope} (the session's own
  * lines plus `app`-wide / unscoped ambience); cleared watermarks are NOT
  * applied, since the history shows what actually happened.
  */

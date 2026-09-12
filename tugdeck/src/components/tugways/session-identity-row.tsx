@@ -96,7 +96,7 @@
  *
  * The feed is read only when {@link SessionIdentityRowProps.beats} says this row
  * is live, and that gate is load-bearing rather than an optimization:
- * `latestLineForScope` answers with app-wide ambience for any scope, so a closed
+ * `latestBeatForScope` answers with app-wide ambience for any scope, so a closed
  * session's row would otherwise narrate whatever the app happened to be saying.
  *
  * Laws: [L02] every store enters through `useSyncExternalStore` (inside the
@@ -156,7 +156,7 @@ import { renderBeatLine } from "@/lib/beat-line/render-beat-line";
 import {
   askPromptText,
   latestAskForScope,
-  latestLineForScope,
+  latestBeatForScope,
   turnInFlightForScope,
   useDigest,
 } from "@/lib/digest-store";
@@ -666,7 +666,7 @@ export interface SessionIdentityRowProps
   /**
    * Whether this row reads the live digest feed.
    *
-   * Load-bearing rather than an optimization: `latestLineForScope` answers with
+   * Load-bearing rather than an optimization: `latestBeatForScope` answers with
    * app-wide ambience for any scope, so a row for a session this app is not
    * running would otherwise narrate whatever the app happened to be saying.
    * @default true
@@ -846,13 +846,15 @@ export function SessionIdentityRow({
     arc: arcModel,
     createdAtMs,
   });
-  // The newest line the feed has about this session, unfiltered. Two readers
-  // want it: the activity ladder below, and nothing else — the turn-in-flight
-  // test cannot be read off it, because the newest line is often a shell
-  // command or a background job's notice, neither of which is part of a turn.
-  // {@link turnInFlightForScope} walks past those; see its docblock.
+  // The newest BEAT the feed has about this session: the newest line that
+  // narrates, with a tool's result and a finished wait walked past
+  // ({@link latestBeatForScope}). One reader wants it, the activity ladder
+  // below — the turn-in-flight test cannot be read off it, because the newest
+  // line is often a shell command or a background job's notice, neither of
+  // which is part of a turn. {@link turnInFlightForScope} walks past those;
+  // see its docblock.
   const latestLine = beats
-    ? latestLineForScope(digest.lines, sessionId, digest.cleared.get(sessionId))
+    ? latestBeatForScope(digest.lines, sessionId, digest.cleared.get(sessionId))
     : null;
   const turnInFlight =
     beats &&
