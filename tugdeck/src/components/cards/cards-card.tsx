@@ -79,6 +79,7 @@ import { TugFilterField } from "@/components/tugways/tug-filter-field";
 import { useAttachedFilter } from "@/components/tugways/attached-filter";
 import { setCardsFilterBinding, shrinkCardsState } from "./cards-escape";
 import { useResponder } from "@/components/tugways/use-responder";
+import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
@@ -749,6 +750,22 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // drag across a boundary would slide rows past a header that stays nailed in
   // place, since `applyShift` only translates matched elements.
   const listWrapRef = useRef<HTMLDivElement | null>(null);
+  // The card's delegated annotation layer ([B05]). A session cell's
+  // description is annotated prose now, and a stamped run needs someone to
+  // service its click — the masthead has had this listener for its beat line
+  // all along, and the Cards card had none.
+  //
+  // On the CONTENT element rather than the list wrap: the wrap is absent from
+  // the empty-state branch, and this effect reads its root once at mount, so a
+  // card that opens with no sessions would never attach a listener for the
+  // sessions that arrive after. The content element always renders and
+  // encloses every cell.
+  //
+  // The card's own file rows are untouched by this: they hold a path as a fact
+  // and hand it to `fileTip` directly, which is the known-path form and not an
+  // annotation ([B06]).
+  const annotationRootRef = useRef<HTMLDivElement | null>(null);
+  useAnnotationClicks(annotationRootRef, {});
   const caretRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<TugListViewHandle>(null);
 
@@ -1098,6 +1115,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           between it and the scroller stretches ([B02]). */}
       <div
         className="cards-card-content"
+        ref={annotationRootRef}
         data-testid="cards-card-content"
         data-card-content=""
       >

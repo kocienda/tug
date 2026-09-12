@@ -43,6 +43,12 @@ import React from "react";
 import { SlotPicker } from "./slot-picker";
 import { CardsColumnBadge } from "./cards-column-badge";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
+import { AnnotationScope } from "@/components/tugways/annotation-scope";
+import {
+  NO_SLASH_COMMANDS,
+  useAnnotationContextFor,
+} from "@/components/tugways/use-annotation-context";
+import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { TUG_SESSION_ROW_INDICATOR_SIZE } from "@/components/tugways/tug-session-row";
 
 export interface CardsSessionRowProps {
@@ -73,48 +79,72 @@ export function CardsSessionRow({
   onRowPointerDown,
   selected,
 }: CardsSessionRowProps): React.ReactElement {
+  // The binding's workspace key — the row already holds the project directory,
+  // and the key is what scopes the file index the annotator's path resolver
+  // consults. Read here rather than threaded as a prop: the cell is the one
+  // that needs it, and its `cardId` is the whole address.
+  const workspaceKey = React.useSyncExternalStore(
+    cardSessionBindingStore.subscribe,
+    React.useCallback(
+      () => cardSessionBindingStore.getBinding(cardId)?.workspaceKey ?? "",
+      [cardId],
+    ),
+  );
+  // The description line is prose about the session, and it names files. Same
+  // terms as the masthead's ([B02]): the row's own project is both the file
+  // index's root and the root a relative path in the prose is counted from,
+  // and there is no command catalog behind a monitor rail. The clicks are the
+  // card's, mounted once at its content root ([B05]).
+  const annotation = useAnnotationContextFor({
+    projectDir: projectDir.length > 0 ? projectDir : null,
+    workspaceKey: workspaceKey.length > 0 ? workspaceKey : null,
+    cwd: projectDir.length > 0 ? projectDir : null,
+    isKnownSlashCommand: NO_SLASH_COMMANDS,
+  });
   return (
-    <SessionIdentityRow
-      selected={selected}
-      className="session-row-content cards-row"
-      sessionId={tugSessionId}
-      cardId={cardId}
-      projectDir={projectDir}
-      // The monitor rail's large indicator, and the ONLY place in the app that
-      // takes the dot's period jitter: a list of separate sessions, each doing
-      // its own work. On one exact period a column of them reads as a single
-      // mechanism with several heads.
-      dotSize={TUG_SESSION_ROW_INDICATOR_SIZE}
-      drift
-      // Outdented from the title, not flush with it: a title inset measured off
-      // the 28px glyph above is a wide indent to spend on a rail this narrow.
-      subAlign="edge"
-      tape
-      // A monitor row answers a right-click with the session's copies — the
-      // atom, the citation, the id, the description, the newest beat — over
-      // its whole surface, the same menu the masthead offers. A rail is where
-      // a reader is most likely to be gathering a session to name it
-      // somewhere else, and it is the surface with the least room to show the
-      // description it holds.
-      identityMenu
-      highlight={filterQuery}
-      // The slot the card holds, then where it stands inside that slot — the
-      // same outward-in reading the pane's own control cluster has. Both
-      // resolve their own facts from the deck store, so the row keeps taking
-      // everything as props.
-      slots={
-        <>
-          <SlotPicker cardId={cardId} />
-          <CardsColumnBadge cardId={cardId} />
-        </>
-      }
-      // The row is its own reorder handle — a vertical drag from anywhere on
-      // it that is not the slot picker carries it.
-      onPointerDown={(e) => onRowPointerDown(orderKey, e)}
-      data-session-id={tugSessionId}
-      data-cards-row-id={orderKey}
-      data-cards-row-group="sessions"
-      data-cards-group-run="sessions"
-    />
+    <AnnotationScope value={annotation}>
+      <SessionIdentityRow
+        selected={selected}
+        className="session-row-content cards-row"
+        sessionId={tugSessionId}
+        cardId={cardId}
+        projectDir={projectDir}
+        // The monitor rail's large indicator, and the ONLY place in the app that
+        // takes the dot's period jitter: a list of separate sessions, each doing
+        // its own work. On one exact period a column of them reads as a single
+        // mechanism with several heads.
+        dotSize={TUG_SESSION_ROW_INDICATOR_SIZE}
+        drift
+        // Outdented from the title, not flush with it: a title inset measured off
+        // the 28px glyph above is a wide indent to spend on a rail this narrow.
+        subAlign="edge"
+        tape
+        // A monitor row answers a right-click with the session's copies — the
+        // atom, the citation, the id, the description, the newest beat — over
+        // its whole surface, the same menu the masthead offers. A rail is where
+        // a reader is most likely to be gathering a session to name it
+        // somewhere else, and it is the surface with the least room to show the
+        // description it holds.
+        identityMenu
+        highlight={filterQuery}
+        // The slot the card holds, then where it stands inside that slot — the
+        // same outward-in reading the pane's own control cluster has. Both
+        // resolve their own facts from the deck store, so the row keeps taking
+        // everything as props.
+        slots={
+          <>
+            <SlotPicker cardId={cardId} />
+            <CardsColumnBadge cardId={cardId} />
+          </>
+        }
+        // The row is its own reorder handle — a vertical drag from anywhere on
+        // it that is not the slot picker carries it.
+        onPointerDown={(e) => onRowPointerDown(orderKey, e)}
+        data-session-id={tugSessionId}
+        data-cards-row-id={orderKey}
+        data-cards-row-group="sessions"
+        data-cards-group-run="sessions"
+      />
+    </AnnotationScope>
   );
 }

@@ -97,6 +97,11 @@ import {
   annotationClaimsClick,
   useAnnotationClicks,
 } from "@/components/tugways/use-annotation-clicks";
+import { AnnotationScope } from "@/components/tugways/annotation-scope";
+import {
+  NO_SLASH_COMMANDS,
+  useAnnotationContextFor,
+} from "@/components/tugways/use-annotation-context";
 import { parseBeatFileTarget } from "@/lib/beat-line/beat-file-target";
 import { renderBeatLine } from "@/lib/beat-line/render-beat-line";
 import { formatRestingStamp } from "@/lib/session-activity-line";
@@ -481,6 +486,19 @@ export function SessionMasthead({
       [cardId],
     ),
   );
+  // The same binding's workspace key, read as its own string so the snapshot
+  // stays a primitive — it scopes the file index the annotator's path
+  // resolver consults, and the description line is where that matters.
+  const workspaceKey = useSyncExternalStore(
+    cardSessionBindingStore.subscribe,
+    useCallback(
+      () =>
+        cardId === undefined
+          ? ""
+          : cardSessionBindingStore.getBinding(cardId)?.workspaceKey ?? "",
+      [cardId],
+    ),
+  );
   // The branch is telemetry: it rides the record for the panel and never
   // reaches a rendered name.
   const branch = useSessionBranch(projectDir.length > 0 ? projectDir : null);
@@ -531,6 +549,24 @@ export function SessionMasthead({
   const rootRef = useRef<HTMLDivElement | null>(null);
   useAnnotationClicks(rootRef, {});
 
+  /*
+    And the annotator's inputs, for the description line the masthead's tier
+    spends its extra line on. During a turn that line is the Observer's post —
+    prose written about the session, naming the files the work touched — so it
+    is annotated on exactly the terms the Overview's own posts are: the card's
+    project is both the file index's root and the root a relative path in the
+    prose is counted from, and there is no command catalog behind chrome.
+
+    The click layer above is already the whole of what a stamped run needs
+    here, so this adds the marks and their hovers and nothing else.
+  */
+  const annotation = useAnnotationContextFor({
+    projectDir: projectDir.length > 0 ? projectDir : null,
+    workspaceKey: workspaceKey.length > 0 ? workspaceKey : null,
+    cwd: projectDir.length > 0 ? projectDir : null,
+    isKnownSlashCommand: NO_SLASH_COMMANDS,
+  });
+
   // The ledger's row for this session, for the telemetry panel: by id, not out
   // of the workspace listing, because a just-spawned session is content-empty
   // and the listing deliberately omits it. The row's own three lines read the
@@ -570,112 +606,119 @@ export function SessionMasthead({
       data-slot="session-masthead"
       ref={rootRef}
     >
-      <SessionIdentityRow
-        className="session-masthead-row tug-masthead-frame-row"
-        sessionId={sessionId}
-        cardId={cardId}
-        projectDir={projectDir}
-        // The branch rides the identity for the telemetry panel and never
-        // reaches a rendered name; passing the masthead's own context is what
-        // keeps the row's record and this component's the same record.
-        identityContext={{
-          projectDir: projectDir.length > 0 ? projectDir : undefined,
-          branch,
-        }}
-        // The dense cut. An 88px chrome tier with a 28px dot in it would have
-        // the mark out-shouting the name it marks.
-        dotSize={MASTHEAD_DOT_SIZE}
-        // And the tier packs against the COLUMN the dot stands in rather than
-        // against the dot's own ink. A masthead is worn by more than one kind
-        // of card — a document's glyph fills its box where this dot paints a
-        // small disc inside a ring — and the slot badge stands under both. Ink
-        // packing puts each of those on its own vertical; the column is the one
-        // fact all three can share.
-        indicatorPacking="column"
-        // The bound arc is not the masthead's to render: it rides the title's
-        // own grammar, alongside the project the callsign already names, which
-        // `SessionIdentityRow` composes. What sat here was a badge in the title
-        // line's trailing slot, competing with pane chrome for space and often
-        // repeating the session's own name.
-        //
-        // The two lines below the title start where the TITLE does — three
-        // lines on two verticals read as a stack that was assembled rather than
-        // set. A card-wide chrome tier can afford the indent a rail cannot.
-        subAlign="title"
-        tape
-        // The line is being READ here, not scanned, so the beat is paced and
-        // set through the markdown pipeline: a tool call's backticked paths and
-        // commands are exactly what that pipeline is for.
-        pace
-        markdown
-        activityClassName="session-masthead-beat-text"
-        // The Session card's masthead spends its tier's extra line on the
-        // DESCRIPTION ([B01]), which during a turn is the Observer's post:
-        // the longest and slowest run on the tier, and the only account of
-        // the session a folded card has at all. The beat keeps its one line
-        // either way. Unconditional, not keyed on the fold ([B04]) — the
-        // tier is the same height in both forms, so a register that changed
-        // with the form would be the one thing left that did.
-        activityRegister="wall"
-        /*
-          Right-click ANYWHERE on the three lines offers the session's copies —
-          the atom, the citation, the id, the description, the newest beat.
-          Claimed by the row rather than by the runs inside it, because the
-          title's copy surface is exactly as wide as its glyphs and everything
-          around it used to answer with something else or with nothing: the
-          description line and the masthead's own ground fell through to the
-          app's "No Actions" ([D132]).
+      {/*
+        The scope the description line's marks are made under. It publishes
+        the inputs and nothing else — no DOM, no layout — and it encloses the
+        row alone, because the row is the only prose the masthead renders.
+      */}
+      <AnnotationScope value={annotation}>
+        <SessionIdentityRow
+          className="session-masthead-row tug-masthead-frame-row"
+          sessionId={sessionId}
+          cardId={cardId}
+          projectDir={projectDir}
+          // The branch rides the identity for the telemetry panel and never
+          // reaches a rendered name; passing the masthead's own context is what
+          // keeps the row's record and this component's the same record.
+          identityContext={{
+            projectDir: projectDir.length > 0 ? projectDir : undefined,
+            branch,
+          }}
+          // The dense cut. An 88px chrome tier with a 28px dot in it would have
+          // the mark out-shouting the name it marks.
+          dotSize={MASTHEAD_DOT_SIZE}
+          // And the tier packs against the COLUMN the dot stands in rather than
+          // against the dot's own ink. A masthead is worn by more than one kind
+          // of card — a document's glyph fills its box where this dot paints a
+          // small disc inside a ring — and the slot badge stands under both. Ink
+          // packing puts each of those on its own vertical; the column is the one
+          // fact all three can share.
+          indicatorPacking="column"
+          // The bound arc is not the masthead's to render: it rides the title's
+          // own grammar, alongside the project the callsign already names, which
+          // `SessionIdentityRow` composes. What sat here was a badge in the title
+          // line's trailing slot, competing with pane chrome for space and often
+          // repeating the session's own name.
+          //
+          // The two lines below the title start where the TITLE does — three
+          // lines on two verticals read as a stack that was assembled rather than
+          // set. A card-wide chrome tier can afford the indent a rail cannot.
+          subAlign="title"
+          tape
+          // The line is being READ here, not scanned, so the beat is paced and
+          // set through the markdown pipeline: a tool call's backticked paths and
+          // commands are exactly what that pipeline is for.
+          pace
+          markdown
+          activityClassName="session-masthead-beat-text"
+          // The Session card's masthead spends its tier's extra line on the
+          // DESCRIPTION ([B01]), which during a turn is the Observer's post:
+          // the longest and slowest run on the tier, and the only account of
+          // the session a folded card has at all. The beat keeps its one line
+          // either way. Unconditional, not keyed on the fold ([B04]) — the
+          // tier is the same height in both forms, so a register that changed
+          // with the form would be the one thing left that did.
+          activityRegister="wall"
+          /*
+            Right-click ANYWHERE on the three lines offers the session's copies —
+            the atom, the citation, the id, the description, the newest beat.
+            Claimed by the row rather than by the runs inside it, because the
+            title's copy surface is exactly as wide as its glyphs and everything
+            around it used to answer with something else or with nothing: the
+            description line and the masthead's own ground fell through to the
+            app's "No Actions" ([D132]).
 
-          With the menu here the identity's hover card is off. It was naming
-          the session and its description two lines under a row already showing
-          both, and the facts it added — the citation, the lineage — are things
-          to act on, which a tooltip cannot offer.
-        */
-        identityMenu
-        /*
-          This row IS this card's chrome, so the menu offers no way to "go to"
-          the session — the card to raise is the one the pointer is in. The
-          title bar renders above the card host, so the context that answers
-          this everywhere else cannot see it from here.
-        */
-        hostCardId={cardId}
-        nameProps={{ className: "session-masthead-title" }}
-        /*
-          The tape is the entry point to the expanded Activity card: clicking it
-          opens a popover of per-channel small-multiples for this session. The
-          instrument is the row's; only this wrapper is the masthead's.
-        */
-        renderTape={(tape) => (
-          <TugPopover>
-            <TugPopoverTrigger>
-              <button
-                type="button"
-                className="session-masthead-spark-trigger"
-                tabIndex={-1}
-                data-tug-focus="refuse"
-                data-no-activate=""
-                aria-label="Session beat detail"
-              >
-                {tape}
-              </button>
-            </TugPopoverTrigger>
-            <TugPopoverContent side="bottom" align="end" sideOffset={8} arrow>
-              <SessionActivityCard session={sessionId} />
-            </TugPopoverContent>
-          </TugPopover>
-        )}
-        stageProps={{
-          ref: stageElRef as React.Ref<HTMLSpanElement>,
-          // The line toggles its history — unless the press landed on the
-          // beat's file reference, which is drilling THROUGH the line to what
-          // it names. One press, one act.
-          onClick: (event) => {
-            if (annotationClaimsClick(event.nativeEvent)) return;
-            setHistoryOpen((open) => !open);
-          },
-          className: "session-masthead-stage",
-        }}
-      />
+            With the menu here the identity's hover card is off. It was naming
+            the session and its description two lines under a row already showing
+            both, and the facts it added — the citation, the lineage — are things
+            to act on, which a tooltip cannot offer.
+          */
+          identityMenu
+          /*
+            This row IS this card's chrome, so the menu offers no way to "go to"
+            the session — the card to raise is the one the pointer is in. The
+            title bar renders above the card host, so the context that answers
+            this everywhere else cannot see it from here.
+          */
+          hostCardId={cardId}
+          nameProps={{ className: "session-masthead-title" }}
+          /*
+            The tape is the entry point to the expanded Activity card: clicking it
+            opens a popover of per-channel small-multiples for this session. The
+            instrument is the row's; only this wrapper is the masthead's.
+          */
+          renderTape={(tape) => (
+            <TugPopover>
+              <TugPopoverTrigger>
+                <button
+                  type="button"
+                  className="session-masthead-spark-trigger"
+                  tabIndex={-1}
+                  data-tug-focus="refuse"
+                  data-no-activate=""
+                  aria-label="Session beat detail"
+                >
+                  {tape}
+                </button>
+              </TugPopoverTrigger>
+              <TugPopoverContent side="bottom" align="end" sideOffset={8} arrow>
+                <SessionActivityCard session={sessionId} />
+              </TugPopoverContent>
+            </TugPopover>
+          )}
+          stageProps={{
+            ref: stageElRef as React.Ref<HTMLSpanElement>,
+            // The line toggles its history — unless the press landed on the
+            // beat's file reference, which is drilling THROUGH the line to what
+            // it names. One press, one act.
+            onClick: (event) => {
+              if (annotationClaimsClick(event.nativeEvent)) return;
+              setHistoryOpen((open) => !open);
+            },
+            className: "session-masthead-stage",
+          }}
+        />
+      </AnnotationScope>
       {copyCitation.contextMenu}
 
       {/*

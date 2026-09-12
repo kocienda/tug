@@ -125,10 +125,7 @@ import {
   ANNOTATION_CLASS,
   type AnnotationContext,
 } from "@/lib/annotator/types";
-import {
-  commitResolverFor,
-  NO_COMMIT_VERDICT,
-} from "@/lib/annotator/commit-resolution";
+import { commitResolverFor } from "@/lib/annotator/commit-resolution";
 import { commitTip, arcTip, fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { dispatchCommand } from "@/command-dispatch";
@@ -151,10 +148,10 @@ import { subscribeAppendFailures } from "@/lib/prompt-history-api";
 import { rehydrateDraftAttachments } from "@/lib/attachment-upload";
 import { pathResolutionStore } from "@/lib/annotator/path-resolution";
 import { dataAttributesForPayload } from "@/lib/annotator/payloads";
-import { makeReferenceResolver } from "@/lib/annotator/resolve-reference";
-import { resolveSessionRef } from "@/lib/annotator/session-resolution";
-import { VerdictBatcher } from "@/lib/annotator/verdict-batching";
-import { sessionCitationStore } from "@/lib/session-citation-store";
+import {
+  NO_SLASH_COMMANDS,
+  useAnnotationContextFor,
+} from "@/components/tugways/use-annotation-context";
 import { endStateBadgeFor } from "@/lib/code-session-store/end-state";
 import {
   acquireWorkspace,
@@ -478,54 +475,14 @@ function RefAtom({
  */
 function useOverviewAnnotation(root: OverviewRefRoot | null): AnnotationContext {
   const projectDir = root?.projectDir ?? null;
-  const workspaceKey = root?.workspaceKey ?? null;
-  const names = fileNameResolverFor(projectDir, workspaceKey);
-  const commits = commitResolverFor(projectDir, workspaceKey);
-  const resolvePath = useMemo(
-    () =>
-      makeReferenceResolver({
-        paths: pathResolutionStore,
-        names,
-        // Relative paths in the prose are relative to the narrated session's
-        // project, the same root its refs were spelled under.
-        cwd: projectDir,
-      }),
-    [names, projectDir],
-  );
-  const resolveCommit = useMemo(
-    () => (sha: string) => commits?.lookup(sha) ?? NO_COMMIT_VERDICT,
-    [commits],
-  );
-  const subscribe = useMemo(() => {
-    // The citation store joins the batcher unconditionally: it is a singleton
-    // with no per-project identity, and a session verdict arriving is exactly
-    // as much a reason to re-mark as a path verdict is. Without it here, a
-    // session run reserved on the first pass would stay reserved — the mark
-    // waits on a batch that never comes.
-    const sources = [
-      pathResolutionStore,
-      sessionCitationStore,
-      names,
-      commits,
-    ].filter((source): source is NonNullable<typeof source> => source !== null);
-    return new VerdictBatcher(sources).subscribe;
-  }, [names, commits]);
-  return useMemo(
-    () => ({
-      isKnownSlashCommand: () => false,
-      resolvePath,
-      resolveCommit,
-      // The Overview is where sessions are named in prose — a post's whole
-      // subject is which session did what — so it scans for them.
-      resolveSession: resolveSessionRef,
-      commitRoot: projectDir,
-      subscribe,
-    }),
-    // `resolveSessionRef` is a module function, not a closure over anything
-    // here — the citation store is a singleton keyed by callsign, and a
-    // session's identity is app-wide rather than per-post.
-    [resolvePath, resolveCommit, projectDir, subscribe],
-  );
+  return useAnnotationContextFor({
+    projectDir,
+    workspaceKey: root?.workspaceKey ?? null,
+    // Relative paths in the prose are relative to the narrated session's
+    // project, the same root its refs were spelled under.
+    cwd: projectDir,
+    isKnownSlashCommand: NO_SLASH_COMMANDS,
+  });
 }
 
 /**

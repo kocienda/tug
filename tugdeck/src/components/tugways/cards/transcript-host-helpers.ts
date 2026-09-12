@@ -43,16 +43,7 @@ import type { SelectionSubstrate } from "@/lib/markdown/serialize-selection";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import type { PromptInsertTarget } from "@/lib/prompt-insert-target";
 import type { AnnotationContext } from "@/lib/annotator/types";
-import { pathResolutionStore } from "@/lib/annotator/path-resolution";
-import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
-import {
-  commitResolverFor,
-  NO_COMMIT_VERDICT,
-} from "@/lib/annotator/commit-resolution";
-import { makeReferenceResolver } from "@/lib/annotator/resolve-reference";
-import { resolveSessionRef } from "@/lib/annotator/session-resolution";
-import { VerdictBatcher } from "@/lib/annotator/verdict-batching";
-import { sessionCitationStore } from "@/lib/session-citation-store";
+import { useAnnotationContextFor } from "@/components/tugways/use-annotation-context";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import type { ActionHandlerResult } from "@/components/tugways/responder-chain";
 import { useResponder } from "@/components/tugways/use-responder";
@@ -125,16 +116,13 @@ export function useKnownSlashCommand(
  * surface in the transcript; a surface that renders markdown *outside*
  * the transcript passes none and gets the state-free entity kinds only.
  *
- * The context object's identity is deliberately **stable across verdict
- * arrivals**. Identity changes only when a real input changes — the
- * command catalog, the session cwd, the project binding — which is the
- * everything-must-re-mark case, and those changes are rare and bounded.
- * Verdicts instead travel through `context.subscribe` (a coalescing
- * {@link VerdictBatcher} over the three resolver stores), so an answer
- * about one path re-marks only the containers still awaiting one and
- * never re-renders the transcript. Folding resolver versions into the
- * memo here is the mistake that once re-annotated *and re-rendered* every
- * block per answer; nothing here reads a version.
+ * What this hook owns is the transcript's three inputs: the live command
+ * catalog, the session's cwd, and the card's own project binding — not the
+ * frontmost project, since this transcript's references belong to the
+ * session it is showing. The context itself is assembled by
+ * {@link useAnnotationContextFor}, which every annotating surface shares
+ * and which is where the identity-stable-across-verdicts contract is
+ * written down.
  */
 export function useAnnotationContext(
   sessionMetadataStore: SessionMetadataStore | undefined,
@@ -164,67 +152,16 @@ export function useAnnotationContext(
       [cardId],
     ),
   );
-  const projectDir = binding?.projectDir ?? null;
-  const workspaceKey = binding?.workspaceKey ?? null;
-  const names = fileNameResolverFor(projectDir, workspaceKey);
-  const commits = commitResolverFor(projectDir, workspaceKey);
-  const resolvePath = useMemo(
-    () => makeReferenceResolver({ paths: pathResolutionStore, names, cwd }),
-    [names, cwd],
-  );
-  const resolveCommit = useMemo(
-    () => (sha: string) => commits?.lookup(sha) ?? NO_COMMIT_VERDICT,
-    [commits],
-  );
-  // Verdicts arrive asynchronously, long after the ink they belong to was
-  // painted. They travel as batched notifications, not as context
-  // identity: consumers subscribe and re-mark only the containers still
-  // awaiting an answer. The batcher attaches to the stores lazily, so it
-  // needs no effect-cleanup of its own — the last consumer's unsubscribe
-  // detaches it.
-  const subscribe = useMemo(() => {
-    // The citation store joins the batcher for the same reason the path store
-    // does: a session verdict arriving is what turns a reserved run into a
-    // citation, and without it here the run would stay reserved forever.
-    const sources = [
-      pathResolutionStore,
-      sessionCitationStore,
-      names,
-      commits,
-    ].filter((source): source is NonNullable<typeof source> => source !== null);
-    return new VerdictBatcher(sources).subscribe;
-  }, [names, commits]);
-  // The same two roots the path resolver counts from, handed on for the
-  // atoms the row carries: an `@` mention's value is project-relative, and
-  // without a root it names nothing a menu item could act on. Memoized so a
-  // consumer can hang an effect on it — both roots arrive after mount, and
-  // an atom annotated on the pass that first has one must not be re-stamped
-  // on every render after.
-  const atomPathRoots = useMemo(
-    () => ({ projectDir, cwd }),
-    [projectDir, cwd],
-  );
-  return useMemo(
-    () => ({
-      isKnownSlashCommand,
-      resolvePath,
-      resolveCommit,
-      // Parity cuts both ways: a session spelled in assistant prose is the
-      // same reference it is in a Overview post, and gets the same chip.
-      resolveSession: resolveSessionRef,
-      commitRoot: projectDir,
-      atomPathRoots,
-      subscribe,
-    }),
-    [
-      isKnownSlashCommand,
-      resolvePath,
-      resolveCommit,
-      projectDir,
-      atomPathRoots,
-      subscribe,
-    ],
-  );
+  // The transcript's rows carry `@` atoms, so it asks for the roots their
+  // project-relative values are counted from; the shared builder holds the
+  // same two roots the path resolver uses.
+  return useAnnotationContextFor({
+    projectDir: binding?.projectDir ?? null,
+    workspaceKey: binding?.workspaceKey ?? null,
+    cwd,
+    isKnownSlashCommand,
+    withAtomRoots: true,
+  });
 }
 
 /**

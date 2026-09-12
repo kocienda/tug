@@ -19,8 +19,18 @@
  * **Annotated.** This is prose, and prose in a transcript names things — a
  * commit message body is mostly backticked paths. So it opts into the content
  * annotator (`useAnnotatedElement`), which marks the entities in the text it
- * renders. Inert outside an {@link AnnotationScope}, so a consumer painting
- * this somewhere with no session behind it is unaffected.
+ * renders, and drives {@link useAnnotationPortals} over its own marks so a
+ * confirmed path earns the app's file bubble rather than only an underline.
+ * Inert outside an {@link AnnotationScope}, so a consumer painting this
+ * somewhere with no session behind it is unaffected.
+ *
+ * **Two registers.** `block` is the original: one element per source line, so
+ * a hanging indent has something to hang on and a blank line holds its gap.
+ * `inline` renders the whole text as a single run inside a `<span>` and sets
+ * no whitespace or wrapping of its own, which is what lets it sit in a line
+ * that elides — a session row's description — rather than building block DOM
+ * inside it. The register is typography, not content: both paint the same
+ * styled runs, and both annotate.
  *
  * Laws: [L06] every tone comes from the shared highlight classes and the
  * component's own CSS; nothing here is React state. [L03] the annotation pass
@@ -32,10 +42,11 @@
 import "./tug-markdown-text.css";
 
 import { useMemo, useSyncExternalStore } from "react";
-import type React from "react";
+import React from "react";
 
 import { renderFilterHighlightSpans } from "@/components/tugways/filter-highlight";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
+import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
 import {
   getMarkdownGrammarRevision,
   subscribeMarkdownGrammars,
@@ -61,6 +72,12 @@ export interface TugMarkdownTextProps {
    * registration's `findParts` ({@link session-command-block-registry}).
    */
   findable?: boolean;
+  /**
+   * Typographic register. `block` (the default) paints one element per source
+   * line; `inline` paints the whole text as a single run in a `<span>`, for a
+   * host line that elides and owns its own whitespace rules.
+   */
+  register?: "block" | "inline";
 }
 
 /**
@@ -80,6 +97,7 @@ export function TugMarkdownText({
   className,
   dataSlot,
   findable = false,
+  register = "block",
 }: TugMarkdownTextProps): React.ReactElement {
   // A fenced block's grammar loads lazily, and the filter is synchronous, so
   // its first pass over a ```ts fence returns a flat body. The revision
@@ -97,13 +115,47 @@ export function TugMarkdownText({
   // The rendered text is what the annotator scans, so the pass re-runs when
   // that text changes — including the filter query, which rewrites the spans
   // the marks are split out of.
-  const annotatedRef = useAnnotatedElement<HTMLDivElement>([
-    lines,
-    highlightQuery,
-  ]);
+  //
+  // The portals ride the same pass: the marks are made in a DOM walk, so the
+  // only moment a React component can be mounted into one is just after the
+  // walk that made it. `onAnnotated` is that moment, for the late verdict
+  // batches as much as for the first paint.
+  const { onAnnotated, portals } = useAnnotationPortals();
+  // `HTMLElement`, because the register decides the tag and both roots are
+  // the same subject to the annotator: the element whose text it scans. The
+  // cast at each root narrows that back to the tag React is checking.
+  const annotatedRef = useAnnotatedElement<HTMLElement>(
+    [lines, highlightQuery],
+    onAnnotated,
+  );
+  if (register === "inline") {
+    return (
+      <span
+        ref={annotatedRef as React.RefObject<HTMLSpanElement>}
+        className={
+          className !== undefined
+            ? `tug-markdown-text-inline ${className}`
+            : "tug-markdown-text-inline"
+        }
+        data-slot={dataSlot}
+        data-tugx-findable={findable ? "" : undefined}
+      >
+        {lines.map((line, i) => (
+          <React.Fragment key={i}>
+            {/* A source newline reads as a space in one run — the annotator
+                scans text nodes, and two lines butted together would read as
+                one word. */}
+            {i > 0 ? " " : null}
+            {renderFilterHighlightSpans(line.spans, line.text, highlightQuery)}
+          </React.Fragment>
+        ))}
+        {portals}
+      </span>
+    );
+  }
   return (
     <div
-      ref={annotatedRef}
+      ref={annotatedRef as React.RefObject<HTMLDivElement>}
       className={
         className !== undefined ? `tug-markdown-text ${className}` : "tug-markdown-text"
       }
@@ -133,6 +185,7 @@ export function TugMarkdownText({
           {renderFilterHighlightSpans(line.spans, line.text, highlightQuery)}
         </div>
       ))}
+      {portals}
     </div>
   );
 }

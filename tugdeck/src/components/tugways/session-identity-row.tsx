@@ -119,6 +119,7 @@ import React, {
 } from "react";
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
+import { TugMarkdownText } from "@/components/tugways/tug-markdown-text";
 import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
 import {
   arcSessionPurpose,
@@ -918,7 +919,23 @@ export function SessionIdentityRow({
   // rather than the line itself because the line is also the hover's
   // measuring subject and the row primitive's own element, whose attributes
   // are that primitive's to write.
-  const descriptionInk = renderFilterHighlight(description, highlight);
+  //
+  // The ink is PROSE, not a string: a description is written about the
+  // session and names the files the work touched, so it renders through the
+  // app's one prose primitive in its inline register — one run, the host
+  // line's elision untouched, the filter's marks still nested inside the
+  // styled runs. Inside an {@link AnnotationScope} a confirmed path in it
+  // earns the file bubble and opens on a click; outside one — the picker and
+  // gallery cells — the annotator is inert and the line is toned prose,
+  // which is the same line it always was with its backticks read rather
+  // than spelled.
+  const descriptionInk = (
+    <TugMarkdownText
+      register="inline"
+      text={description}
+      highlightQuery={highlight}
+    />
+  );
   const descriptionRun =
     activityRegister === "wall" ? (
       <span className="session-identity-description-post" data-register="wall">

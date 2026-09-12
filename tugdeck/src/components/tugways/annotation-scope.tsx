@@ -32,6 +32,7 @@
  */
 
 import React from "react";
+import { flushSync } from "react-dom";
 
 import {
   annotateElement,
@@ -84,16 +85,43 @@ export function useAnnotationScope(): AnnotationContext | null {
  * not change the context's identity — it arrives through the context's
  * batched subscription, and re-marks this element only when the batch names
  * a verdict this element's last pass actually consulted.
+ *
+ * `onAnnotated` runs after every pass, over the element just marked — the
+ * same callback a markdown block hands its renderer, and how a surface that
+ * marks its own DOM earns the portalled hovers its marks deserve
+ * ({@link useAnnotationPortals}). It is read from a ref rather than kept in
+ * the effect's dependencies on purpose: the callback fires on annotation
+ * passes, not on renders, so a caller that rebuilds it per render re-marks
+ * nothing.
+ *
+ * **The verdict pass flushes.** A portal hook meeting a newly marked run
+ * EMPTIES the host and `setState`s so a portal fills it. In the layout
+ * effect those are one frame, because React flushes an update scheduled
+ * during the commit phase before the browser paints. The verdict
+ * subscription is a timer callback and gets no such guarantee, so the frame
+ * that empties a newly confirmed path would be a frame the reader sees a
+ * hole in the sentence. `flushSync` makes it one frame there too — the same
+ * guard `TugMarkdownBlock`'s `announceAnnotated` makes for the streaming
+ * path, for the same reason.
  */
 export function useAnnotatedElement<T extends HTMLElement>(
   deps: React.DependencyList = [],
+  onAnnotated?: (element: HTMLElement) => void,
 ): React.RefObject<T | null> {
   const ref = React.useRef<T | null>(null);
   const context = useAnnotationScope();
+  const annotated = React.useRef(onAnnotated);
+  // Declared ahead of the marking effect so it holds this render's callback
+  // before that effect runs; on the first mount the ref's initial value is
+  // already the right one.
+  React.useLayoutEffect(() => {
+    annotated.current = onAnnotated;
+  });
   React.useLayoutEffect(() => {
     const element = ref.current;
     if (element === null || context === null) return;
     annotateElement(element, context);
+    annotated.current?.(element);
     const subscribe = context.subscribe;
     if (subscribe === undefined) return;
     return subscribe((changed) => {
@@ -102,6 +130,8 @@ export function useAnnotatedElement<T extends HTMLElement>(
         return;
       }
       annotateElement(target, context);
+      const announce = annotated.current;
+      if (announce !== undefined) flushSync(() => announce(target));
     });
     // `deps` is the caller's declaration of what its text derives from;
     // spreading it is the whole point of the parameter.
