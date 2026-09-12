@@ -107,42 +107,21 @@ body {
   --tugx-session-row-sub-line-tight: calc(
     var(--tugx-session-row-description-size) * var(--tug-line-height-tight)
   );
-  /* ── The description's TYPE, in two settings a mount declares ([B07]) ───
-     A size and a band. The rendered DOM is identical at every mount ([B01]);
-     what a mount declares is how the identical thing is SET.
+  /* ── The description's TYPE ───────────────────────────────────────────────
+     A size and a band, and one pair for every mount: the rendered DOM is
+     identical everywhere ([B01]), and so is the setting it is read in.
 
-     TIGHT is this pair — the band the sub-lines have always read in, and the
-     right one outside an `AnnotationScope`, where nothing mounts an atom and
-     there is nothing to make room for. The picker's cells and the gallery's
-     read here.
-
-     LOOSE floors that band at the atom register's line box, below. The
-     masthead's wall register and the Cards rail declare it, because both
-     mount a scope and a commit pill can land in their line — and a pill in a
-     15.6px band is clipped top and bottom, which is what this setting is
-     for ([B06]). The atom's own height and form are not reopened: the line
-     makes the room, the pill stays the pill.
-
-     Declared by the MOUNT and never discovered from the sentence: a band
-     that grew when a post happened to name a sha would move the masthead's
-     tier per post, which the `masthead-second-line` arc ruled out. */
+     The band is the sub-lines' TIGHT one, which is what keeps the title, the
+     description and the beat reading as one group. It was a per-mount choice
+     for one arc — a LOOSE setting that floored the band at the atom
+     register's line box so a commit pill in a post stood whole — and that
+     floor charged 10.4px to every render of every card to buy room for a pill
+     the masthead shows a fraction of the time. The band came back and the
+     split went with it: a confirmed sha on this line keeps its characters and
+     takes the resting underline a confirmed path takes, so there is nothing
+     in the line to make room for. */
   --tugx-session-row-description-size: var(--tug-font-size-sm);
   --tugx-session-row-description-line: var(--tugx-session-row-sub-line-tight);
-}
-
-/* The loose setting. The floor is the atom register's own line box — the
-   number `atomRegisterVars()` publishes and every other atom-bearing prose
-   surface floors to (`tug-atom-markdown-body.css`, `tug-atom-text-body.css`)
-   — so a pill in a description is set in the same room as a pill in a
-   transcript body. The mount publishes the register, and the fallback is
-   here all the same, so a row that publishes nothing still clears an atom
-   ([L20]). `max()`, not a swap: a mount that raises the tight band above the
-   floor keeps its own number. */
-.tug-session-row[data-description-type="loose"] {
-  --tugx-session-row-description-line: max(
-    var(--tugx-session-row-sub-line-tight),
-    var(--tugx-atom-line-box-floor, 26px)
-  );
 }
 
 /* ── The content column ───────────────────────────────────────────────────

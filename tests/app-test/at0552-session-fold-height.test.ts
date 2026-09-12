@@ -59,12 +59,12 @@ const CONTROL = `${STATUS_BAR} [data-slot="session-fold-control"] button`;
  * duplicated rather than imported: an app-test drives the BUILT app, and
  * importing the constant would assert the source against itself.
  *
- * It moved with the masthead tier, from 144, when the description took the
- * LOOSE type setting ([B07] of the narration-one brief) — the tier grew 14px
- * and the folded form grew by the same 14. What this file measures is
- * unchanged: that Z2 neither overhangs the frame nor leaves air under it.
+ * It moved with the masthead tier to 158 for one arc, while the description
+ * line took a LOOSE type setting, and came back with it. What this file
+ * measures is unchanged either way: that Z2 neither overhangs the frame nor
+ * leaves air under it.
  */
-const SESSION_FOLDED_HEIGHT_PX = 158;
+const SESSION_FOLDED_HEIGHT_PX = 144;
 
 /** The imposition's gaps (`lib/layout-imposer.ts`). */
 const GAP = 5;

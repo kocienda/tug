@@ -16,7 +16,10 @@
 import React from "react";
 
 import { useAnnotationScope } from "@/components/tugways/annotation-scope";
-import { useCommitTipPortals } from "@/components/tugways/commit-tip-portals";
+import {
+  useCommitTipPortals,
+  type CommitMark,
+} from "@/components/tugways/commit-tip-portals";
 import { useFileTipPortals } from "@/components/tugways/file-tip-portals";
 import { useSessionCitationPortals } from "@/components/tugways/session-citation-portals";
 import type { AnnotationContext } from "@/lib/annotator/types";
@@ -30,16 +33,24 @@ import type { AnnotationContext } from "@/lib/annotator/types";
  * as a prop (the Session transcript); omit it and the hook reads the
  * {@link AnnotationScope} the row already mounts, which is how the Overview
  * hands its context to the markdown block too.
+ *
+ * `commitMark` is the one thing a surface says about how a mark is DRAWN
+ * rather than about which marks it has, and it exists because the session
+ * description line cannot hold a pill: see {@link useCommitTipPortals}.
  */
 export function useAnnotationPortals(
   annotation?: AnnotationContext | undefined,
+  options?: { commitMark?: CommitMark },
 ): {
   onAnnotated: (container: HTMLElement) => void;
   portals: React.ReactNode;
 } {
   const scoped = useAnnotationScope();
   const sessions = useSessionCitationPortals();
-  const commits = useCommitTipPortals((annotation ?? scoped)?.resolveCommit);
+  const commits = useCommitTipPortals(
+    (annotation ?? scoped)?.resolveCommit,
+    options?.commitMark,
+  );
   const files = useFileTipPortals();
 
   const sessionsAnnotated = sessions.onAnnotated;

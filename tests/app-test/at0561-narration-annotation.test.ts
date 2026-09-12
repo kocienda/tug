@@ -41,11 +41,14 @@
  * Then two claims about what else can stand in that line, in a second test
  * bound to this checkout — a real repository, where a sha resolves:
  *
- *  4. A post naming a commit renders the PILL, whole: its rect sits inside
- *     the line's rect, top and bottom. The line is set in the loose band for
- *     exactly this ([B06], [B07]) — an atom is 22px tall and the tight band
- *     is 15.6, so the pill used to be cut at both ends on the one surface
- *     most likely to name a commit.
+ *  4. A post naming a commit renders a MENTION, not a pill: the run keeps the
+ *     characters the post wrote, takes the resting underline a confirmed path
+ *     takes beside it, and answers a hover with the commit bubble. The line
+ *     is chrome at 13px in a 1.2 band and the pill is 22px, so the pill does
+ *     not fit here and the run is set as characters instead — which is what
+ *     the height claim reads: the mark stands as tall as the line's own text
+ *     and no taller. The pill is untouched on every surface that reads at
+ *     reading size.
  *  5. A beat carrying a raw ESC byte draws none of it. The digester scrubs
  *     the sequences at the source ([B04]) and the deck strips what the ledger
  *     already holds at both ingress doors ([B05]), so what reaches the line is
@@ -53,11 +56,10 @@
  *
  * The post is long enough that the line cannot show it whole — that is what
  * arms the outer tooltip under claim 2, since it only opens over an element
- * that is actually clipped — and what it has to be too long for is the
- * tier's TWO lines, set in the loose band ([B07] of the narration-one
- * brief), which is a line tall enough to hold a commit pill whole. The post
- * grew when that band landed, for that reason and no other: the shorter one
- * fit the pair and left the competitor unarmed.
+ * that is actually clipped — and what it has to be too long for is the tier's
+ * TWO lines. It was grown once for a taller band and never shortened again,
+ * which costs nothing: a post too long for the wider pair is too long for the
+ * tight one.
  * Seeded through `publishOverviewPost` and a kinded
  * `publishDigestFrame`, the same doors at0551 uses: no live Observer, and the
  * turn in flight is what makes the post the rung the ladder climbs to.
@@ -69,6 +71,9 @@
  * @covers tugdeck/src/components/tugways/annotation-scope.tsx
  * @covers tugdeck/src/components/tugways/use-annotation-context.ts
  * @covers tugdeck/src/components/tugways/file-tip-portals.tsx
+ * @covers tugdeck/src/components/tugways/commit-tip-portals.tsx
+ * @covers tugdeck/src/components/tugways/annotation-portals.tsx
+ * @covers tugdeck/styles/tug-annotation.css
  * @covers tugdeck/src/lib/digest-store.ts
  */
 
@@ -98,7 +103,9 @@ const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 const DESCRIPTION = `${PANE} .session-masthead-row .tug-session-row-description`;
 /** The path run the annotator marked inside the narration line. */
 const DESC_REF = `${DESCRIPTION} [data-tug-annotation="file-path"]`;
-/** The commit pill the annotator mounted inside the narration line. */
+/** The confirmed sha run the annotator marked inside the narration line. */
+const DESC_SHA = `${DESCRIPTION} [data-tug-annotation="commit-sha"]`;
+/** What must NOT be there: the pill every reading surface draws. */
 const DESC_PILL = `${DESCRIPTION} [data-slot="tug-commit-atom"]`;
 /** The beat, under the description — the run a digest line lands on. */
 const BEAT = `${PANE} .session-masthead-row [data-slot="tug-activity-line-activity"]`;
@@ -414,36 +421,94 @@ describe.skipIf(!SHOULD_RUN)(
             )})`,
           );
 
-          // 4. The pill arrives — the verdict is a round trip to the git feed,
-          //    so the wait is for the mounted atom rather than for the prose.
+          // 4. The mention arrives. The annotator marks a sha only once the
+          //    resolver has confirmed it — a round trip to the git feed — and
+          //    the portal then puts the run's own words back inside a span of
+          //    its own, which is the tooltip's trigger. Waiting for that child
+          //    waits for both.
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(DESC_PILL)}) !== null`,
+            `(function(){
+               var host = document.querySelector(${JSON.stringify(DESC_SHA)});
+               return host !== null && host.firstElementChild !== null;
+             })()`,
             { timeoutMs: 20_000 },
           );
-          const pill = JSON.parse(
+          const mention = JSON.parse(
             await app.evalJS<string>(`JSON.stringify((function(){
               var line = document.querySelector(${JSON.stringify(DESCRIPTION)});
-              var atom = document.querySelector(${JSON.stringify(DESC_PILL)});
+              var host = document.querySelector(${JSON.stringify(DESC_SHA)});
+              var run = host.firstElementChild || host;
               var lr = line.getBoundingClientRect();
-              var ar = atom.getBoundingClientRect();
+              var rr = run.getBoundingClientRect();
               return {
-                label: (atom.textContent || ""),
+                ink: (host.textContent || ""),
+                pills: document.querySelectorAll(
+                  ${JSON.stringify(DESC_PILL)}).length,
                 band: getComputedStyle(line).lineHeight,
-                atomHeight: Math.round(ar.height * 10) / 10,
-                // Positive on both means the pill's box is INSIDE the line's,
-                // which is the whole claim: the line clips its own overflow,
-                // so a pill taller than the band is cut at one end or both.
-                roomAbove: Math.round((ar.top - lr.top) * 10) / 10,
-                roomBelow: Math.round((lr.bottom - ar.bottom) * 10) / 10,
+                bandPx: parseFloat(getComputedStyle(line).lineHeight),
+                underline: getComputedStyle(host).textDecorationLine,
+                runHeight: Math.round(rr.height * 10) / 10,
+                // Reported rather than asserted on. A run of characters sets
+                // its inline box from the font's own ascent and descent, so
+                // it overhangs a 1.2 band by a fraction of a pixel at each
+                // end — the sentence around it does the same, and that is
+                // what "the mark is text" looks like. The pill's overhang was
+                // three pixels at each end, which is a different kind of
+                // number and is what the height claim below reads.
+                roomAbove: Math.round((rr.top - lr.top) * 10) / 10,
+                roomBelow: Math.round((lr.bottom - rr.bottom) * 10) / 10,
               };
             })())`),
           ) as Record<string, number | string>;
-          note("at0561 commit pill", JSON.stringify(pill));
-          // The label is the app's own spelling, not the nine characters the
-          // post wrote.
-          expect(pill.label).toContain(`commit:${HEAD_SHA.slice(0, 8)}`);
-          expect(pill.roomAbove, "the pill's top is inside the line").toBeGreaterThanOrEqual(0);
-          expect(pill.roomBelow, "the pill's bottom is inside the line").toBeGreaterThanOrEqual(0);
+          note("at0561 commit mention", JSON.stringify(mention));
+          // The characters are the post's own nine, not the app's spelling —
+          // a mention is what somebody wrote.
+          expect(mention.ink, "the run keeps the characters the post wrote").toBe(
+            WRITTEN_SHA,
+          );
+          expect(mention.pills, "no pill is drawn in the description line").toBe(0);
+          expect(mention.underline, "the run takes the resting underline").toContain(
+            "underline",
+          );
+          // The whole of the arithmetic: the mark stands as tall as the line's
+          // own text and no taller. A pill is 22px in a band of 15.6 and is
+          // cut at both ends by a line that clips its own overflow; a run of
+          // characters is the band plus the font's fraction.
+          expect(
+            mention.runHeight as number,
+            "the mark stands no taller than the line's own text",
+          ).toBeLessThanOrEqual((mention.bandPx as number) + 1);
+
+          // 4b. And the hover is the commit's own bubble, exactly as the path
+          //     run's is under claim 2 — the mark lost the pill, not the tip.
+          await app.evalJS<null>(
+            `(function () {
+              var host = document.querySelector(${JSON.stringify(DESC_SHA)});
+              var run = host.firstElementChild || host;
+              run.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
+              run.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+              return null;
+            })()`,
+          );
+          await wait(PAST_THE_DELAY_MS);
+          const shaBubble = JSON.parse(
+            await app.evalJS<string>(`JSON.stringify((function(){
+              var host = document.querySelector(${JSON.stringify(DESC_SHA)});
+              var run = host.firstElementChild || host;
+              var id = run.getAttribute("aria-describedby");
+              var announced = id === null ? null : document.getElementById(id);
+              var standing = document.querySelector(
+                '[data-slot="tug-tooltip"]:not([data-state="closed"])');
+              return {
+                runOwnsIt: announced !== null &&
+                  announced.closest('[data-slot="tug-tooltip"]') !== null,
+                text: standing === null ? "" : (standing.textContent || ""),
+              };
+            })())`),
+          ) as Record<string, unknown>;
+          note("at0561 commit bubble", JSON.stringify(shaBubble));
+          expect(shaBubble.runOwnsIt, "the standing bubble is the sha run's").toBe(true);
+          expect(shaBubble.text).toContain(HEAD_SHA.slice(0, 8));
 
           // 5. The beat says the sentence and nothing of the escapes.
           await app.waitForCondition<boolean>(

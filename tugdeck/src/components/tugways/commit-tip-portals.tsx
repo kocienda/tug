@@ -37,6 +37,17 @@
  * `currentcolor`. The pill's own border move is the rollover now, exactly as
  * on every other surface.
  *
+ * **`mark` is which of the two forms the run takes, and one surface asks for
+ * the other one.** `"atom"` is the pill above and the default everywhere a
+ * commit is read at reading size. `"mention"` puts the run's own characters
+ * back instead — a plain span inside the same tooltip, exactly what
+ * {@link useFileTipPortals} does for a path — and the host keeps the
+ * underline `tug-annotation.css` paints for it. The session description line
+ * is the surface: it is chrome at 13px in a 1.2 band, and a 22px box in a
+ * 15.6px band is an arithmetic disagreement with the pill rather than a taste
+ * one. Nothing about the pill's height, form or behaviour changes; what
+ * changes is which surfaces draw one.
+ *
  * **The prose-doubling yield survives the pill, and is the one thing about
  * this mark that reads its neighbours.** When the sentence has already said
  * the word right where the run begins, the label shows the hash alone, so a
@@ -73,6 +84,12 @@ import type { AnnotationContext } from "@/lib/annotator/types";
 
 /** Every confirmed commit span the annotator has marked in a container. */
 const COMMIT_SPANS = '[data-tug-annotation="commit-sha"]';
+
+/**
+ * Which form a confirmed run takes — the pill, or the characters somebody
+ * wrote. See the module docblock for which surface asks for which and why.
+ */
+export type CommitMark = "atom" | "mention";
 
 /**
  * The run's own words, saved before the span is emptied to host the portal.
@@ -121,7 +138,10 @@ interface CommitTipMount {
   host: HTMLElement;
   /** The sha as the payload recorded it — what the tip describes. */
   sha: string;
-  /** The spelling the prose used — preserved for re-scan, not displayed. */
+  /**
+   * The spelling the prose used. Preserved for re-scan under either mark, and
+   * under `"mention"` it is also what goes back into the run.
+   */
   text: string;
   /**
    * The prose immediately before the run already says "commit", so the
@@ -175,38 +195,45 @@ export function useCommitTipPortals(
   /** Undefined on a surface with no annotation context — the spans are then
    *  never marked in the first place, and the hook stands down. */
   resolveCommit: AnnotationContext["resolveCommit"] | undefined,
+  /** Which form a confirmed run takes. See the module docblock. */
+  mark: CommitMark = "atom",
 ): {
   onAnnotated: (container: HTMLElement) => void;
   portals: React.ReactNode;
 } {
   const [mounts, setMounts] = React.useState<readonly CommitTipMount[]>([]);
 
-  const onAnnotated = React.useCallback((container: HTMLElement): void => {
-    const spans = Array.from(
-      container.querySelectorAll<HTMLElement>(COMMIT_SPANS),
-    );
-    const next: CommitTipMount[] = [];
-    for (const host of spans) {
-      const sha = host.getAttribute("data-sha");
-      if (sha === null || sha === "") continue;
-      let text = host.getAttribute(COMMIT_TEXT_ATTRIBUTE);
-      if (text === null) {
-        text = host.textContent ?? "";
-        host.setAttribute(COMMIT_TEXT_ATTRIBUTE, text);
-        host.textContent = "";
+  const onAnnotated = React.useCallback(
+    (container: HTMLElement): void => {
+      const spans = Array.from(
+        container.querySelectorAll<HTMLElement>(COMMIT_SPANS),
+      );
+      const next: CommitTipMount[] = [];
+      for (const host of spans) {
+        const sha = host.getAttribute("data-sha");
+        if (sha === null || sha === "") continue;
+        let text = host.getAttribute(COMMIT_TEXT_ATTRIBUTE);
+        if (text === null) {
+          text = host.textContent ?? "";
+          host.setAttribute(COMMIT_TEXT_ATTRIBUTE, text);
+          host.textContent = "";
+        }
+        // After the host is emptied, so the `<code>` test below reads what is
+        // left rather than what was there. A MENTION leaves the code face
+        // alone: the run goes back as characters, and a sha in backticks is
+        // then the same kind of run as a path in backticks beside it.
+        if (mark === "atom") markAtomCode(host);
+        next.push({ host, sha, text, worded: wordedByProse(host) });
       }
-      // After the host is emptied, so the `<code>` test below reads what is
-      // left rather than what was there.
-      markAtomCode(host);
-      next.push({ host, sha, text, worded: wordedByProse(host) });
-    }
-    // Rebuild rather than merge, and only publish a change: a pass that finds
-    // the same spans it found last time must not re-render every tip, and a
-    // span that has left the DOM must not survive in the list.
-    setMounts((prev) => (sameMounts(prev, next) ? prev : next));
-  }, []);
+      // Rebuild rather than merge, and only publish a change: a pass that
+      // finds the same spans it found last time must not re-render every tip,
+      // and a span that has left the DOM must not survive in the list.
+      setMounts((prev) => (sameMounts(prev, next) ? prev : next));
+    },
+    [mark],
+  );
 
-  const portals = mounts.map(({ host, sha, worded }, index) => {
+  const portals = mounts.map(({ host, sha, text, worded }, index) => {
     const verdict = resolveCommit?.(sha) ?? { state: "unknown" as const };
     const facts: CommitFacts | null =
       verdict.state === "confirmed" ? verdict.facts : null;
@@ -219,9 +246,16 @@ export function useCommitTipPortals(
     // Interactive only on a CONFIRMED commit, which is also the only case the
     // annotator stamps the payload the click reads. An unconfirmed run gets
     // the pill with no cursor rather than a promise nothing can keep.
-    const run = (
-      <TugCommitAtom sha={sha} interactive={facts !== null} word={!worded} />
-    );
+    //
+    // A MENTION is the other branch: the prose spelling, in a plain span,
+    // because the tooltip's trigger has to be an element and the mark's own
+    // appearance is already on the host it portals into.
+    const run =
+      mark === "mention" ? (
+        <span>{text}</span>
+      ) : (
+        <TugCommitAtom sha={sha} interactive={facts !== null} word={!worded} />
+      );
     return createPortal(
       facts === null ? (
         run

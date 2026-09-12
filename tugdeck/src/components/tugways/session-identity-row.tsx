@@ -149,7 +149,6 @@ import {
   useIsCompactingCard,
 } from "@/lib/compaction-progress-store";
 import { parseBeatFileTarget } from "@/lib/beat-line/beat-file-target";
-import { atomRegisterVars } from "@/lib/atom-register";
 import { formatRestingStamp } from "@/lib/session-activity-line";
 import { arcJoinReadyLine } from "@/lib/arc-join-register";
 import { useSessionJoinBase } from "@/lib/code-session-store/use-session-phase";
@@ -229,6 +228,72 @@ export function sessionDescription(input: {
   if (input.arc !== null) return arcSessionPurpose(input.arc);
   if (input.createdAtMs !== null) return `Created ${formatRestingStamp(input.createdAtMs)}`;
   return UNDESCRIBED;
+}
+
+/**
+ * How much of the description box a lede may fill and still end on its own
+ * period — the two tight lines the tier holds, at roughly seventy characters
+ * each.
+ *
+ * It is the box's visible room rather than a taste about sentence length, and
+ * that is what makes it the right cut-off: a first sentence that ends inside
+ * it is shown whole, and one that ends past it would have been elided anyway,
+ * so taking it buys the reader nothing the post did not already give them.
+ */
+const LEDE_BUDGET_CHARS = 140;
+
+/**
+ * The post's first sentence, when it ends inside {@link LEDE_BUDGET_CHARS};
+ * otherwise the post as it stands.
+ *
+ * The Observer writes a post to "one or two sentences, 200 characters of prose
+ * at the outside" (`overview_agent.rs`), and the description box holds about
+ * 140 of those on its two lines — so a post at the budget always ended in an
+ * ellipsis on the line, whatever the band. The lede is the same text in the
+ * same voice, cut where the writer already put a full stop, and the whole post
+ * is untouched on the wire and in the Overview: this is a reading rule for one
+ * rung, not a second field.
+ *
+ * The sentence test is the digester's (`session_digest.rs::sentence_ends`),
+ * ported to the two cases a post actually produces: a terminator counts when
+ * the text ends there or a space follows it, past any closing bracket, quote
+ * or emphasis marker that belongs to the sentence; and a run of digits before
+ * the dot is an enumerator rather than a full stop. What is deliberately not
+ * ported is the math-span guard, which is about transcript bodies — a post is
+ * prose about a session, and the digester's own rubric keeps it that way.
+ *
+ * A path's extension is safe without a rule of its own: nothing follows the
+ * dot in `narration-target.md` but a letter, so it is never a terminator.
+ */
+export function postLede(body: string): string {
+  const end = firstSentenceEnd(body);
+  if (end === null || end >= LEDE_BUDGET_CHARS) return body;
+  return body.slice(0, end + 1);
+}
+
+/**
+ * The index of the last character of the first sentence, or `null` when the
+ * text has no sentence end in it at all.
+ */
+function firstSentenceEnd(text: string): number | null {
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (ch !== "." && ch !== "!" && ch !== "?") continue;
+    // An enumerator: the token before the dot is digits only, and what stands
+    // before those is the start of the text, a space, or an emphasis marker.
+    let back = i - 1;
+    while (back >= 0 && text[back]! >= "0" && text[back]! <= "9") back -= 1;
+    if (back < i - 1 && (back < 0 || text[back] === " " || text[back] === "*")) {
+      continue;
+    }
+    // A closing bracket or quote, and any emphasis the span closes with,
+    // belong to the sentence rather than to what follows it.
+    let j = i + 1;
+    if (text[j] === ")" || text[j] === '"' || text[j] === "”") j += 1;
+    while (text[j] === "*") j += 1;
+    if (j >= text.length || text[j] === " ") return j - 1;
+  }
+  return null;
 }
 
 /**
@@ -646,29 +711,6 @@ export interface SessionIdentityRowProps
    */
   activityRegister?: "line" | "wall";
   /**
-   * How the description line is SET — the type settings this mount declares
-   * ([B07]). The rendered DOM is identical everywhere ([B01]); this is the
-   * size and the leading it is set in.
-   *
-   * `"tight"` — the default. The band the row's sub-lines have always read
-   * in. Right outside an {@link AnnotationScope}: nothing there mounts an
-   * atom, so there is nothing for the line to make room for.
-   *
-   * `"loose"` — the band floored at the atom register's line box, so a
-   * commit pill or a file bubble in the sentence is whole top and bottom
-   * rather than clipped by a 15.6px line ([B06]). The Session card's
-   * masthead and the Cards rail declare it, because both mount a scope and
-   * a post can name a sha. The mount also publishes {@link atomRegisterVars}
-   * here, so the floor is the register's own number rather than the
-   * stylesheet's fallback.
-   *
-   * Declared rather than discovered: a line that grew when a post happened
-   * to carry an atom would move the masthead's tier per post, which the
-   * `masthead-second-line` arc ruled out.
-   * @default "tight"
-   */
-  descriptionType?: "loose" | "tight";
-  /**
    * Props for the element wrapping the TITLE. The identity runs are rendered
    * inside whatever this describes.
    */
@@ -717,7 +759,6 @@ export function SessionIdentityRow({
   markdown = false,
   activityClassName,
   activityRegister = "line",
-  descriptionType = "tight",
   nameProps,
   identityMenu = false,
   hostCardId,
@@ -825,6 +866,13 @@ export function SessionIdentityRow({
   // the turn is answering. At rest it is the standing sentence and the rungs
   // under it, unchanged.
   //
+  // The post rung shows the post's LEDE ({@link postLede}) rather than the
+  // whole post. A post is written to 200 characters and this box holds about
+  // 140, so the whole of one always ended in an ellipsis here; the first
+  // sentence is the same text in the same voice, ending where its writer put a
+  // full stop. The Overview keeps the post entire — this is which of the
+  // post's words one rung shows, not a second thing for the Observer to write.
+  //
   // The ask rung is not a nicety. With a 60 s sitrep the first post of a turn
   // lands no sooner than a minute in, and for that minute the ask is both the
   // thing the reader most wants and the one line that cannot be wrong.
@@ -839,7 +887,7 @@ export function SessionIdentityRow({
     : null;
   const descriptionSource =
     livePost !== null
-      ? livePost.body
+      ? postLede(livePost.body)
       : liveAsk !== null
         ? askPromptText(liveAsk)
         : restDescription;
@@ -962,11 +1010,19 @@ export function SessionIdentityRow({
   // row by the shared rule in `tug-session-row.css` ([B02]).
   //
   // Inside an {@link AnnotationScope} a confirmed path in it earns the file
-  // bubble and a commit sha its pill, both opening on a click; outside one —
-  // the picker and gallery cells — the annotator marks the state-free kinds
-  // only and the line is toned prose.
+  // bubble and a confirmed sha the commit bubble, both opening on a click;
+  // outside one — the picker and gallery cells — the annotator marks the
+  // state-free kinds only and the line is toned prose.
+  //
+  // A sha here is a MENTION rather than the pill every reading surface draws:
+  // the run keeps its characters and takes the resting underline a confirmed
+  // path takes beside it. The pill is 22px and this band is 15.6, so a pill in
+  // this line would be clipped at both ends — and buying it room is what cost
+  // the masthead's tier 14px. The atom's height, form and behaviour are
+  // untouched everywhere else it is drawn; this is one surface saying which
+  // form a written reference takes on it.
   const { onAnnotated: onDescriptionAnnotated, portals: descriptionPortals } =
-    useAnnotationPortals();
+    useAnnotationPortals(undefined, { commitMark: "mention" });
   // The filter's mark, painted over what the pipeline built rather than
   // composed while it renders ([B08]). `renderFilterHighlight` cannot reach
   // this run — its DOM is written by the parse and the annotator, with no
@@ -1026,17 +1082,6 @@ export function SessionIdentityRow({
     ) : (
       descriptionInk
     );
-  // The loose setting publishes the atom register on the row, which is what
-  // the description's leading floors to — the same table the pill inside the
-  // line is drawn from, so the room and the thing it is made for are one
-  // number ([B06], [B07]). A tight mount publishes nothing and pays nothing.
-  const rowStyle = React.useMemo(
-    () =>
-      descriptionType === "loose"
-        ? ({ ...atomRegisterVars(), ...style } as React.CSSProperties)
-        : style,
-    [descriptionType, style],
-  );
 
   // ── The tape ──────────────────────────────────────────────────────────
   // Unconditional wherever the mount asks for one — a session that has done no
@@ -1166,10 +1211,7 @@ export function SessionIdentityRow({
       descriptionStandIn={descriptionStandIn}
       activity={activity}
       sparkline={sparkline}
-      // How this mount SETS the description line — the type settings
-      // `tug-session-row.css` keys the loose band on ([B07]).
-      data-description-type={descriptionType}
-      style={rowStyle}
+      style={style}
       {...rest}
       // After the mount's own props, deliberately: the row-wide menu is the
       // last word on the right-click, and the element the responder registers

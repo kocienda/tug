@@ -99,9 +99,21 @@
    absent from the `code` lists for the older reason: nothing classifies inline
    code as a commit.
 
+   It comes BACK on one surface, and the qualifier is the whole of the
+   exception: the session row's description line draws a confirmed sha as a
+   MENTION rather than as a pill (`commit-tip-portals.tsx`), because the line
+   is chrome at 13px in a 1.2 band and a 22px box does not fit in 15.6px. The
+   run there is characters again, so it takes the rule again — the same one
+   the confirmed path beside it in the same sentence takes, which is the point.
+   Scoped to `.tug-session-row-description` rather than added to the lists
+   above, because everywhere else the host still holds a pill and the defect
+   the removal answered is still real.
+
    @tug-renders-on: the surrounding surface's own background */
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="file-path"],
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="directory"],
+.tug-session-row-description
+  [data-tugx-wrapped].tugx-annotation[data-tug-annotation="commit-sha"],
 code.tugx-annotation[data-tug-annotation="file-path"],
 code.tugx-annotation[data-tug-annotation="directory"],
 code.tugx-annotation[data-tug-annotation="slash-command"],
@@ -121,6 +133,8 @@ code.tugx-annotation[data-tug-annotation="shell-command"],
    @tug-renders-on: the surrounding surface's own background */
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="file-path"]:hover,
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="directory"]:hover,
+.tug-session-row-description
+  [data-tugx-wrapped].tugx-annotation[data-tug-annotation="commit-sha"]:hover,
 code.tugx-annotation[data-tug-annotation="file-path"]:hover,
 code.tugx-annotation[data-tug-annotation="directory"]:hover,
 code.tugx-annotation[data-tug-annotation="slash-command"]:hover,

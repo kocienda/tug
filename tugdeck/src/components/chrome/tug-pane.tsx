@@ -178,11 +178,11 @@ export const MASTHEAD_HEIGHT = 72;
  * and a tier that changed height with the fold is a tier the wall's packing
  * has to re-read. Fixed in both directions, so nothing ripples.
  *
- * 102 rather than the 88 it stood at until the description took the LOOSE
- * type setting ([B07]): the pair is set in a band that holds a commit pill
- * whole, and the tier pays for the pair once, declared, rather than per post.
+ * 88, and it stood at 102 for one arc, when the description line took a LOOSE
+ * type setting and the pair needed a band a commit pill is whole in. The pill
+ * left the line rather than the tier growing for it.
  */
-export const SESSION_MASTHEAD_HEIGHT = 102;
+export const SESSION_MASTHEAD_HEIGHT = 88;
 
 /**
  * Imperative handle on CardTitleBar — lets the surrounding TugPane

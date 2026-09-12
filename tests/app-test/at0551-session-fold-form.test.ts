@@ -102,19 +102,18 @@ const TAPE = `${PANE} .session-masthead-row .tug-activity-line-trailing`;
 
 /**
  * `SESSION_MASTHEAD_HEIGHT` in `tug-pane.tsx`, which must equal
- * `--tug-masthead-height` (72) + `--tugx-session-masthead-extra-line` (30).
+ * `--tug-masthead-height` (72) + `--tugx-session-masthead-extra-line` (16).
  * The constant is duplicated here rather than imported because an app-test
  * drives the BUILT app: importing the module would assert the source against
  * itself and say nothing about the cascade that actually produced the tier.
  *
- * The tier moved once, from 88, when the description took the LOOSE type
- * setting ([B07] of the narration-one brief): the pair is set in a band
- * floored at the atom register, so a commit pill in a post is whole. What
- * this file pins is unchanged by that — the tier is the SAME in both forms,
- * which is the `masthead-second-line` decision and the reason for the
- * assertion below.
+ * The tier stood at 102 for one arc, while the description line took a LOOSE
+ * type setting and the pair was set in a band floored at the atom register.
+ * What this file pins was unchanged by that and is unchanged by its return —
+ * the tier is the SAME in both forms, which is the `masthead-second-line`
+ * decision and the reason for the assertion below.
  */
-const SESSION_MASTHEAD_HEIGHT = 102;
+const SESSION_MASTHEAD_HEIGHT = 88;
 
 /** A beat, long enough that the run it rides in has to cut it — on both forms. */
 const LONG_BEAT =

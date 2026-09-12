@@ -119,10 +119,6 @@ export function CardsSessionRow({
         // the 28px glyph above is a wide indent to spend on a rail this narrow.
         subAlign="edge"
         tape
-        // The rail mounts an `AnnotationScope`, so a post naming a sha puts a
-        // commit pill in this line — the description is set loose, in a band
-        // floored at the atom register, so the pill is whole ([B07]).
-        descriptionType="loose"
         // A monitor row answers a right-click with the session's copies — the
         // atom, the citation, the id, the description, the newest beat — over
         // its whole surface, the same menu the masthead offers. A rail is where
