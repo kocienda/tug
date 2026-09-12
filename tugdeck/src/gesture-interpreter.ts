@@ -695,6 +695,15 @@ export function installGestureInterpreter(
  * click places no caret and presses nothing, and a point on the canvas
  * background leaves the current selection alone rather than deselecting.
  *
+ * The reveal, though, is owed here and not deferred. In the pointer stream the
+ * reveal waits for the release, because the hand is still down on the card it
+ * named, and a band that travelled mid-press would carry the title bar out
+ * from under it. An activation click has no such hand: AppKit swallows the
+ * whole gesture — down, drag and up — so there is no release to wait for and
+ * no press to slide under. Withholding the reveal here leaves the aimed-at
+ * card active but still half-occluded, which is the one thing the click asked
+ * for.
+ *
  * Returns the activated card id, or `null` when the point activates nothing.
  */
 export function activateAtViewportPoint(
@@ -713,5 +722,6 @@ export function activateAtViewportPoint(
   const transfer = classification.activationTransfer;
   if (transfer === null) return null;
   host.activate(transfer);
+  host.reveal(transfer.incomingCardId);
   return transfer.incomingCardId;
 }

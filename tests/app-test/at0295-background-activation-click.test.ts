@@ -22,6 +22,13 @@
  *   2. Backgrounded, click bare canvas: the app comes forward with its
  *      selection intact. A foreground canvas click deselects; the click that
  *      merely raises the app does not.
+ *   3. Backgrounded in FLOW, click a card straddling the band's right edge:
+ *      the strip slides and the card comes fully into view. The activation and
+ *      the reveal are separate commits, and the pointer stream defers the
+ *      reveal to the release because the hand is still down on the card. An
+ *      activation click is swallowed whole — there is no release — so the
+ *      reveal must be taken at the activation or never at all, and "never"
+ *      left the aimed-at card active and still half-occluded.
  *
  * @foreground
  * @covers tugapp/Sources/MainWindow.swift
@@ -30,7 +37,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp } from "./_harness";
+import { launchTugApp, note } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -80,6 +87,77 @@ const paneSelected = (paneId: string) =>
 const CARD_A_POINT = { x: 200, y: 200 };
 const CARD_B_POINT = { x: 700, y: 200 };
 const CANVAS_POINT = { x: 700, y: 700 };
+
+/** Frames are measured in device pixels; a rounded pin is within a pixel. */
+const TOL = 1.5;
+
+/**
+ * Scenario 3's deck: five 420px cards standing side by side in a flow strip,
+ * which on any window this harness opens runs off the band's right edge — so
+ * the last slots straddle it and have something to be revealed from.
+ */
+function flowStrip() {
+  const ids = ["A", "B", "C", "D", "E"];
+  return {
+    cards: ids.map((id) => ({
+      id,
+      componentId: "gallery-input",
+      title: `Card ${id}`,
+      closable: true,
+    })),
+    panes: ids.map((id, index) => ({
+      id: `p${index + 1}`,
+      position: { x: 40, y: 40 },
+      size: { width: 420, height: 400 },
+      cardIds: [id],
+      activeCardId: id,
+      title: "",
+      acceptsFamilies: ["maker"],
+      slot: index,
+    })),
+    activePaneId: "p1",
+    imposition: { kind: "six-up", layout: "flow" },
+    hasFocus: true,
+  };
+}
+
+interface Frame {
+  paneId: string;
+  cardId: string;
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** Every imposed pane's painted frame, in slot order. */
+const IMPOSED_FRAMES = `(function () {
+  var state = window.tugdeck.diag.getDeckState();
+  var out = [];
+  state.panes.forEach(function (pane) {
+    if (pane.slot === undefined) return;
+    var el = document.querySelector('.tug-pane[data-pane-id="' + pane.id + '"]');
+    if (el === null) return;
+    var b = el.getBoundingClientRect();
+    out.push({
+      paneId: pane.id,
+      cardId: pane.activeCardId,
+      slot: pane.slot,
+      left: b.left,
+      right: b.right,
+      top: b.top,
+      bottom: b.bottom,
+    });
+  });
+  out.sort(function (a, b) { return a.slot - b.slot; });
+  return out;
+})()`;
+
+const FLOW_OFFSET = `(window.tugdeck.diag.getDeckState().flowOffset || 0)`;
+
+/** The canvas's own right edge — the hard limit no revealed card may cross. */
+const CANVAS_RIGHT =
+  `document.querySelector("[data-deck-canvas-background]").getBoundingClientRect().right`;
 
 const settle = () => new Promise((r) => setTimeout(r, 350));
 
@@ -175,6 +253,77 @@ describe.skipIf(!SHOULD_RUN)("at0295 — background activation click", () => {
           "raising the app on bare canvas keeps the selection",
         ).toBe("A");
         expect(await app.evalJS<boolean>(paneSelected("p1"))).toBe(true);
+
+        // -------------------------------------------------------------
+        // (3) Backgrounded → click a card the band is only half showing.
+        // -------------------------------------------------------------
+        await app.seedDeckState({ state: flowStrip(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `document.querySelector('.tug-pane[data-pane-id="p5"]') !== null`,
+          { timeoutMs: 8000 },
+        );
+        await settle();
+        expect(
+          await app.evalJS<number>(FLOW_OFFSET),
+          "the strip starts at rest",
+        ).toBe(0);
+
+        const edge = await app.evalJS<number>(CANVAS_RIGHT);
+        const frames = await app.evalJS<Frame[]>(IMPOSED_FRAMES);
+        // The straddler: far enough past the edge to be visibly cut, and with
+        // enough of its near side showing to aim at.
+        const straddler = frames.find(
+          (f) => f.right > edge + TOL && f.left < edge - 120,
+        );
+        note(
+          `frames: ${frames
+            .map((f) => `${f.cardId} ${Math.round(f.left)}–${Math.round(f.right)}`)
+            .join(", ")} | canvas right ${Math.round(edge)}`,
+        );
+        expect(
+          straddler,
+          "the fixture must leave a card straddling the edge, or there is nothing to reveal",
+        ).toBeDefined();
+        if (straddler === undefined) throw new Error("unreachable");
+
+        const straddlerPoint = {
+          x: Math.round(straddler.left + 60),
+          y: Math.round((straddler.top + straddler.bottom) / 2),
+        };
+        expect(
+          await app.evalJS<string | null>(
+            `document.elementFromPoint(${straddlerPoint.x}, ${straddlerPoint.y})
+               ?.closest("[data-card-id]")?.getAttribute("data-card-id") ?? null`,
+          ),
+          "the aim point sits on the straddling card",
+        ).toBe(straddler.cardId);
+
+        await app.simulateAppResign();
+        await settle();
+        await app.nativeClick(straddlerPoint, { activateFirst: false });
+        await app.waitForCondition<boolean>(
+          `window.__tug.getActiveCardId() === ${JSON.stringify(straddler.cardId)}`,
+          { timeoutMs: 6000 },
+        );
+        // The slide is a settle, so give the tween its landing.
+        await settle();
+        await settle();
+
+        const after = (await app.evalJS<Frame[]>(IMPOSED_FRAMES)).find(
+          (f) => f.paneId === straddler.paneId,
+        );
+        note(
+          `after activation click: offset ${await app.evalJS<number>(FLOW_OFFSET)}, ` +
+            `card right ${Math.round(after?.right ?? NaN)}`,
+        );
+        expect(
+          await app.evalJS<number>(FLOW_OFFSET),
+          "the activating click slid the strip",
+        ).toBeGreaterThan(0);
+        expect(
+          after?.right ?? Infinity,
+          "the card the click named is fully in view",
+        ).toBeLessThanOrEqual(edge + TOL);
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") process.stderr.write(`\n[at0295] log tail:\n${tail}\n`);
