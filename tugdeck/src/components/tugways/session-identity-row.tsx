@@ -89,15 +89,27 @@
  * and a blank cannot be told from a bug.
  *
  * ── The activity ladder ──────────────────────────────────────────────────
- * A caller's override, else the compaction pin, else the live beat, else the
- * rest sentence. The overrides exist for facts a row knows that the digest feed
- * cannot report — a session held by a terminal, a row whose one fact is that it
- * failed to resume.
+ * A caller's override, else the compaction pin, else the Observer's newest
+ * post while a turn is in flight, else the turn's ask while a turn is in
+ * flight and no post has landed, else the rest sentence. The whole of it is
+ * {@link sessionActivity}, pure, so the order is a table rather than a row
+ * that has to be mounted to be read. The overrides exist for facts a row
+ * knows that the digest feed cannot report — a session held by a terminal, a
+ * row whose one fact is that it failed to resume.
  *
- * The feed is read only when {@link SessionIdentityRowProps.beats} says this row
- * is live, and that gate is load-bearing rather than an optimization:
- * `latestBeatForScope` answers with app-wide ambience for any scope, so a closed
- * session's row would otherwise narrate whatever the app happened to be saying.
+ * This is the ACCOUNT run: what the session is doing, said by the one writer
+ * whose job is to say so. The beat is not on it. The digest's newest line is
+ * a tool call, "Editing foo.ts, 37 lines", broadcast about once a second —
+ * too low-level to tell one session from another and too fast to say whether
+ * a session is on track — so the masthead stopped reading it. It keeps its
+ * other readers: the beat-history popover this line opens, the copy menu's
+ * newest-beat item, the Activity card, and the `DIGEST` feed itself.
+ *
+ * The feed is still read, for the turn-in-flight test and the menu, and only
+ * when {@link SessionIdentityRowProps.beats} says this row is live. That gate
+ * is load-bearing rather than an optimization: `latestBeatForScope` answers
+ * with app-wide ambience for any scope, so a closed session's row would
+ * otherwise read a turn into whatever the app happened to be saying.
  *
  * Laws: [L02] every store enters through `useSyncExternalStore` (inside the
  *       hooks); [L06] appearance is CSS on data attributes, never React state;
@@ -230,70 +242,63 @@ export function sessionDescription(input: {
   return UNDESCRIBED;
 }
 
-/**
- * How much of the description box a lede may fill and still end on its own
- * period — the two tight lines the tier holds, at roughly seventy characters
- * each.
- *
- * It is the box's visible room rather than a taste about sentence length, and
- * that is what makes it the right cut-off: a first sentence that ends inside
- * it is shown whole, and one that ends past it would have been elided anyway,
- * so taking it buys the reader nothing the post did not already give them.
- */
-const LEDE_BUDGET_CHARS = 140;
+/** Which rung of the activity ladder a row is on, and the text of that rung. */
+export type SessionActivityChoice =
+  | { rung: "override"; text: string }
+  | { rung: "compacting" }
+  | { rung: "post"; body: string }
+  | { rung: "ask"; text: string }
+  | { rung: "join-ready"; text: string }
+  | { rung: "rest"; text: string };
 
 /**
- * The post's first sentence, when it ends inside {@link LEDE_BUDGET_CHARS};
- * otherwise the post as it stands.
+ * The activity ladder, as a function: a caller's override, else the
+ * compaction pin, else the Observer's newest post while a turn is in flight,
+ * else the turn's ask while a turn is in flight and no post has landed, else
+ * the arc's join-ready sentence, else the rest sentence.
  *
- * The Observer writes a post to "one or two sentences, 200 characters of prose
- * at the outside" (`overview_agent.rs`), and the description box holds about
- * 140 of those on its two lines — so a post at the budget always ended in an
- * ellipsis on the line, whatever the band. The lede is the same text in the
- * same voice, cut where the writer already put a full stop, and the whole post
- * is untouched on the wire and in the Overview: this is a reading rule for one
- * rung, not a second field.
+ * The post and the ask are live-turn rungs and nothing else: at rest the
+ * line says the session is idle and since when, and the Overview holds the
+ * last post. The ask rung is not a nicety — with a 60 s sitrep the first
+ * post of a turn lands no sooner than a minute in, and for that minute the
+ * ask is both the thing the reader most wants and the one line that cannot
+ * be wrong. The join-ready rung is a rest-form rung: an arc finished with an
+ * offer standing is at rest for one reason, and that reason is the reader.
  *
- * The sentence test is the digester's (`session_digest.rs::sentence_ends`),
- * ported to the two cases a post actually produces: a terminator counts when
- * the text ends there or a space follows it, past any closing bracket, quote
- * or emphasis marker that belongs to the sentence; and a run of digits before
- * the dot is an enumerator rather than a full stop. What is deliberately not
- * ported is the math-span guard, which is about transcript bodies — a post is
- * prose about a session, and the digester's own rubric keeps it that way.
- *
- * A path's extension is safe without a rule of its own: nothing follows the
- * dot in `narration-target.md` but a letter, so it is never a terminator.
+ * Pure, and outside the component for the same reason the description
+ * ladder is: the order is worth a test, and a ladder inlined in a hook can
+ * only be checked by mounting the row it renders.
  */
-export function postLede(body: string): string {
-  const end = firstSentenceEnd(body);
-  if (end === null || end >= LEDE_BUDGET_CHARS) return body;
-  return body.slice(0, end + 1);
-}
-
-/**
- * The index of the last character of the first sentence, or `null` when the
- * text has no sentence end in it at all.
- */
-function firstSentenceEnd(text: string): number | null {
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i]!;
-    if (ch !== "." && ch !== "!" && ch !== "?") continue;
-    // An enumerator: the token before the dot is digits only, and what stands
-    // before those is the start of the text, a space, or an emphasis marker.
-    let back = i - 1;
-    while (back >= 0 && text[back]! >= "0" && text[back]! <= "9") back -= 1;
-    if (back < i - 1 && (back < 0 || text[back] === " " || text[back] === "*")) {
-      continue;
-    }
-    // A closing bracket or quote, and any emphasis the span closes with,
-    // belong to the sentence rather than to what follows it.
-    let j = i + 1;
-    if (text[j] === ")" || text[j] === '"' || text[j] === "”") j += 1;
-    while (text[j] === "*") j += 1;
-    if (j >= text.length || text[j] === " ") return j - 1;
+export function sessionActivity(input: {
+  /** What the caller says the line reads INSTEAD of anything else, or null. */
+  override: string | null;
+  /** Whether the card is inside a `/compact` turn. */
+  compacting: boolean;
+  /** Whether a turn is in flight on this session. */
+  turnInFlight: boolean;
+  /** The newest Observer post about this session, or null when none. */
+  post: string | null;
+  /** The ask the turn is answering, or null when none has been read. */
+  ask: string | null;
+  /** The arc's join-ready sentence while its offer stands, or null. */
+  joinReadyLine: string | null;
+  /** The rest sentence: turns, size, when it last moved. */
+  restLine: string;
+}): SessionActivityChoice {
+  if (input.override !== null && input.override.length > 0) {
+    return { rung: "override", text: input.override };
   }
-  return null;
+  if (input.compacting) return { rung: "compacting" };
+  if (input.turnInFlight && input.post !== null) {
+    return { rung: "post", body: input.post };
+  }
+  if (input.turnInFlight && input.ask !== null) {
+    return { rung: "ask", text: input.ask };
+  }
+  if (input.joinReadyLine !== null) {
+    return { rung: "join-ready", text: input.joinReadyLine };
+  }
+  return { rung: "rest", text: input.restLine };
 }
 
 /**
@@ -318,6 +323,12 @@ interface DisplayEntry {
    * own clear and the compaction pin both answer a gesture.
    */
   immediate?: boolean;
+  /**
+   * A fact standing in for a line nobody has written yet — the turn's ask,
+   * shown until the Observer's first post lands. Painted a step quieter, the
+   * same way the description's stand-in rungs are.
+   */
+  standIn?: boolean;
 }
 
 /**
@@ -382,7 +393,7 @@ function ActivityText({
   );
   if (entry.placeholder) {
     return (
-      <span className={className}>
+      <span className={className} data-stamp={entry.standIn ? "true" : undefined}>
         {renderFilterHighlight(entry.text, highlight)}
       </span>
     );
@@ -440,7 +451,7 @@ function ActivityMarkdownText({
   }, [render]);
   if (entry.placeholder) {
     return (
-      <span className={className}>
+      <span className={className} data-stamp={entry.standIn ? "true" : undefined}>
         {renderFilterHighlight(entry.text, highlight)}
       </span>
     );
@@ -456,6 +467,105 @@ function ActivityMarkdownText({
       className={className}
       dangerouslySetInnerHTML={{ __html: render.html }}
     />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The prose runs
+// ---------------------------------------------------------------------------
+
+/**
+ * A run of PROSE on the row: the standing sentence, and the Observer's post
+ * during a turn. Both are written ABOUT the session and name the files the
+ * work touched, so each renders through the Overview's own call and no second
+ * one — `TugMarkdownBlock` in static `initialText` mode, keyed on the text so
+ * a new sentence remounts, `onAnnotated` from `useAnnotationPortals`, portals
+ * rendered beside it. One component and one code path for the same sentence
+ * on every surface: backticks consumed rather than spelled, `<code>` at the
+ * transcript's own inline size, and the block wrappers flattened onto the row
+ * by the shared rule in `tug-session-row.css`.
+ *
+ * Inside an {@link AnnotationScope} a confirmed path earns the file bubble and
+ * a confirmed sha the commit bubble, both opening on a click; outside one —
+ * the picker and gallery cells — the annotator marks the state-free kinds only
+ * and the line is toned prose.
+ *
+ * A sha here is a MENTION rather than the pill every reading surface draws:
+ * the run keeps its characters and takes the resting underline a confirmed
+ * path takes beside it. The pill is 22px and this band is 15.6, so a pill in
+ * this line would be clipped at both ends — and buying it room is what cost
+ * the masthead's tier 14px. The atom's height, form and behaviour are
+ * untouched everywhere else it is drawn; this is one surface saying which
+ * form a written reference takes on it.
+ *
+ * A session citation takes the same cut, for the same arithmetic and one
+ * more reading. The chip is the same 22px box, so on the masthead — where
+ * the post is the one run that WRAPS — it stood proud of its own line and
+ * into the one above, straight through the resting underline of the path in
+ * the sentence before it; two marks of two different things, touching, on
+ * chrome nobody can scroll. It is drawn at the presence register here
+ * instead: the same live citation, the same raise on a click, the session's
+ * name set in the line's own ink with no enclosure around it.
+ *
+ * The filter's mark is painted over what the pipeline built rather than
+ * composed while it renders ([B08]). `renderFilterHighlight` cannot reach
+ * this run — its DOM is written by the parse and the annotator, with no
+ * render-time seam to nest a `<mark>` into — so the run is marked `findable`
+ * and the query paints Ranges over its live text, the way transcript Find
+ * paints its own. `findable` opts the run into the PAINTER's walk and nothing
+ * else: the transcript's own painter reaches rows through its list's index,
+ * and a masthead or rail row is not one, so the index's count-to-paint
+ * alignment has nothing to say about this mark.
+ */
+function ProseRun({
+  text,
+  highlight,
+}: {
+  text: string;
+  highlight: string;
+}): React.ReactElement {
+  const { onAnnotated, portals } = useAnnotationPortals(undefined, {
+    commitMark: "mention",
+    sessionMark: "mention",
+  });
+  const container = React.useRef<HTMLElement | null>(null);
+  // Live-ref'd so the annotation callback can be identity-stable: a fresh
+  // closure per render would re-run the block's own annotation effect ([L07]).
+  const highlightRef = React.useRef(highlight);
+  highlightRef.current = highlight;
+  const onMarked = React.useCallback(
+    (el: HTMLElement) => {
+      onAnnotated(el);
+      container.current = el;
+      setFilterMarks(el, highlightRef.current);
+    },
+    [onAnnotated],
+  );
+  // Both sides move on their own: the DOM through the callback above, the
+  // query here. [L03] a layout effect, so the mark is painted before the
+  // frame the reader sees.
+  React.useLayoutEffect(() => {
+    const el = container.current;
+    if (el === null) return;
+    setFilterMarks(el, highlight);
+  }, [highlight, text]);
+  React.useLayoutEffect(
+    () => () => {
+      const el = container.current;
+      if (el !== null) clearFilterMarks(el);
+    },
+    [],
+  );
+  return (
+    <>
+      <TugMarkdownBlock
+        key={text}
+        initialText={text}
+        findable
+        onAnnotated={onMarked}
+      />
+      {portals}
+    </>
   );
 }
 
@@ -673,16 +783,21 @@ export interface SessionIdentityRowProps
    */
   beats?: boolean;
   /**
-   * Pace the beat — hold each line {@link MIN_DWELL_MS} before the next
-   * replaces it. For a line being READ; a list being scanned wants the newest
-   * fact. Off, the dwell is a pass-through that schedules and writes nothing,
-   * which is what lets a cell bound by the pure-renderer rule mount this.
+   * Pace the composed entries — hold each line {@link MIN_DWELL_MS} before
+   * the next replaces it. For a line being READ; a list being scanned wants
+   * the newest fact. Off, the dwell is a pass-through that schedules and
+   * writes nothing, which is what lets a cell bound by the pure-renderer rule
+   * mount this. With the beat off the ladder every entry is `immediate`, so
+   * the knob holds nothing today; the post and the ask are not paced because
+   * a post lands once a minute and the ask once a turn.
    * @default false
    */
   pace?: boolean;
   /**
-   * Run the beat through the markdown pipeline — backticks, math, the lot.
-   * Costs a lazily-loaded engine and an effect.
+   * Run the composed entries through the markdown pipeline — backticks,
+   * math, the lot. Costs a lazily-loaded engine and an effect. The post is
+   * prose on every surface and does not need this: it renders through
+   * `TugMarkdownBlock` whatever the knob says.
    * @default false
    */
   markdown?: boolean;
@@ -697,11 +812,11 @@ export interface SessionIdentityRowProps
    *
    * `"wall"` — the Session card's masthead, folded or open, whose tier
    * stands one line taller than the rows' ([B04]). That line goes to the
-   * DESCRIPTION, which during a turn carries the Observer's post: the
+   * ACCOUNT run, which during a turn carries the Observer's post: the
    * longest run on the tier, written to a budget no single line holds, and
-   * refreshed once a minute. The beat keeps the one line it reads in
-   * everywhere else — it is short, and it changes about once a second, so a
-   * box it could wrap into would flicker at that rate ([B01]).
+   * refreshed once a minute. The standing sentence above it keeps the one
+   * line it reads in everywhere else — it is the identity, and the line a
+   * wall is scanned by cannot change height because a turn started.
    *
    * The name is still the activity's because the register is the ROW's, and
    * the row has read it as one fact since [D185]: a wall of watched sessions
@@ -839,60 +954,19 @@ export function SessionIdentityRow({
   const compacting = useIsCompactingCard(cardId);
 
   // ── The description ladder ([D132]) ───────────────────────────────────
+  // The standing sentence, and the rungs under it — and nothing over the top
+  // of it. This is the IDENTITY run: the line a wall of sessions is scanned
+  // by and the line that tells one session from another, and a line that
+  // changed because a turn started could do neither job. [D187]'s live-turn
+  // override used to sit here, replacing the sentence with the post's lede
+  // for the length of a turn; it moved down to the account run below.
   const prompt = facts?.last_user_prompt?.trim() ?? "";
-  const restDescription = sessionDescription({
+  const descriptionSource = sessionDescription({
     synopsis: identity.description,
     prompt,
     arc: arcModel,
     createdAtMs,
   });
-  // The newest BEAT the feed has about this session: the newest line that
-  // narrates, with a tool's result and a finished wait walked past
-  // ({@link latestBeatForScope}). One reader wants it, the activity ladder
-  // below — the turn-in-flight test cannot be read off it, because the newest
-  // line is often a shell command or a background job's notice, neither of
-  // which is part of a turn. {@link turnInFlightForScope} walks past those;
-  // see its docblock.
-  const latestLine = beats
-    ? latestBeatForScope(digest.lines, sessionId, digest.cleared.get(sessionId))
-    : null;
-  const turnInFlight =
-    beats &&
-    turnInFlightForScope(
-      digest.lines,
-      sessionId,
-      digest.cleared.get(sessionId),
-    );
-  // [D187]'s ladder, over the top of [D132]'s. During a turn the line says what
-  // is happening: the Observer's newest post about this session, else the ask
-  // the turn is answering. At rest it is the standing sentence and the rungs
-  // under it, unchanged.
-  //
-  // The post rung shows the post's LEDE ({@link postLede}) rather than the
-  // whole post. A post is written to 200 characters and this box holds about
-  // 140, so the whole of one always ended in an ellipsis here; the first
-  // sentence is the same text in the same voice, ending where its writer put a
-  // full stop. The Overview keeps the post entire — this is which of the
-  // post's words one rung shows, not a second thing for the Observer to write.
-  //
-  // The ask rung is not a nicety. With a 60 s sitrep the first post of a turn
-  // lands no sooner than a minute in, and for that minute the ask is both the
-  // thing the reader most wants and the one line that cannot be wrong.
-  //
-  // All three are derived in render from stores already attached — no state,
-  // no effect, nothing to keep in step ([L02]).
-  const livePost = turnInFlight
-    ? latestPostForSession(overview.posts, sessionId)
-    : null;
-  const liveAsk = turnInFlight
-    ? latestAskForScope(digest.lines, sessionId)
-    : null;
-  const descriptionSource =
-    livePost !== null
-      ? postLede(livePost.body)
-      : liveAsk !== null
-        ? askPromptText(liveAsk)
-        : restDescription;
   // Flattened always, capped only where the caller asks. A prompt is the one
   // rung that can carry newlines, and a multi-line run inside a `nowrap` box
   // is a line whose break the reader cannot see.
@@ -913,23 +987,56 @@ export function SessionIdentityRow({
     [descriptionSource],
   );
   // A written line is not a stand-in; a fact wearing one's clothes is. The
-  // Observer's post and the standing sentence are both written ABOUT the
-  // session, so neither is marked. The ask is the user's own words standing in
-  // for a line nobody has written yet, which is exactly what the prompt rung
-  // under it already is.
-  const descriptionStandIn =
-    livePost === null && (liveAsk !== null || identity.description === null);
+  // standing sentence is written ABOUT the session, so it is not marked; every
+  // rung under it is a fact standing in for a line nobody has written yet.
+  const descriptionStandIn = identity.description === null;
 
   // ── The activity ladder ───────────────────────────────────────────────
+  // The newest BEAT the feed has about this session: the newest line that
+  // narrates, with a tool's result and a finished wait walked past
+  // ({@link latestBeatForScope}). It is NOT a rung of the ladder — the
+  // account run does not read the beat ([B04]) — but the copy menu below
+  // still offers it, and the newest one is the honest thing to hand a paste.
+  // The turn-in-flight test cannot be read off it either, because the newest
+  // line is often a shell command or a background job's notice, neither of
+  // which is part of a turn. {@link turnInFlightForScope} walks past those;
+  // see its docblock.
+  const latestLine = beats
+    ? latestBeatForScope(digest.lines, sessionId, digest.cleared.get(sessionId))
+    : null;
+  const turnInFlight =
+    beats &&
+    turnInFlightForScope(
+      digest.lines,
+      sessionId,
+      digest.cleared.get(sessionId),
+    );
   // The bare `Done` marker is filtered on the way in: it is the ABSENCE of a
   // beat, and the rest sentence says the same thing with facts in it.
   const beat = sessionActivityBeat(latestLine);
+  // [D187]'s live-turn rungs, on the ACCOUNT run. During a turn the line says
+  // what is happening: the Observer's newest post about this session, whole,
+  // else the ask the turn is answering. The post is shown entire rather than
+  // cut to a lede — the masthead's two lines and the Overview's post are the
+  // same text whenever the post fits, and a post that does not fit is cut
+  // with the same mark a one-line run already uses ([B03]).
+  //
+  // Both derived in render from stores already attached — no state, no
+  // effect, nothing to keep in step ([L02]). Read only while a turn is in
+  // flight, so a row for a session this app is not running reads no post.
+  const livePost = turnInFlight
+    ? latestPostForSession(overview.posts, sessionId)
+    : null;
+  const liveAsk =
+    turnInFlight && livePost === null
+      ? latestAskForScope(digest.lines, sessionId)
+      : null;
   // **Join readiness outranks the digester ([B10]).** A session whose arc has
   // finished with an offer standing is at rest for one reason, and that reason
   // is the reader — which is a higher-order fact about the session than
   // whatever the narration last said it was doing. So while the offer stands
   // the line is the register's own sentence, composed from the same function
-  // the Arcs card and the shade read, and the digester's sentence returns the
+  // the Arcs card and the shade read, and the rest sentence returns the
   // moment a land, a discard or a reopen spends the offer.
   //
   // At rest only: a turn in flight is the session doing something now, and now
@@ -943,34 +1050,48 @@ export function SessionIdentityRow({
     fileSize: facts?.file_size ?? null,
     lastUsedAtMs: facts?.last_used_at ?? null,
   });
+  const choice = sessionActivity({
+    override: activityOverride,
+    compacting,
+    turnInFlight,
+    post: livePost?.body ?? null,
+    ask: liveAsk !== null ? askPromptText(liveAsk) : null,
+    joinReadyLine,
+    restLine,
+  });
+  // The post is PROSE and takes the prose path below; every other rung is a
+  // composed line and goes through the dwell as an entry. While the post
+  // shows, the entry chain holds the rest line — `immediate`, so a post
+  // landing or leaving schedules nothing.
+  //
+  // The ask is the user's own words standing in for a line nobody has written
+  // yet, which is exactly what the prompt rung of the description is, and it
+  // is marked the same way.
   const target: DisplayEntry =
-    activityOverride !== null && activityOverride.length > 0
-      ? composedEntry(activityOverride)
-      : compacting
+    choice.rung === "override"
+      ? composedEntry(choice.text)
+      : choice.rung === "compacting"
         ? COMPACTING_ENTRY
-        : joinReadyLine !== null
-          ? composedEntry(joinReadyLine)
-          : beat !== null
-            ? {
-                key: beat.key,
-                text: beat.text,
-                placeholder: false,
-              }
+        : choice.rung === "ask"
+          ? { ...composedEntry(choice.text), standIn: true }
+          : choice.rung === "join-ready"
+            ? composedEntry(choice.text)
             : composedEntry(restLine);
   // Paced HERE rather than in a leaf, so a swap re-renders the row and
   // `TugActivityLine` measures the new text — see {@link useDwellDisplay}.
   const entry = useDwellDisplay(target, pace);
 
   // ── The row's own menu ────────────────────────────────────────────────
-  // Fed the NEWEST beat rather than the one on screen: within a dwell window
-  // the two differ by a line, and the newest is the honest thing to hand a
-  // paste. The description item is offered for a written synopsis and for a
-  // prompt standing in for one, but not for the created-on stamp, which is a
-  // fact the row composed rather than anything the session said.
+  // Fed the NEWEST beat, which no line on the row shows any more: the beat
+  // keeps this reader and the history popover, and the newest is the honest
+  // thing to hand a paste. The description item is offered for a written
+  // synopsis and for a prompt standing in for one, but not for the created-on
+  // stamp, which is a fact the row composed rather than anything the session
+  // said.
   const menu = useSessionIdentityMenu({
     identity,
     description:
-      livePost === null && identity.description === null && prompt.length === 0
+      identity.description === null && prompt.length === 0
         ? null
         : descriptionFull,
     activity: beat?.text ?? null,
@@ -978,124 +1099,56 @@ export function SessionIdentityRow({
     enabled: identityMenu,
   });
   const ActivityRun = markdown ? ActivityMarkdownText : ActivityText;
-  // The beat reads in ONE register everywhere, the wall included ([B01]): it
-  // is short, and it is broadcast about once a second, so a box that let it
-  // wrap would flicker between one and two lines of ink at that rate. The
-  // second line the fold buys goes to the description instead, below.
-  const activity = (
-    <ActivityRun
-      entry={entry}
-      highlight={highlight}
-      className={activityClassName}
-    />
+  // The post, whole, flattened the way the description is: a post is written
+  // to one paragraph, and a newline inside a clamped box is a break the
+  // reader cannot see.
+  const postBody = choice.rung === "post" ? choice.body : null;
+  const postText = React.useMemo(
+    () =>
+      postBody === null
+        ? null
+        : truncateForDisplay(postBody, Number.MAX_SAFE_INTEGER),
+    [postBody],
   );
 
-  // The wall register gives the DESCRIPTION two lines to wrap into ([B01]): a
-  // folded card is the masthead and nothing else, so the line that is a
-  // caption on an open card becomes the reading — and during a turn that line
-  // is the Observer's post, a sentence budgeted well past what one line of the
-  // tier holds.
+  // The wall register gives the POST two lines to wrap into ([D185]): a
+  // folded card is the masthead and nothing else, so the account that is a
+  // caption on an open card becomes the reading — and during a turn that
+  // account is the Observer's post, a sentence budgeted well past what one
+  // line of the tier holds. The sentence above it keeps its one line in every
+  // register: it is the identity, and an identity that changed height would
+  // be the one thing on the tier that did.
   //
   // `data-register` is what the CSS keys the stacking on. It rides a wrapper
-  // rather than the line itself because the line is also the hover's
-  // measuring subject and the row primitive's own element, whose attributes
-  // are that primitive's to write.
-  //
-  // The ink is PROSE, not a string: a description is written about the
-  // session and names the files the work touched, so it renders through the
-  // Overview's own call and no second one ([B01]) — `TugMarkdownBlock` in
-  // static `initialText` mode, keyed on the text so a new post remounts,
-  // `onAnnotated` from `useAnnotationPortals`, portals rendered beside it.
-  // That is one component and one code path for the same sentence on both
-  // surfaces: backticks consumed rather than spelled, `<code>` at the
-  // transcript's own inline size, and the block wrappers flattened onto the
-  // row by the shared rule in `tug-session-row.css` ([B02]).
-  //
-  // Inside an {@link AnnotationScope} a confirmed path in it earns the file
-  // bubble and a confirmed sha the commit bubble, both opening on a click;
-  // outside one — the picker and gallery cells — the annotator marks the
-  // state-free kinds only and the line is toned prose.
-  //
-  // A sha here is a MENTION rather than the pill every reading surface draws:
-  // the run keeps its characters and takes the resting underline a confirmed
-  // path takes beside it. The pill is 22px and this band is 15.6, so a pill in
-  // this line would be clipped at both ends — and buying it room is what cost
-  // the masthead's tier 14px. The atom's height, form and behaviour are
-  // untouched everywhere else it is drawn; this is one surface saying which
-  // form a written reference takes on it.
-  //
-  // A session citation takes the same cut, for the same arithmetic and one
-  // more reading. The chip is the same 22px box, so on the masthead — where
-  // this line is the one run that WRAPS — it stood proud of its own line and
-  // into the one above, straight through the resting underline of the path in
-  // the sentence before it; two marks of two different things, touching, on
-  // chrome nobody can scroll. It is drawn at the presence register here
-  // instead: the same live citation, the same raise on a click, the session's
-  // name set in the line's own ink with no enclosure around it.
-  const { onAnnotated: onDescriptionAnnotated, portals: descriptionPortals } =
-    useAnnotationPortals(undefined, {
-      commitMark: "mention",
-      sessionMark: "mention",
-    });
-  // The filter's mark, painted over what the pipeline built rather than
-  // composed while it renders ([B08]). `renderFilterHighlight` cannot reach
-  // this run — its DOM is written by the parse and the annotator, with no
-  // render-time seam to nest a `<mark>` into — so the run is marked
-  // `findable` and the query paints Ranges over its live text, the way
-  // transcript Find paints its own. The row's other highlighted runs, the
-  // title and the activity entries, keep the composed mark.
-  //
-  // `findable` here opts the run into the PAINTER's walk and nothing else:
-  // the transcript's own painter reaches rows through its list's index, and a
-  // masthead or rail row is not one, so the index's count-to-paint alignment
-  // has nothing to say about this mark.
-  const descriptionContainer = React.useRef<HTMLElement | null>(null);
-  // Live-ref'd so the annotation callback can be identity-stable: a fresh
-  // closure per render would re-run the block's own annotation effect ([L07]).
-  const highlightRef = React.useRef(highlight);
-  highlightRef.current = highlight;
-  const onDescriptionMarked = React.useCallback(
-    (container: HTMLElement) => {
-      onDescriptionAnnotated(container);
-      descriptionContainer.current = container;
-      setFilterMarks(container, highlightRef.current);
-    },
-    [onDescriptionAnnotated],
-  );
-  // Both sides move on their own: the DOM through the callback above, the
-  // query here. [L03] a layout effect, so the mark is painted before the
-  // frame the reader sees.
-  React.useLayoutEffect(() => {
-    const container = descriptionContainer.current;
-    if (container === null) return;
-    setFilterMarks(container, highlight);
-  }, [highlight, description]);
-  React.useLayoutEffect(
-    () => () => {
-      const container = descriptionContainer.current;
-      if (container !== null) clearFilterMarks(container);
-    },
-    [],
-  );
-  const descriptionInk = (
-    <>
-      <TugMarkdownBlock
-        key={description}
-        initialText={description}
-        findable
-        onAnnotated={onDescriptionMarked}
-      />
-      {descriptionPortals}
-    </>
-  );
-  const descriptionRun =
-    activityRegister === "wall" ? (
-      <span className="session-identity-description-post" data-register="wall">
-        {descriptionInk}
+  // rather than the line itself because the line is also the truncation
+  // measurer's subject and the activity primitive's own element, whose
+  // attributes are that primitive's to write. It carries the register the
+  // row was asked for in both forms, so the register asked for and the
+  // register drawn are the same fact wherever it is read — a test, a
+  // stylesheet, or the DOM.
+  const activity =
+    postText !== null ? (
+      <span
+        className={
+          activityClassName !== undefined
+            ? `session-identity-activity-post ${activityClassName}`
+            : "session-identity-activity-post"
+        }
+        data-register={activityRegister}
+      >
+        <ProseRun text={postText} highlight={highlight} />
       </span>
     ) : (
-      descriptionInk
+      <ActivityRun
+        entry={entry}
+        highlight={highlight}
+        className={activityClassName}
+      />
     );
+
+  // The standing sentence, as prose: it names the files the work touched and
+  // the arc it serves, and it is read on the same terms the post is.
+  const descriptionRun = <ProseRun text={description} highlight={highlight} />;
 
   // ── The tape ──────────────────────────────────────────────────────────
   // Unconditional wherever the mount asks for one — a session that has done no

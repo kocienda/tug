@@ -29,8 +29,9 @@
 /**
  * The SESSION masthead's extra line, as a length — how much taller that tier
  * stands than the document tier beside it, in every form the card can be in
- * ([B04]). The line is spent on the DESCRIPTION run, which wraps to two
- * ([B01]).
+ * ([B04]). The line is spent on the ACCOUNT run — the activity line, which
+ * carries the Observer's whole post during a turn and wraps to two. The
+ * standing sentence above it keeps its one line in every form.
  *
  * Declared at DOCUMENT scope rather than on `.tug-masthead-frame`, because
  * the reader is the PANE: `tug-pane.css` adds it to `--tug-masthead-height`
@@ -183,6 +184,13 @@
 /* @tug-renders-on var(--tugx-pane-title-bar-bg-active) */
 .tug-masthead-frame-row .tug-session-row-description[data-stamp="true"] {
   color: color-mix(in oklab, var(--tugx-pane-title-fg-active) 60%, transparent);
+}
+
+/* The account run's stand-in — the turn's ask, until the first post lands —
+   drops the same step off the third line's 65%. */
+/* @tug-renders-on var(--tugx-pane-title-bar-bg-active) */
+.tug-masthead-frame-row .tug-activity-line-activity [data-stamp="true"] {
+  color: color-mix(in oklab, var(--tugx-pane-title-fg-active) 45%, transparent);
 }
 
 /* The title run inherits the pane's title color, exactly as every other card's

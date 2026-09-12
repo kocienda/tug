@@ -2,11 +2,13 @@
  * SessionMasthead — the three lines a Session card wears in pane chrome.
  *
  *   [dot] <name> : <callsign>     ← identity, and whether it is working
- *   <description>                 ← the agent's synopsis, or a stand-in
- *   <activity>               ~~~  ← the voice, with its activity sparkline
+ *   <description>                 ← the standing sentence, or a stand-in
+ *   <activity>               ~~~  ← the account, with its activity sparkline
  *
  * Three levels of the same session, widening as they go down: what it IS, what
- * it is FOR, and what it is doing this second.
+ * it is FOR, and what it is doing — the Observer's whole post during a turn,
+ * the rest sentence at rest. The beat is not on the tier: the digest's newest
+ * line is one click away, in the history the account run opens.
  *
  * **The three lines are `SessionIdentityRow`'s, not this component's.** The
  * masthead, the Cards card rows, and the new-session picker rows show the same thing,
@@ -163,9 +165,9 @@ export interface SessionMastheadProps {
    * Whether the pane wearing this masthead is FOLDED ([P01], [P03]).
    *
    * The one thing it changes is the activity line's register ([D185]): a
-   * folded card is the masthead and nothing else, so the beat has two
-   * lines and two facts to put on them. Everything else about the tier — its
-   * extra height, the clamp that holds the beat at two lines — is CSS keyed
+   * folded card is the masthead and nothing else, so the account run has
+   * two lines to finish a post on. Everything else about the tier — its
+   * extra height, the clamp that holds the run at two lines — is CSS keyed
    * on the frame's own `data-folded` and needs nothing passed ([L06]);
    * this is here because which runs get RENDERED is not something a
    * stylesheet can decide.
@@ -652,10 +654,10 @@ export function SessionMasthead({
           markdown
           activityClassName="session-masthead-beat-text"
           // The Session card's masthead spends its tier's extra line on the
-          // DESCRIPTION ([B01]), which during a turn is the Observer's post:
+          // ACCOUNT run ([D185]), which during a turn is the Observer's post:
           // the longest and slowest run on the tier, and the only account of
-          // the session a folded card has at all. The beat keeps its one line
-          // either way. Unconditional, not keyed on the fold ([B04]) — the
+          // the session a folded card has at all. The standing sentence above
+          // it keeps its one line. Unconditional, not keyed on the fold — the
           // tier is the same height in both forms, so a register that changed
           // with the form would be the one thing left that did.
           activityRegister="wall"
@@ -709,8 +711,8 @@ export function SessionMasthead({
           stageProps={{
             ref: stageElRef as React.Ref<HTMLSpanElement>,
             // The line toggles its history — unless the press landed on the
-            // beat's file reference, which is drilling THROUGH the line to what
-            // it names. One press, one act.
+            // post's file reference, which is drilling THROUGH the line to
+            // what it names. One press, one act.
             onClick: (event) => {
               if (annotationClaimsClick(event.nativeEvent)) return;
               setHistoryOpen((open) => !open);
@@ -722,10 +724,12 @@ export function SessionMasthead({
       {copyCitation.contextMenu}
 
       {/*
-        The beat-history history, anchored on the line it is the history OF.
-        This used to hang off the retired `PULSE` pill, and the pill is now a
-        placeholder rather than a permanent label — so the affordance moves to
-        the reading itself: click what you are reading to see more of it.
+        The beat history, anchored on the account run. The beat itself is off
+        the masthead — too low-level to tell one session from another — so
+        this popover is where the digest's tail lives now, one click from the
+        line that used to carry it: click the account to see what the session
+        did under it. Its file references open their files from here, on the
+        popover's own annotation layer.
 
         dismissOnChainActivity=false: a row's right-click → Copy dispatches the
         `copy` action through the responder chain, which would otherwise read as

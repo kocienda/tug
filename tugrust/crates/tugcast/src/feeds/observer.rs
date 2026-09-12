@@ -613,7 +613,34 @@ fn wake(
         .collect::<Vec<_>>();
     let facts_section = render_facts_section(&facts);
 
-    let input = compose_observer_input(reason, session_id, &taken, &priors, &facts);
+    // The sentence currently standing under the session's callsign, so the
+    // Observer revises what it can see rather than composing blind. Read off
+    // the same row `write_synopsis` writes, through the same resolver — a
+    // session whose row cannot be identified is shown none, which is also the
+    // row it could not write to.
+    //
+    // A failed read warns and shows none, exactly as the two reads above it
+    // do. It must never cost a wake — but it must not pass for "no sentence
+    // stands" in silence either, because that is the one input whose absence
+    // makes the model compose a fresh line over a good one.
+    let standing = config.ledger.as_ref().and_then(|ledger| {
+        let row_id = (config.resolver)(session_id)?;
+        ledger
+            .get(&row_id)
+            .unwrap_or_else(|err| {
+                warn!(error = %err, "overview observer: standing-sentence read failed");
+                None
+            })
+            .and_then(|row| row.synopsis)
+    });
+    let input = compose_observer_input(
+        reason,
+        session_id,
+        &taken,
+        &priors,
+        &facts,
+        standing.as_deref(),
+    );
     window.in_flight = Some(taken);
     window.in_flight_facts = Some(facts_section);
 
@@ -1129,6 +1156,46 @@ mod tests {
             );
             h.cancel.cancel();
         }
+    }
+
+    /// The Observer is shown the sentence it is revising, and `null` keeps
+    /// it. This is the pair that makes the sentence stable by default: the
+    /// wake input carries the row's sentence under its heading, and a wake
+    /// that answers null for it leaves the row exactly as it stood.
+    #[tokio::test]
+    async fn a_wake_shows_the_standing_sentence_and_null_leaves_it_standing() {
+        let spawner = FakeSpawner::always(Ok(
+            serde_json::json!({ "post": null, "synopsis": null }).to_string(),
+        ));
+        let mut h = start(spawner.clone(), 90).await;
+        h.ledger
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+            .expect("spawn");
+        h.ledger
+            .record_synopsis("s1", "Rework how a session names itself")
+            .expect("a sentence already stands");
+
+        h.code_tx
+            .send(assistant_text("s1", "Reading the resume path first."))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+        expect_no_post(&mut h.overview_rx).await;
+
+        let turns = spawner.turns_seen();
+        assert_eq!(turns.len(), 1, "one wake, one turn");
+        assert!(
+            turns[0].contains(&format!(
+                "{}\nRework how a session names itself\n",
+                super::super::observer_wake::STANDING_SENTENCE_HEADER
+            )),
+            "the wake input carries the standing sentence:\n{}",
+            turns[0]
+        );
+        assert_eq!(
+            h.ledger.get("s1").unwrap().unwrap().synopsis.as_deref(),
+            Some("Rework how a session names itself"),
+        );
+        h.cancel.cancel();
     }
 
     /// A session whose row cannot be identified is not "written and failed",

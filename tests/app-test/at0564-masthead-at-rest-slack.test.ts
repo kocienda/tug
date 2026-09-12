@@ -4,25 +4,25 @@
  *
  * This test decides nothing. It exists to put one number on the record where
  * a person can read it, because the judgment it serves is a person's: the
- * masthead's tier is declared for a two-line description
- * (`masthead-frame.css`), and at rest the description is a one-line standing
- * sentence, so the line it does not use falls to the foot of the band under
- * the beat — where the `session-tape-centering` arc decided it "reads as the
+ * masthead's tier is declared for a two-line ACCOUNT run
+ * (`masthead-frame.css`), and at rest the account run is the one-line rest
+ * sentence under a one-line standing sentence, so the line it does not use
+ * falls to the foot of the band — where the `session-tape-centering` arc decided it "reads as the
  * edge of the tier". That decision was taken at a 15.6px band. Whether the
  * remainder still reads as air rather than as a hole is a reading somebody
  * has to take on the running app, and a reading is worth more against a
  * measured number than against arithmetic quoted out of a comment.
  *
  * So the diagnostics are the point: the slack open, the slack folded, and
- * beside each the description box's own height and the band it is set in, so
- * the slack can be read in lines rather than in pixels.
+ * beside each the account run's own height, the sentence's, and the band they
+ * are set in, so the slack can be read in lines rather than in pixels.
  *
  * What it nonetheless ASSERTS, because a measurement nobody can fail is not a
  * test:
  *
  *  1. The stack fits. The slack is never negative, in either form — the
- *     title, the description pair's used lines and the beat all stand inside
- *     the tier the pane declared for them.
+ *     title, the standing sentence and the account run's used lines all
+ *     stand inside the tier the pane declared for them.
  *  2. The two forms agree. Open and folded measure the same slack, which is
  *     the `masthead-second-line` requirement that the tier is fixed in every
  *     form: a tier that changed height with the fold is one the wall's
@@ -30,8 +30,9 @@
  *
  * The description at rest is the ladder's floor, `Not yet described`, because
  * the standing sentence arrives from the Observer and no harness door writes
- * one. That costs the measurement nothing: what the slack answers to is how
- * many LINES the box took, and the Observer's own rubric gives the standing
+ * one, and the account run at rest is the rest sentence (`No turns. Ready.`).
+ * That costs the measurement nothing: what the slack answers to is how many
+ * LINES each box took, and the Observer's own rubric gives the standing
  * sentence "about 65 characters", which is one line in this pane exactly as
  * the floor's three words are.
  *
@@ -53,7 +54,9 @@ const PANE = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 const CARD = '[data-card-id="A"]';
 const TITLE_BAR = `${PANE} .tug-pane-title-bar[data-masthead="true"]`;
 const DESCRIPTION = `${PANE} .session-masthead-row .tug-session-row-description`;
-/** The description and the beat as one box — the last ink in the tier. */
+/** The ACCOUNT run — the box the tier's second line is declared for. */
+const ACCOUNT = `${PANE} .session-masthead-row [data-slot="tug-activity-line-activity"]`;
+/** The description and the account run as one box — the last ink in the tier. */
 const PULSE = `${PANE} .session-masthead-row .tug-session-row-pulse`;
 
 /** One Session card in one pane, wide enough that the row is not the subject. */
@@ -81,9 +84,11 @@ function deckShape() {
 interface Slack {
   /** The tier's own content height, for the arithmetic to be checked against. */
   tierHeight: number;
-  /** The band the description's lines are set in. */
+  /** The band the account run's lines are set in. */
   band: number;
-  /** How tall the description box actually stands — its used lines. */
+  /** How tall the account run's box actually stands — its used lines. */
+  accountHeight: number;
+  /** How tall the standing sentence's box stands — its used lines. */
   descHeight: number;
   /** Room left between the last line's bottom and the tier's content edge. */
   slack: number;
@@ -101,9 +106,10 @@ async function readSlack(app: App): Promise<Slack> {
     `(function () {
       var bar = document.querySelector(${JSON.stringify(TITLE_BAR)});
       var desc = document.querySelector(${JSON.stringify(DESCRIPTION)});
+      var run = document.querySelector(${JSON.stringify(ACCOUNT)});
       var pulse = document.querySelector(${JSON.stringify(PULSE)});
-      if (bar === null || desc === null || pulse === null) {
-        return { tierHeight: -1, band: -1, descHeight: -1, slack: -1 };
+      if (bar === null || desc === null || run === null || pulse === null) {
+        return { tierHeight: -1, band: -1, accountHeight: -1, descHeight: -1, slack: -1 };
       }
       var cs = getComputedStyle(bar);
       var barRect = bar.getBoundingClientRect();
@@ -113,7 +119,8 @@ async function readSlack(app: App): Promise<Slack> {
       var round = function (n) { return Math.round(n * 10) / 10; };
       return {
         tierHeight: round(parseFloat(cs.height)),
-        band: round(parseFloat(getComputedStyle(desc).lineHeight)),
+        band: round(parseFloat(getComputedStyle(run).lineHeight)),
+        accountHeight: round(run.getBoundingClientRect().height),
         descHeight: round(desc.getBoundingClientRect().height),
         slack: round(contentBottom - pulse.getBoundingClientRect().bottom),
       };

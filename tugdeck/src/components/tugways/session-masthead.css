@@ -120,7 +120,8 @@
    Every other mount rides the tape on the beat's own line and lifts it by
    half the description's band, which centres it on the pair — correct while
    the description is one line, and half a line low the moment it is two.
-   This tier is the one surface where it is two ([B01]), so here the tape
+   This tier is the one surface where the pair is two lines and one — the
+   account run wraps under a one-line sentence — so here the tape
    comes out of the beat's flex line and centres in the pulse box itself.
    No arithmetic: the box is the pair, and the pair is what the graph
    reports on, so the answer holds at either height and would hold at three.
@@ -428,70 +429,68 @@
    the project the callsign names, and `tug-session-identity.css` styles it. */
 
 /* ============================================================================
-   The description takes a second line, in every form ([B01], [B04])
+   The account run takes a second line, in every form ([D185], [D187])
    ========================================================================= */
 
 /* One run on the Session card's masthead is given two lines, and it is the
-   DESCRIPTION. Folded, the masthead is the whole of what the reader gets —
-   it, the Z2 row and the control at its trailing edge — so a run has to
-   become the reading rather than a caption. Open, the transcript beneath
-   carries what the beat had to cut, but nothing beneath carries the post,
-   which is written to be read on this line and nowhere else on the card.
-   Hence in EVERY form ([B04]), and keyed on neither the fold nor the turn:
-   a tier that changed height with either would move every card in a packed
-   column whenever one of them did.
+   ACCOUNT run — the activity line. Folded, the masthead is the whole of what
+   the reader gets — it, the Z2 row and the control at its trailing edge — so
+   a run has to become the reading rather than a caption. Open, nothing
+   beneath carries the post, which is written to be read on this line and
+   nowhere else on the card. Hence in EVERY form, and keyed on neither the
+   fold nor the turn: a tier that changed height with either would move every
+   card in a packed column whenever one of them did.
 
-   The description, and not the beat, because the two lines differ in exactly
-   the way that settles it ([B01]). During a turn the description carries the
-   Observer's newest post — budgeted at 200 characters against a slot that
-   holds some 70, refreshed once a minute — so it is the longest and slowest
-   thing on the tier, and the one a second line finishes a sentence for. The
-   beat is a digest line of the "Editing foo.ts, 37 lines" kind, short enough
-   for one line with room to spare and broadcast about once a second; a
-   two-line box holding it would flicker between one and two lines of ink at
-   the beat's own rate. So the beat keeps the single-line ellipsis it reads in
-   on every other surface, and the fold stops being the one place its register
-   differs.
+   The account run, and not the standing sentence, because the two lines do
+   different jobs. The sentence is the IDENTITY: the line a wall is scanned
+   by and the line that tells one session from another, and it holds through
+   a turn, so it keeps the one line it reads in on every other surface. The
+   account is what the session is doing — during a turn the Observer's newest
+   post, whole, budgeted at 200 characters against a slot that holds some 70
+   and refreshed once a minute; at rest the rest sentence — so it is the
+   longest and slowest thing on the tier, and the one a second line finishes
+   a sentence for. The beat, which once read on this line, is off the
+   masthead altogether: a digest line of the "Editing foo.ts, 37 lines" kind
+   is too low-level to tell one session from another, and at one a second a
+   two-line box holding it would have flickered at its own rate.
 
-   TWO lines at most, and the box takes only the lines it has ink for, so the
-   beat under it hugs the description's real bottom and is pushed down a line
-   when a post wraps. A box fixed at two was the first cut, on a ripple
-   argument that belongs one level up: what must never move is the TIER, and
-   the tier's height is declared on the pane (`tug-pane.css`,
-   `--tugx-session-masthead-extra-line`) whatever this box measures ([B02]).
-   Held at two, the box spent a short post's slack as a blank line BETWEEN
-   the two readings, which is the one place in the tier where air cannot pass
-   for air. Released, that slack falls to the foot of the band, under the
-   beat, where it reads as the edge of the tier.
+   TWO lines at most, and the box takes only the lines it has ink for, so at
+   rest the tier's spare line falls to the foot of the band, under the run,
+   where it reads as the edge of the tier. What must never move is the TIER,
+   and the tier's height is declared on the pane (`tug-pane.css`,
+   `--tugx-session-masthead-extra-line`) whatever this box measures.
 
-   The description arrives here set to `nowrap`, which is the one thing this
-   rule takes back. Its `text-overflow: ellipsis` STAYS: a clamped box wants
-   the same mark at the end of its second line that the one-line form puts at
-   the end of its first, and a post over the budget is cut either way. */
-.session-masthead-row .tug-session-row-description {
+   The run arrives here set to `nowrap` with an end ellipsis, which is the
+   one thing this rule takes back. Its `text-overflow: ellipsis` STAYS: a
+   clamped box wants the same mark at the end of its second line that the
+   one-line form puts at the end of its first, and a post over the budget is
+   cut either way. */
+.session-masthead-row .tug-activity-line-activity {
   min-inline-size: 0;
   white-space: normal;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  /* And it is never SHRUNK to make room. The lines are a flex column, and a
-     `-webkit-box` in one is shrinkable like anything else: the box asked for
-     its two lines, the column handed it back one, and the run's own
-     `overflow: hidden` cut the rest — including the bottom of a commit pill
-     riding the first line, which is the clipping [B06] is about. The tier is
-     DECLARED for the pair (`masthead-frame.css`), so the room is already
-     paid for and the box may take it. `auto` basis still stands: a box with
-     one line of ink is one line tall, and the slack falls under the beat. */
-  flex: 0 0 auto;
 }
 
-/* The beat and the title keep their single-line ellipsis. Only the
-   description wraps: the title is IDENTITY, and identity that reflowed would
-   move the callsign a wall is scanned by; the beat is news, and news that
-   reflows every second is worse than news that is cut.
+/* The line box that holds the run is declared one baseline-step tall by the
+   primitive, which is right everywhere the run is one line. Here the step is
+   the floor rather than the height: the box grows to the two lines the clamp
+   allows and no further, so the strut still fixes the first baseline and the
+   second line hangs under it at the run's own leading. */
+.session-masthead-row .tug-activity-line .tug-activity-line-line {
+  block-size: auto;
+  min-block-size: var(--tugx-activity-line-stacked-baseline-step);
+}
 
-   The beat's middle-truncation measurer therefore still reads on this form,
-   exactly as it does on an open card — it compares `scrollWidth` against
-   `clientWidth`, and the beat is a run that does not wrap here either, so
-   `data-truncated` means on a folded card what it means everywhere ([R04]). */
+/* The description and the title keep their single-line ellipsis. Only the
+   account run wraps: the title and the sentence are IDENTITY, and identity
+   that reflowed would move the callsign a wall is scanned by.
+
+   The run's middle-truncation measurer still reads on this form, and reads
+   honestly. It compares `scrollWidth` against `clientWidth`, and a run that
+   WRAPS never overflows its width — the clamp cuts the second line with the
+   CSS ellipsis instead — so the measurer finds nothing to elide and
+   `data-truncated` is never written here. A wrapped two-line run is not a
+   truncated one, and the attribute says so ([R04]). */

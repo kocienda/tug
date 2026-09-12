@@ -202,8 +202,13 @@ export const SessionResumeCell: TugListViewCellRenderer<SessionsDataSource> = ({
 
   // What the activity line says INSTEAD of anything the digest feed could
   // report. Both cases are rows this app cannot see into: a terminal holds no
-  // feed, and a failed row's one fact is the failure. Everything else — the
-  // live beat, the rest sentence — is the shared row's ladder.
+  // feed, and a failed row's one fact is the failure. Everything else is the
+  // shared row's ladder: for a row live in this app, what the Observer posted
+  // during a turn and the ask before its first post; otherwise the rest
+  // sentence. The digest's newest line is no rung of it on any surface — a
+  // beat of the "Editing foo.ts, 37 lines" kind is too low-level to tell one
+  // session from another, which is as true in a list to pick from as it is on
+  // the masthead.
   const activityOverride = isTerminalLive
     ? row.terminal_live?.status === "busy"
       ? "In use in a terminal — busy"

@@ -397,10 +397,8 @@ body {
   line-height: var(--tugx-session-row-description-line);
   /* And the box is never SHORTER than the band its lines are set in. The
      line clips its own overflow, so a box an engine sized from something
-     other than this band — the masthead's `-webkit-box` resolves its height
-     from a stale intrinsic pass often enough — cuts whatever stands full
-     height in the line, which is exactly the commit pill ([B06]). One line's
-     band is the floor; a box with two lines of ink is still two lines tall. */
+     other than this band cuts whatever stands full height in the line, which
+     is exactly the commit pill ([B06]). One line's band is the floor. */
   min-block-size: var(--tugx-session-row-description-line);
 }
 
@@ -412,10 +410,12 @@ body {
 
 /* ── Parsed markdown, flattened onto one line ──────────────────────────────
    The row's two ink lines both carry rendered markdown: the description
-   through `TugMarkdownBlock` ([B01]) and the beat through `renderBeatLine`.
-   Each line is ONE line, so the block wrappers the parse produces lose their
-   box behavior here rather than in either line's own stylesheet — the
-   description and the beat are the same shape of thing on the same row, and
+   and the Observer's post through `TugMarkdownBlock` ([B01]), and the
+   composed entries through `renderBeatLine`. Each line is ONE line — the
+   masthead's account run is the one that wraps, and it wraps as flowed text
+   rather than as blocks — so the block wrappers the parse produces lose
+   their box behavior here rather than in either line's own stylesheet: the
+   sentence and the post are the same shape of thing on the same row, and
    one rule is what keeps them from drifting apart ([B02]).
 
    `.tug-markdown-block` is the primitive's own container and `.tugx-md-block`
@@ -508,6 +508,14 @@ body {
    for a line nobody has written yet. */
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
 .tug-session-row-description[data-stamp="true"] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The activity run's stand-in — the turn's ask, shown until the Observer's
+   first post lands — takes the same step down. It is the user's own words
+   standing in for a line nobody has written yet, which is exactly what the
+   description's prompt rung is, so it wears the prompt rung's tone. */
+.tug-session-row .tug-activity-line-activity [data-stamp="true"] {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 

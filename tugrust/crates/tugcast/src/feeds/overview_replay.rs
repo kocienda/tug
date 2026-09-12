@@ -58,7 +58,7 @@ use crate::cli::OverviewReplayArgs;
 
 use super::observer_wake::{
     FactLine, PriorPost, WakeReason, compose_observer_input, counts_as_assistant_activity,
-    parse_envelope, render_facts_section, validate_refs,
+    parse_envelope, render_facts_section, synopsis_register_report, validate_refs,
 };
 use super::overview_agent::{BUFFER_MAX_BYTES, DEFAULT_MODEL};
 use super::session_digest::{
@@ -765,6 +765,7 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
                     } else {
                         facts_for_window(&synthesized.facts, None, window.at_ms)
                     },
+                    None,
                 ));
             }
             println!("_(--no-model: segmentation only)_\n");
@@ -780,6 +781,13 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
 
     let mut prior: Vec<PriorPost> = Vec::new();
     let mut tally = Tally::default();
+    // The standing sentence, carried wake to wake exactly as the live ledger
+    // carries it: shown to the Observer, replaced only by words it wrote,
+    // left alone on null. The sequence is printed at the foot so a reader
+    // can see whether the line held across a run rather than being rewritten
+    // every wake.
+    let mut standing: Option<String> = None;
+    let mut sentences: Vec<(usize, String)> = Vec::new();
 
     for (n, window) in windows.iter().enumerate() {
         print_window_header(n + 1, window, start_ms);
@@ -799,6 +807,7 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
             &window_buffer(window),
             &prior,
             &facts,
+            standing.as_deref(),
         );
         if opts.show_input {
             print_input(&input);
@@ -820,27 +829,54 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
                     println!("**unparseable envelope** — the model's answer, verbatim:\n");
                     println!("```\n{}\n```\n", raw.trim());
                 }
-                Some(envelope) => match envelope.post {
-                    None => {
-                        tally.silent += 1;
-                        println!("_(no post)_\n");
-                    }
-                    Some(post) => {
-                        tally.posted += 1;
-                        print_post(&post.body, post.refs, &window.rendered, &facts_section);
-                        prior.push(PriorPost {
-                            at_ms: window.at_ms,
-                            body: post.body,
-                        });
-                        if prior.len() > opts.last_k {
-                            prior.drain(..prior.len() - opts.last_k);
+                Some(envelope) => {
+                    // The sentence first, independent of the post, on the
+                    // live path's own terms: null and nothing-usable both
+                    // leave it standing.
+                    if let Some(raw) = envelope.synopsis.as_deref() {
+                        let report = synopsis_register_report(raw);
+                        if !report.text.is_empty() && standing.as_deref() != Some(&report.text) {
+                            println!("**sentence:** {}\n", report.text);
+                            sentences.push((n + 1, report.text.clone()));
+                            standing = Some(report.text);
                         }
                     }
-                },
+                    match envelope.post {
+                        None => {
+                            tally.silent += 1;
+                            println!("_(no post)_\n");
+                        }
+                        Some(post) => {
+                            tally.posted += 1;
+                            print_post(&post.body, post.refs, &window.rendered, &facts_section);
+                            prior.push(PriorPost {
+                                at_ms: window.at_ms,
+                                body: post.body,
+                            });
+                            if prior.len() > opts.last_k {
+                                prior.drain(..prior.len() - opts.last_k);
+                            }
+                        }
+                    }
+                }
             },
         }
     }
 
+    println!("---\n");
+    println!("## standing sentence\n");
+    if sentences.is_empty() {
+        println!("_(never written)_\n");
+    } else {
+        for (wake, sentence) in &sentences {
+            println!("- wake {wake}: {sentence}");
+        }
+        println!(
+            "\n{} of {} wakes moved the sentence\n",
+            sentences.len(),
+            windows.len()
+        );
+    }
     print_footer(&windows, &tally, start_ms, end_ms);
     0
 }

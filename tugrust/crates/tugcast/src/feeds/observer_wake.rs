@@ -125,6 +125,16 @@ pub const FACTS_SECTION_MAX: usize = 20;
 /// the activity window it sits above.
 pub const FACTS_SECTION_MAX_BYTES: usize = 4 * 1024;
 
+/// The header under which the wake input carries the sentence currently
+/// standing under the session's callsign. Pinned by the instructions'
+/// contract test — the Observer is told about this exact heading, and told
+/// to answer `null` for the sentence when the session is still about what
+/// it says.
+pub const STANDING_SENTENCE_HEADER: &str = "STANDING SENTENCE NOW:";
+
+/// What the standing-sentence section prints when no sentence stands yet.
+pub const STANDING_SENTENCE_NONE: &str = "(none — no sentence stands yet; write one)";
+
 /// Render the `SETTLED FACTS` section ([P10], Spec S04).
 ///
 /// Oldest-first within the section, but the *drops* come off the front: the
@@ -182,12 +192,20 @@ pub fn render_facts_section(facts: &[FactLine]) -> String {
 /// actually settled — SHAs, test totals, the prompt in full — which is what the
 /// rubric wants to cite. It is returned alongside the composed input because the
 /// caller needs its exact rendered text as a ref-validation corpus.
+///
+/// The standing sentence rides between the prior posts and the facts. The
+/// Observer is the writer of that sentence and is told to keep it unless the
+/// session's subject has moved — which it can only judge by seeing the
+/// sentence it is being asked to revise. Before this section existed every
+/// wake composed a fresh sentence blind, and the line's stability was a
+/// coincidence of five consecutive rewrites landing on similar words.
 pub fn compose_observer_input(
     reason: WakeReason,
     session_id: &str,
     window: &SessionDigest,
     prior_posts: &[PriorPost],
     facts: &[FactLine],
+    standing: Option<&str>,
 ) -> String {
     let mut out = String::new();
     out.push_str("WAKE REASON: ");
@@ -208,6 +226,15 @@ pub fn compose_observer_input(
             out.push('\n');
         }
     }
+
+    out.push('\n');
+    out.push_str(STANDING_SENTENCE_HEADER);
+    out.push('\n');
+    match standing.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(sentence) => out.push_str(sentence),
+        None => out.push_str(STANDING_SENTENCE_NONE),
+    }
+    out.push('\n');
 
     out.push('\n');
     out.push_str(&render_facts_section(facts));
@@ -1060,7 +1087,8 @@ mod tests {
             at_ms: 1_700_000_000_000,
             body: "Started on the bridge".to_string(),
         }];
-        let input = compose_observer_input(WakeReason::SitrepTimer, "s1", &window, &priors, &[]);
+        let input =
+            compose_observer_input(WakeReason::SitrepTimer, "s1", &window, &priors, &[], None);
 
         assert!(input.contains("WAKE REASON: sitrep-timer"));
         assert!(input.contains("SESSION: s1"));
@@ -1077,8 +1105,44 @@ mod tests {
     #[test]
     fn a_first_wake_says_there_are_no_prior_posts() {
         let window = window_of(&["Something happened"]);
-        let input = compose_observer_input(WakeReason::TurnEnd, "s1", &window, &[], &[]);
+        let input = compose_observer_input(WakeReason::TurnEnd, "s1", &window, &[], &[], None);
         assert!(input.contains("(none"));
+    }
+
+    /// The Observer revises a sentence it can see. The section sits between
+    /// the priors and the facts, carries the sentence verbatim, and says so
+    /// in words when nothing stands yet — an empty heading would read as "the
+    /// sentence is blank" rather than "there is none to keep".
+    #[test]
+    fn the_standing_sentence_rides_the_input_between_the_priors_and_the_facts() {
+        let window = window_of(&["Reading the resume path"]);
+        let input = compose_observer_input(
+            WakeReason::SitrepTimer,
+            "s1",
+            &window,
+            &[],
+            &[],
+            Some("Rework how a session names itself"),
+        );
+        let section = format!("{STANDING_SENTENCE_HEADER}\nRework how a session names itself\n");
+        assert!(input.contains(&section), "{input}");
+        let priors_at = input
+            .find("YOUR RECENT POSTS ABOUT THIS SESSION:")
+            .expect("priors");
+        let standing_at = input.find(STANDING_SENTENCE_HEADER).expect("standing");
+        let facts_at = input.find(FACTS_SECTION_HEADER).expect("facts");
+        assert!(priors_at < standing_at && standing_at < facts_at);
+
+        for absent in [None, Some(""), Some("   ")] {
+            let input =
+                compose_observer_input(WakeReason::TurnEnd, "s1", &window, &[], &[], absent);
+            assert!(
+                input.contains(&format!(
+                    "{STANDING_SENTENCE_HEADER}\n{STANDING_SENTENCE_NONE}\n"
+                )),
+                "{absent:?} should read as no sentence",
+            );
+        }
     }
 
     fn fact(at_ms: i64, text: &str) -> FactLine {
@@ -1098,7 +1162,7 @@ mod tests {
                 "tests: cargo nextest — passed (1574 passed, 0 failed)",
             ),
         ];
-        let input = compose_observer_input(WakeReason::TurnEnd, "s1", &window, &[], &facts);
+        let input = compose_observer_input(WakeReason::TurnEnd, "s1", &window, &[], &facts, None);
 
         assert!(input.contains(FACTS_SECTION_HEADER));
         assert!(input.contains("- [1700000000000] $ cargo nextest run -p tugcast → ok"));

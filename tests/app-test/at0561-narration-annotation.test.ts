@@ -2,7 +2,7 @@
  * at0561-narration-annotation.test.ts — a file named in the Session
  * masthead's narration line is a reference, not ink.
  *
- * The masthead's middle line carries the Observer's post during a turn, and a
+ * The masthead's account run carries the Observer's post during a turn, and a
  * post is prose written about the session — which means it names the files the
  * work touched. It used to render as a plain string: the path was inert, its
  * backticks were three literal characters, and the one surface most likely to
@@ -28,15 +28,15 @@
  *     emptying an element the author wrote would take its content with it),
  *     and this claim needs one the markdown pipeline built. Both are paths in
  *     one sentence, which is how an agent writes about work anyway.
- *  2. The bubble that stands is the RUN's, not the line's. The description
- *     line wraps itself in a full-text tooltip for when it elides, so the run
+ *  2. The bubble that stands is the RUN's, not the line's. The account run
+ *     wraps itself in a full-text tooltip for when it elides, so the run
  *     sits inside a trigger — and `lib/open-tooltip-registry` arbitrates on
  *     specificity, so the bubble describing the smaller thing the pointer is
  *     actually on wins. That rule is at0458's; this is a second instance of
  *     it, and the reason the masthead needed no gate of its own.
  *  3. A primary click opens the file. The masthead has mounted the delegated
  *     annotation layer since at0498 pinned the beat line's reference, so the
- *     marks the description now carries are serviced by the same listener.
+ *     marks the account run now carries are serviced by the same listener.
  *
  * Then three claims about what else can stand in that line, in a second test
  * bound to this checkout — a real repository, where a sha resolves:
@@ -54,7 +54,9 @@
  *     session's name in its own ink rather than a 22px chip standing across
  *     two of its lines — which is what put a mark through the underline of
  *     the path in the sentence before it.
- *  5. A beat carrying a raw ESC byte draws none of it. The digester scrubs
+ *  5. A beat carrying a raw ESC byte draws none of it — read in the history
+ *     the account run opens, since no beat reads on the masthead's lines
+ *     now ([D185]). The digester scrubs
  *     the sequences at the source ([B04]) and the deck strips what the ledger
  *     already holds at both ingress doors ([B05]), so what reaches the line is
  *     text — no `U+001B`, and no CSI residue reading as tofu.
@@ -107,19 +109,22 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000561";
 
 const PANE = '.tug-pane[data-pane-id="p1"]';
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
-const DESCRIPTION = `${PANE} .session-masthead-row .tug-session-row-description`;
+/** The ACCOUNT run — the narration line, which the post takes during a turn. */
+const LINE = `${PANE} .session-masthead-row [data-slot="tug-activity-line-activity"]`;
 /** The path run the annotator marked inside the narration line. */
-const DESC_REF = `${DESCRIPTION} [data-tug-annotation="file-path"]`;
+const LINE_REF = `${LINE} [data-tug-annotation="file-path"]`;
 /** The confirmed sha run the annotator marked inside the narration line. */
-const DESC_SHA = `${DESCRIPTION} [data-tug-annotation="commit-sha"]`;
+const LINE_SHA = `${LINE} [data-tug-annotation="commit-sha"]`;
 /** What must NOT be there: the pill every reading surface draws. */
-const DESC_PILL = `${DESCRIPTION} [data-slot="tug-commit-atom"]`;
+const LINE_PILL = `${LINE} [data-slot="tug-commit-atom"]`;
 /** The session run the annotator marked inside the narration line. */
-const DESC_SESSION = `${DESCRIPTION} [data-tug-annotation="session"]`;
+const LINE_SESSION = `${LINE} [data-tug-annotation="session"]`;
 /** What must NOT be there either: the citation's own pill, the chip tier. */
-const DESC_CHIP = `${DESCRIPTION} .tug-session-identity[data-tier="chip"]`;
-/** The beat, under the description — the run a digest line lands on. */
-const BEAT = `${PANE} .session-masthead-row [data-slot="tug-activity-line-activity"]`;
+const LINE_CHIP = `${LINE} .tug-session-identity[data-tier="chip"]`;
+/** The stage the account run stands on; a click on it opens the beat history. */
+const STAGE = `${MASTHEAD} .session-masthead-stage`;
+/** One beat row in the history popover — where a digest line reads now. */
+const HISTORY_ROW = '[data-slot="session-beat-history"] .session-beat-history-beat';
 const TEXT_CARD = '[data-slot="tug-text-card-editor"] .cm-content';
 
 /**
@@ -282,7 +287,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20_000 },
           );
 
-          // A turn in flight, then the post that takes the description line.
+          // A turn in flight, then the post that takes the account run.
           await app.evalJS<boolean>(
             `window.__tug.publishDigestFrame(${JSON.stringify(
               digestFrame(BEAT_TEXT, 1, "tool"),
@@ -300,15 +305,15 @@ describe.skipIf(!SHOULD_RUN)(
           //    sentence.
           await app.waitForCondition<boolean>(
             `(function(){
-               var el = document.querySelector(${JSON.stringify(DESC_REF)});
+               var el = document.querySelector(${JSON.stringify(LINE_REF)});
                return el !== null && el.getAttribute('data-path') === ${JSON.stringify(filePath)};
              })()`,
             { timeoutMs: 20_000 },
           );
           const ref = JSON.parse(
             await app.evalJS<string>(`JSON.stringify((function(){
-              var el = document.querySelector(${JSON.stringify(DESC_REF)});
-              var line = document.querySelector(${JSON.stringify(DESCRIPTION)});
+              var el = document.querySelector(${JSON.stringify(LINE_REF)});
+              var line = document.querySelector(${JSON.stringify(LINE)});
               return {
                 path: el.getAttribute('data-path'),
                 ink: (el.textContent || ""),
@@ -342,11 +347,11 @@ describe.skipIf(!SHOULD_RUN)(
             true,
           );
 
-          // Hover the run. Its `pointermove` bubbles to the description line's
+          // Hover the run. Its `pointermove` bubbles to the account run's
           // own tooltip trigger too, arming both open timers in one tick.
           await app.evalJS<null>(
             `(function () {
-              var host = document.querySelector(${JSON.stringify(DESC_REF)});
+              var host = document.querySelector(${JSON.stringify(LINE_REF)});
               // The portal put the run's words back inside a span of its own,
               // and that span is the tooltip's trigger.
               var run = host.firstElementChild || host;
@@ -365,7 +370,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(1);
           const bubble = JSON.parse(
             await app.evalJS<string>(`JSON.stringify((function(){
-              var host = document.querySelector(${JSON.stringify(DESC_REF)});
+              var host = document.querySelector(${JSON.stringify(LINE_REF)});
               var run = host.firstElementChild || host;
               var id = run.getAttribute("aria-describedby");
               var announced = id === null ? null : document.getElementById(id);
@@ -384,7 +389,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(bubble.text).toContain(filePath);
 
           // 3. A primary click opens what the run names.
-          await app.click(DESC_REF);
+          await app.click(LINE_REF);
           await app.waitForCondition<boolean>(
             textCardShowsJS("the-narration-target-body"),
             { timeoutMs: 20_000 },
@@ -425,7 +430,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // The beat carries the escapes; the post carries the sha. One frame
           // each, and the turn the beat puts in flight is what lets the post
-          // take the description line.
+          // take the account run.
           await app.evalJS<boolean>(
             `window.__tug.publishDigestFrame(${JSON.stringify(
               digestFrame(ESC_BEAT, 1, "tool"),
@@ -444,22 +449,22 @@ describe.skipIf(!SHOULD_RUN)(
           //    waits for both.
           await app.waitForCondition<boolean>(
             `(function(){
-               var host = document.querySelector(${JSON.stringify(DESC_SHA)});
+               var host = document.querySelector(${JSON.stringify(LINE_SHA)});
                return host !== null && host.firstElementChild !== null;
              })()`,
             { timeoutMs: 20_000 },
           );
           const mention = JSON.parse(
             await app.evalJS<string>(`JSON.stringify((function(){
-              var line = document.querySelector(${JSON.stringify(DESCRIPTION)});
-              var host = document.querySelector(${JSON.stringify(DESC_SHA)});
+              var line = document.querySelector(${JSON.stringify(LINE)});
+              var host = document.querySelector(${JSON.stringify(LINE_SHA)});
               var run = host.firstElementChild || host;
               var lr = line.getBoundingClientRect();
               var rr = run.getBoundingClientRect();
               return {
                 ink: (host.textContent || ""),
                 pills: document.querySelectorAll(
-                  ${JSON.stringify(DESC_PILL)}).length,
+                  ${JSON.stringify(LINE_PILL)}).length,
                 band: getComputedStyle(line).lineHeight,
                 bandPx: parseFloat(getComputedStyle(line).lineHeight),
                 underline: getComputedStyle(host).textDecorationLine,
@@ -482,7 +487,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(mention.ink, "the run keeps the characters the post wrote").toBe(
             WRITTEN_SHA,
           );
-          expect(mention.pills, "no pill is drawn in the description line").toBe(0);
+          expect(mention.pills, "no pill is drawn in the account run").toBe(0);
           expect(mention.underline, "the run takes the resting underline").toContain(
             "underline",
           );
@@ -499,7 +504,7 @@ describe.skipIf(!SHOULD_RUN)(
           //     run's is under claim 2 — the mark lost the pill, not the tip.
           await app.evalJS<null>(
             `(function () {
-              var host = document.querySelector(${JSON.stringify(DESC_SHA)});
+              var host = document.querySelector(${JSON.stringify(LINE_SHA)});
               var run = host.firstElementChild || host;
               run.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
               run.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
@@ -509,7 +514,7 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(PAST_THE_DELAY_MS);
           const shaBubble = JSON.parse(
             await app.evalJS<string>(`JSON.stringify((function(){
-              var host = document.querySelector(${JSON.stringify(DESC_SHA)});
+              var host = document.querySelector(${JSON.stringify(LINE_SHA)});
               var run = host.firstElementChild || host;
               var id = run.getAttribute("aria-describedby");
               var announced = id === null ? null : document.getElementById(id);
@@ -566,21 +571,21 @@ describe.skipIf(!SHOULD_RUN)(
           //     the other mark: it stands in the band, not across it.
           await app.waitForCondition<boolean>(
             `(function(){
-               var host = document.querySelector(${JSON.stringify(DESC_SESSION)});
+               var host = document.querySelector(${JSON.stringify(LINE_SESSION)});
                return host !== null && host.firstElementChild !== null;
              })()`,
             { timeoutMs: 20_000 },
           );
           const citation = JSON.parse(
             await app.evalJS<string>(`JSON.stringify((function(){
-              var line = document.querySelector(${JSON.stringify(DESCRIPTION)});
-              var host = document.querySelector(${JSON.stringify(DESC_SESSION)});
+              var line = document.querySelector(${JSON.stringify(LINE)});
+              var host = document.querySelector(${JSON.stringify(LINE_SESSION)});
               var mark = host.querySelector('.tug-session-identity');
               var rr = (mark || host).getBoundingClientRect();
               return {
                 tier: mark === null ? null : mark.getAttribute('data-tier'),
                 chips: document.querySelectorAll(
-                  ${JSON.stringify(DESC_CHIP)}).length,
+                  ${JSON.stringify(LINE_CHIP)}).length,
                 ink: ((mark || host).textContent || "").trim(),
                 bandPx: parseFloat(getComputedStyle(line).lineHeight),
                 markHeight: Math.round(rr.height * 10) / 10,
@@ -591,7 +596,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(citation.tier, "the citation is drawn at the presence register").toBe(
             "line",
           );
-          expect(citation.chips, "no chip pill is drawn in the description line").toBe(
+          expect(citation.chips, "no chip pill is drawn in the account run").toBe(
             0,
           );
           expect(
@@ -599,17 +604,33 @@ describe.skipIf(!SHOULD_RUN)(
             "the citation stands no taller than the line's own band",
           ).toBeLessThanOrEqual((citation.bandPx as number) + 1);
 
-          // 5. The beat says the sentence and nothing of the escapes.
+          // 5. The beat says the sentence and nothing of the escapes. No
+          //    beat reads on the masthead's lines, so the turn is ended
+          //    first — which puts the rest sentence on the account run, with
+          //    no reference in it for the click to drill through — and the
+          //    history the run opens is read for the line the frame became.
+          await app.evalJS<boolean>(
+            `window.__tug.publishDigestFrame(${JSON.stringify(
+              digestFrame("Done", 2, "turn"),
+            )})`,
+          );
           await app.waitForCondition<boolean>(
-            `(document.querySelector(${JSON.stringify(
-              BEAT,
-            )})?.textContent || "").indexOf("cargo nextest run") !== -1`,
+            `(document.querySelector(${JSON.stringify(LINE)})?.textContent || "").trim().endsWith("Ready.")`,
+            { timeoutMs: 20_000 },
+          );
+          await app.click(STAGE);
+          await app.waitForCondition<boolean>(
+            `Array.from(document.querySelectorAll(${JSON.stringify(HISTORY_ROW)}))
+              .some(function(el){ return (el.textContent || "").indexOf("cargo nextest run") !== -1; })`,
             { timeoutMs: 20_000 },
           );
           const beat = await app.evalJS<string>(
             `(function(){
-              var el = document.querySelector(${JSON.stringify(BEAT)});
-              return el === null ? "" : (el.textContent || "");
+              var rows = Array.from(document.querySelectorAll(${JSON.stringify(HISTORY_ROW)}));
+              var hit = rows.filter(function(el){
+                return (el.textContent || "").indexOf("cargo nextest run") !== -1;
+              })[0];
+              return hit === undefined ? "" : (hit.textContent || "");
             })()`,
           );
           note("at0561 beat ink", JSON.stringify(beat));

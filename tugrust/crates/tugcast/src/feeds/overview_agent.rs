@@ -320,9 +320,11 @@ Spell a path the way the activity spells it. If the activity says arc/overview-p
 
 Answer with JSON and nothing else — no prose before it, no code fence around it.
 
-THE STANDING SENTENCE is the second thing you write, and it is a different job from the post. The post is news — what just happened. The sentence is what this session IS: one line under its name, saying what it is about, weighted toward what it is about NOW. The reader scanning a list of sessions reads it to decide which session this is.
+THE STANDING SENTENCE is the second thing you write, and it is a different job from the post. The post is news — what just happened. The sentence is what this session is FOR: one line under its name, naming the through-line of its work across its whole run, written so a reader scanning a list of sessions can tell this one from the sessions beside it. The post owns whether the session is on track; the sentence owns which session this is.
 
-Write it from the same material you just read — the newest ask is the subject; earlier work earns a place only if the line has room after it. Its rules:
+STANDING SENTENCE NOW: is the sentence currently under this session's name, or a note that none stands yet. Read it before you write. If the session is still about the same thing, answer null for the sentence — null means \"leave it as it stands\", and a sentence that holds through a turn is the line doing its job. Rewrite it only when the session's subject has moved, so that the sentence names work this session is no longer for; and when none stands yet, write one.
+
+Write it from the whole of what you were shown, not from the newest ask alone: a session that has spent an hour on one thing and a minute on a question is still about the one thing. Its rules:
 
 START WITH A VERB, in the plain command form: Rework, Repair, Trace, Port, Audit, Extend. Not \"Fixing\", not \"Working on\".
 NAME THE WORK AND ITS OBJECT: what is being done, and to what. One subject and one object, with at most one earlier item riding after it — never a list of surfaces or steps.
@@ -330,8 +332,6 @@ BE BRIEF. ROOM FOR ABOUT 65 CHARACTERS, and shorter is better — a line that ru
 SENTENCE CASE, with proper names keeping their capitals. Articles and conjunctions are welcome; this is the one line that reads as English.
 No period at the end, no quotes, no leading article, and never an opener about the act of working — no \"Working on\", no \"Currently\", no \"It looks like\".
 Never name a tool, and never write a path.
-
-If the sentence already standing is still right, answer null for it. A stale sentence is worse than a repeated one, but a sentence rewritten every minute reads as noise: change it when the work it names has changed.
 
 The two answers are independent. Post and leave the sentence alone, revise the sentence and post nothing, do both, or do neither.
 
@@ -504,6 +504,17 @@ mod tests {
         assert!(observer.contains("SENTENCE CASE"));
         assert!(observer.contains("No period at the end"));
         assert!(observer.contains("The two answers are independent."));
+        // The sentence is the session's through-line, revised in sight of
+        // what stands. The wake input's heading is named so the model can
+        // find the section; null is spelled out as "leave it"; and the news
+        // rubric that tilted the identity line toward the latest ask is gone
+        // — that tilt is the post's job, not the sentence's.
+        assert!(observer.contains(crate::feeds::observer_wake::STANDING_SENTENCE_HEADER));
+        assert!(observer.contains("If the session is still about the same thing, answer null"));
+        assert!(observer.contains("what this session is FOR"));
+        assert!(observer.contains("across its whole run"));
+        assert!(!observer.contains("weighted toward what it is about NOW"));
+        assert!(!observer.contains("the newest ask is the subject"));
         assert!(
             !observer.contains("often the right one"),
             "the open-ended silence license is what made a finished turn go unreported",

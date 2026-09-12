@@ -6,7 +6,7 @@
  * The flag is the pane's ([P01]) and at0550 gates the doors that set it. This
  * file gates the FORM it produces ([B01], [P03]): the Session card's
  * masthead tier — one line taller than a document's in EVERY form ([B04]),
- * with the DESCRIPTION wrapped to two lines — and the Z2 status row, whose
+ * with the ACCOUNT run wrapped to two lines — and the Z2 status row, whose
  * leading edge carries the card's one fold control ([B03]), and nothing else
  * on screen.
  *
@@ -15,7 +15,7 @@
  *   1. **The form.** `data-folded="true"` reaches the pane frame; the title
  *      bar stands at `SESSION_MASTHEAD_HEIGHT` — the SAME tier it stood at
  *      open, which is the fold no longer moving the chrome; the DESCRIPTION
- *      run is two lines tall and the beat under it is still one; the
+ *      run is one line tall and the ACCOUNT run under it is two; the
  *      transcript slot and the entry region are neither displayed nor
  *      reachable; Z2 is still on screen with its cells; and the control at
  *      Z2's leading edge has turned over to `Unfold` — the one thing the
@@ -25,17 +25,18 @@
  *      into the editor is still in it after a fold and a show — which is
  *      the whole reason the fold is a collapse and an `inert` attribute rather
  *      than a conditional mount.
- *   3. **The DESCRIPTION reads in the WALL register** ([B01]), open as well
- *      as folded ([B04]). The tier's extra line goes to the line carrying
- *      the most and changing the least: during a turn that is the newest
- *      Observer POST about this session, falling back to the ask the turn is
+ *   3. **The ACCOUNT run reads in the WALL register** ([D185]), open as well
+ *      as folded. The tier's extra line goes to the run carrying the most
+ *      and changing the least: during a turn that is the newest Observer
+ *      POST about this session, whole, falling back to the ask the turn is
  *      answering ([D187]). It is set to `block` and given the two lines the
  *      tier was widened for, and a post too long for one line is read over
- *      both. The beat under it keeps the single line it reads in on every
- *      other surface — it is short, and it changes about once a second. At
- *      rest the beat's line is the activity rest sentence
- *      (`No turns. Ready.`) and the description is the standing sentence
- *      again.
+ *      both. The DESCRIPTION above it is the standing sentence on one line
+ *      in every form, with no turn override — neither the ask nor the post
+ *      ever takes it. The digest's newest line reads on neither run: the
+ *      beat is off the masthead and one click away in the history the
+ *      account run opens. At rest the account run is the activity rest
+ *      sentence (`No turns. Ready.`).
  *   4. **The flag rides the saved layout.** Fold, reload, and the pane's
  *      `folded` is in the layout blob on tugbank disk — the SAVE side of
  *      [P01], driven through the real flush. The load side is a unit test's
@@ -87,7 +88,10 @@ const PANE_ID = "p1";
 const PANE = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 const CARD = '[data-card-id="A"]';
 const TITLE_BAR = `${PANE} .tug-pane-title-bar[data-masthead="true"]`;
-const BEAT = `${PANE} .session-masthead-row [data-slot="tug-activity-line-activity"]`;
+/** The ACCOUNT run — the activity primitive's box, which the tier's second line is spent on. */
+const ACCOUNT = `${PANE} .session-masthead-row [data-slot="tug-activity-line-activity"]`;
+/** The account run's text — the primitive's full reading, before any clip. */
+const ACCOUNT_TEXT = `${ACCOUNT} .tug-activity-line-activity-full`;
 const VIEW_SLOT = `${CARD} .session-view-slot`;
 const ENTRY_REGION = `${CARD} [data-slot="session-card-entry-region"]`;
 const STATUS_BAR = `${CARD} [data-slot="session-card-status-bar"]`;
@@ -96,7 +100,7 @@ const CONTROL = `${STATUS_BAR} [data-slot="session-fold-control"]`;
 const CONTROL_BUTTON = `${CONTROL} button`;
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const DESCRIPTION = `${PANE} .session-masthead-row .tug-session-row-description`;
-/* The GROUP the tape reports on: the description and the beat as one box. */
+/* The GROUP the tape reports on: the description and the account run as one box. */
 const PULSE = `${PANE} .session-masthead-row .tug-session-row-pulse`;
 const TAPE = `${PANE} .session-masthead-row .tug-activity-line-trailing`;
 
@@ -115,7 +119,11 @@ const TAPE = `${PANE} .session-masthead-row .tug-activity-line-trailing`;
  */
 const SESSION_MASTHEAD_HEIGHT = 88;
 
-/** A beat, long enough that the run it rides in has to cut it — on both forms. */
+/**
+ * A kinded beat: what puts the turn in flight. It reads on no line of the
+ * masthead — the history popover is where a beat goes now — so its length is
+ * incidental.
+ */
 const LONG_BEAT =
   "Reading the imposition allocator and its ceiling ladder, then re-running the column tests for the wall";
 
@@ -128,7 +136,7 @@ const LONG_POST =
   "Rewriting the imposition allocator's ceiling ladder so a folded card asks for its own tier, then re-running the column tests and the fold form against the wall at both slim and wide widths.";
 
 /**
- * The same sentence as the LINE renders it. The description runs through the
+ * The same sentence as the RUN renders it. The account run goes through the
  * transcript's markdown pipeline now, the Overview's own call and no second
  * one, and that pipeline's smart punctuation sets a typed apostrophe as a
  * typographic one. The post is written the way an agent types it; what lands
@@ -193,50 +201,40 @@ const POST_BODY = "Folding the transcript and the composer on one clock";
 const ASK_TEXT = "Fold the card on one clock";
 
 /**
- * The row's two lower lines as the two registers render them: which register
- * the row drew, the beat's own text, and — in the wall register — the post
- * run with the `display` that lets it take the width before it wraps.
+ * The masthead's two lower lines as the form renders them: the standing
+ * sentence (the description run, flattened) and the account run — its text,
+ * the register it drew, and in the wall register the post block's `display`,
+ * which is what lets it take the width before it wraps.
  */
 async function readActivity(app: App): Promise<{
   register: string | null;
-  runs: number;
   text: string;
-  beatRun: string | null;
+  description: string;
   postBlock: string | null;
   truncated: boolean;
 }> {
   return app.evalJS(
     `(function () {
-      var run = document.querySelector(${JSON.stringify(BEAT)});
+      var run = document.querySelector(${JSON.stringify(ACCOUNT)});
+      var full = document.querySelector(${JSON.stringify(ACCOUNT_TEXT)});
       var desc = document.querySelector(${JSON.stringify(DESCRIPTION)});
+      var flat = function (el) {
+        return el === null ? "" : (el.textContent || "").replace(/\\s+/g, " ").trim();
+      };
       if (run === null) {
         return {
-          register: null, runs: 0, text: "",
-          beatRun: null, postBlock: null, truncated: false,
+          register: null, text: "", description: flat(desc),
+          postBlock: null, truncated: false,
         };
       }
-      var wall = desc === null ? null : desc.querySelector('[data-register="wall"]');
-      var flat = function (el) {
-        return el === null ? null : (el.textContent || "").replace(/\\s+/g, " ").trim();
-      };
+      var wall = run.querySelector('[data-register="wall"]');
       return {
         register: wall === null ? null : wall.getAttribute("data-register"),
-        runs: run.querySelectorAll("span[class]").length,
-        text: (run.textContent || "").replace(/\\s+/g, " ").trim(),
-        beatRun: flat(run),
+        text: flat(full === null ? run : full),
+        description: flat(desc),
         postBlock: wall === null ? null : getComputedStyle(wall).display,
         truncated: run.hasAttribute("data-truncated"),
       };
-    })()`,
-  );
-}
-
-/** The description line's text, flattened — the masthead's upper line. */
-async function readDescription(app: App): Promise<string> {
-  return app.evalJS(
-    `(function () {
-      var el = document.querySelector(${JSON.stringify(DESCRIPTION)});
-      return el === null ? "" : (el.textContent || "").replace(/\\s+/g, " ").trim();
     })()`,
   );
 }
@@ -287,9 +285,9 @@ async function readForm(app: App): Promise<{
   tapeOffCentre: number;
   /** The tape's drawn width. Zero is the instrument being absent. */
   tapeWidth: number;
-  beatHeight: number;
-  beatTruncated: boolean;
-  beatLines: number;
+  accountHeight: number;
+  accountTruncated: boolean;
+  accountLines: number;
   viewSlotDisplay: string;
   viewSlotInert: boolean;
   entryDisplay: string;
@@ -312,7 +310,7 @@ async function readForm(app: App): Promise<{
       var q = function (sel) { return document.querySelector(sel); };
       var frame = q(${JSON.stringify(PANE)});
       var bar = q(${JSON.stringify(TITLE_BAR)});
-      var beat = q(${JSON.stringify(BEAT)});
+      var run = q(${JSON.stringify(ACCOUNT)});
       var desc = q(${JSON.stringify(DESCRIPTION)});
       var pulse = q(${JSON.stringify(PULSE)});
       var tape = q(${JSON.stringify(TAPE)});
@@ -322,9 +320,9 @@ async function readForm(app: App): Promise<{
       var control = q(${JSON.stringify(CONTROL)});
       var controlButton = q(${JSON.stringify(CONTROL_BUTTON)});
       var firstCell = q(${JSON.stringify(STATUS_CELL)});
-      var lineHeight = beat === null
+      var lineHeight = run === null
         ? 0
-        : parseFloat(getComputedStyle(beat).lineHeight) || 0;
+        : parseFloat(getComputedStyle(run).lineHeight) || 0;
       var descLineHeight = desc === null
         ? 0
         : parseFloat(getComputedStyle(desc).lineHeight) || 0;
@@ -347,11 +345,11 @@ async function readForm(app: App): Promise<{
               return (t.top + t.height / 2) - (p.top + p.height / 2);
             })(),
         tapeWidth: tape === null ? -1 : tape.getBoundingClientRect().width,
-        beatHeight: beat === null ? -1 : beat.getBoundingClientRect().height,
-        beatTruncated: beat === null ? false : beat.hasAttribute("data-truncated"),
-        beatLines: beat === null || lineHeight === 0
+        accountHeight: run === null ? -1 : run.getBoundingClientRect().height,
+        accountTruncated: run === null ? false : run.hasAttribute("data-truncated"),
+        accountLines: run === null || lineHeight === 0
           ? -1
-          : Math.round(beat.getBoundingClientRect().height / lineHeight),
+          : Math.round(run.getBoundingClientRect().height / lineHeight),
         viewSlotDisplay: slot === null ? "absent" : getComputedStyle(slot).display,
         viewSlotInert: slot === null ? false : slot.hasAttribute("inert"),
         entryDisplay: entry === null ? "absent" : getComputedStyle(entry).display,
@@ -394,11 +392,10 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
       try {
         await openCard(app);
 
-        // A turn in flight, and on both lower lines a run too long for it: a
-        // kinded beat (which is also what puts the turn in flight, so the
-        // post rung is the one the description climbs to), and a post three
-        // times what one line holds — the reading the second line is bought
-        // for.
+        // A turn in flight and a post too long for one line: a kinded beat
+        // (which is what puts the turn in flight, so the post rung is the
+        // one the account run climbs to), and a post three times what one
+        // line holds — the reading the second line is bought for.
         await app.evalJS<boolean>(
           `window.__tug.publishDigestFrame(${JSON.stringify(
             digestFrame(LONG_BEAT, 1, "tool"),
@@ -410,11 +407,7 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
           )})`,
         );
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(BEAT)}) !== null`,
-          { timeoutMs: 20_000 },
-        );
-        await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(DESCRIPTION)})?.textContent || "").indexOf(${JSON.stringify(LONG_POST_INK)}) >= 0`,
+          `(document.querySelector(${JSON.stringify(ACCOUNT_TEXT)})?.textContent || "").indexOf(${JSON.stringify(LONG_POST_INK)}) >= 0`,
           { timeoutMs: 20_000 },
         );
 
@@ -432,11 +425,11 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
 
         const form = await readForm(app);
         note("folded masthead tier px", form.titleBarHeight);
-        note("folded post box px", form.descHeight);
-        note("folded beat box px", form.beatHeight);
+        note("folded sentence box px", form.descHeight);
+        note("folded post box px", form.accountHeight);
         note("tape off pulse centre px", form.tapeOffCentre);
         note("tape box px", form.tapeWidth);
-        note("folded beat truncated", form.beatTruncated);
+        note("folded post truncated", form.accountTruncated);
         note("Z2 cells", form.statusCells);
         note("control px", `${form.controlWidth} wide, inset ${form.controlInset}, ${form.controlToFirstCell} to STATE`);
         note("entry region", `${form.entryHeight}px, rows ${form.entryRows}, fold ${form.entryFoldPhase}`);
@@ -452,18 +445,18 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
         expect(form.titleBarHeight).toBeCloseTo(SESSION_MASTHEAD_HEIGHT, 0);
         expect(form.titleBarHeight).toBeCloseTo(openTier, 0);
 
-        // 3. The POST wraps to two lines and stops there, and the beat under
-        // it stays on the one line it reads in everywhere else ([B01]) — the
-        // extra line is spent on the longest and slowest run, not the
-        // shortest and fastest.
-        expect(form.descLines).toBe(2);
-        expect(form.beatLines).toBe(1);
+        // 3. The POST wraps to two lines on the account run and stops there,
+        // and the standing sentence over it keeps its one line ([D185]) —
+        // the extra line is spent on the longest and slowest run, under the
+        // one that holds still.
+        expect(form.descLines).toBe(1);
+        expect(form.accountLines).toBe(2);
 
         // 3b. The tape reads on the GROUP, so it centres on the group's box —
-        // the description and the beat together — however many lines the
-        // description is standing at. Riding the beat's own line on a lift
+        // the sentence and the account run together — however many lines the
+        // account run is standing at. Riding one run's line on a lift
         // computed from ONE line's band put it half a line low exactly here,
-        // where the description is two. And it is drawn at all: an instrument
+        // where the account run is two. And it is drawn at all: an instrument
         // that comes and goes with its data is one the reader cannot trust.
         expect(Math.abs(form.tapeOffCentre)).toBeLessThanOrEqual(1);
         expect(form.tapeWidth).toBeGreaterThan(0);
@@ -588,7 +581,7 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
   );
 
   test(
-    "the upper line climbs the post/ask ladder and reads in the wall register",
+    "the account run climbs the post/ask ladder under a standing sentence",
     async () => {
       const app = await launchTugApp({ testName: "at0551-fold-wall-register" });
       try {
@@ -596,8 +589,8 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
 
         // ── The turn opens: an ask, then work ──
         // For the first minute of any turn there is no post yet — the sitrep
-        // is 60 s — so rung (2) is the whole of what the reader gets, and it
-        // is the thing they most want ([D187]).
+        // is 60 s — so the ask is the whole of what the account run gets, and
+        // it is the thing the reader most wants ([D187]).
         await app.evalJS<boolean>(
           `window.__tug.publishDigestFrame(${JSON.stringify(
             digestFrame(`asked: ${ASK_TEXT}`, 1, "ask"),
@@ -609,84 +602,78 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
           )})`,
         );
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(BEAT)}) !== null`,
+          `(document.querySelector(${JSON.stringify(ACCOUNT_TEXT)})?.textContent || "").indexOf(${JSON.stringify(ASK_TEXT)}) >= 0`,
           { timeoutMs: 20_000 },
         );
-        await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(DESCRIPTION)})?.textContent || "").indexOf(${JSON.stringify(ASK_TEXT)}) >= 0`,
-          { timeoutMs: 20_000 },
-        );
-        const asking = await readDescription(app);
-        note("upper line, no post yet", asking);
-        // The ask, without the `asked:` head the strip gives it: on the upper
-        // line it is the only thing there, so the label labels nothing.
-        expect(asking).toBe(ASK_TEXT);
+        const asking = await readActivity(app);
+        note("account run, no post yet", asking.text);
+        // The ask, without the `asked:` head the strip gives it: on the
+        // account run it is the only thing there, so the label labels nothing.
+        expect(asking.text).toBe(ASK_TEXT);
+        // And the sentence over it did not move for the turn: the description
+        // run has no turn override ([D132]), so it reads the ladder's floor
+        // here and never the ask.
+        expect(asking.description).not.toContain(ASK_TEXT);
 
-        // ── The first post lands and takes the line ──
+        // ── The first post lands and takes the run ──
         await app.evalJS<boolean>(
           `window.__tug.publishOverviewPost(${JSON.stringify(
             observerPost(POST_BODY, 1),
           )})`,
         );
         await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(DESCRIPTION)})?.textContent || "").indexOf(${JSON.stringify(POST_BODY)}) >= 0`,
-          { timeoutMs: 20_000 },
-        );
-        note("upper line, post landed", await readDescription(app));
-
-        // The beat line paces its swaps (`MIN_DWELL_MS`), so the ask holds it
-        // for a moment before the tool line arrives. Wait for the beat the
-        // register claims are about, rather than for the frame that carried it.
-        await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(BEAT)})?.textContent || "").indexOf("Running cargo nextest run") >= 0`,
+          `(document.querySelector(${JSON.stringify(ACCOUNT_TEXT)})?.textContent || "").indexOf(${JSON.stringify(POST_BODY)}) >= 0`,
           { timeoutMs: 20_000 },
         );
         const open = await readActivity(app);
-        note("open register", `${open.register} · ${open.runs} run(s)`);
-        // The masthead reads in the wall register OPEN too ([B04]) — the
-        // register no longer turns over with the form, because the tier no
-        // longer changes height with it.
+        note("open register", `${open.register} · "${open.text}"`);
+        // The masthead reads in the wall register OPEN too — the register no
+        // longer turns over with the form, because the tier no longer
+        // changes height with it.
         expect(open.register).toBe("wall");
-        expect(open.text).toContain("Running cargo nextest run");
+        expect(open.text).toBe(POST_BODY);
+        // The beat the tool frame carried reads on no line of the masthead:
+        // the digest's newest line is the history's, one click away, and
+        // neither run says what tool is running.
+        expect(open.text).not.toContain("Running cargo nextest run");
+        expect(open.description).not.toContain("Running cargo nextest run");
+        expect(open.description).not.toContain(POST_BODY);
 
         await toggleFolded(app, true);
         const folded = await readActivity(app);
-        note("wall register", `${folded.register} · beat="${folded.beatRun}"`);
+        note("wall register", `${folded.register} · "${folded.text}"`);
         expect(folded.register).toBe("wall");
-        expect(folded.beatRun).toContain("Running cargo nextest run");
         // `block` is what lets the POST take the width before it wraps into
         // the two lines the tier was widened for.
         expect(folded.postBlock).toBe("block");
-        // Folded, the post is still the line above the beat: the two facts a
-        // watched card is being asked for are what it is doing and what that
-        // is for — and it is the upper one the second line went to.
-        expect(await readDescription(app)).toBe(POST_BODY);
+        // Folded, the post is still the run under the sentence: the two facts
+        // a watched card is being asked for are what it is for and what it is
+        // doing — and it is the lower one the second line went to.
+        expect(folded.text).toBe(POST_BODY);
+        expect(folded.description).toBe(open.description);
 
-        // ── The turn ends, and both lines go to rest ──
-        // The marker never reaches the beat line: it is the ABSENCE of a beat,
-        // and the rest sentence is what says so with facts in it.
+        // ── The turn ends, and the account run goes to rest ──
+        // The marker never reaches the run: it is the ABSENCE of a beat, and
+        // the rest sentence is what says so with facts in it.
         await app.evalJS<boolean>(
           `window.__tug.publishDigestFrame(${JSON.stringify(
             digestFrame("Done", 3, "turn"),
           )})`,
         );
         await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(BEAT)})?.textContent || "").trim().endsWith("Ready.")`,
+          `(document.querySelector(${JSON.stringify(ACCOUNT_TEXT)})?.textContent || "").trim().endsWith("Ready.")`,
           { timeoutMs: 20_000 },
         );
         const rested = await readActivity(app);
         note("wall at rest", rested.text);
         expect(rested.text.endsWith("Ready.")).toBe(true);
         expect(rested.text).not.toBe("Done");
-        // And the upper line leaves the ladder: at rest it is [D132]'s again.
-        // This session has no standing sentence, no recorded first prompt and
-        // no arc, so what it lands on is that ladder's floor — which is the
-        // point: the post is gone from the line the moment the turn is.
-        await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(DESCRIPTION)})?.textContent || "").indexOf(${JSON.stringify(POST_BODY)}) < 0`,
-          { timeoutMs: 20_000 },
-        );
-        note("upper line at rest", await readDescription(app));
+        // The post is gone from the run the moment the turn is, and the
+        // sentence over it is exactly what it was — a turn ending moves
+        // nothing on the description line.
+        expect(rested.text).not.toContain(POST_BODY);
+        expect(rested.description).toBe(open.description);
+        note("standing sentence throughout", rested.description);
       } finally {
         await app.close();
       }

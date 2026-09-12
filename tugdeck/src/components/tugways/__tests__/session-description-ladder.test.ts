@@ -1,24 +1,30 @@
 /**
- * The description ladder is pure and total, so it is a table: what the stores
- * know in, the line the row shows out.
+ * The row's two ladders are pure, so each is a table: what the stores know
+ * in, the line the row shows out.
  *
- * The property the whole file exists for is the last test: no combination of
- * inputs produces an empty line. The ladder reached the empty string twice —
- * once for a wheel-seated stage session, whose only submission is a
- * `/tugplug:arc-…` command neither of the top two rungs reads, and once for
- * any session between its spawn and its first ledger push — and a blank line
- * holds its place in the row, so both read as a component that failed to draw.
+ * The property the description ladder's block exists for is its last test:
+ * no combination of inputs produces an empty line. The ladder reached the
+ * empty string twice — once for a wheel-seated stage session, whose only
+ * submission is a `/tugplug:arc-…` command neither of the top two rungs
+ * reads, and once for any session between its spawn and its first ledger
+ * push — and a blank line holds its place in the row, so both read as a
+ * component that failed to draw.
  *
- * The lede is here too, and for the same reason: it is the one pure function
- * behind the ladder's live rung, so what a two-sentence post shows on the line
- * is a table rather than a row that has to be mounted to be read.
+ * The activity ladder's block pins the ORDER, and one absence. During a turn
+ * the account run is the Observer's post, whole, else the turn's ask, and
+ * neither outranks a caller's override or the compaction pin; at rest it is
+ * the rest sentence, and a post that is still in the store is not shown. The
+ * beat has no rung — the digest's newest line is a reader's fact on the
+ * history popover and the copy menu, not on the masthead — and the
+ * description ladder has no live-turn rung at all: the standing sentence
+ * stands through a turn, which is what makes it the line a wall is scanned by.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import {
   UNDESCRIBED,
-  postLede,
+  sessionActivity,
   sessionDescription,
 } from "@/components/tugways/session-identity-row";
 import {
@@ -105,63 +111,92 @@ describe("the description ladder", () => {
 });
 
 /**
- * The post rung's cut: a post is two sentences at the Observer's own budget,
- * and the line shows the first one.
+ * The activity ladder's table. `AT_REST` is the session with nothing going
+ * on; each test moves one or two inputs and reads which rung answers.
  */
-describe("the post's lede", () => {
-  test("a two-sentence post shows its first sentence, full stop and all", () => {
+const AT_REST = {
+  override: null,
+  compacting: false,
+  turnInFlight: false,
+  post: null,
+  ask: null,
+  joinReadyLine: null,
+  restLine: "1 turn, 1.1 MB. Last updated: Sep 12, 11:42 PM. Ready.",
+} as const;
+
+const POST =
+  "Landed the leading floor and re-pinned the three fold tests. Next is the mention rule for a sha in the description line.";
+
+describe("the activity ladder", () => {
+  test("at rest the line is the rest sentence", () => {
+    expect(sessionActivity(AT_REST)).toEqual({
+      rung: "rest",
+      text: AT_REST.restLine,
+    });
+  });
+
+  // The post is shown WHOLE: the masthead's two lines and the Overview's post
+  // are the same text whenever the post fits, and the lede rule that cut a
+  // two-sentence post to its first is retired.
+  test("during a turn the newest post is the line, entire", () => {
     expect(
-      postLede(
-        "Landed the leading floor and re-pinned the three fold tests. Next is the mention rule for a sha in the description line.",
-      ),
-    ).toBe("Landed the leading floor and re-pinned the three fold tests.");
+      sessionActivity({ ...AT_REST, turnInFlight: true, post: POST, ask: "fix the fold" }),
+    ).toEqual({ rung: "post", body: POST });
   });
 
-  test("a one-sentence post is its own lede", () => {
-    const post = "Reading the imposition allocator's ceiling ladder.";
-    expect(postLede(post)).toBe(post);
-  });
-
-  test("a post with no sentence end at all stands as it is", () => {
-    const post = "Reading the imposition allocator and its ceiling ladder";
-    expect(postLede(post)).toBe(post);
-  });
-
-  // Past the box's own room the cut buys nothing: the line elides either way,
-  // so the post stands rather than being shortened to a sentence nobody sees
-  // the end of.
-  test("a first sentence past the budget leaves the post alone", () => {
-    const long = `${"word ".repeat(40)}ends here. And a second sentence.`;
-    expect(postLede(long)).toBe(long);
-  });
-
-  // The digester's own enumerator rule, which is why the cut is a port rather
-  // than a `split(".")`.
-  test("an enumerator's dot is not a full stop", () => {
+  // With a 60 s sitrep the first post of a turn lands no sooner than a minute
+  // in, and for that minute the ask is the one line that cannot be wrong.
+  test("the ask stands in until the first post lands", () => {
     expect(
-      postLede("Walking 1. the ledger and 2. the log. Then the binding."),
-    ).toBe("Walking 1. the ledger and 2. the log.");
+      sessionActivity({ ...AT_REST, turnInFlight: true, ask: "fix the fold" }),
+    ).toEqual({ rung: "ask", text: "fix the fold" });
   });
 
-  // The case that motivated porting the rule at all: a post names files, and
-  // an extension's dot has a letter after it rather than a space.
-  test("a path's extension is not a sentence end", () => {
+  test("a turn with neither post nor ask yet reads the rest sentence", () => {
+    expect(sessionActivity({ ...AT_REST, turnInFlight: true })).toEqual({
+      rung: "rest",
+      text: AT_REST.restLine,
+    });
+  });
+
+  // The Overview holds the last post; the masthead at rest says the session
+  // is idle and since when. A post left in the store is not a turn.
+  test("at rest a post in the store is not shown", () => {
     expect(
-      postLede(
-        "Rewrote docs/narration-target.md and re-ran the column tests. Then the wall.",
-      ),
-    ).toBe("Rewrote docs/narration-target.md and re-ran the column tests.");
+      sessionActivity({ ...AT_REST, post: POST, ask: "fix the fold" }),
+    ).toEqual({ rung: "rest", text: AT_REST.restLine });
   });
 
-  // A bold span that closes after the terminator belongs to the sentence, and
-  // the post rubric puts shas and emphasis in prose freely.
-  test("emphasis closing after the terminator belongs to the sentence", () => {
-    expect(postLede("It is **done.** Now the audit.")).toBe(
-      "It is **done.**",
-    );
+  test("the compaction pin outranks the post", () => {
+    expect(
+      sessionActivity({ ...AT_REST, turnInFlight: true, post: POST, compacting: true }),
+    ).toEqual({ rung: "compacting" });
   });
 
-  test("an empty post is left as it is", () => {
-    expect(postLede("")).toBe("");
+  test("a caller's override outranks everything", () => {
+    expect(
+      sessionActivity({
+        ...AT_REST,
+        turnInFlight: true,
+        post: POST,
+        compacting: true,
+        override: "Held by a terminal",
+      }),
+    ).toEqual({ rung: "override", text: "Held by a terminal" });
+  });
+
+  test("an empty override is no override", () => {
+    expect(sessionActivity({ ...AT_REST, override: "" })).toEqual({
+      rung: "rest",
+      text: AT_REST.restLine,
+    });
+  });
+
+  // A rest-form rung: an arc finished with an offer standing is at rest for
+  // one reason, and that reason is the reader.
+  test("the join-ready sentence outranks the rest sentence at rest", () => {
+    expect(
+      sessionActivity({ ...AT_REST, joinReadyLine: "Ready to join." }),
+    ).toEqual({ rung: "join-ready", text: "Ready to join." });
   });
 });
