@@ -163,12 +163,13 @@ describe("routing matches the pre-migration mechanism", () => {
     expect(setter?.menuItemId).toBeUndefined();
   });
 
-  test("the card's fold is ⌥⌘M and the window's minimize is still ⌘M", () => {
-    // ⌥ is the variant operator: same form of gesture, smaller object. The two are
-    // asserted together because the pair is the point — a rebinding that
-    // collapsed them would take the window's minimize with it.
+  test("the card's fold is ⌃⌘Y and the window's minimize is still ⌘M", () => {
+    // The fold left the ⌥ tier because AppKit claims ⌥⌘M, and landed on a
+    // free letter in the Tug tier, read as a shape. The two are asserted
+    // together because the pair is the point — the fold must never be
+    // rebound onto anything that would take the window's minimize with it.
     const card = COMMANDS_BY_ID.get(TUG_ACTIONS.TOGGLE_SESSION_FOLD);
-    expect(card?.bindings?.map((b) => formatChord(b.chord))).toEqual(["⌥⌘M"]);
+    expect(card?.bindings?.map((b) => formatChord(b.chord))).toEqual(["⌃⌘Y"]);
     expect(card?.bindings?.[0]?.menuEligible).toBe(true);
 
     const windowMinimize = COMMANDS_BY_ID.get(TUG_ACTIONS.MINIMIZE);
@@ -470,11 +471,12 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   ["⌃⌘T", TUG_ACTIONS.TOGGLE_TRIPWIRES],
   ["⌥⌘[", TUG_ACTIONS.PREVIOUS_STACK_CARD],
   ["⌥⌘]", TUG_ACTIONS.NEXT_STACK_CARD],
-  // The card's fold. ⌥ is the variant operator: ⌘M minimizes the window
-  // and stays AppKit's, ⌥⌘M folds the card — the same form of gesture aimed
-  // at the smaller object, which is why the two share the letter and nothing
-  // else.
-  ["⌥⌘M", TUG_ACTIONS.TOGGLE_SESSION_FOLD],
+  // The card's fold, in the Tug tier beside the Session menu's own ⌃⌘C and
+  // ⌃⌘H. Y is a shape rather than an initial: two arms meeting and
+  // continuing as one stem is the open card's two regions closing onto its
+  // one bar. It is not ⌥⌘M — AppKit claims that — and not ⌃⌘M, which is the
+  // commit message.
+  ["⌃⌘Y", TUG_ACTIONS.TOGGLE_SESSION_FOLD],
   // The slash bridges that earned a chord. The family is reachable by typing
   // its names, which is why the rest carry none; these two are reached often
   // enough that typing the name is the slow path.

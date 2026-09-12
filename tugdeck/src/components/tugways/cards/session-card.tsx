@@ -3565,6 +3565,73 @@ export function SessionCardBody({
   const entryRegionRef = useRef<HTMLDivElement | null>(null);
   const foldRef = useRef<boolean | null>(null);
   const foldEndRef = useRef<number | null>(null);
+  // The picture's height, taken at the fold IN and spent at both ends
+  // ([B05], [B06]). The transcript and the composer hold still for the
+  // length of the motion by being frozen at the height they had when it
+  // started, so the scroller's `clientHeight` never changes and the list
+  // view's container observer never fires — no pin, no re-window, no
+  // re-measure ([F08], [F09]). The slot keeps flexing to zero exactly as it
+  // did, so Z2's ride is untouched ([F07]); it is the slot's CHILD that is
+  // pinned, and the slot's own `overflow: hidden` clips it.
+  //
+  // One height, not two. The composer holds still on `align-self: start`
+  // alone (see the CSS): its own content height is already the height it
+  // should keep, so nothing has to be measured for it — and a measured one
+  // is worse than useless there, because a grid child with a DEFINITE
+  // height gives the entry region a content-based minimum that props the
+  // fold open and then cuts, which is the fold's clock rather than its
+  // picture. [B05] asked for two properties; the composer's half turns out
+  // to need none.
+  //
+  // The height is the OPEN box's, kept by the watcher below rather than
+  // taken at the flip. [B05] put the measurement in this effect, and that is
+  // one commit too late to read anything: the flag's DOM lands before the
+  // layout effect runs, so a forced layout here reports the FOLDED geometry
+  // and hands back a zero — which froze the transcript shut rather than
+  // still. At unfold time there is nothing to read either, since the slot is
+  // `display: none` ([F10]). So both directions read one cached open height,
+  // which is [B06]'s answer to the unfold generalised to the whole motion.
+  //
+  // A card that has never been open — one that mounted folded — has no
+  // cached value, and does not freeze. Its first unfold is the motion as it
+  // was before, which is no worse than now ([B06]).
+  const foldSlotHeightRef = useRef<number | null>(null);
+  // What keeps the cache current. The picture is only a picture if it is the
+  // size of the box it replaces, and the open box changes for reasons that
+  // have nothing to do with folding: the card is bound and the project
+  // picker gives way to the body, the pane is resized, the window is. A
+  // height taken once at mount is 50px wrong by the time anyone folds, and
+  // the reader sees the transcript clipped by exactly that much.
+  //
+  // So the slot is WATCHED rather than sampled — the observer answers the
+  // thing that actually changed, which is the same discipline [F09] objects
+  // to the list view NOT having during the motion. It costs nothing while a
+  // fold is in flight: `data-fold` is on the root for the whole of it, and a
+  // delivery then is refused, so a mid-motion box can never become the
+  // picture's size. The one-element `useState` is what gets the observer
+  // attached when the body appears, since a plain ref cannot announce it.
+  const [viewSlotEl, setViewSlotEl] = useState<HTMLDivElement | null>(null);
+  const attachViewSlot = useCallback((el: HTMLDivElement | null): void => {
+    viewSlotRef.current = el;
+    setViewSlotEl(el);
+  }, []);
+  const measureOpenSlotHeight = useCallback((): void => {
+    const root = sessionCardRootRef.current;
+    const slot = viewSlotRef.current;
+    if (root === null || slot === null) return;
+    if (root.hasAttribute("data-fold")) return;
+    const slotChild = slot.firstElementChild;
+    if (slotChild instanceof HTMLElement) {
+      foldSlotHeightRef.current = slotChild.offsetHeight || null;
+    }
+  }, []);
+  useLayoutEffect(() => {
+    if (viewSlotEl === null) return;
+    measureOpenSlotHeight();
+    const observer = new ResizeObserver(measureOpenSlotHeight);
+    observer.observe(viewSlotEl);
+    return () => observer.disconnect();
+  }, [viewSlotEl, measureOpenSlotHeight]);
   useLayoutEffect(() => {
     const root = sessionCardRootRef.current;
     if (root === null) return;
@@ -3584,9 +3651,23 @@ export function SessionCardBody({
         window.clearTimeout(foldEndRef.current);
         foldEndRef.current = null;
       }
+      root.style.removeProperty("--session-fold-slot-height");
+      root.removeAttribute("data-fold-freeze");
       if (folded) root.setAttribute("data-fold", "settled");
       else root.removeAttribute("data-fold");
       setInert(folded);
+      // The one delivery the watcher above cannot get. Every resize that
+      // reaches the slot while `data-fold` is on the root is refused, and a
+      // fold in and back out is a run of exactly those: the slot shrinks to
+      // nothing and grows back to a box the observer is never allowed to
+      // read. If the pane or the window was resized while the card sat
+      // folded, the cache is left holding the height the card had before it
+      // folded, and every fold after this one freezes the picture at a size
+      // the box no longer is — clipped by the difference, on the first frame,
+      // which is the jump the freeze exists to stop. So the open state reads
+      // its own height once, here, where the tween has landed and the
+      // geometry is authoritative.
+      if (!folded) measureOpenSlotHeight();
     };
 
     if (!folded) setInert(false);
@@ -3604,6 +3685,21 @@ export function SessionCardBody({
     }
 
     root.setAttribute("data-fold", "moving");
+    // Before paint, in the same pass that writes `data-fold="moving"`, so
+    // the first frame the reader sees is already frozen ([B05]). DOM writes
+    // on the card root, never React state ([L06]) — a commit per frame is
+    // the stream the settle holds every session's notifications off for.
+    // Nothing is measured here; the height was taken when the card landed
+    // open, which is the only moment it could be.
+    const slotHeight = foldSlotHeightRef.current;
+    // `data-fold-freeze` is what the CSS gates on, rather than the presence
+    // of the property: a `height: var(--unset)` would fall back to `auto` on
+    // its own, but the anchor and the flex declarations that go with it
+    // would not, and half a freeze is a motion nobody designed.
+    if (slotHeight !== null) {
+      root.style.setProperty("--session-fold-slot-height", `${slotHeight}px`);
+      root.setAttribute("data-fold-freeze", "");
+    }
     const entry = entryRegionRef.current;
     const onTransitionEnd = (event: TransitionEvent): void => {
       if (event.target !== entry) return;
@@ -3629,7 +3725,7 @@ export function SessionCardBody({
         foldEndRef.current = null;
       }
     };
-  }, [folded]);
+  }, [folded, measureOpenSlotHeight]);
 
   useCardDelegate(cardId, {
     cardDidActivate: () => {
@@ -5110,7 +5206,7 @@ export function SessionCardBody({
         shadeViewController.toggle("history");
       },
       // The Fold control at Z2's trailing edge, Session ▸ Fold Session, and
-      // ⌥⌘M all land here ([P02]): the card is where the gesture knows which
+      // ⌃⌘Y all land here ([P02]): the card is where the gesture knows which
       // card it is about, and the deck commit is dispatched from one place so
       // the three doors cannot drift apart.
       //
@@ -5587,7 +5683,7 @@ export function SessionCardBody({
             */}
               <div
                 className="session-view-slot"
-                ref={viewSlotRef}
+                ref={attachViewSlot}
                 data-active-view={activeView}
                 // Folded away with the card ([P03]). The CSS takes it off the
                 // screen; `inert` is what takes it out of the FOCUS walk and

@@ -1722,14 +1722,17 @@ export const COMMANDS: readonly CommandEntry[] = [
   },
   {
     // The card-scoped fold ([B04], [P02]). Its three doors are the control at
-    // Z2's trailing edge, this item, and ⌥⌘M — one action, so the state the
+    // Z2's trailing edge, this item, and ⌃⌘Y — one action, so the state the
     // doors read and the commit they land are the same one ([L11]).
     //
-    // ⌥ is the variant operator (`tuglaws/chord-tiers.md`): ⌘M minimizes the
-    // window, ⌥⌘M folds the card. `menuEligible` puts the match at the
-    // menu bar, so the item's gate is what answers the chord too — a non-
-    // Session key card disables the item and beeps the chord, which is honest
-    // about a verb that has nothing to act on.
+    // ⌃⌘ is the Tug tier (`tuglaws/chord-tiers.md`), where this card's own
+    // menu neighbours already live, and Y is read as a shape: two arms meet
+    // and continue as one stem, which is the open card's two regions closing
+    // onto its one bar. ⌥⌘M was the derived chord and AppKit claims it;
+    // ⌃⌘M is the commit-message chord and is untouched. `menuEligible` puts
+    // the match at the menu bar, so the item's gate is what answers the chord
+    // too — a non-Session key card disables the item and beeps the chord,
+    // which is honest about a verb that has nothing to act on.
     //
     // Gated on a BOUND session, not merely on a Session card being frontmost.
     // An unbound card renders `SessionProjectPicker` rather than
@@ -1743,7 +1746,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     menuItemId: "session.fold",
     bindings: [
       chord(
-        { key: "KeyM", alt: true, meta: true, label: "m" },
+        { key: "KeyY", ctrl: true, meta: true, label: "y" },
         { preventDefault: true, menuEligible: true },
       ),
     ],

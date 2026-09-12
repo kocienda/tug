@@ -598,11 +598,12 @@ export const TUG_ACTIONS = {
   //                      its two-line beat, the Z2 status row, and the fold
   //                      control at that row's trailing edge, with the
   //                      transcript and composer folded away. Its three doors
-  //                      are that control, Session ▸ Fold Session, and ⌥⌘M
+  //                      are that control, Session ▸ Fold Session, and ⌃⌘Y
   //                      ([L11]: one action, three doors). The card's
   //                      `card-content` responder handles it and dispatches
-  //                      SET_CARD_FOLDED with the negated flag; ⌘M without
-  //                      the ⌥ is the window's MINIMIZE and is untouched.
+  //                      SET_CARD_FOLDED with the negated flag. ⌘M is the
+  //                      window's MINIMIZE and ⌃⌘M is the commit message;
+  //                      neither is touched.
   TOGGLE_SESSION_FOLD: "toggle-session-fold",
   // SET_CARD_FOLDED: payload — `{ cardId: string, folded: boolean }`. Write
   //                  one card's pane into or out of the folded form.
@@ -750,8 +751,9 @@ export const TUG_ACTIONS = {
   // MINIMIZE:               payload — none. Window ▸ Minimize — the WINDOW's,
   //                         routed native on ⌘M. Nothing to do with a card:
   //                         the card-scoped verb is TOGGLE_SESSION_FOLD
-  //                         on ⌥⌘M, and the two are neighbours in the chord
-  //                         space and nowhere else.
+  //                         on ⌃⌘Y, which shares neither the key nor the
+  //                         modifiers: the fold sits in the Tug tier with
+  //                         the Session menu's own chords.
   // MAXIMIZE:               payload — none. Maximize the first card.
   // SHOW_COMPONENT_GALLERY: payload — none. Open or focus the gallery card.
   // SHOW_SETTINGS:          payload — none. Open the settings panel.

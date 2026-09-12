@@ -186,6 +186,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘T | `toggle-tripwires` | Show Tripwires | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
 | ⌃⌘W | `toggle-cards` | Show Cards | menu bar (swept) |
+| ⌃⌘Y | `toggle-session-fold` | Fold Session | menu bar (swept) |
 | ⌃⌘[ | `previous-turn` | Previous Turn | menu bar (swept) |
 | ⌃⌘] | `next-turn` | Next Turn | menu bar (swept) |
 | ⌃⌘{ | `first-turn` | First Turn | menu bar (swept) |
@@ -237,7 +238,6 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⌘/ | `show-devtools` | Show DevTools | menu bar (swept) |
 | ⌥⌘H | `hide-others` | Hide Others | menu bar (AppKit's own) |
 | ⌥⌘L | `make-lowercase` | Make Lowercase | menu bar (swept) |
-| ⌥⌘M | `toggle-session-fold` | Fold Session | menu bar (swept) |
 | ⌥⌘U | `make-uppercase` | Make Uppercase | menu bar (swept) |
 | ⌥⌘V | `paste-as-quote` | Paste as Quote | JS, global |
 | ⌥⌘W | `close-all` | Close All Tabs | JS, global |

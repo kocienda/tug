@@ -1171,13 +1171,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         toggleHistoryItem.representedObject = "history"
         sessionMenu.addItem(toggleHistoryItem)
 
-        // Fold Session — the CARD's fold, on ⌥⌘M. Window ▸ Minimize
-        // keeps ⌘M and is untouched: ⌥ is the variant operator, so the same
-        // form of gesture aimed at the smaller object. The title's verb rides
+        // Fold Session — the CARD's fold, on ⌃⌘Y. Window ▸ Minimize keeps
+        // ⌘M and is untouched, and so is ⌃⌘M: the chord moved out of the
+        // ⌥ tier because AppKit claims ⌥⌘M, and Y is read as the shape of a
+        // fold drawn. The title's verb rides
         // the registry gate's dynamic title on the menuState push ("Unfold
         // Session" once the card is folded), the same way the two shade
         // toggles above take theirs.
-        sessionMenu.addItem(NSMenuItem(title: "Fold Session", action: #selector(toggleSessionFold(_:)), keyEquivalent: "m", modifierMask: [.command, .option]).identified("session.fold"))
+        sessionMenu.addItem(NSMenuItem(title: "Fold Session", action: #selector(toggleSessionFold(_:)), keyEquivalent: "y", modifierMask: [.command, .control]).identified("session.fold"))
         sessionMenu.addItem(NSMenuItem.separator())
 
         sessionMenu.addItem(sessionCommandItem("Resume Session…", "resume", "session.resume"))

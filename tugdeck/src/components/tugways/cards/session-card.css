@@ -1557,6 +1557,73 @@
   overflow: hidden;
 }
 
+/* The picture. For the length of the motion the transcript and the composer
+   are frozen at the height they had when it started, so the card's edge
+   sweeps over a still image instead of a scroller that re-flows under it
+   ([B04]). The slot itself is untouched and keeps flexing to zero, so the
+   frame's tween and Z2's ride are exactly what they were ([F07]) — what
+   stops moving is the child inside it, which the slot's `overflow: hidden`
+   above already clips.
+
+   The point is not that it looks calmer. `TugListView`'s container
+   `ResizeObserver` answers every delivery with `maybePinToBottom()` and
+   `scrollTick()`, so a scrollport that shrinks with the frame slides the
+   text upward by the amount the viewport lost, every frame, and re-windows
+   rows under the closing edge ([F08], [F09]). A child whose height never
+   changes delivers nothing to observe, so none of that runs.
+
+   Gated on `data-fold-freeze`, which the fold effect writes with the two
+   heights and clears with them: a card that mounted folded has never had a
+   fold in to measure, and gets the motion it had before ([B06]) rather than
+   half a freeze.
+
+   `flex: 0 0 auto` is load-bearing on the slot's child. `.session-view-pane`
+   is `flex: 1 1 auto`, which would shrink it back to the flexing slot and
+   undo the height.
+
+   The anchor is `justify-content: flex-end` on the SLOT, which holds the
+   picture at the BOTTOM ([B07]): the fold eats upward, so the live edge is
+   the last thing visible before Z2 closes over it, which is the reading the
+   Z2 seat was designed for. It is on the slot rather than a `margin-top:
+   auto` on the child because an auto margin resolves to zero the moment
+   free space goes negative — which is all of the motion after the slot has
+   passed the frozen height — and would have top-anchored the picture for
+   nearly the whole fold. Flex alignment is unsafe by default, so the
+   overflow lands past the START edge, which is the clip this wants.
+
+   Both anchors were built and watched before this one was kept; `flex-start`
+   is the other, and [D97] records what the two look like.
+
+   The entry region is a one-track grid here, so its child is anchored with
+   `align-self: start`, and that is the WHOLE of the composer's freeze
+   ([F11]) — no measured height, no custom property. The default `stretch`
+   is what was squeezing it: it sized the composer to the collapsing row.
+   Told to start instead, the child keeps its own content height, holds
+   still, overflows the shrinking row and is clipped by the `overflow:
+   hidden` above. The caret line stays visible longest, which is the anchor
+   [B07] asks for on this side.
+
+   A measured `height` here is not merely redundant, it breaks the fold.
+   The region is a flex item with no declared min, so its automatic minimum
+   size is content-based, and a grid child with a DEFINITE height makes that
+   minimum the full open height: the region is propped open for the length
+   of the motion and cuts at the end. The composer's own content height
+   feeds nothing, which is why it is the one that works. */
+.session-card[data-fold="moving"][data-fold-freeze] .session-view-slot {
+  justify-content: flex-end;
+}
+
+.session-card[data-fold="moving"][data-fold-freeze] .session-view-slot > * {
+  flex: 0 0 auto;
+  height: var(--session-fold-slot-height);
+}
+
+.session-card[data-fold="moving"][data-fold-freeze]
+  .session-card-entry-region
+  > * {
+  align-self: start;
+}
+
 /* The transcript column's floor is what the transcript needs to stay usable,
    and there is no transcript here — left standing it would hold the card
    `--session-transcript-min` taller than its three bands, and the tier the

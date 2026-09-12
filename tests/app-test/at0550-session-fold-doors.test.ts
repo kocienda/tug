@@ -5,7 +5,7 @@
  * ## What this gates
  *
  * The Session card's folded form has three ways in ([B03], [P02]) — the
- * control at Z2's trailing edge, Session ▸ Fold Session, and ⌥⌘M — one
+ * control at Z2's trailing edge, Session ▸ Fold Session, and ⌃⌘Y — one
  * `toggle-session-fold` command rather than three handlers, so the state
  * they read and the deck commit they land cannot drift apart. This file drives
  * the doors that exist at the vocabulary layer (the control frame the menu
@@ -22,8 +22,9 @@
  *      fold.
  *   2. **The item says what the gesture will do.** `session.fold` reads
  *      enabled with the title `Fold Session` over an open card and `Unfold
- *      Session` over a folded one, and it carries ⌥⌘M — the ⌥ variant of
- *      the window's own ⌘M, which is untouched.
+ *      Session` over a folded one, and it carries ⌃⌘Y — the Tug tier the
+ *      Session menu's own chords already sit in. ⌘M and ⌃⌘M are both
+ *      untouched.
  *   3. **A non-Session key card disables it.** The verb has no pane to fold
  *      there, so the item dims and the chord beeps rather than reaching
  *      whatever pane happens to be frontmost.
@@ -58,6 +59,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
 /** `NSEvent.ModifierFlags` raw values, so the expectation reads as a chord. */
+const CONTROL = 1 << 18;
 const OPTION = 1 << 19;
 const COMMAND = 1 << 20;
 
@@ -235,17 +237,20 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
         expect(open.enabled).toBe(true);
         await waitMenuTitle(app, "session.fold", "Fold Session");
 
-        // The chord is the ⌥ variant of the window's ⌘M, carried on the item
-        // so the menu bar is where the match happens.
+        // The chord is ⌃⌘Y — the Tug tier, carried on the item so the menu
+        // bar is where the match happens.
         const item = await app.menuItemState("session.fold");
         expect(item.found).toBe(true);
         if (item.found) {
-          expect(item.keyEquivalent).toBe("m");
-          expect(item.modifierMask & (OPTION | COMMAND)).toBe(OPTION | COMMAND);
+          expect(item.keyEquivalent).toBe("y");
+          expect(item.modifierMask & (CONTROL | COMMAND)).toBe(
+            CONTROL | COMMAND,
+          );
+          expect(item.modifierMask & OPTION).toBe(0);
         }
 
-        // Window ▸ Minimize keeps its own ⌘M — the two are neighbours in the
-        // chord space and nowhere else.
+        // Window ▸ Minimize keeps its own ⌘M, which the fold no longer shares
+        // a key with at all.
         const windowMinimize = await app.menuItemState("window.minimize");
         expect(windowMinimize.found).toBe(true);
         if (windowMinimize.found) {
