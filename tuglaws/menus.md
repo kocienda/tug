@@ -174,7 +174,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘C | `toggle-changes-view` | Show Session Changes | JS, global |
 | ⌃⌘F | `toggle-full-screen` | Enter Full Screen | menu bar (AppKit's own) |
 | ⌃⌘H | `toggle-history-view` | Show Commit History | JS, global |
-| ⌃⌘I | `run-slash-command:ai` | AI… | menu bar (swept) |
+| ⌃⌘I | `run-slash-command:ai` | AI Settings… | menu bar (swept) |
 | ⌃⌘J | `toggle-jots` | Show Jots | menu bar (swept) |
 | ⌃⌘K | `show-keyboard-shortcuts` | Keyboard Shortcuts… | menu bar (swept) |
 | ⌃⌘L | `toggle-layout` | Show Layout | menu bar (swept) |

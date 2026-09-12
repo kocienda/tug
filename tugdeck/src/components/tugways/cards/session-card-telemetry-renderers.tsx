@@ -35,13 +35,23 @@ import React, {
   useEffect,
   useId,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 
+import { MessageCircleQuestion, ShieldAlert } from "lucide-react";
+
 import { TugArcGauge } from "@/components/tugways/tug-arc-gauge";
+import { createPortal } from "react-dom";
+import { TugPaneFrameContext } from "@/components/chrome/tug-pane";
+import { raisePaneAbovePeers } from "@/components/tugways/pane-raise";
+import { getDeckStore } from "@/lib/deck-store-registry";
+import { useIsCompactingCard } from "@/lib/compaction-progress-store";
+import { unfoldCardForBiddenSurface } from "@/lib/card-fold";
+import { cardFoldedOf } from "@/deck-store-selectors";
 import {
   FocusManagerContext,
   type FocusPolicy,
@@ -49,6 +59,7 @@ import {
 import { CardIdContext } from "@/lib/card-id-context";
 import { TugPlacard } from "@/components/tugways/tug-placard";
 import { TugStatusCell } from "@/components/tugways/tug-status-cell";
+import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { SideQuestionBody } from "@/components/tugways/cards/side-question-overlay";
 import { useAnnotationContext } from "@/components/tugways/cards/transcript-host-helpers";
 import {
@@ -591,6 +602,28 @@ export const SessionTelemetryPhase: React.FC<SessionTelemetryProps> = ({
 };
 
 /**
+ * An unbidden arrival a folded card answers in its Z2 row ([B03]) — one of the
+ * two inline dialogs the transcript carries, which a folded card is not
+ * showing.
+ */
+export type FoldArrival = "question" | "permission";
+
+/**
+ * What stands in the Z2 row in place of the five telemetry cells on a folded
+ * card. `"compaction"` is the [B04] `inhabit` tier — a surface that gave up its
+ * sheet to live in the row — and the two arrivals are the `defer` tier's
+ * notice, which offers **Unfold** rather than presenting anything itself.
+ */
+export type FoldOccupant = "compaction" | FoldArrival;
+
+/** What an arrival's notice reads. Pure; exported so a test can pin it. */
+export function foldArrivalTitle(arrival: FoldArrival): string {
+  return arrival === "question"
+    ? "A question is waiting"
+    : "Permission is waiting";
+}
+
+/**
  * Combined session status row — production Z2 surface promoted from
  * the workshop gallery. Layout:
  *
@@ -672,10 +705,85 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const [placard, setPlacard] = useState<{
     key: PlacardKind;
     anchorCenter: number;
+    /**
+     * Folded only: the Z2 row's bottom edge in the pane frame's coordinates —
+     * the line the placard hangs from ([B06]). `null` in the open form, whose
+     * vertical placement is the stylesheet's `bottom: 100%`.
+     */
+    foldedTop: number | null;
   } | null>(null);
   // Mirror the open key so the toggle can read it without a stale closure.
   const placardKeyRef = useRef<PlacardKind | null>(null);
   placardKeyRef.current = placard?.key ?? null;
+
+  // Whether this card wears the FOLDED form of the placard ([B01]): the pane
+  // is folded AND this card is the tab on show. Deck state, so it enters React
+  // through `useSyncExternalStore` ([L02]), read off the process-wide registry
+  // rather than `useDeckManager()` — a Session card renders in the gallery and
+  // in tests that bootstrap no DeckManager, and the honest answer there is
+  // not-folded rather than a crash.
+  //
+  // The active-tab half is load-bearing rather than belt-and-braces. A folded
+  // placard portals to the pane frame, which puts it OUTSIDE the `display:
+  // none` a background card is hidden with — the one property `TugPlacard` was
+  // built for ("hides with its card") and the one this form would otherwise
+  // give away.
+  const cardId = useContext(CardIdContext);
+  const paneFrameEl = useContext(TugPaneFrameContext);
+  const subscribeToDeck = useCallback((onStoreChange: () => void) => {
+    const store = getDeckStore();
+    if (store === null) return () => {};
+    return store.subscribe(onStoreChange);
+  }, []);
+  const foldedShowing = useSyncExternalStore(subscribeToDeck, () => {
+    const store = getDeckStore();
+    // No card identity (the gallery, a fixture) is the same honest answer as
+    // no deck: this card is not a folded pane's showing tab.
+    if (store === null || cardId === null) return false;
+    const state = store.getSnapshot();
+    return (
+      cardFoldedOf(state, cardId) &&
+      state.panes.some((pane) => pane.activeCardId === cardId)
+    );
+  });
+  const foldedForm = foldedShowing && paneFrameEl !== null;
+
+  // What stands in the Z2 row INSTEAD of the five telemetry cells, on a folded
+  // card ([B03]/[B04]). The folded frame's height is the wall tier's, so the
+  // card cannot grow a row for this; a card with something to say has one thing
+  // to say, and the cells come back the moment it clears.
+  //
+  // Today the one occupant is the compaction cover, which declares `inhabit`
+  // on its `showSheet` and therefore raises no panel while folded — the row IS
+  // the surface. It is derived from `compactionProgressStore`, which the run
+  // already keeps, so nothing new holds this state.
+  //
+  // The other two are the unbidden ARRIVALS ([B03]): a question and a
+  // permission request, both of which are inline dialogs the transcript
+  // carries — and a folded card has no transcript on show, so an arrival that
+  // said nothing here would be an arrival the user never learns about. Neither
+  // is a sheet, so neither passes through `showSheet`'s `defer` tier; both are
+  // read straight off the pending state `CodeSessionStore` already holds,
+  // which is the same state the two dialogs render from. The notice therefore
+  // stands for exactly as long as the dialog does and clears with it — there is
+  // no dismissal of its own to get out of step with ([L02]).
+  const compacting = useIsCompactingCard(cardId ?? undefined);
+  const arrival = useSyncExternalStore(
+    codeSessionStore.subscribe,
+    useCallback((): FoldArrival | null => {
+      const snapshot = codeSessionStore.getSnapshot();
+      if (snapshot.pendingQuestion !== null) return "question";
+      if (snapshot.pendingApproval !== null) return "permission";
+      return null;
+    }, [codeSessionStore]),
+  );
+  // A compaction HOLDS the card — nothing else can arrive under it — so it
+  // wins the row without the two having to be ordered against each other.
+  const occupant: FoldOccupant | null = !foldedShowing
+    ? null
+    : compacting
+      ? "compaction"
+      : arrival;
 
   // Command-span enhancement for the `/btw` answer markdown — the same known-
   // command gate the main transcript passes to its `TugMarkdownBlock`.
@@ -695,29 +803,51 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // strip's own trailing edge, right-aligned to the card. `TugPlacard` centers
   // on the x it is given and clamps in-card, so a right-edge anchor is stated
   // as the strip's own right edge; the clamp does the rest.
-  const measureAnchorCenter = useCallback((key: PlacardKind): number => {
-    const row = rowRef.current;
-    if (row === null) return 0;
-    const statusBar = row.closest<HTMLElement>(
-      '[data-slot="session-card-status-bar"]',
-    );
-    if (statusBar === null) return 0;
-    if (key === "btw") return statusBar.clientWidth;
-    const priority = PLACARD_ANCHOR_PRIORITY[key] ?? key;
-    const cell = row.querySelector<HTMLElement>(
-      `[data-slot="tug-status-cell"][data-priority="${priority}"]`,
-    );
-    if (cell === null) return 0;
-    const cellRect = cell.getBoundingClientRect();
-    const barRect = statusBar.getBoundingClientRect();
-    return cellRect.left + cellRect.width / 2 - (barRect.left + statusBar.clientLeft);
-  }, []);
+  //
+  // Folded, the container is the PANE FRAME the placard portals into rather
+  // than the strip ([B07]), so both numbers are measured in the frame's
+  // padding box — and the second number exists at all: the line the panel
+  // hangs from is the Z2 row's own bottom edge, which only the frame's
+  // coordinates can state.
+  const measurePlacement = useCallback(
+    (key: PlacardKind): { anchorCenter: number; foldedTop: number | null } => {
+      const nowhere = { anchorCenter: 0, foldedTop: null };
+      const row = rowRef.current;
+      if (row === null) return nowhere;
+      const statusBar = row.closest<HTMLElement>(
+        '[data-slot="session-card-status-bar"]',
+      );
+      if (statusBar === null) return nowhere;
+      const container = foldedForm ? (paneFrameEl as HTMLElement) : statusBar;
+      const containerRect = container.getBoundingClientRect();
+      const originX = containerRect.left + container.clientLeft;
+      const barRect = statusBar.getBoundingClientRect();
+      let anchorCenter: number;
+      if (key === "btw") {
+        anchorCenter =
+          container === statusBar ? statusBar.clientWidth : barRect.right - originX;
+      } else {
+        const priority = PLACARD_ANCHOR_PRIORITY[key] ?? key;
+        const cell = row.querySelector<HTMLElement>(
+          `[data-slot="tug-status-cell"][data-priority="${priority}"]`,
+        );
+        if (cell === null) return nowhere;
+        const cellRect = cell.getBoundingClientRect();
+        anchorCenter = cellRect.left + cellRect.width / 2 - originX;
+      }
+      const foldedTop = foldedForm
+        ? barRect.bottom - (containerRect.top + container.clientTop)
+        : null;
+      return { anchorCenter, foldedTop };
+    },
+    [foldedForm, paneFrameEl],
+  );
 
   const showPlacard = useCallback(
     (key: PlacardKind): void => {
-      setPlacard({ key, anchorCenter: measureAnchorCenter(key) });
+      setPlacard({ key, ...measurePlacement(key) });
     },
-    [measureAnchorCenter],
+    [measurePlacement],
   );
   // Cell activation toggles: re-clicking the open cell closes it ([P05]).
   const togglePlacard = useCallback(
@@ -728,6 +858,26 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     [showPlacard],
   );
   const closePlacard = useCallback(() => setPlacard(null), []);
+
+  // A fold closes the open placard rather than re-measuring under it. The line
+  // it hangs from and the container it lives in both change with the form, and
+  // a placard the user opened on one card shape is not a reading they asked to
+  // keep on the other.
+  const lastFoldRef = useRef(foldedForm);
+  useEffect(() => {
+    if (lastFoldRef.current === foldedForm) return;
+    lastFoldRef.current = foldedForm;
+    setPlacard(null);
+  }, [foldedForm]);
+
+  // And while a FOLDED placard is up, its frame paints above every peer — the
+  // same one attribute, rule and ref-count a sheet takes ([B07]), so a sheet
+  // and a placard sharing a frame release it in either order. A layout effect
+  // so the lift lands in the same frame the panel first paints in.
+  useLayoutEffect(() => {
+    if (placard === null || !foldedForm || paneFrameEl === null) return;
+    return raisePaneAbovePeers(paneFrameEl);
+  }, [placard, foldedForm, paneFrameEl]);
 
   // [P10] Escape ownership while a Z2 placard is open. The placard is
   // non-modal, focus-refusing chrome (it never pushes a focus mode of its
@@ -741,7 +891,6 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // cycling ([P10]: a cell popover is not a cycle exit). No focus is moved on
   // push (the cell keeps the ring), matching the placard's chrome nature.
   const focusManager = useContext(FocusManagerContext);
-  const cardId = useContext(CardIdContext);
   const focusCtx = useMemo(
     () => (focusManager === null ? null : focusManager.contextFor(cardId)),
     [focusManager, cardId],
@@ -1195,6 +1344,44 @@ export const SessionTelemetryStatusRow = React.forwardRef<
                   ? <SideQuestionBody store={sideQuestionStore} annotation={annotation} pendingContextStore={pendingContextStore} />
                   : null;
 
+  // The placard element itself, before it is placed. Folded it is portaled to
+  // the pane frame and hangs downward off the Z2 row; open it renders in place
+  // above the strip. One element either way — the form is two props and a
+  // portal, not two placards.
+  //
+  // The anchor line is memoised because the placard's placement effect takes
+  // this object as an input: a fresh one per render would tear down and
+  // rebuild its `ResizeObserver` every time a telemetry value ticked.
+  const foldedPlacardStyle = useMemo(
+    () =>
+      placard?.foldedTop == null
+        ? undefined
+        : ({
+            "--tugx-folded-placard-top": `${placard.foldedTop}px`,
+          } as React.CSSProperties),
+    [placard?.foldedTop],
+  );
+  const placardEl =
+    placard === null ? null : (
+      <TugPlacard
+        open
+        onClose={closePlacard}
+        dismiss="auto"
+        triggerSelector="[data-placard-trigger]"
+        anchorCenter={placard.anchorCenter}
+        growth={foldedForm ? "down" : "up"}
+        // The visible canvas is what caps a downward panel, not the window top
+        // the upward guard measures to ([B06]).
+        bottomBoundEl={foldedForm ? (paneFrameEl?.parentElement ?? null) : null}
+        className="session-telemetry-status-placard"
+        style={foldedPlacardStyle}
+        title={PLACARD_TITLES[placard.key]}
+        aria-label={PLACARD_TITLES[placard.key]}
+      >
+        {placardBody}
+      </TugPlacard>
+    );
+
   // Flat 5-cell flex row — STATE + TIME + CONTEXT + TASKS + JOBS as
   // direct siblings. The row's `justify-content: center` (declared in
   // CSS) packs the cells as one group with a fixed inter-item `gap`;
@@ -1211,25 +1398,81 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       // and every `@container` rung below keeps its measured value.
       data-arc={arcFact !== null ? "true" : undefined}
       data-replay-inert={replayInert ? "true" : undefined}
+      // The occupant hides the cells through CSS rather than unmounting them:
+      // the five-cell row is unconditionally mounted ([L26]), and a fold is no
+      // more a reason to break that than a phase transition is. [L06].
+      data-occupant={occupant ?? undefined}
     >
+      {/* The one thing a folded card has to say, in place of its instruments
+          ([B03]). Same vocabulary as the inline dialogs — a mark, a title —
+          so the row reads as the same family. */}
+      {occupant === "compaction" ? (
+        <div
+          className="session-telemetry-status-occupant"
+          data-slot="session-telemetry-status-occupant"
+          data-occupant="compaction"
+          role="status"
+        >
+          <TugProgressIndicator
+            variant="wave"
+            state="running"
+            role="inherit"
+            aria-hidden
+          />
+          <span className="session-telemetry-occupant-title">Compacting…</span>
+        </div>
+      ) : null}
+      {/* The deferred arrival's notice ([B03]/[B05]) — the inline-dialog
+          vocabulary at row scale: the dialog's own mark, its own tone, a
+          title, and **Unfold** on the trailing edge. The press opens the card
+          and nothing else: the dialog is already mounted in the transcript,
+          so unfolding IS presenting it, and the deck's pointerdown path
+          already fronts the pane. The notice never dismisses itself — it
+          stands until the dialog it speaks for is answered. */}
+      {occupant === "question" || occupant === "permission" ? (
+        <div
+          className="session-telemetry-status-occupant"
+          data-slot="session-telemetry-status-occupant"
+          data-occupant={occupant}
+          role="status"
+        >
+          <span
+            className="session-telemetry-occupant-mark"
+            data-icon-role={occupant === "permission" ? "caution" : "info"}
+            aria-hidden
+          >
+            {occupant === "permission" ? (
+              <ShieldAlert size={13} />
+            ) : (
+              <MessageCircleQuestion size={13} />
+            )}
+          </span>
+          <span className="session-telemetry-occupant-title">
+            {foldArrivalTitle(occupant)}
+          </span>
+          <TugPushButton
+            className="session-telemetry-occupant-action"
+            emphasis="ghost"
+            role="action"
+            size="xs"
+            onClick={() => {
+              if (cardId !== null) unfoldCardForBiddenSurface(cardId);
+            }}
+          >
+            Unfold
+          </TugPushButton>
+        </div>
+      ) : null}
       {/* One card-scoped placard over whichever Z2 surface is open — auto-
           dismiss, fixed under its trigger cell, one at a time ([P05]/[P06]).
-          Its offsetParent is the (position:relative) `.session-card-status-bar`,
-          so it floats just above Z2 over the transcript's tail. */}
-      {placard !== null && (
-        <TugPlacard
-          open
-          onClose={closePlacard}
-          dismiss="auto"
-          triggerSelector="[data-placard-trigger]"
-          anchorCenter={placard.anchorCenter}
-          className="session-telemetry-status-placard"
-          title={PLACARD_TITLES[placard.key]}
-          aria-label={PLACARD_TITLES[placard.key]}
-        >
-          {placardBody}
-        </TugPlacard>
-      )}
+          Open, its offsetParent is the (position:relative)
+          `.session-card-status-bar`, so it floats just above Z2 over the
+          transcript's tail. Folded, there is no transcript and the chrome
+          clips, so it goes to the pane frame instead — which clips nothing —
+          and hangs down over the wall ([B07]). */}
+      {foldedForm && placardEl !== null
+        ? createPortal(placardEl, paneFrameEl as HTMLElement)
+        : placardEl}
       <TugStatusCell
         priority="state"
         label="STATE"

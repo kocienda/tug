@@ -223,6 +223,19 @@ export function useCompactionRun(host: CompactionRunHost): () => void {
     void showSheet({
       title: "Compacting",
       icon: "Archive",
+      // The one surface small enough to BE the Z2 row ([B04]): on a folded
+      // card no panel rises and the fold stands, and the row itself reads
+      // "Compacting…" with its wave, drawn off `compactionProgressStore` by
+      // the status row. The run is unchanged either way — it is watched off
+      // the store rather than off this sheet, and it was already begun just
+      // above, so a compaction that starts folded settles into the transcript
+      // exactly as one that starts open.
+      //
+      // What a folded run gives up is the exclusive hold, which is the sheet's
+      // and not the row's: a `/usage` during a folded compaction opens the
+      // fold and rises rather than being refused. The row says what the card
+      // is doing, which is what the fold rule owes the reader.
+      foldPresentation: "inhabit",
       exclusive: {
         reason: COMPACTION_REFUSAL_TEXT,
         onRefused: () => nudgeRef.current?.(),

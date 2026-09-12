@@ -276,7 +276,8 @@ describe("computeCommandCapabilities", () => {
     expect(running["session.rewind"].enabled).toBe(true);
 
     // With no summary published yet, the gate carries NO title, so the Swift
-    // item's static "AI…" stands rather than being overwritten with a stub.
+    // item's static "AI Settings…" stands rather than being overwritten with
+    // a stub.
     const unpublished = computeCommandCapabilities(
       source(chain, {
         sessionCardFrontmost: true,

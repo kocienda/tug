@@ -13,7 +13,9 @@
  * card-titlebar token — theme-tinged floating chrome, not a movable pane.
  *
  * The caller owns `width` + vertical placement (`bottom`) and the horizontal
- * `left` is written imperatively; nothing positional is set here.
+ * `left` is written imperatively; nothing positional is set here. A downward
+ * placard (`data-growth="down"`) anchors its `top` instead — same contract,
+ * other edge.
  */
 
 .tug-placard {
@@ -39,6 +41,17 @@
 
 @keyframes tug-placard-enter {
   from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* A downward placard enters from the other side, so the motion still travels
+   away from the anchor it hangs off rather than toward it. */
+.tug-placard[data-growth="down"] {
+  animation-name: tug-placard-enter-down;
+}
+
+@keyframes tug-placard-enter-down {
+  from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 

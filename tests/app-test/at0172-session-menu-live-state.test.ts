@@ -151,7 +151,7 @@ describe.skipIf(!SHOULD_RUN)("AT0172: Session-menu live-state validation", () =>
 
         // ── 1. The AI item's live title ──
         // Fresh session: the chip reads Default, and the menu item says so too
-        // rather than carrying only the static "AI…" door label.
+        // rather than carrying only the static "AI Settings…" door label.
         await app.waitForCondition<boolean>(
           `${chipModeExpr()} === "Default"`,
           { timeoutMs: 8000 },

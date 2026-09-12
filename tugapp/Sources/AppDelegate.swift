@@ -1190,7 +1190,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // state display: the registry gate pushes a live title, so this item
         // reads `AI: Fable 5 · High · Auto…` and the menu says what the AI is
         // set to. The static title here is the pre-push fallback.
-        sessionMenu.addItem(sessionCommandItem("AI…", "ai", "session.ai"))
+        sessionMenu.addItem(sessionCommandItem("AI Settings…", "ai", "session.ai"))
         // ⌃⌥⌘P — the advanced form of a Tug-tier command
         // (tuglaws/chord-tiers.md); the composer's Prompt route holds ⌃⌘P.
         // This menu item has to carry the same chord as the tugdeck binding

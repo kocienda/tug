@@ -31,10 +31,21 @@
  * ## Viewport guard
  *
  * The placard writes `--radix-popover-content-available-height` onto its own
- * root from the gap between its (anchored) bottom edge and the top of the
- * viewport, so a long composed `TugPopupList` scroller caps and scrolls rather
- * than overflowing the card — the same custom property the list CSS reads for a
- * real Radix popover, so no shared CSS changes ([R01]).
+ * root from the gap between its anchored edge and the edge it grows toward, so
+ * a long composed `TugPopupList` scroller caps and scrolls rather than
+ * overflowing — the same custom property the list CSS reads for a real Radix
+ * popover, so no shared CSS changes ([R01]). Upward (the default) that gap runs
+ * from the panel's bottom edge to the top of the viewport; downward it runs
+ * from the panel's top edge to {@link TugPlacardProps.bottomBoundEl}'s bottom,
+ * never past the window.
+ *
+ * ## Growth
+ *
+ * `growth` is which way the panel opens off its anchor, and the caller's CSS
+ * has to agree with it: `"up"` anchors the panel's `bottom` and grows toward
+ * the viewport top, `"down"` anchors its `top` and grows toward the bound. It
+ * is a whole axis rather than a Session-card special case because the reason a
+ * surface flips is always the same — there is no room the other way.
  *
  * All position + appearance is DOM/CSS, never React state ([L06]).
  *
@@ -70,8 +81,8 @@ const RIGHT_INSET = DRAG_INSET + 12;
 /** Default horizontal fraction when no position has been saved: right-aligned. */
 const DEFAULT_FRACTION = 1;
 
-/** Top inset (px) kept below the viewport top when sizing the upward guard. */
-const AVAILABLE_TOP_INSET = 8;
+/** Inset (px) kept short of the edge the guard measures toward. */
+const AVAILABLE_EDGE_INSET = 8;
 
 /**
  * Horizontal travel available to the panel: the container's inner width
@@ -85,6 +96,9 @@ function computeTravel(containerWidth: number, panelWidth: number): number {
 /** Placard dismiss model. @see TugPlacardProps.dismiss */
 export type TugPlacardDismiss = "auto" | "explicit";
 
+/** Which way a placard opens off its anchor. @see TugPlacardProps.growth */
+export type TugPlacardGrowth = "up" | "down";
+
 export interface TugPlacardProps {
   /** Whether the placard is shown. When false, nothing renders. */
   open: boolean;
@@ -96,6 +110,8 @@ export interface TugPlacardProps {
   children: React.ReactNode;
   /** Caller styling — owns the placard's width and vertical placement. */
   className?: string;
+  /** Caller inline style — the vertical anchor a computed placement writes. */
+  style?: React.CSSProperties;
   /**
    * Dismiss model. `"explicit"` (default) shows the header `×` and dismisses
    * only on it. `"auto"` shows no `×` and dismisses on an outside pointerdown
@@ -109,6 +125,19 @@ export interface TugPlacardProps {
    * @default false
    */
   reposition?: boolean;
+  /**
+   * Which way the panel opens off its anchor, and which edge its guard
+   * measures toward. The caller's CSS owns the matching anchor (`bottom` for
+   * `"up"`, `top` for `"down"`).
+   * @default "up"
+   */
+  growth?: TugPlacardGrowth;
+  /**
+   * The element whose bottom edge bounds a downward placard — the visible
+   * canvas, for a placard hanging past its own pane. Clamped to the window in
+   * either case. Only meaningful with `growth="down"`.
+   */
+  bottomBoundEl?: HTMLElement | null;
   /**
    * Horizontal center (px, within the positioned container) to center the
    * placard on when {@link reposition} is false — the host measures the
@@ -136,14 +165,27 @@ export interface TugPlacardProps {
 
 /**
  * Write `--radix-popover-content-available-height` onto the placard from the
- * gap between its (anchored) bottom edge and the viewport top, so a composed
- * `TugPopupList` scroller never overflows the card upward ([R01]). The bottom
- * edge is anchored (`bottom: …` in caller CSS), so this value is stable across
- * height changes and cannot feed a layout loop.
+ * gap between its anchored edge and the edge it grows toward, so a composed
+ * `TugPopupList` scroller never overflows ([R01]). The anchored edge is the one
+ * the caller's CSS pins (`bottom:` upward, `top:` downward), so this value is
+ * stable across height changes and cannot feed a layout loop.
  */
-function applyAvailableHeight(panel: HTMLDivElement): void {
-  const bottom = panel.getBoundingClientRect().bottom;
-  const available = Math.max(0, bottom - AVAILABLE_TOP_INSET);
+function applyAvailableHeight(
+  panel: HTMLDivElement,
+  growth: TugPlacardGrowth,
+  bottomBoundEl: HTMLElement | null | undefined,
+): void {
+  const box = panel.getBoundingClientRect();
+  // Downward, the floor is the bound element's bottom — but never past the
+  // window, which the bound (a canvas taller than the window, scrolled) can be.
+  const floor =
+    bottomBoundEl == null
+      ? window.innerHeight
+      : Math.min(bottomBoundEl.getBoundingClientRect().bottom, window.innerHeight);
+  const available =
+    growth === "down"
+      ? Math.max(0, floor - box.top - AVAILABLE_EDGE_INSET)
+      : Math.max(0, box.bottom - AVAILABLE_EDGE_INSET);
   panel.style.setProperty(
     "--radix-popover-content-available-height",
     `${available}px`,
@@ -235,8 +277,11 @@ export function TugPlacard({
   title,
   children,
   className,
+  style,
   dismiss = "explicit",
   reposition = false,
+  growth = "up",
+  bottomBoundEl,
   anchorCenter,
   triggerSelector,
   persistKey,
@@ -268,7 +313,7 @@ export function TugPlacard({
       if (!draggingRef.current) {
         applyPlacement(panel, { reposition, fraction, anchorCenter });
       }
-      applyAvailableHeight(panel);
+      applyAvailableHeight(panel, growth, bottomBoundEl);
     };
     apply();
 
@@ -284,7 +329,7 @@ export function TugPlacard({
       window.removeEventListener("resize", onWindowResize);
       observer?.disconnect();
     };
-  }, [open, reposition, fraction, anchorCenter]);
+  }, [open, reposition, fraction, anchorCenter, growth, bottomBoundEl, style]);
 
   function onHeaderPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
     if (event.button !== 0) return;
@@ -351,7 +396,11 @@ export function TugPlacard({
     <div
       ref={panelRef}
       className={cn("tug-placard", className)}
+      style={style}
       data-slot="tug-placard"
+      // Which way the panel opens, for the caller's anchor rule and for the
+      // enter animation, which travels away from the anchor either way ([L06]).
+      data-growth={growth}
       // The placard is chrome; clicking it (drag, close, inner affordances)
       // must not pull first-responder focus off the card's editor.
       data-tug-focus="refuse"

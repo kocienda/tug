@@ -130,6 +130,89 @@
   max-width: 100%;
 }
 
+/* Folded, the same placard hangs the other way ([B06]). Its container is the
+   pane frame it was portaled into rather than the strip, so `100%` would mean
+   the whole frame: the line it hangs from is measured — the Z2 row's own
+   bottom edge in frame coordinates — and written as
+   `--tugx-folded-placard-top` when the placard opens. `max-width` follows the
+   frame here, which is the card's width, the same bound the open form takes
+   from the strip. */
+.tug-placard.session-telemetry-status-placard[data-growth="down"] {
+  top: calc(var(--tugx-folded-placard-top, 100%) + var(--tug-space-sm));
+  bottom: auto;
+}
+
+/* ── The Z2 occupant ──────────────────────────────────────────────────────
+   A folded card with something to say says it HERE, in place of the five
+   telemetry cells ([B03]). The folded frame's height is the wall tier's, so
+   the card cannot grow a row for the notice; the cells are hidden rather than
+   unmounted, because the row is unconditionally mounted ([L26]) and this is
+   an appearance change ([L06]). They come back the moment the occupant
+   clears. */
+.session-telemetry-status-row[data-occupant] [data-slot="tug-status-cell"] {
+  display: none;
+}
+
+/* The occupant itself takes the row: a mark and a title, centred on the same
+   line the instruments stood on, in the muted register the cell legends use so
+   it reads as the row speaking rather than as a panel dropped into it. */
+.session-telemetry-status-occupant {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+/* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
+.session-telemetry-occupant-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--tug-font-family-sans);
+  font-size: 0.6875rem;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* The arrival's mark — the inline dialog's own glyph and its own tone, so the
+   notice and the dialog it speaks for read as one thing seen twice. The two
+   tones are the two the dialogs declare: `caution` for a permission request
+   (`ShieldAlert`, matching `PermissionDialog`'s `iconRole`), `info` for a
+   question. Named on the mark rather than on the row because the row is the
+   instruments' box and this is one occupant passing through it ([L06]).
+   @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
+.session-telemetry-occupant-mark {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.session-telemetry-occupant-mark[data-icon-role="caution"] {
+  color: var(--tug7-surface-toggle-primary-normal-caution-rest);
+}
+
+.session-telemetry-occupant-mark[data-icon-role="info"] {
+  color: var(--tug7-element-global-text-normal-link-rest);
+}
+
+/* **Unfold**, on the notice's trailing edge. The row is 18px of value height
+   and the button is the only thing in it that wants a box, so it gives back
+   the push button's own vertical padding rather than growing the strip — the
+   folded frame's height is the wall tier's and cannot answer for a taller
+   row. `margin-inline-start: auto` is deliberately NOT set: the notice is
+   centred as a group (icon, title, action), which is how the compaction's
+   mark-and-title already reads, and pinning the action to the far edge would
+   put it under the fold control that already lives there. */
+.session-telemetry-occupant-action.tug-push-button {
+  flex: 0 0 auto;
+  padding-block: 0;
+  min-height: 0;
+  height: var(--tugx-session-status-value-row-height, 18px);
+}
+
 .session-telemetry-status-row {
   /* Flat 5-cell flex row: STATE + TIME + CONTEXT + TASKS + JOBS as
      direct siblings. `justify-content: center` packs the five cells as

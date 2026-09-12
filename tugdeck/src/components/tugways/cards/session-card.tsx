@@ -263,7 +263,13 @@ import {
 import { cardTitleStore } from "@/lib/card-title-store";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { cardFoldedOf } from "@/deck-store-selectors";
+import {
+  isCardFolded,
+  unfoldCardForBiddenSurface,
+  useIsCardFolded,
+} from "@/lib/card-fold";
 import { registerCardCloseAdvice } from "@/lib/card-close-advice";
+import { refuseCardModalHold } from "@/lib/card-modal-hold-store";
 import { readSessionCardCloseAdvice } from "@/lib/session-card-close-advice";
 import {
   sessionIdentityLine,
@@ -1097,8 +1103,16 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   // fresh `addCard("dev")` (dev IS the new FR) presents the sheet
   // on mount without waiting for a macrotask drain.
   const cardLifecycle = useCardLifecycle();
+  // The picker is the one sheet on the card nobody asked for: it arrives
+  // because the card has no session, not because the user named it. So it
+  // declares the `defer` tier below and stands down on a folded card ([B04]) —
+  // and the latch is set only once it has actually raised, because a picker
+  // that latched on the deferred call would never appear again. The unfold
+  // effect underneath is what owes it its presentation.
+  const folded = useIsCardFolded(cardId);
   const presentSheet = useCallback(() => {
     if (shownRef.current) return;
+    if (isCardFolded(cardId)) return;
     shownRef.current = true;
     sheetOpenRef.current = true;
     setSheetEverShown(true);
@@ -1117,6 +1131,12 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
     void showSheet({
       title: "Choose Session",
       icon: "FolderOpen",
+      // Unbidden ([B04]): the card raised this itself. Declaring the tier at
+      // all is what marks it so — see `ShowSheetOptions.foldPresentation`.
+      // `defer` rather than `inhabit` because a project path, a filter and a
+      // list of sessions is not one row of Z2, and the guard above means this
+      // call never reaches the host while the card is folded anyway.
+      foldPresentation: "defer",
       // A path combo box, a filter field, and session rows that carry a
       // three-line summary plus two trailing controls — the decision width
       // truncates all three.
@@ -1233,6 +1253,19 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
     if (cardLifecycle === null) return;
     return cardLifecycle.observeCardDidActivate(cardId, () => presentSheet());
   }, [cardLifecycle, cardId, presentSheet]);
+
+  // The card opened and the picker it stood down from is owed its
+  // presentation ([B03]'s other half — a deferred surface presents on unfold).
+  // Only the folded→open TRANSITION presents, never the mount: an unbound card
+  // in an inactive tab still waits for `observeCardDidActivate`, or its picker
+  // would drop on top of the sibling card the user is actually looking at.
+  const wasFoldedRef = useRef(folded);
+  useEffect(() => {
+    const wasFolded = wasFoldedRef.current;
+    wasFoldedRef.current = folded;
+    if (folded || !wasFolded) return;
+    presentSheet();
+  }, [folded, presentSheet]);
 
   // Cancel-cascade dispatch when the picker closes with no
   // success result (Escape / Cmd+. / Cancel button →
@@ -2731,21 +2764,18 @@ export function SessionCardBody({
    * the user asked for the room and is owed it — so it opens the fold first
    * and enters the card it has just made able to show what it opens.
    *
-   * Reads the deck store fresh rather than the rendered flag, for the same
-   * reason the fold toggle does: the gesture is a command, and a command
-   * decides off the state at the moment it runs.
+   * The gesture itself is `unfoldCardForBiddenSurface`, which every bidden
+   * surface on a folded card now shares — the Changes room here, and every
+   * sheet, through `showSheet`.
    *
    * Returns whether it unfolded — the caller's signal that step 3's deferred
    * reveal is about to re-run and will carry the entry armed, so making the
    * entry here as well would only spend the offer twice.
    */
-  const unfoldForChanges = useCallback((): boolean => {
-    const deckStore = getDeckStore();
-    if (deckStore === null) return false;
-    if (!cardFoldedOf(deckStore.getSnapshot(), cardId)) return false;
-    dispatchCommand(TUG_ACTIONS.SET_CARD_FOLDED, { cardId, folded: false });
-    return true;
-  }, [cardId]);
+  const unfoldForChanges = useCallback(
+    (): boolean => unfoldCardForBiddenSurface(cardId),
+    [cardId],
+  );
 
   // Commit mode's per-card state + land path ([P03], Spec S03). User-driven —
   // `/commit` and ⌃⌘C on an empty composer are the two doors INTO the mode;
@@ -5097,6 +5127,28 @@ export function SessionCardBody({
         const folded = cardFoldedOf(deckStore.getSnapshot(), cardId);
         if (!folded) {
           if (findBarOpenRef.current) closeFindBar();
+          // A card held by a modal run does not fold, and the refusal is the
+          // holder's rather than the fold's: a run takes `cardModalHoldStore`
+          // for as long as it needs the card, and every door that finds a hold
+          // stops and lets the holder say why ([L31]). The fold is one of
+          // those doors, and it is the door with the most to lose by not
+          // asking — the stand-down below carries `SHEET_SETTLED_DISMISS`,
+          // the one token an exclusive cover accepts, so a fold that walked
+          // past the hold would dismiss the cover of a run that is still
+          // going.
+          if (refuseCardModalHold(cardId)) return;
+          // A sheet standing over a folded card is the same contradiction as
+          // one raised on it ([B01]): the folded card is its masthead and its
+          // Z2 row, and a panel is neither. So whatever is up comes down here,
+          // beside the find bar and the shade, rather than being given
+          // somewhere to hang — which is what retired the anchor's
+          // boxless-slot branch ([B09]).
+          //
+          // A RUN's cover never reaches this line, by the guard above. So this
+          // closes the ordinary sheet — AI Settings, Usage, Rewind, a Z2
+          // chip's panel — and the exclusive one is answered a step earlier,
+          // by its holder, in the holder's own words.
+          cardPickerSheet.closeSheet();
           if (commitModeController.getSnapshot().active) {
             commitModeController.exit();
           } else if (joinModeController.getSnapshot().active) {

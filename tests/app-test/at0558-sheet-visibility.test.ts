@@ -284,17 +284,22 @@ describe.skipIf(!SHOULD_RUN)("AT0558: a pane-modal sheet is wholly visible", () 
     );
   }
 
-  // [B04]/[B05]: a folded card's rest line has no box, so it is no rest line —
-  // a sheet raised there stands down to the top anchor and drops from the
-  // masthead, and the same sheet on the same card unfolded rises from its line.
+  // A sheet the user ASKS FOR on a folded card opens the fold first ([B02] of
+  // the folded-card brief) and then rises from its rest line exactly as it
+  // does on an open card. The folded presentation this case used to assert —
+  // a panel standing down to the top anchor and dropping from a 144px
+  // masthead over the card beneath — is retired: a folded card shows one row,
+  // and a sheet is not one row, so the answer is to stop being folded rather
+  // than to find somewhere for the panel to hang.
   //
-  // The stand-down is decided when the sheet is raised, so each of the three
-  // readings below raises its own. Folding a card with a sheet already up is a
-  // different question and not one this harness can ask: the re-read rides a
-  // `ResizeObserver`, whose callbacks are delivered in the rendering step, and
-  // an occluded harness window never runs one.
+  // Each reading raises its own sheet, because the anchor is decided when the
+  // sheet is raised — once, now, with nothing re-reading it under a mounted
+  // panel ([B09]). Folding a card that IS holding one is the tail of this
+  // case rather than a question the harness cannot ask: the fold stands the
+  // panel down on its way, which is a plain dispatch and not a
+  // `ResizeObserver` callback an occluded window would never deliver.
   test(
-    "a sheet on a folded card stands down to the top anchor, and rises again unfolded",
+    "a sheet asked for on a folded card opens the fold and rises from its line, and folding again stands it down",
     async () => {
       const app = await launchTugApp({ testName: "at0558-folded-card" });
       try {
@@ -318,28 +323,37 @@ describe.skipIf(!SHOULD_RUN)("AT0558: a pane-modal sheet is wholly visible", () 
         );
         await new Promise((r) => setTimeout(r, 1200));
         await openAiSheetByScript(app);
-        const folded = await settle(app, 900);
-        note("measure-folded", folded);
-        expect(folded.restLineHeight === null || folded.restLineHeight === 0).toBe(true);
-        expect(folded.presentation).toBe("top");
-        expect(folded.clip.anchor).toBeNull();
-        expectWhollyVisible(folded);
-        await dismissSheet(app);
-
-        await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
-        );
+        // The ask itself unfolds the card — no notice, no second gesture.
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord("p1").folded === false`,
           { timeoutMs: 8000 },
         );
-        await new Promise((r) => setTimeout(r, 1200));
-        await openAiSheetByScript(app);
-        const again = await settle(app, 900);
-        note("measure-unfolded-again", again);
-        expect(again.presentation).toBe("rise");
-        expect(again.clip.anchor).toBe("bottom");
-        expectWhollyVisible(again);
+        const folded = await settle(app, 900);
+        note("measure-asked-for-while-folded", folded);
+        // A rest line with a box again, and the panel standing on it.
+        expect(folded.restLineHeight).not.toBeNull();
+        expect(folded.restLineHeight as number).toBeGreaterThan(0);
+        expect(folded.presentation).toBe("rise");
+        expect(folded.clip.anchor).toBe("bottom");
+        expectWhollyVisible(folded);
+
+        // And the way back down: folding a card that IS holding a sheet stands
+        // the panel down rather than finding somewhere for it to hang. That is
+        // what makes the fold rule total — a folded card has no sheet by any
+        // route — and it is why the boxless-slot branch could be retired
+        // instead of kept for this one case.
+        await app.evalJS<null>(
+          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+        );
+        await app.waitForCondition<boolean>(
+          `window.__tug.getPaneRecord("p1").folded === true`,
+          { timeoutMs: 8000 },
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(SHEET)}).length === 0`,
+          { timeoutMs: 8000 },
+        );
+        note("the fold stood the sheet down");
       } finally {
         await app.close();
       }
@@ -349,6 +363,12 @@ describe.skipIf(!SHOULD_RUN)("AT0558: a pane-modal sheet is wholly visible", () 
 
   // [B03]: the raise. A sheet's pane paints above every peer while the sheet is
   // up, and drops back the moment it closes.
+  //
+  // The overhang this reads used to be bought by folding the card, which is no
+  // longer a way to hold a sheet up — the fold stands one down. It does not
+  // need to be: p1 and p2 overlap on the wall as seeded, and [B02]'s
+  // canvas-sized growth already carries the panel past p1's own bottom edge,
+  // which is the case the lift exists for.
   test(
     "a pane holding a sheet paints above a peer that outranks it in focus order",
     async () => {
@@ -373,13 +393,6 @@ describe.skipIf(!SHOULD_RUN)("AT0558: a pane-modal sheet is wholly visible", () 
 
         await app.nativeClickAtElement(PROMPT_INPUT);
         await openAiSheet(app);
-        await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
-        );
-        await app.waitForCondition<boolean>(
-          `window.__tug.getPaneRecord("p1").folded === true`,
-          { timeoutMs: 8000 },
-        );
         await new Promise((r) => setTimeout(r, 1200));
         await finishAnimations(app);
 

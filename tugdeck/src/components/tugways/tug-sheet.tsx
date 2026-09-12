@@ -98,6 +98,8 @@ import React, {
 import { createPortal } from "react-dom";
 import * as FocusScopeRadix from "@radix-ui/react-focus-scope";
 import { TugPaneFrameContext, TugPanePortalContext } from "@/components/chrome/tug-pane";
+import { raisePaneAbovePeers } from "@/components/tugways/pane-raise";
+import { isCardFolded, unfoldCardForBiddenSurface } from "@/lib/card-fold";
 import { CardIdContext } from "@/lib/card-id-context";
 import {
   cardModalHoldStore,
@@ -185,6 +187,21 @@ export type TugSheetPresentation =
   | "shade";
 
 /**
+ * What a surface does when it arrives on a **folded** card ([B04] of the
+ * folded-card brief) — the two tiers an unbidden arrival can declare.
+ *
+ * A folded card shows its masthead and its Z2 row and nothing else, so a
+ * surface arriving there has one row to work with. Whether it fits in that row
+ * is a design fact about the surface, stated here, rather than a height read
+ * off it at runtime: `"inhabit"` for one that BECOMES the row, `"defer"` for
+ * one the row can only name and offer **Unfold** for.
+ *
+ * The tier is only consulted for a surface that declares it, which is what
+ * makes it the unbidden marker too. See {@link ShowSheetOptions.foldPresentation}.
+ */
+export type TugSheetFoldPresentation = "inhabit" | "defer";
+
+/**
  * Resting width of the sheet panel, on the same `sm`/`md`/`lg`/`xl` scale as
  * `TugPushButton` / `TugBadge`.
  *
@@ -233,60 +250,6 @@ const SHEET_RESIZE_MIN_WIDTH = 460;
 const SHEET_RESIZE_MIN_HEIGHT = 250;
 /** Gap kept between the sheet's bottom and the canvas bottom (px). */
 const SHEET_CANVAS_GAP = 32;
-
-/**
- * Does this anchor actually occupy space? [B04] — a rest line with no box is
- * treated as no rest line.
- *
- * A folded Session card keeps its view slot in the tree and takes it out of
- * layout (`.session-card[data-fold="settled"] .session-view-slot { display:
- * none }`), so the element the selector matches is real and its rect is all
- * zeros. Anchoring to it put the clip's bottom edge at the top of the viewport
- * and told every sheet on a folded card to fit inside a 144px card.
- *
- * The rect is the whole test. `offsetParent === null` is the same symptom seen
- * from the other side — it is null exactly when the element or an ancestor is
- * `display: none` — but it is ALSO null for a perfectly visible
- * `position: fixed` element, so reading it would stand an anchor down for
- * being fixed. A zero rect says what we actually need to know.
- */
-function anchorHasBox(el: Element | null): boolean {
-  return el !== null && el.getBoundingClientRect().height > 0;
-}
-
-/**
- * How many open sheets each pane frame currently holds ([B03]).
- *
- * The raise is one attribute, so two sheets sharing a frame would have the
- * first to close clear it out from under the second. The count is the same
- * shape the pane scrim's registry already takes, and for the same reason it
- * gives — "multiple sheets, future modal-class surfaces sharing the chrome".
- * A `WeakMap` because the key is a DOM node whose pane may be closed at any
- * time, and nothing here should be what keeps it alive.
- */
-const PANE_SHEET_OPEN_COUNTS = new WeakMap<HTMLElement, number>();
-
-/**
- * Mark a pane frame as holding an open sheet, and return the balanced release.
- * The attribute is read only by `tug-pane.css`, which lifts the frame above
- * every peer pane while it is set.
- */
-function raisePaneForSheet(frame: HTMLElement): () => void {
-  PANE_SHEET_OPEN_COUNTS.set(frame, (PANE_SHEET_OPEN_COUNTS.get(frame) ?? 0) + 1);
-  frame.setAttribute("data-sheet-open", "");
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    const remaining = (PANE_SHEET_OPEN_COUNTS.get(frame) ?? 1) - 1;
-    if (remaining > 0) {
-      PANE_SHEET_OPEN_COUNTS.set(frame, remaining);
-      return;
-    }
-    PANE_SHEET_OPEN_COUNTS.delete(frame);
-    frame.removeAttribute("data-sheet-open");
-  };
-}
 
 /** Enter/exit keyframe pair for one presentation style. */
 interface SheetPresentationMotion {
@@ -1137,53 +1100,15 @@ export function TugSheetContent({
     [cardEl, bottomAnchorSelector],
   );
 
-  // The anchor as RESOLVED: the matched element when it has a box, and null
-  // when it does not ([B04]). Everything downstream — the geometry effect, the
-  // canvas clamp's stand-down, the clip's `data-vertical-anchor`, the resize
-  // handles' edge set — reads this rather than the raw match, so a folded card
-  // takes the default top anchor by exactly the path a card with no view slot
-  // at all already took.
-  //
-  // `anchorGeneration` is how the observer asks for a re-read. It is bumped
-  // only when the anchor CROSSES between having a box and not having one, not
-  // on every resize: the slot's height changes with every line the composer
-  // grows, and a re-render of the sheet per keystroke would be the cost of
-  // watching the wrong thing. Crossing it is the fold and the unfold, which is
-  // what makes both safe while a sheet is up — a slot that regains its box is
-  // re-read here, and the geometry effect re-measures off the same observer it
-  // already held.
-  const [anchorGeneration, setAnchorGeneration] = useState(0);
-  const restAnchorEl = useMemo(
-    () => (anchorHasBox(bottomAnchorEl) ? bottomAnchorEl : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `anchorGeneration` is the re-read signal, not a value read below.
-    [bottomAnchorEl, anchorGeneration],
-  );
-  useLayoutEffect(() => {
-    if (bottomAnchorEl === null) return;
-    let boxed = anchorHasBox(bottomAnchorEl);
-    const observer = new ResizeObserver(() => {
-      const next = anchorHasBox(bottomAnchorEl);
-      if (next === boxed) return;
-      boxed = next;
-      setAnchorGeneration((n) => n + 1);
-    });
-    observer.observe(bottomAnchorEl);
-    return () => observer.disconnect();
-  }, [bottomAnchorEl]);
-
-  // [B05] The entrance follows the ANCHOR, not the call site. A sheet that
-  // asked to rise from a rest line and found none should not rise from a line
-  // that is not there — it drops from the masthead, the way a folded card's
-  // `Compacting` cover already does, and the same sheet on the same card rises
-  // again once the card is unfolded.
-  //
-  // The stand-down is keyed on having ASKED for a line. A caller that passes
-  // `rise` with no `bottomAnchorSelector` is not falling back to anything; it
-  // is using `rise` as a plain entrance, which is what the gallery's
-  // presentation demo does, and it keeps it.
-  const anchorStoodDown = bottomAnchorSelector !== undefined && restAnchorEl === null;
-  const entrance: TugSheetPresentation =
-    presentation === "rise" && anchorStoodDown ? "top" : presentation;
+  // The `sheet-visibility` arc resolved this anchor conditionally — the matched
+  // element only WHEN it had a box, with a `ResizeObserver` re-reading it
+  // across the fold, and a `rise` that found no line standing down to the top
+  // entrance. Both were answers to a sheet on a folded card, and the folded card
+  // no longer has one to answer ([B09]): a sheet the user asks for opens
+  // the fold first, a sheet nobody asked for is answered in the Z2 row, and the
+  // fold gesture stands down whatever sheet was already up before it commits.
+  // So the anchor is the match, decided once, and a folded card is not a case
+  // this component knows about.
 
   // Write the clip's bottom edge from the measured anchor, in frame
   // coordinates ([L06] — DOM write, no React state). The clip's top stays
@@ -1206,7 +1131,7 @@ export function TugSheetContent({
   // one the pane does.
   useLayoutEffect(() => {
     const clip = clipRef.current;
-    if (clip === null || restAnchorEl === null || paneFrameEl === null) return;
+    if (clip === null || bottomAnchorEl === null || paneFrameEl === null) return;
     const canvas = paneFrameEl.parentElement;
     const measure = (): void => {
       // Read the clip's RESTING top — the CSS `calc(chrome-height + 1px)` —
@@ -1215,7 +1140,7 @@ export function TugSheetContent({
       // top of the canvas one observer callback at a time.
       clip.style.top = "";
       const frame = paneFrameEl.getBoundingClientRect();
-      const anchor = restAnchorEl.getBoundingClientRect();
+      const anchor = bottomAnchorEl.getBoundingClientRect();
       const restingTop = clip.getBoundingClientRect().top;
       // The visible canvas, in viewport coordinates: the canvas element's own
       // box, but never past the window in either direction (the canvas can be
@@ -1285,7 +1210,7 @@ export function TugSheetContent({
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(paneFrameEl);
-    observer.observe(restAnchorEl);
+    observer.observe(bottomAnchorEl);
     // The canvas is an input now that it, rather than the frame, is what the
     // panel is sized against — a column reflow that moves the wall's bottom
     // edge changes how far this clip may grow.
@@ -1297,16 +1222,15 @@ export function TugSheetContent({
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", measure);
-      // The resolved anchor can CHANGE for a mounted sheet now ([B04]) — a
-      // card folded while its sheet is up stands the rest line down and this
-      // effect stops running. Leave no inline geometry behind: the top
-      // anchor's CSS gives the clip `height: 100vh` and its own `top`, and a
-      // stale inline `bottom`/`top` from the other anchor is state nothing
-      // else will ever clear.
+      // Leave no inline geometry behind. The anchor no longer changes under a
+      // mounted sheet, but a card dragged to another pane re-runs this effect
+      // against a new frame, and the top anchor's CSS gives the clip `height:
+      // 100vh` and its own `top` — a stale inline `bottom`/`top` measured for
+      // the other frame is state nothing else will ever clear.
       clip.style.bottom = "";
       clip.style.top = "";
     };
-  }, [restAnchorEl, paneFrameEl, mounted]);
+  }, [bottomAnchorEl, paneFrameEl, mounted]);
 
   useLayoutEffect(() => {
     // The shade's height is fraction-driven CSS against its slot — no
@@ -1324,12 +1248,12 @@ export function TugSheetContent({
     // the clip (which, bounded on both edges, IS the band) instead of from a
     // canvas bottom.
     const content = sheetContentRef.current;
-    if (restAnchorEl !== null && !aspectLockContent) {
-      // Same reason as the bottom-anchor effect's cleanup: a sheet that was
-      // top-anchored a moment ago (its card was folded) carries the inline
-      // `max-height` this effect measured against the canvas, and a
-      // bottom-anchored panel capped at a number computed for the other
-      // anchor is a cap nobody can account for. Clear it on the way out.
+    if (bottomAnchorEl !== null && !aspectLockContent) {
+      // Same reason as the bottom-anchor effect's cleanup: a panel that ran
+      // this branch under a different anchor carries the inline `max-height`
+      // measured against the canvas, and a bottom-anchored panel capped at a
+      // number computed for the other anchor is a cap nobody can account for.
+      // Clear it on the way out.
       if (content !== null) content.style.maxHeight = "";
       return;
     }
@@ -1353,7 +1277,7 @@ export function TugSheetContent({
       // less its own gutters. Top-anchored, the clip is open at the bottom and
       // the limit is the canvas.
       const available =
-        restAnchorEl !== null
+        bottomAnchorEl !== null
           ? clipBox.height - marginTop - marginBottom
           : bottomLimit - SHEET_CANVAS_GAP - clipBox.top - marginTop;
       const frac = maxHostFraction ?? 0.8;
@@ -1426,7 +1350,7 @@ export function TugSheetContent({
       observer.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [paneFrameEl, mounted, maxHostFraction, aspectLockContent, presentation, restAnchorEl]);
+  }, [paneFrameEl, mounted, maxHostFraction, aspectLockContent, presentation, bottomAnchorEl]);
 
   // ---- Drag-resize ([D15] resizable sheets) ----
   //
@@ -1626,11 +1550,11 @@ export function TugSheetContent({
     if (!contentEl) return;
 
     const g = group({ duration: "--tug-motion-duration-moderate" });
-    const isShade = entrance === "shade";
+    const isShade = presentation === "shade";
     const motion =
       isShade && shadeAnchor === "bottom"
         ? SHADE_BOTTOM_MOTION
-        : SHEET_PRESENTATION_MOTION[entrance];
+        : SHEET_PRESENTATION_MOTION[presentation];
     // The shade fades from transparent to its resting alpha as it rolls; other
     // presentations use their keyframes as-is.
     const enterFrames = isShade
@@ -1662,7 +1586,7 @@ export function TugSheetContent({
       // didn't complete; subscribers will hear about the next
       // transition (will-hide / did-hide) instead.
     });
-  }, [open, mounted, cardIdForLifecycle, sheetLifecycle, entrance, shadeAnchor, paneFrameEl]);
+  }, [open, mounted, cardIdForLifecycle, sheetLifecycle, presentation, shadeAnchor, paneFrameEl]);
 
   // Exit animation: runs when !open && mounted (DOM still present for animation).
   useLayoutEffect(() => {
@@ -1674,11 +1598,11 @@ export function TugSheetContent({
     }
 
     const g = group({ duration: "--tug-motion-duration-moderate" });
-    const isShade = entrance === "shade";
+    const isShade = presentation === "shade";
     const motion =
       isShade && shadeAnchor === "bottom"
         ? SHADE_BOTTOM_MOTION
-        : SHEET_PRESENTATION_MOTION[entrance];
+        : SHEET_PRESENTATION_MOTION[presentation];
     // The shade fades from its resting alpha to transparent as it rolls out, so
     // it dismisses as a fade rather than popping when the DOM unmounts.
     const exitFrames = isShade
@@ -1705,7 +1629,7 @@ export function TugSheetContent({
       // Animation interrupted — unmount anyway to avoid stuck state.
       setMounted(false);
     });
-  }, [open, mounted, entrance, shadeAnchor]);
+  }, [open, mounted, presentation, shadeAnchor]);
 
   // Scrim show/hide: raise the host pane's built-in scrim while the
   // sheet is open. The cleanup return guarantees a balanced decrement
@@ -1733,7 +1657,7 @@ export function TugSheetContent({
   // so there is nothing for a peer to occlude.
   useLayoutEffect(() => {
     if (!mounted || presentation === "shade" || paneFrameEl === null) return;
-    return raisePaneForSheet(paneFrameEl);
+    return raisePaneAbovePeers(paneFrameEl);
   }, [mounted, presentation, paneFrameEl]);
 
   // Dev warning: aria-labelledby requires a target.
@@ -1990,7 +1914,7 @@ export function TugSheetContent({
       <div
         className="tug-sheet-clip"
         ref={clipRef}
-        data-vertical-anchor={restAnchorEl !== null ? "bottom" : undefined}
+        data-vertical-anchor={bottomAnchorEl !== null ? "bottom" : undefined}
       >
         {/* A sheet is PANE-modal, never app-modal: its modality must not leak
             to other panes ([D15], pane-model). Same-pane modality is enforced
@@ -2025,7 +1949,7 @@ export function TugSheetContent({
             aria-label={hideHeader ? title : undefined}
             aria-describedby={description ? descriptionId : undefined}
             data-slot="tug-sheet"
-            data-tug-sheet-presentation={entrance}
+            data-tug-sheet-presentation={presentation}
             data-display-width={displayWidth}
             data-resizable={resizable ? "true" : undefined}
             data-aspect-lock={aspectLockContent ? "true" : undefined}
@@ -2085,7 +2009,7 @@ export function TugSheetContent({
                 — the seeded default button (e.g. Done) keeps its ring + filled
                 promotion across a resize. */}
             {resizable &&
-              (restAnchorEl !== null
+              (bottomAnchorEl !== null
                 ? SHEET_RESIZE_EDGES_BOTTOM
                 : SHEET_RESIZE_EDGES_TOP)
                 // Aspect-locked resize is width-driven (height follows the
@@ -2170,6 +2094,30 @@ export function useTugSheetClose(): () => void {
 export interface ShowSheetOptions {
   /** Sheet title (required — wired to aria-labelledby). */
   title: string;
+  /**
+   * What this surface does when it arrives on a **folded** card ([B04]).
+   *
+   * Declared only by surfaces that arrive UNBIDDEN — a compaction beginning,
+   * a picker a card raises on activation. A surface that declares nothing is
+   * one the user has just named, and the card opens the fold for it ([B02]);
+   * that is every sheet on the wall bar the few that say otherwise here.
+   *
+   * The two tiers are what an unbidden surface says about its own size, as a
+   * design fact rather than a height measured at runtime:
+   *
+   *  - `"inhabit"` — the surface fits the Z2 row and BECOMES it. Today the one
+   *    inhabitant is the compaction cover, which reads "Compacting…" with its
+   *    wave in the row.
+   *  - `"defer"` — the row names what is waiting and offers **Unfold**.
+   *
+   * Either way no panel rises and the fold stands; the row itself is drawn by
+   * the surface's own caller, off the store that already holds its pending
+   * state. An unbidden surface that declares neither is deferred.
+   *
+   * @default "defer" (for an unbidden surface; an undeclared surface is
+   *          bidden and unfolds instead)
+   */
+  foldPresentation?: TugSheetFoldPresentation;
   /**
    * Optional Lucide icon name (PascalCase) shown left of the title — the
    * TugAlert header layout. See {@link TugSheetContentProps.icon}.
@@ -2479,6 +2427,7 @@ interface UseTugSheetState {
  */
 export function useTugSheet(): {
   showSheet: (options: ShowSheetOptions) => Promise<string | undefined>;
+  closeSheet: (result?: string) => void;
   renderSheet: () => React.ReactNode;
 } {
   // TugPanePortalContext is consumed downstream by TugSheetContent,
@@ -2497,6 +2446,10 @@ export function useTugSheet(): {
   // replaced (rather than re-used, which would skip defaultOpen and
   // prevent a mid-animation interrupt from re-opening cleanly).
   const [state, setState] = useState<UseTugSheetState | null>(null);
+  // The same value a stable callback can read — `closeSheet` must not change
+  // identity when a sheet opens ([L07]).
+  const stateRef = useRef<UseTugSheetState | null>(state);
+  stateRef.current = state;
   const callIdRef = useRef(0);
   const resolverRef = useRef<((result: string | undefined) => void) | null>(null);
   // The last value passed to `close(result)` on the currently active
@@ -2574,6 +2527,26 @@ export function useTugSheet(): {
     if (refuseCardModalHold(hostCardIdRef.current)) {
       return Promise.resolve(undefined);
     }
+    // A sheet on a FOLDED card opens the fold first ([B02] of the folded-card
+    // brief). A folded card shows one row and everything it raises while
+    // folded comes out of that row — but a sheet is not one row, and every
+    // sheet that reaches this host without declaring a folded tier is one the
+    // user just asked for by name. A notice saying "unfold to see this" would
+    // ask them to repeat themselves, so the card opens and the panel rises
+    // from its rest line exactly as it does on an open card.
+    //
+    // A surface that DOES declare one is an unbidden arrival ([B03]/[B04]):
+    // it is answered in the Z2 row rather than by a panel, so nothing rises
+    // here and the fold stands. Resolve rather than reject, on the same terms
+    // as the modal-hold refusal above — `undefined` is the value every
+    // non-committing close yields, so nothing hangs.
+    if (
+      options.foldPresentation !== undefined &&
+      isCardFolded(hostCardIdRef.current)
+    ) {
+      return Promise.resolve(undefined);
+    }
+    const unfolded = unfoldCardForBiddenSurface(hostCardIdRef.current);
     // A showSheet() while a prior sheet is still pending supersedes it.
     // Resolve the superseded promise with `undefined` (the same "no
     // explicit result" value an Escape dismissal yields) before adopting
@@ -2585,9 +2558,58 @@ export function useTugSheet(): {
       resolverRef.current = resolve;
       lastResultRef.current = undefined;
       callIdRef.current += 1;
-      setState({ options, resolve, callId: callIdRef.current });
+      const callId = callIdRef.current;
+      const raise = (): void => {
+        // A later call already superseded this one while the raise waited.
+        if (callIdRef.current !== callId) return;
+        setState({ options, resolve, callId });
+      };
+      // FIRST the fold opens, and only THEN the panel is raised — one task
+      // later, so the panel mounts into a card that already has its rest line
+      // back. Raising it in the same task mounts it against a card mid-fold:
+      // the anchor is read off a slot that has no box yet, and the panel spends
+      // its life parked at the `rise` resting offset because the enter
+      // animation is set up before the portal target it animates is attached.
+      // Nothing is deferred on a card that was already open, which is every
+      // sheet on the wall bar this one case.
+      if (unfolded) setTimeout(raise, 0);
+      else raise();
     });
   }, []);
+
+  // Stand the current sheet down from OUTSIDE its content — the door the
+  // consumer's own `close(result)` callback is, hoisted so the host can reach
+  // it too. The fold is the caller that needs it: a folded card shows its
+  // masthead and its Z2 row and nothing else ([B01]), so a sheet standing over
+  // one is the same contradiction as a sheet raised on one, and the fold
+  // gesture closes it on the way down beside the find bar and the shade.
+  //
+  // It carries `SHEET_SETTLED_DISMISS` because it IS the host's own door, the
+  // same one the content's `close(result)` callback is — not because an
+  // exclusive sheet is expected here. A run's cover is not: the run holds the
+  // card and the hold refuses the fold before this is reached ([L31]).
+  const closeSheet = useCallback((result?: string): void => {
+    // Nothing up, nothing to close. The guard is load-bearing rather than
+    // tidiness: the responder id below is registered by the mounted
+    // `<TugSheet>`, so a dispatch with no sheet in the tree reaches a target
+    // the chain has never heard of and throws. The fold calls this every time
+    // it runs, and most times there is no sheet.
+    if (stateRef.current === null) return;
+    lastResultRef.current = result;
+    resolveHook(result);
+    if (manager) {
+      manager.sendToTarget(responderId, {
+        action: TUG_ACTIONS.CANCEL_DIALOG,
+        sender: senderId,
+        value: SHEET_SETTLED_DISMISS,
+        phase: "discrete",
+      });
+    } else {
+      // No chain manager (tests, isolated previews): clear hook state
+      // synchronously, which unmounts without an exit animation.
+      setState(null);
+    }
+  }, [manager, responderId, senderId, resolveHook]);
 
   const renderSheet = useCallback((): React.ReactNode => {
     if (!state) return null;
@@ -2609,23 +2631,7 @@ export function useTugSheet(): {
     // of clearing hook state synchronously. This unmounts the sheet
     // without an exit animation — acceptable for tests and isolated
     // previews that don't mount a ResponderChainProvider.
-    const close = (result?: string) => {
-      lastResultRef.current = result;
-      resolveHook(result);
-      if (manager) {
-        manager.sendToTarget(responderId, {
-          action: TUG_ACTIONS.CANCEL_DIALOG,
-          sender: senderId,
-          // The token an exclusive sheet's responder requires. This callback is
-          // the run's own door — the one the sheet's content was handed — and
-          // it is the only dismissal that carries it.
-          value: SHEET_SETTLED_DISMISS,
-          phase: "discrete",
-        });
-      } else {
-        setState(null);
-      }
-    };
+    const close = closeSheet;
 
     // Surface the close-result to TugSheetContent's didReturnResult
     // emitter. `getResult` is read at the moment the sheet's
@@ -2663,7 +2669,7 @@ export function useTugSheet(): {
         </TugSheetContent>
       </TugSheet>
     );
-  }, [state, senderId, responderId, resolveHook, manager]);
+  }, [state, senderId, responderId, closeSheet, manager]);
 
-  return { showSheet, renderSheet };
+  return { showSheet, closeSheet, renderSheet };
 }

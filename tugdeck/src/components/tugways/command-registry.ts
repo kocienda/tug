@@ -612,7 +612,7 @@ const SLASH_BRIDGES: readonly SlashBridge[] = [
   // bare bound session and bounced mid-turn after the fact.
   [
     "ai",
-    "AI…",
+    "AI Settings…",
     "session.ai",
     sessionSettingsChangeable,
     (chain) =>
