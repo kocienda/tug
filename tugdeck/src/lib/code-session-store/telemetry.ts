@@ -284,6 +284,10 @@ const STATIC_BREAKDOWN_IDS: ReadonlySet<string> = new Set([
  *   - The bootstrap is the feed-exact `sessionInitTokens` once
  *     captured; before turn 1 it is the raw static-estimate total
  *     (the only figure available — see the session-open requirement).
+ *     A latch standing ABOVE the resident window is stale — a
+ *     `/compact` on a session whose baseline was latched from a
+ *     resumed conversation — and the static estimate stands in for it,
+ *     which is what keeps `totalUsed` equal to the window.
  *   - `messages = window - bootstrap`, feed-exact (equals `Σ perTurn`).
  *   - `autocompact_buffer`, when the frame carries it, is reserved
  *     headroom — a segment, but NOT part of `totalUsed`.
@@ -375,7 +379,34 @@ export function computeRichContextBreakdown(
 
   // Bootstrap: feed-exact `sessionInit` once captured; before turn 1
   // the raw static-estimate total (the only figure available).
-  const bootstrap = sessionInitTokens ?? rawStaticTotal;
+  //
+  // A latch ABOVE the resident window is a latch that is no longer true, and
+  // the window — the feed's own figure — is what stands. That case is not
+  // exotic: `captureSessionInit` takes the first token-bearing iteration, and
+  // on a RESUMED conversation that iteration carries the whole resident
+  // transcript rather than a session baseline, so the latch can be six figures
+  // on a session that never had a baseline that size. A `/compact` then drops
+  // the window below it and leaves it there.
+  //
+  // Unguarded, `messages` clamped to 0 and `totalUsed` pinned at the latch:
+  // CONTEXT read one frozen number for the rest of the session however much
+  // the conversation grew, because every later window stayed under the stale
+  // latch (`@tug/satiny-disk`, 2026-09-13 — latch 205_698, post-compaction
+  // window 91_432).
+  //
+  // When the latch outruns the window, fall back to the static estimate — the
+  // figure that IS the baseline whenever no feed-exact one is available, and
+  // the honest reading of a post-compaction session: base is the system
+  // prompt and tools, and everything above it is the summary and what has
+  // been said since. Capping alone would keep `totalUsed` right and still
+  // report `messages` as 0 over a 91k window.
+  const latched = sessionInitTokens ?? rawStaticTotal;
+  const bootstrap =
+    windowTokens === null
+      ? latched
+      : latched <= windowTokens
+        ? latched
+        : Math.max(0, Math.min(rawStaticTotal, windowTokens));
   // `messages` is feed-exact: window − bootstrap. 0 before any turn.
   const messages = Math.max(0, (windowTokens ?? bootstrap) - bootstrap);
 

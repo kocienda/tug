@@ -858,6 +858,49 @@ describe("computeRichContextBreakdown", () => {
     expect(r.totalUsed).toBe(18_575);
   });
 
+  // The `@tug/satiny-disk` freeze, with that session's own numbers. Its
+  // baseline was latched on a RESUME — `captureSessionInit` takes the first
+  // token-bearing iteration, and on a resumed conversation that is the whole
+  // resident transcript (205_698), not a session baseline. The `/compact` then
+  // dropped the resident window to 91_432, BELOW the latch. Uncapped, every
+  // window after the compaction stayed under it, so `messages` clamped to 0
+  // and `totalUsed` pinned at 205_698 — CONTEXT read one number for the rest
+  // of the session however much the conversation grew.
+  it("a post-compaction window BELOW a resumed session's latched bootstrap still tracks", () => {
+    const latchedOnResume = 205_698;
+    const postCompactionWindow = 91_432;
+    const r = computeRichContextBreakdown({
+      staticBreakdown,
+      sessionInitTokens: latchedOnResume,
+      windowTokens: postCompactionWindow,
+      contextMax: CONTEXT_MAX,
+    })!;
+    // The identity the docblock states, on the input that used to break it.
+    expect(r.totalUsed).toBe(postCompactionWindow);
+    // And the popover reads honestly with it: the stale latch gives way to
+    // the static estimate, so the summary and everything said since it are
+    // `messages` rather than being swallowed by a baseline that size.
+    expect(r.segments.find((s) => s.id === "messages")!.value).toBe(
+      postCompactionWindow - RAW_STATIC_TOTAL,
+    );
+    // And it MOVES with the next turn rather than pinning at the latch.
+    const next = computeRichContextBreakdown({
+      staticBreakdown,
+      sessionInitTokens: latchedOnResume,
+      windowTokens: 98_045,
+      contextMax: CONTEXT_MAX,
+    })!;
+    expect(next.totalUsed).toBe(98_045);
+    expect(next.totalUsed).toBeGreaterThan(r.totalUsed);
+    // The static split still sums exactly to the bootstrap that stood in, and
+    // the whole arc still fills contextMax.
+    const staticSum = r.segments
+      .filter((s) => s.id !== "messages" && s.id !== "remainder")
+      .reduce((acc, s) => acc + s.value, 0);
+    expect(staticSum).toBe(RAW_STATIC_TOTAL);
+    expect(r.segments.reduce((acc, s) => acc + s.value, 0)).toBe(CONTEXT_MAX);
+  });
+
   it("clamps a negative contextMax to 0; remainder clamps to 0", () => {
     const r = computeRichContextBreakdown({
       staticBreakdown,
