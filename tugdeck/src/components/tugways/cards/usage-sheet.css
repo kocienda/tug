@@ -16,8 +16,23 @@
   gap: var(--tug-space-lg);
   font-size: var(--tug-font-size-sm);
   line-height: 1.4;
-  /* Breathing room so the last row never smashes into the pinned footer. */
-  padding-bottom: var(--tug-space-2xl);
+  /* The scrolled-to-bottom gap; the standing one is the footer's own pad. */
+  padding-bottom: var(--tug-space-md);
+}
+
+/* The scroll region is the scaffold's body, and the scrollbar paints inside
+   it — so inset the content by a lane of its own, or the rightmost figures
+   (the weekly percentages, the Last 7d table's values) run under the thumb.
+   Padding rather than `scrollbar-gutter`, because an overlay scrollbar takes
+   no layout width and would reserve nothing. */
+.usage-sheet .tug-sheet-scaffold-body {
+  padding-inline-end: var(--tug-space-md);
+}
+
+/* A standing band above the pinned footer: content clipped at the body's
+   bottom edge stops here rather than at the buttons, at every scroll offset. */
+.usage-sheet .tug-sheet-scaffold-footer {
+  padding-block-start: var(--tug-space-xl);
 }
 
 /* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
