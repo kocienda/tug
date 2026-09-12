@@ -92,7 +92,9 @@ export function CardMasthead({
         /* ALWAYS rendered. The description is what tells the row it is wearing
            the three-level stack — the lead gap, the tight inner step, the
            sub-line indent, and the tape's centering all key off
-           `:has(> .tug-session-row-description)` — so omitting it would not
+           the pulse group the description opens (`.tug-session-row-pulse`,
+           which the row wraps the description and the beat in exactly when
+           there is a description) — so omitting it would not
            merely drop a line, it would hand the masthead a two-line row's
            whole geometry. The row's own line does the eliding for prose; a
            PATH does its own, in the middle, through `TugPath`.

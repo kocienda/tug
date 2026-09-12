@@ -96,6 +96,9 @@ const CONTROL = `${STATUS_BAR} [data-slot="session-fold-control"]`;
 const CONTROL_BUTTON = `${CONTROL} button`;
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const DESCRIPTION = `${PANE} .session-masthead-row .tug-session-row-description`;
+/* The GROUP the tape reports on: the description and the beat as one box. */
+const PULSE = `${PANE} .session-masthead-row .tug-session-row-pulse`;
+const TAPE = `${PANE} .session-masthead-row .tug-activity-line-trailing`;
 
 /**
  * `SESSION_MASTHEAD_HEIGHT` in `tug-pane.tsx`, which must equal
@@ -265,6 +268,10 @@ async function readForm(app: App): Promise<{
   titleBarHeight: number;
   descHeight: number;
   descLines: number;
+  /** The tape's centre, less the pulse group's — 0 when it reads centred. */
+  tapeOffCentre: number;
+  /** The tape's drawn width. Zero is the instrument being absent. */
+  tapeWidth: number;
   beatHeight: number;
   beatTruncated: boolean;
   beatLines: number;
@@ -292,6 +299,8 @@ async function readForm(app: App): Promise<{
       var bar = q(${JSON.stringify(TITLE_BAR)});
       var beat = q(${JSON.stringify(BEAT)});
       var desc = q(${JSON.stringify(DESCRIPTION)});
+      var pulse = q(${JSON.stringify(PULSE)});
+      var tape = q(${JSON.stringify(TAPE)});
       var slot = q(${JSON.stringify(VIEW_SLOT)});
       var entry = q(${JSON.stringify(ENTRY_REGION)});
       var status = q(${JSON.stringify(STATUS_BAR)});
@@ -315,6 +324,14 @@ async function readForm(app: App): Promise<{
         descLines: desc === null || descLineHeight === 0
           ? -1
           : Math.round(desc.getBoundingClientRect().height / descLineHeight),
+        tapeOffCentre: pulse === null || tape === null
+          ? -999
+          : (function () {
+              var t = tape.getBoundingClientRect();
+              var p = pulse.getBoundingClientRect();
+              return (t.top + t.height / 2) - (p.top + p.height / 2);
+            })(),
+        tapeWidth: tape === null ? -1 : tape.getBoundingClientRect().width,
         beatHeight: beat === null ? -1 : beat.getBoundingClientRect().height,
         beatTruncated: beat === null ? false : beat.hasAttribute("data-truncated"),
         beatLines: beat === null || lineHeight === 0
@@ -402,6 +419,8 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
         note("folded masthead tier px", form.titleBarHeight);
         note("folded post box px", form.descHeight);
         note("folded beat box px", form.beatHeight);
+        note("tape off pulse centre px", form.tapeOffCentre);
+        note("tape box px", form.tapeWidth);
         note("folded beat truncated", form.beatTruncated);
         note("Z2 cells", form.statusCells);
         note("control px", `${form.controlWidth} wide, inset ${form.controlInset}, ${form.controlToFirstCell} to STATE`);
@@ -424,6 +443,15 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
         // shortest and fastest.
         expect(form.descLines).toBe(2);
         expect(form.beatLines).toBe(1);
+
+        // 3b. The tape reads on the GROUP, so it centres on the group's box —
+        // the description and the beat together — however many lines the
+        // description is standing at. Riding the beat's own line on a lift
+        // computed from ONE line's band put it half a line low exactly here,
+        // where the description is two. And it is drawn at all: an instrument
+        // that comes and goes with its data is one the reader cannot trust.
+        expect(Math.abs(form.tapeOffCentre)).toBeLessThanOrEqual(1);
+        expect(form.tapeWidth).toBeGreaterThan(0);
 
         // 4. The transcript and the composer are off the screen AND out of the
         // walk — hidden, not unmounted, so both must be said.

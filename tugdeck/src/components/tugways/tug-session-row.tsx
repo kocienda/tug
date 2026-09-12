@@ -496,6 +496,18 @@ export const TugSessionRow = React.forwardRef<
   },
   ref,
 ) {
+  // The activity, and the tape that rides it. Nothing about how the line
+  // reads is decided here: `TugActivityLine` owns the face, the leading,
+  // where the baseline falls, and what a line with nothing to say says.
+  // Named rather than written inline because it renders in two places — on
+  // its own, and inside the pulse group a description opens below.
+  const activityLine = (
+    <TugActivityLine
+      activity={activity}
+      trailing={sparkline}
+      stageProps={stageProps}
+    />
+  );
   return (
     <TugListRow
       ref={ref}
@@ -539,7 +551,20 @@ export const TugSessionRow = React.forwardRef<
             <span className="tug-session-row-slots">{slots}</span>
           ) : null}
         </span>
-        {/* The description. Present whenever the prop is — an empty one keeps
+        {/* The description and the beat beneath it are ONE GROUP, and the
+            group is a real box rather than an arrangement the eye infers.
+            What wants it is the tape: the graph reports on the pair, not on
+            the last line of the pair, so it CENTRES in this box — and a box
+            centres at whatever height it stands, which a lift computed from
+            one line's band cannot. A masthead whose description wraps to two
+            lines left the tape half a line low for exactly that reason.
+
+            The wrapper is here rather than at the mount that needed it
+            because the step INSIDE the group is tighter than the step between
+            the group and the identity above it, and those were already two
+            rules standing in for one container's gap.
+
+            The description. Present whenever the prop is — an empty one keeps
             its line rather than collapsing it, so a description arriving does
             not move the line beneath. A row that wants two lines omits it.
 
@@ -551,8 +576,9 @@ export const TugSessionRow = React.forwardRef<
             past the row's edge was simply unreadable. `truncated` mode does
             the measuring, so nothing opens over a line that is already whole
             ([L06]: measured off the live element, no state, no re-render). */}
-        {description !== undefined
-          ? withDescriptionHover(
+        {description !== undefined ? (
+          <span className="tug-session-row-pulse">
+            {withDescriptionHover(
               <span
                 className="tug-session-row-description"
                 data-empty={
@@ -564,16 +590,12 @@ export const TugSessionRow = React.forwardRef<
               </span>,
               descriptionFull,
               descriptionElided,
-            )
-          : null}
-        {/* The activity, and the tape that rides it. Nothing about how the line
-            reads is decided here: `TugActivityLine` owns the face, the leading, where
-            the baseline falls, and what a line with nothing to say says. */}
-        <TugActivityLine
-          activity={activity}
-          trailing={sparkline}
-          stageProps={stageProps}
-        />
+            )}
+            {activityLine}
+          </span>
+        ) : (
+          activityLine
+        )}
         {arcLine === undefined || arcLine === null ? null : (
           <span
             className="tug-session-row-arcline"

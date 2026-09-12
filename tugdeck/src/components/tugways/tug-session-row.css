@@ -263,7 +263,7 @@ body {
 /* The gap between identity and the pair beneath it. Carried by the name
    line rather than the container, so a row with no description pays nothing
    for a group it does not have. */
-.tug-session-row-lines:has(> .tug-session-row-description)
+.tug-session-row-lines:has(> .tug-session-row-pulse)
   .tug-session-row-name-line {
   margin-block-end: var(--tugx-session-identity-lead-gap, 3px);
   line-height: var(--tug-line-height-tight);
@@ -271,8 +271,25 @@ body {
 
 /* Inside the group the step is one pixel — the container's own line gap is
    sized for a two-line row, and the stack is tighter than that. */
-.tug-session-row-lines:has(> .tug-session-row-description) {
+.tug-session-row-lines:has(> .tug-session-row-pulse) {
   gap: var(--tugx-session-identity-line-gap, 1px);
+}
+
+/* The GROUP: the description and the beat, as one box ([D185] as amended).
+   It is a box so the tape can centre in it by layout at whatever height it
+   stands — one line of description at rest, two while a wrapped post is on
+   the line — instead of riding the last line on a lift computed from one
+   line's band. The step inside it is the group's own, which is the number
+   the container above was already restating.
+
+   `position: relative` so a mount that takes the tape out of the beat's flex
+   line has this box to position against, and nothing wider. */
+.tug-session-row-pulse {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tugx-session-identity-line-gap, 1px);
+  min-inline-size: 0;
+  position: relative;
 }
 
 /* Where the TAPE sits on the three-level stack, DERIVED rather than tuned.

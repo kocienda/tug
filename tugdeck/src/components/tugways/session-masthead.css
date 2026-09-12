@@ -116,6 +116,33 @@
   color: var(--tugx-pane-title-fg-active);
 }
 
+/* ── Where the tape sits: centred on the GROUP, by layout ───────────────
+   Every other mount rides the tape on the beat's own line and lifts it by
+   half the description's band, which centres it on the pair — correct while
+   the description is one line, and half a line low the moment it is two.
+   This tier is the one surface where it is two ([B01]), so here the tape
+   comes out of the beat's flex line and centres in the pulse box itself.
+   No arithmetic: the box is the pair, and the pair is what the graph
+   reports on, so the answer holds at either height and would hold at three.
+
+   The lift is cancelled rather than re-tuned — a transform on top of a
+   centred box is the second hand-tuned number this file used to carry. */
+.session-masthead-row .tug-activity-line-trailing {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  align-items: center;
+  transform: none;
+}
+
+/* With the tape out of the line, the beat's own run has to keep its distance
+   the way the lines above it already do — the reserve is `TugActivityLine`'s
+   own knob, applied here to the accessory's line too, which in flow it did
+   not need because the accessory was a flex item stopping the run by layout. */
+.session-masthead-row .tug-activity-line .tug-activity-line-line {
+  padding-inline-end: var(--tugx-activity-line-stacked-trailing-reserve);
+}
+
 /* ── The beat line's two controls ──────────────────────────────────────
    Both are pointer-only chrome affordances: the LINE ITSELF opens the
    beat-history history, the tape opens the expanded Activity card. Neither is
@@ -441,11 +468,16 @@
    on every other surface, and the fold stops being the one place its register
    differs.
 
-   TWO lines and not more, and the box is fixed at two whether the text fills
-   them or not — a column of cards whose tiers moved as their posts changed
-   would ripple ([B02]). The tier's own height comes from the same term
-   (`tug-pane.css`, `--tugx-session-masthead-extra-line`), so the box and the
-   chrome it stands in grow together.
+   TWO lines at most, and the box takes only the lines it has ink for, so the
+   beat under it hugs the description's real bottom and is pushed down a line
+   when a post wraps. A box fixed at two was the first cut, on a ripple
+   argument that belongs one level up: what must never move is the TIER, and
+   the tier's height is declared on the pane (`tug-pane.css`,
+   `--tugx-session-masthead-extra-line`) whatever this box measures ([B02]).
+   Held at two, the box spent a short post's slack as a blank line BETWEEN
+   the two readings, which is the one place in the tier where air cannot pass
+   for air. Released, that slack falls to the foot of the band, under the
+   beat, where it reads as the edge of the tier.
 
    The description arrives here set to `nowrap`, which is the one thing this
    rule takes back. Its `text-overflow: ellipsis` STAYS: a clamped box wants
@@ -458,9 +490,6 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  min-height: calc(
-    2 * var(--tugx-session-row-description-line)
-  );
 }
 
 /* The beat and the title keep their single-line ellipsis. Only the
