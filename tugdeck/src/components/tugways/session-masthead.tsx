@@ -56,7 +56,7 @@
  * lives rather than a hover surface, because a hover-dismissed panel puts its
  * own button out of the pointer's reach — and rather than a `TugPlacard`,
  * which renders in place and needs its caller to own the vertical axis inside
- * a positioned ancestor, a contract a clipping 72px chrome tier cannot honour.
+ * a positioned ancestor, a contract a clipping 88px chrome tier cannot honour.
  *
  * Laws: [L02] every store enters through `useSyncExternalStore`;
  *       [L06] appearance via CSS/DOM, never React state;
@@ -131,7 +131,7 @@ import {
 
 /**
  * The masthead's dot box. The row's denser cut, not the Cards card's 28: the masthead
- * is a 72px chrome tier and a dot that size would out-shout the name it marks.
+ * is an 88px chrome tier and a dot that size would out-shout the name it marks.
  */
 const MASTHEAD_DOT_SIZE = TUG_SESSION_ROW_STACK_DOT_SIZE;
 
@@ -582,7 +582,7 @@ export function SessionMasthead({
           projectDir: projectDir.length > 0 ? projectDir : undefined,
           branch,
         }}
-        // The dense cut. A 72px chrome tier with a 28px dot in it would have
+        // The dense cut. An 88px chrome tier with a 28px dot in it would have
         // the mark out-shouting the name it marks.
         dotSize={MASTHEAD_DOT_SIZE}
         // And the tier packs against the COLUMN the dot stands in rather than
@@ -609,11 +609,14 @@ export function SessionMasthead({
         pace
         markdown
         activityClassName="session-masthead-beat-text"
-        // The folded card's beat has two lines and two jobs ([D185]):
-        // the intent above, the action below, and a finished line at rest.
-        // The open card's masthead reads in the one-line register, where the
-        // transcript underneath is already saying what the session is for.
-        activityRegister={folded ? "wall" : "line"}
+        // The Session card's masthead spends its tier's extra line on the
+        // DESCRIPTION ([B01]), which during a turn is the Observer's post:
+        // the longest and slowest run on the tier, and the only account of
+        // the session a folded card has at all. The beat keeps its one line
+        // either way. Unconditional, not keyed on the fold ([B04]) — the
+        // tier is the same height in both forms, so a register that changed
+        // with the form would be the one thing left that did.
+        activityRegister="wall"
         /*
           Right-click ANYWHERE on the three lines offers the session's copies —
           the atom, the citation, the id, the description, the newest beat.
@@ -715,7 +718,7 @@ export function SessionMasthead({
 
         A POPOVER, not a placard. `TugPlacard` renders in place and asks its
         caller to own the vertical axis inside a positioned ancestor — a
-        contract a 72px chrome tier with `overflow: hidden` cannot honour, so
+        contract an 88px chrome tier with `overflow: hidden` cannot honour, so
         the panel opened clipped by the bar it was mounted in and painted over
         the lines beside it. The popover portals to the deck's canvas overlay
         and positions itself against this button, which is what every other

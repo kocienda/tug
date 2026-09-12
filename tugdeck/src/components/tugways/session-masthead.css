@@ -416,27 +416,42 @@
    the project the callsign names, and `tug-session-identity.css` styles it. */
 
 /* ============================================================================
-   The folded form: the beat takes a second line ([P07])
+   The description takes a second line, in every form ([B01], [B04])
    ========================================================================= */
 
-/* The masthead's beat run TRUNCATES on an open card by design ([F01]) — a
-   card stands beneath it, and whatever the beat had to cut is readable there.
-   Folded there is no card beneath it: the masthead, the Z2 row and the
-   control at its trailing edge are the whole of what the reader gets, so the
-   run that was a caption becomes the reading. That is what buys it the second
-   line.
+/* One run on the Session card's masthead is given two lines, and it is the
+   DESCRIPTION. Folded, the masthead is the whole of what the reader gets —
+   it, the Z2 row and the control at its trailing edge — so a run has to
+   become the reading rather than a caption. Open, the transcript beneath
+   carries what the beat had to cut, but nothing beneath carries the post,
+   which is written to be read on this line and nowhere else on the card.
+   Hence in EVERY form ([B04]), and keyed on neither the fold nor the turn:
+   a tier that changed height with either would move every card in a packed
+   column whenever one of them did.
+
+   The description, and not the beat, because the two lines differ in exactly
+   the way that settles it ([B01]). During a turn the description carries the
+   Observer's newest post — budgeted at 200 characters against a slot that
+   holds some 70, refreshed once a minute — so it is the longest and slowest
+   thing on the tier, and the one a second line finishes a sentence for. The
+   beat is a digest line of the "Editing foo.ts, 37 lines" kind, short enough
+   for one line with room to spare and broadcast about once a second; a
+   two-line box holding it would flicker between one and two lines of ink at
+   the beat's own rate. So the beat keeps the single-line ellipsis it reads in
+   on every other surface, and the fold stops being the one place its register
+   differs.
 
    TWO lines and not more, and the box is fixed at two whether the text fills
-   them or not — a wall of folded cards whose tiers moved as their beats
-   changed would ripple every few seconds ([B02]). The tier's own height comes
-   from the same term (`tug-pane.css`, `--tugx-masthead-beat-extra-line`), so
-   the box and the chrome it stands in grow together.
+   them or not — a column of cards whose tiers moved as their posts changed
+   would ripple ([B02]). The tier's own height comes from the same term
+   (`tug-pane.css`, `--tugx-session-masthead-extra-line`), so the box and the
+   chrome it stands in grow together.
 
-   The middle-truncation measurer needs no gate: it compares `scrollWidth`
-   against `clientWidth`, and a run set to wrap never exceeds its width, so
-   `data-truncated` is deleted on the resize this form arrives with and the
-   clipped reading stays out of the DOM ([R04]). */
-.tug-pane[data-folded="true"] .session-masthead-row .tug-activity-line-activity {
+   The description arrives here set to `nowrap`, which is the one thing this
+   rule takes back. Its `text-overflow: ellipsis` STAYS: a clamped box wants
+   the same mark at the end of its second line that the one-line form puts at
+   the end of its first, and a post over the budget is cut either way. */
+.session-masthead-row .tug-session-row-description {
   min-inline-size: 0;
   white-space: normal;
   display: -webkit-box;
@@ -444,10 +459,16 @@
   -webkit-line-clamp: 2;
   overflow: hidden;
   min-height: calc(
-    2 * var(--tugx-activity-line-activity-size) * var(--tug-line-height-tight)
+    2 * var(--tugx-session-row-description-line)
   );
 }
 
-/* The description and the title keep their single-line ellipsis. Only the
-   beat wraps: the other two lines are IDENTITY, and identity that reflowed
-   would move the callsign a wall is scanned by. */
+/* The beat and the title keep their single-line ellipsis. Only the
+   description wraps: the title is IDENTITY, and identity that reflowed would
+   move the callsign a wall is scanned by; the beat is news, and news that
+   reflows every second is worse than news that is cut.
+
+   The beat's middle-truncation measurer therefore still reads on this form,
+   exactly as it does on an open card — it compares `scrollWidth` against
+   `clientWidth`, and the beat is a run that does not wrap here either, so
+   `data-truncated` means on a folded card what it means everywhere ([R04]). */

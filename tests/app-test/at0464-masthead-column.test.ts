@@ -1,9 +1,11 @@
 /**
  * at0464-masthead-column.test.ts — one leading column, whatever card wears it.
  *
- * A masthead tier is not a list of one kind of row. The same 72px band is worn
- * by a Session card (a small disc breathing inside a much larger ring) and by a
- * document card (a glyph that fills its box). Two marks, two ink widths.
+ * A masthead tier is not a list of one kind of row. The same frame is worn by a
+ * Session card (a small disc breathing inside a much larger ring) and by a
+ * document card (a glyph that fills its box). Two marks, two ink widths — and,
+ * since the session tier took a second description line ([D185]), two heights
+ * packed from the same first band.
  *
  * Packed the way a RAIL packs — title closed up against the pixels the mark
  * actually paints — those land on different verticals, each correct on its own

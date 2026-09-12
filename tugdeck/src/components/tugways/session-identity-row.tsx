@@ -617,20 +617,24 @@ export interface SessionIdentityRowProps
   /** Class on the activity run itself, for a surface styling its ink. */
   activityClassName?: string;
   /**
-   * Which REGISTER the activity line reads in ([D185]).
+   * Which REGISTER the row's LOWER LINES read in ([D185], [B01]).
    *
-   * `"line"` — the default, and every surface but one: the row is one line
+   * `"line"` — the default, and every surface but one: every run is one line
    * tall, so a beat is the beat and a resting session says when it last
-   * finished. The Cards card's rows, the picker's rows and the open card's
-   * masthead all read here.
+   * finished. The Cards card's rows and the picker's rows read here.
    *
-   * `"wall"` — the folded Session card, where the beat is the only thing
-   * on screen and has two lines to say it in ([B08], [P07]). Two facts get
-   * their own line: the retained INTENT above, the action below; and at rest
-   * the line names what the last turn finished rather than only when it
-   * stopped. A wall of watched sessions is read by asking "what is that one
-   * doing" and "what did that one just do", and this is the register that
-   * answers both without the card being opened.
+   * `"wall"` — the Session card's masthead, folded or open, whose tier
+   * stands one line taller than the rows' ([B04]). That line goes to the
+   * DESCRIPTION, which during a turn carries the Observer's post: the
+   * longest run on the tier, written to a budget no single line holds, and
+   * refreshed once a minute. The beat keeps the one line it reads in
+   * everywhere else — it is short, and it changes about once a second, so a
+   * box it could wrap into would flicker at that rate ([B01]).
+   *
+   * The name is still the activity's because the register is the ROW's, and
+   * the row has read it as one fact since [D185]: a wall of watched sessions
+   * is read by asking "what is that one doing" and "what is that one for",
+   * and this is the register that answers both without the card being opened.
    * @default "line"
    */
   activityRegister?: "line" | "wall";
@@ -892,34 +896,36 @@ export function SessionIdentityRow({
     enabled: identityMenu,
   });
   const ActivityRun = markdown ? ActivityMarkdownText : ActivityText;
-  // The wall register gives the beat two lines to wrap into ([B08]): a folded
-  // card is the masthead and nothing else, so the run that is a caption on an
-  // open card becomes the reading. What stands over it is the description
-  // line, which during a turn is the Observer's post — the written sentence
-  // that took the pinned intent's place.
-  //
-  // `data-register` is what the CSS keys the stacking on. It rides a wrapper
-  // rather than the run itself because the run is also the middle-truncation
-  // measurer's subject, and a run holding two block children is not a thing
-  // that measurer is asked to read.
-  const activityBeatRun = (
+  // The beat reads in ONE register everywhere, the wall included ([B01]): it
+  // is short, and it is broadcast about once a second, so a box that let it
+  // wrap would flicker between one and two lines of ink at that rate. The
+  // second line the fold buys goes to the description instead, below.
+  const activity = (
     <ActivityRun
       entry={entry}
       highlight={highlight}
-      className={
-        activityRegister === "wall"
-          ? "session-identity-activity-beat"
-          : activityClassName
-      }
+      className={activityClassName}
     />
   );
-  const activity =
+
+  // The wall register gives the DESCRIPTION two lines to wrap into ([B01]): a
+  // folded card is the masthead and nothing else, so the line that is a
+  // caption on an open card becomes the reading — and during a turn that line
+  // is the Observer's post, a sentence budgeted well past what one line of the
+  // tier holds.
+  //
+  // `data-register` is what the CSS keys the stacking on. It rides a wrapper
+  // rather than the line itself because the line is also the hover's
+  // measuring subject and the row primitive's own element, whose attributes
+  // are that primitive's to write.
+  const descriptionInk = renderFilterHighlight(description, highlight);
+  const descriptionRun =
     activityRegister === "wall" ? (
-      <span className={activityClassName} data-register="wall">
-        {activityBeatRun}
+      <span className="session-identity-description-post" data-register="wall">
+        {descriptionInk}
       </span>
     ) : (
-      activityBeatRun
+      descriptionInk
     );
 
   // ── The tape ──────────────────────────────────────────────────────────
@@ -1044,7 +1050,7 @@ export function SessionIdentityRow({
           titleRun
         )
       }
-      description={renderFilterHighlight(description, highlight)}
+      description={descriptionRun}
       descriptionFull={descriptionFull}
       descriptionElided={description !== descriptionFull}
       descriptionStandIn={descriptionStandIn}

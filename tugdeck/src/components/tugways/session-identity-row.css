@@ -42,13 +42,16 @@
 }
 
 /* ============================================================================
-   The activity line's WALL register ([B08])
+   The description line's WALL register ([B01])
    ========================================================================= */
 
-/* The beat's own register on the one surface that gives it two lines: the
-   folded Session card's masthead. What the turn is FOR stands above it on the
-   description line, written by the Observer rather than extracted from the
-   assistant's own narration — so the beat has both lines to wrap into.
+/* The description's own register on the one surface that gives it two lines:
+   the folded Session card's masthead. During a turn the line carries the
+   Observer's newest post — a written sentence budgeted well past what one
+   line of the tier holds — and folded there is no card beneath to read the
+   rest of it on, so the tier's extra line is spent here. The beat under it
+   keeps its single line: it is short and it changes about once a second, and
+   a box it could wrap into would flicker at that rate.
 
    The run is set to `block` rather than left inline so it takes the width
    before it wraps. The clamp that holds it at two lines and the tier that was
@@ -57,7 +60,7 @@
    `[data-register="wall"]` rather than a class, so the register the row was
    asked for and the register it drew are the same fact wherever it is read —
    a test, a stylesheet, or the DOM. */
-[data-register="wall"] > .session-identity-activity-beat {
+.session-identity-description-post[data-register="wall"] {
   display: block;
   min-width: 0;
 }

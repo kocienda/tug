@@ -24,7 +24,7 @@
  * Two things are pinned besides the name. The run sits inside the title line's
  * content box, i.e. inside the width the masthead already reserves against the
  * pane's control cluster, so it cannot collide with pane chrome by
- * construction. And the 72px chrome tier does not change height when the run
+ * construction. And the chrome tier does not change height when the run
  * arrives: a card that reflows when an arc is bound would move the transcript
  * under the reader's eyes.
  *

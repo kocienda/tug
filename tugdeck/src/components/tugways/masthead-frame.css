@@ -27,8 +27,10 @@
  */
 
 /**
- * The beat's second line, as a length — how much taller the tier stands when
- * the card beneath it is folded ([P07]).
+ * The SESSION masthead's extra line, as a length — how much taller that tier
+ * stands than the document tier beside it, in every form the card can be in
+ * ([B04]). The line is spent on the DESCRIPTION run, which wraps to two
+ * ([B01]).
  *
  * Declared at DOCUMENT scope rather than on `.tug-masthead-frame`, because
  * the reader is the PANE: `tug-pane.css` adds it to `--tug-masthead-height`
@@ -38,15 +40,15 @@
  * splitting it across two would put the sum and one of its terms in different
  * places.
  *
- * 16px, not the 14.4 that `--tug-font-size-xs` (12px) at
- * `--tug-line-height-tight` (1.2) computes to: the beat's line box is the
- * floor, and the tier is rounded up from it to a whole even number so the
- * folded chrome lands on 88 rather than on a fraction the frame would keep
+ * 16px, not the 15.6 that `--tug-font-size-sm` (13px) at
+ * `--tug-line-height-tight` (1.2) computes to: the wrapping run's line box is
+ * the floor, and the tier is rounded up from it to a whole even number so the
+ * session chrome lands on 88 rather than on a fraction the frame would keep
  * re-rounding. It is the spike's measured number, and the app-test that
  * measures the built tier is what holds it honest.
  */
 :root {
-  --tugx-masthead-beat-extra-line: 16px;
+  --tugx-session-masthead-extra-line: 16px;
 }
 
 /**

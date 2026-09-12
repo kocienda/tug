@@ -159,23 +159,26 @@ export const CARD_TITLE_BAR_HEIGHT = 36;
  * tall chrome over a Text tab would caption one card with another's identity.
  *
  * The masthead and the tab bar STACK; they do not merge. A multi-tab Session
- * pane's chrome is 72 + 36: masthead on top, tab row beneath it, unchanged.
+ * pane's chrome is 88 + 36: masthead on top, tab row beneath it, unchanged.
  */
 export const MASTHEAD_HEIGHT = 72;
 
 /**
- * Height of the masthead tier on a FOLDED pane. Must match
- * `calc(var(--tug-masthead-height) + var(--tugx-masthead-beat-extra-line))`
+ * Height of the SESSION card's masthead tier, in either form. Must match
+ * `calc(var(--tug-masthead-height) + var(--tugx-session-masthead-extra-line))`
  * — the rule in `tug-pane.css` that raises `--tugx-pane-chrome-height` for
- * `[data-masthead="true"][data-folded="true"]`.
+ * `[data-masthead-kind="session"]`.
  *
- * The extra line is the beat's second one ([P07]): a folded card has no
- * body beneath its masthead to carry the reading on, so the run that
- * truncates on an open card wraps to two lines here, and the tier grows by
- * exactly one line of it rather than by whatever the text asks for. Fixed in
- * both directions, so a wall of folded cards never ripples.
+ * The extra line is the DESCRIPTION run's second one ([B04]): during a turn
+ * that run carries the Observer's post, written to a budget no single line
+ * of this tier holds, so it wraps to two and the tier grows by exactly one
+ * line rather than by whatever the text asks for. It was the folded form's
+ * alone ([P07]); it is the Session card's in every form now, because the
+ * post is worth the same second line with a transcript under it as without,
+ * and a tier that changed height with the fold is a tier the wall's packing
+ * has to re-read. Fixed in both directions, so nothing ripples.
  */
-export const MASTHEAD_FOLDED_HEIGHT = 88;
+export const SESSION_MASTHEAD_HEIGHT = 88;
 
 /**
  * Imperative handle on CardTitleBar — lets the surrounding TugPane
@@ -4453,10 +4456,25 @@ export function TugPane({
       // banner. A custom property rather than a measured number, so the 72↔36
       // swap is one cascade and not four subscriptions ([L06]).
       {...(activeCardMasthead !== null ? { "data-masthead": "true" } : {})}
-      // The folded form ([P03]). Stamped beside the chrome tier because it
-      // MOVES that tier: the two together are what raise
-      // `--tugx-pane-chrome-height` by the beat's second line, and every
-      // surface that seats below the title bar follows without being told.
+      // WHICH masthead, because the two tiers are different heights: a
+      // Session card's stands one line taller than a document's in every
+      // form, folded or open ([B04]), and that line is the description run's
+      // second one. A pane fact for the same reason `data-role` below is one
+      // — the height is published from up here, and `:has()` does not
+      // invalidate on a descendant's attribute changing, so the bar's own
+      // stamp cannot be read from the pane.
+      {...(activeCardMasthead !== null
+        ? {
+            "data-masthead-kind":
+              activeCardMasthead.kind === "session-masthead"
+                ? "session"
+                : "card",
+          }
+        : {})}
+      // The folded form ([P03]). It no longer moves the chrome tier — the
+      // Session card's masthead is the taller one whether or not the card is
+      // folded — but every other surface that seats below the title bar
+      // still reads it.
       {...(folded ? { "data-folded": "true" } : {})}
       // The rail tier, stamped here as well as on the bar so the height is a
       // pane fact: the scrim, the sheet clip, and the banner all seat below a

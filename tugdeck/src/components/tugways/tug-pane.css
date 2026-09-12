@@ -290,7 +290,7 @@ body {
    frontmost tab publishes a masthead sidecar wears the masthead's height,
    and any other tab puts it back. The masthead and the tab bar STACK — the
    tab row stays `--tug-chrome-height` whatever this says, so a multi-tab
-   Session pane's chrome is 72 + 36. */
+   Session pane's chrome is 88 + 36. */
 .tug-pane {
   --tugx-pane-chrome-height: var(--tug-chrome-height);
 }
@@ -299,16 +299,23 @@ body {
   --tugx-pane-chrome-height: var(--tug-masthead-height);
 }
 
-/* One beat line taller while folded ([P07]). A folded card has no body
-   under its masthead to carry the reading on, so the beat run that truncates
-   on an open card wraps to two lines — and the tier grows by exactly one line
-   of it, declared, rather than by whatever the text happens to ask for. Fixed
-   in both directions: a wall of folded cards must never ripple as their
-   beats change. `MASTHEAD_FOLDED_HEIGHT` in `tug-pane.tsx` is the one JS
-   reader of this sum and must match it. */
-.tug-pane[data-masthead="true"][data-folded="true"] {
+/* The SESSION card's masthead stands one line taller, in every form ([B04]).
+   Its DESCRIPTION run wraps to two lines — during a turn that run is the
+   Observer's post, the longest and slowest thing on the tier ([B01]) — and
+   the tier grows by exactly one line, declared, rather than by whatever the
+   text happens to ask for.
+
+   Keyed on WHICH masthead the pane wears and not on the fold, which is the
+   point of this rule rather than an implementation detail: a tier whose
+   height followed the card's form would move every card in a packed column
+   on every fold, and one that followed the turn state would move them every
+   minute. Fixed in both directions ([D185]).
+
+   `SESSION_MASTHEAD_HEIGHT` in `tug-pane.tsx` is the one JS reader of this
+   sum and must match it. */
+.tug-pane[data-masthead-kind="session"] {
   --tugx-pane-chrome-height: calc(
-    var(--tug-masthead-height) + var(--tugx-masthead-beat-extra-line)
+    var(--tug-masthead-height) + var(--tugx-session-masthead-extra-line)
   );
 }
 

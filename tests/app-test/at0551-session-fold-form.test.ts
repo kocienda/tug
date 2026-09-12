@@ -4,32 +4,36 @@
  * ## What this gates
  *
  * The flag is the pane's ([P01]) and at0550 gates the doors that set it. This
- * file gates the FORM it produces ([B01], [P03]): a masthead tier one beat
- * line taller with the beat wrapped to two lines and the Z2 status row, whose
- * leading edge carries the card's one fold control ([B03]) — and nothing
- * else on screen.
+ * file gates the FORM it produces ([B01], [P03]): the Session card's
+ * masthead tier — one line taller than a document's in EVERY form ([B04]),
+ * with the DESCRIPTION wrapped to two lines — and the Z2 status row, whose
+ * leading edge carries the card's one fold control ([B03]), and nothing else
+ * on screen.
  *
  * Four claims:
  *
  *   1. **The form.** `data-folded="true"` reaches the pane frame; the title
- *      bar stands at `MASTHEAD_FOLDED_HEIGHT`; the beat run is two lines
- *      tall and carries no `data-truncated` (the wrap is what retires the
- *      middle-truncation reading, [R04]); the transcript slot and the entry
- *      region are neither displayed nor reachable; Z2 is still on screen with
- *      its cells; and the control at Z2's leading edge has turned over to
- *      `Unfold` — the one thing the form change costs the reader,
- *      now that the verb has one seat instead of two ([B03], [B04]).
+ *      bar stands at `SESSION_MASTHEAD_HEIGHT` — the SAME tier it stood at
+ *      open, which is the fold no longer moving the chrome; the DESCRIPTION
+ *      run is two lines tall and the beat under it is still one; the
+ *      transcript slot and the entry region are neither displayed nor
+ *      reachable; Z2 is still on screen with its cells; and the control at
+ *      Z2's leading edge has turned over to `Unfold` — the one thing the
+ *      form change costs the reader, now that the verb has one seat instead
+ *      of two ([B03], [B04]).
  *   2. **The composer folds, it does not unmount** ([B05], [L26]). Text typed
  *      into the editor is still in it after a fold and a show — which is
  *      the whole reason the fold is a collapse and an `inert` attribute rather
  *      than a conditional mount.
- *   3. **The beat reads in the WALL register** ([B08]). Folded, the beat is
- *      the only reading on screen, so it is set to `block` and given the two
- *      lines the tier was widened for. What the turn is FOR stands above it
- *      on the description line, and during a turn that line is the newest
+ *   3. **The DESCRIPTION reads in the WALL register** ([B01]), open as well
+ *      as folded ([B04]). The tier's extra line goes to the line carrying
+ *      the most and changing the least: during a turn that is the newest
  *      Observer POST about this session, falling back to the ask the turn is
- *      answering ([D187]) — a written sentence where an extracted one used to
- *      be pinned. At rest the beat's line is the activity rest sentence
+ *      answering ([D187]). It is set to `block` and given the two lines the
+ *      tier was widened for, and a post too long for one line is read over
+ *      both. The beat under it keeps the single line it reads in on every
+ *      other surface — it is short, and it changes about once a second. At
+ *      rest the beat's line is the activity rest sentence
  *      (`No turns. Ready.`) and the description is the standing sentence
  *      again.
  *   4. **The flag rides the saved layout.** Fold, reload, and the pane's
@@ -41,9 +45,9 @@
  *      after a reload instead of restoring the saved one — a restored frame
  *      here would be reading the seed back, not the disk.
  *
- * The two-line beat is seeded through `publishDigestFrame`, the same door
- * at0498 uses — no live commentator, and a beat long enough that an open card
- * would have had to cut it.
+ * The two-line post is seeded through `publishOverviewPost`, the door the
+ * ladder's own claim already uses — no live Observer, and a post long enough
+ * that one line of the tier could never have held it.
  *
  * `@covers` names the files that make the form and nothing it merely reaches
  * through. `session-card.tsx` is left out for the reason at0550's header
@@ -94,17 +98,25 @@ const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const DESCRIPTION = `${PANE} .session-masthead-row .tug-session-row-description`;
 
 /**
- * `MASTHEAD_FOLDED_HEIGHT` in `tug-pane.tsx`, which must equal
- * `--tug-masthead-height` (72) + `--tugx-masthead-beat-extra-line` (16). The
- * constant is duplicated here rather than imported because an app-test drives
- * the BUILT app: importing the module would assert the source against itself
- * and say nothing about the cascade that actually produced the tier.
+ * `SESSION_MASTHEAD_HEIGHT` in `tug-pane.tsx`, which must equal
+ * `--tug-masthead-height` (72) + `--tugx-session-masthead-extra-line` (16).
+ * The constant is duplicated here rather than imported because an app-test
+ * drives the BUILT app: importing the module would assert the source against
+ * itself and say nothing about the cascade that actually produced the tier.
  */
-const MASTHEAD_FOLDED_HEIGHT = 88;
+const SESSION_MASTHEAD_HEIGHT = 88;
 
-/** A beat no open card could show whole — the second line's whole reason. */
+/** A beat, long enough that the run it rides in has to cut it — on both forms. */
 const LONG_BEAT =
   "Reading the imposition allocator and its ceiling ladder, then re-running the column tests for the wall";
+
+/**
+ * A post no single line of the tier could show whole — the second line's
+ * whole reason. Inside the Observer's own 200-character budget
+ * (`overview_agent.rs`), and some three times what one line holds.
+ */
+const LONG_POST =
+  "Rewriting the imposition allocator's ceiling ladder so a folded card asks for its own tier, then re-running the column tests and the fold form against the wall at both slim and wide widths.";
 
 /** One Session card in one pane, wide enough that the row is not the subject. */
 function deckShape() {
@@ -163,29 +175,29 @@ const POST_BODY = "Folding the transcript and the composer on one clock";
 const ASK_TEXT = "Fold the card on one clock";
 
 /**
- * The activity line as the two registers render it: which register the row
- * drew, the whole line's text, and — in the wall register — each run on its
- * own with the `display` that puts it on its own line.
+ * The row's two lower lines as the two registers render them: which register
+ * the row drew, the beat's own text, and — in the wall register — the post
+ * run with the `display` that lets it take the width before it wraps.
  */
 async function readActivity(app: App): Promise<{
   register: string | null;
   runs: number;
   text: string;
   beatRun: string | null;
-  beatBlock: string | null;
+  postBlock: string | null;
   truncated: boolean;
 }> {
   return app.evalJS(
     `(function () {
       var run = document.querySelector(${JSON.stringify(BEAT)});
+      var desc = document.querySelector(${JSON.stringify(DESCRIPTION)});
       if (run === null) {
         return {
           register: null, runs: 0, text: "",
-          beatRun: null, beatBlock: null, truncated: false,
+          beatRun: null, postBlock: null, truncated: false,
         };
       }
-      var wall = run.querySelector('[data-register="wall"]');
-      var beat = run.querySelector(".session-identity-activity-beat");
+      var wall = desc === null ? null : desc.querySelector('[data-register="wall"]');
       var flat = function (el) {
         return el === null ? null : (el.textContent || "").replace(/\\s+/g, " ").trim();
       };
@@ -193,8 +205,8 @@ async function readActivity(app: App): Promise<{
         register: wall === null ? null : wall.getAttribute("data-register"),
         runs: run.querySelectorAll("span[class]").length,
         text: (run.textContent || "").replace(/\\s+/g, " ").trim(),
-        beatRun: flat(beat),
-        beatBlock: beat === null ? null : getComputedStyle(beat).display,
+        beatRun: flat(run),
+        postBlock: wall === null ? null : getComputedStyle(wall).display,
         truncated: run.hasAttribute("data-truncated"),
       };
     })()`,
@@ -251,6 +263,8 @@ async function toggleFolded(app: App, want: boolean): Promise<void> {
 async function readForm(app: App): Promise<{
   frameFolded: string | null;
   titleBarHeight: number;
+  descHeight: number;
+  descLines: number;
   beatHeight: number;
   beatTruncated: boolean;
   beatLines: number;
@@ -277,6 +291,7 @@ async function readForm(app: App): Promise<{
       var frame = q(${JSON.stringify(PANE)});
       var bar = q(${JSON.stringify(TITLE_BAR)});
       var beat = q(${JSON.stringify(BEAT)});
+      var desc = q(${JSON.stringify(DESCRIPTION)});
       var slot = q(${JSON.stringify(VIEW_SLOT)});
       var entry = q(${JSON.stringify(ENTRY_REGION)});
       var status = q(${JSON.stringify(STATUS_BAR)});
@@ -286,6 +301,9 @@ async function readForm(app: App): Promise<{
       var lineHeight = beat === null
         ? 0
         : parseFloat(getComputedStyle(beat).lineHeight) || 0;
+      var descLineHeight = desc === null
+        ? 0
+        : parseFloat(getComputedStyle(desc).lineHeight) || 0;
       return {
         frameFolded: frame === null ? null : frame.getAttribute("data-folded"),
         // The CONTENT height, not the border box: the tier's height rule is
@@ -293,6 +311,10 @@ async function readForm(app: App): Promise<{
         // would report the constant plus one and the arithmetic would read as
         // off-by-one when it is exact.
         titleBarHeight: bar === null ? -1 : parseFloat(getComputedStyle(bar).height),
+        descHeight: desc === null ? -1 : desc.getBoundingClientRect().height,
+        descLines: desc === null || descLineHeight === 0
+          ? -1
+          : Math.round(desc.getBoundingClientRect().height / descLineHeight),
         beatHeight: beat === null ? -1 : beat.getBoundingClientRect().height,
         beatTruncated: beat === null ? false : beat.hasAttribute("data-truncated"),
         beatLines: beat === null || lineHeight === 0
@@ -334,19 +356,33 @@ async function readForm(app: App): Promise<{
 
 describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
   test(
-    "the tier grows a beat line, the body folds to Z2, and the bar takes the width",
+    "the tier grows a line, the body folds to Z2, and the bar takes the width",
     async () => {
       const app = await launchTugApp({ testName: "at0551-fold-form" });
       try {
         await openCard(app);
 
-        // A beat long enough that the open card had to cut it — which is the
-        // reading the second line is being bought for.
+        // A turn in flight, and on both lower lines a run too long for it: a
+        // kinded beat (which is also what puts the turn in flight, so the
+        // post rung is the one the description climbs to), and a post three
+        // times what one line holds — the reading the second line is bought
+        // for.
         await app.evalJS<boolean>(
-          `window.__tug.publishDigestFrame(${JSON.stringify(digestFrame(LONG_BEAT, 1))})`,
+          `window.__tug.publishDigestFrame(${JSON.stringify(
+            digestFrame(LONG_BEAT, 1, "tool"),
+          )})`,
+        );
+        await app.evalJS<boolean>(
+          `window.__tug.publishOverviewPost(${JSON.stringify(
+            observerPost(LONG_POST, 1),
+          )})`,
         );
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BEAT)}) !== null`,
+          { timeoutMs: 20_000 },
+        );
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(DESCRIPTION)})?.textContent || "").indexOf(${JSON.stringify(LONG_POST)}) >= 0`,
           { timeoutMs: 20_000 },
         );
 
@@ -364,7 +400,9 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
 
         const form = await readForm(app);
         note("folded masthead tier px", form.titleBarHeight);
+        note("folded post box px", form.descHeight);
         note("folded beat box px", form.beatHeight);
+        note("folded beat truncated", form.beatTruncated);
         note("Z2 cells", form.statusCells);
         note("control px", `${form.controlWidth} wide, inset ${form.controlInset}, ${form.controlToFirstCell} to STATE`);
         note("entry region", `${form.entryHeight}px, rows ${form.entryRows}, fold ${form.entryFoldPhase}`);
@@ -373,15 +411,19 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
         // 1. The flag reaches the frame — every rule below hangs off it.
         expect(form.frameFolded).toBe("true");
 
-        // 2. The tier is one beat line taller, and it is the DECLARED number
-        // rather than whatever the text asked for.
-        expect(form.titleBarHeight).toBeCloseTo(MASTHEAD_FOLDED_HEIGHT, 0);
-        expect(form.titleBarHeight).toBeGreaterThan(openTier);
+        // 2. The tier is the DECLARED number rather than whatever the text
+        // asked for — and it is the same number it was open, because the
+        // Session card's masthead carries its extra line in both forms
+        // ([B04]) and the fold no longer moves the chrome at all.
+        expect(form.titleBarHeight).toBeCloseTo(SESSION_MASTHEAD_HEIGHT, 0);
+        expect(form.titleBarHeight).toBeCloseTo(openTier, 0);
 
-        // 3. The beat wraps to two lines and stops there, and the wrap is what
-        // takes the middle-truncated reading out of the DOM ([R04]).
-        expect(form.beatLines).toBe(2);
-        expect(form.beatTruncated).toBe(false);
+        // 3. The POST wraps to two lines and stops there, and the beat under
+        // it stays on the one line it reads in everywhere else ([B01]) — the
+        // extra line is spent on the longest and slowest run, not the
+        // shortest and fastest.
+        expect(form.descLines).toBe(2);
+        expect(form.beatLines).toBe(1);
 
         // 4. The transcript and the composer are off the screen AND out of the
         // walk — hidden, not unmounted, so both must be said.
@@ -503,7 +545,7 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
   );
 
   test(
-    "the upper line climbs the post/ask ladder while the beat reads in the wall register",
+    "the upper line climbs the post/ask ladder and reads in the wall register",
     async () => {
       const app = await launchTugApp({ testName: "at0551-fold-wall-register" });
       try {
@@ -558,7 +600,10 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
         );
         const open = await readActivity(app);
         note("open register", `${open.register} · ${open.runs} run(s)`);
-        expect(open.register).toBeNull();
+        // The masthead reads in the wall register OPEN too ([B04]) — the
+        // register no longer turns over with the form, because the tier no
+        // longer changes height with it.
+        expect(open.register).toBe("wall");
         expect(open.text).toContain("Running cargo nextest run");
 
         await toggleFolded(app, true);
@@ -566,14 +611,12 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
         note("wall register", `${folded.register} · beat="${folded.beatRun}"`);
         expect(folded.register).toBe("wall");
         expect(folded.beatRun).toContain("Running cargo nextest run");
-        // `block` is what lets the run take the width before it wraps into the
-        // two lines the tier was widened for.
-        expect(folded.beatBlock).toBe("block");
-        // …and it still fits that clamp, so a wall of these never ripples
-        // ([R04], [B02]).
-        expect(folded.truncated).toBe(false);
-        // Folded, the post is still the line above it: the two facts a watched
-        // card is being asked for are what it is doing and what that is for.
+        // `block` is what lets the POST take the width before it wraps into
+        // the two lines the tier was widened for.
+        expect(folded.postBlock).toBe("block");
+        // Folded, the post is still the line above the beat: the two facts a
+        // watched card is being asked for are what it is doing and what that
+        // is for — and it is the upper one the second line went to.
         expect(await readDescription(app)).toBe(POST_BODY);
 
         // ── The turn ends, and both lines go to rest ──

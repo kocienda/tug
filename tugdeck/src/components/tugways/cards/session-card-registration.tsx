@@ -23,7 +23,7 @@ import { SessionCardContent } from "./session-card";
  * The height a folded Session card stands at, in pixels ([P04]).
  *
  * The two bands of the folded form add up here: the masthead tier at
- * `MASTHEAD_FOLDED_HEIGHT` (88) plus its 1px bottom rule, and the 53px the
+ * `SESSION_MASTHEAD_HEIGHT` (88) plus its 1px bottom rule, and the 53px the
  * card body needs for the Z2 status row alone. It was 173 while the form
  * carried a Show Transcript bar under Z2; retiring that band into a control at
  * Z2's leading edge ([B03], [B04]) is what took 29px off the tier, and a 900px
