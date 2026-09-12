@@ -24,6 +24,12 @@ import {
   type ResizeEpisodeHandle,
 } from "@/lib/resize-episode";
 import {
+  contentBoxHeight,
+  adoptFoldCrossing,
+  endFoldCrossing,
+  markFoldCrossing,
+} from "@/lib/fold-crossing";
+import {
   getTugTiming,
   getTugZoom,
   isTugMotionEnabled,
@@ -2528,6 +2534,23 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   /** Where each non-gesturing frame sat before the commit, by pane id. */
   const settleFirstRectsRef = useRef<Map<string, DOMRect>>(new Map());
   /**
+   * The fold facts each frame carried before the commit, by pane id — whether
+   * it was folded, and how tall its content box was.
+   *
+   * Kept apart from `settleFirstRectsRef` because the rect map is read by the
+   * departure ghosts and by `flipDelta`, and neither has anything to do with
+   * the fold. These two are read once, by the tween pass, to decide whether a
+   * frame is crossing the fold and what height to hold its interior at
+   * ([B04] of `session-fold-still-interior`).
+   *
+   * The content height is the box's, not the frame's, because that is the box
+   * the held interior overflows; the difference between the two is chrome that
+   * the fold does not move.
+   */
+  const settleFirstFoldsRef = useRef<
+    Map<string, { folded: boolean; contentHeight: number | null }>
+  >(new Map());
+  /**
    * The tweens running on each frame, by pane id — DOM zone, never React
    * state. At most two per settle: the one effect carrying every geometry term
    * the frame crosses ([D135] — move and size share a clock or a pinned edge
@@ -2756,6 +2779,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       const motion = isTugMotionEnabled();
       const firstRects = settleFirstRectsRef.current;
       firstRects.clear();
+      const firstFolds = settleFirstFoldsRef.current;
+      firstFolds.clear();
       // Open the episodes here, on the near side of the commit, because this
       // is the last moment the old layout is still on screen — a scroller
       // cannot say what the user is looking at once the content has already
@@ -2782,6 +2807,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const paneId = frame.getAttribute("data-pane-id");
         if (paneId === null) continue;
         if (motion) firstRects.set(paneId, frame.getBoundingClientRect());
+        // The fold's near side. Read for every frame rather than only the
+        // ones that turn out to cross, because which frames those are is not
+        // knowable until the Last pass has the other side: `data-folded` is an
+        // attribute read, and the content rect costs nothing extra in a loop
+        // that has already flushed layout for the frame's own rect above.
+        if (motion) {
+          firstFolds.set(paneId, {
+            folded: frame.hasAttribute("data-folded"),
+            contentHeight: contentBoxHeight(frame),
+          });
+        }
         episodes.set(paneId, beginResizeEpisode(frame, episodeWindowMs));
         const running = settleTweensRef.current.get(paneId);
         if (running !== undefined) {
@@ -2896,6 +2932,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         for (const [paneId, entry] of [...settleTweensRef.current]) {
           for (const anim of entry.anims) anim.cancel("snap-to-end");
           clearFlip(paneId, entry.el, entry.anims);
+          // Same sweep for the fold mark: a crossing whose completion handler
+          // never landed would leave the interior held and the card waiting on
+          // an end that is not coming. Unguarded by id, because the window is
+          // over and no crossing of any vintage should outlive it.
+          endFoldCrossing(entry.el);
         }
         // Same sweep, for the same reason: an episode the Last pass never
         // reached (no tween on that frame, a window with no animation clock
@@ -2916,10 +2957,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       for (const [paneId, entry] of [...settleTweensRef.current]) {
         for (const anim of entry.anims) anim.cancel("snap-to-end");
         clearFlip(paneId, entry.el, entry.anims);
+        endFoldCrossing(entry.el);
       }
       for (const [, handle] of settleEpisodesRef.current) handle.end();
       settleEpisodesRef.current.clear();
       settleFirstRectsRef.current.clear();
+      settleFirstFoldsRef.current.clear();
       settleFadePlanRef.current.clear();
       containerRef.current?.removeAttribute("data-imposer-settling");
     };
@@ -2933,6 +2976,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   useLayoutEffect(() => {
     const el = containerRef.current;
     const firstRects = settleFirstRectsRef.current;
+    const firstFolds = settleFirstFoldsRef.current;
     // Every episode this commit does not go on to hand a tween is finished
     // here: the new geometry is in the DOM, so ending lands each anchor
     // against the layout the user is about to see. The tweened ones are
@@ -2950,6 +2994,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     };
     if (el === null || firstRects.size === 0) {
       firstRects.clear();
+      firstFolds.clear();
       endAllEpisodes();
       return;
     }
@@ -2963,6 +3008,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // re-anchor per frame, and the one apply at the end is exact.
     if (!isTugMotionEnabled()) {
       firstRects.clear();
+      firstFolds.clear();
       endAllEpisodes();
       return;
     }
@@ -3089,6 +3135,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       const fade = fadePlan.get(paneId);
       const anims: TugAnimation[] = [];
       const restores: Array<() => void> = [];
+      // The fold crossing this frame opened, if it is crossing at all. Read by
+      // the completion handler, which is the only thing that may close it, and
+      // only by this id: a cancelled tween's handler lands after a replacement
+      // settle has already re-marked the frame.
+      let crossingId: number | null = null;
       if (fade !== undefined) {
         // A member a mode flip revealed or retired. It does not travel:
         // opacity is the only thing that animates, and the frame holds one
@@ -3165,6 +3216,45 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const widthSmears =
           widthChanges && scaleDistortion(sx) <= MAX_FLIP_SCALE_DISTORTION;
         const widthTweens = widthChanges && !widthSmears;
+        // A FOLD CROSSING: the frame's `data-folded` differs between the two
+        // sides of the commit and its height is a real term. That pair is the
+        // whole of the detection ([B04] of `session-fold-still-interior`) —
+        // the imposer already holds both sides, so nothing is cached, nothing
+        // is watched, and nothing inside the card is measured.
+        //
+        // The held height is the LARGER of the two content heights, which is
+        // the open one in both directions: First on the fold in, Last on the
+        // unfold ([F06]). The card is laid out once at that height and the
+        // content box clips it, so no top inside the card moves while the
+        // edge sweeps ([B01]).
+        //
+        // Marked before the tween starts and taken off in the completion
+        // handler below, which is also where the crossing's end is announced
+        // — the imposer's spring is the crossing's only clock ([B03], [B05]).
+        const firstFold = firstFolds.get(paneId);
+        if (
+          heightTweens &&
+          firstFold !== undefined &&
+          firstFold.folded !== frame.hasAttribute("data-folded")
+        ) {
+          const lastContentHeight = contentBoxHeight(frame);
+          const heldHeight = Math.max(
+            firstFold.contentHeight ?? 0,
+            lastContentHeight ?? 0,
+          );
+          if (heldHeight > 0) crossingId = markFoldCrossing(frame, heldHeight);
+        }
+        // A crossing this settle did not open, on a frame it is taking over.
+        // The edge has not stopped — this settle is carrying the rest of the
+        // same travel — so the crossing continues, under an id belonging to
+        // the tween that will actually finish it. Without this the cancelled
+        // tween's completion would close it here, with the whole rest of the
+        // travel still to come, and the card would land in its terminal form
+        // mid-sweep. Every deck change that shares a window with a fold is
+        // this case, which is most of them in a wall.
+        if (crossingId === null && heightTweens) {
+          crossingId = adoptFoldCrossing(frame);
+        }
         // A frame that did not move and did not change size gets no animation
         // at all.
         if (dx === 0 && dy === 0 && !widthChanges && !heightTweens) {
@@ -3230,6 +3320,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       void Promise.allSettled(anims.map((anim) => anim.finished)).then(() => {
         for (const restore of restores) restore();
         clearFlip(paneId, frame, anims);
+        // The crossing ends with the tween that carried it: the mark and the
+        // held height come off, and the end is announced on the frame so the
+        // card can land what CSS cannot write ([B05]). Guarded by the id, so a
+        // settle that was interrupted does not close the one that replaced it.
+        if (crossingId !== null) endFoldCrossing(frame, crossingId);
         // After the restorers, so the final anchor is read against the
         // geometry the frame actually keeps rather than the baked pixel
         // width the tween committed on its way out.
@@ -3270,6 +3365,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       void fading.finished.then(() => ghost.remove());
     }
     firstRects.clear();
+    firstFolds.clear();
     fadePlan.clear();
   }, [arrangement]);
 

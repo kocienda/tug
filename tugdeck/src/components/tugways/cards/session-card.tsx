@@ -108,8 +108,11 @@ import { useRenameSessionSheet } from "./rename-session-sheet";
 import { useResumeSheet } from "./resume-sheet";
 import { SessionPendingContextStrip } from "./session-pending-context-strip";
 import { SessionFoldControl } from "./session-fold-control";
-import { readSettleMs } from "@/lib/layout-imposer";
-import { getTugTiming } from "../scale-timing";
+import { isTugMotionEnabled } from "../scale-timing";
+import {
+  FOLD_CROSSING_ATTR,
+  FOLD_CROSSING_END,
+} from "@/lib/fold-crossing";
 import { useEffort } from "@/lib/use-effort";
 import { usePermissionRulesSheet } from "./permission-rules-editor";
 import { useSessionCardServices } from "./use-session-card-services";
@@ -436,12 +439,6 @@ const SESSION_CYCLE_ORDER_FOLD = 18;
 // The control's stable focus key — the `group:order` form every `focus-key`
 // placement addresses a stop by.
 const FOLD_FOCUS_KEY = `${SESSION_CYCLE_GROUP}:${SESSION_CYCLE_ORDER_FOLD}`;
-// How long past the settle's own window the fold's backstop waits before it
-// writes the terminal state without a `transitionend` ([B06], (#motion-build)).
-// Generous against the window it guards for the reason the settle's session
-// hold is: it is a wedge guard rather than a second clock, and firing it early
-// would take the composer's box away mid-fold.
-const FOLD_END_SLACK_MS = 150;
 // The Z2 status cells are five independent leaf stops ([P10] revised —
 // no arrow-roving): STATE / TIME / TOKENS / CONTEXT / WORK take
 // orders 13…17 (base + 0…4). The editor (the text body) follows at 19; and
@@ -3543,19 +3540,27 @@ export function SessionCardBody({
 
   // ── The fold's terminal state ([B06], [P03], (#motion-build)) ────────────
   //
-  // The motion itself is CSS keyed on the pane's `data-folded` ([L13],
-  // [L06]) and none of it is here. What CSS cannot say is the state the
-  // motion ENDS at, and writing that at the flag's flip is what would cancel
-  // the motion before its first frame: a `display: none` region has no box to
-  // fold, and an `inert` one loses the caret while it is still on screen. So
-  // the flag drives the motion, and this writes the terminal state when the
-  // motion ends.
+  // The motion itself is the imposer's frame tween, clipped by the pane's
+  // content box over a card held at its open height, and none of it is here
+  // ([L13], [L06]). What CSS cannot say is the state the motion ENDS at, and
+  // writing that at the flag's flip is what would cancel the motion before
+  // its first frame: a `display: none` region has no box to hold, and an
+  // `inert` one loses the caret while it is still on screen. So the flag
+  // drives the motion, and this writes the terminal state when the crossing
+  // ends.
   //
   // `data-fold` on the card root is the whole vocabulary — `"moving"` while a
   // fold is in flight in either direction, `"settled"` once one has ended with
   // the card folded, absent while the card is open. The DOM zone, never
   // React state ([L06]): a commit per frame of the fold is exactly the stream
   // the settle holds every session's notifications off for.
+  //
+  // This effect measures NOTHING. The height the interior is held at is the
+  // imposer's, taken from the rects its FLIP pass already has on both sides
+  // of the commit and published on the frame — which is why the slot watcher,
+  // the cached open height and the re-measure on land are all gone: a forced
+  // layout here reports the FOLDED geometry, so a card that reads its own box
+  // can only ever cache or guess ([B04], [F06]).
   //
   // The unfold's `inert` comes off at once rather than at the end. The reclaim
   // above lands the caret back in the composer on this same commit, and a
@@ -3564,74 +3569,6 @@ export function SessionCardBody({
   const viewSlotRef = useRef<HTMLDivElement | null>(null);
   const entryRegionRef = useRef<HTMLDivElement | null>(null);
   const foldRef = useRef<boolean | null>(null);
-  const foldEndRef = useRef<number | null>(null);
-  // The picture's height, taken at the fold IN and spent at both ends
-  // ([B05], [B06]). The transcript and the composer hold still for the
-  // length of the motion by being frozen at the height they had when it
-  // started, so the scroller's `clientHeight` never changes and the list
-  // view's container observer never fires — no pin, no re-window, no
-  // re-measure ([F08], [F09]). The slot keeps flexing to zero exactly as it
-  // did, so Z2's ride is untouched ([F07]); it is the slot's CHILD that is
-  // pinned, and the slot's own `overflow: hidden` clips it.
-  //
-  // One height, not two. The composer holds still on `align-self: start`
-  // alone (see the CSS): its own content height is already the height it
-  // should keep, so nothing has to be measured for it — and a measured one
-  // is worse than useless there, because a grid child with a DEFINITE
-  // height gives the entry region a content-based minimum that props the
-  // fold open and then cuts, which is the fold's clock rather than its
-  // picture. [B05] asked for two properties; the composer's half turns out
-  // to need none.
-  //
-  // The height is the OPEN box's, kept by the watcher below rather than
-  // taken at the flip. [B05] put the measurement in this effect, and that is
-  // one commit too late to read anything: the flag's DOM lands before the
-  // layout effect runs, so a forced layout here reports the FOLDED geometry
-  // and hands back a zero — which froze the transcript shut rather than
-  // still. At unfold time there is nothing to read either, since the slot is
-  // `display: none` ([F10]). So both directions read one cached open height,
-  // which is [B06]'s answer to the unfold generalised to the whole motion.
-  //
-  // A card that has never been open — one that mounted folded — has no
-  // cached value, and does not freeze. Its first unfold is the motion as it
-  // was before, which is no worse than now ([B06]).
-  const foldSlotHeightRef = useRef<number | null>(null);
-  // What keeps the cache current. The picture is only a picture if it is the
-  // size of the box it replaces, and the open box changes for reasons that
-  // have nothing to do with folding: the card is bound and the project
-  // picker gives way to the body, the pane is resized, the window is. A
-  // height taken once at mount is 50px wrong by the time anyone folds, and
-  // the reader sees the transcript clipped by exactly that much.
-  //
-  // So the slot is WATCHED rather than sampled — the observer answers the
-  // thing that actually changed, which is the same discipline [F09] objects
-  // to the list view NOT having during the motion. It costs nothing while a
-  // fold is in flight: `data-fold` is on the root for the whole of it, and a
-  // delivery then is refused, so a mid-motion box can never become the
-  // picture's size. The one-element `useState` is what gets the observer
-  // attached when the body appears, since a plain ref cannot announce it.
-  const [viewSlotEl, setViewSlotEl] = useState<HTMLDivElement | null>(null);
-  const attachViewSlot = useCallback((el: HTMLDivElement | null): void => {
-    viewSlotRef.current = el;
-    setViewSlotEl(el);
-  }, []);
-  const measureOpenSlotHeight = useCallback((): void => {
-    const root = sessionCardRootRef.current;
-    const slot = viewSlotRef.current;
-    if (root === null || slot === null) return;
-    if (root.hasAttribute("data-fold")) return;
-    const slotChild = slot.firstElementChild;
-    if (slotChild instanceof HTMLElement) {
-      foldSlotHeightRef.current = slotChild.offsetHeight || null;
-    }
-  }, []);
-  useLayoutEffect(() => {
-    if (viewSlotEl === null) return;
-    measureOpenSlotHeight();
-    const observer = new ResizeObserver(measureOpenSlotHeight);
-    observer.observe(viewSlotEl);
-    return () => observer.disconnect();
-  }, [viewSlotEl, measureOpenSlotHeight]);
   useLayoutEffect(() => {
     const root = sessionCardRootRef.current;
     if (root === null) return;
@@ -3647,85 +3584,63 @@ export function SessionCardBody({
       }
     };
     const land = (): void => {
-      if (foldEndRef.current !== null) {
-        window.clearTimeout(foldEndRef.current);
-        foldEndRef.current = null;
-      }
-      root.style.removeProperty("--session-fold-slot-height");
-      root.removeAttribute("data-fold-freeze");
       if (folded) root.setAttribute("data-fold", "settled");
       else root.removeAttribute("data-fold");
       setInert(folded);
-      // The one delivery the watcher above cannot get. Every resize that
-      // reaches the slot while `data-fold` is on the root is refused, and a
-      // fold in and back out is a run of exactly those: the slot shrinks to
-      // nothing and grows back to a box the observer is never allowed to
-      // read. If the pane or the window was resized while the card sat
-      // folded, the cache is left holding the height the card had before it
-      // folded, and every fold after this one freezes the picture at a size
-      // the box no longer is — clipped by the difference, on the first frame,
-      // which is the jump the freeze exists to stop. So the open state reads
-      // its own height once, here, where the tween has landed and the
-      // geometry is authoritative.
-      if (!folded) measureOpenSlotHeight();
     };
 
     if (!folded) setInert(false);
 
     // A card that mounts already folded — a restored deck, a card dropped
-    // into a wall — has no fold to watch: it is there. Same for a reader who
-    // asked for less motion, where the transition is a 1ms cut and the
-    // `transitionend` worth waiting on is not coming.
-    if (
-      firstRun ||
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ) {
+    // into a wall — has no crossing to wait on: it is there. Same for a
+    // reader with motion off, where the layout snap IS the settle and the
+    // imposer arms no tween to end ([B05]). `isTugMotionEnabled()` rather
+    // than the media query directly, because the predicate has to be the
+    // imposer's own: the card must land at once in exactly the cases the
+    // imposer declines to tween, and one opinion drifting from the other is
+    // a fold that never lands.
+    if (firstRun || !isTugMotionEnabled()) {
       land();
       return;
     }
 
     root.setAttribute("data-fold", "moving");
-    // Before paint, in the same pass that writes `data-fold="moving"`, so
-    // the first frame the reader sees is already frozen ([B05]). DOM writes
-    // on the card root, never React state ([L06]) — a commit per frame is
-    // the stream the settle holds every session's notifications off for.
-    // Nothing is measured here; the height was taken when the card landed
-    // open, which is the only moment it could be.
-    const slotHeight = foldSlotHeightRef.current;
-    // `data-fold-freeze` is what the CSS gates on, rather than the presence
-    // of the property: a `height: var(--unset)` would fall back to `auto` on
-    // its own, but the anchor and the flex declarations that go with it
-    // would not, and half a freeze is a motion nobody designed.
-    if (slotHeight !== null) {
-      root.style.setProperty("--session-fold-slot-height", `${slotHeight}px`);
-      root.setAttribute("data-fold-freeze", "");
+    // The crossing's end is the imposer's to announce, and this is the whole
+    // of the wait for it ([B05]). The event is dispatched on the FRAME by
+    // whichever path ends the crossing — the tween's own completion, the
+    // settle window's sweep, the effect's teardown — so there is no path that
+    // marks a frame and never unmarks it, and therefore no duration guess
+    // here standing in for one.
+    const frame = root.closest<HTMLElement>(".tug-pane");
+    if (frame === null) {
+      land();
+      return;
     }
-    const entry = entryRegionRef.current;
-    const onTransitionEnd = (event: TransitionEvent): void => {
-      if (event.target !== entry) return;
-      if (event.propertyName !== "grid-template-rows") return;
+    const onCrossingEnd = (): void => {
       land();
     };
-    entry?.addEventListener("transitionend", onTransitionEnd);
-    // The backstop. `transitionend` never fires for a transition the browser
-    // did not start — a fold in a pane the compositor is not painting, a theme
-    // that took the duration to zero — and a fold that never lands leaves a
-    // live composer behind a card nobody can see. The window is the settle's
-    // own, read off the same property the CSS reads and scaled by the same
-    // `--tug-timing` the settle scales by in `deck-canvas.tsx`, so there is
-    // still one clock and this is only its far edge.
-    foldEndRef.current = window.setTimeout(
-      land,
-      readSettleMs(root) * getTugTiming() + FOLD_END_SLACK_MS,
-    );
+    frame.addEventListener(FOLD_CROSSING_END, onCrossingEnd, { once: true });
+    // The one case the event cannot cover: a fold the imposer did not carry
+    // at all. Motion is on, but this settle armed nothing for this frame — a
+    // `"cut"` landing, a frame the pointer owns mid-drag, a frame that was
+    // arriving rather than travelling — so no crossing was ever marked and no
+    // end is coming. A card left `"moving"` there keeps a live composer
+    // behind a card nobody can see, which is what the old duration backstop
+    // guarded; this asks the question the backstop was guessing at. ONE frame
+    // is enough and is not a clock: the imposer marks in the same commit's
+    // layout pass, which runs before paint, so by the first animation frame
+    // the answer is already final either way.
+    let probe: number | null = window.requestAnimationFrame(() => {
+      probe = null;
+      if (frame.hasAttribute(FOLD_CROSSING_ATTR)) return;
+      frame.removeEventListener(FOLD_CROSSING_END, onCrossingEnd);
+      land();
+    });
     return () => {
-      entry?.removeEventListener("transitionend", onTransitionEnd);
-      if (foldEndRef.current !== null) {
-        window.clearTimeout(foldEndRef.current);
-        foldEndRef.current = null;
-      }
+      frame.removeEventListener(FOLD_CROSSING_END, onCrossingEnd);
+      if (probe !== null) window.cancelAnimationFrame(probe);
     };
-  }, [folded, measureOpenSlotHeight]);
+  }, [folded]);
 
   useCardDelegate(cardId, {
     cardDidActivate: () => {
@@ -5683,7 +5598,7 @@ export function SessionCardBody({
             */}
               <div
                 className="session-view-slot"
-                ref={attachViewSlot}
+                ref={viewSlotRef}
                 data-active-view={activeView}
                 // Folded away with the card ([P03]). The CSS takes it off the
                 // screen; `inert` is what takes it out of the FOCUS walk and

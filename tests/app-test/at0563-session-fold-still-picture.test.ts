@@ -1,51 +1,69 @@
 /**
- * at0563-session-fold-still-picture.test.ts — the transcript holds still for
- * the length of the fold.
+ * at0563-session-fold-still-picture.test.ts — the fold is a clip over a still
+ * interior, and Z2 rides the edge one way.
  *
  * ## What this gates
  *
- * The fold's frame was never the problem: one property animates and Z2 rides
- * the closing edge ([D185], at0555). What the reader actually saw moving was
- * the transcript INSIDE the card. `.session-view-slot` is `flex: 1 1 0` and
- * the column's floor stands down while folded, so the slot — and the
- * `TugListView` scroller in it — shrank continuously with the frame; the
- * list's container `ResizeObserver` answered every one of those deliveries
- * with `maybePinToBottom()` and `scrollTick()`, so for a reader at the live
- * edge the text slid upward by the amount the viewport lost, every frame, for
- * the whole 400ms, in both directions.
+ * The fold's frame was never the problem: one property animates, and the
+ * imposer's critically damped spring animates it ([D185], at0555). What the
+ * reader saw moving was everything INSIDE the card. Two separate causes, and
+ * this file gates the answer to both.
  *
- * The remedy is a picture: the fold effect measures the slot's child before
- * paint and freezes it at that height for the length of the motion, so the
- * scrollport's size never changes and the observer never fires. The card's
- * edge sweeps over a still image.
+ * The first was an anchor on the moving edge. The interior was frozen at its
+ * open HEIGHT and then anchored to the slot's bottom, which is Z2's top, which
+ * is the closing edge — so the whole transcript translated at the edge's speed
+ * while holding its size perfectly. A test asserting height alone passed
+ * throughout. The remedy is that the card is laid out ONCE at its open height,
+ * by a definite pixel height the imposer publishes, and the pane's content box
+ * clips it: nothing inside is anchored to anything that moves, because nothing
+ * inside moves.
  *
- * Two claims, on a bound Session card:
+ * The second was a second clock. The entry region's `grid-template-rows` rode
+ * a CSS transition that shared a duration with the frame's spring and nothing
+ * else — 69% done where the spring was 94% — so on every unfold the frame
+ * finished while the composer was still growing, and the growth pushed Z2 and
+ * the picture back UP. The remedy is that the transition is gone: the row is
+ * `1fr` in the picture and `0fr` at rest, a cut under Z2 where nothing is
+ * visible, and Z2's ride is `position: sticky; bottom: 0` — an offset the
+ * browser resolves against the shrinking box, which cannot reverse because the
+ * spring cannot.
  *
- *   1. **Nothing inside moves while the edge does.** Sampling every frame
- *      through a fold and then an unfold: the slot's own height travels its
- *      full extent — the frame's motion is untouched — while the transcript
- *      pane's height does not change at all. The assertion is on the CHILD's
- *      stillness against the SLOT's travel in the same series, because
- *      either one alone could be had by breaking the other.
- *   2. **The freeze is spent and cleared.** `data-fold-freeze` and
- *      `--session-fold-slot-height` are both gone at rest in each direction.
- *      A freeze left on a settled card would pin the transcript to the height
- *      it had at some earlier fold, and a card resized afterwards would wear
- *      it until the next motion.
+ * So the claims are about POSITION, which is what the reader actually sees, and
+ * every one of them is read over the frames the imposer itself marks as the
+ * crossing:
+ *
+ *   1. **No top inside the card moves.** The transcript pane's top and the
+ *      composer's top are the same number on every marked frame. This is the
+ *      claim the height assertion it replaces could not make: an anchored
+ *      picture holds its height and translates anyway.
+ *   2. **Z2's top is monotonic in the fold's direction.** Never up on a fold
+ *      in, never down on an unfold, frame to frame — which is the retrograde
+ *      motion stated as something a sampler can refuse rather than as a
+ *      tolerance. And it travels: a Z2 that never moved would satisfy
+ *      monotonicity for free.
+ *   3. **The frame's edge is the thing in motion.** Its height travels the
+ *      full extent between the open box and the folded tier, so claims 1 and 2
+ *      are read against a real fold rather than a cut. Either claim alone could
+ *      be had by breaking this one.
+ *   4. **The crossing is spent and cleared.** The mark and the held height are
+ *      both gone at rest in each direction. A mark left on a settled card holds
+ *      the interior at a height from some earlier fold and clips the pane for
+ *      good.
  *
  * The card is bound because an unbound one renders the project picker rather
- * than the card body, and the slot and its transcript pane are in the body.
- * The transcript's own length is deliberately not staged: what is under test
- * is whether the box holds its size, which is a fact about the cascade and
- * the effect rather than about how much text is in it.
+ * than the card body, and the slot, its transcript pane and the composer are
+ * in the body. The transcript's own length is deliberately not staged: what is
+ * under test is whether the boxes hold their PLACES, which is a fact about the
+ * cascade and the imposer rather than about how much text is in it.
  *
- * `@covers` names the stylesheet that IS the freeze. `session-card.tsx`,
- * which owns the measure-and-write, is deliberately NOT named: it stands at
- * its recorded fan-out of 21, and recorded debt may be paid down but never
- * refinanced — the same reason at0555 leaves it out. A break in the effect
- * surfaces here through the cascade it feeds, and at0551 drives the same
- * effect's output from a narrower file.
+ * `@covers` names the module that owns the mark and the held height, and the
+ * stylesheet that reads them. `deck-canvas.tsx`, which detects the crossing,
+ * and `session-card.tsx`, which lands the terminal state on it, are
+ * deliberately NOT named: both stand at their recorded fan-out of 21, and
+ * recorded debt may be paid down but never refinanced — the same reason at0555
+ * leaves them out. A break in either surfaces here, through the mark.
  *
+ * @covers tugdeck/src/lib/fold-crossing.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.css
  */
 
@@ -59,8 +77,11 @@ const SID = "at0563-session";
 const PANE_ID = "p1";
 const CARD = '[data-card-id="A"]';
 const CARD_ROOT = `${CARD} .session-card`;
+const FRAME = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 const SLOT = `${CARD} .session-view-slot`;
 const TRANSCRIPT = `${SLOT} .session-view-pane[data-view="transcript"]`;
+const ENTRY = `${CARD} [data-slot="session-card-entry-region"]`;
+const Z2 = `${CARD} .session-card-status-bar`;
 
 /** How long the sampler runs — a beat and a half at the default tune. */
 const CENSUS_MS = 700;
@@ -101,38 +122,50 @@ function deckShape() {
 
 interface Sample {
   t: number;
-  fold: string;
-  slot: number;
-  transcript: number;
+  /** The imposer's own mark, or `""` when this frame is not in a crossing. */
+  mark: string;
+  frameHeight: number;
+  transcriptTop: number;
+  entryTop: number;
+  z2Top: number;
 }
 
 /**
  * Arm a per-frame sampler, flip the flag, and hand back what it saw.
  *
- * Installed BEFORE the dispatch and reading on `requestAnimationFrame`, so
- * the first sample is the pre-motion geometry and every frame of the motion
- * is in the record. A `-1` means the element was not in the tree for that
- * frame, which on the slot happens at rest in the folded form (`display:
- * none`) and is why the claims read the moving frames rather than the tails.
+ * Installed BEFORE the dispatch and reading on `requestAnimationFrame`, so the
+ * first sample is the pre-motion geometry and every frame of the motion is in
+ * the record.
+ *
+ * Every number is a `getBoundingClientRect()` read, which is the point: a top
+ * is only a claim about what the reader sees if it is measured in the
+ * viewport's own coordinates, where an ancestor's translate would show up.
  */
 async function census(app: App, folded: boolean): Promise<Sample[]> {
   await app.evalJS<null>(
     `(function () {
       window.__at0563 = [];
-      var slotSel = ${JSON.stringify(SLOT)};
+      var frameSel = ${JSON.stringify(FRAME)};
       var transcriptSel = ${JSON.stringify(TRANSCRIPT)};
-      var rootSel = ${JSON.stringify(CARD_ROOT)};
+      var entrySel = ${JSON.stringify(ENTRY)};
+      var z2Sel = ${JSON.stringify(Z2)};
       var t0 = performance.now();
+      var topOf = function (sel) {
+        var el = document.querySelector(sel);
+        return el === null ? -1 : el.getBoundingClientRect().top;
+      };
       var tick = function () {
-        var slot = document.querySelector(slotSel);
-        var transcript = document.querySelector(transcriptSel);
-        var root = document.querySelector(rootSel);
+        var frame = document.querySelector(frameSel);
         window.__at0563.push({
           t: performance.now() - t0,
-          fold: root === null ? "" : root.getAttribute("data-fold") || "",
-          slot: slot === null ? -1 : slot.getBoundingClientRect().height,
-          transcript:
-            transcript === null ? -1 : transcript.getBoundingClientRect().height,
+          mark:
+            frame === null
+              ? ""
+              : frame.getAttribute("data-fold-crossing") || "",
+          frameHeight: frame === null ? -1 : frame.getBoundingClientRect().height,
+          transcriptTop: topOf(transcriptSel),
+          entryTop: topOf(entrySel),
+          z2Top: topOf(z2Sel),
         });
         if (performance.now() - t0 < ${CENSUS_MS}) requestAnimationFrame(tick);
       };
@@ -149,13 +182,17 @@ async function census(app: App, folded: boolean): Promise<Sample[]> {
 }
 
 /**
- * The frames in which the card was mid-motion, by the card's own account.
- * `data-fold="moving"` is on the root for exactly the length of the fold in
- * either direction, so this is the card saying which frames these claims are
- * about rather than the test inferring it from the geometry it is judging.
+ * The frames the crossing covered, by the IMPOSER's account.
+ *
+ * The mark is on the frame for exactly the length of the tween that carries
+ * the fold, so this is the thing that owns the motion saying which frames
+ * these claims are about — rather than the test inferring the window from the
+ * geometry it is judging, and rather than the card's own `data-fold`, which is
+ * downstream of this mark and would fold a reading of the card's clock into a
+ * claim about the imposer's.
  */
-function movingFrames(samples: Sample[]): Sample[] {
-  return samples.filter((s) => s.fold === "moving");
+function crossingFrames(samples: Sample[]): Sample[] {
+  return samples.filter((s) => s.mark !== "");
 }
 
 /** The extent a picked series covered across the frames it was sampled in. */
@@ -163,6 +200,31 @@ function spread(frames: Sample[], pick: (s: Sample) => number): number {
   if (frames.length === 0) return 0;
   const values = frames.map(pick);
   return Math.max(...values) - Math.min(...values);
+}
+
+/**
+ * The largest step a picked series took AGAINST `direction`, frame to frame.
+ *
+ * `direction` is `-1` when the series should only ever decrease and `+1` when
+ * it should only ever increase. Zero means it never went the wrong way; any
+ * positive number is retrograde motion, in pixels, and the largest one is
+ * reported rather than a count so a failure names how far back it went.
+ *
+ * Sub-pixel is not retrograde: a `getBoundingClientRect()` top on a tweening
+ * ancestor lands on fractional values, and two consecutive frames can differ
+ * by a rounding hair in either direction without anything having moved.
+ */
+function worstReversal(
+  frames: Sample[],
+  pick: (s: Sample) => number,
+  direction: -1 | 1,
+): number {
+  let worst = 0;
+  for (let i = 1; i < frames.length; i += 1) {
+    const step = (pick(frames[i]) - pick(frames[i - 1])) * direction;
+    if (step < -0.5) worst = Math.max(worst, -step);
+  }
+  return worst;
 }
 
 /** Bring a bound Session card up on a fresh app. */
@@ -177,25 +239,83 @@ async function openCard(app: App): Promise<void> {
   await app.awaitEngineReady("A");
 }
 
-/** The freeze's own two marks on the card root. */
-async function readFreeze(
+/** The crossing's own two marks: the frame's stamp and the held height. */
+async function readCrossing(
   app: App,
-): Promise<{ attr: string | null; height: string }> {
+): Promise<{ mark: string | null; held: string }> {
   return app.evalJS(
     `(function () {
-      var root = document.querySelector(${JSON.stringify(CARD_ROOT)});
-      if (root === null) return { attr: null, height: "" };
+      var frame = document.querySelector(${JSON.stringify(FRAME)});
+      var card = document.querySelector(${JSON.stringify(CARD_ROOT)});
       return {
-        attr: root.getAttribute("data-fold-freeze"),
-        height: root.style.getPropertyValue("--session-fold-slot-height"),
+        mark: frame === null ? null : frame.getAttribute("data-fold-crossing"),
+        held:
+          card === null
+            ? ""
+            : getComputedStyle(card)
+                .getPropertyValue("--tugx-fold-held-height")
+                .trim(),
       };
     })()`,
   );
 }
 
+/**
+ * The four claims, in one direction.
+ *
+ * `direction` is the way Z2's top must travel: `-1` folding in (it rises
+ * toward the masthead) and `+1` unfolding (it comes back down).
+ */
+function assertStillClip(
+  label: string,
+  samples: Sample[],
+  direction: -1 | 1,
+): void {
+  const frames = crossingFrames(samples);
+  const frameTravel = spread(frames, (s) => s.frameHeight);
+  const transcript = spread(frames, (s) => s.transcriptTop);
+  const entry = spread(frames, (s) => s.entryTop);
+  const z2Travel = spread(frames, (s) => s.z2Top);
+  const z2Back = worstReversal(frames, (s) => s.z2Top, direction);
+  note(
+    label,
+    `frames=${frames.length} frame travel=${Math.round(frameTravel)} transcript top spread=${transcript.toFixed(2)} composer top spread=${entry.toFixed(2)} z2 travel=${Math.round(z2Travel)} z2 worst reversal=${z2Back.toFixed(2)}`,
+  );
+  expect(
+    frames.length,
+    `${label}: the crossing must be sampled mid-motion`,
+  ).toBeGreaterThan(5);
+
+  // 3, first, because 1 and 2 are only claims if there was a real fold to
+  // read them over. The frame's own height is the motion.
+  expect(
+    frameTravel,
+    `${label}: the frame's edge travels its full extent`,
+  ).toBeGreaterThan(300);
+
+  // 1. No top inside the card moves. One pixel of slack for sub-pixel layout
+  //    and no more: the point is that these boxes are not laid out again at
+  //    all, so anything a reader could see as a shift is a failure here.
+  expect(
+    transcript,
+    `${label}: the transcript's top does not move`,
+  ).toBeLessThan(1.5);
+  expect(
+    entry,
+    `${label}: the composer's top does not move`,
+  ).toBeLessThan(1.5);
+
+  // 2. Z2 travels, and only one way.
+  expect(z2Travel, `${label}: Z2 rides the edge`).toBeGreaterThan(300);
+  expect(
+    z2Back,
+    `${label}: Z2's top never goes back the way it came`,
+  ).toBeLessThan(0.5);
+}
+
 describe.skipIf(!SHOULD_RUN)("AT0563: the fold's still picture", () => {
   test(
-    "the transcript holds its height for the length of the fold, in both directions",
+    "the interior holds its place for the length of the crossing, in both directions",
     async () => {
       const app = await launchTugApp({ testName: "at0563-fold-still" });
       try {
@@ -204,62 +324,23 @@ describe.skipIf(!SHOULD_RUN)("AT0563: the fold's still picture", () => {
           `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
           { timeoutMs: 15_000 },
         );
-        // ── Claim 1, the fold in ────────────────────────────────────────
-        const foldFrames = movingFrames(await census(app, true));
-        const foldSlot = spread(foldFrames, (s) => s.slot);
-        const foldTranscript = spread(foldFrames, (s) => s.transcript);
-        note(
-          "fold",
-          `frames=${foldFrames.length} slot spread=${Math.round(foldSlot)} transcript spread=${Math.round(foldTranscript)}`,
-        );
-        expect(
-          foldFrames.length,
-          "the fold must be sampled mid-motion",
-        ).toBeGreaterThan(5);
-        expect(
-          foldSlot,
-          "the fold: the slot's own height still travels",
-        ).toBeGreaterThan(100);
-        // One pixel of slack for sub-pixel layout, and no more: the point of
-        // the freeze is that the box is not resized at all, so anything a
-        // `ResizeObserver` would call a delivery is a failure here.
-        expect(
-          foldTranscript,
-          "the fold: the transcript does not move",
-        ).toBeLessThan(1.5);
+        // ── The fold in: Z2 rises toward the masthead ────────────────────
+        assertStillClip("fold", await census(app, true), -1);
 
         await wait(AFTER_LAND_MS);
-        const settled = await readFreeze(app);
-        note("settled freeze", JSON.stringify(settled));
-        expect(settled.attr, "the freeze is cleared once folded").toBeNull();
-        expect(settled.height, "and so is its height").toBe("");
+        const settled = await readCrossing(app);
+        note("settled crossing", JSON.stringify(settled));
+        expect(settled.mark, "the mark is cleared once folded").toBeNull();
+        expect(settled.held, "and so is the held height").toBe("");
 
-        // ── Claim 1, the unfold ─────────────────────────────────────────
-        const showFrames = movingFrames(await census(app, false));
-        const showSlot = spread(showFrames, (s) => s.slot);
-        const showTranscript = spread(showFrames, (s) => s.transcript);
-        note(
-          "show",
-          `frames=${showFrames.length} slot spread=${Math.round(showSlot)} transcript spread=${Math.round(showTranscript)}`,
-        );
-        expect(
-          showFrames.length,
-          "the unfold must be sampled mid-motion",
-        ).toBeGreaterThan(5);
-        expect(
-          showSlot,
-          "the unfold: the slot's own height still travels",
-        ).toBeGreaterThan(100);
-        expect(
-          showTranscript,
-          "the unfold: the transcript does not move",
-        ).toBeLessThan(1.5);
+        // ── The unfold: Z2 comes back down ──────────────────────────────
+        assertStillClip("show", await census(app, false), 1);
 
         await wait(AFTER_LAND_MS);
-        const open = await readFreeze(app);
-        note("open freeze", JSON.stringify(open));
-        expect(open.attr, "the freeze is cleared once open").toBeNull();
-        expect(open.height, "and so is its height").toBe("");
+        const open = await readCrossing(app);
+        note("open crossing", JSON.stringify(open));
+        expect(open.mark, "the mark is cleared once open").toBeNull();
+        expect(open.held, "and so is the held height").toBe("");
       } finally {
         await app.close();
       }

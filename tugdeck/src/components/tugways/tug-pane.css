@@ -1271,6 +1271,34 @@ body {
   overscroll-behavior: contain;
 }
 
+/*
+ * For the length of a fold crossing, the content box is a CLIP.
+ *
+ * `data-fold-crossing` is the imposer's mark, written on the frame for the
+ * tween's life (`lib/fold-crossing.ts`, [B04] of
+ * `session-fold-still-interior`). Inside it the card is laid out once at its
+ * OPEN height and this box tweens past that height, so the card overflows it
+ * — which is the whole design: one edge moves and nothing inside the card
+ * re-flows, because a subtree with a definite height that does not change is
+ * not dirtied by its ancestor's tween ([B01]).
+ *
+ * `overflow: hidden` rather than the `auto` above, for the two things `auto`
+ * would do with that overflow and neither of which belongs in a 400ms sweep:
+ * show a scrollbar that appears and vanishes on every fold, and take a wheel
+ * event, leaving the interior scrolled somewhere nobody asked for once the
+ * crossing ends. Back to `auto` at both ends, by the mark coming off.
+ *
+ * `hidden` rather than `clip` because this box is meant to be a scroll
+ * container — `hidden` is `clip` plus scrollability, and it is the form that
+ * keeps the box's own scroll position addressable while the clip is on.
+ * `.tug-pane-chrome` and `.tug-pane-body` above stay `clip` for the opposite
+ * reason: neither should be a scroll container at all, which is what keeps a
+ * sticky descendant legal ([F07]).
+ */
+.tug-pane[data-fold-crossing] .tug-pane-content {
+  overflow: hidden;
+}
+
 /* Layer 1: partial saturation reduction — desaturates colored content.
    Opacity controls the strength: 0 = no effect, 1 = full desaturation.
    Positioned on .tug-pane-chrome (not .tug-pane-content) so the overlay covers the

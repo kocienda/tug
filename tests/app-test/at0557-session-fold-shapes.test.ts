@@ -25,8 +25,8 @@
  * So this file censuses the two shapes at0555 cannot seed, and it samples the
  * FRAME rather than a neighbour: on a free pane there is no sibling to travel,
  * and the frame's own height is the subject either way — the claim is that the
- * frame and the interior it carries are one motion, not two clocks that happen
- * to overlap.
+ * frame moves and the interior it carries does not, which is what "one motion"
+ * means once the interior has no clock of its own.
  *
  * The claims, per shape, in both directions:
  *
@@ -35,20 +35,31 @@
  *      the stacked slot used to take, and its ceiling from the 100ms snap the
  *      free pane used to take — both are BELOW half the declared beat, which
  *      is why the assertion is a floor on the window rather than on the travel.
- *   2. **One motion.** The frame's window and the composer's start together
- *      and end together, the same pair at0555 makes about the wall.
- *   3. **Nothing walks after the frame stops.** At the frame's last moving
- *      sample the entry region is already at its rest height — the user's own
- *      requirement, and the thing the old show got wrong by 300ms.
+ *   2. **One motion, because there is only one.** Nothing inside the card
+ *      walks while the frame does: the composer's box is the same number on
+ *      every frame the imposer marks as the crossing. This used to be a pair
+ *      of assertions asking the frame and the composer to start and end
+ *      together, which was the closest a two-clock design could get to one
+ *      motion; the composer has no clock now, so the claim is the stronger
+ *      one it was reaching for.
+ *   3. **Nothing walks after the frame stops.** On the first sample past the
+ *      crossing's last marked frame the composer is already at the rest
+ *      height its direction calls for — zero folding in, its own box coming
+ *      back out. So the row's move to rest is a cut landing with the crossing
+ *      rather than a collapse running on past it, which is the user's own
+ *      requirement and the thing the old show got wrong by 300ms.
  *
  * `@covers` cannot name `deck-canvas.tsx`, which is where the signature term
  * lives: it stands at its recorded fan-out of 21 and recorded debt may be paid
  * down, never refinanced. It names the stylesheet that carries the frame's own
  * transition — the [D07] ease that had to stand down for the settle to own the
- * height — and the card stylesheet that declares the interior's clock.
+ * height — the card stylesheet that holds the interior still against the
+ * imposer's mark, and the module that owns the mark every claim here is read
+ * over.
  *
  * @covers tugdeck/styles/chrome.css
  * @covers tugdeck/src/components/tugways/cards/session-card.css
+ * @covers tugdeck/src/lib/fold-crossing.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -108,10 +119,12 @@ function deckShape(stacked: boolean) {
 
 interface Sample {
   t: number;
-  /** The composer's own extent — the region that folds. */
+  /** The composer's own box — read to assert that it does NOT move. */
   entry: number;
   /** The pane frame's height — the thing that used to cut. */
   frame: number;
+  /** The imposer's crossing mark on the frame, `""` when absent. */
+  mark: string;
 }
 
 /**
@@ -134,6 +147,10 @@ async function census(app: App, value: boolean): Promise<Sample[]> {
           t: performance.now() - t0,
           entry: entry === null ? -1 : entry.getBoundingClientRect().height,
           frame: frame === null ? -1 : frame.getBoundingClientRect().height,
+          mark:
+            frame === null
+              ? ""
+              : frame.getAttribute("data-fold-crossing") || "",
         });
         if (performance.now() - t0 < ${CENSUS_MS}) requestAnimationFrame(tick);
       };
@@ -177,25 +194,63 @@ function windowOf(
   };
 }
 
-/** The entry region's height at the frame's last moving sample ([B02]). */
-function entryAtFrameStop(samples: Sample[]): { entry: number; rest: number } {
-  const last = samples[samples.length - 1];
-  let stopIndex = 0;
-  for (let i = 1; i < samples.length; i += 1) {
-    if (Math.abs(samples[i].frame - samples[i - 1].frame) > 0.5) stopIndex = i;
-  }
-  return { entry: samples[stopIndex].entry, rest: last.entry };
+/** The frames the crossing covered, by the imposer's own mark. */
+function crossingFrames(samples: Sample[]): Sample[] {
+  return samples.filter((s) => s.mark !== "");
 }
 
-/** The declared clock both halves are supposed to read. */
+/** The extent a picked series covered across the frames it was sampled in. */
+function spread(frames: Sample[], pick: (s: Sample) => number): number {
+  if (frames.length === 0) return 0;
+  const values = frames.map(pick);
+  return Math.max(...values) - Math.min(...values);
+}
+
+/**
+ * The first sample taken after the crossing's last marked frame.
+ *
+ * `null` when the crossing was still open on the sampler's last frame, which
+ * claim 3 refuses rather than passes over: a reading of what happened after a
+ * motion is worth nothing taken from a record that stopped during it.
+ */
+function firstSampleAfter(
+  samples: Sample[],
+  crossing: Sample[],
+): Sample | null {
+  if (crossing.length === 0) return null;
+  const lastMarked = crossing[crossing.length - 1].t;
+  return samples.find((s) => s.t > lastMarked) ?? null;
+}
+
+/**
+ * The beat the frame's window is read against — the settle's own duration,
+ * scaled by the same `--tug-timing` `deck-canvas.tsx` scales by.
+ *
+ * It used to be read off the entry region's `transition-duration`, which was
+ * the same number by construction. That construction is gone: the card carries
+ * no tween of its own now, so the entry region's transition is zero and a band
+ * derived from it would be zero too. The property the settle actually reads is
+ * the only honest source, and at0555 reads the same one.
+ */
 async function declaredClock(app: App): Promise<number> {
   return app.evalJS<number>(
     `(function () {
       var entry = document.querySelector(${JSON.stringify(ENTRY)});
-      var declared = getComputedStyle(entry).transitionDuration.split(",")[0].trim();
-      return declared.endsWith("ms")
-        ? parseFloat(declared)
-        : parseFloat(declared) * 1000;
+      var raw = getComputedStyle(entry)
+        .getPropertyValue("--tugx-imposer-settle-duration")
+        .trim();
+      var settleMs = raw.endsWith("ms")
+        ? parseFloat(raw)
+        : raw.endsWith("s")
+          ? parseFloat(raw) * 1000
+          : 400;
+      var timing =
+        parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--tug-timing",
+          ),
+        ) || 1;
+      return settleMs * timing;
     })()`,
   );
 }
@@ -204,16 +259,22 @@ function assertOneMotion(
   label: string,
   samples: Sample[],
   beatMs: number,
+  folding: boolean,
 ): void {
   const frame = windowOf(samples, (s) => s.frame);
-  const entry = windowOf(samples, (s) => s.entry);
+  const crossing = crossingFrames(samples);
+  const composer = spread(crossing, (s) => s.entry);
+  const rest = samples[samples.length - 1].entry;
   note(
     label,
-    `frame=${JSON.stringify(frame)} entry=${JSON.stringify(entry)}`,
+    `frame=${JSON.stringify(frame)} crossing frames=${crossing.length} composer spread=${composer.toFixed(2)} composer at rest=${Math.round(rest)}`,
   );
   expect(frame, `${label}: the frame travels`).not.toBeNull();
-  expect(entry, `${label}: the composer travels`).not.toBeNull();
-  if (frame === null || entry === null) return;
+  expect(
+    crossing.length,
+    `${label}: the imposer marks the fold as a crossing`,
+  ).toBeGreaterThan(5);
+  if (frame === null) return;
 
   // 1. A window, not a cut and not the 100ms shade ease. Half the declared
   //    beat is comfortably above both of the shapes this replaces (one frame,
@@ -227,25 +288,49 @@ function assertOneMotion(
     `${label}: the frame does not outrun its declared beat`,
   ).toBeLessThan(1.35 * beatMs);
 
-  // 2. One motion: together at both ends. The same bands at0555 uses on the
-  //    wall — 80ms at the start, an eased tail at the end, which a sampler
-  //    reads early by construction because the last frames are sub-pixel.
+  // 2. One motion, because there is only one: nothing inside the card walks
+  //    while the frame does. The old pair of assertions here asked the frame
+  //    and the composer to start and end together, which was the closest a
+  //    two-clock design could get to one motion. The composer has no clock
+  //    now — it is held at its open box and clipped — so the claim is the
+  //    stronger one it was always reaching for, and one pixel of slack is all
+  //    it gets.
   expect(
-    Math.abs(frame.start - entry.start),
-    `${label}: the frame and the composer start together`,
-  ).toBeLessThan(80);
-  expect(
-    Math.abs(frame.end - entry.end),
-    `${label}: the frame and the composer end together`,
-  ).toBeLessThan(0.35 * beatMs);
+    composer,
+    `${label}: the composer's box does not move while the frame does`,
+  ).toBeLessThan(1.5);
 
-  // 3. Nothing walks after the frame stops ([B02]).
-  const { entry: atStop, rest } = entryAtFrameStop(samples);
-  note(`${label} at the frame's stop`, `entry=${Math.round(atStop)} rest=${Math.round(rest)}`);
+  // 3. Nothing walks after the frame stops. The composer's rest height is the
+  //    one the direction calls for — zero folding in, its open box coming
+  //    back out — and it is ALREADY that on the first sample past the
+  //    crossing's last marked frame. So the row's move to rest is the cut
+  //    under Z2 that [B03] made it, landing with the crossing rather than
+  //    running on past it. The 300ms the old show got wrong was exactly that
+  //    overrun, and a collapse still in flight here would read as a
+  //    difference between the two samples.
+  const afterCrossing = firstSampleAfter(samples, crossing);
+  note(
+    `${label} past the crossing`,
+    `entry=${afterCrossing === null ? "none" : Math.round(afterCrossing.entry)} rest=${Math.round(rest)}`,
+  );
   expect(
-    Math.abs(atStop - rest),
-    `${label}: the composer is at rest height when the frame stops`,
-  ).toBeLessThan(8);
+    afterCrossing,
+    `${label}: the sampler outlasts the crossing`,
+  ).not.toBeNull();
+  if (afterCrossing !== null) {
+    expect(
+      Math.abs(afterCrossing.entry - rest),
+      `${label}: the composer is at its rest height as the crossing ends`,
+    ).toBeLessThan(8);
+  }
+  if (folding) {
+    expect(rest, `${label}: the composer's row is cut at rest`).toBeLessThan(8);
+  } else {
+    expect(
+      rest,
+      `${label}: the composer has its box back at rest`,
+    ).toBeGreaterThan(40);
+  }
 }
 
 async function runShape(app: App, stacked: boolean): Promise<void> {
@@ -262,9 +347,9 @@ async function runShape(app: App, stacked: boolean): Promise<void> {
   const beatMs = await declaredClock(app);
   note(`${label} clock`, `${beatMs}ms`);
 
-  assertOneMotion(`${label} fold`, await census(app, true), beatMs);
+  assertOneMotion(`${label} fold`, await census(app, true), beatMs, true);
   await wait(AFTER_LAND_MS);
-  assertOneMotion(`${label} show`, await census(app, false), beatMs);
+  assertOneMotion(`${label} show`, await census(app, false), beatMs, false);
   await wait(AFTER_LAND_MS);
 }
 
