@@ -144,6 +144,8 @@ import {
 } from "@/lib/compaction-progress-store";
 import { parseBeatFileTarget } from "@/lib/beat-line/beat-file-target";
 import { formatRestingStamp } from "@/lib/session-activity-line";
+import { arcJoinReadyLine } from "@/lib/arc-join-register";
+import { useSessionJoinBase } from "@/lib/code-session-store/use-session-phase";
 import { renderBeatLine } from "@/lib/beat-line/render-beat-line";
 import {
   askPromptText,
@@ -836,6 +838,20 @@ export function SessionIdentityRow({
   // The bare `Done` marker is filtered on the way in: it is the ABSENCE of a
   // beat, and the rest sentence says the same thing with facts in it.
   const beat = sessionActivityBeat(latestLine);
+  // **Join readiness outranks the digester ([B10]).** A session whose arc has
+  // finished with an offer standing is at rest for one reason, and that reason
+  // is the reader — which is a higher-order fact about the session than
+  // whatever the narration last said it was doing. So while the offer stands
+  // the line is the register's own sentence, composed from the same function
+  // the Arcs card and the shade read, and the digester's sentence returns the
+  // moment a land, a discard or a reopen spends the offer.
+  //
+  // At rest only: a turn in flight is the session doing something now, and now
+  // outranks a wait. That is the same condition the dot's `ready` key carries,
+  // so the folded card's two lines and its dot agree.
+  const joinBase = useSessionJoinBase(sessionId);
+  const joinReadyLine =
+    joinBase !== null && !turnInFlight ? arcJoinReadyLine(joinBase) : null;
   const restLine = sessionActivityRestLine({
     turnCount: facts?.turn_count ?? 0,
     fileSize: facts?.file_size ?? null,
@@ -846,13 +862,15 @@ export function SessionIdentityRow({
       ? composedEntry(activityOverride)
       : compacting
         ? COMPACTING_ENTRY
-        : beat !== null
-          ? {
-              key: beat.key,
-              text: beat.text,
-              placeholder: false,
-            }
-          : composedEntry(restLine);
+        : joinReadyLine !== null
+          ? composedEntry(joinReadyLine)
+          : beat !== null
+            ? {
+                key: beat.key,
+                text: beat.text,
+                placeholder: false,
+              }
+            : composedEntry(restLine);
   // Paced HERE rather than in a leaf, so a swap re-renders the row and
   // `TugActivityLine` measures the new text — see {@link useDwellDisplay}.
   const entry = useDwellDisplay(target, pace);

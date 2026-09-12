@@ -114,3 +114,33 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/**
+ * The finished row when it carries a Join ([B04]).
+ *
+ * A wrapper that exists only on the rows that have a button: the line keeps
+ * its own class, its own `data-slot` and its own block rhythm, so a finished
+ * row with no standing offer is exactly the row it has always been. The
+ * wrapper sets the two on one baseline and pushes the act to the trailing
+ * edge — the reading first, the thing to do about it last, which is the order
+ * every offer row in the transcript already reads in.
+ *
+ * `min-width: 0` on the line is what lets a long arc name give way instead of
+ * shoving the button off the card: the sentence is the part that can truncate
+ * and the button is the part that cannot.
+ */
+.arc-finish-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tug-space-sm);
+}
+
+.arc-finish-row > .session-arc-note-line {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.arc-finish-row > [data-slot="arc-finish-join"] {
+  flex: 0 0 auto;
+}

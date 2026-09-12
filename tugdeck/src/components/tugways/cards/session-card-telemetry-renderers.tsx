@@ -61,6 +61,8 @@ import {
   SESSION_PHASE_LABELS,
   type SessionPhaseInput,
 } from "@/lib/code-session-store/session-phase-visual";
+import { useSessionJoinReady } from "@/lib/code-session-store/use-session-phase";
+import { ARC_JOIN_READY_WORD } from "@/lib/arc-join-register";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { TurnEntry } from "@/lib/code-session-store/types";
 import {
@@ -634,7 +636,9 @@ export const SessionTelemetryPhase: React.FC<SessionTelemetryProps> = ({
  * `sessionSessionPhaseVisual`) and give the cell the live motion a
  * static figure cannot. Running jobs are an input because a turn can
  * commit while the agents it launched keep working: that session reads
- * "Running", not "Idle".
+ * "Running", not "Idle". A standing join offer is an input for the
+ * mirror-image reason: a session whose arc has finished reads "Ready",
+ * green and pulsing, until the user lands or discards it.
  *
  * The two work cells divide along the checklist / everything-else
  * seam, each keeping its own source's semantics (`select-work.ts`).
@@ -778,6 +782,10 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     codeSessionStore.subscribe,
     codeSessionStore.getSnapshot,
   );
+  // Whether a join offer stands for the arc this card is mated to — read
+  // through the one derivation `useSessionPhase` folds in, so the STATE cell
+  // and the masthead dot cannot disagree about one arc.
+  const joinReady = useSessionJoinReady(snap.tugSessionId);
   // Live intra-turn usage rides the streaming document's per-path
   // observers ([L02]) — a `streaming_usage` frame ticks only this row,
   // never the whole-store snapshot (and so never the transcript list).
@@ -858,12 +866,16 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         : arcFact.arc.stage !== undefined && arcFact.arc.done !== true
           ? `, in ${arcFact.arc.stage}`
           : "";
+  // A screen reader hears the cell's own reading, so a ready arc says so here
+  // too — otherwise the one state that is asking for the user is the one state
+  // the label does not name.
+  const arcReadyLabel = joinReady ? ", ready to join" : "";
   const arcCellLabel =
     arcFact === null
       ? ""
       : arcFraction === null
-        ? `arc ${arcFact.name}${arcRunLabel}`
-        : `arc ${arcFact.name}, step ${arcFraction.current} of ${arcFraction.total}${arcRunLabel}`;
+        ? `arc ${arcFact.name}${arcReadyLabel}${arcRunLabel}`
+        : `arc ${arcFact.name}, step ${arcFraction.current} of ${arcFraction.total}${arcReadyLabel}${arcRunLabel}`;
   // The placard's one exit: this card's own Changes shade, where every decision
   // about an arc already lives ([D152]). The content scope, not the bare card
   // id — `sendToTarget` walks upward from its target and the session card's
@@ -964,6 +976,10 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     // the reducer sets; an `/api/ask` dialog belongs to no turn, so it
     // reaches the cell on its own axis instead.
     pendingAsk: snap.pendingAsk !== null,
+    // A finished arc with a standing join offer reads Ready — the cell's one
+    // green, and the only word that says the work is done rather than that no
+    // turn happens to be in flight.
+    joinReady,
   };
   const statePhaseKey = sessionSessionPhaseKey(indicatorState);
   // STATE cell value — the human-readable phase title. The two
@@ -1032,9 +1048,16 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const arcReading =
     arcModel === null
       ? ""
-      : arcFraction !== null
-        ? `${arcFraction.current}/${arcFraction.total}`
-        : arcCellWord(arcModel);
+      : // While a join offer stands the cell reads the REGISTER's word rather
+        // than the lifecycle's ([B08]). `Finished` is true and useless here —
+        // it is what the arc did, and what the reader needs is what the arc
+        // wants, which is them. The condition is the one `joinReady` the dot
+        // beside it reads, so the cell and the dot cannot disagree.
+        joinReady
+        ? ARC_JOIN_READY_WORD
+        : arcFraction !== null
+          ? `${arcFraction.current}/${arcFraction.total}`
+          : arcCellWord(arcModel);
 
   const jobsRecent = jobsRecentlyDone(jobsLedger, nowMs, WORK_LINGER_MS);
   const jobsActiveCount = jobsCellActiveCount(jobCounts, goal);

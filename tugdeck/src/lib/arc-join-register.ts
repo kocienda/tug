@@ -49,6 +49,30 @@ export interface ArcJoinRegister {
  */
 const JOINABLE_STAGES = new Set(["ready", "built", "audited"]);
 
+/**
+ * The register's word for an arc that can be joined.
+ *
+ * Named rather than spelled at each site because the Z2 ARC cell says it too
+ * ([B08]): while a join offer stands the cell reads the register's word rather
+ * than the lifecycle's `Finished`, and one constant is what keeps the cell,
+ * the Arcs card row and the shade from saying two things about one arc.
+ */
+export const ARC_JOIN_READY_WORD = "ready";
+
+/**
+ * The register's sentence for an arc that can be joined.
+ *
+ * The base is in it because on the Arcs card the sentence is the only thing
+ * that names the branch the offer is about — see the ready arm below. Exported
+ * for the masthead beat, which composes this line over the narration
+ * digester's while the offer stands ([B10]); composing it there from the same
+ * function is what keeps the two surfaces one sentence rather than two that
+ * happen to match today.
+ */
+export function arcJoinReadyLine(base: string): string {
+  return `Ready to join to ${base}`;
+}
+
 /** Everything the register reads. Nothing here is fetched; it is all passed. */
 export interface ArcJoinRegisterInput {
   /** The arc's display name. */
@@ -402,7 +426,11 @@ export function arcJoinRegister(
   // rather than composed at any surface, which is what keeps the shade, the
   // composer and the card reading one sentence.
   if (typeof join?.candidate === "string" && join.candidate !== "") {
-    return { phase: "success", line: `Ready to join to ${base}`, word: "ready" };
+    return {
+      phase: "success",
+      line: arcJoinReadyLine(base),
+      word: ARC_JOIN_READY_WORD,
+    };
   }
 
   // No candidate, nothing running. On a joinable arc somebody is holding,

@@ -12,7 +12,11 @@
 
 import { describe, test, expect } from "bun:test";
 
-import { arcJoinRegister } from "../arc-join-register";
+import {
+  ARC_JOIN_READY_WORD,
+  arcJoinReadyLine,
+  arcJoinRegister,
+} from "../arc-join-register";
 import type { ArcJoinStateWire } from "../changeset-types";
 
 const BASE = { arc: "imposer2", base: "main", stage: "built" };
@@ -59,6 +63,19 @@ describe("what the register says", () => {
     // `main` cannot pass.
     expect(reg(reconciled(), { base: "release/7" })?.line).toBe("Ready to join to release/7");
     expect(reg(reconciled(), { base: "trunk" })?.line).toBe("Ready to join to trunk");
+  });
+
+  test("the ready word and sentence are the ones other surfaces read", () => {
+    // The Z2 ARC cell says the word ([B08]) and the masthead beat composes the
+    // sentence ([B10]), each off the export rather than off its own spelling.
+    // Pinning the arm against the helpers is what makes that one derivation
+    // instead of three strings that agree today.
+    const ready = reg(reconciled());
+    expect(ready?.word).toBe(ARC_JOIN_READY_WORD);
+    expect(ready?.line).toBe(arcJoinReadyLine("main"));
+    expect(reg(reconciled(), { base: "release/7" })?.line).toBe(
+      arcJoinReadyLine("release/7"),
+    );
   });
 
   test("an arc whose session is still working is not offered", () => {

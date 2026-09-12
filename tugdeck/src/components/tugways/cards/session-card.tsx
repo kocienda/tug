@@ -53,6 +53,7 @@ import {
 } from "../tug-prompt-entry";
 import { ShadeViewController } from "@/lib/shade-view-controller";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
+import { shouldRevealJoinOffer } from "@/lib/join-offer-reveal";
 import { getChangesetVerbStore } from "@/lib/changeset-verb-store";
 import { getChangesetJoinStore } from "@/lib/changeset-join-store";
 import { getChangesetDraftStore } from "@/lib/changeset-draft-store";
@@ -337,6 +338,22 @@ const SHEET_EXIT_ANIMATION_MS = 220;
  * prompt-entry passes nothing.
  */
 const SESSION_PROMPT_PLACEHOLDER = "Ask Tug to build, fix, or explain";
+
+/**
+ * The same line while the card's arc has finished and its join offer stands
+ * ([B05]).
+ *
+ * The composer is where the eye goes when the model stops talking, and the
+ * placeholder is the one line the open form can change without adding a
+ * surface. It says both halves — that the work is done, and the one act that
+ * lands it — because a state that calls for the user and does not say what
+ * they are called for is a dot with no sentence under it.
+ *
+ * Ready is not a block, so the line keeps the composer's own invitation in it:
+ * a session you can go on working under says so.
+ */
+const SESSION_READY_PROMPT_PLACEHOLDER =
+  "Arc finished. /arc-join to land it, or keep working";
 
 /**
  * Focus group the session card authors its keyboard-focus-cycling stops
@@ -2704,6 +2721,32 @@ export function SessionCardBody({
     return store === null ? false : cardFoldedOf(store.getSnapshot(), cardId);
   });
 
+  /**
+   * Open the fold for a bidden entry into the Changes room ([B07]).
+   *
+   * The room is a room of the open form ([B06]): folded, the top column the
+   * shade swaps over IS the Z2 instrument row, so a shade raised there covers
+   * the fold control and the act it offers lives in the folded-away Z5. The
+   * passive reveal answers that by deferring. An *explicit* entry cannot —
+   * the user asked for the room and is owed it — so it opens the fold first
+   * and enters the card it has just made able to show what it opens.
+   *
+   * Reads the deck store fresh rather than the rendered flag, for the same
+   * reason the fold toggle does: the gesture is a command, and a command
+   * decides off the state at the moment it runs.
+   *
+   * Returns whether it unfolded — the caller's signal that step 3's deferred
+   * reveal is about to re-run and will carry the entry armed, so making the
+   * entry here as well would only spend the offer twice.
+   */
+  const unfoldForChanges = useCallback((): boolean => {
+    const deckStore = getDeckStore();
+    if (deckStore === null) return false;
+    if (!cardFoldedOf(deckStore.getSnapshot(), cardId)) return false;
+    dispatchCommand(TUG_ACTIONS.SET_CARD_FOLDED, { cardId, folded: false });
+    return true;
+  }, [cardId]);
+
   // Commit mode's per-card state + land path ([P03], Spec S03). User-driven —
   // `/commit` and ⌃⌘C on an empty composer are the two doors INTO the mode;
   // Session ▸ Commit Changes is the door out the other side, gated on the
@@ -2812,6 +2855,11 @@ export function SessionCardBody({
    * always opens.
    */
   const enterChanges = useCallback(() => {
+    // A bidden entry on a folded card opens the fold first ([B07]), so the
+    // shade never mounts over Z2. The landing below still enters: the room is
+    // raised through the mode↔sheet coupling, which runs after the render the
+    // unfold has already been committed in.
+    unfoldForChanges();
     const arcId = cardSessionBindingStore.getBinding(cardId)?.arc?.id;
     const entry =
       arcId === undefined
@@ -2824,7 +2872,13 @@ export function SessionCardBody({
       return;
     }
     commitModeController.enter();
-  }, [cardId, changesController, commitModeController, joinModeController]);
+  }, [
+    cardId,
+    changesController,
+    commitModeController,
+    joinModeController,
+    unfoldForChanges,
+  ]);
 
   // Find bar: open/closed is structural (the bar mounts/unmounts above Z2),
   // mirroring the Text card's `findOpen`. The session outlives the bar here —
@@ -3895,12 +3949,22 @@ export function SessionCardBody({
   // it replaces the transcript pane rather than pushing it — so entering over
   // a running turn would cover the output the user is reading, and entering
   // over a half-typed composer would take the surface out from under them. So
-  // all four hold before it fires: no turn in flight, no landing up, an empty
-  // composer, and the shade not already showing. Every one of them is a
-  // *dependency*, not a peek: a deferral re-runs this effect the moment the
-  // turn settles, the composer empties, or the shade closes. (Read as refs,
-  // the composer and shade gates could defer forever — nothing would wake
-  // the effect once the offer stopped changing.)
+  // all five hold before it fires: the card not folded, no turn in flight, no
+  // landing up, an empty composer, and the shade not already showing. Every
+  // one of them is a *dependency*, not a peek: a deferral re-runs this effect
+  // the moment the turn settles, the composer empties, the shade closes, or
+  // the user unfolds. (Read as refs, the composer and shade gates could defer
+  // forever — nothing would wake the effect once the offer stopped changing.)
+  //
+  // **The room is a room of the open form ([B06]).** Folded, the top column
+  // the shade swaps over IS the Z2 instrument row, so the shade's scrim lands
+  // on the fold control and the Join it offers lives in the folded-away Z5:
+  // a room open behind a door nobody can reach. The deferral is free, because
+  // `folded` is a dependency like the rest — the user's own unfold re-runs
+  // this effect and the room opens armed.
+  //
+  // The conditions are {@link shouldRevealJoinOffer}, apart from the card so
+  // the decision is a unit test rather than a claim about a rendered tree.
   //
   // **Once per arc head, remembered only for this mount.** The offer's
   // `request_id` moves when *either* head does, so it is not what to remember:
@@ -3943,11 +4007,20 @@ export function SessionCardBody({
   useEffect(() => {
     const arcHead = joinOffer?.arc_head;
     if (arcHead === undefined) return;
-    if (revealedOffersRef.current.has(arcHead)) return;
-    if (turnInFlight) return;
-    if (anyLandingActive) return;
-    if (!composerEmpty) return;
-    if (shadeView !== "none") return;
+    // A refusal never spends the head: spending it says the reader has seen
+    // this work, and a reveal that did not happen showed them nothing.
+    if (
+      !shouldRevealJoinOffer({
+        alreadyRevealed: revealedOffersRef.current.has(arcHead),
+        turnInFlight,
+        anyLandingActive,
+        composerEmpty,
+        shadeShowing: shadeView !== "none",
+        folded,
+      })
+    ) {
+      return;
+    }
     revealedOffersRef.current.add(arcHead);
     enterChanges();
   }, [
@@ -3956,6 +4029,7 @@ export function SessionCardBody({
     anyLandingActive,
     composerEmpty,
     shadeView,
+    folded,
     enterChanges,
   ]);
 
@@ -3975,15 +4049,27 @@ export function SessionCardBody({
   // clicked arrives armed. An arc still mid-implementation has no join to arm:
   // entering join mode on it would seed a composer for a press its own gate
   // must refuse, so that stays a glance at the room.
+  //
+  // **Folded, it unfolds and then enters ([B07]).** A card that has to be
+  // opened before it can show a room takes its one gesture to open, and the
+  // entry follows in the same commit — the mode↔sheet coupling raises the
+  // shade after the render the unfold has already been committed in, so it
+  // never lands over Z2. Handing the entry to the deferred effect instead
+  // would put a bidden entry behind the unbidden gate: a head already spent
+  // on this mount, a half-typed composer or a turn in flight would each
+  // swallow the click and leave the reader with a card that merely unfolded.
+  // The head is added first, so the effect re-running on the unfold sees the
+  // room as already shown and defers rather than entering it twice.
   const revealChanges = useCallback((): void => {
     const arcHead = joinOffer?.arc_head;
     if (arcHead === undefined) {
+      unfoldForChanges();
       shadeViewController.show("changes");
       return;
     }
     revealedOffersRef.current.add(arcHead);
     enterChanges();
-  }, [joinOffer, shadeViewController, enterChanges]);
+  }, [joinOffer, shadeViewController, enterChanges, unfoldForChanges]);
 
   // `/resume` focused sessions overlay ([#step-8]), card-scoped per [D15].
   // Reads the bound project from the binding store and lists its sessions;
@@ -5938,7 +6024,11 @@ export function SessionCardBody({
                 // Return there was writing a newline while the only ring on
                 // screen promised dismissal. One state, one owner, both halves.
                 defaultButtonOwnsReturn={shadeView === "history"}
-                placeholder={SESSION_PROMPT_PLACEHOLDER}
+                placeholder={
+                  joinOffer !== null
+                    ? SESSION_READY_PROMPT_PLACEHOLDER
+                    : SESSION_PROMPT_PLACEHOLDER
+                }
               />
             </cycle.CycleScope>
           </TugBox>

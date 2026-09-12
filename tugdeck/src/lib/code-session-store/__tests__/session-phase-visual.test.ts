@@ -5,8 +5,8 @@
  * phaseLabels / phaseVisual API.
  *
  * Pins the precedence chain (offline > restoring > interrupt >
- * background-over-idle > phase), every phase branch, and the
- * human-readable label resolution.
+ * ask > ready-over-idle > background-over-idle > phase), every phase
+ * branch, and the human-readable label resolution.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -201,6 +201,71 @@ describe("sessionSessionPhaseKey — a pending ask reads Awaiting", () => {
   });
 });
 
+describe("sessionSessionPhaseKey — a standing join offer reads Ready", () => {
+  // A finished arc leaves no turn in flight, so the reducer says `idle` — true
+  // about the turn and wrong about the session, which is done and waiting on a
+  // person. `joinReady` is the offer-stands fact, and it promotes idle alone.
+  test("idle with a standing offer reads 'ready'", () => {
+    expect(sessionSessionPhaseKey(input({ phase: "idle", joinReady: true }))).toBe(
+      "ready",
+    );
+  });
+
+  test("Ready outranks background work", () => {
+    expect(
+      sessionSessionPhaseKey(
+        input({ phase: "idle", runningJobCount: 2, joinReady: true }),
+      ),
+    ).toBe("ready");
+  });
+
+  test("a turn in flight keeps its own phase — the offer is patient", () => {
+    for (const phase of ["streaming", "tool_work", "submitting"] as const) {
+      expect(sessionSessionPhaseKey(input({ phase, joinReady: true }))).toBe(phase);
+    }
+  });
+
+  test("errored keeps its own key with an offer standing", () => {
+    expect(
+      sessionSessionPhaseKey(input({ phase: "errored", joinReady: true })),
+    ).toBe("errored");
+  });
+
+  test.each(["offline", "restoring"] as const)(
+    "a %s wire still dominates a standing offer",
+    (transportState) => {
+      expect(
+        sessionSessionPhaseKey(
+          input({ phase: "idle", transportState, joinReady: true }),
+        ),
+      ).toBe(transportState);
+    },
+  );
+
+  test("an interrupt in flight still dominates", () => {
+    expect(
+      sessionSessionPhaseKey(
+        input({ phase: "tool_work", interruptInFlight: true, joinReady: true }),
+      ),
+    ).toBe("interrupting");
+  });
+
+  test("a dialog holding an answer outranks it — Awaiting blocks, Ready does not", () => {
+    expect(
+      sessionSessionPhaseKey(
+        input({ phase: "idle", pendingAsk: true, joinReady: true }),
+      ),
+    ).toBe("awaiting_approval");
+  });
+
+  test("false and omitted both make no Ready claim", () => {
+    expect(sessionSessionPhaseKey(input({ phase: "idle", joinReady: false }))).toBe(
+      "idle",
+    );
+    expect(sessionSessionPhaseKey(input({ phase: "idle" }))).toBe("idle");
+  });
+});
+
 describe("sessionSessionPhaseVisual — role/state mapping", () => {
   test("offline → danger/aborted", () => {
     expect(sessionSessionPhaseVisual("offline")).toEqual({
@@ -245,6 +310,37 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
       role: "action",
       state: "running",
     });
+  });
+
+  test("ready → success/running — the dot's only green while it breathes", () => {
+    expect(sessionSessionPhaseVisual("ready")).toEqual({
+      role: "success",
+      state: "running",
+    });
+  });
+
+  test("ready is the one key wearing success — nothing else on the dot does", () => {
+    const ready = sessionSessionPhaseVisual("ready");
+    for (const key of [
+      "idle",
+      "background",
+      "streaming",
+      "tool_work",
+      "awaiting_approval",
+      "restoring",
+      "interrupting",
+      "offline",
+      "errored",
+    ] as const) {
+      expect(sessionSessionPhaseVisual(key).role).not.toBe(ready.role);
+    }
+  });
+
+  test("ready breathes rather than settling — it is a live wait on the user", () => {
+    const ready = sessionSessionPhaseVisual("ready");
+    const idle = sessionSessionPhaseVisual("idle");
+    expect(ready.state).toBe("running");
+    expect(ready.state).not.toBe(idle.state);
   });
 
   test("background → action/running as a diamond — working, turned", () => {
@@ -299,6 +395,7 @@ describe("SESSION_PHASE_LABELS — human-readable labels", () => {
     ["restoring", "Reconnecting"],
     ["interrupting", "Interrupting"],
     ["background", "Running"],
+    ["ready", "Ready"],
   ] as const)("key %s resolves to %s", (key, expected) => {
     expect(SESSION_PHASE_LABELS[key]).toBe(expected);
   });

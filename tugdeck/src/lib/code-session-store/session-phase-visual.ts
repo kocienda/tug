@@ -42,6 +42,17 @@
  * alone. All three dialogs therefore read Awaiting; only two of them
  * are turn phases.
  *
+ * `ready` is the third key on that seam, and the most patient fact of
+ * the three: an arc seated on this session has finished and a join
+ * offer stands for it, unspent by a land, a discard or a reopen. No
+ * turn is in flight — the wheel handed the card back — so the reducer
+ * says `idle`, which is true about the turn and wrong about the
+ * session: the work is done and it is waiting on a person. Flattening
+ * it here keeps `canSubmit` true, which is the point. Ready is a state
+ * you can keep working under, not a block; writing a turn phase for it
+ * would kill the composer and light a Stop button with nothing to
+ * stop.
+ *
  * Migrated from the legacy `TugStateIndicator` — the visual
  * vocabulary is preserved; the API shape is reshaped to the unified
  * indicator's phase axis.
@@ -81,6 +92,14 @@ export interface SessionPhaseInput {
    * claim". Every live surface passes it.
    */
   readonly pendingAsk?: boolean;
+  /**
+   * Whether a join offer stands for the arc seated on this session and
+   * nothing has spent it. Optional for the same reason as
+   * `runningJobCount` and `pendingAsk`: a replayed historical
+   * state-change row has no live register to consult, and absent
+   * correctly reads as "makes no claim". Every live surface passes it.
+   */
+  readonly joinReady?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +110,7 @@ export type SessionPhaseKey =
   | "offline"
   | "restoring"
   | "interrupting"
+  | "ready"
   | "background"
   | CodeSessionPhase;
 
@@ -111,12 +131,20 @@ export type SessionPhaseKey =
  * one participant who is not the bottleneck. It stays *below* transport
  * and interrupt: a dead wire means the answer cannot be delivered, and a
  * stop in flight is the thing the user most recently asked for.
+ *
+ * `ready` promotes from `idle` alone, on the same terms as
+ * `background` and for the same reason: every other phase is a turn
+ * saying something more specific about the session right now, and a
+ * standing join offer is patient. It sits below `pendingAsk` too — a
+ * dialog holding an answer blocks the turn, and a join offer blocks
+ * nothing.
  */
 export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKey {
   if (input.transportState === "offline") return "offline";
   if (input.transportState === "restoring") return "restoring";
   if (input.interruptInFlight) return "interrupting";
   if (input.pendingAsk === true) return "awaiting_approval";
+  if (input.phase === "idle" && input.joinReady === true) return "ready";
   if (input.phase === "idle" && (input.runningJobCount ?? 0) > 0) {
     return "background";
   }
@@ -150,6 +178,7 @@ export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
   restoring: "Reconnecting",
   interrupting: "Interrupting",
   idle: "Idle",
+  ready: "Ready",
   background: "Running",
   submitting: "Sending",
   awaiting_first_token: "Waiting",
@@ -173,6 +202,7 @@ export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
  *  - `offline`, `errored`        → `{ role: danger,  state: aborted }`
  *  - `restoring`, `interrupting` → `{ role: caution, state: running }`
  *  - `awaiting_approval`         → `{ role: caution, state: running }`
+ *  - `ready`                     → `{ role: success, state: running }`
  *  - active stream phases        → `{ role: action,  state: running }`
  *  - `background`                → `{ role: action,  state: running, shape: diamond }`
  *  - `idle`                      → `{ role: inherit, state: stopped }`
@@ -180,7 +210,13 @@ export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
  * `action` (Key) is the canonical "work in flight" tone across the
  * design system. `success` is reserved for the "done" reading
  * (`state: completed`) — paired together they give a clear
- * key-while-running → green-when-finished story.
+ * key-while-running → green-when-finished story. `ready` is the one
+ * place that pairing is deliberately crossed: green while running, for
+ * a session whose work is finished and whose next move is a person's.
+ * Nothing else on the session dot has ever worn `success`, so
+ * green-and-breathing means exactly one thing across the room, and the
+ * pulse is truthful on Awaiting's own argument — what is depicted is a
+ * live wait on the user, not a settled session.
  *
  * `background` breathes: agents launched by a committed turn are
  * executing this instant, which is exactly what `running` claims, so
@@ -207,6 +243,8 @@ export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicato
       // from across the room, and a still glyph is the one thing that cannot
       // be. See `indicator-liveness`.
       return { role: "caution", state: "running" };
+    case "ready":
+      return { role: "success", state: "running" };
     case "background":
       return { role: "action", state: "running", shape: "diamond" };
     case "submitting":
