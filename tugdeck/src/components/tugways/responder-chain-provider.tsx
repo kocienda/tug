@@ -1293,11 +1293,12 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
           // non-control stop (a list / field / item-group), Enter falls to
           // the pane's default button ([P14] "Return's home").
           //
-          // Pane-scope the default-button fallback. A `Return` belongs to the
-          // pane the user is working in (the first responder's pane); a default
-          // button registered by a sheet in ANOTHER pane (e.g. an unbound card's
-          // picker Open button) must NOT be pressed by it ([D15] pane modality).
-          // With no pane context (gallery / standalone) fall back to the global top.
+          // Scope the default-button fallback to the surface the user is
+          // working in — the first responder's card, else its pane. A default
+          // button registered elsewhere (a sheet in ANOTHER pane, an inactive
+          // card still mounted in this pane's tab stack) must NOT be pressed
+          // by it ([D15] pane modality). With no context (gallery /
+          // standalone) fall back to the global top.
           let defaultButton: HTMLElement | null = null;
           if (activeIsRefusingButton) {
             defaultButton = active;
@@ -1319,11 +1320,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
               frId !== null && typeof document !== "undefined"
                 ? document.querySelector(`[data-responder-id="${CSS.escape(frId)}"]`)
                 : null;
-            const activePane = frEl?.closest(".tug-pane") ?? null;
-            defaultButton =
-              activePane !== null
-                ? manager.peekDefaultButtonInScope(activePane)
-                : manager.peekDefaultButton();
+            defaultButton = manager.peekDefaultButtonForOrigin(frEl);
           }
           // A button that declares a chord ([#chord-ring]) is fired by that
           // chord and by nothing else — the declaration is what the dashed ring

@@ -378,6 +378,53 @@ function lookupHandler(
 }
 
 /**
+ * The card a surface belongs to, or `null` for one that belongs to no card —
+ * a pane-level sheet, which portals into the pane frame rather than into any
+ * card's root, and whose default button every card in the pane may press.
+ */
+const CARD_HOST_SELECTOR = "[data-card-host]";
+
+/**
+ * Whether a stacked default button is actually on screen.
+ *
+ * Registration is a mount-time act ([L03]) and CSS can hide a mounted button
+ * afterwards — the composer's `+` queue button is `display: none` until the
+ * editor holds a draft, and an inactive card in a tab stack is `display: none`
+ * whole. A hidden button that stays on the stack is the worst kind of Return
+ * home: the ring paints somewhere else, the key goes here, and the press does
+ * nothing anybody can see. So the peek skips what is not rendered, and the
+ * button under it — the visible one — answers instead.
+ *
+ * `checkVisibility` is the exact question; jsdom-ish test DOMs may not have it,
+ * and there a connected element counts as rendered.
+ */
+function isRenderedDefaultButton(button: HTMLButtonElement): boolean {
+  if (!button.isConnected) return false;
+  if (typeof button.checkVisibility !== "function") return true;
+  return button.checkVisibility();
+}
+
+/**
+ * Whether `button` is one that a `Return` originating at `origin` may press.
+ *
+ * Two surfaces can hold a default button at once and only one of them is the
+ * user's: a pane's tab stack keeps EVERY card mounted, hiding the inactive
+ * ones with `display: none` (`card-host.tsx`), and each Session card's Z5
+ * re-registers whenever its submit mode flips — so the pane's topmost default
+ * is routinely a button on a card that is not even on screen. The rule is
+ * therefore about cards, not panes: a button inside a card answers only to
+ * that card, while a button in no card (a pane-level sheet — a shade portals
+ * into the pane frame, never into the card root) answers to the whole pane.
+ */
+function defaultButtonAnswersTo(
+  button: HTMLButtonElement,
+  originCard: Element | null,
+): boolean {
+  const buttonCard = button.closest(CARD_HOST_SELECTOR);
+  return buttonCard === null || buttonCard === originCard;
+}
+
+/**
  * Whether the chain debug logs are enabled. Reads
  * `window.__tugChainDebug` at call time so devtools toggles take
  * effect immediately without a reload. Default: off.
@@ -1319,32 +1366,44 @@ export class ResponderChainManager {
    * [D01] Most recent registration wins
    */
   peekDefaultButton(): HTMLButtonElement | null {
-    return this.defaultButtonStack[this.defaultButtonStack.length - 1] ?? null;
+    for (let i = this.defaultButtonStack.length - 1; i >= 0; i -= 1) {
+      const button = this.defaultButtonStack[i];
+      if (isRenderedDefaultButton(button)) return button;
+    }
+    return null;
   }
 
   /**
-   * Return the topmost default button contained within `scope`, or null if
-   * none of the stacked buttons live inside it.
+   * Return's home for a keystroke that originated at `origin` ([P14]).
    *
-   * The default-button stack is process-global, but a `Return` is owned by
-   * exactly one pane — the one the user is working in. Activating a default
-   * button that lives in a *different* pane than the keystroke's origin
-   * violates pane modality ([D15]): an unbound card's picker in pane B
-   * registers an Open default button, and a `Return` typed in pane A must
-   * not press it. Stage-2 of the keyboard pipeline scopes activation to the
-   * active pane's frame via this method, so cross-pane default-button
-   * activation is impossible by construction. When there is no pane context
-   * (gallery / standalone), the caller falls back to {@link peekDefaultButton}.
+   * The pane is the outer bound — a `Return` typed in pane A must never press
+   * a button registered by a sheet in pane B ([D15] pane modality) — and the
+   * CARD is the one that decides: a button inside a card is that card's alone,
+   * and only a button belonging to no card (a pane-level sheet: the History
+   * shade's Done, an unbound card's picker) is the whole pane's to press. A
+   * pane-wide peek could not say that, and said the wrong thing routinely,
+   * because the tab stack keeps every card mounted behind `display: none` and
+   * the Session Z5 re-registers on every submit-mode flip — so the topmost
+   * default in the pane was regularly a button on a card nobody could see, and
+   * a Shift+Return in the visible composer pressed *that*.
    *
-   * Walks the stack top-down (most-recent-first) so nested modals within the
-   * same pane keep their LIFO semantics.
+   * Walks top-down so nested modals keep their LIFO semantics, and skips any
+   * button that is not rendered ({@link isRenderedDefaultButton}).
    */
-  peekDefaultButtonInScope(scope: Element): HTMLButtonElement | null {
+  peekDefaultButtonForOrigin(origin: Element | null): HTMLButtonElement | null {
+    if (origin === null) return this.peekDefaultButton();
+    const pane = origin.closest(".tug-pane");
+    const originCard = origin.closest(CARD_HOST_SELECTOR);
     for (let i = this.defaultButtonStack.length - 1; i >= 0; i -= 1) {
       const button = this.defaultButtonStack[i];
-      if (scope.contains(button)) return button;
+      if (pane !== null && !pane.contains(button)) continue;
+      if (!defaultButtonAnswersTo(button, originCard)) continue;
+      if (!isRenderedDefaultButton(button)) continue;
+      return button;
     }
-    return null;
+    // No pane context at all (gallery / standalone) is the one case with
+    // nothing to scope by: the global top is the whole answer there.
+    return pane === null ? this.peekDefaultButton() : null;
   }
 
   // ---- Dynamic context-scoped keybindings ([P11], #keybinding-registry) ----

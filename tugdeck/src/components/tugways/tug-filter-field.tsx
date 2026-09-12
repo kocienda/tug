@@ -363,17 +363,14 @@ export function TugFilterField({
   // than eat it, or the ring on that button is a promise nothing keeps (the
   // History shade's Done: ringed, and Return did nothing).
   //
-  // Pane-scoped for the same reason the editor scopes it: the default-button
-  // stack is process-global, and a Return here must never press a button
-  // registered by a sheet in ANOTHER pane ([D15] pane modality). No pane
-  // context (gallery / standalone) falls back to the global top.
+  // Scoped for the same reason the editor scopes it: the default-button stack
+  // is process-global, and a Return here must never press a button on another
+  // surface — a sheet in ANOTHER pane ([D15] pane modality), or an inactive
+  // card still mounted behind `display: none` in this pane's own tab stack.
   const responderChainManager = useResponderChain();
   const peekDefaultButton = React.useCallback((): HTMLButtonElement | null => {
     if (responderChainManager === null) return null;
-    const pane = wrapperRef.current?.closest(".tug-pane") ?? null;
-    return pane !== null
-      ? responderChainManager.peekDefaultButtonInScope(pane)
-      : responderChainManager.peekDefaultButton();
+    return responderChainManager.peekDefaultButtonForOrigin(wrapperRef.current);
   }, [responderChainManager]);
 
   const onKeyDown = React.useCallback(
