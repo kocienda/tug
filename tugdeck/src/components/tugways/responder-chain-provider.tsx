@@ -26,6 +26,7 @@ import {
   DEFAULT_BUTTON_PRESS_MS,
   ResponderChainContext,
   ResponderChainManager,
+  defaultButtonAnswersChord,
 } from "./responder-chain";
 import { FocusManager, FocusManagerContext, TAB_CONSUME_ATTRIBUTE, TAB_RELEASE_ATTRIBUTE, ATTACHED_LIST_ATTRIBUTE, KEY_SINK_ATTRIBUTE, BASE_FOCUS_MODE, registerFocusManager, advanceKeyViewFocus } from "./focus-manager";
 import { resolveFocusAct } from "./focus-act";
@@ -1276,13 +1277,26 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
           active !== null &&
           active.tagName === "BUTTON" &&
           active.getAttribute("data-tug-focus") === "refuse";
+        // A focused button owns the key that activates it natively — the
+        // PLAIN Return — and nothing else. A Return carrying a modifier is a
+        // DECLARED CHORD ([#chord-ring]): the entry's Shift+Return submit,
+        // whose wearer is the Z5 wearing the dashed ring. A neighbouring
+        // button must not swallow it by standing where the keyboard happens
+        // to rest. The 2026-09-12 failure is exactly that: the keyboard on
+        // the composer's Auto-Message ✨, the Z5 one gutter away ringed and
+        // promising ⇧⏎, and the join it offered unreachable from the key —
+        // silently, because a skipped activation leaves nothing behind. The
+        // chord match below is exclusive, so letting a modifier-bearing
+        // Return through here can only ever reach a button that asked for it.
+        const plainReturn =
+          !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
         const skipActivation =
           active !== null &&
           (active.tagName === "INPUT" ||
             active.tagName === "TEXTAREA" ||
             active.tagName === "SELECT" ||
             active.isContentEditable ||
-            (active.tagName === "BUTTON" && !activeIsRefusingButton));
+            (active.tagName === "BUTTON" && !activeIsRefusingButton && plainReturn));
         if (!skipActivation) {
           // The Enter target is the ringed control. In engine-routed mode no
           // control holds native focus (the keyboard is parked on the sink),
@@ -1314,6 +1328,19 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
               defaultButton = ringed;
             }
           }
+          // A ringed control answers for the key it declares, and YIELDS the
+          // rest ([#chord-ring]). The ring is on the ✨ beside the composer's
+          // Z5; the Z5 is the one wearing `⇧⏎` in its own dashed ring. Taking
+          // the ringed control as the Enter target and only then discarding it
+          // on the chord — with the fallback already behind us — dropped that
+          // chord on the floor: the 2026-09-12 join that could be clicked and
+          // could not be typed, silently, because a swallowed key leaves
+          // nothing behind. So the candidate is tested BEFORE the fallback,
+          // and a candidate that does not answer to this chord stands down to
+          // the one that does.
+          if (defaultButton !== null && !defaultButtonAnswersChord(defaultButton, event)) {
+            defaultButton = null;
+          }
           if (defaultButton === null) {
             const frId = manager.getFirstResponder();
             const frEl =
@@ -1322,23 +1349,8 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
                 : null;
             defaultButton = manager.peekDefaultButtonForOrigin(frEl);
           }
-          // A button that declares a chord ([#chord-ring]) is fired by that
-          // chord and by nothing else — the declaration is what the dashed ring
-          // states, so honoring it here is what keeps the ring's promise true
-          // at the activation site as well as in the paint. The match is
-          // EXCLUSIVE, the same rule `chordMatchesEvent` applies to every other
-          // binding: Shift+Return fires a `shift` wearer, plain Return and
-          // Cmd+Shift+Return do not. A button declaring no chord keeps the
-          // plain-Return contract it always had.
-          if (defaultButton !== null) {
-            const declaredChord = defaultButton.getAttribute("data-default-chord");
-            const wantsShift = declaredChord === "shift";
-            const modifiersMatch =
-              event.shiftKey === wantsShift &&
-              !event.metaKey &&
-              !event.ctrlKey &&
-              !event.altKey;
-            if (!modifiersMatch) defaultButton = null;
+          if (defaultButton !== null && !defaultButtonAnswersChord(defaultButton, event)) {
+            defaultButton = null;
           }
           if (defaultButton !== null) {
             // Press visual ([L06] — appearance via DOM). The button's

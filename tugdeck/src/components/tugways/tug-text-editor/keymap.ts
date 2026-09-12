@@ -95,7 +95,10 @@ import type {
   TugTextSubstrate,
 } from "@/lib/tug-text-types";
 import type { AtomSegment } from "@/lib/tug-atom-img";
-import { DEFAULT_BUTTON_PRESS_MS } from "@/components/tugways/responder-chain";
+import {
+  DEFAULT_BUTTON_PRESS_MS,
+  defaultButtonAnswersChord,
+} from "@/components/tugways/responder-chain";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -450,8 +453,17 @@ function handleEnter(
     // `data-pressing` — so a Return from inside the editor looks
     // and behaves like a real mouse click on that button. Without
     // a default button registered, the editor's own submit runs.
+    //
+    // …and only when the key is that button's to answer ([#chord-ring]). The
+    // declaration is exclusive in both directions: a chord wearer is fired by
+    // its chord alone, and a button declaring NO chord answers to the plain
+    // Return alone. Without this half the deferral fired whatever sat on top
+    // of the stack — the Changes shade's chordless `Resolve` took the `⇧⏎`
+    // the composer's own Z5 was ringed for, and the join it aimed at never
+    // ran (2026-09-12). A default that does not answer stands down to the
+    // editor's own submit, which is what the key meant in the first place.
     const defaultButton = config.peekDefaultButton?.() ?? null;
-    if (defaultButton !== null) {
+    if (defaultButton !== null && defaultButtonAnswersChord(defaultButton, event)) {
       pressDefaultButton(defaultButton);
       return true;
     }

@@ -378,6 +378,37 @@ function lookupHandler(
 }
 
 /**
+ * Whether `candidate` is the control an Enter-family keystroke belongs to
+ * ([#chord-ring]).
+ *
+ * A button that declares a chord is fired by that chord and by nothing else —
+ * the declaration is what its dashed ring states. The converse is the half that
+ * was missing and that the 2026-09-12 join report was made of: a button
+ * declaring NO chord answers to the plain Return alone, and must not swallow
+ * somebody else's. The Changes shade's `Resolve` — `xs`, `primary`, chordless —
+ * registered above the composer's Z5, and a `⇧⏎` aimed at the Z5's own ring
+ * pressed Resolve instead and returned. Silently: a press that went somewhere
+ * leaves nothing behind to say it went to the wrong place.
+ *
+ * The match is EXCLUSIVE, the same rule `chordMatchesEvent` applies to every
+ * other binding: `⇧⏎` fires a `shift` wearer, and plain `⏎` and `⌘⇧⏎` do not.
+ * Shared so the pipeline's Stage 2 and the editor's own submit — the two places
+ * a default button is ever activated — cannot disagree about whose key it is.
+ */
+export function defaultButtonAnswersChord(
+  candidate: Element,
+  event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean },
+): boolean {
+  const wantsShift = candidate.getAttribute("data-default-chord") === "shift";
+  return (
+    event.shiftKey === wantsShift &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey
+  );
+}
+
+/**
  * The card a surface belongs to, or `null` for one that belongs to no card —
  * a pane-level sheet, which portals into the pane frame rather than into any
  * card's root, and whose default button every card in the pane may press.
@@ -420,6 +451,9 @@ function defaultButtonAnswersTo(
   button: HTMLButtonElement,
   originCard: Element | null,
 ): boolean {
+  // Origin in no card — a pane-level sheet, the gallery. There is no card to
+  // hold a button to, so the pane is the whole scope, exactly as it was.
+  if (originCard === null) return true;
   const buttonCard = button.closest(CARD_HOST_SELECTOR);
   return buttonCard === null || buttonCard === originCard;
 }
