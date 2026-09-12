@@ -535,6 +535,7 @@ export function TugSessionCitation({
   context,
   atom,
   className,
+  tier = "chip",
 }: {
   /**
    * What the citation named: a full tug session id, or the 8-char short id a
@@ -557,6 +558,20 @@ export function TugSessionCitation({
    * the title it happened to be drawing.
    */
   atom?: AtomSegment;
+  /**
+   * Which register the citation is drawn at. `chip` is the atom — the pill —
+   * and is what a citation means wherever prose is read at reading size.
+   *
+   * `line` is the same live citation with no enclosure, for a surface whose
+   * band the pill does not fit in: the session row's description is chrome at
+   * 13px in a 1.2 band, and a 22px box standing in a 15.6px one overhangs the
+   * line above it — where it met the resting underline of the path in the
+   * sentence before. Same arithmetic that put the commit mark's `mention`
+   * form on that line (`useCommitTipPortals`), and the same answer: the mark
+   * gives up its box on the one surface rather than the band growing for it.
+   * Nothing about the pill changes; what changes is which surfaces draw one.
+   */
+  tier?: TugSessionIdentityTier;
   className?: string;
 }): React.ReactElement {
   const cited = useCitedSession(citedId);
@@ -584,7 +599,13 @@ export function TugSessionCitation({
   return (
     <TugSessionIdentity
       identity={identity}
-      tier="chip"
+      tier={tier}
+      // The line tier's own dot is not drawn here under either register: the
+      // chip paints its own inside the pill, and a citation standing in a
+      // sentence is a name rather than a row's leading mark — a 16px dot
+      // throwing its ring in a 15.6px band is the box problem again, one
+      // glyph smaller.
+      dot={false}
       missing={missing}
       // The raise rides the registry's own `focus-session-card` — the same
       // funnel the Cards card rows dispatch — so a chip's click and a row's click

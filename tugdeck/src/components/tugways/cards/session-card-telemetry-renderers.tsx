@@ -76,7 +76,7 @@ import {
   type SessionPhaseInput,
 } from "@/lib/code-session-store/session-phase-visual";
 import { useSessionJoinReady } from "@/lib/code-session-store/use-session-phase";
-import { ARC_JOIN_READY_WORD } from "@/lib/arc-join-register";
+import { ARC_JOIN_READY_CELL_WORD } from "@/lib/arc-join-register";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { TurnEntry } from "@/lib/code-session-store/types";
 import {
@@ -1206,7 +1206,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         // wants, which is them. The condition is the one `joinReady` the dot
         // beside it reads, so the cell and the dot cannot disagree.
         joinReady
-        ? ARC_JOIN_READY_WORD
+        ? ARC_JOIN_READY_CELL_WORD
         : arcFraction !== null
           ? `${arcFraction.current}/${arcFraction.total}`
           : arcCellWord(arcModel);

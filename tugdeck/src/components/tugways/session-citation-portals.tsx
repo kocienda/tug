@@ -9,6 +9,11 @@
  * component and not a drawing of it. Portals bridge the two, which is the
  * technique `tug-atom-markdown-body` already uses for atom chips.
  *
+ * **One component, two registers.** `mark` says which — the pill, or the same
+ * citation with no enclosure — and it is the only thing a surface gets to say
+ * about how the mark is drawn. See {@link SessionMark} for the surface that
+ * asks for the second one and the arithmetic that makes it ask.
+ *
  * **Driven by the pass, not beside it.** Collection runs from
  * `TugMarkdownBlock`'s `onAnnotated` callback rather than from a second
  * `VerdictBatcher` subscription. A second subscription would appear to work —
@@ -41,6 +46,24 @@ import { SESSION_TEXT_ATTRIBUTE } from "@/lib/annotator/annotate-content";
 /** Every confirmed session span the annotator has marked in a container. */
 const SESSION_SPANS = '[data-tug-annotation="session"]';
 
+/**
+ * Which register a confirmed run is drawn at.
+ *
+ * `"atom"` is the pill, and is the default everywhere a citation is read at
+ * reading size. `"mention"` draws the same live citation with no enclosure —
+ * the presence register — for the one surface whose band the pill does not fit
+ * in: the session row's description line is chrome at 13px in a 1.2 band, and
+ * a 22px box in a 15.6px one stands proud of its own line and into the one
+ * above, where it met the resting underline of the path in the sentence
+ * before. That is the same arithmetic `useCommitTipPortals`' `mention` answers
+ * on the same line, and this is the same answer.
+ *
+ * It is the register that changes and nothing else: the component is the same
+ * component, with its subscription, its resolution states and its raise
+ * intact, so a citation in chrome is still the live thing a click can follow.
+ */
+export type SessionMark = "atom" | "mention";
+
 /** One mounted chip: the emptied span, and the session it stands for. */
 interface CitationMount {
   host: HTMLElement;
@@ -59,7 +82,10 @@ interface CitationMount {
  * portals to render. The portals are React nodes with no layout of their own —
  * render them anywhere in the consumer's tree; they mount into the spans.
  */
-export function useSessionCitationPortals(): {
+export function useSessionCitationPortals(
+  /** Which register a confirmed run is drawn at. See {@link SessionMark}. */
+  mark: SessionMark = "atom",
+): {
   onAnnotated: (container: HTMLElement) => void;
   portals: React.ReactNode;
 } {
@@ -97,6 +123,7 @@ export function useSessionCitationPortals(): {
         citedId={citedId}
         recordedTag={recordedTag}
         context={{ recordedProject: projectOf(recordedTag) }}
+        tier={mark === "mention" ? "line" : "chip"}
       />,
       host,
       `session-citation:${citedId}:${recordedTag}`,

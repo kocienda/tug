@@ -38,7 +38,7 @@
  *     annotation layer since at0498 pinned the beat line's reference, so the
  *     marks the description now carries are serviced by the same listener.
  *
- * Then two claims about what else can stand in that line, in a second test
+ * Then three claims about what else can stand in that line, in a second test
  * bound to this checkout — a real repository, where a sha resolves:
  *
  *  4. A post naming a commit renders a MENTION, not a pill: the run keeps the
@@ -49,6 +49,11 @@
  *     the height claim reads: the mark stands as tall as the line's own text
  *     and no taller. The pill is untouched on every surface that reads at
  *     reading size.
+ *  4c. A session the post names takes the same cut at the same size: the
+ *     citation is drawn at the PRESENCE register, so the line carries the
+ *     session's name in its own ink rather than a 22px chip standing across
+ *     two of its lines — which is what put a mark through the underline of
+ *     the path in the sentence before it.
  *  5. A beat carrying a raw ESC byte draws none of it. The digester scrubs
  *     the sequences at the source ([B04]) and the deck strips what the ledger
  *     already holds at both ingress doors ([B05]), so what reaches the line is
@@ -73,6 +78,8 @@
  * @covers tugdeck/src/components/tugways/file-tip-portals.tsx
  * @covers tugdeck/src/components/tugways/commit-tip-portals.tsx
  * @covers tugdeck/src/components/tugways/annotation-portals.tsx
+ * @covers tugdeck/src/components/tugways/session-citation-portals.tsx
+ * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
  * @covers tugdeck/styles/tug-annotation.css
  * @covers tugdeck/src/lib/digest-store.ts
  */
@@ -107,6 +114,10 @@ const DESC_REF = `${DESCRIPTION} [data-tug-annotation="file-path"]`;
 const DESC_SHA = `${DESCRIPTION} [data-tug-annotation="commit-sha"]`;
 /** What must NOT be there: the pill every reading surface draws. */
 const DESC_PILL = `${DESCRIPTION} [data-slot="tug-commit-atom"]`;
+/** The session run the annotator marked inside the narration line. */
+const DESC_SESSION = `${DESCRIPTION} [data-tug-annotation="session"]`;
+/** What must NOT be there either: the citation's own pill, the chip tier. */
+const DESC_CHIP = `${DESCRIPTION} .tug-session-identity[data-tier="chip"]`;
 /** The beat, under the description — the run a digest line lands on. */
 const BEAT = `${PANE} .session-masthead-row [data-slot="tug-activity-line-activity"]`;
 const TEXT_CARD = '[data-slot="tug-text-card-editor"] .cm-content';
@@ -148,8 +159,13 @@ const HEAD_SHA = execSync("git rev-parse HEAD", { cwd: CHECKOUT })
 /** The short form prose uses — deliberately not the label's eight. */
 const WRITTEN_SHA = HEAD_SHA.slice(0, 9);
 
-/** A post that names a commit, the way an agent reports a landed step. */
-const COMMIT_POST = `Landed the leading floor as \`${WRITTEN_SHA}\` after re-running the column tests at both widths.`;
+/**
+ * A post that names a commit AND a session, the way an agent reports a landed
+ * step. Both are marks that draw a 22px pill wherever prose is read at reading
+ * size, and this line is not one of those places — claims 4 and 6 are the two
+ * halves of the same arithmetic.
+ */
+const COMMIT_POST = `Landed the leading floor as \`${WRITTEN_SHA}\` on session ${SID} after re-running the column tests at both widths.`;
 
 /** ESC, spelled rather than pasted, so this file carries no control byte. */
 const ESC = String.fromCharCode(27);
@@ -509,6 +525,79 @@ describe.skipIf(!SHOULD_RUN)(
           note("at0561 commit bubble", JSON.stringify(shaBubble));
           expect(shaBubble.runOwnsIt, "the standing bubble is the sha run's").toBe(true);
           expect(shaBubble.text).toContain(HEAD_SHA.slice(0, 8));
+
+          // The ledger's answer about the session the post names, through the
+          // production `resolve_sessions_ok` handler — at0368's door. A
+          // citation is only a citation once the ledger has held the session;
+          // the card's own binding is not that answer.
+          await app.evalJS<boolean>(
+            `window.__tug.dispatchControlAction("resolve_sessions_ok", ${JSON.stringify(
+              {
+                sessions: [
+                  {
+                    queried: SID,
+                    session: {
+                      session_id: SID,
+                      workspace_key: "ws-at0561",
+                      project_dir: CHECKOUT,
+                      created_at: 1_754_600_000_000,
+                      last_used_at: 1_754_600_100_000,
+                      turn_count: 2,
+                      last_user_prompt: null,
+                      state: "closed",
+                      card_id: null,
+                      name: null,
+                      tag: "at0561-cited",
+                    },
+                  },
+                ],
+                unknown: [],
+              },
+            )})`,
+          );
+
+          // 4c. The session the post names is a citation, and it is drawn at
+          //     the PRESENCE register — the live mark with no enclosure. The
+          //     chip is the same 22px box the commit pill is, and this line
+          //     is the one run on the masthead that WRAPS, so a chip on its
+          //     second line stood proud of that line and into the first,
+          //     through the resting underline of the path in the sentence
+          //     before it. The height reads the arithmetic claim 4 reads, on
+          //     the other mark: it stands in the band, not across it.
+          await app.waitForCondition<boolean>(
+            `(function(){
+               var host = document.querySelector(${JSON.stringify(DESC_SESSION)});
+               return host !== null && host.firstElementChild !== null;
+             })()`,
+            { timeoutMs: 20_000 },
+          );
+          const citation = JSON.parse(
+            await app.evalJS<string>(`JSON.stringify((function(){
+              var line = document.querySelector(${JSON.stringify(DESCRIPTION)});
+              var host = document.querySelector(${JSON.stringify(DESC_SESSION)});
+              var mark = host.querySelector('.tug-session-identity');
+              var rr = (mark || host).getBoundingClientRect();
+              return {
+                tier: mark === null ? null : mark.getAttribute('data-tier'),
+                chips: document.querySelectorAll(
+                  ${JSON.stringify(DESC_CHIP)}).length,
+                ink: ((mark || host).textContent || "").trim(),
+                bandPx: parseFloat(getComputedStyle(line).lineHeight),
+                markHeight: Math.round(rr.height * 10) / 10,
+              };
+            })())`),
+          ) as Record<string, number | string | null>;
+          note("at0561 session citation", JSON.stringify(citation));
+          expect(citation.tier, "the citation is drawn at the presence register").toBe(
+            "line",
+          );
+          expect(citation.chips, "no chip pill is drawn in the description line").toBe(
+            0,
+          );
+          expect(
+            citation.markHeight as number,
+            "the citation stands no taller than the line's own band",
+          ).toBeLessThanOrEqual((citation.bandPx as number) + 1);
 
           // 5. The beat says the sentence and nothing of the escapes.
           await app.waitForCondition<boolean>(

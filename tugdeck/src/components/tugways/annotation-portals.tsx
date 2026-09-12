@@ -21,7 +21,10 @@ import {
   type CommitMark,
 } from "@/components/tugways/commit-tip-portals";
 import { useFileTipPortals } from "@/components/tugways/file-tip-portals";
-import { useSessionCitationPortals } from "@/components/tugways/session-citation-portals";
+import {
+  useSessionCitationPortals,
+  type SessionMark,
+} from "@/components/tugways/session-citation-portals";
 import type { AnnotationContext } from "@/lib/annotator/types";
 
 /**
@@ -34,19 +37,22 @@ import type { AnnotationContext } from "@/lib/annotator/types";
  * {@link AnnotationScope} the row already mounts, which is how the Overview
  * hands its context to the markdown block too.
  *
- * `commitMark` is the one thing a surface says about how a mark is DRAWN
- * rather than about which marks it has, and it exists because the session
- * description line cannot hold a pill: see {@link useCommitTipPortals}.
+ * `commitMark` and `sessionMark` are the one thing a surface says about how a
+ * mark is DRAWN rather than about which marks it has, and they exist for one
+ * reason between them: the session description line cannot hold a pill. See
+ * {@link useCommitTipPortals} and {@link useSessionCitationPortals} — a
+ * surface that takes one of them almost always takes both, because the band
+ * is what refuses the box and it refuses every box.
  */
 export function useAnnotationPortals(
   annotation?: AnnotationContext | undefined,
-  options?: { commitMark?: CommitMark },
+  options?: { commitMark?: CommitMark; sessionMark?: SessionMark },
 ): {
   onAnnotated: (container: HTMLElement) => void;
   portals: React.ReactNode;
 } {
   const scoped = useAnnotationScope();
-  const sessions = useSessionCitationPortals();
+  const sessions = useSessionCitationPortals(options?.sessionMark);
   const commits = useCommitTipPortals(
     (annotation ?? scoped)?.resolveCommit,
     options?.commitMark,

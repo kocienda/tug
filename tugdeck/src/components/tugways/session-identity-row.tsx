@@ -1023,8 +1023,20 @@ export function SessionIdentityRow({
   // the masthead's tier 14px. The atom's height, form and behaviour are
   // untouched everywhere else it is drawn; this is one surface saying which
   // form a written reference takes on it.
+  //
+  // A session citation takes the same cut, for the same arithmetic and one
+  // more reading. The chip is the same 22px box, so on the masthead — where
+  // this line is the one run that WRAPS — it stood proud of its own line and
+  // into the one above, straight through the resting underline of the path in
+  // the sentence before it; two marks of two different things, touching, on
+  // chrome nobody can scroll. It is drawn at the presence register here
+  // instead: the same live citation, the same raise on a click, the session's
+  // name set in the line's own ink with no enclosure around it.
   const { onAnnotated: onDescriptionAnnotated, portals: descriptionPortals } =
-    useAnnotationPortals(undefined, { commitMark: "mention" });
+    useAnnotationPortals(undefined, {
+      commitMark: "mention",
+      sessionMark: "mention",
+    });
   // The filter's mark, painted over what the pipeline built rather than
   // composed while it renders ([B08]). `renderFilterHighlight` cannot reach
   // this run — its DOM is written by the parse and the annotator, with no

@@ -347,9 +347,10 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         expect(dotVisual.state).toBe("running");
 
         // And Z2's ARC cell takes the register's own word rather than
-        // composing a second one ([B08]).
+        // composing a second one ([B08]) — capitalized, because the cell sets
+        // a WORD beside STATE's `Ready` and the register sets prose.
         await app.waitForCondition<boolean>(
-          `((document.querySelector(${JSON.stringify(ARC_VALUE)})?.textContent) || "").trim() === "ready"`,
+          `((document.querySelector(${JSON.stringify(ARC_VALUE)})?.textContent) || "").trim() === "Ready"`,
           { timeoutMs: 60000 },
         );
         note("at0559 ARC cell", await arcCellReading(app));

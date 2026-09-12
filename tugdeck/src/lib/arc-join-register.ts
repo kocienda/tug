@@ -60,6 +60,20 @@ const JOINABLE_STAGES = new Set(["ready", "built", "audited"]);
 export const ARC_JOIN_READY_WORD = "ready";
 
 /**
+ * The Z2 ARC cell's rendering of that word.
+ *
+ * The register sets its word in a band of running prose, where the state of a
+ * thing is named in lower case; the cell sets it where every neighbour is a
+ * capitalized WORD — STATE's `Ready` two cells over, the lifecycle's
+ * `Auditing` in this very box the moment the offer is withdrawn — so a lower
+ * case `ready` read as the one reading in the row that had been left
+ * unfinished. Derived from the constant above rather than spelled again, so
+ * the cell cannot come to name a state the register has stopped naming.
+ */
+export const ARC_JOIN_READY_CELL_WORD =
+  ARC_JOIN_READY_WORD.charAt(0).toUpperCase() + ARC_JOIN_READY_WORD.slice(1);
+
+/**
  * The register's sentence for an arc that can be joined.
  *
  * The base is in it because on the Arcs card the sentence is the only thing

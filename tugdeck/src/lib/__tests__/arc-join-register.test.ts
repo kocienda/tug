@@ -13,6 +13,7 @@
 import { describe, test, expect } from "bun:test";
 
 import {
+  ARC_JOIN_READY_CELL_WORD,
   ARC_JOIN_READY_WORD,
   arcJoinReadyLine,
   arcJoinRegister,
@@ -72,6 +73,10 @@ describe("what the register says", () => {
     // instead of three strings that agree today.
     const ready = reg(reconciled());
     expect(ready?.word).toBe(ARC_JOIN_READY_WORD);
+    // And the cell's rendering of that word is the register's, capitalized —
+    // derived, so the two can never name different states.
+    expect(ARC_JOIN_READY_CELL_WORD).toBe("Ready");
+    expect(ARC_JOIN_READY_CELL_WORD.toLowerCase()).toBe(ARC_JOIN_READY_WORD);
     expect(ready?.line).toBe(arcJoinReadyLine("main"));
     expect(reg(reconciled(), { base: "release/7" })?.line).toBe(
       arcJoinReadyLine("release/7"),
