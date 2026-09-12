@@ -1498,7 +1498,24 @@ export class CodeSessionStore {
    */
   insertCommandDraft(name: string, args: string): void {
     if (this._disposed) return;
-    this.dispatch({ type: "insert_command_draft", name, args });
+    this.dispatch({ type: "insert_command_draft", name, args, submit: false });
+  }
+
+  /**
+   * Seed the same command AND send it, as this card's next turn — the
+   * menu's Run Here. It rides the one slot {@link insertCommandDraft} uses,
+   * with `submit` set, so the two cannot be in flight at once and the entry
+   * seeds and submits inside a single paint rather than leaving a draft
+   * somebody has to press Return on.
+   *
+   * The seed is what makes it a real turn rather than a side channel: the
+   * text the card sends is the text the composer held, so the transcript,
+   * the history, and the queue all see exactly what a typed command would
+   * have been.
+   */
+  runCommandDraft(name: string, args: string): void {
+    if (this._disposed) return;
+    this.dispatch({ type: "insert_command_draft", name, args, submit: true });
   }
 
   /**

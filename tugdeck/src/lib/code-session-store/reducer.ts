@@ -432,13 +432,16 @@ export interface CodeSessionState {
    * for the prompt entry to seed as a ready-to-run draft, cleared by
    * `consume_command_insert` once seeded. `name` is the bare command name
    * (no leading slash); `args` the trailing argument text (`""` when
-   * none). Mirrored onto `CodeSessionSnapshot.pendingCommandInsert` with a
+   * none); `submit` asks the entry to send the seeded draft as this card's
+   * next turn rather than leaving it for the user to press Return on.
+   * Mirrored onto `CodeSessionSnapshot.pendingCommandInsert` with a
    * shared reference so the seeding `useLayoutEffect` fires once per
    * click, matching the `pendingDraftRestore` stability contract.
    */
   pendingCommandInsert: {
     name: string;
     args: string;
+    submit: boolean;
   } | null;
   /**
    * A jot dragged/clicked into the prompt entry, parked by
@@ -1408,7 +1411,11 @@ function handleInsertCommandDraft(
   return {
     state: {
       ...state,
-      pendingCommandInsert: { name: event.name, args: event.args },
+      pendingCommandInsert: {
+        name: event.name,
+        args: event.args,
+        submit: event.submit,
+      },
     },
     effects: [],
   };

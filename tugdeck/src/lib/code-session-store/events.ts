@@ -491,11 +491,19 @@ export interface ConsumeDraftRestoreActionEvent {
  * atomized command inside a `useLayoutEffect`, and dispatches
  * `consume_command_insert`. `name` is the bare command name (no leading
  * slash), `args` the trailing argument text (`""` when none).
+ *
+ * `submit` is the difference between seeding a draft and running one. A
+ * click seeds and stops there, because the draft is the user's to finish;
+ * the menu's Run Here sets it, and the entry sends the seeded draft as the
+ * card's next turn in the same paint. It rides the same slot rather than a
+ * second one so a seed and a run cannot be in flight at once — the later
+ * one replaces the earlier, which is what a second click already did.
  */
 export interface InsertCommandDraftActionEvent {
   type: "insert_command_draft";
   name: string;
   args: string;
+  submit: boolean;
 }
 
 /**

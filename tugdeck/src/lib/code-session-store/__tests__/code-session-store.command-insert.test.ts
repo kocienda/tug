@@ -1,8 +1,10 @@
 /**
  * `pendingCommandInsert` slot — the store side of clickable slash
  * commands. A click on a known slash command in the transcript parks
- * `{ name, args }` here for the prompt entry to seed as a ready-to-run
- * draft; the prompt entry clears it once seeded.
+ * `{ name, args, submit }` here for the prompt entry to seed as a
+ * ready-to-run draft; the prompt entry clears it once seeded. `submit` is
+ * the difference between the click, which seeds and stops, and the menu's
+ * Run Here, which seeds and sends.
  *
  * Driven through the real `CodeSessionStore` facade (no mock store) so
  * the snapshot-reference stability the seeding `useLayoutEffect` relies
@@ -39,6 +41,7 @@ describe("CodeSessionStore — pendingCommandInsert slot", () => {
     expect(store.getSnapshot().pendingCommandInsert).toEqual({
       name: "tugplug:implement",
       args: "arc/find-route.md",
+      submit: false,
     });
   });
 
@@ -48,7 +51,36 @@ describe("CodeSessionStore — pendingCommandInsert slot", () => {
     expect(store.getSnapshot().pendingCommandInsert).toEqual({
       name: "diff",
       args: "",
+      submit: false,
     });
+  });
+
+  it("runCommandDraft parks the same slot asking for a send", () => {
+    const store = constructStore();
+    store.runCommandDraft("arc", "brief-handoff @briefs/a-brief.md");
+    expect(store.getSnapshot().pendingCommandInsert).toEqual({
+      name: "arc",
+      args: "brief-handoff @briefs/a-brief.md",
+      submit: true,
+    });
+  });
+
+  it("a run replaces a seed rather than queueing beside it", () => {
+    const store = constructStore();
+    store.insertCommandDraft("diff", "");
+    store.runCommandDraft("arc", "x");
+    expect(store.getSnapshot().pendingCommandInsert).toEqual({
+      name: "arc",
+      args: "x",
+      submit: true,
+    });
+  });
+
+  it("consumePendingCommandInsert clears a run the same way", () => {
+    const store = constructStore();
+    store.runCommandDraft("arc", "x");
+    store.consumePendingCommandInsert();
+    expect(store.getSnapshot().pendingCommandInsert).toBeNull();
   });
 
   it("consumePendingCommandInsert clears the slot back to null", () => {

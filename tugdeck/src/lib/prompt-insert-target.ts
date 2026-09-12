@@ -20,12 +20,13 @@
  * is byte-for-byte what it was. The Overview satisfies it over its editor
  * delegate.
  *
- * **`insertCommand` is optional, and that is the seam between the two.**
- * Seeding a clicked slash or shell command as a ready-to-run draft is a
- * session semantic — the Overview protocol has no commands to run — so a
- * target that cannot do it simply does not offer it, and the registry's
- * `seedCommand` returns without one. Every other operation is required,
- * because every composer can do them.
+ * **`insertCommand` and `runCommand` are optional, and that is the seam
+ * between the two.** Seeding a clicked slash or shell command as a
+ * ready-to-run draft — and running one outright — is a session semantic:
+ * the Overview protocol has no commands to run, so a target that cannot do
+ * it simply does not offer it, and the registry's `seedCommand` returns
+ * without one. Every other operation is required, because every composer
+ * can do them.
  *
  * @module lib/prompt-insert-target
  */
@@ -64,6 +65,14 @@ export interface PromptInsertTarget {
    * inventing a text insert that would submit as prose.
    */
   insertCommand?(name: string, args: string): void;
+  /**
+   * Seed a command as a draft and SEND it, as this composer's next turn.
+   * Optional on the same seam and for the same reason as `insertCommand`: a
+   * composer with no turns to take has nothing to run. A caller that finds
+   * it absent does nothing — a menu row that would have called it is dimmed
+   * rather than dropped, so what the surface cannot do is visible.
+   */
+  runCommand?(name: string, args: string): void;
 }
 
 /**
@@ -81,5 +90,6 @@ export function sessionPromptInsertTarget(
     insertText: (text, atoms, at) => store.insertJot(text, atoms, at),
     raise,
     insertCommand: (name, args) => store.insertCommandDraft(name, args),
+    runCommand: (name, args) => store.runCommandDraft(name, args),
   };
 }

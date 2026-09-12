@@ -1127,13 +1127,16 @@ export interface CodeSessionSnapshot {
    * atom carries); `args` is the trailing argument text (`""` when none).
    * Set by {@link CodeSessionStore.insertCommandDraft}, cleared by
    * {@link CodeSessionStore.consumePendingCommandInsert} once the prompt
-   * entry has seeded the editor. Survives snapshot rebuilds until consumed
-   * (like {@link pendingDraftRestore}) so a late- or re-mounted prompt
-   * entry still picks it up.
+   * entry has seeded the editor. `submit` asks the entry to send the seeded
+   * draft as this card's next turn — what the menu's Run Here means, and
+   * what a click deliberately does not do. Survives snapshot rebuilds until
+   * consumed (like {@link pendingDraftRestore}) so a late- or re-mounted
+   * prompt entry still picks it up.
    */
   pendingCommandInsert: {
     name: string;
     args: string;
+    submit: boolean;
   } | null;
 
   /**

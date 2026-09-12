@@ -344,6 +344,72 @@ export function clearQueuedSends(cardId: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// The opening command — a first turn for a card whose session is not yet bound
+// ---------------------------------------------------------------------------
+
+/**
+ * A slash command a card is to run as its FIRST turn, held from the moment
+ * the card is added until its session binds.
+ *
+ * The menu's Run in New Session adds a card and fires the spawn in one
+ * gesture, and the command has nowhere to live in between: the card has no
+ * store yet, and the wire's opening-prompt field belongs to the wheel's
+ * rotations and is documented as absent on every deck-originated command.
+ * Widening the wire for this would blur that line for a fact the deck can
+ * simply keep, which is what this map is — the same shape and the same
+ * lifetime as the stranded sends above, keyed by `cardId` because the card
+ * is what the gesture named and the session id is what is still missing.
+ *
+ * Deliberately NOT a queued send. A queued send carries wire content blocks
+ * built at submit time, and injecting one here would post the command to
+ * claude around the composer — past the slash classification a typed
+ * command goes through. So what is held is the command itself, and the
+ * delivery is `runCommandDraft`: the card's own composer seeds it and sends
+ * it, which is the same path and the same bytes a typed one takes.
+ *
+ * Lifecycle: written when the card is added, drained (and cleared) by
+ * `CardServicesStore._construct` when the card's store is wired up, cleared
+ * outright when the card closes so a command cannot resurface on an
+ * unrelated later session. Module scope, so nothing survives a reload.
+ */
+const openingCommands = new Map<string, { name: string; args: string }>();
+
+/** Hold a command for a card to run as its first turn, once it binds. */
+export function stashOpeningCommand(
+  cardId: string,
+  command: { name: string; args: string },
+): void {
+  openingCommands.set(cardId, command);
+  logSessionLifecycle("opening_command.stashed", {
+    card_id: cardId,
+    name: command.name,
+  });
+}
+
+/**
+ * Take back this card's opening command, if any, clearing the entry.
+ * Destructive by design, like the queued-send drain: a stash that could be
+ * read twice would run the command twice.
+ */
+export function drainOpeningCommand(
+  cardId: string,
+): { name: string; args: string } | undefined {
+  const command = openingCommands.get(cardId);
+  if (command === undefined) return undefined;
+  openingCommands.delete(cardId);
+  logSessionLifecycle("opening_command.drained", {
+    card_id: cardId,
+    name: command.name,
+  });
+  return command;
+}
+
+/** Discard a card's opening command without running it. */
+export function clearOpeningCommand(cardId: string): void {
+  openingCommands.delete(cardId);
+}
+
+// ---------------------------------------------------------------------------
 // Resume display metadata — the t=0 progress facts
 // ---------------------------------------------------------------------------
 

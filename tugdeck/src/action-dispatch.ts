@@ -82,7 +82,12 @@ import {
 import { requestLogout } from "./lib/logout-store";
 import { requestConfigureTug } from "./lib/configure-tug-request-store";
 import { sessionSpawnErrorStore } from "./lib/session-spawn-error-store";
-import { fireRestore, notifySpawnRejected } from "./lib/session-restore";
+import {
+  fireFreshSpawn,
+  fireRestore,
+  notifySpawnRejected,
+  stashOpeningCommand,
+} from "./lib/session-restore";
 import { appInfoStore } from "./lib/app-info-store";
 import { logSessionLifecycle } from "./lib/session-lifecycle-log";
 import { getAppLifecycle } from "./lib/app-lifecycle";
@@ -1005,6 +1010,67 @@ export function initActionDispatch(
     // told where ([P04]).
     flashCardPane(deckManager, cardId);
     fireRestore(cardId, sessionId, projectDir, connection);
+  });
+
+  // run-command-in-new-session: open a fresh Session card on the originating
+  // card's project and run the right-clicked command as its first turn.
+  //
+  // It is the resume-session gesture with a spawn where the restore is: the
+  // card is added first and the session fired into it second, placed in the
+  // slot beside the card whose menu named the command, and flashed, because
+  // the answer to the gesture is a card somewhere else on the deck and the
+  // eye has to be told where ([P04]).
+  //
+  // Never a rotation on the originating card. The wheel could put a fresh
+  // session on this card at the turn's end with a prompt, but that would end
+  // a transcript the reader may still be reading, for work no arc has bound
+  // yet ([B06]).
+  //
+  // The command itself rides no wire field: it is stashed against the new
+  // card id and the card's own composer runs it once the binding lands. The
+  // opening prompt on `session_command` belongs to the wheel's rotations and
+  // stays absent on everything the deck originates ([B07]).
+  registerAction(TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION, (payload) => {
+    const name = payload.name;
+    if (typeof name !== "string" || name === "") {
+      console.warn("run-command-in-new-session: missing name", payload);
+      return;
+    }
+    const args = typeof payload.args === "string" ? payload.args : "";
+    const outgoing = deckManager.getFirstResponderCardId();
+    const origin =
+      typeof payload.originCardId === "string" ? payload.originCardId : null;
+    // The new card opens on the SAME project as the card the command was
+    // read in — a command about this project's files run against another
+    // one is worse than no card at all. The origin's binding first, the
+    // focused card's second, matching the neighbour rule below it.
+    const projectDir =
+      (origin === null
+        ? undefined
+        : cardSessionBindingStore.getBinding(origin)?.projectDir) ??
+      (outgoing === null
+        ? undefined
+        : cardSessionBindingStore.getBinding(outgoing)?.projectDir);
+    if (projectDir === undefined || projectDir === "") {
+      console.warn("run-command-in-new-session: no project to open on", payload);
+      return;
+    }
+    const slot =
+      neighborSlot(deckManager, origin) ?? neighborSlot(deckManager, outgoing);
+    // Save-before-activation ([L23]): `addCard` activates the fresh card, so
+    // the surface that dispatched this banks its focus bag first.
+    if (outgoing !== null) deckManager.invokeSaveCallback(outgoing);
+    const cardId = deckManager.addCard("session", undefined, { slot });
+    if (cardId === null) {
+      console.warn("run-command-in-new-session: no session card registration");
+      return;
+    }
+    flashCardPane(deckManager, cardId);
+    // Stashed BEFORE the spawn: the binding can land inside the same tick,
+    // and a drain that found nothing would open a card that sits empty
+    // wearing every sign of being about to do something.
+    stashOpeningCommand(cardId, { name, args });
+    fireFreshSpawn(cardId, crypto.randomUUID(), projectDir, connection);
   });
 
   // show-card: Show a card by componentId. The Swift app menu sends

@@ -111,6 +111,30 @@ export function useKnownSlashCommand(
 }
 
 /**
+ * The session's live working directory, or `null` where there is no session
+ * to ask. Two callers, and they must agree: the annotation context counts a
+ * relative path reference from it, and the cell menu asks whether a
+ * command's `@path` argument is still there. A second subscription that
+ * resolved paths differently would dim a row over a file the same
+ * transcript was happily linking.
+ */
+export function useSessionCwd(
+  sessionMetadataStore: SessionMetadataStore | undefined,
+): string | null {
+  return useSyncExternalStore(
+    useCallback(
+      (listener: () => void) =>
+        sessionMetadataStore ? sessionMetadataStore.subscribe(listener) : () => {},
+      [sessionMetadataStore],
+    ),
+    useCallback(
+      () => sessionMetadataStore?.getSnapshot().cwd ?? null,
+      [sessionMetadataStore],
+    ),
+  );
+}
+
+/**
  * Assemble the transcript's {@link AnnotationContext} — the live inputs
  * the annotator needs beyond the DOM it walks. Handed to every markdown
  * surface in the transcript; a surface that renders markdown *outside*
@@ -128,17 +152,7 @@ export function useAnnotationContext(
   sessionMetadataStore: SessionMetadataStore | undefined,
 ): AnnotationContext {
   const isKnownSlashCommand = useKnownSlashCommand(sessionMetadataStore);
-  const cwd = useSyncExternalStore(
-    useCallback(
-      (listener: () => void) =>
-        sessionMetadataStore ? sessionMetadataStore.subscribe(listener) : () => {},
-      [sessionMetadataStore],
-    ),
-    useCallback(
-      () => sessionMetadataStore?.getSnapshot().cwd ?? null,
-      [sessionMetadataStore],
-    ),
-  );
+  const cwd = useSessionCwd(sessionMetadataStore);
   // The card's own project — not the frontmost one — since this
   // transcript's references belong to the session it is showing. Its
   // `projectDir` is the file index's search root and its `workspaceKey`
@@ -245,6 +259,13 @@ export interface TranscriptCellMenuOptions {
    * fixture with no composer to send to; the item is then not offered.
    */
   insertTarget?: PromptInsertTarget;
+  /**
+   * The session whose cwd a relative path in this cell's prose is counted
+   * from. Read for one thing: whether a command's `@path` argument still
+   * names a file, which is what dims the menu's run rows. Omitted by a
+   * fixture, and a relative path is then an answer nobody has.
+   */
+  sessionMetadataStore?: SessionMetadataStore;
 }
 
 // Exported for the copy-wiring app-test fixture (`fixture-transcript-copy`),
@@ -253,6 +274,7 @@ export interface TranscriptCellMenuOptions {
 export function useTranscriptCellMenu({
   resolveCopyMarkdown,
   insertTarget,
+  sessionMetadataStore,
 }: TranscriptCellMenuOptions = {}): {
   ResponderScope: React.FC<{ children: React.ReactNode }>;
   cellProps: TranscriptCellProps;
@@ -266,8 +288,10 @@ export function useTranscriptCellMenu({
   // landed on rather than the cell's selection. Everything below is the
   // surface half — the selection Copy and Select All, which are the cell's
   // own and could not be shared.
+  const cwd = useSessionCwd(sessionMetadataStore);
   const annotation = useAnnotationMenu({
     originRef: bodyRef,
+    cwd,
     ...(insertTarget !== undefined ? { insertTarget } : {}),
   });
   // Live-ref the resolver ([L07]) so `handleCopy` keeps a stable

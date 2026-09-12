@@ -112,6 +112,24 @@ export type AnnotationMenuFacts =
       hasRecord: boolean;
       /** The surface can open a diff scoped to this commit. */
       canOpenDiff: boolean;
+    }
+  | {
+      kind: "slash-command";
+      /**
+       * A composer this surface could run the command in. False on a surface
+       * showing commands with nowhere to send one — the two runs are then
+       * dimmed rather than dropped, so the menu's height does not move
+       * between one right-click and the next.
+       */
+      hasComposer: boolean;
+      /**
+       * The args name a file path the surface asked about and did not find.
+       * False when they name no path at all, and false while an answer is
+       * still pending: a path resolves asynchronously, and dimming on a
+       * question nobody has answered yet would dim the row for the beat
+       * before the verdict lands.
+       */
+      argsPathMissing: boolean;
     };
 
 /**
@@ -257,9 +275,54 @@ const commandMenuEntries = (
   payload: AnnotationPayload,
 ): AnnotationMenuEntry[] => [...COMMAND_MENU_ENTRIES, insertEntry(payload)];
 
+/**
+ * A slash command's menu — the two ways to RUN it, then the ways to take it.
+ *
+ * A command line in the transcript is a thing to do, and until these rows
+ * existed the only way to do it was to seed the composer and press send, or
+ * to copy the line and rebuild it wherever you wanted it. So the runs lead:
+ * Run Here sends it as this card's next turn, Run in New Session opens a card
+ * beside this one on the same project and sends it there. The copy block is
+ * unchanged and sits below a rule, which is the order every other kind's menu
+ * takes — reach it, take it, send it.
+ *
+ * **The rows dim; they never vanish.** A surface with no composer cannot run
+ * anything, and a command whose args name a file that is not there would run
+ * against nothing — both are reasons a reader can act on, and both leave the
+ * menu the same height. A surface that knows only the payload (`{ kind:
+ * "none" }`) offers them live, which is the can-stand-behind form: it has been
+ * told nothing that would stop the run.
+ *
+ * The rows are general to every slash command rather than special-cased to
+ * any one of them. `/arc` on a brief is the first customer, not the only one.
+ */
+const slashCommandMenuEntries = (
+  payload: AnnotationPayload,
+  facts: AnnotationMenuFacts,
+): AnnotationMenuEntry[] => {
+  const known = facts.kind === "slash-command" ? facts : null;
+  const cannotRun =
+    known !== null && (!known.hasComposer || known.argsPathMissing);
+  return [
+    {
+      action: TUG_ACTIONS.RUN_COMMAND_HERE,
+      label: "Run Here",
+      disabled: cannotRun,
+    },
+    {
+      action: TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION,
+      label: "Run in New Session",
+      disabled: cannotRun,
+    },
+    { ...COMMAND_MENU_ENTRIES[0], separatorBefore: true },
+    ...COMMAND_MENU_ENTRIES.slice(1),
+    insertEntry(payload),
+  ];
+};
+
 registerAnnotationKind("slash-command", {
   primaryClick: seedCommand,
-  menuEntries: commandMenuEntries,
+  menuEntries: slashCommandMenuEntries,
   suppressStandardItems: true,
 });
 

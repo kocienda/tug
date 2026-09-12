@@ -160,6 +160,23 @@ export const TUG_ACTIONS = {
   //              the chip an `@` mention mints rather than as its path
   //              characters, so it reads as one object and travels as one;
   //              every other kind arrives as its text.
+  // RUN_COMMAND_HERE: payload — none. Run the slash command the right-click
+  //              landed on as the next turn of the card the annotation sits
+  //              in — seed the composer the way the primary click does, then
+  //              submit. Menu-only, like every sampled-target verb: no chord
+  //              can name the line the pointer is over. "Here" is always the
+  //              originating card's own composer; the item never raises
+  //              another card or picks a session, and a surface with no
+  //              composer offers the row DIMMED rather than dropping it.
+  // RUN_COMMAND_IN_NEW_SESSION: payload — none. The same command as the first
+  //              turn of a NEW Session card, opened beside the originating one
+  //              on the same project. Not a rotation on this card: the
+  //              transcript the reader is looking at stays where it is. The
+  //              command is not a wire field — it is stashed against the new
+  //              card id and drained into its store once the binding arrives,
+  //              then submitted through the same path a typed command takes.
+  //              Menu-only, and dimmed on the same two conditions as
+  //              RUN_COMMAND_HERE.
   // COPY_COPYABLE: payload — none. Copy the text of the copyable the
   //              right-click landed on — a label, a badge, a timestamp, a
   //              sha. Menu-only, and menu-only for a structural reason: a
@@ -201,6 +218,8 @@ export const TUG_ACTIONS = {
   COPY_SESSION_DESCRIPTION: "copy-session-description",
   COPY_SESSION_ACTIVITY: "copy-session-activity",
   INSERT_INTO_PROMPT: "insert-into-prompt",
+  RUN_COMMAND_HERE:    "run-command-here",
+  RUN_COMMAND_IN_NEW_SESSION: "run-command-in-new-session",
   PASTE:               "paste",
   PASTE_AS_QUOTE:      "paste-as-quote",
   PASTE_AS_PLAIN_TEXT: "paste-as-plain-text",

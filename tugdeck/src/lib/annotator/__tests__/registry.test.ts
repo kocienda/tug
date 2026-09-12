@@ -78,17 +78,26 @@ describe("command kinds replace the standard menu block", () => {
     test(kind, () => {
       const entry = annotationEntryFor(kind);
       expect(entry?.suppressStandardItems).toBe(true);
-      expect(
-        entry
-          ?.menuEntries({ kind: "shell-command", command: "just x" }, { kind: "none" })
-          .map((e) => e.label),
-      ).toEqual([
-        "Copy Command",
-        "Copy Command as Plain Text",
-        "Insert into Prompt",
-      ]);
     });
   }
+
+  test("a shell command offers the copies and the insert, and nothing else", () => {
+    expect(bareEntries("shell-command").map((e) => e.label)).toEqual([
+      "Copy Command",
+      "Copy Command as Plain Text",
+      "Insert into Prompt",
+    ]);
+  });
+
+  test("a slash command leads with the two runs, then the same copies", () => {
+    expect(bareEntries("slash-command").map((e) => e.label)).toEqual([
+      "Run Here",
+      "Run in New Session",
+      "Copy Command",
+      "Copy Command as Plain Text",
+      "Insert into Prompt",
+    ]);
+  });
 
   test("the copy items name real vocabulary actions", () => {
     expect(
@@ -96,6 +105,8 @@ describe("command kinds replace the standard menu block", () => {
         ?.menuEntries({ kind: "slash-command", name: "diff", args: "" }, { kind: "none" })
         .map((e) => e.action),
     ).toEqual([
+      TUG_ACTIONS.RUN_COMMAND_HERE,
+      TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION,
       TUG_ACTIONS.COPY_COMMAND,
       TUG_ACTIONS.COPY_COMMAND_AS_PLAIN_TEXT,
       TUG_ACTIONS.INSERT_INTO_PROMPT,
@@ -105,6 +116,60 @@ describe("command kinds replace the standard menu block", () => {
   test("and a command click is registered at all", () => {
     expect(annotationEntryFor("slash-command")?.primaryClick).toBeDefined();
     expect(annotationEntryFor("shell-command")?.primaryClick).toBeDefined();
+  });
+
+  /**
+   * [B08]/[F05]: a run a surface cannot perform right now is dimmed, never
+   * dropped — the menu is the same height on every right-click, and the
+   * reason it is dim is a fact the surface supplied rather than a guess.
+   */
+  describe("the runs dim rather than vanish", () => {
+    const runs = (facts: Parameters<
+      NonNullable<ReturnType<typeof annotationEntryFor>>["menuEntries"]
+    >[1]) =>
+      annotationEntryFor("slash-command")
+        ?.menuEntries({ kind: "slash-command", name: "arc", args: "x @b.md" }, facts)
+        .filter((e) => e.label.startsWith("Run ")) ?? [];
+
+    test("a surface that knows only the payload offers them live", () => {
+      expect(runs({ kind: "none" }).map((e) => e.disabled)).toEqual([
+        false,
+        false,
+      ]);
+    });
+
+    test("a surface with a composer and a path that resolves offers them live", () => {
+      expect(
+        runs({
+          kind: "slash-command",
+          hasComposer: true,
+          argsPathMissing: false,
+        }).map((e) => e.disabled),
+      ).toEqual([false, false]);
+    });
+
+    test("no composer dims both, and both are still there", () => {
+      const entries = runs({
+        kind: "slash-command",
+        hasComposer: false,
+        argsPathMissing: false,
+      });
+      expect(entries.map((e) => e.label)).toEqual([
+        "Run Here",
+        "Run in New Session",
+      ]);
+      expect(entries.map((e) => e.disabled)).toEqual([true, true]);
+    });
+
+    test("a path the surface could not find dims both", () => {
+      expect(
+        runs({
+          kind: "slash-command",
+          hasComposer: true,
+          argsPathMissing: true,
+        }).map((e) => e.disabled),
+      ).toEqual([true, true]);
+    });
   });
 });
 

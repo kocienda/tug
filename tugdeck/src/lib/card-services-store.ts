@@ -58,7 +58,9 @@ import { resolveRestoreWindow } from "./session-restore-window";
 // initialization, so the cycle resolves cleanly in both orders.
 import {
   cancelRestoreRetry,
+  clearOpeningCommand,
   clearQueuedSends,
+  drainOpeningCommand,
   drainQueuedSends,
   stashQueuedSends,
 } from "./session-restore";
@@ -667,6 +669,16 @@ class CardServicesStore {
     if (stranded !== undefined) {
       codeSessionStore.seedQueuedSends(stranded);
     }
+    // A card opened by Run in New Session carries the command it was opened
+    // to run. Delivered as a seeded draft rather than as a queued send: the
+    // composer is what submits it, so the classification, the transcript row
+    // and the bytes on the wire are a typed command's. The entry's own
+    // deferral holds it until the card can send — the seed waits for an
+    // editor to exist, and the submit waits for `canSubmit`.
+    const opening = drainOpeningCommand(cardId);
+    if (opening !== undefined) {
+      codeSessionStore.runCommandDraft(opening.name, opening.args);
+    }
     // Bound the cold-resume load by recency: replay only the most recent N
     // committed turns (the canonical unit). A long session loads its relevant
     // tail fast; older turns page in on demand. tugcode reports the loaded
@@ -819,6 +831,9 @@ class CardServicesStore {
     // and a message must never resurface later on an unrelated
     // session bound to a recycled card id.
     clearQueuedSends(cardId);
+    // And a command the card was opened to run, which has even less business
+    // reaching a later session on a recycled card id.
+    clearOpeningCommand(cardId);
     // Nothing to restore for a card that is going away ([L27]).
     cancelRestoreRetry(cardId);
     const binding = cardSessionBindingStore.getBinding(cardId);

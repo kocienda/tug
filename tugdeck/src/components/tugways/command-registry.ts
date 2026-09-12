@@ -3007,6 +3007,11 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   // meant "reveal somebody else's" would have no way to name whose.
   TUG_ACTIONS.REVEAL_CHANGES,
   TUG_ACTIONS.INSERT_INTO_PROMPT,
+  // The two runs on a slash-command annotation. Both mean "the command line
+  // the right-click landed on", which is the same thing that keeps every
+  // sampled-target verb out of the table — a chord has no way to name it.
+  TUG_ACTIONS.RUN_COMMAND_HERE,
+  TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION,
   TUG_ACTIONS.REVEAL_IN_FINDER,
   TUG_ACTIONS.OPEN_IMAGE_PREVIEW,
   // The selection the right-click landed on, handed to the system

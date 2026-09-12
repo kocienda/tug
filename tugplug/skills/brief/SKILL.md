@@ -42,4 +42,14 @@ No sharpening of its own. No plan, no task list, no arc, no worktree, no commit.
 
 ## Hand off
 
-Name the path you wrote and stop. What happens to the brief next — an arc opened on it by `/arc`, a spike, or nothing at all — is the user's call, and the document is what makes it theirs to make. Whether that arc walks a task list or devises a plan first is the door's decision, made from the brief's content when it is handed over; this skill does not pre-empt it, and the brief's Exit section names an arc rather than a plan for that reason.
+Name the path you wrote, print the command below, and stop. What happens to the brief next — an arc opened on it by `/arc`, a spike, or nothing at all — is the user's call, and the document is what makes it theirs to make. Whether that arc walks a task list or devises a plan first is the door's decision, made from the brief's content when it is handed over; this skill does not pre-empt it, and the brief's Exit section names an arc rather than a plan for that reason.
+
+**The command goes last, on its own line, written as inline code:**
+
+> `/arc <slug> @<path>`
+
+where `<path>` is the file you just wrote and `<slug>` is that filename's stem with a trailing `-brief` removed — `briefs/one-door-brief.md` gives `one-door`. That is exactly the name `/arc` would derive from the path on its own, so printing it changes nothing about what the command does; what it buys is that the proposed name is **visible and editable before anything runs**, rather than something the door picks after the user has committed to the gesture.
+
+**The backticks are load-bearing.** A command line inside them is one object — a thing to do, which a surface reading your reply can offer to run, copy, or hand somewhere else. The same characters in a fenced block are a sample of text being quoted, and the same characters bare are prose. Write one inline-code span holding the whole line and nothing else: no fence, no leading prompt character, no trailing punctuation inside the span.
+
+Printing a line is not running one. The command is text in your reply until somebody sends it, which is the same promise the rest of this skill makes: the brief is written, and what becomes of it is still the user's call.

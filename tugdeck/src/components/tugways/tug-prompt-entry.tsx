@@ -1796,6 +1796,12 @@ export const TugPromptEntry = React.forwardRef<
   }, [landingActive, keymapRegistry.getSnapshot()]);
   useKeybindings(commitKeybindings);
 
+  // The submit path, held for the seeding effect below: a Run Here seeds
+  // and sends inside one paint, and `performSubmit` is declared several
+  // hundred lines further down. Null only on the first render, before the
+  // assignment below it. [L07]
+  const performSubmitRef = useRef<(() => Promise<void>) | null>(null);
+
   // Command insert ([P03]/[P04]). A click on a known slash command in the
   // transcript parks `{ name, args }` on the code-session store; this
   // effect observes the slot, seeds the editor with the atomized command —
@@ -1810,12 +1816,25 @@ export const TugPromptEntry = React.forwardRef<
   // useSyncExternalStore; [L03] useLayoutEffect so the doc change lands in
   // one paint; the slot survives until an editor exists (no consume on a
   // missing view) so a click is never silently dropped.
+  //
+  // `submit` is what the menu's Run Here adds: the same seed, then the same
+  // `performSubmit` the Return key and the Z5 button reach, fired in this
+  // paint so the command goes out as the card's next turn rather than
+  // sitting in the composer. It runs through `performSubmitRef` because
+  // `performSubmit` is declared below this effect — the ref is assigned at
+  // render time and read at fire time, which is [L07]'s own shape.
+  //
+  // Nothing here atomizes the args. `buildEditingStateFromDraftRestore`
+  // places the atoms it is handed and mints none, so a `@path` in the args
+  // is seeded as the characters the reader saw and sent as those same
+  // characters — which is exactly what a hand-typed `/arc x @briefs/y.md`
+  // sends, and what claude reads as a file mention on the far side.
   const pendingCommandInsert = snap.pendingCommandInsert;
   useLayoutEffect(() => {
     if (pendingCommandInsert === null) return;
     const editor = textEditorRef.current;
     if (editor === null) return;
-    const { name, args } = pendingCommandInsert;
+    const { name, args, submit } = pendingCommandInsert;
     editor.restoreState(
       buildEditingStateFromDraftRestore(`${TUG_ATOM_CHAR} ${args}`, [
         { kind: "atom", type: "command", label: name, value: name },
@@ -1823,6 +1842,7 @@ export const TugPromptEntry = React.forwardRef<
     );
     editor.focus();
     codeSessionStore.consumePendingCommandInsert();
+    if (submit) void performSubmitRef.current?.();
   }, [pendingCommandInsert, codeSessionStore]);
 
   // Jot insert ([P05]). A jot dragged from the Jots card onto the prompt
@@ -3043,6 +3063,13 @@ export const TugPromptEntry = React.forwardRef<
     registerAtomPathBackfill,
     setArbitrating,
   ]);
+
+  // Live ref to `performSubmit` for the command-insert effect above, which
+  // is declared before this callback exists and fires a Run Here inside its
+  // own seeding paint. Assigned at render time like the other submit-path
+  // mirrors, so the effect reads the live closure rather than a stale one
+  // ([L07]).
+  performSubmitRef.current = performSubmit;
 
   // Flush a deferred submit. When a submit landed during the
   // transport-settling window, `performSubmit`'s blocked-submit branch
