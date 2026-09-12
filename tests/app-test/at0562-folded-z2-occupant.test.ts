@@ -9,8 +9,13 @@
  * compaction is the one surface small enough to BE that row: it declares
  * `foldPresentation: "inhabit"` on its `showSheet`, which on a folded card
  * raises no panel and leaves the fold standing, and the row reads
- * "Compacting…" with its wave instead of the instruments. When the run
- * settles, the cells come back.
+ * "Compacting…" with its wave instead of the instruments — in the one-row
+ * inline dialog's own voice (a 20px mark, a 14px title, an action on the
+ * trailing edge), because that dialog is what the transcript carries for the
+ * same kind of news and the two should read as one family. The action is the
+ * run's own Cancel, taken off `compactionProgressStore`: no cover rose, so
+ * this row is where the run offers its one way out. When the run settles, the
+ * cells come back, and the strip is the same depth throughout.
  *
  * The vehicle is the frame tugcast puts on the wire for a `/compact` the WHEEL
  * sent — `origin: "wheel"`, opening its turn inside the store without passing
@@ -33,6 +38,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-compaction-run.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.css
+ * @covers tugdeck/src/lib/compaction-progress-store.ts
  * @covers tugdeck/src/lib/card-fold.ts
  */
 
@@ -50,7 +56,9 @@ const ROW = `${CARD} [data-slot="session-telemetry-status-row"]`;
 const OCCUPANT = `${CARD} [data-slot="session-telemetry-status-occupant"]`;
 const CELL = `${CARD} [data-slot="tug-status-cell"]`;
 const SHEET = '[data-slot="tug-sheet"]';
-const UNFOLD = `${CARD} .session-telemetry-occupant-action`;
+/** The occupant's one action — **Cancel** on a compaction, **Unfold** on an
+    arrival's notice. One class, because it is one seat in one row. */
+const OCCUPANT_ACTION = `${CARD} .session-telemetry-occupant-action`;
 const DIALOG = `${CARD} [data-slot="session-permission-dialog"]`;
 
 interface RowReading {
@@ -63,6 +71,10 @@ interface RowReading {
   cellsShown: number;
   /** Whether the wave mark is up. */
   hasWave: boolean;
+  /** The strip's own height — the same depth occupied or not ([B04]). */
+  stripHeight: number;
+  /** The occupant's title face, so the dialog family is pinned, not assumed. */
+  titleSize: string | null;
   sheets: number;
   folded: boolean;
 }
@@ -72,6 +84,12 @@ const READ_ROW = `(function(){
   var occ = document.querySelector(${JSON.stringify(OCCUPANT)});
   var cells = Array.from(document.querySelectorAll(${JSON.stringify(CELL)}));
   var frame = document.querySelector('.tug-pane[data-pane-id="p1"]');
+  var strip = document.querySelector(${JSON.stringify(
+    `${CARD} [data-slot="session-card-status-bar"]`,
+  )});
+  var title = occ === null
+    ? null
+    : occ.querySelector(".session-telemetry-occupant-title");
   return {
     occupant: row === null ? null : row.getAttribute("data-occupant"),
     text: occ === null ? null : (occ.textContent || "").trim(),
@@ -81,6 +99,10 @@ const READ_ROW = `(function(){
     }).length,
     hasWave:
       occ !== null && occ.querySelector('[data-variant="wave"]') !== null,
+    stripHeight: strip === null
+      ? 0
+      : Math.round(strip.getBoundingClientRect().height),
+    titleSize: title === null ? null : getComputedStyle(title).fontSize,
     sheets: document.querySelectorAll(${JSON.stringify(SHEET)}).length,
     folded: frame.getAttribute("data-folded") === "true",
   };
@@ -168,6 +190,20 @@ describe.skipIf(!SHOULD_RUN)(
           expect(running.occupant).toBe("compaction");
           expect(running.text).toContain("Compacting");
           expect(running.hasWave, "the row carries the run's wave").toBe(true);
+          // The one-row inline dialog's voice, not a caption's: the title is
+          // the dialog's own 14px and the run's Cancel rides the trailing
+          // edge, because while the card is folded this row IS the run's
+          // surface — no cover rose to carry one.
+          expect(running.titleSize, "the dialog's title size").toBe("14px");
+          expect(running.text, "the run's Cancel rides the row").toContain(
+            "Cancel",
+          );
+          // And the band does not change depth when it stops being the
+          // instruments: the occupant holds the resting row's height.
+          expect(
+            Math.abs(running.stripHeight - before.stripHeight),
+            "the strip is the same depth occupied or not",
+          ).toBeLessThanOrEqual(1);
           // The instruments are hidden, not unmounted ([L26]).
           expect(running.cellsMounted).toBe(before.cellsMounted);
           expect(running.cellsShown).toBe(0);
@@ -176,12 +212,17 @@ describe.skipIf(!SHOULD_RUN)(
           expect(running.folded, "and does not open the fold").toBe(true);
           note("at0562 folded compaction row", (await app.screenshot()).path);
 
-          // Settle the run. A folded card has no Cancel button to press, and
-          // in stub mode no backend answers the interrupt — so the turn is
-          // closed the way the wire would close it. The run is watched off the
-          // store rather than off any surface, so it settles from here exactly
-          // as it would with the sheet up: no compaction ink arrived, so the
-          // card reports the refusal and clears.
+          // Settle the run by pressing the row's own Cancel — the run's one
+          // cancel, registered on `compactionProgressStore` when it opened and
+          // taken from there rather than rebuilt here, so this press and the
+          // cover's are the same press. In stub mode no backend answers the
+          // interrupt it sends; the store settles at the gesture, which is
+          // what clears the occupant and gives the cells back.
+          await app.evalJS<null>(
+            `(document.querySelector(${JSON.stringify(OCCUPANT_ACTION)}).click(), null)`,
+          );
+          // The turn is then closed the way the wire would close it, so the
+          // run's watcher reaches its own end as well.
           await app.driveSession("A", {
             op: "ingestFrame",
             feedId: CODE_OUTPUT_FEED,
@@ -316,7 +357,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The press is the whole of the interaction: the card opens and the
           // dialog that was mounted all along is simply on show again.
           await app.evalJS<null>(
-            `(document.querySelector(${JSON.stringify(UNFOLD)}).click(), null)`,
+            `(document.querySelector(${JSON.stringify(OCCUPANT_ACTION)}).click(), null)`,
           );
           await app.waitForCondition<boolean>(
             `window.__tug.getPaneRecord("p1").folded === false`,

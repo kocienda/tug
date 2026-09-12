@@ -208,7 +208,12 @@ export function useCompactionRun(host: CompactionRunHost): () => void {
     // whether or not the sheet is still up. A dismissed sheet leaves the card
     // showing an ordinary in-flight turn, which Stop / Escape can interrupt if
     // that is what the user actually wants.
-    compactionProgressStore.begin(cardId);
+    // The run's cancel goes on the store with the run, because the sheet is
+    // not the only surface that offers it: a folded card shows the run in its
+    // Z2 row and offers Cancel there, and both presses must be the same
+    // press — this closure, with its `canceled` latch and its correction
+    // bulletin — rather than two hand-rolled interrupts.
+    compactionProgressStore.begin(cardId, onCancel);
     // The sheet is EXCLUSIVE, so the card is held for the length of the run:
     // this host is the one every sheet on the card shares, and without the
     // hold a `/usage` would not open over this sheet — it would replace it,
@@ -225,11 +230,11 @@ export function useCompactionRun(host: CompactionRunHost): () => void {
       icon: "Archive",
       // The one surface small enough to BE the Z2 row ([B04]): on a folded
       // card no panel rises and the fold stands, and the row itself reads
-      // "Compacting…" with its wave, drawn off `compactionProgressStore` by
-      // the status row. The run is unchanged either way — it is watched off
-      // the store rather than off this sheet, and it was already begun just
-      // above, so a compaction that starts folded settles into the transcript
-      // exactly as one that starts open.
+      // "Compacting…" with its wave and its Cancel, drawn off
+      // `compactionProgressStore` by the status row. The run is unchanged
+      // either way — it is watched off the store rather than off this sheet,
+      // and it was already begun just above, so a compaction that starts
+      // folded settles into the transcript exactly as one that starts open.
       //
       // What a folded run gives up is the exclusive hold, which is the sheet's
       // and not the row's: a `/usage` during a folded compaction opens the

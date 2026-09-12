@@ -20,6 +20,12 @@
  * subscribed here, so a sheet dismissed early (Escape, a host unmount) leaves
  * the compaction running and still settling into the transcript.
  *
+ * The run's own CANCEL is kept here too, beside the run it belongs to, because
+ * the sheet is not the only surface that offers one: a folded card shows the
+ * run in its Z2 row — no cover rises — and offers Cancel there. Both presses
+ * perform the one closure the run registered, so there is one interrupt, one
+ * latch, and one set of bulletins however the user reached it.
+ *
  * No entry for a card = idle (no compaction, no sheet). An entry with
  * `outcome === null` is a run in flight; an entry with a terminal `outcome` is
  * a just-settled run awaiting that card's bulletin + `clear`.
@@ -69,6 +75,17 @@ export function isCompactingCard(
 class CompactionProgressStore {
   private state: CompactionRuns = NO_RUNS;
   private readonly listeners = new Set<() => void>();
+  /**
+   * Each open run's own cancel, keyed by card — the closure
+   * `session-compaction-run` builds when it opens the run, which interrupts
+   * the turn and settles the store. Deliberately NOT in the snapshot: a
+   * function in there would change the map's identity for nothing and is not
+   * state any surface renders. It lives here so a surface that is not the
+   * sheet can take the same cancel rather than reconstructing it — the folded
+   * card's Z2 row is the first such surface, and a second implementation of
+   * "cancel" would be a second set of bulletins to keep in step.
+   */
+  private readonly cancels = new Map<string, () => void>();
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -89,8 +106,22 @@ class CompactionProgressStore {
     this.state.get(cardId) ?? null;
 
   /** Open an in-flight run for `cardId`. */
-  begin(cardId: string): void {
+  begin(cardId: string, onCancel?: () => void): void {
+    if (onCancel !== undefined) this.cancels.set(cardId, onCancel);
     this.write(cardId, { outcome: null, failureReason: null });
+  }
+
+  /**
+   * Perform this card's run's own cancel, if it has one and is still in
+   * flight. Returns whether anything was asked to stop — a settled run, or a
+   * run opened without a cancel, answers `false` and nothing happens.
+   */
+  requestCancel(cardId: string): boolean {
+    if (!isCompactingCard(this.state, cardId)) return false;
+    const cancel = this.cancels.get(cardId);
+    if (cancel === undefined) return false;
+    cancel();
+    return true;
   }
 
   /** Mark the card's run succeeded (compaction ink observed in place). */
@@ -110,6 +141,7 @@ class CompactionProgressStore {
 
   /** Drop this card's run — dismisses its sheet and ends the run. */
   clear(cardId: string): void {
+    this.cancels.delete(cardId);
     if (!this.state.has(cardId)) return;
     const next = new Map(this.state);
     next.delete(cardId);

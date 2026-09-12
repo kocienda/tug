@@ -110,6 +110,41 @@ describe("compactionProgressStore", () => {
     expect(n).toBe(2);
   });
 
+  it("performs the run's own cancel, once, and only while it is in flight", () => {
+    let asked = 0;
+    compactionProgressStore.begin("A", () => {
+      asked += 1;
+      compactionProgressStore.cancel("A");
+    });
+
+    expect(compactionProgressStore.requestCancel("A")).toBe(true);
+    expect(asked).toBe(1);
+    expect(compactionProgressStore.getFor("A")?.outcome).toBe("canceled");
+
+    // Settled: there is nothing left to interrupt, so a second press does
+    // nothing rather than interrupting whatever turn came next.
+    expect(compactionProgressStore.requestCancel("A")).toBe(false);
+    expect(asked).toBe(1);
+  });
+
+  it("answers false when there is no run, or a run with no cancel", () => {
+    expect(compactionProgressStore.requestCancel("A")).toBe(false);
+    compactionProgressStore.begin("B");
+    expect(compactionProgressStore.requestCancel("B")).toBe(false);
+  });
+
+  it("drops the cancel with the run — a cleared card cannot be canceled", () => {
+    let asked = 0;
+    compactionProgressStore.begin("A", () => {
+      asked += 1;
+    });
+    compactionProgressStore.clear("A");
+    // A second run on the same card, opened without one, must not inherit it.
+    compactionProgressStore.begin("A");
+    expect(compactionProgressStore.requestCancel("A")).toBe(false);
+    expect(asked).toBe(0);
+  });
+
   it("keeps stable snapshot references between notifications", () => {
     compactionProgressStore.begin("A");
     expect(compactionProgressStore.getSnapshot()).toBe(

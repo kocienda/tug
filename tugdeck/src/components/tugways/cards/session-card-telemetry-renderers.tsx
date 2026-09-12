@@ -49,7 +49,10 @@ import { createPortal } from "react-dom";
 import { TugPaneFrameContext } from "@/components/chrome/tug-pane";
 import { raisePaneAbovePeers } from "@/components/tugways/pane-raise";
 import { getDeckStore } from "@/lib/deck-store-registry";
-import { useIsCompactingCard } from "@/lib/compaction-progress-store";
+import {
+  compactionProgressStore,
+  useIsCompactingCard,
+} from "@/lib/compaction-progress-store";
 import { unfoldCardForBiddenSurface } from "@/lib/card-fold";
 import { cardFoldedOf } from "@/deck-store-selectors";
 import {
@@ -1404,8 +1407,15 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       data-occupant={occupant ?? undefined}
     >
       {/* The one thing a folded card has to say, in place of its instruments
-          ([B03]). Same vocabulary as the inline dialogs — a mark, a title —
-          so the row reads as the same family. */}
+          ([B03]). The inline dialogs' own one-row vocabulary — a mark, a
+          title at the dialog's own size and weight, an action on the trailing
+          edge — so the row and the header-only dialog the transcript carries
+          read as one family seen in two places.
+
+          Cancel is the run's own cancel, taken off the store rather than
+          rebuilt here: while the card is folded this row IS the run's surface
+          (the cover declares `inhabit` and raises no panel), so without it the
+          one way to stop a compaction would be to unfold first. */}
       {occupant === "compaction" ? (
         <div
           className="session-telemetry-status-occupant"
@@ -1413,13 +1423,26 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           data-occupant="compaction"
           role="status"
         >
-          <TugProgressIndicator
-            variant="wave"
-            state="running"
-            role="inherit"
-            aria-hidden
-          />
+          <span className="session-telemetry-occupant-mark" aria-hidden>
+            <TugProgressIndicator
+              variant="wave"
+              state="running"
+              role="inherit"
+              aria-hidden
+            />
+          </span>
           <span className="session-telemetry-occupant-title">Compacting…</span>
+          <TugPushButton
+            className="session-telemetry-occupant-action"
+            emphasis="outlined"
+            role="action"
+            size="xs"
+            onClick={() => {
+              if (cardId !== null) compactionProgressStore.requestCancel(cardId);
+            }}
+          >
+            Cancel
+          </TugPushButton>
         </div>
       ) : null}
       {/* The deferred arrival's notice ([B03]/[B05]) — the inline-dialog
@@ -1442,9 +1465,9 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             aria-hidden
           >
             {occupant === "permission" ? (
-              <ShieldAlert size={13} />
+              <ShieldAlert size={16} />
             ) : (
-              <MessageCircleQuestion size={13} />
+              <MessageCircleQuestion size={16} />
             )}
           </span>
           <span className="session-telemetry-occupant-title">
@@ -1452,7 +1475,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           </span>
           <TugPushButton
             className="session-telemetry-occupant-action"
-            emphasis="ghost"
+            emphasis="outlined"
             role="action"
             size="xs"
             onClick={() => {

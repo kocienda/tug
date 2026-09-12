@@ -354,6 +354,11 @@
        --tugx-z2-cell-*          each cell's width (a `min-width` on both of its
                                  rows, in `ch` of the row's 10px sans)
        --tugx-z2-cell-*-arc      the widths while the row reads ARC
+       --tugx-z2-occupant-height the height the folded row's one occupant holds
+                                 — the resting cells' own height, so the strip
+                                 is the same depth whether it shows the
+                                 instruments or a compaction. Measured.
+       --tugx-z2-occupant-gap    between the occupant's mark, title and action
 
      Two things do NOT read from here. The `@container` rungs in
      `tug-status-cell.css` that hide TIME, TASKS and JOBS as the card narrows
@@ -375,6 +380,11 @@
   --tugx-z2-cell-tasks-arc: 17ch;
   --tugx-z2-cell-jobs-arc: 9ch;
   --tugx-z2-cell-context-arc: 14ch;
+  /* Measured: the resting cells' own row is 35px (an 11px legend apparatus,
+     its 5px tick excursion, the 2px stack gap, the 18px value row), which
+     builds a 53px strip. at0562 pins the two depths equal. */
+  --tugx-z2-occupant-height: 35px;
+  --tugx-z2-occupant-gap: 0.625rem;
 
   flex: 0 0 auto;
   display: flex;

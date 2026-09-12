@@ -153,17 +153,39 @@
   display: none;
 }
 
-/* The occupant itself takes the row: a mark and a title, centred on the same
-   line the instruments stood on, in the muted register the cell legends use so
-   it reads as the row speaking rather than as a panel dropped into it. */
+/* The occupant itself takes the row: a mark, a title, and an action, centred
+   on the same line the instruments stood on.
+
+   **It is the inline dialogs' header row, at row scale.** The one-line dialog
+   the transcript carries for an app-test ask is the same three things in the
+   same order, so the numbers below are that dialog's own — its 20px icon
+   column, its 0.625rem row gap, its 0.875rem semibold title — rather than a
+   second set arrived at here. The first pass used the cell legends' 11px
+   muted register instead, on the argument that the row should read as the row
+   speaking; at the size the fold actually shows it, that read as a caption
+   under a dialog rather than as one, and the two surfaces it stands between
+   did not look related.
+
+   The height is DECLARED, and it is the resting row's: the cells are
+   `display: none` while an occupant is up, so the strip's height would
+   otherwise be whatever this row's content happened to measure, and the
+   folded card's Z2 band would change depth every time a compaction started
+   or settled. `--tugx-z2-occupant-height` is measured in the built app
+   against the instruments it stands in for (see the Z2 TUNING block in
+   `session-card.css`), which is also what gives a 20px mark and a 14px title
+   the room they need — the row is taller than the 18px value row the old
+   mark-and-title sat in. The fallback here is the same measured number, so a
+   fixture that renders this row outside a `.session-card-status-bar` still
+   gets the shape rather than a collapsed one. */
 .session-telemetry-status-occupant {
   display: flex;
   flex: 1 1 auto;
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: var(--tug-space-sm);
+  gap: var(--tugx-z2-occupant-gap, 0.625rem);
   min-width: 0;
+  height: var(--tugx-z2-occupant-height, 35px);
 }
 
 /* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
@@ -172,7 +194,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--tug-font-family-sans);
-  font-size: 0.6875rem;
+  /* The inline dialog's own title metrics ([L17]-safe: these are the numbers
+     the dialog declares, not a reach into its token family). */
+  font-size: 0.875rem;
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: 1.3;
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
@@ -188,6 +214,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* The dialog's icon column, to the pixel — a mark that stands for one is
+     the same mark. The compaction's wave is the same 16px glyph it is
+     everywhere else, centred in the column like a 16px lucide would be. */
+  width: 20px;
+  height: 20px;
 }
 
 .session-telemetry-occupant-mark[data-icon-role="caution"] {
@@ -198,19 +229,21 @@
   color: var(--tug7-element-global-text-normal-link-rest);
 }
 
-/* **Unfold**, on the notice's trailing edge. The row is 18px of value height
-   and the button is the only thing in it that wants a box, so it gives back
-   the push button's own vertical padding rather than growing the strip — the
-   folded frame's height is the wall tier's and cannot answer for a taller
-   row. `margin-inline-start: auto` is deliberately NOT set: the notice is
-   centred as a group (icon, title, action), which is how the compaction's
-   mark-and-title already reads, and pinning the action to the far edge would
-   put it under the fold control that already lives there. */
+/* The occupant's action, on its trailing edge — **Unfold** on an arrival's
+   notice, **Cancel** on a compaction. It wears the `xs` push button's own box
+   now: the occupant row is the resting row's height rather than the 18px
+   value row, so there is room for a button that reads as one, and the strip
+   does not grow to give it (the folded frame's height is the wall tier's and
+   cannot answer for a taller row). Only the padding is trimmed, to hold the
+   button inside the row it shares with a 20px mark.
+
+   `margin-inline-start: auto` is deliberately NOT set: the occupant is
+   centred as a group (mark, title, action), the way the one-line dialog's
+   three parts read together, and pinning the action to the far edge would put
+   it under the fold control that already lives there. */
 .session-telemetry-occupant-action.tug-push-button {
   flex: 0 0 auto;
-  padding-block: 0;
-  min-height: 0;
-  height: var(--tugx-session-status-value-row-height, 18px);
+  padding-block: 1px;
 }
 
 .session-telemetry-status-row {
