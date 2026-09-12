@@ -2,7 +2,7 @@
  * TugProgressIndicator — Unified indicator for indeterminate progress, phase,
  * and determinate progress.
  *
- * Seven visual variants live behind one prop surface:
+ * Six visual variants live behind one prop surface:
  *
  *   ring          — stroked SVG arc (determinate or indeterminate rotating)
  *   bar           — horizontal track + fill (determinate or barber-pole)
@@ -11,8 +11,6 @@
  *   pulsing-dot   — a dot that breathes on a 2s cycle and sheds a ring at
  *                   the turn (replaces TugStateIndicator)
  *   wave          — three-bar staggered pulse (replaces TugThinkingIndicator)
- *   squeeze       — a full-width band that breathes inward and back, for the
- *                   one operation that IS a pressing-smaller: compaction
  *
  * The component is a compound dispatch [L20]: it owns role-color injection,
  * effective-state resolution (explicit props × phaseVisual), label layout,
@@ -92,7 +90,6 @@ import { TugProgressPie } from "./internal/tug-progress-pie";
 import { TugProgressSpinner } from "./internal/tug-progress-spinner";
 import { TugProgressPulsingDot } from "./internal/tug-progress-pulsing-dot";
 import { TugProgressWave } from "./internal/tug-progress-wave";
-import { TugProgressSqueeze } from "./internal/tug-progress-squeeze";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -104,8 +101,7 @@ export type TugProgressIndicatorVariant =
   | "pie"
   | "spinner"
   | "pulsing-dot"
-  | "wave"
-  | "squeeze";
+  | "wave";
 
 /**
  * Semantic role. `inherit` resolves the indicator fill to `currentColor` so
@@ -189,7 +185,7 @@ const ROLE_TO_TOKEN_SUFFIX: Record<Exclude<TugProgressIndicatorRole, "inherit">,
 /**
  * All variants resolve their fill from the same token family —
  * `--tug7-surface-toggle-primary-normal-{role}-rest` — so the role
- * tone reads identically across ring/bar/pie/spinner/pulsing-dot/wave/squeeze.
+ * tone reads identically across ring/bar/pie/spinner/pulsing-dot/wave.
  * This is the same family used for any control-surface tone
  * elsewhere in the system; switching to it makes the indicator's
  * "action" tone match every other active control — now the theme's Key.
@@ -254,7 +250,7 @@ export interface TugProgressIndicatorProps
   extends Omit<React.ComponentPropsWithoutRef<"span">, "role" | "children"> {
   /**
    * Visual treatment.
-   * @selector [data-variant="ring"] | [data-variant="bar"] | [data-variant="pie"] | [data-variant="spinner"] | [data-variant="pulsing-dot"] | [data-variant="wave"] | [data-variant="squeeze"]
+   * @selector [data-variant="ring"] | [data-variant="bar"] | [data-variant="pie"] | [data-variant="spinner"] | [data-variant="pulsing-dot"] | [data-variant="wave"]
    * @default "ring"
    */
   variant?: TugProgressIndicatorVariant;
@@ -441,10 +437,6 @@ function renderGlyph({ variant, state, shape, disabled, value, max, size }: Glyp
       );
     case "wave":
       return <TugProgressWave size={size} state={state} disabled={disabled} />;
-    case "squeeze":
-      return (
-        <TugProgressSqueeze size={size} state={state} disabled={disabled} />
-      );
   }
 }
 
@@ -515,7 +507,7 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
     // renders its INDETERMINATE motion (barber pole / rotation) rather than
     // a stalled 0% — a freshly-started bar should never sit at a literal 0.
     // It becomes determinate the moment `value` is positive. Indeterminate
-    // variants (spinner/dot/wave/squeeze) ignore `value` regardless.
+    // variants (spinner/dot/wave) ignore `value` regardless.
     const effectiveValue =
       value !== undefined && value > 0 ? value : undefined;
     const isDeterminate = effectiveValue !== undefined;

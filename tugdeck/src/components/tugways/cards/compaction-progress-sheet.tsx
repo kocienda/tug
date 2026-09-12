@@ -140,16 +140,15 @@ export function CompactionProgressSheet({
       className="compaction-progress-sheet"
       data-slot="compaction-progress"
     >
-      {/* The `squeeze` — a band that breathes inward and back, at the same 8px
-          the barber pole occupied ([B07]). The run is opaque (nothing streams
-          until the boundary), so there is no determinate fraction to honor and
-          omitting `value` runs the variant's indeterminate motion; what the
-          squeeze adds over the pole is that it draws the operation rather than
-          just reporting that one is under way. It is also the glyph the folded
-          Z2 row carries, at the mark's size, so the handoff between the run's
-          two faces is one shape changing scale. */}
+      {/* The barber pole — the indeterminate bar. The run is opaque (nothing
+          streams until the boundary), so there is no determinate fraction to
+          honor and omitting `value` runs the variant's indeterminate motion.
+          The sheet title ("Compacting") already names the operation. It is
+          also the glyph the folded Z2 row carries, at the row's size, so a
+          fold hands the run between its two faces without changing what the
+          user is looking at. */}
       <TugProgressIndicator
-        variant="squeeze"
+        variant="bar"
         size={8}
         state={settled ? "completed" : "running"}
         className="compaction-progress-sheet-bar"

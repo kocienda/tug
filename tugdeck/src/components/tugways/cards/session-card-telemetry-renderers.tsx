@@ -687,10 +687,10 @@ function useCompactionDeparture(
 /**
  * The compaction occupant — a folded card's Z2 row while a `/compact` runs.
  *
- * The inline dialogs' own one-row vocabulary: a mark, a title at the dialog's
- * own size and weight, an action on the trailing edge, so this row and the
- * header-only dialog the transcript carries read as one family seen in two
- * places.
+ * Label, bar, Cancel: the reading and the run's barber pole centred together
+ * on the row's midline, the action out on the trailing edge. The title keeps
+ * the inline dialogs' own size and weight, so this row and the header-only
+ * dialog the transcript carries still read as one family seen in two places.
  *
  * Cancel is the run's own cancel, taken off the store rather than rebuilt here:
  * while the card is folded this row IS the run's surface, so without it the one
@@ -735,35 +735,39 @@ function CompactionOccupant({
       data-leaving={leaving ? "" : undefined}
       role="status"
     >
-      {/* The run's own mark ([B07]). The wave stood here because it was what
-          was to hand — the same three bars any running thing wears — and said
-          nothing about which operation this is. The squeeze is the operation
-          drawn: a band pressed smaller and released. It is the same glyph the
-          cover panel carries at 8px, so a fold hands the run between its two
-          faces without changing what the user is looking at. */}
-      <span className="session-telemetry-occupant-mark" aria-hidden>
-        <TugProgressIndicator
-          variant="squeeze"
-          // The track's HEIGHT, not a figure's diameter. The indicator's
-          // default 16 is sized for the glyphs that draw a shape — a ring, a
-          // dot — and at 16 in a 20px column the squeeze's rounded track reads
-          // as a blob rather than a band. 6 is the bar family's own default and
-          // the proportion the cover's 8px carries at its width.
-          size={6}
-          state="running"
-          role="inherit"
-          aria-hidden
-        />
-      </span>
-      {/* Two titles, one seat. The running title is the row's own reading and
+      {/* Label, then bar, centred as one group, with Cancel out on the row's
+          trailing edge (the CSS below places them). The reading and the mark
+          are one phrase — what is happening, then the motion that says it is
+          still happening — so they travel together and the action stands apart
+          from both.
+
+          Two titles, one seat. The running title is the row's own reading and
           the refusal is what replaces it for the flash's length — both mounted,
           with CSS choosing between them off `data-refused`, because a swap
           through React state would be an appearance change through the wrong
           channel ([L06]) and would make the flash a re-render rather than an
           animation. */}
-      <span className="session-telemetry-occupant-title" data-title-swap>
-        <span data-occupant-title="running">Compacting…</span>
-        <span data-occupant-title="refused">{COMPACTION_REFUSAL_TEXT}</span>
+      <span className="session-telemetry-occupant-center">
+        <span className="session-telemetry-occupant-title" data-title-swap>
+          <span data-occupant-title="running">Compacting…</span>
+          <span data-occupant-title="refused">{COMPACTION_REFUSAL_TEXT}</span>
+        </span>
+        {/* The run's own mark: the barber pole, the same glyph the cover panel
+            carries at 8px, so a fold hands the run between its two faces
+            without changing what the user is looking at. The track has no
+            intrinsic width — the span around it is the width it gets. */}
+        <span className="session-telemetry-occupant-bar" aria-hidden>
+          <TugProgressIndicator
+            variant="bar"
+            // The track's HEIGHT, not a figure's diameter — the bar family's
+            // own default, and the proportion the cover's 8px carries at its
+            // width.
+            size={6}
+            state="running"
+            role="inherit"
+            aria-hidden
+          />
+        </span>
       </span>
       <TugPushButton
         className="session-telemetry-occupant-action"

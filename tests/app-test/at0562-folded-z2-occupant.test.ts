@@ -9,10 +9,11 @@
  * compaction is the one surface small enough to BE that row: it declares
  * `foldPresentation: "inhabit"` on its `showSheet`, which on a folded card
  * raises no panel and leaves the fold standing, and the row reads
- * "Compacting…" with its squeeze mark instead of the instruments — in the one-row
- * inline dialog's own voice (a 20px mark, a 14px title, an action on the
- * trailing edge), because that dialog is what the transcript carries for the
- * same kind of news and the two should read as one family. The action is the
+ * "Compacting…" with its barber pole instead of the instruments — in the one-row
+ * inline dialog's own voice (the dialog's 14px title, the run's bar beside it,
+ * an action on the trailing edge), because that dialog is what the transcript
+ * carries for the same kind of news and the two should read as one family. The
+ * action is the
  * run's own Cancel, taken off `compactionProgressStore`: no cover rose, so
  * this row is where the run offers its one way out. When the run settles, the
  * cells come back, and the strip is the same depth throughout.
@@ -82,8 +83,8 @@ interface RowReading {
   /** How many cells are laid out (a hidden cell is still mounted). */
   cellsMounted: number;
   cellsShown: number;
-  /** Whether the run's own squeeze mark is up. */
-  hasSqueeze: boolean;
+  /** Whether the run's own barber pole is up. */
+  hasBar: boolean;
   /** Whether the occupant is mid-refusal ([B08]). */
   refused: boolean;
   /** The strip's own height — the same depth occupied or not ([B04]). */
@@ -128,8 +129,8 @@ const READ_ROW = `(function(){
     cellsShown: cells.filter(function (c) {
       return getComputedStyle(c).display !== "none";
     }).length,
-    hasSqueeze:
-      occ !== null && occ.querySelector('[data-variant="squeeze"]') !== null,
+    hasBar:
+      occ !== null && occ.querySelector('[data-variant="bar"]') !== null,
     refused: occ !== null && occ.hasAttribute("data-refused"),
     stripHeight: strip === null
       ? 0
@@ -222,8 +223,8 @@ describe.skipIf(!SHOULD_RUN)(
           expect(running.occupant).toBe("compaction");
           expect(running.text).toContain("Compacting");
           expect(
-            running.hasSqueeze,
-            "the row carries the run's own squeeze mark",
+            running.hasBar,
+            "the row carries the run's own barber pole",
           ).toBe(true);
           // The one-row inline dialog's voice, not a caption's: the title is
           // the dialog's own 14px and the run's Cancel rides the trailing
@@ -318,7 +319,7 @@ describe.skipIf(!SHOULD_RUN)(
             "and the refusal has given the seat up",
           ).not.toContain(REFUSAL_TEXT);
           expect(
-            restored.hasSqueeze,
+            restored.hasBar,
             "and the mark never left",
           ).toBe(true);
 
@@ -464,7 +465,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(notice.text, "the Unfold action rides the notice").toContain(
             "Unfold",
           );
-          expect(notice.hasSqueeze, "a notice is not a run").toBe(false);
+          expect(notice.hasBar, "a notice is not a run").toBe(false);
           expect(notice.cellsMounted).toBeGreaterThan(0);
           expect(notice.cellsShown, "the instruments stand down").toBe(0);
           expect(notice.sheets, "a deferred arrival raises no panel").toBe(0);

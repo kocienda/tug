@@ -288,12 +288,7 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     "tugdeck/src/components/cards/cards-store/": 3,
     "tugdeck/src/components/jots/": 4,
     "tugdeck/src/components/tugways/hooks/": 11,
-    // Re-added at 38 rather than raised from 36, which the ratchet refuses: the `squeeze`
-    // progress glyph's `.tsx`/`.css` pair grew the directory, and the argument for the
-    // subtree still being one unit is the one it always was — nothing outside `internal/`
-    // imports a variant module, so a test drives `TugProgressIndicator` and names the
-    // variant as an attribute. There is no narrower file for a declaration to point at.
-    "tugdeck/src/components/tugways/internal/": 38,
+    "tugdeck/src/components/tugways/internal/": 36,
     "tugdeck/src/components/tugways/tug-text-card-editor/": 5,
     "tugdeck/src/components/tugways/tug-text-editor/": 30,
 

@@ -188,6 +188,53 @@
   height: var(--tugx-z2-occupant-height, 35px);
 }
 
+/* The compaction occupant's own shape, which the arrival notice's is not:
+   **label, bar, Cancel**, with the reading and the mark centred as one group
+   on the row's midline and the action out on the trailing edge, beside the
+   fold control rather than tucked in against the title. The arrival's notice
+   keeps the centred mark-title-action group above — it has a mark that IS a
+   figure and an Unfold that reads as part of the sentence; the run has a track
+   that needs a width and an action that is the one way out of minutes of work,
+   and a centred group would have put that action wherever the title's length
+   happened to leave it.
+
+   Three columns with the group in the middle one is what makes the centring
+   honest: the two `1fr` rails are equal whatever the button measures, so the
+   label and the bar sit on the row's midline rather than on the midline of
+   what is left over after the button. */
+.session-telemetry-status-occupant[data-occupant="compaction"] {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.session-telemetry-occupant-center {
+  grid-column: 2;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tugx-z2-occupant-gap, 0.625rem);
+  min-width: 0;
+}
+
+/* The barber pole's seat. The bar's track has no intrinsic width — it fills
+   whatever it is given — so the width is declared here, once, rather than
+   being whatever the row had to spare. Wide enough for the stripes to read as
+   travelling; not so wide it competes with the reading it follows. */
+.session-telemetry-occupant-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  width: var(--tugx-z2-occupant-bar-width, 72px);
+}
+
+.session-telemetry-status-occupant[data-occupant="compaction"]
+  .session-telemetry-occupant-action.tug-push-button {
+  grid-column: 3;
+  justify-self: end;
+}
+
 /* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
 .session-telemetry-occupant-title {
   overflow: hidden;
@@ -397,10 +444,9 @@ body[data-tug-motion="off"]
   justify-content: center;
   /* The dialog's icon column, to the pixel — a mark that stands for one is
      the same mark. An arrival's mark is the same 16px lucide it is everywhere
-     else, centred in the column. The compaction's `squeeze` is a track rather
-     than a figure: it takes the column's full width and its own height, which
-     is the same shape the cover panel carries at 8px, so the run's two faces
-     are one glyph at two scales ([B07]). */
+     else, centred in the column. The compaction run draws no mark here — its
+     glyph is a track, and it rides the centred group beside the reading (see
+     `.session-telemetry-occupant-bar` above). */
   width: 20px;
   height: 20px;
 }
@@ -422,9 +468,12 @@ body[data-tug-motion="off"]
    button inside the row it shares with a 20px mark.
 
    `margin-inline-start: auto` is deliberately NOT set: the occupant is
-   centred as a group (mark, title, action), the way the one-line dialog's
-   three parts read together, and pinning the action to the far edge would put
-   it under the fold control that already lives there. */
+   centred as a group (mark, title, action) on an ARRIVAL's notice, the way the
+   one-line dialog's three parts read together. The compaction run is the one
+   occupant that pins its action to the trailing edge instead, in its own grid
+   above — its Cancel is the way out of minutes of work rather than a phrase in
+   the sentence, and the fold control it now sits beside is a neighbour rather
+   than a collision. */
 .session-telemetry-occupant-action.tug-push-button {
   flex: 0 0 auto;
   padding-block: 1px;

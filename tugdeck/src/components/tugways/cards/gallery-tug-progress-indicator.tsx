@@ -57,7 +57,6 @@ const VARIANTS: ReadonlyArray<TugProgressIndicatorVariant> = [
   "pulsing-dot",
   "wave",
   "pie",
-  "squeeze",
 ];
 
 const ROLES: ReadonlyArray<TugProgressIndicatorRole> = [
@@ -122,7 +121,7 @@ function demoPhaseVisual(phase: string): TugProgressIndicatorPhaseVisual {
 interface GalleryCellProps {
   caption: string;
   children: React.ReactNode;
-  /** Wide cell — used for the track variants, `bar` and `squeeze`. */
+  /** Wide cell — used for the track variant, `bar`. */
   wide?: boolean;
 }
 
@@ -312,18 +311,18 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
         {/* Variants ---------------------------------------------------- */}
         <section className="cg-section">
           <TugLabel className="cg-section-title">
-            Variants — seven glyphs, default role, running
+            Variants — six glyphs, default role, running
           </TugLabel>
           <div className="gpi-grid">
             {VARIANTS.map((v) => (
               <GalleryCell
                 key={v}
                 caption={v}
-                wide={v === "bar" || v === "squeeze"}
+                wide={v === "bar"}
               >
                 <TugProgressIndicator
                   variant={v}
-                  size={v === "bar" || v === "squeeze" ? 6 : 20}
+                  size={v === "bar" ? 6 : 20}
                   state="running"
                 />
               </GalleryCell>

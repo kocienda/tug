@@ -15,20 +15,17 @@
   gap: 0;
 }
 
-/* This sheet owns only the mark's VERTICAL placement. The mark's own layout —
-   a full-width track breathing with no value — is the TugProgressIndicator's
-   standard `variant="squeeze"` behavior, not the sheet's concern.
-
-   The class is named for the barber-pole bar this replaced, and the seat is
-   unchanged: the squeeze is a full-width track on the same terms, which is why
-   nothing here had to move when the glyph did ([B07]). */
+/* This sheet owns only the bar's VERTICAL placement. The bar's own layout —
+   full-width / left-anchored track, indeterminate barber-pole with no value —
+   is the TugProgressIndicator's standard `variant="bar"` behavior, not the
+   sheet's concern. */
 .compaction-progress-sheet-bar {
   margin-top: 0;
   margin-bottom: var(--tugx-sheet-space-b);
 }
 
-/* Spacing below the mark is the mark's own margin — drop the shared actions
-   top-margin so the space above and below it stays symmetric. */
+/* Spacing below the bar is the bar's own margin — drop the shared actions
+   top-margin so the space above and below the bar stays symmetric. */
 .compaction-progress-sheet .tug-sheet-actions {
   margin-top: 0;
 }
