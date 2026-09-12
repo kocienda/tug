@@ -54,6 +54,9 @@ import {
   useIsCompactingCard,
 } from "@/lib/compaction-progress-store";
 import { unfoldCardForBiddenSurface } from "@/lib/card-fold";
+import { afterFoldCrossing } from "@/lib/fold-crossing";
+import { isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { COMPACTION_REFUSAL_TEXT } from "@/components/tugways/cards/compaction-progress-sheet";
 import { cardFoldedOf } from "@/deck-store-selectors";
 import {
   FocusManagerContext,
@@ -627,6 +630,157 @@ export function foldArrivalTitle(arrival: FoldArrival): string {
 }
 
 /**
+ * Whether the compaction occupant is still LEAVING the row — true from the
+ * unfold's first frame until the crossing that carries it ends ([B06]).
+ *
+ * The fold flag flips on that first frame, and the occupant is derived from
+ * it, so without this the run's face would be off the screen before the edge
+ * had moved: Z2 is `position: sticky; bottom: 0` for the crossing's length, so
+ * the row the user is watching travels DOWN with the frame and is in view the
+ * whole way. The run's other face is not up yet either — the cover waits for
+ * the same crossing to end — so what a one-frame unmount leaves behind is a
+ * strip that shows nothing at all about a run that is still going.
+ *
+ * Held rather than animated out of the tree: the row stays mounted and the CSS
+ * fades it on the imposer's clock, which is the same clock its arrival used
+ * and the same one the cover's `settle` exit reads.
+ *
+ * Motion off and reduced motion never depart at all — there is no crossing to
+ * ride, and the layout snap IS the settle — which is the predicate the card's
+ * own fold effect and the cover's raise both use, for the reason all three
+ * must agree about which folds are carried.
+ */
+function useCompactionDeparture(
+  compacting: boolean,
+  foldedShowing: boolean,
+  paneFrameEl: HTMLElement | null,
+): boolean {
+  const [departing, setDeparting] = useState(false);
+  // The fold read one run behind, so an unfold can be told from a card that
+  // was open all along. Only the unfold has a crossing to ride.
+  const wasFoldedRef = useRef(foldedShowing);
+  useEffect(() => {
+    const wasFolded = wasFoldedRef.current;
+    wasFoldedRef.current = foldedShowing;
+    // Every path that is not "a compacting card just unfolded with motion on"
+    // CLEARS the flag rather than merely declining to set it. A departure left
+    // standing after its run settled would seat the occupant on the next
+    // `/compact`'s open card, which is the one place this row must never be.
+    if (
+      !wasFolded ||
+      foldedShowing ||
+      !compacting ||
+      paneFrameEl === null ||
+      !isTugMotionEnabled()
+    ) {
+      setDeparting(false);
+      return;
+    }
+    setDeparting(true);
+    return afterFoldCrossing(paneFrameEl, () => {
+      setDeparting(false);
+    });
+  }, [foldedShowing, compacting, paneFrameEl]);
+  return departing;
+}
+
+/**
+ * The compaction occupant — a folded card's Z2 row while a `/compact` runs.
+ *
+ * The inline dialogs' own one-row vocabulary: a mark, a title at the dialog's
+ * own size and weight, an action on the trailing edge, so this row and the
+ * header-only dialog the transcript carries read as one family seen in two
+ * places.
+ *
+ * Cancel is the run's own cancel, taken off the store rather than rebuilt here:
+ * while the card is folded this row IS the run's surface, so without it the one
+ * way to stop a compaction would be to unfold first.
+ *
+ * Its own component, rather than markup inline in the row, because it has a
+ * lifetime: the REFUSAL flash is registered for exactly as long as this face is
+ * mounted ([B08]). A compacting card refuses every door but the fold, and while
+ * the card is folded there is no cover to flash the refusal on — so the row
+ * takes the same voice, swapping its title to {@link COMPACTION_REFUSAL_TEXT}
+ * for the flash's length. Same attribute, same forced-reflow restart, same CSS
+ * shape as the cover's line ([L06]): removing `data-refused` and reading
+ * `offsetWidth` before re-adding it is what restarts the animation on a SECOND
+ * refused press, which without the reflow the browser coalesces away — and a
+ * gesture that draws nothing reads as the app ignoring it, the exact failure
+ * the flash exists to prevent.
+ */
+function CompactionOccupant({
+  cardId,
+  leaving,
+}: {
+  cardId: string | null;
+  leaving: boolean;
+}): React.ReactElement {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (cardId === null) return;
+    return compactionProgressStore.registerRefusalNudge(cardId, () => {
+      const el = rootRef.current;
+      if (el === null) return;
+      el.removeAttribute("data-refused");
+      void el.offsetWidth;
+      el.setAttribute("data-refused", "");
+    });
+  }, [cardId]);
+  return (
+    <div
+      ref={rootRef}
+      className="session-telemetry-status-occupant"
+      data-slot="session-telemetry-status-occupant"
+      data-occupant="compaction"
+      data-leaving={leaving ? "" : undefined}
+      role="status"
+    >
+      {/* The run's own mark ([B07]). The wave stood here because it was what
+          was to hand — the same three bars any running thing wears — and said
+          nothing about which operation this is. The squeeze is the operation
+          drawn: a band pressed smaller and released. It is the same glyph the
+          cover panel carries at 8px, so a fold hands the run between its two
+          faces without changing what the user is looking at. */}
+      <span className="session-telemetry-occupant-mark" aria-hidden>
+        <TugProgressIndicator
+          variant="squeeze"
+          // The track's HEIGHT, not a figure's diameter. The indicator's
+          // default 16 is sized for the glyphs that draw a shape — a ring, a
+          // dot — and at 16 in a 20px column the squeeze's rounded track reads
+          // as a blob rather than a band. 6 is the bar family's own default and
+          // the proportion the cover's 8px carries at its width.
+          size={6}
+          state="running"
+          role="inherit"
+          aria-hidden
+        />
+      </span>
+      {/* Two titles, one seat. The running title is the row's own reading and
+          the refusal is what replaces it for the flash's length — both mounted,
+          with CSS choosing between them off `data-refused`, because a swap
+          through React state would be an appearance change through the wrong
+          channel ([L06]) and would make the flash a re-render rather than an
+          animation. */}
+      <span className="session-telemetry-occupant-title" data-title-swap>
+        <span data-occupant-title="running">Compacting…</span>
+        <span data-occupant-title="refused">{COMPACTION_REFUSAL_TEXT}</span>
+      </span>
+      <TugPushButton
+        className="session-telemetry-occupant-action"
+        emphasis="outlined"
+        role="action"
+        size="xs"
+        onClick={() => {
+          if (cardId !== null) compactionProgressStore.requestCancel(cardId);
+        }}
+      >
+        Cancel
+      </TugPushButton>
+    </div>
+  );
+}
+
+/**
  * Combined session status row — production Z2 surface promoted from
  * the workshop gallery. Layout:
  *
@@ -782,11 +936,24 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   );
   // A compaction HOLDS the card — nothing else can arrive under it — so it
   // wins the row without the two having to be ordered against each other.
-  const occupant: FoldOccupant | null = !foldedShowing
-    ? null
-    : compacting
-      ? "compaction"
-      : arrival;
+  //
+  // On the way OUT the compaction outlives the fold flag by one crossing
+  // ([B06]): the flag flips on the unfold's first frame and the row is in view
+  // for the whole sweep, so the occupant stays seated and fades as the edge
+  // comes down. Nothing else here departs — an arrival is a notice the card
+  // was already folded for, on nobody's clock.
+  const departing = useCompactionDeparture(
+    compacting,
+    foldedShowing,
+    paneFrameEl,
+  );
+  const occupant: FoldOccupant | null = departing
+    ? "compaction"
+    : !foldedShowing
+      ? null
+      : compacting
+        ? "compaction"
+        : arrival;
 
   // Command-span enhancement for the `/btw` answer markdown — the same known-
   // command gate the main transcript passes to its `TugMarkdownBlock`.
@@ -1417,33 +1584,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           (the cover declares `inhabit` and raises no panel), so without it the
           one way to stop a compaction would be to unfold first. */}
       {occupant === "compaction" ? (
-        <div
-          className="session-telemetry-status-occupant"
-          data-slot="session-telemetry-status-occupant"
-          data-occupant="compaction"
-          role="status"
-        >
-          <span className="session-telemetry-occupant-mark" aria-hidden>
-            <TugProgressIndicator
-              variant="wave"
-              state="running"
-              role="inherit"
-              aria-hidden
-            />
-          </span>
-          <span className="session-telemetry-occupant-title">Compacting…</span>
-          <TugPushButton
-            className="session-telemetry-occupant-action"
-            emphasis="outlined"
-            role="action"
-            size="xs"
-            onClick={() => {
-              if (cardId !== null) compactionProgressStore.requestCancel(cardId);
-            }}
-          >
-            Cancel
-          </TugPushButton>
-        </div>
+        <CompactionOccupant cardId={cardId} leaving={departing} />
       ) : null}
       {/* The deferred arrival's notice ([B03]/[B05]) — the inline-dialog
           vocabulary at row scale: the dialog's own mark, its own tone, a

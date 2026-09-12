@@ -16,19 +16,28 @@
  * `outcome`, then `clear`s the store; this component watches for that and
  * dismisses the host sheet.
  *
- * The sheet is opened **exclusive**, so the card is held for the length of the
- * run: another `showSheet` on this card is refused rather than superseding it,
- * Escape and Cmd-. do not dismiss, and the pane's title-bar controls read
- * disabled. Every one of those refusals arrives here as {@link nudgeRef}, which
- * flashes the line beneath the bar — one voice for the whole card, standing
- * where the user is already looking rather than on a surface behind the scrim.
+ * The sheet is opened **exclusive**, and the RUN holds the card for its own
+ * length ([B01]): another `showSheet` on this card is refused rather than
+ * superseding it, Escape and Cmd-. do not dismiss, and the pane's title-bar
+ * controls read disabled. Every one of those refusals reaches whichever of the
+ * run's faces is mounted, through the flash each registers on
+ * `compactionProgressStore` ([B08]); this one flashes the line beneath the mark
+ * — one voice for the whole card, standing where the user is already looking
+ * rather than on a surface behind the scrim.
  *
- * What still dismisses this surface is the pair that belongs to the run: the
- * store clearing, and the host unmounting (a cross-pane card move, a card
- * remount on window restore). The run outlives both — the card's watcher is
- * subscribed to the store, not to this sheet — and nothing may read "the sheet
- * went away" as "the user canceled" (see the `compact` handler in
- * `session-card.tsx` for what that cost).
+ * This surface is NOT the run, and its life is shorter: the cover's presence is
+ * derived from the run and the card's fold ([B03]), so folding a compacting
+ * card stands it down and opening the card again raises a fresh one, any number
+ * of times over a single `/compact`. What it is, each time, is the run's open
+ * face; the folded face is the Z2 row, which carries the same text and the same
+ * Cancel. So nothing here may hold per-run state — the store does.
+ *
+ * What still dismisses this surface is the fold, the store clearing, and the
+ * host unmounting (a cross-pane card move, a card remount on window restore).
+ * The run outlives all three — the card's watcher is subscribed to the store,
+ * not to this sheet — and nothing may read "the sheet went away" as "the user
+ * canceled" (see the `compact` handler in `session-card.tsx` for what that
+ * cost).
  *
  * Laws: [L02] store state via `useSyncExternalStore`; [L06] appearance via
  *       CSS / the TugProgressIndicator's own DOM attributes; [L20] composed
@@ -63,21 +72,12 @@ export interface CompactionProgressSheetProps {
    * interrupt; [Q01] verifies Claude Code aborts it cleanly (session intact).
    */
   onCancel: () => void;
-  /**
-   * Filled in with this sheet's refusal flash while it is mounted, so the
-   * card's `exclusive.onRefused` can reach it. A ref rather than a prop
-   * because the direction is inward: the card opens the sheet and then needs
-   * to speak THROUGH it, and every door that gets refused — a superseded
-   * `showSheet`, an Escape, a ⌘W — is a gesture the card sees first.
-   */
-  nudgeRef: React.MutableRefObject<(() => void) | null>;
 }
 
 export function CompactionProgressSheet({
   cardId,
   close,
   onCancel,
-  nudgeRef,
 }: CompactionProgressSheetProps): React.ReactElement | null {
   const getProgress = React.useCallback(
     () => compactionProgressStore.getFor(cardId),
@@ -103,19 +103,25 @@ export function CompactionProgressSheet({
   // press — without the forced reflow the browser coalesces the two writes and
   // the line never moves, which reads as the app ignoring the gesture, the
   // exact failure the flash exists to prevent.
+  //
+  // Registered on the STORE for as long as this sheet is mounted, rather than
+  // filled into a ref the card holds ([B08]). The direction is the same — the
+  // card sees the refused door first and speaks through whichever face is up —
+  // but the run now has two faces and the folded one is drawn nowhere near
+  // here, so the run's own store is the only place both can file.
+  // `useLayoutEffect` so the flash is reachable before the browser paints the
+  // sheet ([L03]), and the unregister is returned by the registration rather
+  // than mirrored elsewhere ([L27]).
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   React.useLayoutEffect(() => {
-    nudgeRef.current = () => {
+    return compactionProgressStore.registerRefusalNudge(cardId, () => {
       const el = rootRef.current;
       if (el === null) return;
       el.removeAttribute("data-refused");
       void el.offsetWidth;
       el.setAttribute("data-refused", "");
-    };
-    return () => {
-      nudgeRef.current = null;
-    };
-  }, [nudgeRef]);
+    });
+  }, [cardId]);
 
   // Cancel only while the run is in flight — once it settles there is nothing
   // left to interrupt (the sheet is about to dismiss).
@@ -134,12 +140,16 @@ export function CompactionProgressSheet({
       className="compaction-progress-sheet"
       data-slot="compaction-progress"
     >
-      {/* Indeterminate bar — the run is opaque (nothing streams until the
-          boundary), so there is no determinate fraction to honor. Omitting
-          `value` runs the variant's indeterminate motion. The sheet title
-          ("Compacting") already names the operation. */}
+      {/* The `squeeze` — a band that breathes inward and back, at the same 8px
+          the barber pole occupied ([B07]). The run is opaque (nothing streams
+          until the boundary), so there is no determinate fraction to honor and
+          omitting `value` runs the variant's indeterminate motion; what the
+          squeeze adds over the pole is that it draws the operation rather than
+          just reporting that one is under way. It is also the glyph the folded
+          Z2 row carries, at the mark's size, so the handoff between the run's
+          two faces is one shape changing scale. */}
       <TugProgressIndicator
-        variant="bar"
+        variant="squeeze"
         size={8}
         state={settled ? "completed" : "running"}
         className="compaction-progress-sheet-bar"

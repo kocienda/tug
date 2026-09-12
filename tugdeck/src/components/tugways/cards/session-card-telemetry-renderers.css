@@ -202,6 +202,187 @@
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
+/* The compaction occupant's title seat holds TWO readings — what the run is
+   doing, and what it says to a refused door — and swaps between them for the
+   flash's length ([B08]). While the card is folded this row is the run's only
+   face, so a ⌘W or a `/usage` that meets the hold has nowhere else to be
+   answered; the cover's line beneath its bar is not on screen.
+
+   A grid with one area stacks the two readings in one seat, which is what
+   keeps the row from changing width mid-flash: the seat measures the wider of
+   them and stays there. The ellipsis moves onto the children, since they are
+   what overflows now.
+
+   Both readings are mounted and CSS chooses between them ([L06], [L13]) — the
+   same one-shot-animation-on-an-attribute shape the cover's refusal line uses,
+   and the same 3.2s, so the two faces of one run answer a refused door in the
+   same beat. */
+.session-telemetry-occupant-title[data-title-swap] {
+  display: grid;
+  grid-template-areas: "title";
+  overflow: visible;
+}
+
+.session-telemetry-occupant-title[data-title-swap] > span {
+  grid-area: title;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-telemetry-occupant-title[data-title-swap] > [data-occupant-title="refused"] {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.session-telemetry-status-occupant[data-refused]
+  .session-telemetry-occupant-title[data-title-swap]
+  > [data-occupant-title="running"] {
+  animation: z2-occupant-title-yield 3.2s ease-in-out forwards;
+}
+
+.session-telemetry-status-occupant[data-refused]
+  .session-telemetry-occupant-title[data-title-swap]
+  > [data-occupant-title="refused"] {
+  animation: z2-occupant-refusal-flash 3.2s ease-in-out forwards;
+}
+
+@keyframes z2-occupant-refusal-flash {
+  0% {
+    opacity: 0;
+    visibility: visible;
+  }
+  8% {
+    opacity: 1;
+    visibility: visible;
+  }
+  75% {
+    opacity: 1;
+    visibility: visible;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+/* `visibility` and not only `opacity`, because the seat sits in a
+   `role="status"` region: an opacity-0 reading is still in the accessibility
+   tree and would be announced beside the one that replaced it. Exactly one of
+   the two is ever live, in both directions. */
+@keyframes z2-occupant-title-yield {
+  0% {
+    opacity: 1;
+    visibility: visible;
+  }
+  8% {
+    opacity: 0;
+    visibility: hidden;
+  }
+  75% {
+    opacity: 0;
+    visibility: hidden;
+  }
+  100% {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
+/* The compaction occupant's ARRIVAL ([B05]) — the row's half of the handoff
+   the cover's `settle` exit is the other half of.
+
+   One clock, read the same way at both ends: the fold is an imposer crossing,
+   so the window is `--tugx-imposer-settle-duration` times `--tug-timing`, the
+   same product the panel's exit resolves in JS. The row waits out the opening
+   part of it and then fades up over the closing part, rising 8px into place —
+   so the panel's descent, the card's sweeping edge and this row all land on
+   one line at one moment, rather than the row simply being there whenever the
+   fold happens to finish.
+
+   The delay is what makes it an arrival rather than a reveal. The row is on
+   screen for the whole crossing — Z2 is `position: sticky; bottom: 0` while
+   the interior is held, so it rides the frame's closing edge up rather than
+   being clipped away — and the seat it arrives into empties on the fold's
+   first frame, when the instruments stand down. A row that faded in from
+   there would be finished while the edge was still travelling, which reads as
+   the card having already folded. Waiting out the opening part of the window
+   is what puts the arrival on the edge instead of ahead of it.
+
+   Scoped to the compaction occupant because it is the one that arrives WITH a
+   fold. A question or a permission arriving on a card that is already folded
+   is a different event on nobody's clock, and borrowing the imposer's for it
+   would time it against a crossing that is not happening. */
+.session-telemetry-status-occupant[data-occupant="compaction"] {
+  animation: z2-occupant-arrive
+    calc(var(--tugx-imposer-settle-duration, 400ms) * var(--tug-timing, 1) * 0.45)
+    ease-out
+    calc(var(--tugx-imposer-settle-duration, 400ms) * var(--tug-timing, 1) * 0.55)
+    both;
+}
+
+@keyframes z2-occupant-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* And the DEPARTURE, on the unfold ([B06]) — the arrival's mirror, and the
+   other half of the same handoff.
+
+   The fold flag flips on the unfold's first frame, so the row is derived out
+   of existence before the edge has moved; the renderer holds the occupant
+   seated for the crossing's length instead (`useCompactionDeparture`) and
+   marks it `data-leaving`, and this is what the hold is for. It fades and
+   sinks over the OPENING part of the window — where the arrival waited — so
+   the run's face leaves as the edge sweeps down and the seat is empty by the
+   time the cover rises out of it at the crossing's end.
+
+   Two attribute selectors, so this outranks the arrival rule the same element
+   is still carrying: a departing row has already finished arriving, and the
+   `both` fill on that animation would otherwise hold it opaque. */
+.session-telemetry-status-occupant[data-occupant="compaction"][data-leaving] {
+  animation: z2-occupant-depart
+    calc(var(--tugx-imposer-settle-duration, 400ms) * var(--tug-timing, 1) * 0.45)
+    ease-in
+    both;
+}
+
+@keyframes z2-occupant-depart {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* Reduced motion and motion off snap, as the fold itself does — the row is
+   simply there when the crossing ends. Both forms, because the app's motion
+   switch is a body attribute rather than a media query and either can be the
+   one in force. */
+@media (prefers-reduced-motion: reduce) {
+  .session-telemetry-status-occupant[data-occupant="compaction"],
+  .session-telemetry-status-occupant[data-occupant="compaction"][data-leaving] {
+    animation: none;
+  }
+}
+
+body[data-tug-motion="off"]
+  .session-telemetry-status-occupant[data-occupant="compaction"],
+body[data-tug-motion="off"]
+  .session-telemetry-status-occupant[data-occupant="compaction"][data-leaving] {
+  animation: none;
+}
+
 /* The arrival's mark — the inline dialog's own glyph and its own tone, so the
    notice and the dialog it speaks for read as one thing seen twice. The two
    tones are the two the dialogs declare: `caution` for a permission request
@@ -215,8 +396,11 @@
   align-items: center;
   justify-content: center;
   /* The dialog's icon column, to the pixel — a mark that stands for one is
-     the same mark. The compaction's wave is the same 16px glyph it is
-     everywhere else, centred in the column like a 16px lucide would be. */
+     the same mark. An arrival's mark is the same 16px lucide it is everywhere
+     else, centred in the column. The compaction's `squeeze` is a track rather
+     than a figure: it takes the column's full width and its own height, which
+     is the same shape the cover panel carries at 8px, so the run's two faces
+     are one glyph at two scales ([B07]). */
   width: 20px;
   height: 20px;
 }

@@ -48,13 +48,14 @@
  * ## Exclusive sheets — the cover of a run
  *
  * A sheet opened with `exclusive` (see {@link SheetExclusivity}) is not
- * dismissible from any of the paths above. It takes the host card's
- * modal hold while it stands, so a later `showSheet` on this host is
- * refused instead of superseding it, Escape and Cmd+. report the run's
- * own refusal, and the pane's chrome reads the hold and renders its
- * controls disabled. The two doors that still work are the ones that
- * belong to the run: the `close(result)` callback handed to the sheet's
- * content, and the host unmounting.
+ * dismissible from any of the paths above: Escape and Cmd+. report the
+ * run's own refusal rather than closing it. The host card's modal hold
+ * is NOT taken here — the run takes it, for the run's length ([B01]) —
+ * and it is that hold a later `showSheet` on this host finds, and that
+ * hold the pane's chrome reads to render its controls disabled. The two
+ * doors that still work are the ones that belong to the run: the
+ * `close(result)` callback handed to the sheet's content, and the host
+ * unmounting.
  *
  * ## No observeDispatch subscription — pane-modal semantics
  *
@@ -101,10 +102,8 @@ import { TugPaneFrameContext, TugPanePortalContext } from "@/components/chrome/t
 import { raisePaneAbovePeers } from "@/components/tugways/pane-raise";
 import { isCardFolded, unfoldCardForBiddenSurface } from "@/lib/card-fold";
 import { CardIdContext } from "@/lib/card-id-context";
-import {
-  cardModalHoldStore,
-  refuseCardModalHold,
-} from "@/lib/card-modal-hold-store";
+import { readSettleMs } from "@/lib/layout-imposer";
+import { refuseCardModalHold } from "@/lib/card-modal-hold-store";
 import { useSheetLifecycle } from "@/lib/sheet-lifecycle";
 import { group } from "@/components/tugways/tug-animator";
 import { useTugPaneScrim } from "@/components/tugways/use-tug-pane-scrim";
@@ -162,6 +161,21 @@ export { SHADE_HEIGHT_DOMAIN } from "./shade-height";
  *   - `"scale-fade"` The panel fades in while scaling up from slightly
  *                    smaller, and fades out while scaling back down.
  *                    No directional slide. The default.
+ *   - `"settle"`     The `"rise"` entrance with a LOWERING exit ([B05] of the
+ *                    compaction-fold-door brief): the panel rolls up into
+ *                    place as `"rise"` does, and on dismiss translates DOWN
+ *                    toward the card's Z2 row ({@link SHEET_SETTLE_DROP_PX})
+ *                    while fading, on the IMPOSER's clock rather than the
+ *                    sheet's — `--tugx-imposer-settle-duration` times
+ *                    `--tug-timing`, which is the clock the card's own fold
+ *                    tweens on. For a panel whose dismissal is a HANDOFF
+ *                    rather than an ending: the compaction cover standing
+ *                    down into the folded card's row, where the panel, the
+ *                    card's sweeping edge and the row's arriving occupant all
+ *                    have to land on one line at one moment. A presentation
+ *                    whose two halves differ because its two halves are
+ *                    different events — it rises when the card opens and
+ *                    settles when the card folds.
  *   - `"shade"`      NOT just a transition — a distinct panel geometry
  *                    ([P17]): full slot width, top-anchored, rendered IN
  *                    PLACE (no pane-frame portal) inside a positioned
@@ -184,6 +198,7 @@ export type TugSheetPresentation =
   | "bottom"
   | "rise"
   | "scale-fade"
+  | "settle"
   | "shade";
 
 /**
@@ -274,6 +289,19 @@ interface SheetPresentationMotion {
  */
 const SHEET_ROLL_PX = 28;
 
+/**
+ * How far the `settle` exit lowers the panel, in px.
+ *
+ * Longer than the roll because it is going somewhere: the roll is a nudge that
+ * gets out of the way, and this is a panel handing its run to the row below it
+ * ([B05]). Fixed rather than measured to the row, for the reason the roll is
+ * fixed — the distance a panel travels should not depend on how tall it is —
+ * and because the panel is bottom-anchored on the modal rest line, which puts
+ * the Z2 row directly under its bottom edge: the travel that reads as "into
+ * the row" is a short one from a panel that is already resting on it.
+ */
+const SHEET_SETTLE_DROP_PX = 48;
+
 const SHEET_PRESENTATION_MOTION: Record<TugSheetPresentation, SheetPresentationMotion> = {
   top: {
     enter: [{ transform: "translateY(-100%)" }, { transform: "translateY(0)" }],
@@ -305,6 +333,23 @@ const SHEET_PRESENTATION_MOTION: Record<TugSheetPresentation, SheetPresentationM
     exit: [
       { transform: "scale(1)", opacity: 1 },
       { transform: "scale(0.96)", opacity: 0 },
+    ],
+  },
+  // The rise's entrance and a longer, slower descent out of it ([B05]). The
+  // two halves are deliberately asymmetric: the panel arrives the way every
+  // other bottom-anchored panel arrives, and leaves by going DOWN into the row
+  // that is about to carry what it was showing. Its exit runs on the imposer's
+  // settle duration rather than the sheet's moderate one (see the exit effect),
+  // which is what puts the panel, the folding card's edge and the row's own
+  // arrival on one clock.
+  settle: {
+    enter: [
+      { transform: `translateY(${SHEET_ROLL_PX}px)`, opacity: 0 },
+      { transform: "translateY(0)", opacity: 1 },
+    ],
+    exit: [
+      { transform: "translateY(0)", opacity: 1 },
+      { transform: `translateY(${SHEET_SETTLE_DROP_PX}px)`, opacity: 0 },
     ],
   },
   // The shade rolls a short, fixed distance rather than sweeping the full sheet
@@ -623,14 +668,19 @@ export type TugSheetIconRole =
  * forward, the run settling and the user canceling it, and every other door is
  * a way to lose sight of work that is still going.
  *
- * A sheet opened with this takes its card's modal hold for as long as it is
- * open (see `lib/card-modal-hold-store`). Escape, ⌘., a later `showSheet` on
- * the same host, and the pane's own close routes all find the hold and report
- * {@link onRefused} instead of acting. What still works is exactly the pair
- * that should: the `close(result)` callback handed to the sheet's content, and
- * the host unmounting — because the run's lifetime was never the sheet's, and
- * a card moved between panes must not strand a hold on a sheet that no longer
- * exists.
+ * This declares the sheet a run's COVER; it does not take the card's modal
+ * hold. The RUN takes that, for the run's own length, which is the span that
+ * actually needs it ([B01]) — a cover comes down when the card folds and goes
+ * back up when it opens, and modality that came and went with a panel would
+ * leave a folded run holding nothing. What this flag buys is the sheet's own
+ * two keyboard exits: Escape and ⌘. report {@link onRefused} instead of
+ * closing the panel, and so does a stray `CANCEL_DIALOG` from anywhere but the
+ * content's `close(result)`. Every other door — a later `showSheet` on this
+ * host, the pane's close routes, ⌘W — finds the run's hold and reports the same
+ * refusal through it, because the holder is one object and speaks once ([L31]).
+ *
+ * The one door a hold may admit is the fold, which a run with a folded face
+ * names on the hold itself; see `CardModalHold.admitsFold` ([B02]).
  */
 export interface SheetExclusivity {
   /** Why the card is refusing, in the holder's own wording. */
@@ -697,10 +747,11 @@ export interface TugSheetContentProps {
    */
   getResult?: () => string | undefined;
   /**
-   * Declare this sheet the cover of a **run**: it takes the host card's modal
-   * hold while open, and every dismissal that is not the content's own
-   * `close(result)` is refused through {@link SheetExclusivity.onRefused}.
-   * Omit for an ordinary sheet. See {@link SheetExclusivity}.
+   * Declare this sheet the cover of a **run**: every dismissal that is not the
+   * content's own `close(result)` is refused through
+   * {@link SheetExclusivity.onRefused}. The card's modal hold belongs to the
+   * run rather than to this sheet ([B01]). Omit for an ordinary sheet. See
+   * {@link SheetExclusivity}.
    */
   exclusive?: SheetExclusivity;
   /**
@@ -936,25 +987,17 @@ export function TugSheetContent({
   const exclusiveRef = useRef<SheetExclusivity | undefined>(exclusive);
   exclusiveRef.current = exclusive;
 
-  // The card this sheet stands in — the key its modal hold is filed under.
-  // `null` outside a card host (gallery previews, standalone harnesses), where
-  // there is no card to hold and exclusivity is inert.
-  const holdCardId = useContext(CardIdContext);
-
-  // Take the hold for exactly as long as the sheet is open — the same span the
-  // pane scrim and the body's `inert` cover, because the three answer the same
-  // question from three directions. `useLayoutEffect` so the hold is filed
-  // before the browser paints the sheet ([L03]), and the release is returned by
-  // the acquisition rather than mirrored elsewhere ([L27]), which is what makes
-  // the unmount-while-open path — a card dragged to another pane mid-run —
-  // leave nothing behind.
-  useLayoutEffect(() => {
-    if (!open || exclusive === undefined || holdCardId === null) return;
-    return cardModalHoldStore.hold(holdCardId, {
-      reason: exclusive.reason,
-      refuse: () => exclusiveRef.current?.onRefused(),
-    });
-  }, [open, exclusive, holdCardId]);
+  // `exclusive` is now exactly what its name says and no more: the sheet's own
+  // keyboard exits are refused rather than obeyed, and that is the whole of it.
+  // The card's modal HOLD is NOT taken here ([B01]). It belongs to the run, for
+  // the span the run lasts, which is not the span its panel is up: a run's
+  // cover goes down when the card folds and comes back when it opens, and a
+  // hold that came and went with the panel would leave a folded run holding
+  // nothing — the card's modality would be a property of a panel rather than of
+  // the thing that actually needs the card. So the holder is the run (see
+  // `compaction-progress-store`), and what a hold ADMITS is the holder's to
+  // name; the sheet asks the store about a hold it did not take, the same as
+  // every other door.
 
   // The sheet's cancel request: dispatch `CANCEL_DIALOG` to the sheet's own
   // responder id (so the walk starts inside the sheet regardless of current
@@ -1597,7 +1640,21 @@ export function TugSheetContent({
       return;
     }
 
-    const g = group({ duration: "--tug-motion-duration-moderate" });
+    // The `settle` exit is the one that does not run on the sheet's own clock
+    // ([B05]): it is a handoff to the card's Z2 row, and the row is arriving on
+    // the IMPOSER's settle duration because the card's fold is one of that
+    // settle's crossings. Two clocks would mean the panel and the edge landing
+    // at two different moments, which is the whole of what this presentation is
+    // for. `readSettleMs` resolves `--tugx-imposer-settle-duration` off the
+    // panel, so an override anywhere up the tree retimes this with everything
+    // else it retimes; the animator applies `--tug-timing` once on top, exactly
+    // as it does for a token.
+    const g = group({
+      duration:
+        presentation === "settle"
+          ? readSettleMs(contentEl)
+          : "--tug-motion-duration-moderate",
+    });
     const isShade = presentation === "shade";
     const motion =
       isShade && shadeAnchor === "bottom"
@@ -2524,7 +2581,19 @@ export function useTugSheet(): {
     // non-committing close already yields, so a caller awaiting the result
     // reads a refusal the same way it reads an Escape, and nothing hangs. The
     // holder speaks the reason ([L31]).
-    if (refuseCardModalHold(hostCardIdRef.current)) {
+    //
+    // An EXCLUSIVE sheet is exempt, because it is not a second sheet — it is
+    // the holder's own cover, the face the run puts on the card it is holding.
+    // The exemption became necessary when the hold moved off this host and
+    // onto the run ([B01]): the run is held from the moment it begins, which is
+    // before its cover asks to rise and remains true every later time the cover
+    // is raised again, so a guard with no exemption would refuse the run the
+    // one panel it is entitled to. It costs nothing, since exclusivity is
+    // declared by the run that is doing the holding and by nothing else.
+    if (
+      options.exclusive === undefined &&
+      refuseCardModalHold(hostCardIdRef.current)
+    ) {
       return Promise.resolve(undefined);
     }
     // A sheet on a FOLDED card opens the fold first ([B02] of the folded-card
@@ -2585,9 +2654,11 @@ export function useTugSheet(): {
   // gesture closes it on the way down beside the find bar and the shade.
   //
   // It carries `SHEET_SETTLED_DISMISS` because it IS the host's own door, the
-  // same one the content's `close(result)` callback is — not because an
-  // exclusive sheet is expected here. A run's cover is not: the run holds the
-  // card and the hold refuses the fold before this is reached ([L31]).
+  // same one the content's `close(result)` callback is — which is also the one
+  // token an exclusive sheet accepts, and that matters now that a run's cover
+  // can reach here: a hold that admits the fold ([B02]) lets the gesture past,
+  // and the cover comes down through this door rather than being refused at
+  // one ([L31]).
   const closeSheet = useCallback((result?: string): void => {
     // Nothing up, nothing to close. The guard is load-bearing rather than
     // tidiness: the responder id below is registered by the mounted

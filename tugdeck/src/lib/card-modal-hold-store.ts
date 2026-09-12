@@ -46,6 +46,21 @@ export interface CardModalHold {
    * visible refusal is a door that should not have been pressable.
    */
   readonly refuse: () => void;
+  /**
+   * Whether the **fold** passes. A hold is otherwise a closed door to every
+   * gesture that would take the card out from under its run, and the fold
+   * looks like one of those — but folding does not leave a run, it swaps the
+   * face the run is shown on ([B02]). A holder whose run has a folded face
+   * says so here; every other holder leaves it unset and the fold is refused
+   * with the rest.
+   *
+   * The flag is on the HOLD rather than special-cased at the fold's door,
+   * because the refusal doctrine is that the holder speaks: a door the holder
+   * admits is the holder's to name, and the fold handler then asks one
+   * question of the record instead of keeping its own list of which runs are
+   * foldable.
+   */
+  readonly admitsFold?: boolean;
 }
 
 /** Every card currently held, keyed by card id. */
@@ -121,6 +136,16 @@ export function refuseCardModalHold(cardId: string | null): boolean {
   if (held === null) return false;
   held.refuse();
   return true;
+}
+
+/**
+ * Whether this card's hold admits the fold — `true` only for a holder that set
+ * {@link CardModalHold.admitsFold}. A card with no hold answers `false`, which
+ * is right for the question this asks: it is "does a holder admit the fold",
+ * not "may the card fold", and an unheld card never had to ask.
+ */
+export function cardModalHoldAdmitsFold(cardId: string | null): boolean {
+  return cardModalHoldStore.getFor(cardId)?.admitsFold === true;
 }
 
 /** Stable no-op subscribe for a surface with no card to be held. */

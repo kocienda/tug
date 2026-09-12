@@ -14,10 +14,15 @@
  * - **The Changes shade** rests on the prompt-entry region instead, because it
  *   *is* the commit surface — the message editor below it belongs to the same
  *   gesture, so it covers Z2 and the beat deliberately.
- * - **Choose Session** and **Compacting** keep the top anchor. Both stand where
- *   there is no transcript behind them — the cold-start picker before a session
- *   exists, and the cover over a compaction run — so a rise from Z2 would be a
- *   motion with nothing to reveal.
+ * - **Choose Session** keeps the top anchor. It stands where there is no
+ *   transcript behind it — the cold-start picker, before a session exists — so
+ *   a rise from Z2 would be a motion with nothing to reveal.
+ *
+ *   The **Compacting** cover stood beside it on that reasoning and no longer
+ *   does. A compaction's cover is one FACE of a run whose other face is the
+ *   folded card's Z2 row, so the line it rises from is the line the row it
+ *   hands the run to stands on, and the motion reveals the handoff rather than
+ *   a transcript ([B06] of the compaction-fold-door brief).
  * - **The attachment preview** keeps the top anchor for a reason about its
  *   sizing rather than its geometry: it is the only aspect-locked sheet, so its
  *   only cap is a width cap, and anchoring it makes that cap bind against a box

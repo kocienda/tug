@@ -272,7 +272,10 @@ import {
   useIsCardFolded,
 } from "@/lib/card-fold";
 import { registerCardCloseAdvice } from "@/lib/card-close-advice";
-import { refuseCardModalHold } from "@/lib/card-modal-hold-store";
+import {
+  cardModalHoldAdmitsFold,
+  refuseCardModalHold,
+} from "@/lib/card-modal-hold-store";
 import { readSessionCardCloseAdvice } from "@/lib/session-card-close-advice";
 import {
   sessionIdentityLine,
@@ -4241,15 +4244,18 @@ export function SessionCardBody({
     compactionProgressStore.clear(cardId);
   }, [compactionProgress, cardId]);
 
-  // The card's `/compact` run, whoever sends the command: the pane-modal sheet
-  // and the hold it puts on the card, the watcher that settles it, and — for a
-  // `/compact` the wheel sent, which tugcast dispatches itself and no command
-  // handler here ever sees — the watch that opens the run off the turn.
-  // Dispatch stays with the caller; `compact` below sends its own submission.
+  // The card's `/compact` run, whoever sends the command: the hold the run puts
+  // on the card, the derivation that raises and lowers the cover as the run and
+  // the fold change, the watcher that settles it, and — for a `/compact` the
+  // wheel sent, which tugcast dispatches itself and no command handler here
+  // ever sees — the watch that opens the run off the turn. Dispatch stays with
+  // the caller; `compact` below sends its own submission.
   const beginCompactionRun = useCompactionRun({
     cardId,
     codeSessionStore,
     showSheet: cardPickerSheet.showSheet,
+    closeSheet: cardPickerSheet.closeSheet,
+    cardRootRef: sessionCardRootRef,
     bulletinRef: paneBulletinRef,
   });
 
@@ -5138,16 +5144,19 @@ export function SessionCardBody({
         const folded = cardFoldedOf(deckStore.getSnapshot(), cardId);
         if (!folded) {
           if (findBarOpenRef.current) closeFindBar();
-          // A card held by a modal run does not fold, and the refusal is the
-          // holder's rather than the fold's: a run takes `cardModalHoldStore`
-          // for as long as it needs the card, and every door that finds a hold
-          // stops and lets the holder say why ([L31]). The fold is one of
-          // those doors, and it is the door with the most to lose by not
-          // asking — the stand-down below carries `SHEET_SETTLED_DISMISS`,
-          // the one token an exclusive cover accepts, so a fold that walked
-          // past the hold would dismiss the cover of a run that is still
-          // going.
-          if (refuseCardModalHold(cardId)) return;
+          // A card held by a modal run asks its holder before it folds, and
+          // the answer is the holder's rather than the fold's: a run takes
+          // `cardModalHoldStore` for as long as it needs the card, and every
+          // door that finds a hold stops and lets the holder say why ([L31]).
+          //
+          // The fold is the one door a holder may ADMIT ([B02]), because
+          // folding does not leave a run — it swaps the face the run is shown
+          // on, from the cover panel to the Z2 row, with the same Cancel on
+          // both. A holder that says `admitsFold` has a folded face to hand the
+          // run to; one that does not is refused here with every other door.
+          if (!cardModalHoldAdmitsFold(cardId)) {
+            if (refuseCardModalHold(cardId)) return;
+          }
           // A sheet standing over a folded card is the same contradiction as
           // one raised on it ([B01]): the folded card is its masthead and its
           // Z2 row, and a panel is neither. So whatever is up comes down here,
@@ -5155,11 +5164,18 @@ export function SessionCardBody({
           // somewhere to hang — which is what retired the anchor's
           // boxless-slot branch ([B09]).
           //
-          // A RUN's cover never reaches this line, by the guard above. So this
-          // closes the ordinary sheet — AI Settings, Usage, Rewind, a Z2
-          // chip's panel — and the exclusive one is answered a step earlier,
-          // by its holder, in the holder's own words.
-          cardPickerSheet.closeSheet();
+          // An ADMITTED hold's cover does not reach this line either, and for
+          // a different reason: its stand-down is not the fold's to perform.
+          // The cover's presence is derived from the run and the fold flag, so
+          // standing it down here would be the fold doing by hand what the
+          // derivation is about to do anyway — and doing it first, with the
+          // wrong token and the wrong motion.
+          //
+          // So this closes the ordinary sheet — AI Settings, Usage, Rewind, a
+          // Z2 chip's panel. A refusing holder's cover was answered a step
+          // earlier in the holder's own words, and an admitting holder's cover
+          // comes down on its own clock.
+          if (!cardModalHoldAdmitsFold(cardId)) cardPickerSheet.closeSheet();
           if (commitModeController.getSnapshot().active) {
             commitModeController.exit();
           } else if (joinModeController.getSnapshot().active) {

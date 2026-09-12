@@ -180,3 +180,44 @@ export function contentBoxHeight(frame: HTMLElement): number | null {
   if (content === null) return null;
   return content.getBoundingClientRect().height;
 }
+
+/**
+ * Run `whenEnded` when the crossing on `frame` ends — the wait every surface
+ * outside the card does when it has to land ON the fold rather than merely
+ * after it, and the one implementation of it.
+ *
+ * One implementation because the two waiters are the two halves of one
+ * handoff: the compaction cover rising back out of the Z2 row, and that row's
+ * own occupant leaving as the edge sweeps down. Two copies of this would be
+ * two opinions about which settles carry a crossing, and a copy that drifted
+ * is a surface that never arrives or one that never leaves.
+ *
+ * The end is an event, because the crossing's clock is the imposer's spring
+ * and a timer would be a second copy of it. The one case the event cannot
+ * cover is a settle that carried no crossing for this frame — motion off, a
+ * fold with nothing to tween — where no end is coming at all; ONE frame
+ * answers that, and it is not a clock: the imposer marks in the same commit's
+ * layout pass, which runs before paint, so a frame that is unmarked on the
+ * next one was never crossing.
+ *
+ * Returns a cancel, which is what a caller torn down mid-crossing runs.
+ */
+export function afterFoldCrossing(
+  frame: HTMLElement,
+  whenEnded: () => void,
+): () => void {
+  const onEnd = (): void => {
+    whenEnded();
+  };
+  frame.addEventListener(FOLD_CROSSING_END, onEnd, { once: true });
+  let probe: number | null = window.requestAnimationFrame(() => {
+    probe = null;
+    if (frame.hasAttribute(FOLD_CROSSING_ATTR)) return;
+    frame.removeEventListener(FOLD_CROSSING_END, onEnd);
+    whenEnded();
+  });
+  return () => {
+    frame.removeEventListener(FOLD_CROSSING_END, onEnd);
+    if (probe !== null) window.cancelAnimationFrame(probe);
+  };
+}

@@ -22,9 +22,10 @@
  *    and nothing on screen saying what the minutes ahead belonged to.
  *
  * What "the run" is made of: the pane-modal {@link CompactionProgressSheet},
- * the exclusive hold that sheet puts on the card ([L31] — every refused door
- * speaks with the run's own voice), and a watcher that settles the run off
- * store snapshots with no timers ([P07]).
+ * the modal hold the RUN puts on the card for its own length ([L31] — every
+ * refused door speaks with the run's own voice; [B01] — the hold is the run's
+ * rather than the panel's, so a folded run is held too), and a watcher that
+ * settles the run off store snapshots with no timers ([P07]).
  *
  * Laws: [L02] store state reaches React through `useSyncExternalStore` (here,
  *       through the same stores' `subscribe`); [L07] live reads at call time.
@@ -32,16 +33,28 @@
  * @module components/tugways/cards/session-compaction-run
  */
 
-import React, { useCallback, useEffect } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 
 import type {
   CodeSessionSnapshot,
   CodeSessionStore,
 } from "@/lib/code-session-store";
-import { compactionProgressStore } from "@/lib/compaction-progress-store";
+import {
+  compactionProgressStore,
+  isCompactingCard,
+} from "@/lib/compaction-progress-store";
+import { useIsCardFolded } from "@/lib/card-fold";
+import { afterFoldCrossing } from "@/lib/fold-crossing";
+import { isTugMotionEnabled } from "@/components/tugways/scale-timing";
 import type { ShowSheetOptions } from "@/components/tugways/tug-sheet";
 
 import type { TugPaneBulletinApi } from "../tug-pane-bulletin";
+import { MODAL_REST_LINE } from "./modal-rest-line";
 import {
   COMPACTION_REFUSAL_TEXT,
   CompactionProgressSheet,
@@ -94,6 +107,21 @@ export interface CompactionRunHost {
    * meaningful against the host a second sheet would otherwise replace.
    */
   showSheet: (options: ShowSheetOptions) => Promise<string | undefined>;
+  /**
+   * Stand the current sheet on that same host down. The cover is raised and
+   * lowered by the derivation below rather than once at dispatch ([B03]), so
+   * the hook needs both of the host's doors, not just the opening one. It
+   * carries `SHEET_SETTLED_DISMISS` itself, which is the one token the cover
+   * accepts.
+   */
+  closeSheet: (result?: string) => void;
+  /**
+   * The card's root element, for finding the pane frame the fold crossing is
+   * announced on. A ref rather than an element because the hook runs before
+   * the card has mounted anything, and the frame is only ever read at the
+   * moment a crossing is being waited on.
+   */
+  cardRootRef: { readonly current: HTMLElement | null };
   /** The card's pane bulletin, read live at the moment there is something to say. */
   bulletinRef: { readonly current: TugPaneBulletinApi | null };
 }
@@ -108,7 +136,14 @@ export interface CompactionRunHost {
  * second one when the watcher below sees that turn arrive.
  */
 export function useCompactionRun(host: CompactionRunHost): () => void {
-  const { cardId, codeSessionStore, showSheet, bulletinRef } = host;
+  const {
+    cardId,
+    codeSessionStore,
+    showSheet,
+    closeSheet,
+    cardRootRef,
+    bulletinRef,
+  } = host;
 
   const beginCompactionRun = useCallback((): void => {
     if (compactionProgressStore.getFor(cardId) !== null) return;
@@ -213,48 +248,37 @@ export function useCompactionRun(host: CompactionRunHost): () => void {
     // Z2 row and offers Cancel there, and both presses must be the same
     // press — this closure, with its `canceled` latch and its correction
     // bulletin — rather than two hand-rolled interrupts.
-    compactionProgressStore.begin(cardId, onCancel);
-    // The sheet is EXCLUSIVE, so the card is held for the length of the run:
-    // this host is the one every sheet on the card shares, and without the
-    // hold a `/usage` would not open over this sheet — it would replace it,
-    // and dismissing the usage sheet would leave the card looking like the
-    // compaction had been dismissed too, while it compacted on. Escape, ⌘.,
-    // ⌘W, and the title bar's controls are refused on the same terms. Every
-    // one of those refusals flashes the sheet's own line, because the run is
-    // what is refusing and the sheet is where the user is looking ([L31]).
-    const nudgeRef: React.MutableRefObject<(() => void) | null> = {
-      current: null,
-    };
-    void showSheet({
-      title: "Compacting",
-      icon: "Archive",
-      // The one surface small enough to BE the Z2 row ([B04]): on a folded
-      // card no panel rises and the fold stands, and the row itself reads
-      // "Compacting…" with its wave and its Cancel, drawn off
-      // `compactionProgressStore` by the status row. The run is unchanged
-      // either way — it is watched off the store rather than off this sheet,
-      // and it was already begun just above, so a compaction that starts
-      // folded settles into the transcript exactly as one that starts open.
-      //
-      // What a folded run gives up is the exclusive hold, which is the sheet's
-      // and not the row's: a `/usage` during a folded compaction opens the
-      // fold and rises rather than being refused. The row says what the card
-      // is doing, which is what the fold rule owes the reader.
-      foldPresentation: "inhabit",
-      exclusive: {
-        reason: COMPACTION_REFUSAL_TEXT,
-        onRefused: () => nudgeRef.current?.(),
+    //
+    // The card is HELD for the length of the run, and the hold goes on with
+    // the run rather than with the cover ([B01]). Without it a `/usage` would
+    // not open over the cover — it would replace it, and dismissing the usage
+    // sheet would leave the card looking like the compaction had been
+    // dismissed too, while it compacted on. Escape, ⌘., ⌘W, and the title
+    // bar's controls are refused on the same terms, and every one of those
+    // refusals speaks in the run's own voice ([L31]).
+    //
+    // Holding here rather than in the cover is what makes the FOLD sayable.
+    // The cover is one face of the run and the Z2 row is the other; a hold
+    // that belonged to the cover would lapse the moment the card folded, and
+    // the fold could then only be admitted by a hole in the guard. Held by the
+    // run, the fold is simply the one door this holder names ([B02]), and
+    // every other door stays shut on both faces.
+    compactionProgressStore.begin(cardId, onCancel, {
+      reason: COMPACTION_REFUSAL_TEXT,
+      // Through the store, because the run has two faces and the hold does not
+      // know which is up ([B08]): the cover flashes its line beneath the bar,
+      // the folded Z2 row swaps its title, and each registers itself while it
+      // is mounted. One refusal, spoken wherever the user is looking.
+      refuse: () => {
+        compactionProgressStore.refuse(cardId);
       },
-      content: (close) => (
-        <CompactionProgressSheet
-          cardId={cardId}
-          close={close}
-          onCancel={onCancel}
-          nudgeRef={nudgeRef}
-        />
-      ),
+      admitsFold: true,
     });
-  }, [cardId, codeSessionStore, showSheet, bulletinRef]);
+    // NOTHING is raised here. The cover's presence is derived from the run and
+    // the fold below ([B03]), so a run begun on a folded card raises no panel
+    // ([B04]) and gets one the first time the card is open — which is the same
+    // rule stated once instead of a raise here and a re-raise somewhere else.
+  }, [cardId, codeSessionStore, bulletinRef]);
 
   // The wheel's `/compact` never passes the command handler, so the turn is
   // what is watched — one place to look, and the predicate reads the same
@@ -268,6 +292,150 @@ export function useCompactionRun(host: CompactionRunHost): () => void {
     check();
     return codeSessionStore.subscribe(check);
   }, [codeSessionStore, beginCompactionRun]);
+
+  // ── The cover is DERIVED from run × fold ([B03]) ───────────────────────────
+  //
+  // It used to be raised once, inside the dispatch, which made the panel a
+  // thing that happened at a moment rather than a thing that is true while two
+  // other things are. Two consequences followed from that and both are gone
+  // here: a run begun on a folded card never got a cover at all, even after the
+  // user opened the card, because the one raise had already been declined; and
+  // there was no honest place for the fold to put the cover down, since the
+  // only stand-down available was one that ends the run's panel for good.
+  //
+  // Stated as a derivation there are exactly three cases and no special ones.
+  // Run in flight and card open: the cover is up. Card folded: it is not — the
+  // folded card is its masthead and its Z2 row, and the row already carries the
+  // run ([B04]). No run: nothing, and the cover the settling run leaves behind
+  // is dismissed by the sheet's own watch on the store clearing.
+  const running = useSyncExternalStore(
+    compactionProgressStore.subscribe,
+    useCallback(
+      () => isCompactingCard(compactionProgressStore.getSnapshot(), cardId),
+      [cardId],
+    ),
+  );
+  const folded = useIsCardFolded(cardId);
+
+  // Whether THIS hook has a cover up, so the derivation neither raises a second
+  // one nor stands down a sheet it does not own. Set before the raise and
+  // cleared by the raise's own promise, which resolves on every close path
+  // there is — the fold's stand-down, the store clearing, a host unmount, and
+  // the refusal `showSheet` answers with when it declines to raise at all.
+  const coverUpRef = useRef(false);
+  const raiseCover = useCallback((): void => {
+    if (coverUpRef.current) return;
+    coverUpRef.current = true;
+    void showSheet({
+      title: "Compacting",
+      icon: "Archive",
+      // The cover rests on the card's modal rest line and rises from it
+      // ([B06]), which it did not before: the compaction was one of the two
+      // exemptions the rest line carried, on the reasoning that a rise from Z2
+      // reveals nothing because there is no transcript behind the cover. That
+      // reasoning is retired by this arc rather than bent. The cover is no
+      // longer a panel over a card with nothing behind it — it is one FACE of a
+      // run whose other face is the Z2 row, so the line it rises from and
+      // settles into is the line the other face stands on. What the motion
+      // reveals is the handoff.
+      bottomAnchorSelector: MODAL_REST_LINE,
+      // Rises as the `rise` presentation does and LOWERS on dismiss, on the
+      // imposer's own settle clock rather than the sheet's ([B05]). Both halves
+      // matter and they are different events: the cover rises when the card is
+      // open and the run is in flight, and it settles when the card folds —
+      // and a fold is an imposer crossing, so a panel standing down on the
+      // sheet's own duration would land at a different moment than the card's
+      // edge and the row it is handing the run to.
+      presentation: "settle",
+      // The one surface small enough to BE the Z2 row ([B04]): on a folded card
+      // no panel rises and the fold stands, and the row itself reads
+      // "Compacting…" with its mark and its Cancel, drawn off
+      // `compactionProgressStore` by the status row. The declaration is still
+      // worth making even though the derivation below never calls this on a
+      // folded card: it is what a raise racing a fold resolves to.
+      //
+      // A folded run gives up nothing but the panel: the hold is the run's
+      // ([B01]), so a `/usage` during a folded compaction is refused there too
+      // rather than unfolding the card and rising over it. The row says what
+      // the card is doing, which is what the fold rule owes the reader.
+      foldPresentation: "inhabit",
+      // The cover keeps `exclusive` for its own keyboard exits — Escape, ⌘.,
+      // and a stray `CANCEL_DIALOG` all get the run's answer rather than
+      // closing the panel — but it takes no hold of its own. The run holds the
+      // card, and one holder is what keeps "the one door" from being a property
+      // of two objects that have to agree.
+      exclusive: {
+        reason: COMPACTION_REFUSAL_TEXT,
+        onRefused: () => {
+          compactionProgressStore.refuse(cardId);
+        },
+      },
+      // Cancel is taken from the STORE rather than from a closure this raise
+      // holds, because the cover is raised many times over one run and every
+      // one of those presses must be the single closure the run filed — the one
+      // with the `canceled` latch and the correction bulletin ([F05]). It is
+      // the same press the folded row's Cancel performs.
+      content: (close) => (
+        <CompactionProgressSheet
+          cardId={cardId}
+          close={close}
+          onCancel={() => {
+            compactionProgressStore.requestCancel(cardId);
+          }}
+        />
+      ),
+    }).then(() => {
+      coverUpRef.current = false;
+    });
+  }, [cardId, showSheet]);
+
+  // The fold the derivation is reacting to, read one run behind, so an unfold
+  // can be told from a card that was open all along. Only the unfold has a
+  // crossing to wait for.
+  const wasFoldedRef = useRef(folded);
+  useEffect(() => {
+    const wasFolded = wasFoldedRef.current;
+    wasFoldedRef.current = folded;
+
+    if (!running) return;
+    if (folded) {
+      // The fold walked past the hold, so the cover comes down here rather than
+      // in the fold handler — the derivation is what knows there is a cover and
+      // what will put it back. `closeSheet` carries `SHEET_SETTLED_DISMISS`,
+      // which is the one token an exclusive sheet accepts; every other
+      // dismissal still meets the refusal.
+      if (coverUpRef.current) closeSheet();
+      return;
+    }
+    // Card open. A card that was open already — the ordinary `/compact` — has
+    // nothing to wait for, and neither does a reader with motion off, where the
+    // layout snap IS the settle and the imposer arms no tween to end. The
+    // predicate is the imposer's own for the reason the card's own fold effect
+    // uses it: the two must agree about which folds are carried, and one
+    // opinion drifting from the other is a cover that never arrives.
+    if (!wasFolded || !isTugMotionEnabled()) {
+      raiseCover();
+      return;
+    }
+    // An UNFOLD. The panel waits for the crossing to end rather than for one
+    // task ([B06]): `showSheet`'s existing one-task defer was sized for a fold
+    // that had already committed, and a cover mounted anywhere inside the
+    // crossing reads its anchor off a slot with no box and parks at the `rise`
+    // resting offset for the rest of its life ([F08]). The crossing is minutes
+    // of tween longer than a task, so the wait has to be the event.
+    const frame =
+      cardRootRef.current?.closest<HTMLElement>(".tug-pane") ?? null;
+    if (frame === null) {
+      raiseCover();
+      return;
+    }
+    // The wait itself is `fold-crossing`'s, because the Z2 row's occupant
+    // does the same wait on its way OUT and the two are one handoff: a copy
+    // here that drifted from that one is a cover that never arrives beside a
+    // row that never leaves. It answers the settle that carried no crossing
+    // for this frame too, which is the case the event alone cannot.
+    return afterFoldCrossing(frame, raiseCover);
+  }, [running, folded, raiseCover, closeSheet, cardRootRef]);
 
   return beginCompactionRun;
 }

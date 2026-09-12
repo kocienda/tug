@@ -6,7 +6,7 @@
  * indicator subsumes all three predecessors.
  *
  * Layout:
- *  - Variants  — six glyphs in a wrapping card grid
+ *  - Variants  — seven glyphs in a wrapping card grid
  *  - pulsing-dot — the whole bench for the breathing dot in one section: the
  *                size ladder under a live state picker, the rail-row
  *                destination, and the two knobs still worth benching.
@@ -57,6 +57,7 @@ const VARIANTS: ReadonlyArray<TugProgressIndicatorVariant> = [
   "pulsing-dot",
   "wave",
   "pie",
+  "squeeze",
 ];
 
 const ROLES: ReadonlyArray<TugProgressIndicatorRole> = [
@@ -121,7 +122,7 @@ function demoPhaseVisual(phase: string): TugProgressIndicatorPhaseVisual {
 interface GalleryCellProps {
   caption: string;
   children: React.ReactNode;
-  /** Wide cell — used for the bar variant. */
+  /** Wide cell — used for the track variants, `bar` and `squeeze`. */
   wide?: boolean;
 }
 
@@ -315,10 +316,14 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
           </TugLabel>
           <div className="gpi-grid">
             {VARIANTS.map((v) => (
-              <GalleryCell key={v} caption={v} wide={v === "bar"}>
+              <GalleryCell
+                key={v}
+                caption={v}
+                wide={v === "bar" || v === "squeeze"}
+              >
                 <TugProgressIndicator
                   variant={v}
-                  size={v === "bar" ? 6 : 20}
+                  size={v === "bar" || v === "squeeze" ? 6 : 20}
                   state="running"
                 />
               </GalleryCell>

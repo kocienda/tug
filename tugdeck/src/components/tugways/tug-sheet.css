@@ -439,6 +439,10 @@ body {
  *   - bottom:     off-screen below its slot (mirror slide-up).
  *   - rise:       a short fixed nudge below, transparent (roll + fade).
  *   - scale-fade: slightly shrunk and transparent (no slide).
+ *   - settle:     the rise's resting state — it is the rise's entrance. Only
+ *                 its EXIT differs (a longer drop, on the imposer's clock),
+ *                 and an exit's last frame is never a resting state the panel
+ *                 is seen in: the sheet unmounts on it.
  *
  * `data-tug-sheet-presentation` is always set by TugSheetContent, so
  * the `top` rule below is the effective default. */
@@ -451,8 +455,10 @@ body {
 }
 
 /* Nudged a short fixed distance below its resting spot and transparent — the
-   offset must match `SHEET_ROLL_PX` in tug-sheet.tsx. */
-.tug-sheet-content[data-tug-sheet-presentation="rise"] {
+   offset must match `SHEET_ROLL_PX` in tug-sheet.tsx. `settle` shares the rule
+   because it shares the entrance; the two part company only on the way out. */
+.tug-sheet-content[data-tug-sheet-presentation="rise"],
+.tug-sheet-content[data-tug-sheet-presentation="settle"] {
   transform: translateY(28px);
   opacity: 0;
 }

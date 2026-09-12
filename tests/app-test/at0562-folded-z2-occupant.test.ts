@@ -9,7 +9,7 @@
  * compaction is the one surface small enough to BE that row: it declares
  * `foldPresentation: "inhabit"` on its `showSheet`, which on a folded card
  * raises no panel and leaves the fold standing, and the row reads
- * "Compacting…" with its wave instead of the instruments — in the one-row
+ * "Compacting…" with its squeeze mark instead of the instruments — in the one-row
  * inline dialog's own voice (a 20px mark, a 14px title, an action on the
  * trailing edge), because that dialog is what the transcript carries for the
  * same kind of news and the two should read as one family. The action is the
@@ -23,9 +23,17 @@
  * not available to a test that folds first, and the wheel's path is the one
  * that most needs the cover anyway: nobody typed it.
  *
+ * The row is also the run's VOICE while the card is folded. A compacting card
+ * refuses every door but the fold, and with no cover up there is no refusal
+ * line to flash — so the row takes it, swapping its title from what the run is
+ * doing to what it says to a refused door for the flash's length and then
+ * giving the seat back ([B08]). The first case presses the close route and
+ * reads both halves.
+ *
  * The same run on an OPEN card still raises its pane-modal sheet, which is
  * `at0492-compaction-card-modality`'s subject; the second case here only pins
- * that the row stays out of it.
+ * that the row stays out of it, and that the fold passes through the run's
+ * hold into this row.
  *
  * The third case is the other tier. A permission request is an inline dialog
  * the TRANSCRIPT carries, and a folded card is not showing its transcript — so
@@ -40,6 +48,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.css
  * @covers tugdeck/src/lib/compaction-progress-store.ts
  * @covers tugdeck/src/lib/card-fold.ts
+ * @covers tugdeck/src/lib/card-modal-hold-store.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -60,6 +69,10 @@ const SHEET = '[data-slot="tug-sheet"]';
     arrival's notice. One class, because it is one seat in one row. */
 const OCCUPANT_ACTION = `${CARD} .session-telemetry-occupant-action`;
 const DIALOG = `${CARD} [data-slot="session-permission-dialog"]`;
+/** What the run says to a refused door — `COMPACTION_REFUSAL_TEXT`, copied
+    rather than imported because this file drives the built app rather than
+    linking against its source. */
+const REFUSAL_TEXT = "Compacting — press Cancel to stop";
 
 interface RowReading {
   /** The row's declared occupant, or `null` for the instruments. */
@@ -69,8 +82,10 @@ interface RowReading {
   /** How many cells are laid out (a hidden cell is still mounted). */
   cellsMounted: number;
   cellsShown: number;
-  /** Whether the wave mark is up. */
-  hasWave: boolean;
+  /** Whether the run's own squeeze mark is up. */
+  hasSqueeze: boolean;
+  /** Whether the occupant is mid-refusal ([B08]). */
+  refused: boolean;
   /** The strip's own height — the same depth occupied or not ([B04]). */
   stripHeight: number;
   /** The occupant's title face, so the dialog family is pinned, not assumed. */
@@ -80,6 +95,22 @@ interface RowReading {
 }
 
 const READ_ROW = `(function(){
+  // The occupant's VISIBLE text, which textContent is not: the compaction
+  // occupant's title seat holds two readings, its running one and its refusal,
+  // and swaps between them in CSS ([B08]), so textContent returns both at once
+  // and says nothing about which the user can see. innerText would answer the
+  // question but also applies text-transform, so the row's Cancel would come
+  // back shouting. This walks the tree and skips what is hidden, which is
+  // exactly the difference and nothing else. (No backticks below — this whole
+  // block is a template literal.)
+  function visibleText(node) {
+    if (node.nodeType === 3) return node.nodeValue || "";
+    if (node.nodeType !== 1) return "";
+    if (getComputedStyle(node).visibility === "hidden") return "";
+    var out = "";
+    node.childNodes.forEach(function (child) { out += visibleText(child); });
+    return out;
+  }
   var row = document.querySelector(${JSON.stringify(ROW)});
   var occ = document.querySelector(${JSON.stringify(OCCUPANT)});
   var cells = Array.from(document.querySelectorAll(${JSON.stringify(CELL)}));
@@ -92,13 +123,14 @@ const READ_ROW = `(function(){
     : occ.querySelector(".session-telemetry-occupant-title");
   return {
     occupant: row === null ? null : row.getAttribute("data-occupant"),
-    text: occ === null ? null : (occ.textContent || "").trim(),
+    text: occ === null ? null : visibleText(occ).trim(),
     cellsMounted: cells.length,
     cellsShown: cells.filter(function (c) {
       return getComputedStyle(c).display !== "none";
     }).length,
-    hasWave:
-      occ !== null && occ.querySelector('[data-variant="wave"]') !== null,
+    hasSqueeze:
+      occ !== null && occ.querySelector('[data-variant="squeeze"]') !== null,
+    refused: occ !== null && occ.hasAttribute("data-refused"),
     stripHeight: strip === null
       ? 0
       : Math.round(strip.getBoundingClientRect().height),
@@ -189,7 +221,10 @@ describe.skipIf(!SHOULD_RUN)(
 
           expect(running.occupant).toBe("compaction");
           expect(running.text).toContain("Compacting");
-          expect(running.hasWave, "the row carries the run's wave").toBe(true);
+          expect(
+            running.hasSqueeze,
+            "the row carries the run's own squeeze mark",
+          ).toBe(true);
           // The one-row inline dialog's voice, not a caption's: the title is
           // the dialog's own 14px and the run's Cancel rides the trailing
           // edge, because while the card is folded this row IS the run's
@@ -211,6 +246,81 @@ describe.skipIf(!SHOULD_RUN)(
           expect(running.sheets, "an inhabitant raises no sheet").toBe(0);
           expect(running.folded, "and does not open the fold").toBe(true);
           note("at0562 folded compaction row", (await app.screenshot()).path);
+
+          // The refusal, spoken from the ROW ([B08]). A compacting card
+          // refuses every door but the fold, and while it is folded there is
+          // no cover to flash that refusal on — the panel the refusal line
+          // lives under never rose. So the row takes the voice: the same
+          // `data-refused` attribute and the same 3.2s, swapping its title
+          // from what the run is doing to what it says to a refused door.
+          //
+          // The close ROUTE is the door pressed, for the reason `at0492`
+          // presses it: it is where ⌘W, Close All and the Cards row's remote
+          // close box all arrive, and the one with no on-screen control to
+          // dim. Dispatched rather than chorded because a background app-test
+          // cannot deliver a native menu key equivalent — the chord would be
+          // swallowed and the assertion would pass without testing anything.
+          //
+          // Before this the folded case refused silently: the hold turned the
+          // door away and nothing on screen moved, which reads as the app
+          // ignoring the gesture.
+          await app.dispatchControlAction("close");
+          await new Promise((r) => setTimeout(r, 400));
+          const refused = await app.evalJS<RowReading>(READ_ROW);
+          note("at0562 folded, refused", refused);
+          expect(
+            await app.evalJS<number>(
+              `document.querySelectorAll(${JSON.stringify(CARD)}).length`,
+            ),
+            "the card is still there — the close was refused, not performed",
+          ).toBe(1);
+          expect(refused.refused, "the row is flashing").toBe(true);
+          expect(
+            refused.text,
+            "and says why, in the run's own words",
+          ).toContain(REFUSAL_TEXT);
+          expect(
+            refused.text,
+            "the running title yields its seat for the flash's length",
+          ).not.toContain("Compacting…");
+          expect(refused.folded, "and the fold still stands").toBe(true);
+
+          // The flash returns the seat — a refusal is a beat, not a state. The
+          // attribute stays (its animation is `forwards`), so what says the row
+          // went back is what the user can SEE.
+          //
+          // Both halves of the swap are waited on, because the two readings
+          // cross over rather than cut, and the refusal's `visibility` is what
+          // says it is finished. Its opacity rounds to 0 a beat BEFORE the end
+          // — `visibility` stays `visible` for the whole of a visible→hidden
+          // ramp and flips only at the last frame — so waiting on the opacity,
+          // or on the running title alone, lands in the middle of the
+          // crossfade with both readings still in the row's visible text.
+          await app.waitForCondition<boolean>(
+            `(function(){
+              var occ = document.querySelector(${JSON.stringify(OCCUPANT)});
+              if (occ === null) return false;
+              var running = occ.querySelector('[data-occupant-title="running"]');
+              var refusal = occ.querySelector('[data-occupant-title="refused"]');
+              if (running === null || refusal === null) return false;
+              return getComputedStyle(running).visibility !== "hidden" &&
+                getComputedStyle(refusal).visibility === "hidden";
+            })()`,
+            { timeoutMs: 8000 },
+          );
+          const restored = await app.evalJS<RowReading>(READ_ROW);
+          note("at0562 folded, refusal over", restored);
+          expect(restored.text, "the run's own reading is back").toContain(
+            "Compacting…",
+          );
+          expect(
+            restored.text,
+            "and the refusal has given the seat up",
+          ).not.toContain(REFUSAL_TEXT);
+          expect(
+            restored.hasSqueeze,
+            "and the mark never left",
+          ).toBe(true);
 
           // Settle the run by pressing the row's own Cancel — the run's one
           // cancel, registered on `compactionProgressStore` when it opened and
@@ -252,7 +362,7 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "the same compaction on an OPEN card raises its cover, and its hold refuses the fold",
+      "the same compaction on an OPEN card raises its cover, and its hold admits the fold",
       async () => {
         const app = await launchTugApp({ testName: "at0562-open-compaction" });
         try {
@@ -268,28 +378,35 @@ describe.skipIf(!SHOULD_RUN)(
           expect(open.occupant).toBeNull();
           expect(open.cellsShown).toBe(open.cellsMounted);
 
-          // Folding under the cover is REFUSED, and that is the hold speaking
+          // Folding under the cover PASSES, and that is the hold speaking
           // rather than the fold rule. A run takes `cardModalHoldStore` for as
           // long as it needs the card, and every door that finds one stops and
-          // lets the holder say why ([L31]) — the fold is one of those doors.
-          // So the one sheet that could have outlived a fold never meets one:
-          // an ordinary sheet is stood down by the fold (`at0558` reads that),
-          // and a run's cover refuses it outright.
+          // lets the holder say why ([L31]) — but the fold is the one door a
+          // holder may admit, because folding does not leave a run: it swaps
+          // the face the run is shown on, from the cover panel to the Z2 row,
+          // with the same Cancel on both ([B02]). The compaction's hold is the
+          // only one that says so; every other door on this card still meets
+          // the refusal, which the sibling `at0492` reads.
           //
-          // The card is made first responder first, so the gesture is REFUSED
-          // rather than merely undelivered: a cover autofocuses its own panel,
-          // and a fold that never reached the card's handler would read here
-          // exactly like one the hold turned away.
+          // The card is made first responder first, so the gesture is DELIVERED
+          // rather than merely lost: a cover autofocuses its own panel, and a
+          // fold that never reached the card's handler would read here exactly
+          // like one the hold turned away.
           await app.evalJS<null>(`(window.__tug.setFirstResponder("A"), null)`);
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
           );
           await new Promise((r) => setTimeout(r, 1200));
           const held = await app.evalJS<RowReading>(READ_ROW);
-          note("at0562 fold attempted under a live cover", held);
-          expect(held.folded, "the run holds the card open").toBe(false);
-          expect(held.sheets, "and its cover stands").toBe(1);
-          expect(held.occupant, "so the row is still the instruments'").toBeNull();
+          note("at0562 fold under a live cover", held);
+          expect(held.folded, "the hold admits the fold").toBe(true);
+          expect(
+            held.occupant,
+            "and the row takes the run's other face",
+          ).toBe("compaction");
+          expect(held.text, "which reads the run and offers its Cancel").toContain(
+            "Compacting",
+          );
         } finally {
           await app.close();
         }
@@ -347,7 +464,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(notice.text, "the Unfold action rides the notice").toContain(
             "Unfold",
           );
-          expect(notice.hasWave, "a notice is not a run").toBe(false);
+          expect(notice.hasSqueeze, "a notice is not a run").toBe(false);
           expect(notice.cellsMounted).toBeGreaterThan(0);
           expect(notice.cellsShown, "the instruments stand down").toBe(0);
           expect(notice.sheets, "a deferred arrival raises no panel").toBe(0);

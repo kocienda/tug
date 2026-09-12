@@ -21,6 +21,14 @@
  * was spoken. Cancel — the one door that belongs to the run — is pressed last
  * and does take it down.
  *
+ * **The fold is the exception, and it is pressed here too.** The hold belongs
+ * to the RUN rather than to its cover, so folding a compacting card does not
+ * leave the run: it swaps the face the run is shown on, from the cover panel to
+ * the card's Z2 row, and the card stays held throughout. The unfold brings the
+ * cover back, because the cover is derived from the run and the fold rather
+ * than raised once when the run opened. Both halves are read below, between the
+ * refused doors and Cancel.
+ *
  * The mechanism under all of it is generic (`cardModalHoldStore` plus the
  * sheet's `exclusive` option); its state machine is unit-tested. What only the
  * real app can show is that the doors are actually closed, which is this.
@@ -52,6 +60,8 @@
  * @covers tugdeck/src/components/tugways/cards/compaction-progress-sheet.tsx
  * @covers tugdeck/src/components/tugways/cards/session-compaction-run.tsx
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
+ * @covers tugdeck/src/lib/compaction-progress-store.ts
+ * @covers tugdeck/src/lib/card-fold.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -182,6 +192,65 @@ describe.skipIf(!SHOULD_RUN)(
             ),
           ).toBe(1);
           expect(await app.evalJS<number>(sheetCount)).toBe(1);
+
+          // (4) The FOLD — the one door the hold admits, and the reason the
+          // hold is the run's rather than the cover's. Every door above is
+          // refused because taking it would leave the user without sight of a
+          // run that is still going; folding does not do that. It swaps the
+          // face the run is shown on, from this cover to the card's Z2 row,
+          // which carries the same reading and the same Cancel — so the run is
+          // still in front of the user, in one row instead of a panel.
+          //
+          // The card is made first responder first so the gesture is
+          // DELIVERED: the cover autofocuses its own panel, and a fold that
+          // never reached the card's handler would read here exactly like one
+          // the hold turned away.
+          await app.evalJS<null>(`(window.__tug.setFirstResponder("A"), null)`);
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          );
+          await app.waitForCondition<boolean>(
+            `window.__tug.getPaneRecord("p1").folded === true`,
+            { timeoutMs: 8000 },
+          );
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(COMPACTION)}) === null`,
+            { timeoutMs: 8000 },
+          );
+          // The cover is down and the card is STILL held: the run took the
+          // hold, not the panel, so a folded compaction refuses every other
+          // door exactly as an open one does. This is the assertion the old
+          // shape could not make — with the hold on the sheet, folding the
+          // card dropped it and left the run unguarded.
+          expect(
+            await app.evalJS<boolean>(
+              `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold")`,
+            ),
+            "the hold outlives the cover",
+          ).toBe(true);
+          expect(
+            await app.evalJS<boolean>(
+              `document.querySelector(${JSON.stringify(CLOSE_BUTTON)}).disabled`,
+            ),
+          ).toBe(true);
+
+          // And the UNFOLD brings the cover back, because the cover is derived
+          // from the run and the fold rather than raised once at the moment
+          // the run opened. A panel nobody re-raises is what made the fold
+          // look like a dismissal.
+          await app.evalJS<null>(`(window.__tug.setFirstResponder("A"), null)`);
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
+          );
+          await app.waitForCondition<boolean>(
+            `window.__tug.getPaneRecord("p1").folded === false`,
+            { timeoutMs: 8000 },
+          );
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(COMPACTION)}) !== null`,
+            { timeoutMs: 12000 },
+          );
+          expect(await app.evalJS<number>(sheetCount), "one cover, not two").toBe(1);
 
           // Cancel — the run's own door. It settles the store, which raises the
           // closing bulletin and clears, and the sheet dismisses with it.
