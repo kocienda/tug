@@ -22,6 +22,7 @@
 import { useSyncExternalStore } from "react";
 
 import type { TugConnection } from "@/connection";
+import { stripAnsi } from "@/lib/ansi/strip-ansi";
 import {
   FeedId,
   encodeListDigestLines,
@@ -417,6 +418,11 @@ export class DigestStore {
    * reach it with bytes the wire would otherwise have supplied
    * ({@link _ingestDigestFrameForTest}) — the parse and the fold are then
    * exactly the production ones.
+   *
+   * `stripAnsi` guards the text here and at the tail hydrate, the store's two
+   * doors ([B05] of the narration-one brief). The digester scrubs at the
+   * source, but rows written before it did replay out of the ledger until
+   * they age out, and a guard at the door is cheaper than a migration.
    */
   private _onDigest(payload: Uint8Array): void {
     const line = parseDigestFrame(payload);
@@ -424,7 +430,7 @@ export class DigestStore {
     this.fold([
       {
         key: lineKey(line.at, line.beat),
-        text: line.text,
+        text: stripAnsi(line.text),
         ...(line.kind !== undefined ? { kind: line.kind } : {}),
         scopes: Object.freeze([...line.scopes]),
         beat: line.beat,
@@ -437,7 +443,7 @@ export class DigestStore {
     const tail: DigestLineEntry[] = payload.lines.map((row) =>
       Object.freeze({
         key: lineKey(row.at_ms, row.beat),
-        text: row.text,
+        text: stripAnsi(row.text),
         ...(typeof row.kind === "string" ? { kind: row.kind } : {}),
         scopes: Object.freeze([...row.scopes]) as readonly string[],
         beat: row.beat,

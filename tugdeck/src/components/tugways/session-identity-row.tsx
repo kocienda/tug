@@ -119,7 +119,12 @@ import React, {
 } from "react";
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
-import { TugMarkdownText } from "@/components/tugways/tug-markdown-text";
+import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
+import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
+import {
+  clearFilterMarks,
+  setFilterMarks,
+} from "@/components/tugways/filter-mark-painter";
 import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
 import {
   arcSessionPurpose,
@@ -144,6 +149,7 @@ import {
   useIsCompactingCard,
 } from "@/lib/compaction-progress-store";
 import { parseBeatFileTarget } from "@/lib/beat-line/beat-file-target";
+import { atomRegisterVars } from "@/lib/atom-register";
 import { formatRestingStamp } from "@/lib/session-activity-line";
 import { arcJoinReadyLine } from "@/lib/arc-join-register";
 import { useSessionJoinBase } from "@/lib/code-session-store/use-session-phase";
@@ -640,6 +646,29 @@ export interface SessionIdentityRowProps
    */
   activityRegister?: "line" | "wall";
   /**
+   * How the description line is SET — the type settings this mount declares
+   * ([B07]). The rendered DOM is identical everywhere ([B01]); this is the
+   * size and the leading it is set in.
+   *
+   * `"tight"` — the default. The band the row's sub-lines have always read
+   * in. Right outside an {@link AnnotationScope}: nothing there mounts an
+   * atom, so there is nothing for the line to make room for.
+   *
+   * `"loose"` — the band floored at the atom register's line box, so a
+   * commit pill or a file bubble in the sentence is whole top and bottom
+   * rather than clipped by a 15.6px line ([B06]). The Session card's
+   * masthead and the Cards rail declare it, because both mount a scope and
+   * a post can name a sha. The mount also publishes {@link atomRegisterVars}
+   * here, so the floor is the register's own number rather than the
+   * stylesheet's fallback.
+   *
+   * Declared rather than discovered: a line that grew when a post happened
+   * to carry an atom would move the masthead's tier per post, which the
+   * `masthead-second-line` arc ruled out.
+   * @default "tight"
+   */
+  descriptionType?: "loose" | "tight";
+  /**
    * Props for the element wrapping the TITLE. The identity runs are rendered
    * inside whatever this describes.
    */
@@ -688,10 +717,12 @@ export function SessionIdentityRow({
   markdown = false,
   activityClassName,
   activityRegister = "line",
+  descriptionType = "tight",
   nameProps,
   identityMenu = false,
   hostCardId,
   className,
+  style,
   ...rest
 }: SessionIdentityRowProps): React.ReactElement {
   // Identity, through the one resolver — so a `/rename` or a callsign reroll
@@ -922,19 +953,70 @@ export function SessionIdentityRow({
   //
   // The ink is PROSE, not a string: a description is written about the
   // session and names the files the work touched, so it renders through the
-  // app's one prose primitive in its inline register — one run, the host
-  // line's elision untouched, the filter's marks still nested inside the
-  // styled runs. Inside an {@link AnnotationScope} a confirmed path in it
-  // earns the file bubble and opens on a click; outside one — the picker and
-  // gallery cells — the annotator is inert and the line is toned prose,
-  // which is the same line it always was with its backticks read rather
-  // than spelled.
+  // Overview's own call and no second one ([B01]) — `TugMarkdownBlock` in
+  // static `initialText` mode, keyed on the text so a new post remounts,
+  // `onAnnotated` from `useAnnotationPortals`, portals rendered beside it.
+  // That is one component and one code path for the same sentence on both
+  // surfaces: backticks consumed rather than spelled, `<code>` at the
+  // transcript's own inline size, and the block wrappers flattened onto the
+  // row by the shared rule in `tug-session-row.css` ([B02]).
+  //
+  // Inside an {@link AnnotationScope} a confirmed path in it earns the file
+  // bubble and a commit sha its pill, both opening on a click; outside one —
+  // the picker and gallery cells — the annotator marks the state-free kinds
+  // only and the line is toned prose.
+  const { onAnnotated: onDescriptionAnnotated, portals: descriptionPortals } =
+    useAnnotationPortals();
+  // The filter's mark, painted over what the pipeline built rather than
+  // composed while it renders ([B08]). `renderFilterHighlight` cannot reach
+  // this run — its DOM is written by the parse and the annotator, with no
+  // render-time seam to nest a `<mark>` into — so the run is marked
+  // `findable` and the query paints Ranges over its live text, the way
+  // transcript Find paints its own. The row's other highlighted runs, the
+  // title and the activity entries, keep the composed mark.
+  //
+  // `findable` here opts the run into the PAINTER's walk and nothing else:
+  // the transcript's own painter reaches rows through its list's index, and a
+  // masthead or rail row is not one, so the index's count-to-paint alignment
+  // has nothing to say about this mark.
+  const descriptionContainer = React.useRef<HTMLElement | null>(null);
+  // Live-ref'd so the annotation callback can be identity-stable: a fresh
+  // closure per render would re-run the block's own annotation effect ([L07]).
+  const highlightRef = React.useRef(highlight);
+  highlightRef.current = highlight;
+  const onDescriptionMarked = React.useCallback(
+    (container: HTMLElement) => {
+      onDescriptionAnnotated(container);
+      descriptionContainer.current = container;
+      setFilterMarks(container, highlightRef.current);
+    },
+    [onDescriptionAnnotated],
+  );
+  // Both sides move on their own: the DOM through the callback above, the
+  // query here. [L03] a layout effect, so the mark is painted before the
+  // frame the reader sees.
+  React.useLayoutEffect(() => {
+    const container = descriptionContainer.current;
+    if (container === null) return;
+    setFilterMarks(container, highlight);
+  }, [highlight, description]);
+  React.useLayoutEffect(
+    () => () => {
+      const container = descriptionContainer.current;
+      if (container !== null) clearFilterMarks(container);
+    },
+    [],
+  );
   const descriptionInk = (
-    <TugMarkdownText
-      register="inline"
-      text={description}
-      highlightQuery={highlight}
-    />
+    <>
+      <TugMarkdownBlock
+        key={description}
+        initialText={description}
+        findable
+        onAnnotated={onDescriptionMarked}
+      />
+      {descriptionPortals}
+    </>
   );
   const descriptionRun =
     activityRegister === "wall" ? (
@@ -944,6 +1026,17 @@ export function SessionIdentityRow({
     ) : (
       descriptionInk
     );
+  // The loose setting publishes the atom register on the row, which is what
+  // the description's leading floors to — the same table the pill inside the
+  // line is drawn from, so the room and the thing it is made for are one
+  // number ([B06], [B07]). A tight mount publishes nothing and pays nothing.
+  const rowStyle = React.useMemo(
+    () =>
+      descriptionType === "loose"
+        ? ({ ...atomRegisterVars(), ...style } as React.CSSProperties)
+        : style,
+    [descriptionType, style],
+  );
 
   // ── The tape ──────────────────────────────────────────────────────────
   // Unconditional wherever the mount asks for one — a session that has done no
@@ -1073,6 +1166,10 @@ export function SessionIdentityRow({
       descriptionStandIn={descriptionStandIn}
       activity={activity}
       sparkline={sparkline}
+      // How this mount SETS the description line — the type settings
+      // `tug-session-row.css` keys the loose band on ([B07]).
+      data-description-type={descriptionType}
+      style={rowStyle}
       {...rest}
       // After the mount's own props, deliberately: the row-wide menu is the
       // last word on the right-click, and the element the responder registers

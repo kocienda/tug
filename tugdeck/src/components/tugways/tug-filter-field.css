@@ -197,3 +197,15 @@ body {
 /* A selected row needs no arm of its own. The row's selection mark is an 18%
    wash of the selection hue, not an opaque accent slab, so the accent mark still
    reads through it — there is nothing left for it to vanish into. */
+
+/* The same mark, painted rather than composed. A run the markdown pipeline
+   built has no render-time seam to nest a `<mark>` into, so the description
+   line's mark is DOM Ranges in a registered Custom Highlight
+   (`filter-mark-painter.ts`) over the same fill. `::highlight()` carries
+   background-color and color only, so the weight bump and the widened fill
+   above are the composed mark's alone — the two read as one mark because the
+   fill is the thing the eye picks a match out by. */
+/* @tug-renders-on: --tugx-filter-mark-bg */
+::highlight(tug-filter-mark) {
+  background-color: var(--tugx-filter-mark-bg);
+}

@@ -177,8 +177,12 @@ export const MASTHEAD_HEIGHT = 72;
  * post is worth the same second line with a transcript under it as without,
  * and a tier that changed height with the fold is a tier the wall's packing
  * has to re-read. Fixed in both directions, so nothing ripples.
+ *
+ * 102 rather than the 88 it stood at until the description took the LOOSE
+ * type setting ([B07]): the pair is set in a band that holds a commit pill
+ * whole, and the tier pays for the pair once, declared, rather than per post.
  */
-export const SESSION_MASTHEAD_HEIGHT = 88;
+export const SESSION_MASTHEAD_HEIGHT = 102;
 
 /**
  * Imperative handle on CardTitleBar — lets the surrounding TugPane

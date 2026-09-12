@@ -127,8 +127,22 @@ function isInExcludedSubtree(node: Node): boolean {
  * on the element or an ancestor). Each is one search unit, mirroring one
  * projected part on the index side. Nested marked containers are folded
  * into their outermost ancestor so no text is walked twice.
+ *
+ * Exported for the other surface that paints a mark over DOM a markdown
+ * pipeline built — the session row's filter mark (`filter-mark-painter.ts`).
+ * It is the same walk answering the same question, and a second copy of it
+ * is how the two marks would come to disagree about what "searchable" means.
+ *
+ * `rowEl` ITSELF counts when it carries the marker. A transcript row never
+ * does — its marked containers are always inside it — but a caller whose
+ * subject is one container hands that container in, and a walk that could
+ * only see descendants would answer "nothing searchable here" about an
+ * element whose whole point is that it is.
  */
-function collectFindableUnits(rowEl: HTMLElement): HTMLElement[] {
+export function collectFindableUnits(rowEl: HTMLElement): HTMLElement[] {
+  if (rowEl.hasAttribute(FINDABLE_ATTR)) {
+    return rowEl.closest(`[${FIND_HIDDEN_ATTR}]`) === null ? [rowEl] : [];
+  }
   const marked = rowEl.querySelectorAll<HTMLElement>(`[${FINDABLE_ATTR}]`);
   const units: HTMLElement[] = [];
   for (const el of marked) {
@@ -141,7 +155,7 @@ function collectFindableUnits(rowEl: HTMLElement): HTMLElement[] {
 }
 
 /** The searchable text nodes of one unit, in order, skipping excluded subtrees. */
-function collectSearchableTextNodes(el: HTMLElement): Text[] {
+export function collectSearchableTextNodes(el: HTMLElement): Text[] {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
     acceptNode: (n) =>
       isInExcludedSubtree(n) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
@@ -160,7 +174,11 @@ function collectSearchableTextNodes(el: HTMLElement): Text[] {
  * `nodes` — the same node list (and therefore the same text) the search ran
  * over, so offsets map back exactly.
  */
-function rangeFromNodes(nodes: readonly Text[], start: number, end: number): Range | null {
+export function rangeFromNodes(
+  nodes: readonly Text[],
+  start: number,
+  end: number,
+): Range | null {
   let offset = 0;
   let startNode: Text | null = null;
   let startOffset = 0;

@@ -24,13 +24,14 @@
  * Inert outside an {@link AnnotationScope}, so a consumer painting this
  * somewhere with no session behind it is unaffected.
  *
- * **Two registers.** `block` is the original: one element per source line, so
- * a hanging indent has something to hang on and a blank line holds its gap.
- * `inline` renders the whole text as a single run inside a `<span>` and sets
- * no whitespace or wrapping of its own, which is what lets it sit in a line
- * that elides — a session row's description — rather than building block DOM
- * inside it. The register is typography, not content: both paint the same
- * styled runs, and both annotate.
+ * **One shape: a block, one element per source line**, so a hanging indent
+ * has something to hang on and a blank line holds its gap. There was a second
+ * register once — a single run in a `<span>`, for a line that elides — and a
+ * session row's description was its only consumer. That line renders through
+ * `TugMarkdownBlock` now, the same call the Overview makes, because a styler
+ * whose contract is that raw syntax is never hidden and a pipeline that
+ * consumes it are two representations of one sentence. A register kept for
+ * nobody is the seed of the next second renderer, so it went with it.
  *
  * Laws: [L06] every tone comes from the shared highlight classes and the
  * component's own CSS; nothing here is React state. [L03] the annotation pass
@@ -72,12 +73,6 @@ export interface TugMarkdownTextProps {
    * registration's `findParts` ({@link session-command-block-registry}).
    */
   findable?: boolean;
-  /**
-   * Typographic register. `block` (the default) paints one element per source
-   * line; `inline` paints the whole text as a single run in a `<span>`, for a
-   * host line that elides and owns its own whitespace rules.
-   */
-  register?: "block" | "inline";
 }
 
 /**
@@ -97,7 +92,6 @@ export function TugMarkdownText({
   className,
   dataSlot,
   findable = false,
-  register = "block",
 }: TugMarkdownTextProps): React.ReactElement {
   // A fenced block's grammar loads lazily, and the filter is synchronous, so
   // its first pass over a ```ts fence returns a flat body. The revision
@@ -121,41 +115,13 @@ export function TugMarkdownText({
   // walk that made it. `onAnnotated` is that moment, for the late verdict
   // batches as much as for the first paint.
   const { onAnnotated, portals } = useAnnotationPortals();
-  // `HTMLElement`, because the register decides the tag and both roots are
-  // the same subject to the annotator: the element whose text it scans. The
-  // cast at each root narrows that back to the tag React is checking.
-  const annotatedRef = useAnnotatedElement<HTMLElement>(
+  const annotatedRef = useAnnotatedElement<HTMLDivElement>(
     [lines, highlightQuery],
     onAnnotated,
   );
-  if (register === "inline") {
-    return (
-      <span
-        ref={annotatedRef as React.RefObject<HTMLSpanElement>}
-        className={
-          className !== undefined
-            ? `tug-markdown-text-inline ${className}`
-            : "tug-markdown-text-inline"
-        }
-        data-slot={dataSlot}
-        data-tugx-findable={findable ? "" : undefined}
-      >
-        {lines.map((line, i) => (
-          <React.Fragment key={i}>
-            {/* A source newline reads as a space in one run — the annotator
-                scans text nodes, and two lines butted together would read as
-                one word. */}
-            {i > 0 ? " " : null}
-            {renderFilterHighlightSpans(line.spans, line.text, highlightQuery)}
-          </React.Fragment>
-        ))}
-        {portals}
-      </span>
-    );
-  }
   return (
     <div
-      ref={annotatedRef as React.RefObject<HTMLDivElement>}
+      ref={annotatedRef}
       className={
         className !== undefined ? `tug-markdown-text ${className}` : "tug-markdown-text"
       }

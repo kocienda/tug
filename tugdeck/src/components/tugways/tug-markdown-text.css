@@ -29,16 +29,3 @@
 .tug-markdown-text-line-code {
   font-family: var(--tug-font-family-mono);
 }
-
-/* The inline register. One run, and deliberately almost nothing: whitespace,
-   wrapping and elision belong to the host line — a session row's description
-   elides in the row's own CSS, and a rule here would either fight it or
-   silently win. Inline-block or a display of any kind would do the same, so
-   the run stays plain inline ink. */
-.tug-markdown-text-inline {
-  /* A run whose ink must not be pushed around by the styled spans inside it:
-     the syntax classes carry color and weight only, and a code run keeps the
-     host's scale exactly as the block register's lines do. */
-  font: inherit;
-  color: inherit;
-}

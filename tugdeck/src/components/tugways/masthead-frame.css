@@ -40,15 +40,22 @@
  * splitting it across two would put the sum and one of its terms in different
  * places.
  *
- * 16px, not the 15.6 that `--tug-font-size-sm` (13px) at
- * `--tug-line-height-tight` (1.2) computes to: the wrapping run's line box is
- * the floor, and the tier is rounded up from it to a whole even number so the
- * session chrome lands on 88 rather than on a fraction the frame would keep
- * re-rounding. It is the spike's measured number, and the app-test that
- * measures the built tier is what holds it honest.
+ * 30px, and the number moved ONCE, when the description line took the LOOSE
+ * type setting ([B07]). The run is set in a band floored at the atom
+ * register's line box (26px, `atomRegisterVars`) rather than at the 15.6 that
+ * `--tug-font-size-sm` (13px) at `--tug-line-height-tight` (1.2) computes to,
+ * because a post names shas and paths and a commit pill in a 15.6px band is
+ * clipped top and bottom ([B06]). MEASURED, like the 16 before it: the tier
+ * owes its top padding (10.2), the title band (22), the description PAIR at
+ * the loose band (2 × 26), and the beat (17) — 101.2, rounded up to a whole
+ * even number so the session chrome lands on 102 rather than on a fraction
+ * the frame would keep re-rounding. The app-test that measures the built tier
+ * is what holds it honest, and the tier stays fixed in every form and every
+ * turn state, which is the `masthead-second-line` arc's requirement and is
+ * untouched here.
  */
 :root {
-  --tugx-session-masthead-extra-line: 16px;
+  --tugx-session-masthead-extra-line: 30px;
 }
 
 /**

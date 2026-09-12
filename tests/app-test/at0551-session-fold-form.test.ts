@@ -102,12 +102,19 @@ const TAPE = `${PANE} .session-masthead-row .tug-activity-line-trailing`;
 
 /**
  * `SESSION_MASTHEAD_HEIGHT` in `tug-pane.tsx`, which must equal
- * `--tug-masthead-height` (72) + `--tugx-session-masthead-extra-line` (16).
+ * `--tug-masthead-height` (72) + `--tugx-session-masthead-extra-line` (30).
  * The constant is duplicated here rather than imported because an app-test
  * drives the BUILT app: importing the module would assert the source against
  * itself and say nothing about the cascade that actually produced the tier.
+ *
+ * The tier moved once, from 88, when the description took the LOOSE type
+ * setting ([B07] of the narration-one brief): the pair is set in a band
+ * floored at the atom register, so a commit pill in a post is whole. What
+ * this file pins is unchanged by that — the tier is the SAME in both forms,
+ * which is the `masthead-second-line` decision and the reason for the
+ * assertion below.
  */
-const SESSION_MASTHEAD_HEIGHT = 88;
+const SESSION_MASTHEAD_HEIGHT = 102;
 
 /** A beat, long enough that the run it rides in has to cut it — on both forms. */
 const LONG_BEAT =
@@ -120,6 +127,15 @@ const LONG_BEAT =
  */
 const LONG_POST =
   "Rewriting the imposition allocator's ceiling ladder so a folded card asks for its own tier, then re-running the column tests and the fold form against the wall at both slim and wide widths.";
+
+/**
+ * The same sentence as the LINE renders it. The description runs through the
+ * transcript's markdown pipeline now, the Overview's own call and no second
+ * one, and that pipeline's smart punctuation sets a typed apostrophe as a
+ * typographic one. The post is written the way an agent types it; what lands
+ * on the line is what the reader sees, and the two differ in exactly this.
+ */
+const LONG_POST_INK = LONG_POST.replace("allocator's", "allocator’s");
 
 /** One Session card in one pane, wide enough that the row is not the subject. */
 function deckShape() {
@@ -399,7 +415,7 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
           { timeoutMs: 20_000 },
         );
         await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(DESCRIPTION)})?.textContent || "").indexOf(${JSON.stringify(LONG_POST)}) >= 0`,
+          `(document.querySelector(${JSON.stringify(DESCRIPTION)})?.textContent || "").indexOf(${JSON.stringify(LONG_POST_INK)}) >= 0`,
           { timeoutMs: 20_000 },
         );
 

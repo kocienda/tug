@@ -194,28 +194,13 @@
 }
 
 /* ── The activity run's rendered markdown ───────────────────────────────
-   Flattened to one inline run: this is a single line, so block wrappers from
-   the parse lose their box behavior. */
+   The flatten and the inline-code rules are NOT here: they live on the row,
+   in `tug-session-row.css`, keyed on both of the row's ink lines, because the
+   description carries parsed markdown too and one rule for the pair is what
+   keeps them from drifting ([B02]). What stays below is the beat's own — the
+   one-line parity rules that have no counterpart on a description.
 
-.session-masthead-beat-text
-  :is(p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, pre) {
-  display: inline;
-  margin: 0;
-  padding: 0;
-  font-size: inherit;
-  font-weight: inherit;
-}
-
-.session-masthead-beat-text li {
-  list-style: none;
-}
-
-.session-masthead-beat-text code {
-  font-family: var(--tug-font-family-mono);
-  font-size: 0.95em;
-}
-
-/* Transcript parity inside one line: display math flows inline, media shrinks
+   Transcript parity inside one line: display math flows inline, media shrinks
    to text height, tables flatten to an inline run. */
 .session-masthead-beat-text .katex-display {
   display: inline;
@@ -490,6 +475,15 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+  /* And it is never SHRUNK to make room. The lines are a flex column, and a
+     `-webkit-box` in one is shrinkable like anything else: the box asked for
+     its two lines, the column handed it back one, and the run's own
+     `overflow: hidden` cut the rest — including the bottom of a commit pill
+     riding the first line, which is the clipping [B06] is about. The tier is
+     DECLARED for the pair (`masthead-frame.css`), so the room is already
+     paid for and the box may take it. `auto` basis still stands: a box with
+     one line of ink is one line tall, and the slack falls under the beat. */
+  flex: 0 0 auto;
 }
 
 /* The beat and the title keep their single-line ellipsis. Only the

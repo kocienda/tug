@@ -7,6 +7,8 @@
  *   - Live DIGEST frames fold (including while pending), dedupe against
  *     the tail by line identity, and the log caps at 20 oldest-out.
  *   - Snapshots are referentially stable between folds.
+ *   - Both doors strip ANSI, so a ledger row written before the digester
+ *     scrubbed reaches the deck as visible text.
  */
 
 import { afterEach, describe, expect, it } from "bun:test";
@@ -228,6 +230,27 @@ describe("DigestStore", () => {
     // Malformed / foreign frames change nothing.
     conn.pushDigestFrame({ type: "not_digest" });
     expect(store.getSnapshot()).toBe(c);
+  });
+
+  it("both doors strip ANSI — the live fold and the tail hydrate", () => {
+    const { store, conn } = makeStore();
+    stores.push(store);
+    store.getSnapshot();
+    // `[B05]`: rows already in the ledger were written before the digester
+    // scrubbed, and replay until they age out. A colored `grep` result, as
+    // the wire carried it.
+    const colored =
+      "→ \u001b[35msrc/voice.rs\u001b[m\u001b[36m:\u001b[m12:fn narrate";
+    conn.pushDigestFrame(liveLine(1, colored));
+    publishListDigestLinesOk({
+      lines: [wireRow(2, `\u001b[32m$ cargo test\u001b[0m`)] as never,
+    });
+    const texts = store.getSnapshot().lines.map((l) => l.text);
+    for (const text of texts) {
+      expect(text).not.toContain("\u001b");
+      expect(text).not.toContain("[35m");
+    }
+    expect(texts).toEqual(["$ cargo test", "→ src/voice.rs:12:fn narrate"]);
   });
 });
 

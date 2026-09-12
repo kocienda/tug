@@ -458,9 +458,86 @@ impl SessionDigest {
 
 // ──────────────────────── voice.ts: the sentence rules ───────────────────────
 
-/// Collapse whitespace to one line.
+/// Every byte a payload string carries that was never text.
+///
+/// A tool result is whatever the tool printed, and a `grep` that thought it
+/// was talking to a terminal printed color: `ESC [ 3 6 m` around every match.
+/// Nothing downstream has any use for those bytes — the deck draws U+001B as
+/// tofu and the ledger stores it — so they are dropped here, at the one place
+/// the line is composed, rather than by each reader for itself.
+///
+/// Dropped: CSI (`ESC [` … final byte), the string-introducing escapes (OSC,
+/// DCS, SOS, PM, APC) up to their `ESC \` or BEL terminator, any other escape
+/// (its intermediate bytes, then its final one), a bare 8-bit CSI, and every
+/// remaining C0/C1 control. Whitespace survives untouched: the sentence rules
+/// below are what decide what a newline means.
+fn visible_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\u{1b}' => match chars.peek() {
+                Some('[') => {
+                    chars.next();
+                    consume_control_sequence(&mut chars);
+                }
+                Some(']' | 'P' | 'X' | '^' | '_') => {
+                    chars.next();
+                    consume_string_sequence(&mut chars);
+                }
+                // Every other escape: its intermediates, then its final byte.
+                Some(_) => consume_escape_sequence(&mut chars),
+                // A trailing ESC introduces nothing, and is still not text.
+                None => {}
+            },
+            // The 8-bit spelling of CSI, from a producer writing C1 directly.
+            '\u{9b}' => consume_control_sequence(&mut chars),
+            ch if ch.is_control() && !ch.is_whitespace() => {}
+            ch => out.push(ch),
+        }
+    }
+    out
+}
+
+/// A CSI's parameter and intermediate bytes, then its one final byte.
+fn consume_control_sequence(chars: &mut impl Iterator<Item = char>) {
+    for ch in chars {
+        if matches!(ch, '\u{40}'..='\u{7e}') {
+            break;
+        }
+    }
+}
+
+/// A non-CSI escape's intermediate bytes, then its final one — `ESC ( B`
+/// (select character set) is three bytes, not two.
+fn consume_escape_sequence(chars: &mut impl Iterator<Item = char>) {
+    for ch in chars {
+        if !matches!(ch, '\u{20}'..='\u{2f}') {
+            break;
+        }
+    }
+}
+
+/// An OSC-style sequence's payload, up to `ESC \` (ST) or BEL.
+fn consume_string_sequence(chars: &mut impl Iterator<Item = char>) {
+    let mut escaped = false;
+    for ch in chars {
+        match ch {
+            '\u{07}' => break,
+            '\\' if escaped => break,
+            '\u{1b}' => escaped = true,
+            _ => escaped = false,
+        }
+    }
+}
+
+/// Collapse whitespace to one line, over [`visible_text`]'s reduction — so
+/// nothing a scrubbed escape left behind survives as a stray double space.
 fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    visible_text(text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Token counts at strip scale: thousands above 1k, exact below.
@@ -982,8 +1059,10 @@ pub fn narrate_tool(tool_name: &str, input: Option<&Value>, root: Option<&str>) 
             .and_then(|i| i.get(key))
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty())
+            .map(visible_text)
     };
-    let path = field("file_path").map(|p| clip_path_left(&display_path(p, root), MAX_TARGET_CHARS));
+    let path =
+        field("file_path").map(|p| clip_path_left(&display_path(&p, root), MAX_TARGET_CHARS));
     match tool_name {
         "Read" => path.map_or_else(|| "Reading".to_string(), |p| format!("Reading {p}")),
         "Write" => path.map_or_else(|| "Writing".to_string(), |p| format!("Writing {p}")),
@@ -992,15 +1071,15 @@ pub fn narrate_tool(tool_name: &str, input: Option<&Value>, root: Option<&str>) 
         }
         "Bash" => field("command").map_or_else(
             || "Running a command".to_string(),
-            |c| format!("Running {}", narrated_phrase(c)),
+            |c| format!("Running {}", narrated_phrase(&c)),
         ),
         "Grep" => field("pattern").map_or_else(
             || "Searching".to_string(),
-            |p| format!("Searching {}", narrated_phrase(p)),
+            |p| format!("Searching {}", narrated_phrase(&p)),
         ),
         "Glob" => field("pattern").map_or_else(
             || "Finding files".to_string(),
-            |p| format!("Finding {}", narrated_phrase(p)),
+            |p| format!("Finding {}", narrated_phrase(&p)),
         ),
         other => other.to_string(),
     }
@@ -1019,7 +1098,7 @@ fn synthesize_tool_line(payload: &Value, root: Option<&str>) -> String {
         .get("file_path")
         .and_then(|v| v.as_str())
         .filter(|p| !p.is_empty())
-        .map(|p| clip_path_left(&display_path(p, root), MAX_TARGET_CHARS));
+        .map(|p| clip_path_left(&display_path(&visible_text(p), root), MAX_TARGET_CHARS));
     let lines = payload
         .get("content_lines")
         .and_then(|v| v.as_u64())
@@ -1044,7 +1123,7 @@ fn task_beat(tool_name: &str, input: Option<&Value>) -> Option<String> {
         let subject = field("subject")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())?;
-        return Some(format!("Created: {subject}"));
+        return Some(format!("Created: {}", visible_text(subject)));
     }
     if tool_name == "TaskUpdate" {
         let status = field("status").and_then(|v| v.as_str())?;
@@ -1170,11 +1249,11 @@ pub fn tool_line(payload: &Value) -> Option<String> {
             })
         })
         .map(|(target, is_path)| {
-            let target = target.trim();
+            let target = visible_text(target.trim());
             if is_path {
-                clip_path_left(target, MAX_TARGET_CHARS)
+                clip_path_left(&target, MAX_TARGET_CHARS)
             } else {
-                clip(target, MAX_TARGET_CHARS)
+                clip(&target, MAX_TARGET_CHARS)
             }
         })
         .unwrap_or_default();
@@ -1196,7 +1275,7 @@ pub fn shell_beat(payload: &Value) -> Option<String> {
     let command = payload
         .get("command")
         .and_then(|v| v.as_str())
-        .map(|command| clip(command.trim(), MAX_TARGET_CHARS));
+        .map(|command| clip(&visible_text(command.trim()), MAX_TARGET_CHARS));
     match payload.get("type").and_then(|v| v.as_str())? {
         "exchange_started" => Some(format!("$ {}", command?)),
         "exchange_complete" => match payload.get("exit_code").and_then(|v| v.as_i64()) {
@@ -1714,7 +1793,11 @@ pub fn digest_line_for_code_frame(
                 };
                 let label = field("subagent_type")
                     .map(agent_display_label)
-                    .or_else(|| field("description").map(str::to_string))?;
+                    // `description` is a tool input like any other, and a
+                    // tool input carries escapes as readily as a result does
+                    // (`[B04]`). `agent_display_label` scrubs the slug arm
+                    // through `one_line`; this arm is the other one.
+                    .or_else(|| field("description").map(visible_text))?;
                 if let Some(id) = tool_use_id {
                     state.agent_labels.insert(id.to_string(), label.clone());
                 }
@@ -2696,6 +2779,62 @@ mod tests {
         assert_eq!(clip("é".repeat(6).as_str(), 3), "ééé…");
     }
 
+    // ── the visible-text scrub ──────────────────────────────────────────────
+
+    #[test]
+    fn a_colored_grep_line_composes_a_beat_with_no_escape_bytes() {
+        // What `grep --color=always` hands back when it thought it was talking
+        // to a terminal, and what the digester quoted verbatim until now.
+        let output = "\u{1b}[35m\u{1b}[Ksrc/voice.rs\u{1b}[m\u{1b}[K\u{1b}[36m\u{1b}[K:\u{1b}[m\u{1b}[K12:fn \u{1b}[01;31m\u{1b}[Knarrate\u{1b}[m\u{1b}[K(text: &str)";
+        let beat = clip(&one_line(output), RESULT_CLIP);
+        assert!(!beat.contains('\u{1b}'), "no ESC survives: {beat:?}");
+        assert!(!beat.contains("[K"), "no CSI residue survives: {beat:?}");
+        // And the visible text is whole, spacing included.
+        assert_eq!(beat, "src/voice.rs:12:fn narrate(text: &str)");
+    }
+
+    #[test]
+    fn visible_text_drops_the_sequences_and_keeps_the_text() {
+        // OSC, terminated by BEL and by ST.
+        assert_eq!(visible_text("\u{1b}]0;a title\u{07}after"), "after");
+        assert_eq!(visible_text("\u{1b}]8;;https://x\u{1b}\\link"), "link");
+        // A two-byte escape is its second byte, and nothing more.
+        assert_eq!(visible_text("a\u{1b}(Bb"), "ab");
+        // The 8-bit spelling of CSI.
+        assert_eq!(visible_text("a\u{9b}31mb"), "ab");
+        // A bare ESC at the end introduces nothing.
+        assert_eq!(visible_text("done\u{1b}"), "done");
+        // Every other C0/C1 control goes; whitespace stays, because the
+        // sentence rules are what decide what a newline means.
+        assert_eq!(visible_text("a\u{0}\u{7}\u{8}\u{9f}b"), "ab");
+        assert_eq!(visible_text("a\nb\tc d"), "a\nb\tc d");
+        // Text with nothing to drop is returned as it arrived.
+        assert_eq!(visible_text("plain — text"), "plain — text");
+    }
+
+    #[test]
+    fn a_tool_input_is_scrubbed_as_readily_as_a_result() {
+        // `[B04]`: a command carries escapes as readily as output does.
+        let beat = shell_beat(&json!({
+            "type": "exchange_started",
+            "command": "\u{1b}[32mgrep\u{1b}[0m -rn needle",
+        }));
+        assert_eq!(beat.as_deref(), Some("$ grep -rn needle"));
+
+        let line = tool_line(&json!({
+            "tool_name": "Bash",
+            "input": { "command": "\u{1b}[1mls\u{1b}[0m -la" },
+        }));
+        assert_eq!(line.as_deref(), Some("Bash(ls -la)"));
+
+        let narrated = narrate_tool(
+            "Grep",
+            Some(&json!({ "pattern": "\u{1b}[31mfn narrate\u{1b}[0m" })),
+            None,
+        );
+        assert_eq!(narrated, "Searching fn narrate");
+    }
+
     // ── the narrated permission wait ────────────────────────────────────────
 
     fn forward(
@@ -3076,6 +3215,21 @@ mod tests {
             )
             .expect("a launch beat");
         assert_eq!(launch.line.text, "Launching General…");
+        // And a launch with no slug labels itself from the `description`
+        // input, which is scrubbed like every other one (`[B04]`).
+        let described = SessionDigester::new()
+            .on_code_frame(
+                "s1",
+                &json!({
+                    "type": "tool_use",
+                    "tool_use_id": "toolu_described",
+                    "tool_name": "Agent",
+                    "input": {"description": "\u{1b}[33msweep the tree\u{1b}[0m"},
+                }),
+                0,
+            )
+            .expect("a launch beat");
+        assert_eq!(described.line.text, "Launching sweep the tree…");
         // A subagent's tool call is the only activity it streams to the parent.
         let subagent = digester
             .on_code_frame(

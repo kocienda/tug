@@ -634,6 +634,13 @@ export function SessionMasthead({
           // packing puts each of those on its own vertical; the column is the one
           // fact all three can share.
           indicatorPacking="column"
+          // The tier's own register: the description is the run this masthead
+          // gives a second line to, it carries the Observer's post, and a post
+          // names shas and paths — so the line is set loose, in a band floored
+          // at the atom register, and a pill in it is whole top and bottom
+          // ([B06], [B07]). The tier's height is declared for the pair in
+          // `masthead-frame.css`, so nothing here moves with the sentence.
+          descriptionType="loose"
           // The bound arc is not the masthead's to render: it rides the title's
           // own grammar, alongside the project the callsign already names, which
           // `SessionIdentityRow` composes. What sat here was a badge in the title

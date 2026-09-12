@@ -100,12 +100,48 @@ body {
      three-level stack derives its own from the pair it must center on; see
      below. */
   --tugx-session-row-spark-rise: 3px;
-  /* The description's band, as a LENGTH, because two rules need the same
-     number: the line sets its own leading from it, and the tape's lift is
-     derived from it. Left as a ratio it would be a number one rule knew and
-     the other guessed. */
-  --tugx-session-row-description-line: calc(
-    var(--tug-font-size-sm) * var(--tug-line-height-tight)
+  /* The sub-lines' TIGHT band, as a LENGTH, because more than one rule needs
+     the same number: the description sets its leading from it, the arc line
+     rides the same rhythm, and the tape's lift is derived from it. Left as a
+     ratio it would be a number one rule knew and the other guessed. */
+  --tugx-session-row-sub-line-tight: calc(
+    var(--tugx-session-row-description-size) * var(--tug-line-height-tight)
+  );
+  /* ── The description's TYPE, in two settings a mount declares ([B07]) ───
+     A size and a band. The rendered DOM is identical at every mount ([B01]);
+     what a mount declares is how the identical thing is SET.
+
+     TIGHT is this pair — the band the sub-lines have always read in, and the
+     right one outside an `AnnotationScope`, where nothing mounts an atom and
+     there is nothing to make room for. The picker's cells and the gallery's
+     read here.
+
+     LOOSE floors that band at the atom register's line box, below. The
+     masthead's wall register and the Cards rail declare it, because both
+     mount a scope and a commit pill can land in their line — and a pill in a
+     15.6px band is clipped top and bottom, which is what this setting is
+     for ([B06]). The atom's own height and form are not reopened: the line
+     makes the room, the pill stays the pill.
+
+     Declared by the MOUNT and never discovered from the sentence: a band
+     that grew when a post happened to name a sha would move the masthead's
+     tier per post, which the `masthead-second-line` arc ruled out. */
+  --tugx-session-row-description-size: var(--tug-font-size-sm);
+  --tugx-session-row-description-line: var(--tugx-session-row-sub-line-tight);
+}
+
+/* The loose setting. The floor is the atom register's own line box — the
+   number `atomRegisterVars()` publishes and every other atom-bearing prose
+   surface floors to (`tug-atom-markdown-body.css`, `tug-atom-text-body.css`)
+   — so a pill in a description is set in the same room as a pill in a
+   transcript body. The mount publishes the register, and the fallback is
+   here all the same, so a row that publishes nothing still clears an atom
+   ([L20]). `max()`, not a swap: a mount that raises the tight band above the
+   floor keeps its own number. */
+.tug-session-row[data-description-type="loose"] {
+  --tugx-session-row-description-line: max(
+    var(--tugx-session-row-sub-line-tight),
+    var(--tugx-atom-line-box-floor, 26px)
   );
 }
 
@@ -380,12 +416,81 @@ body {
      there. */
   padding-inline-end: var(--tugx-session-row-spark-reserve, 0px);
   line-height: var(--tugx-session-row-description-line);
+  /* And the box is never SHORTER than the band its lines are set in. The
+     line clips its own overflow, so a box an engine sized from something
+     other than this band — the masthead's `-webkit-box` resolves its height
+     from a stale intrinsic pass often enough — cuts whatever stands full
+     height in the line, which is exactly the commit pill ([B06]). One line's
+     band is the floor; a box with two lines of ink is still two lines tall. */
+  min-block-size: var(--tugx-session-row-description-line);
 }
 
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
 .tug-session-row-description {
   color: var(--tug7-element-global-text-normal-default-rest);
-  font-size: var(--tug-font-size-sm);
+  font-size: var(--tugx-session-row-description-size);
+}
+
+/* ── Parsed markdown, flattened onto one line ──────────────────────────────
+   The row's two ink lines both carry rendered markdown: the description
+   through `TugMarkdownBlock` ([B01]) and the beat through `renderBeatLine`.
+   Each line is ONE line, so the block wrappers the parse produces lose their
+   box behavior here rather than in either line's own stylesheet — the
+   description and the beat are the same shape of thing on the same row, and
+   one rule is what keeps them from drifting apart ([B02]).
+
+   `.tug-markdown-block` is the primitive's own container and `.tugx-md-block`
+   each parsed block's wrapper; the element list after them is what the
+   markdown pipeline emits inside one.
+
+   `line-height: inherit` is load-bearing: `.tugx-md-block` declares the
+   transcript's own body leading, which is the right answer in a transcript
+   and the wrong one in a row whose band is a published length. The leading
+   here is the LINE's, whatever the mount set it to.
+
+   Both arms are the ROW's own lines. The description's class is row-private
+   already; the activity line is a shared primitive, so its arm is scoped to
+   a row rather than reaching every `TugActivityLine` in the app — a card
+   masthead's detail line is another component's ink and not this file's to
+   set. */
+
+:is(.tug-session-row-description, .tug-session-row .tug-activity-line)
+  :is(
+    .tug-markdown-block,
+    .tugx-md-block,
+    p,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    ul,
+    ol,
+    li,
+    blockquote,
+    pre
+  ) {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+:is(.tug-session-row-description, .tug-session-row .tug-activity-line) li {
+  list-style: none;
+}
+
+/* The mono comes from the transcript's own inline-code token and nowhere else
+   — a size authored here would be a second number for the same ink, which is
+   what made the masthead's mono read too big beside its sans ([B02]). The
+   description's `<code>` already reads it through `.tugx-md-block code`; the
+   beat's raw block HTML has no such ancestor, so it reads it here. */
+:is(.tug-session-row-description, .tug-session-row .tug-activity-line) code {
+  font-family: var(--tugx-block-code-font, var(--tug-font-family-mono));
+  font-size: var(--tugx-md-inline-code-size);
 }
 
 /* The arc line: a fact ABOUT the row, so it is drawn inside it and takes the
@@ -411,7 +516,10 @@ body {
     var(--tugx-session-identity-row-indent, 10px) +
       var(--tugx-session-row-arc-indent, 12px)
   );
-  line-height: var(--tugx-session-row-description-line);
+  /* The TIGHT band, whatever the description declares: this line draws an
+     arc's marks rather than annotated prose, so nothing in it asks for an
+     atom's room, and a loose mount would otherwise pay for one twice. */
+  line-height: var(--tugx-session-row-sub-line-tight);
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-xs);
 }
