@@ -890,6 +890,12 @@ export interface TugSheetContentProps {
    */
   bottomAnchorSelector?: string;
   /**
+   * Declare that this panel's natural height is CONTENT-BOUNDED, and receive
+   * that height as it is measured. See
+   * {@link ShowSheetOptions.reportNaturalHeight}.
+   */
+  reportNaturalHeight?: (height: number | null) => void;
+  /**
    * Selector (queried within the host pane chrome) for the element that goes
    * `inert` while the sheet is open. Defaults to `.tug-pane-body` — the
    * whole-pane-body modal contract. The `shade` presentation passes a
@@ -942,6 +948,7 @@ export function TugSheetContent({
   shadePassive = false,
   grabberLabel = "Resize",
   bottomAnchorSelector,
+  reportNaturalHeight,
   modalScopeSelector,
   children,
 }: TugSheetContentProps) {
@@ -1394,6 +1401,58 @@ export function TugSheetContent({
       window.removeEventListener("resize", measure);
     };
   }, [paneFrameEl, mounted, maxHostFraction, aspectLockContent, presentation, bottomAnchorEl]);
+
+  // Report the panel's NATURAL height to a caller that declared its content
+  // bounds it ([B02]). The measure is the bottom-anchor effect's own —
+  // `scrollHeight` plus borders and the panel's own margins ([F05]) — and it is
+  // taken for the same reason it is stable there: `scrollHeight` is what the
+  // panel wants whether or not a cap is currently biting, so a report cannot
+  // move under the room the report wins.
+  //
+  // The callback is held on a ref rather than read from the effect's closure,
+  // the way `exclusive` is: a call site writing an inline arrow hands a new
+  // identity every render, and an effect keyed on it would tear down its
+  // observer and re-report on renders that changed nothing. The effect turns
+  // on whether a callback was DECLARED, which is a fact about the sheet rather
+  // than about this render.
+  //
+  // Nothing is written anywhere here, and no store is read: the height goes out
+  // and where it lands is the caller's business, which is what keeps this
+  // component's only import from the deck's side `readSettleMs`.
+  const reportNaturalHeightRef = useRef(reportNaturalHeight);
+  reportNaturalHeightRef.current = reportNaturalHeight;
+  const declaresNaturalHeight = reportNaturalHeight !== undefined;
+  useLayoutEffect(() => {
+    const content = sheetContentRef.current;
+    if (!declaresNaturalHeight || content === null) return;
+    let last: number | null = null;
+    const measure = (): void => {
+      const cs = getComputedStyle(content);
+      const px = (value: string): number => Number.parseFloat(value) || 0;
+      const height =
+        content.scrollHeight +
+        px(cs.borderTopWidth) +
+        px(cs.borderBottomWidth) +
+        px(cs.marginTop) +
+        px(cs.marginBottom);
+      // Report only on change. The panel's box moves when the room it was
+      // given changes, and re-reporting the same number at each of those would
+      // be a commit per observer callback on the other end.
+      if (height === last) return;
+      last = height;
+      reportNaturalHeightRef.current?.(height);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+      // Cleared on close and on unmount, which is the whole of the drop: a
+      // claim outliving the panel that justified it is a floor nobody can
+      // account for.
+      reportNaturalHeightRef.current?.(null);
+    };
+  }, [declaresNaturalHeight, mounted]);
 
   // ---- Drag-resize ([D15] resizable sheets) ----
   //
@@ -2295,6 +2354,28 @@ export interface ShowSheetOptions {
    */
   bottomAnchorSelector?: string;
   /**
+   * Declare that this sheet's natural height is CONTENT-BOUNDED, and receive
+   * that height in pixels as it is measured — `null` when the sheet closes.
+   *
+   * Passing this is the DECLARATION ([B02]): only a surface whose content
+   * bounds its own height may claim room from the place its host card stands
+   * in, because a sheet whose content is flexible would grow into whatever
+   * room it was given and ask for more. Nothing infers the property from a
+   * measurement, and no sheet is enrolled by default.
+   *
+   * The number is the panel's NATURAL height — `scrollHeight` plus its borders
+   * and its own margins — which is what the panel wants whether or not its cap
+   * is currently biting, so the measure does not move under the room it wins.
+   * It arrives on open, again whenever the panel's own box changes, and as
+   * `null` on close and on unmount.
+   *
+   * The sheet writes nothing anywhere with it. Where the height GOES is the
+   * caller's business — the Choose Session picker routes it to the deck's
+   * reservation for the pane its card stands in — and reporting out is what
+   * keeps this component free of a store dependency it has never had.
+   */
+  reportNaturalHeight?: (height: number | null) => void;
+  /**
    * Present this sheet as the cover of a **run**: it takes the host card's
    * modal hold while it stands, so a later `showSheet` on this host is refused
    * rather than superseding it, and Escape / ⌘. report the run's refusal
@@ -2735,6 +2816,7 @@ export function useTugSheet(): {
           exclusive={options.exclusive}
           onCommitDisposition={options.onCommitDisposition}
           bottomAnchorSelector={options.bottomAnchorSelector}
+          reportNaturalHeight={options.reportNaturalHeight}
         >
           {options.content(close)}
         </TugSheetContent>

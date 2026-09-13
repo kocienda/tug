@@ -416,6 +416,29 @@ export interface DeckState {
    * gained or lost members while the deck was closed.
    */
   railOffsets?: Readonly<Partial<Record<SidebarSide, number>>>;
+  /**
+   * The height, in pixels, a modal surface has stated it needs, keyed by the
+   * member hosting it — pane id for a column member and componentId for a
+   * rail one, which is how `placeMembers` names them, so nothing has to
+   * translate between the two ([B01]).
+   *
+   * A place's allocator reads each entry as its member's FLOOR, never as a
+   * target: a member whose stored share already exceeds it does not move
+   * ([B07]). Only a sheet whose natural height is content-bounded declares one
+   * and it says so at its own call site ([B02]); nothing is inferred.
+   *
+   * Session state only, and never serialized, for the same reason
+   * {@link DeckState.columnOffsets} is not: a reservation is derivable from the
+   * sheet that is up, and no sheet is up across a restart, so a restored one
+   * would be a claim held for a surface nobody raised. It is likewise kept out
+   * of `imposition`'s stored shares ([B03]) — the division the hand set with
+   * the sash is the thing the card falls back into when the sheet goes, and a
+   * claim written into the record would have destroyed it to honour it.
+   *
+   * Absent, rather than empty, when nobody is claiming: the field goes away
+   * with its last entry, so absence is the one reading of "no reservation".
+   */
+  sheetReservations?: Readonly<Record<string, number>>;
 }
 
 // ---- Invariant validation ----

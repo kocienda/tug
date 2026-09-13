@@ -624,6 +624,38 @@ export function panesWithFolded(
 }
 
 /**
+ * The reservations record a sheet's report writes: `memberId`'s entry set to
+ * `height`, or REMOVED when the height is `null` and the sheet has gone.
+ *
+ * `undefined` — never `{}` — when the last entry goes, because absence is the
+ * one reading of "nobody is claiming" ([B03]'s field contract). An empty
+ * record standing where the field used to be absent would be a second spelling
+ * of the resting state, and the two would then have to agree forever.
+ *
+ * Returned by IDENTITY when nothing changes, which is what lets
+ * {@link DeckManager.setSheetReservation} short-circuit: a sheet re-reports the
+ * height it already reported on every resize of its own panel, and each of
+ * those would otherwise be a commit that arms a settle over frames already
+ * where they belong.
+ *
+ * Pure and exported for the same reason {@link panesWithFolded} is: it is the
+ * whole of what the commit decides, and it is testable without a DeckManager.
+ */
+export function sheetReservationsWith(
+  standing: Readonly<Record<string, number>> | undefined,
+  memberId: string,
+  height: number | null,
+): Readonly<Record<string, number>> | undefined {
+  if (height === null) {
+    if (standing === undefined || !(memberId in standing)) return standing;
+    const { [memberId]: _dropped, ...rest } = standing;
+    return Object.keys(rest).length === 0 ? undefined : rest;
+  }
+  if (standing?.[memberId] === height) return standing;
+  return { ...(standing ?? {}), [memberId]: height };
+}
+
+/**
  * Whether a column is a WALL: some member other than `openPaneId` is folded.
  *
  * The definition [P06] rests on, and separate from {@link panesWithWallFolded}
@@ -3683,6 +3715,36 @@ export class DeckManager implements IDeckManagerStore {
       railOffsets: { ...this.deckState.railOffsets, [side]: clamped },
     };
     this.notify("setRailOffset", landing);
+  }
+
+  /**
+   * Commit the height a sheet on `memberId` has stated it needs, or drop the
+   * claim with a `null` height ([B01], [B05]).
+   *
+   * `memberId` is the member the way `placeMembers` names it — a pane id for a
+   * column member, a componentId for a rail one — so the caller hands over the
+   * id the allocator will look the reservation up by and nothing translates in
+   * between.
+   *
+   * An ordinary commit with the default `"cross"` landing, because the growth
+   * and the return ARE ordinary settles ([B06]): the reservation changes the
+   * place's allocated heights, which the arrangement signature already carries
+   * as a term of its own, so the card arrives at the room through the same
+   * machinery every other height change uses.
+   *
+   * Returns without notifying when the record already reads that way, so a
+   * sheet re-reporting the height it last reported — which it does on every
+   * resize of its own panel — costs nothing.
+   */
+  setSheetReservation(memberId: string, height: number | null): void {
+    const next = sheetReservationsWith(
+      this.deckState.sheetReservations,
+      memberId,
+      height,
+    );
+    if (next === this.deckState.sheetReservations) return;
+    this.deckState = { ...this.deckState, sheetReservations: next };
+    this.notify("setSheetReservation");
   }
 
   /**

@@ -127,6 +127,18 @@ export interface IDeckManagerStore {
   setFlowOffset: (offset: number, landing?: CommitLanding) => void;
 
   /**
+   * Commit the height a modal surface standing on `memberId` has stated it
+   * needs, or drop the claim with a `null` height. `memberId` is the member
+   * the way `placeMembers` names it — a pane id for a column member, a
+   * componentId for a rail one.
+   *
+   * On the store because the claim is deck state: the place's allocator reads
+   * it as the member's floor for as long as the sheet is up, and it is
+   * session-only, so nothing the user did is written over to honour it.
+   */
+  setSheetReservation: (memberId: string, height: number | null) => void;
+
+  /**
    * Draw the deck at a flow offset without committing it — the per-frame half
    * of a scrub, and the one writer of it ([P11]). It writes the property the
    * imposed frames read and publishes the fraction the instruments read, and

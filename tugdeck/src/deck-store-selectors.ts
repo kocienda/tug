@@ -512,10 +512,18 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
  * is the one thing the two places differ by here — a sidebar card is a
  * singleton, and a slot holds panes that may each be a tab stack.
  *
- * There is nothing above the floor to read. A rail divides its run by the
- * hand's own weights ([B03]), and the one algorithm that reads a card's
- * content height runs on request rather than from a settled mirror of a
- * measurement store.
+ * There is nothing above the floor to read, and one narrow exception below it
+ * ([B08]). A rail divides its run by the hand's own weights ([B03]), and the
+ * one algorithm that reads a card's content height runs on request rather than
+ * from a settled mirror of a measurement store. The exception is a member
+ * hosting a modal surface that has STATED the height it needs: its floor is
+ * the greater of its stack policy's and that reservation, for as long as the
+ * sheet is up ([B01]). It stays narrow because the number is DECLARED rather
+ * than sampled — only a sheet whose natural height is content-bounded takes
+ * one, and it says so at its own call site ([B02]) — so the allocator still
+ * reads no measurement it did not ask a surface to vouch for. And a floor is
+ * not a target: a member whose stored share already exceeds its reservation
+ * does not move ([B07]).
  *
  * The one member that reads differently is a FOLDED column member ([P05]).
  * Its floor is its stack's folded policy, its ceiling is the same number —
@@ -553,6 +561,10 @@ export function placeMembers(
     const folded = kind === "column" && pane?.folded === true;
     if (folded) {
       const policy = getStackSizePolicy(componentIds, { folded: true });
+      // No reservation is read here, and that is deliberate: a folded card
+      // asks for no share of the run and pins at its tier, so a claim on one
+      // would be a contradiction rather than a case. A sheet does not stand
+      // on a folded card.
       return {
         id,
         floor: policy.min.height,
@@ -562,7 +574,10 @@ export function placeMembers(
     }
     return {
       id,
-      floor: getStackSizePolicy(componentIds).min.height,
+      floor: Math.max(
+        getStackSizePolicy(componentIds).min.height,
+        state.sheetReservations?.[id] ?? 0,
+      ),
       weight: railWeightOf(shares, id),
     };
   });

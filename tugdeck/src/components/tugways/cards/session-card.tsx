@@ -271,6 +271,7 @@ import {
   unfoldCardForBiddenSurface,
   useIsCardFolded,
 } from "@/lib/card-fold";
+import { reserveSheetHeightForCard } from "@/lib/sheet-reservation";
 import { registerCardCloseAdvice } from "@/lib/card-close-advice";
 import {
   cardModalHoldAdmitsFold,
@@ -1163,6 +1164,19 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
       // the consumer reads `cardId` from its own closure inside
       // `onClosed` below — that's what makes the dispatch robust.
       cascadeTargetId: cardId,
+      // The picker's natural height is content-bounded — chrome, a path field,
+      // a label, a list capped at 14.5rem, and the action row — so it declares
+      // it ([B02]) and the deck holds its host pane's floor there while it is
+      // up ([B01]). That is what keeps it from opening squeezed on a member of
+      // a split column or rail, where what bounds the panel is where the card
+      // sits rather than what the panel needs. The report is cleared on close
+      // and on unmount, so the card settles back into the share the hand gave
+      // it ([B03]) the moment a session opens or the picker is cancelled.
+      //
+      // No other sheet on this card is enrolled: a blanket reservation would
+      // couple the deck's division to the height of content nobody bounded.
+      reportNaturalHeight: (height) =>
+        reserveSheetHeightForCard(cardId, height),
       content: (close) => (
         <SessionProjectPickerForm
           notice={activeNoticeRef.current}
@@ -1253,6 +1267,18 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
     if (cardLifecycle === null) return;
     return cardLifecycle.observeCardDidActivate(cardId, () => presentSheet());
   }, [cardLifecycle, cardId, presentSheet]);
+
+  // A card that goes away takes its reservation with it ([B05]). The sheet
+  // clears its own on close and on unmount, so on every ordinary ending this
+  // runs against a claim that is already gone and the verb returns without
+  // notifying. What it covers is the card torn down while its picker still
+  // stands: the pane it named stops standing, and a floor held for a panel
+  // nobody can see would be a division the user never made.
+  useEffect(() => {
+    return () => {
+      reserveSheetHeightForCard(cardId, null);
+    };
+  }, [cardId]);
 
   // The card opened and the picker it stood down from is owed its
   // presentation ([B03]'s other half — a deferred surface presents on unfold).

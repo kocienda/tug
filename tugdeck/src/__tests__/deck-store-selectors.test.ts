@@ -21,6 +21,10 @@ import {
   placeMembers,
   slotStackOf,
 } from "../deck-store-selectors";
+import {
+  allocatePlaceHeights,
+  type PlaceMember,
+} from "@/lib/layout-imposer";
 import { registerCard, _resetForTest } from "../card-registry";
 
 
@@ -666,5 +670,218 @@ describe("placeMembers reads the folded flag", () => {
     expect(members[0].floor).toBe(OPEN);
     expect(members[0].ceiling).toBeUndefined();
     expect(members[0].weight).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// placeMembers and a sheet's reservation ([B01], [B07], [B08])
+// ---------------------------------------------------------------------------
+
+describe("placeMembers reads a reservation as a floor", () => {
+  const FLOOR = 200;
+  const RESERVED = 420;
+
+  function registerPlain(): void {
+    _resetForTest();
+    registerCard({
+      componentId: "plain",
+      contentFactory: () => null,
+      defaultMeta: { title: "Plain", closable: true },
+      sizePolicy: {
+        min: { width: 400, height: FLOOR },
+        preferred: { width: 600, height: 900 },
+      },
+    });
+  }
+
+  /** Two panes in one slot, with whatever reservations are standing. */
+  function splitState(
+    sheetReservations?: Readonly<Record<string, number>>,
+    folded = false,
+  ): DeckState {
+    const pane = (id: string, cardId: string, fold: boolean) => ({
+      ...makePane(id, [cardId], cardId),
+      slot: 0,
+      ...(fold ? { folded: true as const } : {}),
+    });
+    return {
+      cards: [makeCard("card-a", "plain"), makeCard("card-b", "plain")],
+      panes: [
+        pane("pane-a", "card-a", folded),
+        pane("pane-b", "card-b", false),
+      ],
+      activePaneId: "pane-a",
+      imposition: { sidebars: {} },
+      hasFocus: true,
+      ...(sheetReservations !== undefined ? { sheetReservations } : {}),
+    };
+  }
+
+  function columnMembers(
+    state: DeckState,
+    shares?: Record<string, number>,
+  ): PlaceMember[] {
+    return placeMembers(state, "column", ["pane-a", "pane-b"], shares);
+  }
+
+  test("a reserving member's floor is the reservation, not its stack policy's", () => {
+    registerPlain();
+    const members = columnMembers(splitState({ "pane-b": RESERVED }));
+    expect(members[1].floor).toBe(RESERVED);
+    // Only the member that claimed. Its neighbour is untouched.
+    expect(members[0].floor).toBe(FLOOR);
+  });
+
+  test("the floor is the GREATER of the two, so a claim under it changes nothing", () => {
+    registerPlain();
+    const members = columnMembers(splitState({ "pane-b": FLOOR - 50 }));
+    expect(members[1].floor).toBe(FLOOR);
+  });
+
+  test("a FOLDED member reads no reservation — it pins at its tier", () => {
+    // A folded card asks for no share of the run, so a claim on one would be a
+    // contradiction rather than a case, and the branch is left alone.
+    _resetForTest();
+    registerCard({
+      componentId: "plain",
+      contentFactory: () => null,
+      defaultMeta: { title: "Plain", closable: true },
+      sizePolicy: {
+        min: { width: 400, height: FLOOR },
+        preferred: { width: 600, height: 900 },
+      },
+      foldedSizePolicy: {
+        min: { width: 400, height: 173 },
+        max: { width: Number.POSITIVE_INFINITY, height: 173 },
+        preferred: { width: 600, height: 173 },
+      },
+    });
+    const members = columnMembers(splitState({ "pane-a": RESERVED }, true));
+    expect(members[0].floor).toBe(173);
+    expect(members[0].ceiling).toBe(173);
+  });
+
+  test("a rail member is named by componentId, and claims under that name", () => {
+    // The one thing the two places differ by: a sidebar card is a singleton,
+    // so the reservation the sheet publishes is keyed the way `placeMembers`
+    // looks it up, and nothing translates in between.
+    _resetForTest();
+    registerCard({
+      componentId: "railcard",
+      contentFactory: () => null,
+      defaultMeta: { title: "Rail", closable: true },
+      sizePolicy: {
+        min: { width: 300, height: FLOOR },
+        preferred: { width: 400, height: 900 },
+      },
+    });
+    const state: DeckState = {
+      cards: [makeCard("card-r", "railcard")],
+      panes: [makePane("pane-r", ["card-r"], "card-r")],
+      imposition: { sidebars: { railcard: { side: "right" } } },
+      hasFocus: true,
+      sheetReservations: { railcard: RESERVED },
+    };
+    const members = placeMembers(state, "rail", ["railcard"], undefined);
+    expect(members[0].floor).toBe(RESERVED);
+  });
+});
+
+describe("a reserving member's place divides around the claim", () => {
+  // The composition this step exists for: `placeMembers` derives the floor and
+  // `allocatePlaceHeights` honours it before it divides anything ([F07]), so
+  // the claimant takes exactly what it asked for and the neighbour keeps the
+  // rest. That is the whole of what separates this from the shape recorded
+  // under the brief's non-goals, where the host took the entire run.
+  const FLOOR = 200;
+  const RESERVED = 420;
+  const RUN = 1000;
+  const SEAM = 8;
+
+  function registerPlain(): void {
+    _resetForTest();
+    registerCard({
+      componentId: "plain",
+      contentFactory: () => null,
+      defaultMeta: { title: "Plain", closable: true },
+      sizePolicy: {
+        min: { width: 400, height: FLOOR },
+        preferred: { width: 600, height: 900 },
+      },
+    });
+  }
+
+  function splitState(
+    sheetReservations?: Readonly<Record<string, number>>,
+  ): DeckState {
+    const pane = (id: string, cardId: string) => ({
+      ...makePane(id, [cardId], cardId),
+      slot: 0,
+    });
+    return {
+      cards: [makeCard("card-a", "plain"), makeCard("card-b", "plain")],
+      panes: [pane("pane-a", "card-a"), pane("pane-b", "card-b")],
+      activePaneId: "pane-a",
+      imposition: { sidebars: {} },
+      hasFocus: true,
+      ...(sheetReservations !== undefined ? { sheetReservations } : {}),
+    };
+  }
+
+  function heightsOf(
+    state: DeckState,
+    shares?: Record<string, number>,
+  ): readonly number[] {
+    return allocatePlaceHeights(
+      placeMembers(state, "column", ["pane-a", "pane-b"], shares),
+      RUN,
+      SEAM,
+    ).heights;
+  }
+
+  test("the claimant stands at its reservation and the neighbour keeps the REST", () => {
+    registerPlain();
+    // The reported picture: the lower member's share of the run leaves it a
+    // band too short for the picker, which is what the claim is for.
+    const heights = heightsOf(splitState({ "pane-b": RESERVED }), {
+      "pane-a": 3,
+      "pane-b": 1,
+    });
+    expect(heights[1]).toBe(RESERVED);
+    // Not its floor: everything the picker did not need is still the
+    // neighbour's, which is the "only as much room as the sheet needs"
+    // reading expressed in arithmetic that already existed.
+    expect(heights[0]).toBe(RUN - SEAM - RESERVED);
+    expect(heights[0]).toBeGreaterThan(FLOOR);
+  });
+
+  test("a member whose stored share already exceeds the claim does not move", () => {
+    // [B07]: the reservation is a floor, not a target. A card that was already
+    // big enough stays exactly where the hand's own division put it.
+    registerPlain();
+    const shares = { "pane-a": 1, "pane-b": 3 };
+    const before = heightsOf(splitState(), shares);
+    expect(before[1]).toBeGreaterThan(RESERVED);
+    expect(heightsOf(splitState({ "pane-b": RESERVED }), shares)).toEqual(
+      before,
+    );
+  });
+
+  test("two claims that do not fit the run put the place in OVERFLOW", () => {
+    // Nothing new: a run that cannot hold its floors is already a strip by
+    // arithmetic, and a reservation reaches that standing by the one door
+    // every other floor does.
+    registerPlain();
+    const standing = allocatePlaceHeights(
+      placeMembers(
+        splitState({ "pane-a": 700, "pane-b": 700 }),
+        "column",
+        ["pane-a", "pane-b"],
+        { "pane-a": 1, "pane-b": 1 },
+      ),
+      RUN,
+      SEAM,
+    ).standing;
+    expect(standing).toBe("overflow");
   });
 });
