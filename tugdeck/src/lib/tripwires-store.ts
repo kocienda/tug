@@ -1,20 +1,27 @@
 /**
  * `tripwiresStore` — the [L02] store behind the **Tripwires** rail section.
  *
- * The tripwires ledger is machine-global and written by processes this deck does
- * not talk to: another instance's engine claims a trip, a `tugtool tripwire`
- * invocation lays one from a terminal. There is no feed that carries those, so
- * the section asks — `GET /api/tripwires` — and asks again while it is open.
+ * The roster arrives on its own feed. `TRIPWIRES` carries every laid tripwire
+ * with its live state, republished whenever the machine-global ledger moves —
+ * by this instance's engine, by an HTTP write, by a `tugtool tripwire` in a
+ * terminal, or by another instance entirely. So the store never asks for the
+ * roster; it holds what the last frame said.
  *
- * Two things bring it back sooner than the poll would. A knob write adopts the
- * tripwire the server answers with, so a settled control shows what the ledger
- * holds rather than what the click hoped. And an OVERVIEW frame authored by
- * the Tripwire means a trip just settled, which is exactly when the list is
- * stale — so the store refreshes on it instead of waiting out the interval.
+ * The per-tripwire **trip log** is still a request, because it is per-tripwire
+ * and up to five hundred rows — pushing every log to every client would be the
+ * old poll's cost without the poll's bound. What retires the poll for the log
+ * too is `trip_log_revision`: each roster row carries an opaque token over that
+ * tripwire's log, and an open log is re-asked exactly when its token moves.
  *
- * Polling is retained rather than unconditional: `retain()` while the section is
- * mounted, `release()` when it goes. A deck with the Tripwires section out of
- * sight makes no requests at all.
+ * **Nothing asks for the roster on mount, and that is not merely redundant —
+ * there is no window in which it would have helped.** Three mechanisms line
+ * up. The server's `snapshot_watches` delivers the latest frame to every
+ * client on connect, and re-delivers when a subscription later adds the feed.
+ * `TugConnection.onFrame` replays that feed's last payload to a late
+ * subscriber, so a store constructed after the frame arrived still sees it.
+ * And `lastPayload` is cleared on socket close, so a subscriber registering in
+ * response to a close cannot observe pre-close frames — the post-reconnect
+ * handshake replays whatever is current ([D05]).
  *
  * @module lib/tripwires-store
  */
@@ -24,10 +31,7 @@ import type { TugConnection } from "../connection";
 import { getConnection } from "./connection-singleton";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 
-/** How often the section re-asks while it is open. */
-const POLL_INTERVAL_MS = 5_000;
-
-/** One tripwire, as `GET /api/tripwires` projects it. */
+/** One tripwire, as the roster projects it. */
 export interface TripwireRow {
   readonly name: string;
   readonly trigger: string;
@@ -56,6 +60,10 @@ export interface TripwireRow {
   /** The arc that awaiting trip is holding, when it authored one. */
   readonly awaiting_arc: string | null;
   readonly last_trip: TripwireLastTrip | null;
+  /** An opaque equality token over this tripwire's trip log. Nothing may order
+   *  or subtract two of them — the only question it answers is whether an open
+   *  log is stale, which is what lets the log be a request with no timer. */
+  readonly trip_log_revision: number;
 }
 
 export interface TripwireLastTrip {
@@ -73,6 +81,7 @@ export interface TripRow {
   readonly instance: string;
   readonly status: string;
   readonly swallow_reason: string | null;
+  readonly event_payload: string | null;
   readonly probe_exit: number | null;
   readonly probe_tail: string | null;
   readonly session_id: string | null;
@@ -80,6 +89,9 @@ export interface TripRow {
   readonly headline: string | null;
   readonly refs: string | null;
   readonly settled_at_ms: number | null;
+  /** What a resolution asked to have authored, when it asked for anything.
+   *  `null` on a resolution that settled the firing outright. */
+  readonly author_ask: string | null;
 }
 
 export interface TripwiresSnapshot {
@@ -88,8 +100,8 @@ export interface TripwiresSnapshot {
   readonly trips: Readonly<Record<string, readonly TripRow[]>>;
   /** Non-null when the last read failed. The rows stay as they were. */
   readonly error: string | null;
-  /** False until the first answer lands, so the section can tell empty from
-   *  unasked — an empty list and a list nobody has fetched look identical. */
+  /** False until the first frame lands, so the section can tell empty from
+   *  unasked — an empty list and a list nobody has heard about look identical. */
   readonly loaded: boolean;
 }
 
@@ -104,21 +116,33 @@ export class TripwiresStore {
   private snapshot: TripwiresSnapshot = EMPTY;
   private readonly listeners = new Set<() => void>();
   private unsubFeed: (() => void) | null = null;
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
-  private retainCount = 0;
+  /**
+   * Which revision each open log was last loaded against. Store-private on
+   * purpose ([#state-zone-mapping]): it is bookkeeping about a fetch rather
+   * than a fact any component renders, and putting it in the frozen snapshot
+   * would make every log load publish a notification that changes nothing on
+   * screen.
+   */
+  private readonly loadedRevisions = new Map<string, number>();
 
   constructor(conn: TugConnection | null) {
     if (conn === null) {
-      tugDevLogStore.warn("tripwires-store", "no connection at construction; live refresh inactive");
+      tugDevLogStore.warn("tripwires-store", "no connection at construction; no roster feed");
+      // The frame is the store's only roster input, so a card built over no
+      // connection would otherwise sit at `loaded: false` with nothing to say
+      // — a surface that refuses in silence, which is what [L31] forbids.
+      this.commit({
+        error: "no connection to the server, so the tripwire roster cannot be read",
+        loaded: true,
+      });
       return;
     }
-    this.unsubFeed = conn.onFrame(FeedId.OVERVIEW, (payload) => this.onOverview(payload));
+    this.unsubFeed = conn.onFrame(FeedId.TRIPWIRES, (payload) => this.onFrame(payload));
   }
 
   dispose(): void {
     this.unsubFeed?.();
     this.unsubFeed = null;
-    this.stopPolling();
     this.listeners.clear();
   }
 
@@ -130,40 +154,42 @@ export class TripwiresStore {
   getSnapshot = (): TripwiresSnapshot => this.snapshot;
 
   /**
-   * Start polling, or join a poll already running. Balanced by `release`;
-   * the section calls both from one effect, so a remount cannot leak an
-   * interval.
+   * A `TRIPWIRES` frame: the whole roster, plus the reason the server could
+   * not read it, when it could not.
+   *
+   * A payload that will not parse keeps the rows it could not replace and says
+   * why — the same retain-last-good rule the frame's own error field follows.
    */
-  retain(): void {
-    this.retainCount += 1;
-    if (this.retainCount === 1) {
-      void this.refresh();
-      this.pollTimer = setInterval(() => void this.refresh(), POLL_INTERVAL_MS);
-    }
-  }
-
-  release(): void {
-    this.retainCount = Math.max(0, this.retainCount - 1);
-    if (this.retainCount === 0) this.stopPolling();
-  }
-
-  private stopPolling(): void {
-    if (this.pollTimer !== null) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
-  }
-
-  /** Re-read the list. Errors keep the rows they could not replace. */
-  async refresh(): Promise<void> {
+  private onFrame(payload: Uint8Array): void {
+    let body: { tripwires?: TripwireRow[]; error?: string | null };
     try {
-      const resp = await fetch("/api/tripwires");
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const body = (await resp.json()) as { tripwires?: TripwireRow[] };
-      this.commit({ tripwires: body.tripwires ?? [], error: null, loaded: true });
+      body = JSON.parse(new TextDecoder().decode(payload)) as typeof body;
     } catch (err) {
-      this.commit({ error: String(err), loaded: true });
+      this.commit({ error: `tripwires frame: ${String(err)}`, loaded: true });
+      return;
     }
+    const tripwires = body.tripwires ?? [];
+    this.commit({ tripwires, error: body.error ?? null, loaded: true });
+
+    // A log is re-asked exactly when the roster says its tripwire's log moved,
+    // and at no other time. A tripwire gone from the roster takes its cached
+    // log with it, because there is nothing left to show it against.
+    const live = new Set(tripwires.map((w) => w.name));
+    for (const name of Object.keys(this.snapshot.trips)) {
+      if (!live.has(name)) this.dropTrips(name);
+    }
+    for (const tripwire of tripwires) {
+      if (!(tripwire.name in this.snapshot.trips)) continue;
+      if (this.loadedRevisions.get(tripwire.name) === tripwire.trip_log_revision) continue;
+      void this.loadTrips(tripwire.name);
+    }
+  }
+
+  private dropTrips(name: string): void {
+    this.loadedRevisions.delete(name);
+    const trips = { ...this.snapshot.trips };
+    delete trips[name];
+    this.commit({ trips });
   }
 
   /** Read one tripwire's trip log — the section's second level. */
@@ -172,6 +198,11 @@ export class TripwiresStore {
       const resp = await fetch(`/api/tripwires/${encodeURIComponent(name)}/trips`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const body = (await resp.json()) as { trips?: TripRow[] };
+      // The revision read *here*, as the answer commits — never the one that
+      // was current when the request went out. A frame landing mid-flight
+      // would otherwise mark a log fresh against a revision its rows predate.
+      const current = this.snapshot.tripwires.find((w) => w.name === name);
+      if (current !== undefined) this.loadedRevisions.set(name, current.trip_log_revision);
       this.commit({
         trips: { ...this.snapshot.trips, [name]: body.trips ?? [] },
         error: null,
@@ -186,7 +217,8 @@ export class TripwiresStore {
    *
    * The answer is the ledger's row, not the request's echo, so a write the
    * ledger refused leaves the control showing what is actually stored rather
-   * than a state nothing is in.
+   * than a state nothing is in. The frame that follows the same ledger write
+   * is authoritative and lands after; the two cannot disagree.
    */
   async setKnobs(
     name: string,
@@ -200,45 +232,54 @@ export class TripwiresStore {
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const body = (await resp.json()) as { tripwire?: TripwireRow };
-      if (body.tripwire === undefined) {
-        await this.refresh();
-        return;
-      }
+      // An answer with no row in it is the one case where the optimistic adopt
+      // has nothing to adopt. Commit nothing: the write happened, and the
+      // frame behind it is the authority on what it did.
+      if (body.tripwire === undefined) return;
       const tripwire = body.tripwire;
       this.commit({
         tripwires: this.snapshot.tripwires.map((w) => (w.name === tripwire.name ? tripwire : w)),
         error: null,
       });
     } catch (err) {
-      // The ledger is the authority on what happened, and after a failed write
-      // this store no longer knows. Ask.
-      await this.refresh();
-      // Then say what went wrong — after the refresh, not before it. A
-      // successful re-read clears `error`, so setting the reason first meant
-      // the control settled back to the ledger's value with no word about why,
-      // which is a refused gesture that produced neither the act nor a reason
-      // [L31].
+      // Nothing was committed on a failed write, so nothing follows it and the
+      // rows the store holds are still the ledger's. What is owed is the
+      // reason: a refused gesture that produced neither the act nor a word
+      // about why is what [L31] forbids.
       this.commit({ error: String(err) });
     }
   }
 
   /**
-   * A Tripwire-authored post means a trip settled. Only that author refreshes:
-   * every other post on the feed says nothing about a tripwire, and refreshing on
-   * all of them would make the section's request rate the deck's post rate.
+   * Fire a tripwire by hand — the same queued row `tugtool tripwire trip`
+   * writes.
+   *
+   * Nothing is committed on success, and deliberately: the ledger write nudges
+   * the roster feed, and the frame behind it is what moves the rows.
    */
-  private onOverview(payload: Uint8Array): void {
-    let author: unknown;
+  async trip(name: string): Promise<void> {
+    await this.post(`/api/tripwires/${encodeURIComponent(name)}/trip`);
+  }
+
+  /**
+   * Settle what a tripwire is holding and discard the arc it was holding it
+   * with.
+   *
+   * A seam rather than a gesture anything presses: its only caller today is a test,
+   * because a destructive act's confirmation belongs on the card and the card
+   * has not grown one yet ([B10]).
+   */
+  async dismiss(name: string): Promise<void> {
+    await this.post(`/api/tripwires/${encodeURIComponent(name)}/dismiss`);
+  }
+
+  private async post(path: string): Promise<void> {
     try {
-      author = (JSON.parse(new TextDecoder().decode(payload)) as { author?: unknown }).author;
-    } catch {
-      return;
+      const resp = await fetch(path, { method: "POST" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    } catch (err) {
+      this.commit({ error: String(err) });
     }
-    if (author !== "tripwire") return;
-    void this.refresh();
-    // A settled trip changes the log of exactly the tripwires already open, and
-    // those are the only ones worth re-reading.
-    for (const name of Object.keys(this.snapshot.trips)) void this.loadTrips(name);
   }
 
   private commit(next: Partial<TripwiresSnapshot>): void {

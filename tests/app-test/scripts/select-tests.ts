@@ -309,10 +309,14 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     "tugrust/crates/tugbank/": 3,
 
     // The server, and by far the widest entry here. It is recorded rather than argued
-    // sound: 694 sources is not a unit anybody exercises, and this number climbing is the
+    // sound: 695 sources is not a unit anybody exercises, and this number climbing is the
     // alarm working rather than a nuisance — the answer is to name the feed or the module
     // the test actually drives, which is what every newer declaration already does.
-    "tugrust/crates/tugcast/": 694,
+    // Re-recorded from 694 when the tripwires roster feed added a source to the crate.
+    // The width moved because the directory grew, not because any test widened its claim:
+    // the six files that name this subtree are unchanged, and the one that exercises the
+    // new feed names `feeds/tripwires.rs` directly.
+    "tugrust/crates/tugcast/": 695,
 
     "tugrust/crates/tugchanges-core/": 12,
     "tugrust/crates/tuggram/": 13,

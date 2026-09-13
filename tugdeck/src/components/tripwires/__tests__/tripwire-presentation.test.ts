@@ -34,6 +34,7 @@ function trip(over: Partial<TripRow> = {}): TripRow {
     instance: "inst",
     status: "settled",
     swallow_reason: null,
+    event_payload: null,
     probe_exit: null,
     probe_tail: null,
     session_id: null,
@@ -41,6 +42,7 @@ function trip(over: Partial<TripRow> = {}): TripRow {
     headline: null,
     refs: null,
     settled_at_ms: 1_700_000_001_000,
+    author_ask: null,
     ...over,
   };
 }
@@ -62,6 +64,7 @@ function tripwire(over: Partial<TripwireRow> = {}): TripwireRow {
     awaiting: false,
     awaiting_arc: null,
     last_trip: null,
+    trip_log_revision: 0,
     ...over,
   };
 }

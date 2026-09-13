@@ -4,8 +4,13 @@
 //! HTTP rather than a feed for the same reason the prompt-history corpus is:
 //! the card asks a question and wants that question's answer, and a broadcast
 //! would make every reader carry echo discipline for a surface only one card
-//! looks at. The live half — a tripwire that just settled — arrives on OVERVIEW
-//! already, and the card re-asks on it.
+//! looks at. That holds for the trip log, which is per-tripwire and up to five
+//! hundred rows, and for every write below. It does **not** hold for the
+//! roster: the roster is small, always shown, and written by processes this one
+//! cannot hear, so it rides the `TRIPWIRES` snapshot feed and the card asks
+//! nothing for it ([P01]). What this surface owes that feed is a nudge after
+//! every ledger write here — latency rather than the mechanism, since the
+//! feed's own `PRAGMA data_version` probe sees the same commit anyway.
 //!
 //! Every handler opens its own connection to `tripwires.db` and closes it
 //! again. That is not a shortcut around a pool: the ledger is machine-global
@@ -13,9 +18,12 @@
 //! statement, so a held connection would buy nothing and would outlive the
 //! request it was opened for.
 //!
-//! Authoring stays on the CLI [B15]. What this surface writes is the two
-//! things a reader of the card would reach for without leaving it — paused and
-//! model — and nothing that could make a tripwire unrunnable.
+//! Authoring stays on the CLI [B15]. What this surface writes is the two knobs
+//! a reader of the card would reach for without leaving it — paused and model
+//! — plus the two verbs the product has a caller for: fire it by hand, and
+//! dismiss what it is holding. Nothing here can make a tripwire unrunnable,
+//! and `resolve` stays the CLI's because its one caller is a diagnosis session
+//! with a shell ([B08]).
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -24,22 +32,23 @@ use axum::body::Bytes;
 use axum::extract::{ConnectInfo, Path, Query};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::warn;
-use tugtool_core::tripwire_ledger::{
-    self as ledger, TripStatus, Tripwire, TripwireEdit, TripwireLedgerError,
-};
+use tugarc_core::tripwire_dismiss::DismissRefusal;
+use tugtool_core::tripwire_ledger::{self as ledger, TripwireEdit, TripwireLedgerError};
+use tugtool_core::tripwire_roster;
 
 /// Trips a tripwire's log returns when the caller names no limit.
 const DEFAULT_TRIP_LIMIT: i64 = 50;
 /// Ceiling on a caller-named limit. The log is a window, not the table.
 const MAX_TRIP_LIMIT: i64 = 500;
-/// How far back the list projection looks for a tripwire's live state. The card
-/// shows "running now" and "has staged work", both of which are recent facts;
-/// a tripwire whose last twenty trips are all settled is not running.
-const PROJECTION_DEPTH: i64 = 20;
+// The projection itself lives in `tugtool_core::tripwire_roster`, with three
+// callers — this surface, the `TRIPWIRES` feed, and `tugtool tripwire list`.
+// `MAX_TRIP_LIMIT` above stays here because it is the HTTP window rather than
+// the projection's, and `tripwire_roster::REVISION_DEPTH` may never fall below
+// it: the card re-asks a log whose revision moved, and the biggest log this
+// surface hands out is `MAX_TRIP_LIMIT` rows.
 
 /// Where `tripwires.db` lives. Resolved per request rather than injected: the
 /// resolution is an env read and a path join, and reading it here is what lets
@@ -66,64 +75,6 @@ pub(crate) struct KnobsBody {
     model: Option<Option<String>>,
 }
 
-/// One tripwire as the card reads it: the row, plus the facts about it that are
-/// not in the row at all — the two live states the section's dot reads, and the
-/// newest trip.
-fn project(conn: &Connection, tripwire: &Tripwire) -> Value {
-    let trips = ledger::trips_for_tripwire(conn, tripwire.id, PROJECTION_DEPTH).unwrap_or_default();
-    let running = trips
-        .iter()
-        .find(|t| t.status == TripStatus::Running.as_str());
-    // Awaiting is what the card exists to surface: a run that finished with
-    // something the user should see and is holding the wire's live-run slot
-    // until they see it ([P07]). The arc it is holding comes back with it,
-    // because that arc is the thing there is to decide about. Nothing checks
-    // the arc is still on disk: an arc that was joined or discarded resolves
-    // its own awaiting trip in the engine, so a row that still reads awaiting
-    // is a row whose arc is still there.
-    let awaiting = trips
-        .iter()
-        .find(|t| t.status == TripStatus::Awaiting.as_str());
-    // And the trip a card took over. It holds no live-run slot ([B05]) — the
-    // tripwire may fire again while the user works — but its session is alive
-    // and reachable, which is the whole of what the row's live dot is for.
-    let adopted = trips
-        .iter()
-        .find(|t| t.status == TripStatus::Adopted.as_str());
-    let last = trips.first();
-    json!({
-        "name": tripwire.name,
-        "trigger": tripwire.trigger,
-        "scope": tripwire.scope,
-        "probe": tripwire.probe,
-        "brief": tripwire.brief,
-        "model": tripwire.model,
-        "branch": tripwire.branch,
-        "permission_mode": tripwire.permission_mode,
-        "paused": tripwire.paused,
-        "running": running.is_some(),
-        "adopted": adopted.is_some(),
-        // The session the live dot reads. A trip running its probe has none
-        // yet, and the section shows a plain running dot for that stretch
-        // rather than a session dot keyed on nothing.
-        //
-        // An adopted trip's session falls in here when nothing is running,
-        // because the alternative is that the row goes dark the instant it is
-        // adopted — and the dot the user reaches the session through is the
-        // one thing that must not disappear at that moment.
-        "running_session": running
-            .or(adopted)
-            .and_then(|t| t.session_id.clone()),
-        "awaiting": awaiting.is_some(),
-        "awaiting_arc": awaiting.and_then(|t| t.arc.clone()),
-        "last_trip": last.map(|t| json!({
-            "at_ms": t.at_ms,
-            "status": t.status,
-            "headline": t.headline,
-        })),
-    })
-}
-
 fn list_tripwires(db_path: &std::path::Path) -> (StatusCode, Value) {
     let conn = match ledger::open_ledger(db_path) {
         Ok(conn) => conn,
@@ -131,8 +82,14 @@ fn list_tripwires(db_path: &std::path::Path) -> (StatusCode, Value) {
     };
     match ledger::list(&conn) {
         Ok(tripwires) => {
-            let projected: Vec<Value> = tripwires.iter().map(|w| project(&conn, w)).collect();
-            (StatusCode::OK, json!({ "tripwires": projected }))
+            let projected: Result<Vec<_>, _> = tripwires
+                .iter()
+                .map(|w| tripwire_roster::row_for(&conn, w))
+                .collect();
+            match projected {
+                Ok(rows) => (StatusCode::OK, json!({ "tripwires": rows })),
+                Err(e) => ledger_error("list", e),
+            }
         }
         Err(e) => ledger_error("list", e),
     }
@@ -192,16 +149,116 @@ fn set_knobs(db_path: &std::path::Path, name: &str, body: KnobsBody) -> (StatusC
             return ledger_error("knobs", e);
         }
     }
+    // The ledger moved, so the roster feed recomposes now rather than on its
+    // next probe. Latency only — the probe is the mechanism.
+    crate::feeds::tripwires::bump();
     match ledger::get(&conn, name) {
-        Ok(Some(tripwire)) => (
-            StatusCode::OK,
-            json!({ "tripwire": project(&conn, &tripwire) }),
-        ),
+        Ok(Some(tripwire)) => match tripwire_roster::row_for(&conn, &tripwire) {
+            Ok(row) => (StatusCode::OK, json!({ "tripwire": row })),
+            Err(e) => ledger_error("knobs", e),
+        },
         Ok(None) => (
             StatusCode::NOT_FOUND,
             json!({ "error": "no_such_tripwire" }),
         ),
         Err(e) => ledger_error("knobs", e),
+    }
+}
+
+/// The instance label a trip claimed from this surface carries. `api:` rather
+/// than the CLI's `cli:`, so the trip log says which door a hand-firing came
+/// through.
+fn instance_label() -> String {
+    match tugcore::instance::instance_id() {
+        Some(id) if !id.is_empty() => format!("api:{id}"),
+        _ => "api".to_string(),
+    }
+}
+
+/// Spec S03. Queues a manual trip exactly as `tugtool tripwire trip` does —
+/// the two share `queue_manual_trip` — then tells this process's engine.
+fn trip_tripwire(db_path: &std::path::Path, name: &str) -> (StatusCode, Value) {
+    let conn = match ledger::open_ledger(db_path) {
+        Ok(conn) => conn,
+        Err(e) => return ledger_error("trip", e),
+    };
+    let tripwire = match ledger::get(&conn, name) {
+        Ok(Some(tripwire)) => tripwire,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                json!({ "error": "no_such_tripwire" }),
+            );
+        }
+        Err(e) => return ledger_error("trip", e),
+    };
+    let now_ms = crate::session_ledger::now_millis();
+    let (trip_id, event_key) =
+        match ledger::queue_manual_trip(&conn, tripwire.id, now_ms, &instance_label()) {
+            Ok(queued) => queued,
+            Err(e) => return ledger_error("trip", e),
+        };
+    // The row is the firing and the kick is only a nudge that says not to wait
+    // out the engine's tick, so `served` reports which of the two happened
+    // rather than gating on it.
+    let served = crate::feeds::tripwire::kick(&tripwire.name);
+    crate::feeds::tripwires::bump();
+    (
+        StatusCode::OK,
+        json!({
+            "tripwire": tripwire.name,
+            "trip_id": trip_id,
+            "event_key": event_key,
+            "status": "queued",
+            "served": served,
+        }),
+    )
+}
+
+/// Spec S04. The shared dismiss of `tugarc_core::tripwire_dismiss`, which the
+/// CLI verb runs too — the settle and the arc discard are one act, and two
+/// spellings of it is how the two answers drift.
+fn dismiss_tripwire(db_path: &std::path::Path, name: &str) -> (StatusCode, Value) {
+    let conn = match ledger::open_ledger(db_path) {
+        Ok(conn) => conn,
+        Err(e) => return ledger_error("dismiss", e),
+    };
+    let tripwire = match ledger::get(&conn, name) {
+        Ok(Some(tripwire)) => tripwire,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                json!({ "error": "no_such_tripwire" }),
+            );
+        }
+        Err(e) => return ledger_error("dismiss", e),
+    };
+    let now_ms = crate::session_ledger::now_millis();
+    match tugarc_core::tripwire_dismiss::dismiss(&conn, &tripwire, now_ms) {
+        // A discard that failed is a 200 carrying its reason, never a 500: the
+        // settle is written whatever happened next, and an arc left standing is
+        // the leak the verb exists to close.
+        Ok(dismissed) => {
+            crate::feeds::tripwires::bump();
+            (
+                StatusCode::OK,
+                json!({
+                    "tripwire": tripwire.name,
+                    "trip_id": dismissed.trip_id,
+                    "arc": dismissed.arc,
+                    "discarded": dismissed.discarded,
+                    "discard_error": dismissed.discard_error,
+                }),
+            )
+        }
+        // `state` is what lets a caller tell a tripwire that already settled
+        // from one that never fired — the same two cases the CLI's refusal
+        // prose distinguishes.
+        Err(DismissRefusal::NoLiveTrip { state }) => (
+            StatusCode::CONFLICT,
+            json!({ "error": "no_live_trip", "state": state }),
+        ),
+        Err(DismissRefusal::Ledger(e)) => ledger_error("dismiss", e),
     }
 }
 
@@ -284,10 +341,36 @@ pub(crate) async fn post_tripwire(
     finish(tokio::task::spawn_blocking(move || set_knobs(&db_path(), &name, body)).await)
 }
 
+/// `POST /api/tripwires/{name}/trip`. Restricted to loopback. Empty body.
+pub(crate) async fn post_tripwire_trip(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Path(name): Path<String>,
+) -> Response {
+    if let Some(denied) = deny_non_loopback(&addr, "post_tripwire_trip") {
+        return denied;
+    }
+    finish(tokio::task::spawn_blocking(move || trip_tripwire(&db_path(), &name)).await)
+}
+
+/// `POST /api/tripwires/{name}/dismiss`. Restricted to loopback. Empty body.
+pub(crate) async fn post_tripwire_dismiss(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Path(name): Path<String>,
+) -> Response {
+    if let Some(denied) = deny_non_loopback(&addr, "post_tripwire_dismiss") {
+        return denied;
+    }
+    finish(tokio::task::spawn_blocking(move || dismiss_tripwire(&db_path(), &name)).await)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tugtool_core::tripwire_ledger::NewTripwire;
+    // `TripStatus` is the tests' own now: the projection moved to
+    // `tugtool_core::tripwire_roster` and this module no longer reads a trip's
+    // status itself. The four tests below are unedited from before the move —
+    // if one of them ever needs editing, the port changed the answer.
+    use tugtool_core::tripwire_ledger::{NewTripwire, TripStatus};
 
     fn scratch() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
@@ -418,6 +501,93 @@ mod tests {
         let (status, body) = tripwire_trips(&path, "nobody", None);
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"], "no_such_tripwire");
+    }
+
+    /// Firing by hand through the API writes the same row the CLI's verb
+    /// writes — the two share `queue_manual_trip`, and the `manual:` key is
+    /// what lets a tripwire be fired twice on one commit.
+    #[test]
+    fn the_trip_endpoint_queues_a_manual_trip_and_refuses_an_unknown_tripwire() {
+        let (_dir, path) = scratch();
+        lay(&path, "ci");
+
+        let (status, body) = trip_tripwire(&path, "ci");
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["tripwire"], "ci");
+        assert_eq!(body["status"], "queued");
+        assert!(
+            body["event_key"].as_str().unwrap().starts_with("manual:"),
+            "a hand-fired trip carries a manual key: {}",
+            body["event_key"]
+        );
+
+        let conn = ledger::open_ledger(&path).unwrap();
+        let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
+        let trips = ledger::trips_for_tripwire(&conn, tripwire.id, 10).unwrap();
+        assert_eq!(trips.len(), 1);
+        assert_eq!(trips[0].status, "queued");
+        assert_eq!(trips[0].id, body["trip_id"].as_i64().unwrap());
+
+        let (status, body) = trip_tripwire(&path, "nobody");
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], "no_such_tripwire");
+    }
+
+    /// The dismiss endpoint's two answers: the awaiting trip it settles, and
+    /// the `409` whose `state` tells an already-settled tripwire from one that
+    /// never fired.
+    #[test]
+    fn the_dismiss_endpoint_settles_the_live_trip_and_says_which_refusal_it_is() {
+        let (_dir, path) = scratch();
+        lay(&path, "ci");
+
+        let (status, body) = dismiss_tripwire(&path, "ci");
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["error"], "no_live_trip");
+        assert!(
+            body["state"].is_null(),
+            "a tripwire that never fired has no state to name"
+        );
+
+        let conn = ledger::open_ledger(&path).unwrap();
+        let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
+        let ledger::Claim::Claimed { trip_id } =
+            ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
+        else {
+            panic!("the claim is uncontested");
+        };
+        ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
+        ledger::settle(
+            &conn,
+            trip_id,
+            TripStatus::Awaiting,
+            &ledger::Settlement {
+                headline: Some("something to look at".to_string()),
+                ..ledger::Settlement::default()
+            },
+            20,
+        )
+        .unwrap();
+
+        let (status, body) = dismiss_tripwire(&path, "ci");
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["trip_id"], trip_id);
+        assert!(body["arc"].is_null());
+        assert_eq!(body["discarded"], false);
+        assert_eq!(
+            ledger::trip(&conn, trip_id).unwrap().unwrap().status,
+            "settled"
+        );
+
+        let (status, body) = dismiss_tripwire(&path, "ci");
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(
+            body["state"], "settled",
+            "a caller told only `refused` could not tell this from a tripwire that never fired"
+        );
+
+        let (status, _) = dismiss_tripwire(&path, "nobody");
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     /// The knobs answer with the tripwire as the ledger now holds it, which is

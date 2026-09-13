@@ -29,6 +29,10 @@ pub mod apptest_ledger;
 pub mod tripwire_ledger;
 pub mod tripwire_predicate;
 
+/// The one roster projection over the tripwire ledger — what the card, the
+/// `TRIPWIRES` feed and `tugtool tripwire list` all read.
+pub mod tripwire_roster;
+
 // Re-exports — exactly the surface consumed by the `tugtool` binary.
 pub use config::{Config, find_project_root};
 pub use error::TugError;

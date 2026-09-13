@@ -1941,6 +1941,22 @@ async fn main() {
     let (jots_rx, jots_nudge) = feeds::jots::jots_feed(jots_file_path.clone());
     let jots_state = Some(jots::JotsState::new(jots_file_path, jots_nudge));
 
+    // TRIPWIRES feed — the whole tripwire roster, pushed to every client and
+    // republished when the ledger moves ([P01]). Deliberately **not** gated on
+    // `app_test_gated()` the way the tripwire engine is: the gate keeps a test
+    // from spawning real AI sessions, and this feed spawns nothing — it reads
+    // one ledger. The card's liveness is what the app-tests assert, so gating
+    // it out would gate out the thing under test.
+    let (tripwires_tx, tripwires_rx) =
+        tokio::sync::watch::channel(Frame::new(FeedId::TRIPWIRES, vec![]));
+    tugcast_core::spawn_snapshot_feed(
+        Box::new(feeds::tripwires::TripwiresFeed::new(
+            tugcore::instance::tripwires_db_path(),
+        )),
+        tripwires_tx,
+        cancel.clone(),
+    );
+
     let mut snapshot_watches = vec![
         bootstrap.fs_watch_rx.clone(),
         bootstrap.ft_watch_rx.clone(),
@@ -1950,6 +1966,7 @@ async fn main() {
         snapshot_watches.push(rx);
     }
     snapshot_watches.push(jots_rx);
+    snapshot_watches.push(tripwires_rx);
     // SESSION_SIDEBAND and session_init snapshots moved to supervisor (Step 8).
     feed_router.add_snapshot_watches(snapshot_watches);
     // Multi-workspace FILETREE response stream — registered once. Every

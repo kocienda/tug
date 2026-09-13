@@ -15,11 +15,13 @@ use std::process::ExitCode;
 
 use serde::Serialize;
 
+use tugarc_core::tripwire_dismiss::DismissRefusal;
 use tugtool_core::tripwire_ledger::{
-    self as ledger, Claim, NewTripwire, Resolution, Settlement, TripStatus, Tripwire, TripwireEdit,
+    self as ledger, NewTripwire, Resolution, Settlement, TripStatus, Tripwire, TripwireEdit,
     TripwireLedgerError,
 };
 use tugtool_core::tripwire_predicate::{FactTrigger, Matcher, Predicate};
+use tugtool_core::tripwire_roster;
 
 use crate::cli::TripwireCommands;
 use crate::output::print_ok;
@@ -312,6 +314,7 @@ fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), 
     let conn = open()?;
     let laid = ledger::lay(&conn, &tripwire, now_ms()).map_err(|e| e.to_string())?;
     let payload = TripwirePayload::of(&laid);
+    bump_live_instance();
     if json {
         print_ok("tripwire lay", &payload);
     } else if !quiet {
@@ -324,8 +327,11 @@ fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), 
 
 fn run_list(json: bool, quiet: bool) -> Result<(), String> {
     let conn = open()?;
-    let tripwires = ledger::list(&conn).map_err(|e| e.to_string())?;
-    let payload: Vec<TripwirePayload> = tripwires.iter().map(TripwirePayload::of).collect();
+    // The roster rather than the bare rows: the CLI reads the same projection
+    // the card and the `TRIPWIRES` feed read, so "is it running" has one
+    // answer wherever it is asked — and this verb has to work with the app
+    // closed, which is why the projection is a library function.
+    let payload = tripwire_roster::roster(&conn).map_err(|e| e.to_string())?;
     if json {
         print_ok("tripwire list", &payload);
     } else if !quiet {
@@ -334,7 +340,7 @@ fn run_list(json: bool, quiet: bool) -> Result<(), String> {
         }
         for tripwire in &payload {
             println!(
-                "{}{}  {}  branch={}{}",
+                "{}{}  {}  branch={}{}{}{}{}",
                 tripwire.name,
                 if tripwire.paused { " (paused)" } else { "" },
                 tripwire.trigger,
@@ -344,6 +350,9 @@ fn run_list(json: bool, quiet: bool) -> Result<(), String> {
                     .as_deref()
                     .map(|s| format!("  scope={s}"))
                     .unwrap_or_default(),
+                if tripwire.running { " running" } else { "" },
+                if tripwire.awaiting { " awaiting" } else { "" },
+                if tripwire.adopted { " adopted" } else { "" },
             );
         }
     }
@@ -431,6 +440,7 @@ fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<()
     let conn = open()?;
     let edited = ledger::update(&conn, &args.name, &edit).map_err(|e| e.to_string())?;
     let payload = TripwirePayload::of(&edited);
+    bump_live_instance();
     if json {
         print_ok("tripwire edit", &payload);
     } else if !quiet {
@@ -442,6 +452,7 @@ fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<()
 fn run_rm(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     let conn = open()?;
     ledger::remove(&conn, name).map_err(|e| e.to_string())?;
+    bump_live_instance();
     if json {
         print_ok(
             "tripwire rm",
@@ -460,6 +471,7 @@ fn run_paused(name: &str, paused: bool, json: bool, quiet: bool) -> Result<(), S
     let conn = open()?;
     let tripwire = ledger::set_paused(&conn, name, paused).map_err(|e| e.to_string())?;
     let payload = TripwirePayload::of(&tripwire);
+    bump_live_instance();
     if json {
         print_ok(
             if paused {
@@ -526,25 +538,9 @@ fn run_trip(name: &str, json: bool, quiet: bool) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()).to_string())?;
 
-    // A manual key is unique by construction, so a hand-fired trip bypasses
-    // the guard a real landing meets: the permanent `landing:<sha>` claim,
-    // which would let a tripwire be hand-fired on one commit exactly once. Firing
-    // by hand is how a tripwire is tested, and a test that could be swallowed
-    // would test nothing.
-    let event_key = format!("manual:{}", uuid::Uuid::new_v4());
-    let claimed = ledger::claim_trip(
-        &conn,
-        tripwire.id,
-        &event_key,
-        now_ms(),
-        &instance_label(),
-        None,
-    )
-    .map_err(|e| e.to_string())?;
-    let Claim::Claimed { trip_id } = claimed else {
-        return Err("a manual event key collided, which should not be possible".to_string());
-    };
-    ledger::queue_trip(&conn, tripwire.id, trip_id).map_err(|e| e.to_string())?;
+    let (trip_id, event_key) =
+        ledger::queue_manual_trip(&conn, tripwire.id, now_ms(), &instance_label())
+            .map_err(|e| e.to_string())?;
 
     let payload = TripQueuedPayload {
         tripwire: name.to_string(),
@@ -565,6 +561,7 @@ fn run_trip(name: &str, json: bool, quiet: bool) -> Result<(), String> {
             );
         }
     }
+    bump_live_instance();
     Ok(())
 }
 
@@ -654,6 +651,9 @@ fn run_resolve(
         author: author.map(str::to_owned),
         told: tell_live_instance(name),
     };
+    // A settle changes the roster, and `tripwire_tell` reaches the engine's
+    // republish rather than the roster feed.
+    bump_live_instance();
     if json {
         print_ok("tripwire resolve", &payload);
     } else if !quiet {
@@ -677,54 +677,32 @@ fn run_dismiss(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     let tripwire = ledger::get(&conn, name)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()).to_string())?;
-    // The awaiting trip first, for the same reason `resolve` tries running
-    // first: a hold the user is being shown outranks an older adopted trip.
-    // Dismissing an adopted one is their door out of a session they took over
-    // and no longer want held ([B10]).
-    let mut resolution =
-        ledger::resolve_awaiting(&conn, tripwire.id, now_ms()).map_err(|e| e.to_string())?;
-    if matches!(resolution, Resolution::NoLiveTrip { .. }) {
-        let settlement = Settlement {
-            headline: Some("dismissed".to_string()),
-            ..Settlement::default()
-        };
-        resolution = ledger::resolve_adopted(
-            &conn,
-            tripwire.id,
-            TripStatus::Settled,
-            &settlement,
-            None,
-            now_ms(),
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    let Resolution::Resolved { trip_id, arc } = resolution else {
-        let Resolution::NoLiveTrip { state } = resolution else {
-            unreachable!("a resolution is one of two things")
-        };
-        return Err(match state {
-            Some(state) => format!(
-                "tripwire {name} has no awaiting or adopted trip to dismiss — its newest trip is {state}"
-            ),
-            None => format!("tripwire {name} has never fired, so there is nothing to dismiss"),
-        });
+    // The refusal's two shapes are what the CLI turns into its two sentences:
+    // a tripwire that already settled and one that never fired want different
+    // words, and a caller told only "refused" could not tell them apart.
+    let dismissed = match tugarc_core::tripwire_dismiss::dismiss(&conn, &tripwire, now_ms()) {
+        Ok(dismissed) => dismissed,
+        Err(DismissRefusal::Ledger(e)) => return Err(e.to_string()),
+        Err(DismissRefusal::NoLiveTrip { state }) => {
+            return Err(match state {
+                Some(state) => format!(
+                    "tripwire {name} has no awaiting or adopted trip to dismiss — its newest trip is {state}"
+                ),
+                None => format!("tripwire {name} has never fired, so there is nothing to dismiss"),
+            });
+        }
     };
-
-    let discarded = arc
-        .as_deref()
-        .map(|arc| discard_tripwire_arc(&conn, &tripwire, trip_id, arc));
-    let discard_error = match &discarded {
-        Some(Err(e)) => Some(e.clone()),
-        _ => None,
-    };
+    let trip_id = dismissed.trip_id;
+    let discard_error = dismissed.discard_error.clone();
     let payload = DismissedPayload {
         tripwire: name.to_string(),
         trip_id,
-        arc,
-        discarded: matches!(discarded, Some(Ok(()))),
+        arc: dismissed.arc,
+        discarded: dismissed.discarded,
         discard_error: discard_error.clone(),
         told: tell_live_instance(name),
     };
+    bump_live_instance();
     if json {
         print_ok("tripwire dismiss", &payload);
     } else if !quiet {
@@ -740,50 +718,23 @@ fn run_dismiss(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Remove a dismissed trip's arc, handing nothing back to the base checkout
-/// ([P09]).
-///
-/// Addressed by the **landing's** repository rather than by the tripwire's scope,
-/// because that is where the engine cut the arc: a scope is a path prefix a
-/// tripwire is confined to, which may be an ancestor of the checkout or absent
-/// altogether, and an unscoped tripwire's arc is still an arc. The scope is the
-/// fallback for a trip whose row carries no landing — a hand-fired one.
-fn discard_tripwire_arc(
-    conn: &rusqlite::Connection,
-    tripwire: &Tripwire,
-    trip_id: i64,
-    arc: &str,
-) -> Result<(), String> {
-    let root = landing_repo_root(conn, trip_id)
-        .or_else(|| tripwire.scope.clone())
-        .ok_or_else(|| {
-            format!(
-                "the trip names no repository and tripwire {} has no scope, so there is no \
-                 checkout to remove `{arc}` from",
-                tripwire.name
-            )
-        })?;
-    tugarc_core::ops::discard_agent_arc_in(std::path::Path::new(&root), arc, Some("tripwire"))
-        .map(|_| ())
-}
-
-/// The repository a trip's landing happened in, read off the evidence the row
-/// carries — the same place the engine reads it from when it sweeps.
-fn landing_repo_root(conn: &rusqlite::Connection, trip_id: i64) -> Option<String> {
-    let payload = ledger::trip(conn, trip_id).ok().flatten()?.event_payload?;
-    let value: serde_json::Value = serde_json::from_str(&payload).ok()?;
-    value
-        .get("landing")?
-        .get("repo_root")?
-        .as_str()
-        .filter(|root| !root.is_empty())
-        .map(str::to_owned)
-}
-
 /// Nudge a live instance to re-read a settled trip and republish it. A failure
 /// is not the verb's failure: the settle is written either way.
 fn tell_live_instance(tripwire: &str) -> bool {
     crate::commands::tell::tell_quietly("tripwire_tell", &[format!("tripwire={tripwire}")]).is_ok()
+}
+
+/// Nudge a live instance that the roster moved, so the Tripwires card
+/// recomposes now rather than on its next ledger probe.
+///
+/// Carries no payload on purpose: it says the roster moved, not which
+/// tripwire moved. Distinct from [`tell_live_instance`], which reaches the
+/// engine's republish of one settled trip rather than the roster feed. The
+/// result is ignored everywhere it is called — the ledger write is the act,
+/// this is latency, and no instance running is the ordinary case for a
+/// machine with the app closed.
+fn bump_live_instance() {
+    let _ = crate::commands::tell::tell_quietly("tripwire_bump", &[]);
 }
 
 // MARK: - Payloads
@@ -1017,6 +968,71 @@ mod tests {
             ),
             r#"{"fact":{"kind":"shell","where":{"command":{"contains":"file edit"},"cwd":{"prefix":"/proj"},"route":"claude"}}}"#
         );
+    }
+
+    /// `dismiss` moved its body into `tugarc_core::tripwire_dismiss`, so what
+    /// this pins is that the verb still does what it did: settles the awaiting
+    /// row, and refuses with prose that tells an already-settled tripwire from
+    /// one that never fired.
+    #[serial_test::serial]
+    #[test]
+    fn dismiss_settles_the_awaiting_row_and_keeps_its_two_refusals_apart() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("tripwires.db");
+        // SAFETY: serial test; nothing else reads the variable concurrently.
+        unsafe { std::env::set_var("TUG_TRIPWIRES_DB", &db) };
+
+        let conn = ledger::open_ledger(&db).unwrap();
+        let tripwire = ledger::lay(
+            &conn,
+            &NewTripwire::new(
+                "ci",
+                r#"{"fact":{"kind":"edit_failed"}}"#,
+                "report anything that looks wrong",
+                "main",
+            ),
+            1,
+        )
+        .unwrap();
+
+        let refusal = run_dismiss("ci", true, true).unwrap_err();
+        assert!(
+            refusal.contains("never fired"),
+            "a tripwire that never fired says so: {refusal}"
+        );
+
+        let ledger::Claim::Claimed { trip_id } =
+            ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
+        else {
+            panic!("the claim is uncontested");
+        };
+        ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
+        ledger::settle(
+            &conn,
+            trip_id,
+            TripStatus::Awaiting,
+            &Settlement {
+                headline: Some("something to look at".to_string()),
+                ..Settlement::default()
+            },
+            20,
+        )
+        .unwrap();
+
+        run_dismiss("ci", true, true).expect("the awaiting trip is dismissed");
+        assert_eq!(
+            ledger::trip(&conn, trip_id).unwrap().unwrap().status,
+            "settled"
+        );
+
+        let refusal = run_dismiss("ci", true, true).unwrap_err();
+        assert!(
+            refusal.contains("its newest trip is settled"),
+            "an already-settled tripwire names the state it is in: {refusal}"
+        );
+
+        // SAFETY: serial test.
+        unsafe { std::env::remove_var("TUG_TRIPWIRES_DB") };
     }
 
     /// The first `=` is the operator, and the character before it says which

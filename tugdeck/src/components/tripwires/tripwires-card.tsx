@@ -478,15 +478,6 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [openTripwire, setOpenTripwire] = useState<string | null>(null);
 
-  // The card's hold on the poll, balanced on unmount. Counted rather than
-  // boolean because the card's two levels swap surfaces without the poll
-  // stopping: React mounts the arriving one before it unmounts the departing
-  // one, so the second `retain` lands before the first `release` [L27].
-  useEffect(() => {
-    store.retain();
-    return () => store.release();
-  }, [store]);
-
   useEffect(() => {
     if (openTripwire !== null) void store.loadTrips(openTripwire);
   }, [store, openTripwire]);

@@ -280,6 +280,8 @@ fn work_event(
         let conn = db.lock().expect("tripwire ledger mutex");
         evaluate(config, &conn, landing).1
     };
+    // The claim, queue and supersede writes `evaluate` makes beneath this.
+    crate::feeds::tripwires::bump();
     for run in pending {
         spawn_run(config, db, trees, run);
     }
@@ -345,7 +347,16 @@ async fn drain_queue(config: &TripwireEngineConfig, db: &Db, trees: &InspectionT
             &config.instance,
         ) {
             Ok(0) | Err(_) => {}
-            Ok(n) => info!(count = n, "tripwire engine: failed abandoned running trips"),
+            Ok(n) => {
+                // Here rather than at the end of the function: every guard
+                // below returns, and on the ordinary tick — an empty queue, or
+                // a full machine — the end is never reached. A sweep that
+                // failed somebody's running trip is a card-visible status
+                // change, and nudging it from a line the tick does not reach
+                // is the same as not nudging it at all.
+                crate::feeds::tripwires::bump();
+                info!(count = n, "tripwire engine: failed abandoned running trips");
+            }
         }
         if ledger::running_count(&conn).unwrap_or(0)
             >= ledger::max_concurrent_trips(&conn).unwrap_or(2)
@@ -382,6 +393,10 @@ async fn drain_queue(config: &TripwireEngineConfig, db: &Db, trees: &InspectionT
 }
 
 /// Remove every inspection tree whose landing has no live trip (Risk R04).
+///
+/// No roster nudge here, and deliberately: this sweeps inspection worktrees
+/// and only *reads* trips to decide which are live. It writes no trip row, so
+/// there is nothing for the roster to have learned.
 ///
 /// The ledger answers both halves: which landings are still live, and which
 /// repository a dead one was cut from. A tree this engine currently holds is
@@ -428,6 +443,11 @@ async fn sweep_trees(db: &Arc<Db>, trees: &Arc<InspectionTrees>) {
 ///
 /// `&mut` on the connection so the future stays `Send` across the blocking
 /// git reads, which is what lets the engine be spawned at all.
+///
+/// No roster nudge here either, and for a different reason than
+/// [`sweep_trees`]: this runs once at engine boot, before the roster feed has
+/// composed anything or has a client to tell. Its writes are in the first
+/// roster the feed publishes.
 async fn sweep_restarted_runs(config: &TripwireEngineConfig, conn: &mut Connection) {
     let orphans = ledger::running_trips_of(conn, &config.instance).unwrap_or_default();
     match ledger::sweep_stale_running(conn, &config.instance, (config.now_ms)()) {
@@ -519,6 +539,7 @@ fn sweep_awaiting(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>) {
             (config.now_ms)(),
         );
         if matches!(settled, Ok(true)) {
+            crate::feeds::tripwires::bump();
             info!(
                 trip = trip.id,
                 arc, "tripwire: an awaiting trip's arc resolved it"
@@ -983,6 +1004,7 @@ fn start_run(
     // trips, and a turn that took its slot only once it finished would let
     // every instance start at once.
     let _ = ledger::record_run(conn, trip_id, None, None);
+    crate::feeds::tripwires::bump();
     let evidence = payload.unwrap_or_else(|| "{}".to_string());
     let context = event_context(&evidence);
     PendingRun {
@@ -1093,6 +1115,7 @@ async fn run_in_tree(
             let conn = db.lock().expect("tripwire ledger mutex");
             let _ = ledger::record_probe(&conn, run.trip_id, probe.exit, &probe.tail);
         }
+        crate::feeds::tripwires::bump();
         if probe.exit == 0 {
             return Settled::quiet(format!("`{command}` exited 0; nothing to report"));
         }
@@ -1136,6 +1159,9 @@ async fn run_in_tree(
         let conn = db.lock().expect("tripwire ledger mutex");
         let _ = ledger::record_run(&conn, run.trip_id, Some(&session_id), None);
     }
+    // The write that fills `running_session`, which is what the row's session
+    // dot reads — the most noticeable gap this enumeration could have.
+    crate::feeds::tripwires::bump();
     let Some(ask) = diagnosis.settled.author_ask.clone() else {
         // Every end but an awaiting one leaves here, including an adopted
         // diagnosis: a session a card took over carries no author ask, so the
@@ -1186,6 +1212,7 @@ async fn run_in_tree(
             Some(arc.as_str()),
         );
     }
+    crate::feeds::tripwires::bump();
 
     let authoring = run_phase(
         config,
@@ -1213,6 +1240,7 @@ async fn run_in_tree(
         let conn = db.lock().expect("tripwire ledger mutex");
         let _ = ledger::record_run(&conn, run.trip_id, Some(&session_id), Some(arc.as_str()));
     }
+    crate::feeds::tripwires::bump();
     keep_or_discard(run, repo_root, &arc, authoring.settled).await
 }
 
@@ -1308,6 +1336,7 @@ async fn run_phase(
             let conn = db.lock().expect("tripwire ledger mutex");
             let _ = ledger::requeue_if_running(&conn, trip_id, &headline);
         }
+        crate::feeds::tripwires::bump();
         return phase(settled_row(db, trip_id).unwrap_or_else(|| Settled::queued(headline)));
     }
 
@@ -1322,6 +1351,7 @@ async fn run_phase(
             (config.now_ms)(),
         );
     }
+    crate::feeds::tripwires::bump();
     phase(settled_row(db, trip_id).unwrap_or(unresolved))
 }
 
@@ -1748,6 +1778,10 @@ impl Settled {
 /// chance to write one and forget the other, and a settled trip nobody was
 /// told about is the failure this whole facility exists to avoid.
 fn settle(config: &TripwireEngineConfig, conn: &Connection, run: &PendingRun, settled: &Settled) {
+    // Each arm that writes nudges the roster feed. Every one of those is
+    // latency and none of them is the mechanism: the feed's `data_version`
+    // probe sees the same commit within its interval whatever happens here
+    // ([P02]).
     // A trip a phase put back in the queue is not finished, and writing a
     // settle over it would stamp a settled time on a run that never happened
     // and take the row out of the drain's reach. The requeue is the whole of
@@ -1779,6 +1813,7 @@ fn settle(config: &TripwireEngineConfig, conn: &Connection, run: &PendingRun, se
             warn!(error = %e, tripwire = %run.tripwire, "tripwire engine: adopt failed");
             return;
         }
+        crate::feeds::tripwires::bump();
         info!(
             tripwire = %run.tripwire,
             trip = run.trip_id,
@@ -1796,6 +1831,7 @@ fn settle(config: &TripwireEngineConfig, conn: &Connection, run: &PendingRun, se
         warn!(error = %e, tripwire = %run.tripwire, "tripwire engine: settle failed");
         return;
     }
+    crate::feeds::tripwires::bump();
     info!(
         tripwire = %run.tripwire,
         trip = run.trip_id,

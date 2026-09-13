@@ -178,6 +178,13 @@ impl FeedId {
     /// document plus its content hash, republished on every file change.
     pub const JOTS: Self = Self(0xA0);
 
+    // -- Tripwires --
+    /// Tripwire roster push (tugcast → tugdeck): the whole roster — every
+    /// laid tripwire with its live state and its trip-log revision —
+    /// republished whenever any of it changes. A snapshot feed, so a card
+    /// that subscribes gets the current roster without asking for it.
+    pub const TRIPWIRES: Self = Self(0xB0);
+
     // -- Router-internal --
     /// Control commands (tugdeck → tugcast, tugcast → tugdeck)
     pub const CONTROL: Self = Self(0xC0);
@@ -222,6 +229,7 @@ impl FeedId {
             Self::USAGE => Some("Usage"),
             Self::USAGE_QUERY => Some("UsageQuery"),
             Self::JOTS => Some("Jots"),
+            Self::TRIPWIRES => Some("Tripwires"),
             Self::SHELL_OUTPUT => Some("ShellOutput"),
             Self::SHELL_INPUT => Some("ShellInput"),
             Self::REFS_OUTPUT => Some("RefsOutput"),
@@ -538,6 +546,8 @@ mod tests {
         assert_eq!(FeedId::OVERVIEW_INPUT.as_byte(), 0x71);
         assert_eq!(FeedId::OVERVIEW.name(), Some("Overview"));
         assert_eq!(FeedId::OVERVIEW_INPUT.name(), Some("OverviewInput"));
+        assert_eq!(FeedId::TRIPWIRES.as_byte(), 0xB0);
+        assert_eq!(FeedId::TRIPWIRES.name(), Some("Tripwires"));
         assert_eq!(FeedId::CONTROL.as_byte(), 0xC0);
         assert_eq!(FeedId::HEARTBEAT.as_byte(), 0xFF);
     }
@@ -557,7 +567,7 @@ mod tests {
 
     /// The size both tables must agree on, so a scanner that silently matches
     /// nothing cannot pass vacuously.
-    const FEED_TABLE_LEN: usize = 38;
+    const FEED_TABLE_LEN: usize = 39;
 
     /// A screaming-snake identifier, and nothing else.
     fn is_feed_constant_name(name: &str) -> bool {

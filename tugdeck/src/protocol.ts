@@ -69,6 +69,8 @@ export const FeedId = {
   USAGE_QUERY: 0x91,
   // Jots (reusable prompt fragments: whole-document push)
   JOTS: 0xa0,
+  // Tripwires (the whole roster, republished on change)
+  TRIPWIRES: 0xb0,
   // Router-internal
   CONTROL: 0xc0,
   HEARTBEAT: 0xff,

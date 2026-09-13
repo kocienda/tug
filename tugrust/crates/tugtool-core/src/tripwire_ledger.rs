@@ -907,6 +907,33 @@ pub fn queue_trip(
     Ok(())
 }
 
+/// Fire a tripwire by hand: mint a manual event key, claim the trip, and queue
+/// it. Answers the trip id and the key it was claimed under.
+///
+/// A manual key is unique by construction, so a hand-fired trip bypasses the
+/// guard a real landing meets: the permanent `landing:<sha>` claim, which
+/// would let a tripwire be hand-fired on one commit exactly once. Firing by
+/// hand is how a tripwire is tested, and a test that could be swallowed would
+/// test nothing.
+///
+/// Shared rather than the CLI's own because the HTTP surface fires a tripwire
+/// the same way, and two spellings of one verb is how the two answers drift.
+pub fn queue_manual_trip(
+    conn: &Connection,
+    tripwire_id: i64,
+    now_ms: i64,
+    instance: &str,
+) -> Result<(i64, String), TripwireLedgerError> {
+    let event_key = format!("manual:{}", uuid::Uuid::new_v4());
+    let Claim::Claimed { trip_id } =
+        claim_trip(conn, tripwire_id, &event_key, now_ms, instance, None)?
+    else {
+        unreachable!("a v4 uuid event key cannot collide with a claimed row");
+    };
+    queue_trip(conn, tripwire_id, trip_id)?;
+    Ok((trip_id, event_key))
+}
+
 /// How many trips are running machine-wide. Read immediately before a run
 /// starts, and deliberately not cached: another instance's count is as real
 /// as this one's.

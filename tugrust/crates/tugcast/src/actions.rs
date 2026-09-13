@@ -420,6 +420,15 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 None => info!("dispatch_action: tripwire_tell names no tripwire"),
             }
         }
+        // The tripwire ledger moved in some other process — a `lay`, an
+        // `edit`, an `rm`, a `pause`, a settle. It carries no payload on
+        // purpose: it says the roster moved, not which tripwire moved. Pure
+        // latency, as every nudge to this feed is; the feed's own
+        // `data_version` probe would see the same commit within its interval.
+        "tripwire_bump" => {
+            let heard = crate::feeds::tripwires::bump();
+            info!(heard, "dispatch_action: tripwire_bump");
+        }
         other => {
             info!("dispatch_action: broadcasting client action: {}", other);
             if let Some((tx, _)) = stream_outputs.get(&FeedId::CONTROL) {
@@ -463,6 +472,41 @@ mod tests {
         let frame = client_action_rx.recv().await.unwrap();
         assert_eq!(frame.feed_id, FeedId::CONTROL);
         assert_eq!(frame.payload, br#"{"action":"show-card"}"#);
+    }
+
+    /// `tripwire_bump` takes no payload, so the thing that could go wrong is
+    /// it falling through to the catch-all and being broadcast at every deck
+    /// as a client action. Nothing on CONTROL is what says the arm was taken.
+    #[tokio::test]
+    async fn test_dispatch_tripwire_bump_is_handled_not_broadcast() {
+        let (shutdown_tx, _) = mpsc::channel(1);
+        let (client_action_tx, mut client_action_rx) = broadcast::channel(16);
+        let dev_state = crate::dev::new_shared_dev_state();
+
+        let mut stream_outputs = HashMap::new();
+        stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
+
+        let pending_evals = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let pending_asks = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+
+        dispatch_action(
+            "tripwire_bump",
+            br#"{"action":"tripwire_bump"}"#,
+            &ActionContext {
+                shutdown_tx: &shutdown_tx,
+                stream_outputs: &stream_outputs,
+                dev_state: &dev_state,
+                pending_evals: &pending_evals,
+                pending_asks: &pending_asks,
+                shared_agent: &None,
+            },
+        )
+        .await;
+
+        assert!(
+            client_action_rx.try_recv().is_err(),
+            "the bump is handled here, never broadcast to the decks"
+        );
     }
 
     /// The deck's answer reaches the waiting requester.

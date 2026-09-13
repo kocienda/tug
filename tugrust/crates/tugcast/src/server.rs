@@ -1858,6 +1858,14 @@ pub(crate) fn build_app(
         .route(
             "/api/tripwires/{name}/trips",
             get(crate::tripwires_api::get_tripwire_trips),
+        )
+        .route(
+            "/api/tripwires/{name}/trip",
+            post(crate::tripwires_api::post_tripwire_trip),
+        )
+        .route(
+            "/api/tripwires/{name}/dismiss",
+            post(crate::tripwires_api::post_tripwire_dismiss),
         );
 
     // Wire the prompt-history routes when the ledger opened.
