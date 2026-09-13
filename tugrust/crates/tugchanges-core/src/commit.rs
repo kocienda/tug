@@ -423,9 +423,9 @@ fn require_clean_index(repo_root: &Path) -> Result<(), CommitError> {
         .lines()
         .map(str::to_string)
         .collect::<Vec<_>>()
-        .join(", ");
+        .join("\n");
     Err(CommitError::Other(format!(
-        "hunk election needs a clean index; these paths are already staged: {staged}"
+        "hunk election needs a clean index; these paths are already staged:\n{staged}"
     )))
 }
 

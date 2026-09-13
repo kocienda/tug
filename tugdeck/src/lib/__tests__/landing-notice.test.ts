@@ -199,6 +199,15 @@ describe("describeLandingFailure", () => {
     expect(said.remedy).toContain("pick the hunks again");
   });
 
+  it("names a staged index and keeps the paths as evidence", () => {
+    const detail =
+      "hunk election needs a clean index; these paths are already staged:\nsrc/a.rs\nsrc/b.rs";
+    const said = describeLandingFailure("commit", detail);
+    expect(said.title).toBe("Some files are already staged");
+    expect(said.remedy).toContain("git reset");
+    expect(said.detail).toBe(detail);
+  });
+
   // Matching is over the whole detail and case-insensitive, so a row still
   // speaks when git shouts or buries the phrase on a later line.
   it("matches whatever line the phrase lands on, in whatever case", () => {

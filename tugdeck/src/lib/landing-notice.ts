@@ -92,6 +92,11 @@ const COMMIT_CAUSES: CauseRow[] = [
     remedy:
       "The file changed under your selection. Reopen the Changes shade, pick the hunks again, and try again.",
   },
+  {
+    match: (lower) => lower.includes("already staged"),
+    title: "Some files are already staged",
+    remedy: `Picking hunks commits the whole index, so Tug won't commit while other files sit in it. Unstage them with git reset, or commit whole files instead of picking hunks, and ${KEPT}`,
+  },
 ];
 
 /** git's first line, with the prefix that names a severity the title doesn't need. */
