@@ -37,7 +37,7 @@ use tracing::{info, warn};
 use tugcast_core::TugSessionId;
 use tugtool_core::config::Config;
 
-use crate::feeds::agent_supervisor::{AgentSupervisor, SpawnState};
+use crate::feeds::agent_supervisor::{AgentSupervisor, ControlError, SpawnState};
 use crate::feeds::arc_runner::CHILD_GONE_GRACE;
 use crate::session_ledger::{SessionLedger, claude_project_dir};
 
@@ -92,9 +92,53 @@ pub struct TripwireSessionOutcome {
     pub end: SessionEnd,
 }
 
+/// Why a run did not happen.
+///
+/// Two kinds, because the trip log has to tell them apart. A `Fault` is
+/// something wrong with this firing — a prompt the session refused, a spawn
+/// that failed on its own terms — and it settles the trip `failed` next to the
+/// other real failures. `HostFull` is not wrong with anything: the host's
+/// spawn budget had no room at that instant, which is a busy condition that
+/// will not be true in a minute. A trip that meets one goes back in the queue
+/// the engine already drains, and nothing in the log calls it a failure.
+///
+/// The engine asks `admits_spawn` before it commits to a run, so `HostFull`
+/// here is the race between that answer and the spawn rather than the
+/// ordinary path.
+#[derive(Debug, Clone)]
+pub enum RunRefusal {
+    /// The host's spawn budget refused this session.
+    HostFull(String),
+    /// Anything else that stopped the run.
+    Fault(String),
+}
+
+impl RunRefusal {
+    /// What to say about it, whichever kind it is.
+    pub fn message(&self) -> &str {
+        match self {
+            RunRefusal::HostFull(m) | RunRefusal::Fault(m) => m,
+        }
+    }
+}
+
 #[async_trait::async_trait]
 pub trait TripwireSessionRunner: Send + Sync {
-    async fn run(&self, request: TripwireSessionRequest) -> Result<TripwireSessionOutcome, String>;
+    async fn run(
+        &self,
+        request: TripwireSessionRequest,
+    ) -> Result<TripwireSessionOutcome, RunRefusal>;
+
+    /// Whether a session would be admitted right now, asked without spawning
+    /// one.
+    ///
+    /// The engine consults this beside its own ceiling, so a firing that the
+    /// host has no room for is deferred rather than run into a refusal. The
+    /// default is the honest answer for a runner with no budget to spend: a
+    /// fake in a test admits, and so does a tugcast with nothing to ask.
+    fn admits_spawn(&self) -> bool {
+        true
+    }
 }
 
 /// The production runner: spawn cardless, rotate the prompt in, wait for the
@@ -144,7 +188,14 @@ impl SupervisorTripwireSessions {
 
 #[async_trait::async_trait]
 impl TripwireSessionRunner for SupervisorTripwireSessions {
-    async fn run(&self, request: TripwireSessionRequest) -> Result<TripwireSessionOutcome, String> {
+    fn admits_spawn(&self) -> bool {
+        self.supervisor.would_admit_spawn()
+    }
+
+    async fn run(
+        &self,
+        request: TripwireSessionRequest,
+    ) -> Result<TripwireSessionOutcome, RunRefusal> {
         let session = self
             .supervisor
             .spawn_headless_session(
@@ -154,7 +205,17 @@ impl TripwireSessionRunner for SupervisorTripwireSessions {
                 Some("tripwire".to_string()),
             )
             .await
-            .map_err(|e| format!("the tripwire's session could not be spawned: {e:?}"))?;
+            .map_err(|e| {
+                let message = format!("the tripwire's session could not be spawned: {e:?}");
+                // The one spawn error that is about the host rather than about
+                // this firing. The engine asked before it got here, so meeting
+                // it means a card took the last slot in between — a race whose
+                // answer is the queue, not the failure log.
+                match e {
+                    ControlError::CapExceeded { .. } => RunRefusal::HostFull(message),
+                    _ => RunRefusal::Fault(message),
+                }
+            })?;
 
         // The rotation is the deck's own opening gesture: `model_change` first
         // so tugcode records the selector before it spawns claude ([P06]), then
@@ -168,7 +229,9 @@ impl TripwireSessionRunner for SupervisorTripwireSessions {
             self.supervisor
                 .close_headless_session(&request.tripwire, &session)
                 .await;
-            return Err(format!("the tripwire's prompt was refused: {refusal:?}"));
+            return Err(RunRefusal::Fault(format!(
+                "the tripwire's prompt was refused: {refusal:?}"
+            )));
         }
 
         // The same settle the arc runner holds an idle reading for, from the

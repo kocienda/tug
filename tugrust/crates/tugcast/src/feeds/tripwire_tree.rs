@@ -1,5 +1,5 @@
 //! The landing's inspection tree — one disposable checkout per landing,
-//! shared by every wire that fires on it ([P10]).
+//! shared by every tripwire that fires on it ([P10]).
 //!
 //! **Read-only by mechanism, not by intent.** A probe is an arbitrary shell
 //! command from a tripwire row, and a diagnosis session is a model with a
@@ -9,9 +9,9 @@
 //! is disposable. `git worktree add --detach` takes no branch and holds no
 //! lease, so it appears in no arc listing and needs no `ops::create_in`.
 //!
-//! **One tree per landing rather than per wire, and that is the economy.** A
-//! machine carrying two dozen armed wires meets one landing with a dozen
-//! matches; per-wire trees would move the churn [P04] takes out of sessions
+//! **One tree per landing rather than per tripwire, and that is the economy.** A
+//! machine carrying two dozen armed tripwires meets one landing with a dozen
+//! matches; per-tripwire trees would move the churn [P04] takes out of sessions
 //! into worktrees and call it progress. The tree is refcounted across the
 //! landing's live trips and removed when the last one settles.
 //!
@@ -39,7 +39,7 @@ struct Entry {
 /// Every inspection tree this engine has open, keyed by the landing's sha.
 ///
 /// The lock is a tokio mutex rather than a std one because it is held across
-/// the `git worktree add` that creates a tree: two wires on one landing
+/// the `git worktree add` that creates a tree: two tripwires on one landing
 /// arriving together must find one tree, not race to make two, and the whole
 /// point of the entry is that it is created once.
 pub struct InspectionTrees {
@@ -62,7 +62,7 @@ impl InspectionTrees {
         &self.root
     }
 
-    /// The tree for a landing, creating it if this is the first wire to ask,
+    /// The tree for a landing, creating it if this is the first tripwire to ask,
     /// and taking a reference either way.
     ///
     /// Every caller that acquires must [`release`](Self::release), including
@@ -233,7 +233,7 @@ mod tests {
         (dir, root, sha)
     }
 
-    /// Two wires on one landing share one tree, and it survives until the
+    /// Two tripwires on one landing share one tree, and it survives until the
     /// second gives its reference back ([P10]).
     #[tokio::test]
     async fn one_landing_is_one_tree_removed_after_the_last_reference() {
@@ -244,7 +244,7 @@ mod tests {
         let second = trees.acquire(&root, &sha).await.unwrap();
         assert_eq!(
             first, second,
-            "the second wire found the tree already there"
+            "the second tripwire found the tree already there"
         );
         assert!(
             first.join("a.txt").exists(),

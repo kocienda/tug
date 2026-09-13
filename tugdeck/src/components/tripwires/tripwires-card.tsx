@@ -199,7 +199,7 @@ function TripwireCell({
       data-tripwire-awaiting={tripwire.awaiting ? "true" : "false"}
       trailing={
         <span className="tripwires-row-trailing">
-          {/* The branch is the wire's other half: the same trigger onto two
+          {/* The branch is the tripwire's other half: the same trigger onto two
               branches is two different watches, and a roster that named only
               the trigger could not tell them apart. */}
           <TugLabel size="2xs" emphasis="calm" data-tripwire-branch={tripwire.branch}>

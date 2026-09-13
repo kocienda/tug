@@ -3783,6 +3783,43 @@ fn cap_check_reason(
     spawn_timestamps: &StdMutex<VecDeque<Instant>>,
     max_spawns_per_minute: usize,
 ) -> Option<&'static str> {
+    let reason = spawn_budget_reason(
+        ledger,
+        max_concurrent_sessions,
+        spawn_timestamps,
+        max_spawns_per_minute,
+    );
+    if reason.is_none() {
+        spawn_timestamps
+            .lock()
+            .expect("spawn_timestamps mutex poisoned")
+            .push_back(Instant::now());
+    }
+    reason
+}
+
+/// The same two budgets, read without spending either — the answer to "would
+/// a spawn be admitted right now?" for a caller that is not about to perform
+/// one.
+///
+/// Split out of [`cap_check_reason`] so the tripwire engine can ask before it
+/// claims a firing rather than discovering the answer inside a failed spawn:
+/// a host at its cap is a busy condition, and a trip that meets one belongs in
+/// the queue rather than in the failure log. Reading it must not consume a
+/// rate-limit slot, which is the whole of why the append lives in the caller
+/// above rather than here.
+///
+/// Concurrent cap counts `Spawning` + `Live` entries only — `Idle` (intent
+/// without subprocess) and `Errored` (crashed, awaiting reset) do not
+/// consume slots. The per-entry `try_lock` is non-blocking; a contended
+/// entry is counted conservatively as active so the cap cannot be
+/// bypassed by a racing dispatcher.
+fn spawn_budget_reason(
+    ledger: &HashMap<TugSessionId, Arc<Mutex<LedgerEntry>>>,
+    max_concurrent_sessions: usize,
+    spawn_timestamps: &StdMutex<VecDeque<Instant>>,
+    max_spawns_per_minute: usize,
+) -> Option<&'static str> {
     let mut active = 0usize;
     for entry_arc in ledger.values() {
         let counted = match entry_arc.try_lock() {
@@ -3809,7 +3846,6 @@ fn cap_check_reason(
     if ts.len() >= max_spawns_per_minute {
         return Some("spawn_rate_limited");
     }
-    ts.push_back(now);
     None
 }
 
@@ -5360,6 +5396,34 @@ impl AgentSupervisor {
         Ok(())
     }
 
+    /// Whether a fresh headless spawn would be admitted right now, asked
+    /// without performing one.
+    ///
+    /// The tripwire engine's door onto this process's budget. Its own ceiling
+    /// rations worktrees machine-wide; this one rations memory per process,
+    /// and a firing that cannot clear both belongs in the queue the engine
+    /// already has rather than in its failure log. The two compose — neither
+    /// replaces the other — and this read is what lets the engine see the
+    /// second one before it commits to a run.
+    ///
+    /// A snapshot rather than a reservation, deliberately: a card may take the
+    /// last slot between this answer and the spawn, and the loser of that race
+    /// settles `queued` and is drained, which is the same outcome by a slower
+    /// road. A contended ledger reads as admitting, so uncertainty costs the
+    /// old behaviour rather than a spurious deferral.
+    pub(crate) fn would_admit_spawn(&self) -> bool {
+        let Ok(ledger) = self.ledger.try_lock() else {
+            return true;
+        };
+        spawn_budget_reason(
+            &ledger,
+            self.config.max_concurrent_sessions,
+            &self.spawn_timestamps,
+            self.config.max_spawns_per_minute,
+        )
+        .is_none()
+    }
+
     /// Spawn a session no card owns ([P11]).
     ///
     /// The pipeline is `do_spawn_session`'s minus everything that belongs to a
@@ -5416,7 +5480,7 @@ impl AgentSupervisor {
         // Phase 1: the budget check and the insert, atomic under the ledger
         // lock. The id is fresh, so this is always an insert and the
         // reconnect arithmetic `do_spawn_session` carries has nothing to
-        // decide here. The budget is not waived: a wire's session is a real
+        // decide here. The budget is not waived: a tripwire's session is a real
         // subprocess and counts like every other.
         let entry_arc = {
             let mut ledger = self.ledger.lock().await;

@@ -5,11 +5,11 @@
 //! touches IO, a clock, or a database: the engine reads a tripwire row, hands
 //! the trigger an event, and gets a bool.
 //!
-//! **One source, because the landing is no longer one of them.** A wire fires
+//! **One source, because the landing is no longer one of them.** A tripwire fires
 //! when a landing gesture commits onto its named base branch ([P01]), and the
-//! branch is a column on the wire rather than a clause in its trigger. What
+//! branch is a column on the tripwire rather than a clause in its trigger. What
 //! the predicate decides is the narrower question the landing then asks: does
-//! this lineage carry the facts the wire is watching for? Facts are the
+//! this lineage carry the facts the tripwire is watching for? Facts are the
 //! uniform, searchable record of everything a session does, so a new trigger
 //! source is a new fact kind rather than new machinery here.
 //!
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn a_commit_trigger_is_no_longer_a_grammar_this_build_reads() {
-        // The branch a wire watches is a column on the wire now ([P02]), so a
+        // The branch a tripwire watches is a column on the tripwire now ([P02]), so a
         // v1 trigger that spelled it here is a foreign trigger: unreadable, and
         // therefore listable and removable but never firing.
         for text in [r#"{"commit":{}}"#, r#"{"commit":{"branch":"main"}}"#] {

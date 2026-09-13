@@ -35,7 +35,7 @@ export interface TripwireRow {
   readonly probe: string | null;
   readonly brief: string;
   readonly model: string | null;
-  /** The base branch a landing has to be onto for this wire to fire. */
+  /** The base branch a landing has to be onto for this tripwire to fire. */
   readonly branch: string;
   readonly permission_mode: string;
   readonly paused: boolean;

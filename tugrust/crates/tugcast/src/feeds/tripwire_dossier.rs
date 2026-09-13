@@ -1,4 +1,4 @@
-//! The dossier — everything a fired wire's session is told, and nothing it
+//! The dossier — everything a fired tripwire's session is told, and nothing it
 //! would have to reconstruct ([P03], Spec S03).
 //!
 //! **Assembled by the engine, on the engine's own task.** The landing path
@@ -58,7 +58,7 @@ pub struct Dossier {
     /// The facts that matched, as the trip row holds them.
     pub facts: Vec<String>,
     pub lineage: Vec<LineageEntry>,
-    /// The probe's exit and output tail, when the wire has one and it failed
+    /// The probe's exit and output tail, when the tripwire has one and it failed
     /// ([P10]). A green probe never reaches a prompt, because it settles the
     /// trip instead.
     pub probe: Option<ProbeReport>,
@@ -165,7 +165,7 @@ pub fn resolve_lineage(ledger: &SessionLedger, session_ids: &[String]) -> Vec<Li
 /// Split out from [`resolve_lineage`] because the expansion is not only the
 /// dossier's business: the facts the predicate reads are attributed per
 /// session id, so a landing evaluated against the tip id alone would miss
-/// everything an earlier segment of the same work recorded — a wire that
+/// everything an earlier segment of the same work recorded — a tripwire that
 /// silently does not fire, which is worse than one that fires on nothing.
 pub fn expand_lineage(ledger: &SessionLedger, session_ids: &[String]) -> Vec<String> {
     let mut ids: BTreeSet<String> = BTreeSet::new();
@@ -236,7 +236,7 @@ fn cap(text: &str, cap: usize) -> String {
 }
 
 impl Dossier {
-    /// The prompt a fired wire's session is handed, in the section order
+    /// The prompt a fired tripwire's session is handed, in the section order
     /// Spec S03 fixes: brief, landing, probe, evidence, lineage, contract.
     ///
     /// Everything but the closing contract is the same whatever the session
@@ -443,7 +443,10 @@ mod tests {
             prompt.contains("`tripwire-ci-abcd1234`"),
             "the caller's contract states the arc by name: {prompt}"
         );
-        assert!(!prompt.contains("PROBE"), "no probe on this wire: {prompt}");
+        assert!(
+            !prompt.contains("PROBE"),
+            "no probe on this tripwire: {prompt}"
+        );
     }
 
     /// A failed probe's tail rides in the prompt, not only in the trip row.

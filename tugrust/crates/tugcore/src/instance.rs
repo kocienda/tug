@@ -297,7 +297,7 @@ pub const ENV_TRIPWIRES_DB: &str = "TUG_TRIPWIRES_DB";
 /// The **machine-global** tripwires ledger path: one `tripwires.db` holding
 /// every standing tripwire and every trip any instance has claimed. Deliberately
 /// independent of `TUG_INSTANCE_ID`, and for a stronger reason than the other
-/// shared ledgers: the `UNIQUE(wire_id, event_key)` claim two instances race
+/// shared ledgers: the `UNIQUE(tripwire_id, event_key)` claim two instances race
 /// for is only an arbitration if both are racing in the same table. Partition
 /// it per instance and every instance fires the same tripwire on the same event.
 /// Honors the [`ENV_TRIPWIRES_DB`] override for isolated test runs.

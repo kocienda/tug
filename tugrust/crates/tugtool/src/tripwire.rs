@@ -1,7 +1,7 @@
 //! Tripwires — standing watchers (`tugtool tripwire …`). A thin shell over
 //! [`tugtool_core::tripwire_ledger`]: compile the command line's trigger spelling
 //! to Spec S01 JSON, call the typed ledger API, and format the outcome as
-//! `--json` (the shared envelope) or a plain human read-out.
+//! `--json` (the shared JSON shape) or a plain human read-out.
 //!
 //! **The spelling is the CLI's, the JSON is the record's.** `--on
 //! fact:edit_failed --where route=claude` is what a person types; the stored
@@ -140,7 +140,7 @@ fn compile_trigger(on: &str, clauses: &[String]) -> Result<Predicate, String> {
             }))
         }
         "commit" => Err(
-            "a wire no longer watches commits directly: it fires on a landing onto the branch \
+            "a tripwire no longer watches commits directly: it fires on a landing onto the branch \
              it names, so say --branch <name> and watch a fact with --on fact:<kind>"
                 .to_string(),
         ),
@@ -208,12 +208,12 @@ fn canonical_scope(scope: &str) -> String {
         .unwrap_or_else(|_| scope.to_string())
 }
 
-/// The branch a wire watches: what `--branch` said, or the default branch of
-/// the repository the wire is scoped to.
+/// The branch a tripwire watches: what `--branch` said, or the default branch of
+/// the repository the tripwire is scoped to.
 ///
-/// The sugar is worth having and the storing is not optional ([P02]): a wire
+/// The sugar is worth having and the storing is not optional ([P02]): a tripwire
 /// laid without a branch it can resolve is refused here rather than written as
-/// a wire nothing will ever trip.
+/// a tripwire nothing will ever trip.
 fn resolve_branch(branch: Option<&str>, scope: Option<&str>) -> Result<String, String> {
     if let Some(named) = branch.map(str::trim).filter(|b| !b.is_empty()) {
         return Ok(named.to_string());
@@ -222,7 +222,7 @@ fn resolve_branch(branch: Option<&str>, scope: Option<&str>) -> Result<String, S
     git_default_branch(repo).ok_or_else(|| {
         format!(
             "no --branch given and `{repo}` has no default branch to read one from — \
-             a wire fires on a landing onto a named branch, so name it"
+             a tripwire fires on a landing onto a named branch, so name it"
         )
     })
 }
@@ -528,7 +528,7 @@ fn run_trip(name: &str, json: bool, quiet: bool) -> Result<(), String> {
 
     // A manual key is unique by construction, so a hand-fired trip bypasses
     // the guard a real landing meets: the permanent `landing:<sha>` claim,
-    // which would let a wire be hand-fired on one commit exactly once. Firing
+    // which would let a tripwire be hand-fired on one commit exactly once. Firing
     // by hand is how a tripwire is tested, and a test that could be swallowed
     // would test nothing.
     let event_key = format!("manual:{}", uuid::Uuid::new_v4());
@@ -575,8 +575,8 @@ fn kick_live_instance(tripwire: &str) -> bool {
     crate::commands::tell::tell_quietly("tripwire_trip", &[format!("tripwire={tripwire}")]).is_ok()
 }
 
-/// Settle the wire's running trip (Spec S02) — the only settle a live session
-/// has, and the whole of what replaced the envelope parser.
+/// Settle the tripwire's running trip (Spec S02) — the only settle a live session
+/// has, and the whole of what replaced the prose scraper.
 ///
 /// The ledger write is the resolution and the tell is a nudge, in that order
 /// for the same reason `trip` orders them that way: the row is what the Tripwires
@@ -716,10 +716,10 @@ fn run_dismiss(name: &str, json: bool, quiet: bool) -> Result<(), String> {
 /// Remove a dismissed trip's arc, handing nothing back to the base checkout
 /// ([P09]).
 ///
-/// Addressed by the **landing's** repository rather than by the wire's scope,
+/// Addressed by the **landing's** repository rather than by the tripwire's scope,
 /// because that is where the engine cut the arc: a scope is a path prefix a
-/// wire is confined to, which may be an ancestor of the checkout or absent
-/// altogether, and an unscoped wire's arc is still an arc. The scope is the
+/// tripwire is confined to, which may be an ancestor of the checkout or absent
+/// altogether, and an unscoped tripwire's arc is still an arc. The scope is the
 /// fallback for a trip whose row carries no landing — a hand-fired one.
 fn discard_tripwire_arc(
     conn: &rusqlite::Connection,
@@ -1060,7 +1060,7 @@ mod tests {
     }
 
     /// An arc worktree is not its base checkout, and folding it into one would
-    /// make a work-tier tripwire re-trip on its own commits.
+    /// make a tripwire re-trip on its own commits.
     #[test]
     fn a_scope_is_canonicalized_and_never_folded_to_a_base_checkout() {
         let dir = tempfile::tempdir().unwrap();
