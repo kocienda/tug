@@ -56,6 +56,7 @@ import { useAnnotationMenu } from "@/components/tugways/use-annotation-menu";
 import { useTextSurfaceContextMenu } from "@/components/tugways/use-text-surface-context-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { annotationFromEvent } from "@/lib/annotator/annotation-element";
+import { isSecondaryPress } from "@/lib/whole-entity-press";
 import { stampAnnotation } from "@/lib/annotator/annotation-element";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -197,7 +198,14 @@ function FilePathLink({
 
   const handleClick = useCallback(
     (event: React.MouseEvent) => {
-      if (event.button !== 0 || event.metaKey || event.shiftKey) return;
+      if (
+        event.button !== 0 ||
+        isSecondaryPress(event.nativeEvent) ||
+        event.metaKey ||
+        event.shiftKey
+      ) {
+        return;
+      }
       // A press that travelled was a selection drag over the path, not a click
       // on it — the reader was copying the name, not asking to open it.
       if (draggedSincePress(event)) return;
@@ -879,6 +887,15 @@ export function ChangesFileRow({
         className="tug-changes-list-row-hit"
         onMouseDown={trackPress}
         onClick={(event) => {
+          // A secondary press is the menu's gesture, never the fold's. A
+          // macOS Control-click is button 0 and WebKit dispatches a `click`
+          // for it alongside the `contextmenu`, so right-clicking the
+          // orphaned row's prior-owner chip raised the chip's menu AND folded
+          // the row open under it. The chip stops the click itself only while
+          // it is interactive — it has a card to raise — and a dead session's
+          // has none, so the guard belongs on the hit region that owns the
+          // fold.
+          if (isSecondaryPress(event.nativeEvent)) return;
           if (draggedSincePress(event)) return;
           onToggle(!expanded);
         }}
