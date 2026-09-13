@@ -53,7 +53,7 @@ use tugtool_core::tripwire_predicate::{self, FactEvent};
 
 use crate::feeds::tripwire_dossier as dossier;
 use crate::feeds::tripwire_session::{
-    TripwireSessionOutcome, TripwireSessionRequest, TripwireSessionRunner,
+    SessionEnd, TripwireSessionOutcome, TripwireSessionRequest, TripwireSessionRunner,
 };
 use crate::feeds::tripwire_tree::InspectionTrees;
 use crate::session_ledger::SessionLedger;
@@ -83,7 +83,8 @@ const LANDING_FACT_CAP: usize = 200;
 /// is the motivating probe and a cold build is slow.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
-/// How long a `running` trip may sit before any engine may declare it dead.
+/// How long another instance's `running` trip may sit before this engine may
+/// declare it dead.
 ///
 /// [`ledger::sweep_stale_running`] clears *this* instance's orphans at boot,
 /// which is the clean case. It cannot clear another instance's: from here, an
@@ -92,20 +93,14 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// the ceiling for every tripwire on the machine — at the default ceiling of two,
 /// two orphans stop the facility outright, and nothing recovers, because
 /// draining the queue is something a settle triggers and no settle is coming.
-/// Age is the only evidence available, so it is set comfortably past the
-/// longest run this build can produce: a fifteen-minute probe followed by a
-/// twenty-minute session.
+/// Age is the only evidence available about another instance, so this is the
+/// one duration in the engine that fails a row on a clock — and it is a bound
+/// on a crash, never on a session. This instance's own rows are exempt from
+/// it: a session this engine is running has no ceiling, and it knows those
+/// runs are alive. Past the probe's own bound, with room to spare, because a
+/// run's only clocked part is its probe; the session after it takes as long
+/// as the work takes.
 const ORPHANED_RUN_AGE: Duration = Duration::from_secs(90 * 60);
-
-/// How long one phase of a run may go before the engine settles it `failed`
-/// ([P07]).
-///
-/// The ceiling and the session's own resolution verb race for the same trip
-/// row on every run, and the ledger's compare-and-set is what admits exactly
-/// one of them. Set past the session runner's own twenty minutes so an
-/// ordinary wedged turn is reported as the timeout it is rather than as a
-/// ceiling kill.
-const SETTLE_CEILING: Duration = Duration::from_secs(30 * 60);
 
 /// How often a phase re-reads its trip row looking for the resolution verb.
 ///
@@ -212,18 +207,21 @@ pub struct LandingEvent {
 /// Process-global for the same reason [`MANUAL_KICK`] is: the two landing
 /// gestures live in the supervisor and have no engine handle to be given, and
 /// a build with no engine simply has no receiver.
-static LANDING_TX: OnceLock<mpsc::Sender<LandingEvent>> = OnceLock::new();
+static LANDING_TX: OnceLock<mpsc::UnboundedSender<LandingEvent>> = OnceLock::new();
 
 /// Tell the engine a landing happened. Fire-and-forget, and deliberately so:
-/// the landing path has finished its work and must not wait on a tripwire, so
-/// a full channel or an absent engine drops the event rather than blocking
-/// (Risk R01).
+/// the landing path has finished its work and must not wait on a tripwire
+/// (Risk R01). The channel is unbounded, so nothing here can be full: a
+/// landing is a few strings arriving at human pace, and a bounded queue's one
+/// failure mode was a refusal nobody could see ([B05]). The one send that can
+/// still fail is into an engine that is gone, and that is said at `warn`.
 pub fn landed(event: LandingEvent) {
     let Some(tx) = LANDING_TX.get() else {
+        warn!("tripwire engine: a landing was dropped; no engine is running");
         return;
     };
-    if tx.try_send(event).is_err() {
-        debug!("tripwire engine: a landing was dropped; no engine, or its queue is full");
+    if tx.send(event).is_err() {
+        warn!("tripwire engine: a landing was dropped; the engine has shut down");
     }
 }
 
@@ -290,7 +288,7 @@ fn work_event(
 /// Work one claimed firing on a task of its own.
 ///
 /// Off the engine's task, because a run is not a fast thing: a probe may take
-/// fifteen minutes and a session twenty, and awaiting that inline meant the
+/// fifteen minutes and a session as long as its work, and awaiting that inline meant the
 /// `select!` loop stopped reading for the whole of it. Facts survived that —
 /// the tail is a rowid and catches up — but `GIT_HEAD` is a broadcast, so
 /// commits past the channel's depth were lost outright, and every one of them
@@ -344,6 +342,7 @@ async fn drain_queue(config: &TripwireEngineConfig, db: &Db, trees: &InspectionT
         match ledger::sweep_orphaned_running(
             &conn,
             (config.now_ms)() - ORPHANED_RUN_AGE.as_millis() as i64,
+            &config.instance,
         ) {
             Ok(0) | Err(_) => {}
             Ok(n) => info!(count = n, "tripwire engine: failed abandoned running trips"),
@@ -405,6 +404,69 @@ async fn sweep_trees(db: &Arc<Db>, trees: &Arc<InspectionTrees>) {
         (live, repos)
     };
     trees.sweep(&live, |sha| repos.get(sha).cloned()).await;
+}
+
+/// Fail this instance's `running` trips at boot, and judge their arcs by the
+/// same rule a failure at run time uses ([B03]).
+///
+/// The sessions those trips ran were children of the process that restarted
+/// and are gone, so the rows are honest. What the old sweep lost was any arc
+/// the authoring session had already committed to: it failed the row and never
+/// looked. Now the rows are read first, the sweep fails them, and every arc
+/// they name is kept when it holds rounds — named on the headline so the user
+/// finds it in the Arcs card — and discarded when it holds nothing.
+///
+/// `&mut` on the connection so the future stays `Send` across the blocking
+/// git reads, which is what lets the engine be spawned at all.
+async fn sweep_restarted_runs(config: &TripwireEngineConfig, conn: &mut Connection) {
+    let orphans = ledger::running_trips_of(conn, &config.instance).unwrap_or_default();
+    match ledger::sweep_stale_running(conn, &config.instance, (config.now_ms)()) {
+        Ok(0) => {}
+        Ok(n) => info!(count = n, "tripwire engine: swept stale running trips"),
+        Err(e) => warn!(error = %e, "tripwire engine: boot sweep failed"),
+    }
+    let arcs: Vec<(i64, String, PathBuf)> = orphans
+        .into_iter()
+        .filter_map(|trip| {
+            let arc = trip.arc?;
+            let root = dossier::landing_from_payload(trip.event_payload.as_deref().unwrap_or("{}"))
+                .repo_root;
+            (!root.is_empty()).then(|| (trip.id, arc, PathBuf::from(root)))
+        })
+        .collect();
+    if arcs.is_empty() {
+        return;
+    }
+    let kept = tokio::task::spawn_blocking(move || {
+        arcs.into_iter()
+            .filter_map(|(trip_id, arc, root)| {
+                let rounds = tugarc_core::ops::round_count_in(&root, &arc);
+                if rounds > 0 {
+                    return Some((trip_id, arc, rounds));
+                }
+                if let Err(e) =
+                    tugarc_core::ops::discard_agent_arc_in(&root, &arc, Some("tripwire"))
+                {
+                    warn!(arc, error = %e, "tripwire: the tripwire's arc could not be removed");
+                }
+                None
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default();
+    for (trip_id, arc, rounds) in kept {
+        let headline = arc_kept_headline(
+            "tugcast restarted under the tripwire's session",
+            &arc,
+            rounds,
+        );
+        let _ = ledger::amend_failed_headline(conn, trip_id, &headline);
+        info!(
+            trip = trip_id,
+            arc, rounds, "tripwire: a restarted trip's arc was kept"
+        );
+    }
 }
 
 /// Settle every `awaiting` trip whose arc is gone ([P07], [Q01]).
@@ -515,7 +577,7 @@ pub async fn run_tripwire_engine(config: TripwireEngineConfig) {
         return;
     }
 
-    let conn = match ledger::open_ledger(&config.db_path) {
+    let mut conn = match ledger::open_ledger(&config.db_path) {
         Ok(conn) => conn,
         Err(e) => {
             warn!(error = %e, path = %config.db_path.display(),
@@ -528,11 +590,7 @@ pub async fn run_tripwire_engine(config: TripwireEngineConfig) {
     // nothing will ever free, so this instance's orphans are failed before the
     // first event is considered. Another instance's `running` rows are its
     // own and are left alone.
-    match ledger::sweep_stale_running(&conn, &config.instance, (config.now_ms)()) {
-        Ok(0) => {}
-        Ok(n) => info!(count = n, "tripwire engine: swept stale running trips"),
-        Err(e) => warn!(error = %e, "tripwire engine: boot sweep failed"),
-    }
+    sweep_restarted_runs(&config, &mut conn).await;
     // Shared rather than owned by the loop, because a run now happens on a task
     // of its own and has to carry the ledger and the pools with it.
     let config = Arc::new(config);
@@ -542,9 +600,9 @@ pub async fn run_tripwire_engine(config: TripwireEngineConfig) {
     let _ = MANUAL_KICK.set(kick_tx);
     let (tell_tx, mut tell_rx) = mpsc::channel::<String>(16);
     let _ = SETTLE_TELL.set(tell_tx);
-    // Bounded, and a full queue drops rather than blocks: the sender is the
-    // landing gesture and the landing gesture waits for nothing (Risk R01).
-    let (landing_tx, mut landing_rx) = mpsc::channel::<LandingEvent>(64);
+    // Unbounded, so a landing is never dropped for want of room ([B05]); the
+    // sender is the landing gesture and it waits for nothing (Risk R01).
+    let (landing_tx, mut landing_rx) = mpsc::unbounded_channel::<LandingEvent>();
     let _ = LANDING_TX.set(landing_tx);
 
     let mut ticker = tokio::time::interval(SWEEP_TICK);
@@ -1117,8 +1175,7 @@ async fn run_in_tree(
         let conn = db.lock().expect("tripwire ledger mutex");
         let _ = ledger::record_run(&conn, run.trip_id, Some(&session_id), Some(arc.as_str()));
     }
-    keep_or_discard(run, repo_root, &arc, &authoring.settled).await;
-    authoring.settled
+    keep_or_discard(run, repo_root, &arc, authoring.settled).await
 }
 
 /// What one phase of a run amounted to.
@@ -1128,18 +1185,20 @@ struct Phase {
     /// there was no turn to read.
     closing: String,
     /// What the trip row says now: the resolution the verb wrote, or the
-    /// ceiling's own failure when the verb never came.
+    /// engine's own failure when the session ended without running it.
     settled: Settled,
 }
 
 /// Spawn one session and wait for whichever comes first: the resolution verb's
-/// row, the turn's end, or the ceiling ([P07]).
+/// row, or the session's end — finished or dead, as the supervisor reports it.
+/// Nothing else ends the wait: a session that is alive is doing the
+/// tripwire's work, however long that takes.
 ///
 /// The verb is watched for rather than awaited, because the writer is a
 /// `tugtool` in another process (Spec S02) and the trip row is the only thing
 /// the two share. A session that resolves and then wedges is therefore
-/// released at its settle rather than at the ceiling, which is the whole
-/// reason the poll runs beside the turn instead of after it.
+/// released at its settle rather than at its end, which is the whole reason
+/// the poll runs beside the turn instead of after it.
 ///
 /// Whatever ends the wait, the phase leaves the row settled — by the verb or
 /// by the compare-and-set below, never by both (Risk R03).
@@ -1152,50 +1211,43 @@ async fn run_phase(
 ) -> Phase {
     let running = sessions.run(request);
     tokio::pin!(running);
-    let deadline = tokio::time::Instant::now() + SETTLE_CEILING;
     let mut ticker = tokio::time::interval(SETTLE_POLL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    let mut outcome: Option<TripwireSessionOutcome> = None;
-    let mut error: Option<String> = None;
-    let mut overran = false;
+    let mut answered: Option<Result<TripwireSessionOutcome, String>> = None;
     let resolved = loop {
         tokio::select! {
             biased;
-            answered = &mut running, if outcome.is_none() && error.is_none() => {
-                match answered {
-                    Ok(o) => outcome = Some(o),
-                    Err(e) => error = Some(e),
-                }
-            }
+            ended = &mut running, if answered.is_none() => answered = Some(ended),
             _ = ticker.tick() => {}
-            _ = tokio::time::sleep_until(deadline) => {
-                warn!(trip = trip_id, "tripwire: a phase outlived the settle ceiling");
-                overran = true;
-            }
         }
         let resolved = settled_row(db, trip_id);
-        if resolved.is_some() || overran || outcome.is_some() || error.is_some() {
+        if resolved.is_some() || answered.is_some() {
             break resolved;
         }
     };
 
+    let outcome = answered.as_ref().and_then(|a| a.as_ref().ok());
     let phase = |settled| Phase {
-        session_id: outcome.as_ref().map(|o| o.session_id.clone()),
-        closing: outcome.as_ref().map(closing_prose).unwrap_or_default(),
+        session_id: outcome.map(|o| o.session_id.clone()),
+        closing: outcome.map(closing_prose).unwrap_or_default(),
         settled,
     };
     if let Some(settled) = resolved {
         return phase(settled);
     }
 
-    // Nobody resolved, so the ceiling does — through the same compare-and-set
-    // the verb uses, so a settle that landed in the gap between the read above
-    // and this write is not overwritten by it.
-    let unresolved = Settled::failed(unresolved_headline(
-        error.as_deref(),
-        outcome.as_ref().is_some_and(|o| o.completed),
-    ));
+    // The session is over and nobody resolved, so the engine does — through
+    // the same compare-and-set the verb uses, so a settle that landed in the
+    // gap between the read above and this write is not overwritten by it.
+    let ended = match &answered {
+        Some(Ok(o)) => Ok(o.end),
+        Some(Err(e)) => Err(e.as_str()),
+        // The wait ends on a settled row or on the runner, and the row
+        // returned above.
+        None => unreachable!("run_phase's wait ends on a row or on the runner"),
+    };
+    let unresolved = Settled::failed(unresolved_headline(ended));
     {
         let conn = db.lock().expect("tripwire ledger mutex");
         let _ = ledger::settle_if_running(
@@ -1210,15 +1262,18 @@ async fn run_phase(
 }
 
 /// The headline for a phase that produced no resolution. The three faults are
-/// different and a reader of the trip log has to be able to tell them apart.
-fn unresolved_headline(error: Option<&str>, completed: bool) -> String {
-    if let Some(error) = error {
-        return format!("the tripwire's session did not run: {error}");
+/// different and a reader of the trip log has to be able to tell them apart:
+/// the session never ran, it died, or it finished without running the verb.
+fn unresolved_headline(ended: Result<SessionEnd, &str>) -> String {
+    match ended {
+        Err(error) => format!("the tripwire's session did not run: {error}"),
+        Ok(SessionEnd::Died) => {
+            "the tripwire's session died before running the resolution verb".to_string()
+        }
+        Ok(SessionEnd::Finished) => {
+            "the tripwire's session ended its turn without running the resolution verb".to_string()
+        }
     }
-    if !completed {
-        return "the tripwire's session did not finish inside its twenty minutes".to_string();
-    }
-    "the tripwire's session ended its turn without running the resolution verb".to_string()
 }
 
 /// The trip row's settle, if the verb has written one.
@@ -1247,8 +1302,8 @@ fn settled_row(db: &Db, trip_id: i64) -> Option<Settled> {
 
 /// The session's last words — what the authoring phase is handed ([P04]).
 ///
-/// The transcript is frames, so the prose is scraped out of them by the same
-/// span scan the rest of this build uses on tugcode output. This is a
+/// The transcript is the session's own JSONL file, so the prose is read out of
+/// its assistant lines by the same shape the rest of this build reads. This is a
 /// convenience for the next prompt and never a decision procedure: what the
 /// session *decided* came off the trip row, written by a verb.
 fn closing_prose(outcome: &TripwireSessionOutcome) -> String {
@@ -1437,8 +1492,8 @@ fn tail(text: &str, cap: usize) -> String {
     text[start..].to_string()
 }
 
-/// Keep the arc only if the run is waiting on the user, and discard it
-/// otherwise ([P07], [P09]).
+/// Keep the arc if the run is waiting on the user, or if it failed with rounds
+/// on the arc; discard it otherwise ([P07], [P09], [B03]).
 ///
 /// The rule is the trip's status rather than a round count, and the two differ
 /// in exactly the case the count gets wrong: a session that staged commits and
@@ -1450,21 +1505,75 @@ fn tail(text: &str, cap: usize) -> String {
 /// Awaiting is the one status that holds an arc, and it holds it for as long as
 /// the question is open: the user joining or discarding it *is* the resolution
 /// ([P07]).
+///
+/// A failure is the other case, and the count matters there: a session that
+/// died or ended without the verb, having committed, left real work that
+/// nobody decided to throw away. The arc is kept and named on the headline so
+/// the user finds it in the Arcs card; a failure with nothing on the arc is
+/// discarded as before.
+///
+/// Hands the settlement back rather than writing it, because the caller's
+/// `settle` is the one write of a finished trip's outcome, and a row amended
+/// here would only be overwritten by it.
 async fn keep_or_discard(
     run: &mut PendingRun,
     repo_root: &std::path::Path,
     arc: &str,
-    settled: &Settled,
-) {
+    settled: Settled,
+) -> Settled {
     if settled.status == TripStatus::Awaiting {
         run.arc = Some(arc.to_string());
         run.engine_refs.push(OverviewRef {
             kind: OverviewRefKind::Arc,
             target: arc.to_string(),
         });
-        return;
+        return settled;
+    }
+    if settled.status == TripStatus::Failed {
+        let rounds = {
+            let root = repo_root.to_path_buf();
+            let name = arc.to_string();
+            tokio::task::spawn_blocking(move || tugarc_core::ops::round_count_in(&root, &name))
+                .await
+                .unwrap_or(0)
+        };
+        if rounds > 0 {
+            run.arc = Some(arc.to_string());
+            run.engine_refs.push(OverviewRef {
+                kind: OverviewRefKind::Arc,
+                target: arc.to_string(),
+            });
+            let headline = arc_kept_headline(
+                settled
+                    .settlement
+                    .headline
+                    .as_deref()
+                    .unwrap_or("the tripwire's session failed"),
+                arc,
+                rounds,
+            );
+            info!(
+                trip = run.trip_id,
+                arc, rounds, "tripwire: a failed trip's arc was kept"
+            );
+            return Settled {
+                settlement: ledger::Settlement {
+                    headline: Some(headline),
+                    ..settled.settlement
+                },
+                ..settled
+            };
+        }
     }
     discard_agent_arc(repo_root, arc).await;
+    settled
+}
+
+/// The headline of a failure whose arc was kept: the failure's own words, then
+/// where the work is and how much of it there is.
+fn arc_kept_headline(failure: &str, arc: &str, rounds: usize) -> String {
+    let plural = if rounds == 1 { "" } else { "s" };
+    format!("{failure}; its arc `{arc}` holds {rounds} round{plural}")
 }
 
 /// Remove a tripwire's arc without handing a byte of it back ([P09]).
@@ -1769,6 +1878,104 @@ fn event_context(payload: &str) -> EventContext {
 mod tests {
     use super::*;
     use tugtool_core::tripwire_ledger::NewTripwire;
+
+    /// What a duration in this engine may bound ([B06]).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Bounds {
+        /// An arbitrary command run unattended, which must be killable.
+        Probe,
+        /// Another instance's crash, which age is the only evidence of.
+        Orphan,
+        /// How often a record is re-read; never a deadline on anything.
+        Poll,
+    }
+
+    /// No constant in the engine settles a trip while its session is alive
+    /// ([B06]). Every `Duration` the two engine files declare is enumerated
+    /// here with what it bounds, and the source is scanned so a constant
+    /// added later has to be named — the ceiling cannot come back on the
+    /// strength of a doc comment's argument.
+    #[test]
+    fn every_remaining_duration_bounds_a_probe_an_orphan_or_a_poll() {
+        let declared: &[(&str, Duration, Bounds)] = &[
+            ("SWEEP_TICK", SWEEP_TICK, Bounds::Poll),
+            ("PROBE_TIMEOUT", PROBE_TIMEOUT, Bounds::Probe),
+            ("ORPHANED_RUN_AGE", ORPHANED_RUN_AGE, Bounds::Orphan),
+            ("SETTLE_POLL", SETTLE_POLL, Bounds::Poll),
+            (
+                "SESSION_READ_INTERVAL",
+                crate::feeds::tripwire_session::SESSION_READ_INTERVAL,
+                Bounds::Poll,
+            ),
+        ];
+        let mut seen: Vec<&str> = Vec::new();
+        for source in [
+            include_str!("tripwire.rs"),
+            include_str!("tripwire_session.rs"),
+        ] {
+            for line in source.lines() {
+                // Any visibility, not the two these files happen to wear
+                // today. The constant this test exists to keep out was
+                // declared `pub const TRIPWIRE_RUN_TIMEOUT`, so a scan blind
+                // to `pub` is blind at exactly the shape the ceiling would
+                // come back in.
+                let line = line.trim_start();
+                let line = match line.strip_prefix("pub") {
+                    Some(rest) => rest.trim_start_matches(|c| c != ' ').trim_start(),
+                    None => line,
+                };
+                let Some(rest) = line
+                    .strip_prefix("const ")
+                    .or_else(|| line.strip_prefix("static "))
+                else {
+                    continue;
+                };
+                let Some((name, ty)) = rest.split_once(':') else {
+                    continue;
+                };
+                if !ty.trim_start().starts_with("Duration") {
+                    continue;
+                }
+                let name = name.trim();
+                assert!(
+                    declared.iter().any(|(n, _, _)| *n == name),
+                    "`{}` is a duration this test does not know; say what it bounds, and it \
+                     may not be a live session",
+                    name
+                );
+                seen.push(name);
+            }
+        }
+        // And the scan reached every one of them: a guard that silently stops
+        // reading its own sources would pass for the same reason an empty one
+        // does.
+        for (name, _, _) in declared {
+            assert!(
+                seen.contains(name),
+                "the scan never found `{name}`; it is no longer reading what it claims to"
+            );
+        }
+        // A poll is a cadence, not a deadline: short enough that nothing waits
+        // on it noticeably, and nothing it reads is failed by it.
+        for (name, value, bounds) in declared {
+            if *bounds == Bounds::Poll {
+                assert!(
+                    *value <= Duration::from_secs(10),
+                    "{name} is too long to be a poll and too short to be anything else"
+                );
+            }
+        }
+        // The one age that fails a row belongs to another instance's crash,
+        // and it stands past the one bounded thing a run contains.
+        assert!(ORPHANED_RUN_AGE > PROBE_TIMEOUT);
+        assert!(
+            declared
+                .iter()
+                .filter(|(_, _, b)| *b == Bounds::Orphan)
+                .count()
+                == 1
+        );
+    }
 
     /// A fixed clock, so a trip's timestamps are the test's rather than the
     /// machine's.
@@ -2509,6 +2716,9 @@ mod tests {
             },
             /// End the turn having resolved nothing.
             Silent,
+            /// Commit a round, then end the turn having resolved nothing — a
+            /// session that did real work and then died or forgot the verb.
+            Abandon,
         }
 
         /// A session runner that answers from a script of [`Reply`]s, one per
@@ -2519,6 +2729,9 @@ mod tests {
             wire_id: i64,
             script: Mutex<std::collections::VecDeque<Reply>>,
             seen: Mutex<Vec<SeenRun>>,
+            /// How long each spawn works before it answers. Zero unless a
+            /// test is about the wait itself.
+            delay: Duration,
         }
 
         impl FakeSessions {
@@ -2527,11 +2740,21 @@ mod tests {
                 wire_id: i64,
                 script: Vec<Reply>,
             ) -> Arc<FakeSessions> {
+                FakeSessions::delayed(db_path, wire_id, script, Duration::ZERO)
+            }
+
+            fn delayed(
+                db_path: &std::path::Path,
+                wire_id: i64,
+                script: Vec<Reply>,
+                delay: Duration,
+            ) -> Arc<FakeSessions> {
                 Arc::new(FakeSessions {
                     db_path: db_path.to_path_buf(),
                     wire_id,
                     script: Mutex::new(script.into_iter().collect()),
                     seen: Mutex::new(Vec::new()),
+                    delay,
                 })
             }
 
@@ -2540,8 +2763,8 @@ mod tests {
             }
         }
 
-        /// A frame-shaped transcript, the way the real runner hands one back:
-        /// the prose arrives inside an assistant frame's text field, never as
+        /// A transcript-shaped transcript, the way the real runner hands one back:
+        /// the prose arrives inside an assistant line's text field, never as
         /// bare lines. A plain-text fake is what hid the old work tier's
         /// unreadable-transcript bug from this suite.
         fn transcript(prose: &str) -> String {
@@ -2558,6 +2781,9 @@ mod tests {
                 &self,
                 request: TripwireSessionRequest,
             ) -> Result<TripwireSessionOutcome, String> {
+                if !self.delay.is_zero() {
+                    tokio::time::sleep(self.delay).await;
+                }
                 let reply = self.script.lock().unwrap().pop_front();
                 let session_id = format!("sess-tripwire-{}", self.seen.lock().unwrap().len() + 1);
                 self.seen.lock().unwrap().push(SeenRun {
@@ -2571,11 +2797,15 @@ mod tests {
                     return Ok(TripwireSessionOutcome {
                         session_id,
                         transcript: transcript("nothing was scripted for this spawn"),
-                        completed: true,
+                        end: SessionEnd::Finished,
                     });
                 };
                 let closing = match reply {
                     Reply::Silent => "I had a look around.",
+                    Reply::Abandon => {
+                        commit_a_round(&request.worktree);
+                        "I made the change and then lost my way."
+                    }
                     Reply::Resolve {
                         status,
                         headline,
@@ -2584,18 +2814,7 @@ mod tests {
                         commits,
                     } => {
                         if commits {
-                            std::fs::write(request.worktree.join("fixed.txt"), "fixed").unwrap();
-                            for args in [
-                                vec!["add", "-A"],
-                                vec!["commit", "-m", "the tripwire's round"],
-                            ] {
-                                let out = std::process::Command::new("git")
-                                    .args(&args)
-                                    .current_dir(&request.worktree)
-                                    .output()
-                                    .unwrap();
-                                assert!(out.status.success(), "{args:?}");
-                            }
+                            commit_a_round(&request.worktree);
                         }
                         let conn = ledger::open_ledger(&self.db_path).unwrap();
                         let resolution = ledger::resolve_running(
@@ -2620,9 +2839,42 @@ mod tests {
                 Ok(TripwireSessionOutcome {
                     session_id,
                     transcript: transcript(closing),
-                    completed: true,
+                    end: SessionEnd::Finished,
                 })
             }
+        }
+
+        /// One round on an arc worktree, the way a session leaves one.
+        fn commit_a_round(worktree: &std::path::Path) {
+            std::fs::write(worktree.join("fixed.txt"), "fixed").unwrap();
+            for args in [
+                vec!["add", "-A"],
+                vec!["commit", "-m", "the tripwire's round"],
+            ] {
+                let out = std::process::Command::new("git")
+                    .args(&args)
+                    .current_dir(worktree)
+                    .output()
+                    .unwrap();
+                assert!(out.status.success(), "{args:?}");
+            }
+        }
+
+        /// What the base checkout is, byte for byte as far as git can tell:
+        /// its `HEAD` and every path that differs from it. Two equal
+        /// fingerprints mean nothing a trip did reached the user's checkout.
+        fn base_fingerprint(root: &std::path::Path) -> String {
+            let mut out = String::new();
+            for args in [vec!["rev-parse", "HEAD"], vec!["status", "--porcelain"]] {
+                let run = std::process::Command::new("git")
+                    .args(&args)
+                    .current_dir(root)
+                    .output()
+                    .unwrap();
+                assert!(run.status.success(), "{args:?}");
+                out.push_str(&String::from_utf8_lossy(&run.stdout));
+            }
+            out
         }
 
         /// A git repository with one commit, and the state directory redirected
@@ -3011,16 +3263,16 @@ mod tests {
             );
         }
 
-        /// The settle ceiling, with time under the test's control ([P07]).
+        /// No clock settles a trip whose session is alive, with time under the
+        /// test's control ([P07]).
         ///
-        /// A session that never comes back holds a machine-wide concurrency
-        /// slot, so the ceiling is what makes a wedged `claude` cost one wire
-        /// rather than the facility. The paused clock is what lets this be
-        /// asserted at all: the auto-advance reaches the deadline the moment
-        /// every task is idle, which is exactly the state a wedged session
-        /// leaves the runtime in.
+        /// The runs the old ceiling killed were real work, nearly done. A
+        /// session the supervisor reports alive is left to finish, and the
+        /// user who can see the trip on the card is the one who decides how
+        /// long that may take. The paused clock lets three hours pass in a
+        /// moment; the row is still `running` at the end of them.
         #[tokio::test(start_paused = true)]
-        async fn a_session_that_never_comes_back_is_settled_by_the_ceiling() {
+        async fn a_session_alive_past_any_duration_is_never_failed() {
             /// A session runner whose turn never ends.
             struct Wedged;
 
@@ -3044,10 +3296,63 @@ mod tests {
             ledger::record_run(&h.conn, trip_id, None, None).unwrap();
 
             let db: Db = Mutex::new(ledger::open_ledger(&h.config.db_path).unwrap());
+            let waited = tokio::time::timeout(
+                Duration::from_secs(3 * 60 * 60),
+                run_phase(
+                    &h.config,
+                    &db,
+                    &Wedged,
+                    TripwireSessionRequest {
+                        tripwire: "ci".to_string(),
+                        worktree: PathBuf::from("/tmp"),
+                        permission_mode: "plan".to_string(),
+                        model: None,
+                        prompt: "diagnose".to_string(),
+                    },
+                    trip_id,
+                ),
+            )
+            .await;
+
+            assert!(
+                waited.is_err(),
+                "the phase settled a session that was still alive"
+            );
+            let trip = ledger::trip(&h.conn, trip_id).unwrap().unwrap();
+            assert_eq!(trip.status, "running", "and the row, not only the return");
+        }
+
+        /// A session that resolves long after the old ceilings would have
+        /// fired settles by its verb, with the resolution it wrote.
+        #[tokio::test(start_paused = true)]
+        async fn a_session_that_resolves_after_hours_settles_by_its_verb() {
+            let h = harness();
+            let tripwire = lay(&h.conn, "ci", r#"{"fact":{"kind":"edit_failed"}}"#);
+            let Claim::Claimed { trip_id } =
+                ledger::claim_trip(&h.conn, tripwire.id, "landing:abc", 1, "inst-a", None).unwrap()
+            else {
+                panic!("claimed");
+            };
+            ledger::record_run(&h.conn, trip_id, None, None).unwrap();
+            let sessions = FakeSessions::delayed(
+                &h.config.db_path,
+                tripwire.id,
+                vec![Reply::Resolve {
+                    status: TripStatus::Awaiting,
+                    headline: "worth a look, hours later",
+                    author: None,
+                    closing: "done at last",
+                    commits: false,
+                }],
+                Duration::from_secs(2 * 60 * 60),
+            );
+
+            let db: Db = Mutex::new(ledger::open_ledger(&h.config.db_path).unwrap());
+            let started = tokio::time::Instant::now();
             let phase = run_phase(
                 &h.config,
                 &db,
-                &Wedged,
+                sessions.as_ref(),
                 TripwireSessionRequest {
                     tripwire: "ci".to_string(),
                     worktree: PathBuf::from("/tmp"),
@@ -3059,26 +3364,26 @@ mod tests {
             )
             .await;
 
-            assert_eq!(phase.settled.status, TripStatus::Failed);
+            assert!(started.elapsed() >= Duration::from_secs(2 * 60 * 60));
+            assert_eq!(phase.settled.status, TripStatus::Awaiting);
+            assert_eq!(phase.closing, "done at last");
             let trip = ledger::trip(&h.conn, trip_id).unwrap().unwrap();
-            assert_eq!(trip.status, "failed", "and the row, not only the return");
-            assert!(
-                trip.headline
-                    .as_deref()
-                    .is_some_and(|h| h.contains("twenty minutes")),
-                "{:?}",
-                trip.headline
+            assert_eq!(trip.status, "awaiting");
+            assert_eq!(
+                trip.headline.as_deref(),
+                Some("worth a look, hours later"),
+                "the verb's resolution, not the engine's"
             );
         }
 
-        /// The settle race, and the whole of why the ceiling goes through a
+        /// The settle race, and the whole of why the engine's settle goes through a
         /// compare-and-set (Risk R03).
         ///
-        /// A session that resolves in the gap between the ceiling's last read
-        /// and its write must keep its resolution: the ceiling's `failed` is a
+        /// A session that resolves in the gap between the engine's last read
+        /// and its write must keep its resolution: the engine's `failed` is a
         /// statement about a session that said nothing, and one that spoke has
         /// falsified it. Driven here by settling the row first and asking the
-        /// ceiling's verb to overwrite it, which is the losing side of the race
+        /// engine's verb to overwrite it, which is the losing side of the race
         /// arriving second.
         #[test]
         fn the_settle_race_admits_exactly_one_writer() {
@@ -3106,7 +3411,7 @@ mod tests {
             .unwrap();
             assert!(matches!(resolution, ledger::Resolution::Resolved { .. }));
 
-            // The ceiling arrives after it, and is refused.
+            // The engine's settle arrives after it, and is refused.
             assert!(
                 !ledger::settle_if_running(
                     &h.conn,
@@ -3119,7 +3424,7 @@ mod tests {
                     3,
                 )
                 .unwrap(),
-                "the ceiling must not overwrite a resolution that already landed"
+                "the engine must not overwrite a resolution that already landed"
             );
             let trip = ledger::trip(&h.conn, trip_id).unwrap().unwrap();
             assert_eq!(trip.status, "awaiting");
@@ -3182,6 +3487,7 @@ mod tests {
             config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
             let landing = scoped_landing(&config, &root);
+            let before = base_fingerprint(&root);
             work(&config, &h.conn, &landing).await;
 
             let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
@@ -3192,10 +3498,181 @@ mod tests {
                 "and its arc did not survive the quiet: {:?}",
                 arcs_in(&root)
             );
+            assert_eq!(
+                base_fingerprint(&root),
+                before,
+                "a quiet trip leaves the base checkout byte-identical"
+            );
             assert!(
                 posts(&config.ledger).is_empty(),
                 "a quiet settle posts nothing, which is why keeping the arc would strand it"
             );
+        }
+
+        /// A session that committed and then ended without the verb left real
+        /// work that nobody decided to throw away, so the failure keeps the
+        /// arc and names it ([B03]). The base checkout is untouched either
+        /// way.
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn a_failed_trip_with_rounds_keeps_its_arc_and_the_base_untouched() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
+            let sessions = FakeSessions::new(
+                &h.config.db_path,
+                tripwire.id,
+                vec![
+                    Reply::Resolve {
+                        status: TripStatus::Settled,
+                        headline: "worth a try",
+                        author: Some("try the obvious fix"),
+                        closing: "The obvious fix is a one-liner.",
+                        commits: false,
+                    },
+                    Reply::Abandon,
+                ],
+            );
+            let mut config = h.config;
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            let landing = scoped_landing(&config, &root);
+            let arc = tripwire_arc_name("ci", &event_key(&landing));
+            let before = base_fingerprint(&root);
+            work(&config, &h.conn, &landing).await;
+
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
+            assert_eq!(trips[0].status, "failed");
+            assert_eq!(trips[0].arc.as_deref(), Some(arc.as_str()));
+            assert!(
+                trips[0]
+                    .headline
+                    .as_deref()
+                    .is_some_and(|h| h.contains(&arc) && h.contains("1 round")),
+                "the headline names the kept arc: {:?}",
+                trips[0].headline
+            );
+            assert!(
+                tugarc_core::ops::arc_exists_in(&root, &arc),
+                "the arc survived the failure: {:?}",
+                arcs_in(&root)
+            );
+            assert_eq!(
+                base_fingerprint(&root),
+                before,
+                "a failed trip leaves the base checkout byte-identical"
+            );
+            assert!(
+                posts(&config.ledger).is_empty(),
+                "a failure is a trip-log row and never a post ([P08])"
+            );
+        }
+
+        /// A failure with nothing on its arc has nothing to keep.
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn a_failed_trip_with_an_empty_arc_discards_it() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
+            let sessions = FakeSessions::new(
+                &h.config.db_path,
+                tripwire.id,
+                vec![
+                    Reply::Resolve {
+                        status: TripStatus::Settled,
+                        headline: "worth a try",
+                        author: Some("try the obvious fix"),
+                        closing: "The obvious fix is a one-liner.",
+                        commits: false,
+                    },
+                    Reply::Silent,
+                ],
+            );
+            let mut config = h.config;
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            let landing = scoped_landing(&config, &root);
+            let before = base_fingerprint(&root);
+            work(&config, &h.conn, &landing).await;
+
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
+            assert_eq!(trips[0].status, "failed");
+            assert!(
+                arcs_in(&root).is_empty(),
+                "an empty arc is not kept: {:?}",
+                arcs_in(&root)
+            );
+            assert_eq!(base_fingerprint(&root), before);
+        }
+
+        /// The restart sweep follows the same rule: an arc with rounds on it
+        /// survives the failure and is named; an empty one goes ([B03], [F05]).
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn the_boot_sweep_keeps_a_restarted_trips_arc_when_it_holds_rounds() {
+            let (_temp, root) = scratch_repo();
+            let h = harness();
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
+            let sha = {
+                let out = std::process::Command::new("git")
+                    .args(["rev-parse", "HEAD"])
+                    .current_dir(&root)
+                    .output()
+                    .unwrap();
+                String::from_utf8_lossy(&out.stdout).trim().to_string()
+            };
+            let payload = serde_json::json!({
+                "landing": {"kind": "commit", "branch": "main", "sha": sha, "repo_root": root},
+            })
+            .to_string();
+
+            let mut trips = Vec::new();
+            for (key, with_round) in [("landing:kept", true), ("landing:empty", false)] {
+                let Claim::Claimed { trip_id } = ledger::claim_trip(
+                    &h.conn,
+                    tripwire.id,
+                    key,
+                    1,
+                    &h.config.instance,
+                    Some(&payload),
+                )
+                .unwrap() else {
+                    panic!("claimed");
+                };
+                let arc = tripwire_arc_name("ci", key);
+                let created = tugarc_core::ops::create_in(&root, &arc, None, false, None).unwrap();
+                if with_round {
+                    commit_a_round(std::path::Path::new(&created.worktree));
+                }
+                ledger::record_run(&h.conn, trip_id, None, Some(&arc)).unwrap();
+                trips.push((trip_id, arc));
+            }
+            let before = base_fingerprint(&root);
+
+            let mut conn = ledger::open_ledger(&h.config.db_path).unwrap();
+            sweep_restarted_runs(&h.config, &mut conn).await;
+
+            let (kept_id, kept_arc) = &trips[0];
+            let kept = ledger::trip(&h.conn, *kept_id).unwrap().unwrap();
+            assert_eq!(kept.status, "failed");
+            assert!(
+                kept.headline
+                    .as_deref()
+                    .is_some_and(|h| h.contains(kept_arc.as_str())),
+                "{:?}",
+                kept.headline
+            );
+            assert!(tugarc_core::ops::arc_exists_in(&root, kept_arc));
+
+            let (empty_id, empty_arc) = &trips[1];
+            let empty = ledger::trip(&h.conn, *empty_id).unwrap().unwrap();
+            assert_eq!(empty.status, "failed");
+            assert!(
+                !tugarc_core::ops::arc_exists_in(&root, empty_arc),
+                "an empty arc is discarded at boot as at run time"
+            );
+            assert_eq!(base_fingerprint(&root), before);
         }
 
         /// An awaiting trip holds until its arc stops existing, and then the

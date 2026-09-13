@@ -431,7 +431,7 @@ const CLOCK_POLL: Duration = Duration::from_secs(60);
 /// gap in about a second (`DEFAULT_RETRY_DELAY`, plus a spawn), so thirty
 /// seconds is an order of magnitude of headroom over the only legitimate case
 /// and still turns the wedge `at0505` found from *forever* into *late*.
-const CHILD_GONE_GRACE: Duration = Duration::from_secs(30);
+pub(crate) const CHILD_GONE_GRACE: Duration = Duration::from_secs(30);
 
 /// Whether the arc's clock has run out.
 ///

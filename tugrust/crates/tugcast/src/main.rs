@@ -1857,7 +1857,10 @@ async fn main() {
             // tripwire's session is an ordinary one in every respect but who
             // asked for it.
             sessions: Some(Arc::new(
-                feeds::tripwire_session::SupervisorTripwireSessions::new(Arc::clone(&supervisor)),
+                feeds::tripwire_session::SupervisorTripwireSessions::new(
+                    Arc::clone(&supervisor),
+                    Arc::clone(&ledger),
+                ),
             )),
             overview_tx: Some(overview_tx.clone()),
             cancel: cancel.clone(),

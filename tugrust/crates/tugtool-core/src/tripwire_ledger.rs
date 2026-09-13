@@ -1190,23 +1190,72 @@ pub fn trips_for_tripwire(
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// Every trip this instance left `running` when it died. Swept to `failed` at
+/// Every trip this instance left `running` or `claimed` when it died. Swept at
 /// engine boot: their processes went with the previous tugcast, and a row
 /// that reads `running` forever holds a concurrency slot nothing will free.
+///
+/// A `claimed` row is cleared rather than failed. Every normal path moves a
+/// claim on at once, so one still standing is a crash between the claim and
+/// its first transition — nothing ran, nothing was recorded, and the row's
+/// only effect is to hold `UNIQUE(wire_id, event_key)` against every later
+/// claim of the same commit. Deleting it is what lets that commit be
+/// evaluated again. Answers how many rows were failed or cleared.
 pub fn sweep_stale_running(
     conn: &Connection,
     instance: &str,
     at_ms: i64,
 ) -> Result<usize, TripwireLedgerError> {
-    Ok(conn.execute(
+    let failed = conn.execute(
         "UPDATE trips SET status = 'failed', swallow_reason = 'instance restarted',
                           settled_at_ms = ?1
          WHERE status = 'running' AND instance = ?2",
         params![at_ms, instance],
-    )?)
+    )?;
+    let cleared = conn.execute(
+        "DELETE FROM trips WHERE status = 'claimed' AND instance = ?1",
+        params![instance],
+    )?;
+    Ok(failed + cleared)
 }
 
-/// Fail every `running` trip claimed before `before_ms`, whoever owns it.
+/// This instance's `running` trips — what [`sweep_stale_running`] is about to
+/// fail, read before it does so the arcs those rows name can be judged rather
+/// than lost.
+pub fn running_trips_of(
+    conn: &Connection,
+    instance: &str,
+) -> Result<Vec<Trip>, TripwireLedgerError> {
+    let sql = format!(
+        "SELECT {TRIP_COLUMNS} FROM trips
+         WHERE status = 'running' AND instance = ?1
+         ORDER BY at_ms, id"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params![instance], trip_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// Replace the headline on a trip that has already settled `failed`.
+///
+/// The failure's settle and the decision about its arc happen in that order,
+/// and the second has something to say the first could not: that the arc was
+/// kept, and how much it holds. Only a `failed` row is touched, so a row a
+/// verb settled in the meantime keeps the verb's words. Answers whether the
+/// row was amended.
+pub fn amend_failed_headline(
+    conn: &Connection,
+    trip_id: i64,
+    headline: &str,
+) -> Result<bool, TripwireLedgerError> {
+    let changed = conn.execute(
+        "UPDATE trips SET headline = ?1 WHERE id = ?2 AND status = 'failed'",
+        params![headline, trip_id],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Fail every `running` trip another instance claimed before `before_ms`, and
+/// clear every `claimed` row it left there.
 ///
 /// [`sweep_stale_running`] is the clean half and cannot be the whole of it: an
 /// instance only ever knows its own name, so a tugcast that crashed and never
@@ -1215,19 +1264,26 @@ pub fn sweep_stale_running(
 /// — and nothing recovers on its own, because draining the queue is what a
 /// settle does and no settle is coming for a dead instance's trip.
 ///
-/// Age is the only evidence available from here, and the caller sets the bound
-/// past the longest run any engine can produce, so a live run is never mistaken
-/// for an abandoned one.
+/// Age is the only evidence available about another instance, so the caller's
+/// bound is what stands between an abandoned run and a long one. This
+/// instance's own rows are never touched here: it knows its runs are live,
+/// and no session it is running is bounded by a clock.
 pub fn sweep_orphaned_running(
     conn: &Connection,
     before_ms: i64,
+    instance: &str,
 ) -> Result<usize, TripwireLedgerError> {
-    Ok(conn.execute(
+    let failed = conn.execute(
         "UPDATE trips SET status = 'failed', swallow_reason = 'abandoned',
                           settled_at_ms = ?1
-         WHERE status = 'running' AND at_ms < ?1",
-        params![before_ms],
-    )?)
+         WHERE status = 'running' AND at_ms < ?1 AND instance != ?2",
+        params![before_ms, instance],
+    )?;
+    let cleared = conn.execute(
+        "DELETE FROM trips WHERE status = 'claimed' AND at_ms < ?1 AND instance != ?2",
+        params![before_ms, instance],
+    )?;
+    Ok(failed + cleared)
 }
 
 // MARK: - Settings
@@ -2001,6 +2057,63 @@ mod tests {
             trip(&conn, theirs).unwrap().unwrap().status,
             "running",
             "another instance's run is still alive"
+        );
+    }
+
+    /// A `claimed` row a dead instance left behind is a crash between the
+    /// claim and its first transition. It is cleared, and the commit it held
+    /// can be claimed again.
+    #[test]
+    fn the_boot_sweep_clears_a_claimed_row_so_the_commit_can_be_claimed_again() {
+        let conn = ledger();
+        let w = lay_one(&conn, "w");
+        assert!(matches!(
+            claim_trip(&conn, w.id, "landing:abc", 1, "me", None).unwrap(),
+            Claim::Claimed { .. }
+        ));
+        assert_eq!(
+            claim_trip(&conn, w.id, "landing:abc", 2, "me", None).unwrap(),
+            Claim::AlreadyClaimed,
+            "the crashed claim poisons the commit until it is swept"
+        );
+
+        assert_eq!(sweep_stale_running(&conn, "me", 5_000).unwrap(), 1);
+        assert!(
+            matches!(
+                claim_trip(&conn, w.id, "landing:abc", 3, "me", None).unwrap(),
+                Claim::Claimed { .. }
+            ),
+            "the same commit can be evaluated again"
+        );
+    }
+
+    /// The age sweep clears another instance's stale claim the same way, and
+    /// leaves this instance's own rows alone however old they are: a session
+    /// this instance is running has no clock on it.
+    #[test]
+    fn the_age_sweep_clears_another_instances_claim_and_never_this_instances_rows() {
+        let conn = ledger();
+        let w = lay_one(&conn, "w");
+        assert!(matches!(
+            claim_trip(&conn, w.id, "landing:theirs", 1, "them", None).unwrap(),
+            Claim::Claimed { .. }
+        ));
+        let Claim::Claimed { trip_id: mine } =
+            claim_trip(&conn, w.id, "landing:mine", 1, "me", None).unwrap()
+        else {
+            panic!("claimed");
+        };
+        record_run(&conn, mine, None, None).unwrap();
+
+        assert_eq!(sweep_orphaned_running(&conn, 5_000, "me").unwrap(), 1);
+        assert!(matches!(
+            claim_trip(&conn, w.id, "landing:theirs", 6_000, "me", None).unwrap(),
+            Claim::Claimed { .. }
+        ));
+        assert_eq!(
+            trip(&conn, mine).unwrap().unwrap().status,
+            "running",
+            "this instance's long run is not an orphan"
         );
     }
 
