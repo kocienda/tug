@@ -25,6 +25,22 @@ function account(
   return turn.drainActivity();
 }
 
+/**
+ * Drive one turn across several bins: each element of `bins` is the frames
+ * folded before that bin drains, and the result is one drain per bin in
+ * order. {@link account} folds and drains once, so it cannot express a signal
+ * that is *held* across bins — which is exactly what the foreground hum is.
+ */
+function accountBins(
+  bins: Array<Array<Record<string, unknown>>>,
+): Array<Partial<Record<ActivityChannel, number>> | null> {
+  const turn = newTurn();
+  return bins.map((frames) => {
+    for (const f of frames) turn.accountActivity(f);
+    return turn.drainActivity();
+  });
+}
+
 describe("ActiveTurn.accountActivity — Spec S04 counting", () => {
   test("assistant_text / thinking_text partial deltas sum into text (parity)", () => {
     const channels = account([
@@ -70,7 +86,10 @@ describe("ActiveTurn.accountActivity — Spec S04 counting", () => {
       // An empty-input tool_use is not a real call — not counted.
       { type: "tool_use", tool_use_id: "f2", input: {} },
     ]);
-    expect(channels).toEqual({ tools: 250 });
+    // f1 is still in flight when the bin drains, so the burst is joined by
+    // one hum ([B01]/[B02]) — the drain of a bin with an open foreground
+    // tool is never idle.
+    expect(channels).toEqual({ tools: 250 + 30 });
   });
 
   test("a foreground tool_result credits capped output length into tools (parity)", () => {
@@ -80,6 +99,67 @@ describe("ActiveTurn.accountActivity — Spec S04 counting", () => {
       { type: "tool_result", output: "y".repeat(5000) },
     ]);
     expect(channels).toEqual({ tools: 50 + 600 });
+  });
+
+  test("an open foreground tool hums into tools every bin until its result lands", () => {
+    const bins = accountBins([
+      // The call opens: its burst, plus the first hum.
+      [{ type: "tool_use", tool_use_id: "f1", input: { cmd: "sleep 51" } }],
+      // Bins with nothing on the wire at all — the shell is running and no
+      // bytes move. Without the hum these are the flat floor the tape drew.
+      [],
+      [],
+      [],
+      // The result lands, closing the tool.
+      [{ type: "tool_result", tool_use_id: "f1", output: "x".repeat(50) }],
+      // Nothing is open now, so the turn is idle again.
+      [],
+      [],
+    ]);
+    expect(bins).toEqual([
+      { tools: 250 + 30 },
+      { tools: 30 },
+      { tools: 30 },
+      { tools: 30 },
+      // The id leaves the in-flight set when the result is folded, which is
+      // before this bin drains — so the result's bin carries the result and
+      // no hum. The tool is no longer open by the time the bin is taken.
+      { tools: 50 },
+      null,
+      null,
+    ]);
+  });
+
+  test("a live turn with no open tool hums nothing — the hum is conditional on the tool", () => {
+    // The turn exists and is being drained; only an open foreground tool
+    // raises a bin off null. A completed call leaves nothing humming.
+    expect(accountBins([[], [], []])).toEqual([null, null, null]);
+    expect(
+      accountBins([
+        [
+          { type: "tool_use", tool_use_id: "g1", input: { cmd: "ls" } },
+          { type: "tool_result", tool_use_id: "g1", output: "ok" },
+        ],
+        [],
+      ]),
+    ).toEqual([{ tools: 250 + 2 }, null]);
+  });
+
+  test("a tool_use re-emitted after its result does not re-open the hum", () => {
+    // The burst is deduped by id because the same foreground `tool_use`
+    // reaches the accumulator more than once. The in-flight set is opened
+    // under that same dedupe, so a late re-emit cannot re-open a tool whose
+    // result has landed — nothing would ever close it again, and the tape
+    // would hum for the rest of the turn on a session doing nothing.
+    const call = { type: "tool_use", tool_use_id: "h1", input: { cmd: "ls" } };
+    expect(
+      accountBins([
+        [call],
+        [{ type: "tool_result", tool_use_id: "h1", output: "ok" }],
+        [call],
+        [],
+      ]),
+    ).toEqual([{ tools: 250 + 30 }, { tools: 2 }, null, null]);
   });
 
   test("subagent tool_use burst + tool_result land on subagents, not tools (parity)", () => {

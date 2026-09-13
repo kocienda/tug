@@ -2661,6 +2661,17 @@ const SUBAGENT_RESULT_UNITS_CAP = 600;
 const FOREGROUND_RESULT_UNITS_CAP = 600;
 
 /**
+ * The hum a foreground tool holds while it is in flight ([B02]). A shell
+ * command moves no bytes between its call and its result, so without this the
+ * tape reads idle for the whole run — one spike, a flat floor, one spike. Each
+ * 250 ms bin in which a foreground tool is open credits this to `tools`, which
+ * at 30 units a bin is a rate of 120 per second: about a quarter of full scale,
+ * a hum under the call burst and the result rather than a competitor to them.
+ * This is the only knob for the level.
+ */
+const FOREGROUND_TOOL_HUM_UNITS = 30;
+
+/**
  * Activity-flush cadence ([Q06]). 250 ms matches the deck meter's bin so the
  * consumer math is unchanged: one `activity_delta` per bin per live turn.
  */
@@ -2929,6 +2940,14 @@ export class ActiveTurn {
   private readonly subagentToolSeen = new Set<string>();
   /** Foreground `tool_use` ids already credited a burst (dedupe; enhancement row). */
   private readonly foregroundToolSeen = new Set<string>();
+  /**
+   * Foreground `tool_use` ids currently in flight — added when the call is
+   * credited its burst, removed when its `tool_result` lands. While non-empty,
+   * every drained bin carries {@link FOREGROUND_TOOL_HUM_UNITS} on `tools`
+   * ([B01]). A backgrounded tool needs no special case: its result lands at
+   * once, so its id leaves the set immediately ([B03]).
+   */
+  private readonly foregroundToolOpen = new Set<string>();
   /** Resolves when the turn ends (either via `gotResult` or stdout EOF). */
   readonly completion: Promise<void>;
   private resolveCompletion: (() => void) | null;
@@ -3014,11 +3033,14 @@ export class ActiveTurn {
         msg.output.length,
         SUBAGENT_RESULT_UNITS_CAP,
       );
-    } else if (!parent && t === "tool_result" && typeof msg.output === "string") {
-      this.activity.tools += Math.min(
-        msg.output.length,
-        FOREGROUND_RESULT_UNITS_CAP,
-      );
+    } else if (!parent && t === "tool_result") {
+      if (toolUseId !== null) this.foregroundToolOpen.delete(toolUseId);
+      if (typeof msg.output === "string") {
+        this.activity.tools += Math.min(
+          msg.output.length,
+          FOREGROUND_RESULT_UNITS_CAP,
+        );
+      }
     } else if (
       !parent &&
       t === "tool_use" &&
@@ -3033,6 +3055,10 @@ export class ActiveTurn {
       if (!this.foregroundToolSeen.has(toolUseId)) {
         this.foregroundToolSeen.add(toolUseId);
         this.activity.tools += TOOL_USE_ACTIVITY_UNITS;
+        // Opened here rather than beside the branch, so that a re-emitted
+        // `tool_use` for an id whose result has already landed cannot
+        // re-open a tool nothing will close again ([B01]).
+        this.foregroundToolOpen.add(toolUseId);
       }
     } else if (t === "streaming_usage") {
       // Enhancement: real output-token velocity. `output_tokens` is
@@ -3058,8 +3084,16 @@ export class ActiveTurn {
    * Drain the accumulated activity into a wire `channels` object carrying
    * only the non-zero channels, resetting the accumulator. Returns `null`
    * for an idle bin so the flush emits no frame ([P15]).
+   *
+   * A bin in which a foreground tool is open is not idle, so the hum is
+   * credited here, before the non-zero scan — the hum is what makes such a
+   * bin non-empty, and crediting it after the scan would drop the frame it
+   * exists to produce.
    */
   drainActivity(): Partial<Record<ActivityChannel, number>> | null {
+    if (this.foregroundToolOpen.size > 0) {
+      this.activity.tools += FOREGROUND_TOOL_HUM_UNITS;
+    }
     const channels: Partial<Record<ActivityChannel, number>> = {};
     let any = false;
     for (const ch of ["text", "tokens", "tools", "subagents"] as const) {
