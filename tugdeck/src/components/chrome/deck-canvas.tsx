@@ -104,13 +104,22 @@ import { allocateUntitledNumber } from "@/lib/untitled-naming";
 import { cardServicesStore } from "@/lib/card-services-store";
 import {
   MAX_FLIP_SCALE_DISTORTION,
+  beatLaunchVelocity,
   flipDelta,
+  planSettleBeats,
   scaleDistortion,
   springSettleKeyframes,
+  type BeatKind,
+  type HeldTerms,
+  type InterruptedBeat,
+  type SettleBeat,
 } from "@/lib/pane-flip";
 import {
+  motionDurationMs,
   motionKeyframes,
   velocityAt,
+  type MotionCurve,
+  type MotionRecipe,
 } from "@/lib/imposer-motion";
 import { dispatchCommand } from "@/command-dispatch";
 import {
@@ -610,6 +619,34 @@ function inlineRestorer(
     if (prev === "") el.style.removeProperty(property);
     else el.style.setProperty(property, prev);
   };
+}
+
+/**
+ * The recipe each beat of a settle plays on. The move beat IS the crossing —
+ * the settle the whole choreography is measured against — and the two resize
+ * beats have recipes of their own in `lib/imposer-motion.ts`.
+ */
+const BEAT_RECIPE: Record<BeatKind, MotionRecipe> = {
+  shrink: "shrink",
+  move: "crossing",
+  grow: "grow",
+};
+
+/**
+ * Write what a beat holds still onto the frame's inline style: the constant
+ * transform a resize beat wears while the move has not yet run, and the First
+ * size of an axis whose grow beat is still to come. Inline rather than a
+ * keyframe, so a move beat's effect stays transform-only and accelerated. The
+ * settle's restorers and `clearFlip` take every one of these off at the end.
+ */
+function applyHolds(frame: HTMLElement, held: HeldTerms): void {
+  if (held.transform !== undefined) {
+    const { dx, dy, sx } = held.transform;
+    const move = `translate(${dx}px, ${dy}px)`;
+    frame.style.transform = sx === 1 ? move : `${move} scaleX(${sx})`;
+  }
+  if (held.width !== undefined) frame.style.width = `${held.width}px`;
+  if (held.height !== undefined) frame.style.height = `${held.height}px`;
 }
 
 /**
@@ -2531,6 +2568,35 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   const arrangement = arrangementSignature(deckState, placeRuns);
   const arrangementRef = useRef(arrangement);
   const settleTimerRef = useRef<number | null>(null);
+  /**
+   * Re-arms the settle's window sweep — the timer that takes the settling
+   * mark off and snaps whatever is still in flight. `arm` writes it and arms
+   * the sweep at the crossing's nominal; the Last pass re-arms it once it
+   * knows the choreography, whose window is the sum of its beats and can be
+   * longer than any one recipe's. Takes SCALED milliseconds.
+   */
+  const settleSweepRef = useRef<((windowMs: number) => void) | null>(null);
+  /**
+   * Releases the session stores' notification hold, once per settle, and
+   * records which clock did it. The settle's own completion is the release
+   * on the normal path — after the final beat's last tween, on the far side
+   * of every frame's residue, fold crossing and resize episode ([B04] of
+   * `three-beat-settle`); the window sweep and the unmount are the guards
+   * behind it. `settleReleasedRef` is what makes the three one release:
+   * whichever fires first releases, and the others find nothing to do.
+   */
+  const settleReleaseRef = useRef<
+    ((source: "completion" | "sweep" | "unmount") => void) | null
+  >(null);
+  const settleReleasedRef = useRef(true);
+  /**
+   * Which launch the running choreography belongs to. A beat's completion
+   * launches the next beat, and a retarget that landed in between has already
+   * cancelled, restored and re-planned every frame — so a chain that outlives
+   * its launch must stop rather than put a stale beat on a frame another
+   * settle now owns. Bumped by every Last pass that launches.
+   */
+  const settleGenerationRef = useRef(0);
   /** Where each non-gesturing frame sat before the commit, by pane id. */
   const settleFirstRectsRef = useRef<Map<string, DOMRect>>(new Map());
   /**
@@ -2607,18 +2673,29 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   /** The raw (unscaled) settle duration read back for the current gesture. */
   const settleDurationRef = useRef(IMPOSITION_SETTLE_MS);
   /**
-   * The velocity the next crossing launches with, and when the running one
-   * started — the two numbers a velocity-matched retarget needs ([P04]).
+   * What a velocity-matched retarget needs ([P04]), across beats.
    *
-   * `arm` reads the interrupted tween's velocity off the crossing recipe at
-   * its elapsed time and leaves it here; the Last pass consumes it and resets
-   * it, so a settle that was NOT interrupted always launches from rest. One
-   * velocity for the whole settle rather than one per frame, because every
-   * frame in a settle rides the same curve — they were all launched together
+   * `settleBeatRef` is the beat the running settle is on — its kind, when it
+   * launched, and the velocity it was launched with — written by the Last
+   * pass as each beat starts and cleared when the settle finishes. `arm`
+   * reads the interrupted velocity off THAT beat's recipe at that beat's
+   * elapsed time, never off the crossing regardless of which beat was up,
+   * and leaves it in `settleLaunchRef` with the kind it belongs to; the Last
+   * pass consumes it and resets it, so a settle that was NOT interrupted
+   * always launches from rest. The velocity goes only to the replacement
+   * choreography's beat of the same kind — `beatLaunchVelocity` in
+   * `lib/pane-flip.ts` says why the other kinds launch from rest ([B06]).
+   *
+   * One record for the whole settle rather than one per frame, because every
+   * frame in a beat rides the same curve — they were all launched together
    * and interrupted together.
    */
-  const settleLaunchVelocityRef = useRef(0);
-  const settleLaunchedAtRef = useRef(0);
+  const settleLaunchRef = useRef<InterruptedBeat | null>(null);
+  const settleBeatRef = useRef<{
+    kind: BeatKind;
+    launchedAt: number;
+    initialVelocity: number;
+  } | null>(null);
   /**
    * The open resize episode on each frame, by pane id — DOM zone, never React
    * state.
@@ -2706,6 +2783,51 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // where it is hardest to see.
   useLayoutEffect(() => {
     const clearFlip = clearFlipRef.current;
+    const releaseSettle = (
+      source: "completion" | "sweep" | "unmount",
+    ): void => {
+      if (settleReleasedRef.current) return;
+      settleReleasedRef.current = true;
+      releaseSessions();
+      deckTrace.record({ kind: "settle-release", source });
+    };
+    settleReleaseRef.current = releaseSettle;
+    // The window sweep. Every tween should have finished and swept itself by
+    // the time this fires; the sweep is what guarantees no frame keeps the
+    // inline residue if one didn't. Armed by `arm` at the crossing's nominal
+    // and re-armed by the Last pass at the choreography's total, so it can
+    // never fire in the middle of a beat and snap every frame to its end. It
+    // no longer carries the release on the normal path — the settle's own
+    // completion does — so the release here is the guard for a settle whose
+    // completion never landed.
+    const scheduleSweep = (windowMs: number): void => {
+      const el = containerRef.current;
+      if (el === null) return;
+      if (settleTimerRef.current !== null) {
+        window.clearTimeout(settleTimerRef.current);
+      }
+      settleTimerRef.current = window.setTimeout(() => {
+        settleTimerRef.current = null;
+        el.removeAttribute("data-imposer-settling");
+        el.removeAttribute("data-imposer-beat");
+        releaseSettle("sweep");
+        for (const [paneId, entry] of [...settleTweensRef.current]) {
+          for (const anim of entry.anims) anim.cancel("snap-to-end");
+          clearFlip(paneId, entry.el, entry.anims);
+          // Same sweep for the fold mark: a crossing whose completion handler
+          // never landed would leave the interior held and the card waiting on
+          // an end that is not coming. Unguarded by id, because the window is
+          // over and no crossing of any vintage should outlive it.
+          endFoldCrossing(entry.el);
+        }
+        // Same sweep, for the same reason: an episode the Last pass never
+        // reached (no tween on that frame, a window with no animation clock
+        // at all) closes here rather than waiting for its own net.
+        for (const [, handle] of settleEpisodesRef.current) handle.end();
+        settleEpisodesRef.current.clear();
+      }, windowMs);
+    };
+    settleSweepRef.current = scheduleSweep;
     prevColumnModesRef.current = new Map(
       deckColumnsOf(store.getSnapshot(), null).map((c) => [c.slot, c.mode]),
     );
@@ -2760,10 +2882,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         return;
       }
 
-      // The fastest thing this arm interrupts, in travels per second. Zero
-      // when it interrupts nothing, which is the ordinary case now that a
-      // release is one commit ([P01]).
-      let retargetVelocity = 0;
+      // The beat this arm interrupts and the velocity it was carrying, in
+      // travels per second. Null when it interrupts nothing, which is the
+      // ordinary case now that a release is one commit ([P01]).
+      let interrupted: InterruptedBeat | null = null;
 
       // First: where every frame the imposer may move is right now. A running
       // tween's transform is included in the rect, which is the point — a
@@ -2823,9 +2945,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (running !== undefined) {
           // A frame caught mid-settle. It is not snapped to the end it never
           // reached — it is held exactly where the eye has it, and the
-          // velocity it was carrying is handed to the crossing this arm is
-          // about to launch, so the card continues rather than stopping and
-          // starting again ([P04]).
+          // velocity it was carrying is handed to the beat of the same kind
+          // this arm is about to launch, so the card continues rather than
+          // stopping and starting again ([P04]). A frame caught mid-resize
+          // is held at the size the eye has too, and its First rect below is
+          // that size, so it is re-planned from where it is.
           //
           // Held is also what makes the First rect above correct without any
           // repair: the rect was measured through the running transform, and
@@ -2834,19 +2958,29 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           // inline style instead, and the microtask that took it back was long
           // enough to paint — one frame at a stale size against fresh calc
           // geometry, which is the flash the census counts.
+          const beat = settleBeatRef.current;
+          if (interrupted === null && beat !== null) {
+            // Read once: every frame in a beat rides the same curve, and the
+            // velocity is the beat's own recipe at the beat's own elapsed
+            // time, off the spring it was actually launched with.
+            interrupted = {
+              kind: beat.kind,
+              velocity: velocityAt(
+                BEAT_RECIPE[beat.kind],
+                {
+                  nominalMs: settleDurationRef.current,
+                  initialVelocity: beat.initialVelocity,
+                },
+                performance.now() - beat.launchedAt,
+              ),
+            };
+          }
           deckTrace.record({
             kind: "settle-retarget",
             paneId,
             mode: "matched",
+            beat: beat?.kind ?? null,
           });
-          retargetVelocity = Math.max(
-            retargetVelocity,
-            velocityAt(
-              "crossing",
-              { nominalMs: settleDurationRef.current },
-              performance.now() - settleLaunchedAtRef.current,
-            ),
-          );
           for (const anim of running.anims) anim.cancel("hold-at-current");
           for (const restore of running.restores) restore();
           clearFlip(paneId, frame, running.anims);
@@ -2903,8 +3037,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         landing,
         outcome: motion && firstRects.size > 0 ? "carried" : "unarmed",
       });
-      // Handed to the crossing the Last pass builds.
-      settleLaunchVelocityRef.current = retargetVelocity;
+      // Handed to the beat of the same kind the Last pass builds. The beat
+      // that was running is over either way: its frames are held and
+      // re-planned, and nothing is on a beat until the Last pass starts one.
+      settleLaunchRef.current = interrupted;
+      settleBeatRef.current = null;
 
       el.style.setProperty(
         "--tugx-imposer-settle-duration",
@@ -2917,43 +3054,33 @@ export function DeckCanvas(_props: DeckCanvasProps) {
 
       // The cap is generous against the window it guards — it is a
       // wedge guard, not a second clock, and firing it early would
-      // reintroduce the very commit the hold is here to keep out.
-      if (motion) holdSessions(Math.max(2 * windowMs, 1000));
-
-      if (settleTimerRef.current !== null) {
-        window.clearTimeout(settleTimerRef.current);
+      // reintroduce the very commit the hold is here to keep out. Sized
+      // here against the crossing's nominal; the Last pass re-holds against
+      // the choreography's total once it knows the beats.
+      if (motion) {
+        settleReleasedRef.current = false;
+        holdSessions(Math.max(2 * windowMs, 1000));
       }
-      settleTimerRef.current = window.setTimeout(() => {
-        settleTimerRef.current = null;
-        el.removeAttribute("data-imposer-settling");
-        releaseSessions();
-        // Every tween should have finished and swept itself by now. The sweep
-        // is what guarantees no frame keeps the inline residue if one didn't.
-        for (const [paneId, entry] of [...settleTweensRef.current]) {
-          for (const anim of entry.anims) anim.cancel("snap-to-end");
-          clearFlip(paneId, entry.el, entry.anims);
-          // Same sweep for the fold mark: a crossing whose completion handler
-          // never landed would leave the interior held and the card waiting on
-          // an end that is not coming. Unguarded by id, because the window is
-          // over and no crossing of any vintage should outlive it.
-          endFoldCrossing(entry.el);
-        }
-        // Same sweep, for the same reason: an episode the Last pass never
-        // reached (no tween on that frame, a window with no animation clock
-        // at all) closes here rather than waiting for its own net.
-        for (const [, handle] of settleEpisodesRef.current) handle.end();
-        settleEpisodesRef.current.clear();
-      }, windowMs);
+
+      // Generous against the window it guards, like the hold's cap: the
+      // sweep is a wedge guard behind the settle's own completion, and one
+      // armed at exactly the crossing's duration would win the race with the
+      // last tween's `finished` by a frame and release from the wrong clock.
+      scheduleSweep(Math.max(2 * windowMs, 1000));
     };
     const unsubscribe = store.subscribe(arm);
     return () => {
       unsubscribe();
+      settleSweepRef.current = null;
+      settleReleaseRef.current = null;
       if (settleTimerRef.current !== null) {
         window.clearTimeout(settleTimerRef.current);
       }
       // Unmounting mid-gesture leaves neither a running tween nor a
       // transform — nor a card whose notifications nobody will release.
-      releaseSessions();
+      releaseSettle("unmount");
+      settleBeatRef.current = null;
+      settleLaunchRef.current = null;
       for (const [paneId, entry] of [...settleTweensRef.current]) {
         for (const anim of entry.anims) anim.cancel("snap-to-end");
         clearFlip(paneId, entry.el, entry.anims);
@@ -2965,6 +3092,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       settleFirstFoldsRef.current.clear();
       settleFadePlanRef.current.clear();
       containerRef.current?.removeAttribute("data-imposer-settling");
+      containerRef.current?.removeAttribute("data-imposer-beat");
     };
   }, [store, holdSessions, releaseSessions]);
 
@@ -2996,6 +3124,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       firstRects.clear();
       firstFolds.clear();
       endAllEpisodes();
+      // A settle with nothing to carry is over the moment it is read: the
+      // hold taken at arm comes off now, on the settle's own clock, rather
+      // than at the sweep — unless a settle an earlier pass launched is still
+      // running, in which case the marks and the hold are its own and this
+      // pass has nothing to end.
+      if (settleTweensRef.current.size === 0) {
+        el?.removeAttribute("data-imposer-settling");
+        el?.removeAttribute("data-imposer-beat");
+        settleReleaseRef.current?.("completion");
+      }
       return;
     }
     // Reduced motion: the layout has already snapped, and that IS the settle.
@@ -3010,6 +3148,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       firstRects.clear();
       firstFolds.clear();
       endAllEpisodes();
+      if (settleTweensRef.current.size === 0) {
+        el.removeAttribute("data-imposer-settling");
+        el.removeAttribute("data-imposer-beat");
+        settleReleaseRef.current?.("completion");
+      }
       return;
     }
     const clearFlip = clearFlipRef.current;
@@ -3021,21 +3164,78 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // because a faded frame never moves and an arriving one has nothing to
     // move from, so there is no sum between them to keep honest; opacity is
     // accelerable on its own, and merging it would cost that for nothing.
-    // The choreography, for this settle. `crossing` carries every frame that
-    // travels or resizes; `divide-join` is the shorter window a mode flip's
-    // fade runs on. Both are stated relative to `duration` — the one tunable —
-    // in `lib/imposer-motion.ts`, and no call site here picks a curve of its
-    // own ([P02] of arc/layout-imposer-polish.md).
+    // The choreography, for this settle. The move beat IS the crossing;
+    // `shrink` and `grow` are the resize beats' shorter windows, and
+    // `divide-join` is the one a mode flip's fade runs on. All are stated
+    // relative to `duration` — the one tunable — in `lib/imposer-motion.ts`,
+    // and no call site here picks a curve of its own ([P02] of
+    // arc/layout-imposer-polish.md).
     //
-    // A retarget hands the crossing the velocity the interrupted tween had, so
-    // a frame caught mid-settle carries on rather than stopping and restarting.
-    const crossing = motionKeyframes("crossing", {
-      nominalMs: duration,
-      initialVelocity: settleLaunchVelocityRef.current,
-    });
-    settleLaunchVelocityRef.current = 0;
-    settleLaunchedAtRef.current = performance.now();
+    // A retarget hands the interrupted beat's velocity to the beat of the
+    // SAME kind here — a move's to the move, a shrink's to the shrink — and
+    // every other beat launches from rest ([B06]), so a frame caught
+    // mid-settle carries on rather than stopping and restarting, and a card
+    // that was closing up is never thrown across the deck at that speed.
+    const launch = settleLaunchRef.current;
+    settleLaunchRef.current = null;
+    // The three beats' curves. A settle that carries a size term runs as up to
+    // three beats in a fixed order — shrink, move, grow — each on its own
+    // recipe, so that at any instant exactly one kind of thing is moving.
+    // Built lazily, because the everyday settle has no resize beat and a
+    // curve nobody plays is a spring solved for nothing.
+    const beatCurves: Partial<Record<BeatKind, MotionCurve>> = {};
+    const beatCurve = (kind: BeatKind): MotionCurve => {
+      const cached = beatCurves[kind];
+      if (cached !== undefined) return cached;
+      const built = motionKeyframes(BEAT_RECIPE[kind], {
+        nominalMs: duration,
+        initialVelocity: beatLaunchVelocity(kind, launch),
+      });
+      beatCurves[kind] = built;
+      return built;
+    };
+    const crossing = beatCurve("move");
     const fadeCurve = motionKeyframes("divide-join", { nominalMs: duration });
+    /**
+     * The frames this settle carries by beats, in the order the pass found
+     * them. `next` is the index of the beat this frame has not yet run; the
+     * `anims` array is the SAME one registered in `settleTweensRef`, and each
+     * beat pushes into it, so a retarget mid-choreography cancels whatever is
+     * actually in flight and `clearFlip`'s identity check still holds.
+     */
+    interface Choreographed {
+      paneId: string;
+      frame: HTMLElement;
+      beats: SettleBeat[];
+      next: number;
+      anims: TugAnimation[];
+      restores: Array<() => void>;
+      crossingId: number | null;
+    }
+    const choreography: Choreographed[] = [];
+    // This launch. Every completion below — a fade's, an entrance's, the
+    // beat choreography's — checks it before touching anything, because a
+    // retarget that landed in between has already cancelled, restored and
+    // re-planned every frame, and a later Last pass owns them now.
+    const generation = ++settleGenerationRef.current;
+    // ONE release for the whole settle, on the settle's own clock: the hold
+    // taken at arm comes off when the last of this pass's completions has
+    // landed — after the final beat's last tween, never from the window
+    // timer — so the one publish lands on settled geometry ([B04]).
+    let outstanding = 0;
+    const finish = (): void => {
+      // The settle is over: the marks come off here, on the settle's own
+      // clock, and the sweep behind it finds nothing left to do.
+      el.removeAttribute("data-imposer-settling");
+      el.removeAttribute("data-imposer-beat");
+      settleReleaseRef.current?.("completion");
+    };
+    const settled = (): void => {
+      outstanding -= 1;
+      if (outstanding === 0 && settleGenerationRef.current === generation) {
+        finish();
+      }
+    };
     const settleOpts = {
       // Raw ms: TugAnimator scales by getTugTiming() itself.
       duration: crossing.durationMs,
@@ -3120,6 +3320,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           anims: [entering],
           restores: [enteringRestore],
         });
+        outstanding += 1;
         void entering.finished.then(() => {
           // The same residue rule the geometry effect follows: TugAnimator
           // commits an animation's final value into `el.style` whatever `fill`
@@ -3128,6 +3329,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           enteringRestore();
           clearFlipRef.current(paneId, frame, [entering]);
           endEpisode(paneId);
+          settled();
         });
         continue;
       }
@@ -3263,60 +3465,74 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         }
         if (widthTweens) restores.push(inlineRestorer(frame, "width"));
         if (heightTweens) restores.push(inlineRestorer(frame, "height"));
+        // The beats this frame runs — shrink, move, grow, skipping any it has
+        // nothing for — so that no beat carries a size term and a translate
+        // together ([B01] of `three-beat-settle`). A frame with no size term
+        // plans to exactly one move beat carrying today's terms, which is the
+        // stack move, unchanged ([B02]).
+        const beats = planSettleBeats({
+          dx,
+          dy,
+          sx: widthSmears ? sx : 1,
+          width: widthTweens ? [firstRect.width, lastRect.width] : undefined,
+          height: heightTweens
+            ? [firstRect.height, lastRect.height]
+            : undefined,
+        });
+        if (beats.length === 0) {
+          endEpisode(paneId);
+          continue;
+        }
         // The scale anchors the frame's top-left corner, which is the corner
         // `dx` and `dy` were measured from. Set for every settle that carries a
         // transform, scaling or not, so the property has one value and one
         // owner rather than depending on which kind of gesture wrote it last;
         // `clearFlip` takes it off with the transform.
-        if (dx !== 0 || dy !== 0 || widthSmears) {
+        const moves = dx !== 0 || dy !== 0 || widthSmears;
+        if (moves) {
           frame.style.transformOrigin = "0 0";
         }
-        // ONE effect, carrying every term this frame needs. An edge that has to
-        // stay put is pinned by the sum of the move and the size — a member
-        // growing into a rail's whole run from the bottom tile translates up by
-        // exactly the height it gains — and a sum is only trustworthy while its
-        // terms share a clock. Two effects would put the transform on the
-        // compositor and the size on the main thread, and the pinned edge would
-        // slide by whatever they drifted apart ([D135]).
-        anims.push(
-          animate(
-            frame,
-            springSettleKeyframes(
-              {
-                dx,
-                dy,
-                sx: widthSmears ? sx : 1,
-                width: widthTweens
-                  ? [firstRect.width, lastRect.width]
-                  : undefined,
-                height: heightTweens
-                  ? [firstRect.height, lastRect.height]
-                  : undefined,
-              },
-              crossing.progress,
-            ),
-            {
-              ...settleOpts,
-              // A keyword easing, because the curve rides in the keyframe
-              // offsets — `lib/pane-flip.ts` says why a sampled `linear()`
-              // cannot be used here.
-              easing: "linear",
-              key: "imposer-flip",
-            },
-          ),
-        );
+        // The opening pose, written now, before this commit paints: the frame
+        // is committed at Last, and until its move beat runs it must stand at
+        // First — a constant translate (and smear), held inline — and until
+        // its grow beat runs a growing axis must stay at its First size. It
+        // is the frame's, not its first beat's: the beats launch below, after
+        // every frame is planned, and a beat is all frames' together, so a
+        // frame whose own first beat is the move or the grow waits in this
+        // pose while its neighbours make room.
+        const grow = beats.find((beat) => beat.kind === "grow");
+        applyHolds(frame, {
+          ...(moves ? { transform: { dx, dy, sx: widthSmears ? sx : 1 } } : {}),
+          ...(grow?.terms.width !== undefined
+            ? { width: grow.terms.width[0] }
+            : {}),
+          ...(grow?.terms.height !== undefined
+            ? { height: grow.terms.height[0] }
+            : {}),
+        });
+        settleTweensRef.current.set(paneId, { el: frame, anims, restores });
+        choreography.push({
+          paneId,
+          frame,
+          beats,
+          next: 0,
+          anims,
+          restores,
+          crossingId,
+        });
+        continue;
       }
       if (anims.length === 0) {
         endEpisode(paneId);
         continue;
       }
       settleTweensRef.current.set(paneId, { el: frame, anims, restores });
-      // One completion for the whole settle, after every tween's own commit
-      // has landed — TugAnimator resolves `finished` after committing, so
-      // the restorers here always run on the far side of the residue they
-      // exist to take back. `allSettled` because `finished` rejects under
-      // hold-at-current, and while this surface never asks for that mode, a
-      // bare `all` would turn a future edit into an unhandled rejection.
+      outstanding += 1;
+      // A fade's completion, after every tween's own commit has landed —
+      // TugAnimator resolves `finished` after committing, so the restorers
+      // here always run on the far side of the residue they exist to take
+      // back. `allSettled` because `finished` rejects under hold-at-current,
+      // the retarget's cancel.
       void Promise.allSettled(anims.map((anim) => anim.finished)).then(() => {
         for (const restore of restores) restore();
         clearFlip(paneId, frame, anims);
@@ -3329,6 +3545,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // geometry the frame actually keeps rather than the baked pixel
         // width the tween committed on its way out.
         endEpisode(paneId);
+        settled();
       });
     }
     // The departures. A pane `arm` measured that no longer has a frame closed
@@ -3364,6 +3581,139 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       );
       void fading.finished.then(() => ghost.remove());
     }
+    // The beats. Every frame's shrink tweens together; on their joint
+    // completion every frame's move tweens; then every frame's grow tweens —
+    // and a beat no frame has a term in is skipped, so the everyday stack move
+    // is one move beat and nothing else ([B01], [B02]). Each beat's keyframes
+    // are cut from that beat's terms alone on that beat's recipe, and the
+    // container names the running beat in `data-imposer-beat` so a sampled
+    // frame can be read against the beat it belongs to.
+    if (choreography.length > 0) {
+      outstanding += 1;
+      const present = (kind: BeatKind): Choreographed[] =>
+        choreography.filter((c) => c.beats[c.next]?.kind === kind);
+      // The sweep's window is the choreography's whole window — the sum of
+      // the non-empty beats' — never the crossing's nominal alone, which would
+      // fire mid-choreography and snap every frame to its end. The store
+      // hold's cap is re-sized against the same total, for the same reason:
+      // a cap that fired mid-choreography would publish into a beat.
+      const kinds: BeatKind[] = ["shrink", "move", "grow"];
+      const launched = kinds.filter((kind) =>
+        choreography.some((c) => c.beats.some((b) => b.kind === kind)),
+      );
+      const totalMs = launched.reduce(
+        (sum, kind) => sum + motionDurationMs(BEAT_RECIPE[kind], duration),
+        0,
+      );
+      if (totalMs > crossing.durationMs) {
+        const totalWindowMs = totalMs * getTugTiming();
+        settleSweepRef.current?.(Math.max(2 * totalWindowMs, 1000));
+        holdSessions(Math.max(2 * totalWindowMs, 1000));
+      }
+      const runBeat = (kind: BeatKind): Promise<void> => {
+        // A retarget landed between beats: `arm` has already cancelled,
+        // restored and re-planned every frame, and a later Last pass owns
+        // them now. Nothing here is this chain's to touch.
+        if (settleGenerationRef.current !== generation) {
+          return Promise.resolve();
+        }
+        const launches = present(kind);
+        if (launches.length === 0) return Promise.resolve();
+        el.setAttribute("data-imposer-beat", kind);
+        const curve = beatCurve(kind);
+        // The beat the settle is on, for the arm that may interrupt it: it
+        // reads the velocity off this recipe at the time since this launch.
+        settleBeatRef.current = {
+          kind,
+          launchedAt: performance.now(),
+          initialVelocity: beatLaunchVelocity(kind, launch),
+        };
+        const anims: TugAnimation[] = [];
+        const launchedBeats: Array<[Choreographed, SettleBeat]> = [];
+        for (const c of launches) {
+          const beat = c.beats[c.next];
+          c.next += 1;
+          launchedBeats.push([c, beat]);
+          applyHolds(c.frame, beat.held);
+          const anim = animate(
+            c.frame,
+            springSettleKeyframes(beat.terms, curve.progress),
+            {
+              ...settleOpts,
+              duration: curve.durationMs,
+              // A keyword easing, because the curve rides in the keyframe
+              // offsets — `lib/pane-flip.ts` says why a sampled `linear()`
+              // cannot be used here.
+              easing: "linear",
+              key: "imposer-flip",
+            },
+          );
+          c.anims.push(anim);
+          anims.push(anim);
+        }
+        // `allSettled` because `finished` rejects under hold-at-current — the
+        // retarget's cancel — and the generation check on the far side is
+        // what tells that apart from a beat that landed. TugAnimator resolves
+        // `finished` after committing, so a completion here always runs on
+        // the far side of the residue it takes back.
+        return Promise.allSettled(anims.map((anim) => anim.finished)).then(
+          () => {
+            if (settleGenerationRef.current !== generation) return;
+            // The hold this beat replaced comes off NOW, not at the settle's
+            // completion. TugAnimator commits an effect's value at its end,
+            // and under `fill: none` that value is the underlying inline
+            // style — the opening pose — so a frame left wearing it would
+            // snap back to its hold for the length of the next beat. The
+            // move ends at identity and the grow at the committed size, so
+            // taking the hold off leaves the frame exactly where the beat
+            // put it; the restorers at completion still hand back whatever
+            // React had rendered.
+            for (const [c, beat] of launchedBeats) {
+              if (beat.kind === "move") {
+                c.frame.style.removeProperty("transform");
+              } else if (beat.kind === "grow") {
+                if (beat.terms.width !== undefined) {
+                  c.frame.style.removeProperty("width");
+                }
+                if (beat.terms.height !== undefined) {
+                  c.frame.style.removeProperty("height");
+                }
+              }
+            }
+          },
+        );
+      };
+      void runBeat("shrink")
+        .then(() => runBeat("move"))
+        .then(() => runBeat("grow"))
+        .then(() => {
+          if (settleGenerationRef.current !== generation) return;
+          // The settle's one completion, after the final beat's last tween,
+          // in this order ([B04]): every frame's inline residue handed back
+          // and its transform taken off; then every frame's fold crossing
+          // ended — guarded by id, so an interrupted settle does not close
+          // the one that replaced it — so the card can land what CSS cannot
+          // write ([B05]); then every frame's resize episode ended, after the
+          // restorers so the final anchor is read against the geometry the
+          // frame actually keeps; and then, through `settled`, the stores'
+          // hold released, so the one publish and the one pin land on
+          // settled geometry.
+          for (const c of choreography) {
+            for (const restore of c.restores) restore();
+            clearFlip(c.paneId, c.frame, c.anims);
+          }
+          for (const c of choreography) {
+            if (c.crossingId !== null) endFoldCrossing(c.frame, c.crossingId);
+          }
+          for (const c of choreography) endEpisode(c.paneId);
+          settleBeatRef.current = null;
+          settled();
+        });
+    }
+    // Nothing this pass launched is left to finish — a settle whose every
+    // frame was gesture-owned, or moved nowhere — so the hold comes off now
+    // rather than at the sweep.
+    if (outstanding === 0) finish();
     firstRects.clear();
     firstFolds.clear();
     fadePlan.clear();

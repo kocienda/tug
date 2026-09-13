@@ -506,6 +506,11 @@ const EVENT_FIXTURES: Record<
     kind: "settle-retarget",
     paneId: "p1",
     mode: "snap",
+    beat: "move",
+  },
+  "settle-release": {
+    kind: "settle-release",
+    source: "completion",
   },
   "session-lifecycle": {
     kind: "session-lifecycle",

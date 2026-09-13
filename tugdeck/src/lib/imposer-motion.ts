@@ -11,6 +11,8 @@
  * | Recipe        | Operation class                                          | ζ   | Nominal |
  * |---------------|----------------------------------------------------------|-----|---------|
  * | `crossing`    | a settled arrangement change — frames travel and resize   | 1.0 | 1.0×    |
+ * | `shrink`      | the settle's first beat — frames that get smaller do, in place | 1.0 | 0.6× |
+ * | `grow`        | the settle's last beat — frames that get larger do, in place   | 1.0 | 0.6× |
  * | `landing`     | a dropped card entering its zone; a refusal's return home  | 0.9 | 0.85×   |
  * | `reveal`      | a strip sliding to show an activated member                | 1.0 | 1.0×    |
  * | `divide-join` | a member arriving in / leaving a divided place (a fade)    | —   | 0.6×    |
@@ -22,6 +24,15 @@
  * hand just let go of. `divide-join` carries no ζ because a fade has no
  * position to overshoot; it is a plain ease, and it appears here so that the
  * one place stating the imposer's motion states all of it.
+ *
+ * `shrink` and `grow` are the crossing's two resize beats. A settle that
+ * carries a size term runs as up to three beats in a fixed order — shrink,
+ * move, grow — so that at any instant exactly one kind of thing is moving
+ * (`lib/pane-flip.ts`'s {@link planSettleBeats} does the partitioning); the
+ * move beat is the `crossing` itself. A resize beat is shorter than the move
+ * because it is the make-room or close-up gesture around the travel rather
+ * than the travel, and a full three-beat crossing at these multiples is 2.2×
+ * the nominal. Both are starting values, to be tuned by eye.
  *
  * Timing is relative. Every nominal is a multiple of the crossing's, which is
  * the deck's one tunable — `--tugx-imposer-settle-duration`, read back through
@@ -57,7 +68,13 @@
 import { SpringSolver } from "@/components/tugways/physics";
 
 /** The named operation classes. */
-export type MotionRecipe = "crossing" | "landing" | "reveal" | "divide-join";
+export type MotionRecipe =
+  | "crossing"
+  | "shrink"
+  | "grow"
+  | "landing"
+  | "reveal"
+  | "divide-join";
 
 interface RecipeSpec {
   /** Damping ratio. `null` for the fade, which has no spring. */
@@ -68,6 +85,8 @@ interface RecipeSpec {
 
 const RECIPES: Record<MotionRecipe, RecipeSpec> = {
   crossing: { zeta: 1.0, timeScale: 1.0 },
+  shrink: { zeta: 1.0, timeScale: 0.6 },
+  grow: { zeta: 1.0, timeScale: 0.6 },
   landing: { zeta: 0.9, timeScale: 0.85 },
   reveal: { zeta: 1.0, timeScale: 1.0 },
   "divide-join": { zeta: null, timeScale: 0.6 },
@@ -114,7 +133,7 @@ const SHAPE_OMEGA = 6;
  * recipe's window.
  *
  * Measured with {@link SpringSolver.settleTimeMs} rather than assumed, and
- * cached: there are four ζ values in the whole table and the answer for each
+ * cached: there are two ζ values in the whole table and the answer for each
  * never changes.
  */
 function shapeWindowMs(zeta: number): number {

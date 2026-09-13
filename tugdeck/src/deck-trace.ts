@@ -639,6 +639,22 @@ export type DeckTraceEvent = {
       kind: "settle-retarget";
       paneId: string;
       mode: "snap" | "matched";
+      // The beat that was running when the arm landed — the recipe the
+      // velocity was read off — or null when no beat was up (a fade-only
+      // settle, or a frame whose chain had already finished).
+      beat: "shrink" | "move" | "grow" | null;
+    }
+  | {
+      // Fired when a settle releases the session stores' notification hold.
+      // `source` names which clock released it: "completion" is the settle's
+      // own — after the final beat's last tween has finished and every
+      // frame's residue, fold crossing and resize episode have been ended,
+      // in that order ([B04] of `three-beat-settle`); "sweep" is the window
+      // timer, which is a wedge guard and never the release on the normal
+      // path; "unmount" is the canvas leaving mid-gesture. The bar is that
+      // a settle which completes releases from "completion", never "sweep".
+      kind: "settle-release";
+      source: "completion" | "sweep" | "unmount";
     }
   | {
       // One `[dev::session-lifecycle]` line, mirrored into the ring by
@@ -690,6 +706,7 @@ export type DeckTraceEventInput =
   | Omit<Extract<DeckTraceEvent, { kind: "store-notify" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-arm" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-retarget" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "settle-release" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "session-lifecycle" }>, StampedFields>;
 
 // ---------------------------------------------------------------------------

@@ -31,15 +31,20 @@
  *      product `deck-canvas.tsx` hands the settle's tweens — so a retune
  *      anywhere up the tree retimes the assertion with the motion.
  *   2. **One clock, observed.** Sampling every frame through a show and then a
- *      fold: the subject FRAME's own height and the sibling below it start
- *      together and END together. The plan asked for "no sibling frame's rect
- *      changes before the settle's end", and in a wall that reads wrong —
- *      opening the middle card MUST move the card beneath it. What the claim
- *      is actually about is that nothing jumps ahead: the sibling's travel
- *      window and the fold's window are the same window, and neither closes
- *      early. The observed duration carries a looser band than claim 1's
- *      because an eased curve spends its last frames sub-pixel, so a sampler
- *      reads the end a little early by construction.
+ *      fold: the subject FRAME's own height and the sibling below it run as
+ *      the settle's BEATS, one kind of motion at a time — shrink, then move,
+ *      then grow ([B01] of `three-beat-settle`). On the show the sibling
+ *      moves first, opening the room, and the subject grows into it once the
+ *      sibling has stopped; on the fold the subject shrinks first and the
+ *      sibling moves up into the room it left. Opening the middle card MUST
+ *      move the card beneath it — what the claim is about is that the two
+ *      windows are the settle's own beats, handed one to the next, and that
+ *      neither runs on a clock of its own: the resize beat is the
+ *      `shrink`/`grow` recipe's window and the move beat the crossing's, both
+ *      multiples of the one declared duration. The observed windows carry a
+ *      looser band than claim 1's because an eased curve spends its last
+ *      frames sub-pixel, so a sampler reads the end a little early by
+ *      construction.
  *
  *      The subject side is the frame rather than the composer because the
  *      composer has no travel left to read: it is held at its open box for
@@ -375,6 +380,12 @@ describe.skipIf(!SHOULD_RUN)("AT0555: the fold's clock", () => {
         // what claim 1 now refuses, so the band has to come from the property
         // itself.
         const beatMs = clock.settleMs * clock.timing;
+        // A resize beat's window: the `shrink`/`grow` recipe's multiple of the
+        // crossing's nominal (`lib/imposer-motion.ts`).
+        const resizeMs = 0.6 * beatMs;
+        // One eased tail — the slack a sampler reads an end early by, and
+        // the slack a hand-off between beats lands within.
+        const tailMs = 0.35 * beatMs;
 
         // Fold the wall, then watch the middle card come back out of it.
         for (const cardId of CARD_IDS) await setFolded(app, cardId, true);
@@ -391,22 +402,29 @@ describe.skipIf(!SHOULD_RUN)("AT0555: the fold's clock", () => {
         expect(showFold, "the subject frame unfolds").not.toBeNull();
         expect(showWall, "the card below travels").not.toBeNull();
         if (showFold !== null && showWall !== null) {
-          // They start together: neither waits for the other, which is what
-          // rules out (a)'s and (b)'s split beats.
+          // The wall moves first, from the launch: the move beat opens the
+          // room the subject is about to grow into.
+          expect(showWall.start, "the wall moves from the launch").toBeLessThan(
+            80,
+          );
           expect(
-            Math.abs(showFold.start - showWall.start),
-            "the fold and the wall start together",
-          ).toBeLessThan(80);
-          // And end together, within one eased tail.
+            showWall.end - showWall.start,
+            "the wall does not outrun the move beat",
+          ).toBeLessThan(1.35 * beatMs);
+          // Then the fold grows into it: its beat starts where the wall's
+          // ended, within one eased tail, never before it.
           expect(
-            Math.abs(showFold.end - showWall.end),
-            "the fold and the wall end together",
-          ).toBeLessThan(0.35 * beatMs);
-          // Neither runs past the beat it declared.
+            showFold.start,
+            "the fold does not start before the wall has stopped",
+          ).toBeGreaterThan(showWall.end - tailMs);
+          expect(
+            showFold.start - showWall.end,
+            "the fold starts as the wall stops",
+          ).toBeLessThan(tailMs);
           expect(
             showFold.end - showFold.start,
             "the fold does not outrun its declared beat",
-          ).toBeLessThan(1.35 * beatMs);
+          ).toBeLessThan(1.35 * resizeMs);
         }
         // And the interior held still through all of it — the same claim
         // at0563 makes on a free pane, made here in the shape where a wrong
@@ -448,17 +466,26 @@ describe.skipIf(!SHOULD_RUN)("AT0555: the fold's clock", () => {
         expect(foldEntry, "the subject frame folds").not.toBeNull();
         expect(foldNeighbour, "the card below travels back").not.toBeNull();
         if (foldEntry !== null && foldNeighbour !== null) {
-          expect(
-            Math.abs(foldEntry.start - foldNeighbour.start),
-            "the fold and the wall start together",
-          ).toBeLessThan(80);
-          expect(
-            Math.abs(foldEntry.end - foldNeighbour.end),
-            "the fold and the wall end together",
-          ).toBeLessThan(0.35 * beatMs);
+          // The mirror: the subject shrinks first, from the launch, and the
+          // wall moves up into the room it left once it has stopped.
+          expect(foldEntry.start, "the fold shrinks from the launch").toBeLessThan(
+            80,
+          );
           expect(
             foldEntry.end - foldEntry.start,
             "the fold does not outrun its declared beat",
+          ).toBeLessThan(1.35 * resizeMs);
+          expect(
+            foldNeighbour.start,
+            "the wall does not move before the fold has stopped",
+          ).toBeGreaterThan(foldEntry.end - tailMs);
+          expect(
+            foldNeighbour.start - foldEntry.end,
+            "the wall moves as the fold stops",
+          ).toBeLessThan(tailMs);
+          expect(
+            foldNeighbour.end - foldNeighbour.start,
+            "the wall does not outrun the move beat",
           ).toBeLessThan(1.35 * beatMs);
         }
         expect(

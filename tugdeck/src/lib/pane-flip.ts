@@ -151,9 +151,10 @@ export interface SettleTerms {
 }
 
 /**
- * The keyframes that carry one frame through the whole settle: back from
- * `(dx, dy)` at scale `sx` to where it committed, and across whatever real
- * `width` and `height` it is crossing, **all in a single keyframe list**.
+ * The keyframes that carry one frame through one beat of a settle: back from
+ * `(dx, dy)` at scale `sx` to where it committed, or across a real `width`
+ * or `height` it is crossing — whichever terms the beat carries, **in a
+ * single keyframe list**.
  *
  * The offsets are evenly spaced and the values follow a critically damped
  * spring, so the frame accelerates away, decelerates onto its place, and stops
@@ -163,25 +164,32 @@ export interface SettleTerms {
  * the committed size is what makes cancelling the tween safe at any moment —
  * there is no wrong pose to snap to.
  *
- * ## Why one list and not two
+ * ## Why one list, and why one kind of term in it
  *
- * A frame that both moves and resizes has its terms in **one effect** because
- * an edge that must stay put is pinned by the *sum* of them. A member growing
- * into a rail's full run from the bottom tile translates up by exactly the
- * height it gains: its top edge travels, its bottom edge does not move at all —
- * but only while the translate and the height advance on the same clock. Split
- * across two effects, the transform is accelerated and the height is not, so
- * the compositor can run one ahead of the other and the edge that was supposed
- * to be nailed down slides. That is a card moving when it does not have to,
- * which is the one thing this settle exists to avoid ([D135]).
+ * This builder accepts every term at once and cuts one list from them, and
+ * the caller never hands it a translate and a size together. A settle that
+ * carries a size runs as beats — shrink, then move, then grow, planned by
+ * {@link planSettleBeats} — and each beat is one effect carrying one kind of
+ * term, so at any instant exactly one kind of thing is moving ([D135] as
+ * amended by `three-beat-settle`).
  *
- * The cost is real and is paid deliberately: a single non-transform property
- * revokes the whole effect's compositor acceleration (the module header says
- * what that is worth). But a frame carrying a real size term is re-laying out
- * its subtree every frame *regardless* — the main-thread work is already being
- * done — so the acceleration was never actually on the table for these frames.
- * All the split bought was two clocks. A frame that only moves still gets a
- * transform-only list and stays accelerated, which is every everyday gesture.
+ * The earlier argument for one list was a seam: an edge pinned by the *sum*
+ * of a translate and a size — a member growing up into a rail's full run,
+ * whose bottom edge stays put only while both terms advance on one clock. That
+ * argument constrains a frame carrying both terms at once, and only that. A
+ * frame that shrinks in one beat and translates in the next has no sum to
+ * keep honest, so the seam concern is met by the sequencing rather than by a
+ * shared clock; the air that opens between members during the shrink is the
+ * make-room beat being legible, not a seam failing, and the beats are not to
+ * be collapsed back into one effect to close it.
+ *
+ * What the one list protects, per beat: a move beat is transform-only and
+ * stays on the compositor, which is every everyday gesture; a resize beat
+ * carries a real `width` or `height`, re-lays out its subtree every frame
+ * regardless, and is main-thread by construction — the module header says
+ * what a non-transform property costs an effect. Both axes are floored at
+ * half a pixel by the caller, so a measurement a hair different is not a size
+ * change, and height never smears: any height delta is a real term.
  *
  * When there IS a scale, the caller must have anchored the frame's
  * `transform-origin` at its top-left: `dx`/`dy` are measured between those
@@ -218,6 +226,165 @@ export function springSettleKeyframes(
     frames.push(frame);
   }
   return frames;
+}
+
+/** The three beats a settle runs in, in the order it runs them. */
+export type BeatKind = "shrink" | "move" | "grow";
+
+/**
+ * What a beat keeps still while it runs — applied as constant inline style by
+ * the caller, never as keyframes, so a move beat's effect stays transform-only
+ * and accelerated.
+ *
+ * A resize beat holds the frame's transform: the constant translate (and
+ * smear) that keeps it where the eye has it until the move beat carries it.
+ * The shrink beat and the move beat hold any size whose change is still to
+ * come — a growing axis is held at First until the grow beat — because the
+ * frame's committed layout already has the Last size, and without the hold the
+ * axis would jump to it the moment the settle launched.
+ *
+ * These are a beat's holds, for the beat's own length. The pose a frame wears
+ * from the launch until its FIRST beat is the caller's to write, because in a
+ * settle of many frames a beat is every frame's together: a frame whose own
+ * first beat is the grow waits, at First, through its neighbours' shrink and
+ * move, and no beat of its own is running to hold it there.
+ */
+export interface HeldTerms {
+  /** The transform the frame wears for the whole beat. Absent in the move beat
+   *  (it animates the transform) and when there is no move at all. */
+  transform?: { dx: number; dy: number; sx: number };
+  /** An inline `width`, in CSS pixels, held for the beat. */
+  width?: number;
+  /** An inline `height`, in CSS pixels, held for the beat. */
+  height?: number;
+}
+
+/** One beat of a settle: what it animates and what it holds still. */
+export interface SettleBeat {
+  kind: BeatKind;
+  /** The argument to {@link springSettleKeyframes} for this beat alone. */
+  terms: SettleTerms;
+  held: HeldTerms;
+}
+
+/**
+ * Partition one frame's settle into the beats it runs as — shrink, then move,
+ * then grow, skipping any the frame has nothing for — so that no beat carries
+ * a size term and a translate together.
+ *
+ * The move beat carries `dx`, `dy` and the smear `sx`: everything that rides
+ * the transform, which is what keeps it on the compositor. A real `width` or
+ * `height` whose target is smaller goes to the shrink beat, one whose target
+ * is larger to the grow beat. Each resize beat wears the constant transform
+ * the move beat has not yet run (or has already finished), and every beat
+ * before the grow holds a growing axis at its First size.
+ *
+ * A frame with no size term plans to exactly one move beat carrying its terms
+ * unchanged, so the stack move — the settle the whole design is measured
+ * against — produces the same transform-only list it always has. A frame with
+ * only a size term plans to no move beat at all.
+ *
+ * The seam [D135] argued from — an edge pinned by the sum of a translate and a
+ * size on one clock — does not arise here, because no beat ever carries the
+ * sum. Air opening between members during the shrink is the make-room beat
+ * being legible, not a seam failing.
+ */
+export function planSettleBeats(terms: SettleTerms): SettleBeat[] {
+  const { dx, dy, sx = 1 } = terms;
+  const width = sizeTerm(terms.width);
+  const height = sizeTerm(terms.height);
+  const moves = dx !== 0 || dy !== 0 || sx !== 1;
+  const shrinks = width?.direction === "shrink" || height?.direction === "shrink";
+  const grows = width?.direction === "grow" || height?.direction === "grow";
+
+  // A frame carrying no size term at all is the everyday case, and its plan is
+  // today's tween, untouched: one transform-only beat.
+  if (!shrinks && !grows) {
+    return moves ? [{ kind: "move", terms: { dx, dy, sx }, held: {} }] : [];
+  }
+
+  // The transform a resize beat wears while the move has not yet happened.
+  // The grow beat runs after the move and wears none.
+  const preMove: HeldTerms["transform"] = moves ? { dx, dy, sx } : undefined;
+  // A growing axis is held at First by every beat before the grow.
+  const growHolds: Pick<HeldTerms, "width" | "height"> = {};
+  if (width?.direction === "grow") growHolds.width = width.pair[0];
+  if (height?.direction === "grow") growHolds.height = height.pair[0];
+
+  const beats: SettleBeat[] = [];
+  if (shrinks) {
+    beats.push({
+      kind: "shrink",
+      terms: {
+        dx: 0,
+        dy: 0,
+        width: width?.direction === "shrink" ? width.pair : undefined,
+        height: height?.direction === "shrink" ? height.pair : undefined,
+      },
+      held: { ...(preMove ? { transform: preMove } : {}), ...growHolds },
+    });
+  }
+  if (moves) {
+    beats.push({ kind: "move", terms: { dx, dy, sx }, held: { ...growHolds } });
+  }
+  if (grows) {
+    beats.push({
+      kind: "grow",
+      terms: {
+        dx: 0,
+        dy: 0,
+        width: width?.direction === "grow" ? width.pair : undefined,
+        height: height?.direction === "grow" ? height.pair : undefined,
+      },
+      held: {},
+    });
+  }
+  return beats;
+}
+
+/**
+ * What a retarget interrupted: the beat that was running when a second
+ * arrangement change landed, and the velocity its frames were carrying, in
+ * travels per second — read off that beat's own recipe at that beat's own
+ * elapsed time, never off the crossing regardless of which beat was up.
+ */
+export interface InterruptedBeat {
+  kind: BeatKind;
+  velocity: number;
+}
+
+/**
+ * The velocity a beat of the replacement choreography launches with.
+ *
+ * A retarget hands the interrupted beat's velocity to the FIRST beat of the
+ * same kind in the choreography that replaces it — a shrink's into the
+ * shrink, a move's into the move, a grow's into the grow — and every other
+ * beat launches from rest ([B06] of `three-beat-settle`). The kinds are
+ * different motions in different units: a move's velocity is travels of a
+ * translate per second and a shrink's is travels of a width, and handing one
+ * to the other would throw a frame that was closing up across the deck at
+ * the speed it was closing. A choreography runs each kind at most once, so
+ * the first beat of a kind is the only one.
+ *
+ * A settle nothing interrupted has no interrupted beat, and every beat of it
+ * launches from rest.
+ */
+export function beatLaunchVelocity(
+  kind: BeatKind,
+  interrupted: InterruptedBeat | null,
+): number {
+  if (interrupted === null || interrupted.kind !== kind) return 0;
+  return interrupted.velocity;
+}
+
+/** Which way a real size term goes, or nothing when it does not move: an equal
+ *  pair is a term the caller should not have carried, and it is dropped
+ *  rather than planned into a beat that would animate nothing. */
+function sizeTerm(
+  pair: readonly [number, number] | undefined,
+): { pair: readonly [number, number]; direction: "shrink" | "grow" } | null {
+  if (pair === undefined || pair[0] === pair[1]) return null;
+  return { pair, direction: pair[1] < pair[0] ? "shrink" : "grow" };
 }
 
 /** Three decimals is finer than a device pixel, and the rest is only length. */

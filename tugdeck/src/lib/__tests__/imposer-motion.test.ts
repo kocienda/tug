@@ -25,7 +25,7 @@ import {
 /** The deck's shipped crossing window. */
 const NOMINAL = 360;
 
-const SPRINGS: MotionRecipe[] = ["crossing", "landing", "reveal"];
+const SPRINGS: MotionRecipe[] = ["crossing", "shrink", "grow", "landing", "reveal"];
 const ALL: MotionRecipe[] = [...SPRINGS, "divide-join"];
 
 describe("every recipe's curve is a curve", () => {
@@ -88,7 +88,12 @@ describe("every recipe's curve is a curve", () => {
 
 describe("damping ratio governs overshoot", () => {
   test("the critically damped recipes never pass their target", () => {
-    for (const recipe of ["crossing", "reveal"] as MotionRecipe[]) {
+    for (const recipe of [
+      "crossing",
+      "shrink",
+      "grow",
+      "reveal",
+    ] as MotionRecipe[]) {
       const { progress } = motionKeyframes(recipe, { nominalMs: NOMINAL });
       // The last sample is clamped to 1 by construction; the interesting
       // claim is about everything before it.
@@ -155,6 +160,10 @@ describe("timing is relative to the crossing's nominal", () => {
   test("the table's multiples hold", () => {
     expect(motionDurationMs("crossing", NOMINAL)).toBe(NOMINAL);
     expect(motionDurationMs("reveal", NOMINAL)).toBe(NOMINAL);
+    // The two resize beats share one multiple: a beat is the make-room or
+    // close-up gesture around the travel, shorter than the travel itself.
+    expect(motionDurationMs("shrink", NOMINAL)).toBeCloseTo(NOMINAL * 0.6, 5);
+    expect(motionDurationMs("grow", NOMINAL)).toBeCloseTo(NOMINAL * 0.6, 5);
     expect(motionDurationMs("landing", NOMINAL)).toBeCloseTo(NOMINAL * 0.85, 5);
     expect(motionDurationMs("divide-join", NOMINAL)).toBeCloseTo(
       NOMINAL * 0.6,

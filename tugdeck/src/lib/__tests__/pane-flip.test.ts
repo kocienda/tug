@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import {
   MAX_FLIP_SCALE_DISTORTION,
+  beatLaunchVelocity,
   flipDelta,
+  planSettleBeats,
   scaleDistortion,
   springSettleKeyframes,
+  type SettleBeat,
 } from "@/lib/pane-flip";
 import { motionKeyframes } from "@/lib/imposer-motion";
 
@@ -300,5 +303,172 @@ describe("springSettleKeyframes, with a real size term", () => {
         1220,
       );
     }
+  });
+});
+
+describe("planSettleBeats", () => {
+  /** The kinds a plan runs, in the order it runs them. */
+  const kinds = (beats: SettleBeat[]) => beats.map((b) => b.kind);
+  /** Whether a beat's animated terms carry any translate or smear. */
+  const carriesTransform = (b: SettleBeat) =>
+    b.terms.dx !== 0 || b.terms.dy !== 0 || (b.terms.sx ?? 1) !== 1;
+  /** Whether a beat's animated terms carry a real size. */
+  const carriesSize = (b: SettleBeat) =>
+    b.terms.width !== undefined || b.terms.height !== undefined;
+
+  test("a frame with no size term plans to one move beat carrying today's terms", () => {
+    // The stack move: the settle the whole design is measured against.
+    const terms = { dx: -300, dy: -160 };
+    const beats = planSettleBeats(terms);
+    expect(kinds(beats)).toEqual(["move"]);
+    expect(beats[0].held).toEqual({});
+    // The keyframe list is the one the canvas cut yesterday, byte for byte.
+    expect(springSettleKeyframes(beats[0].terms, CROSSING)).toEqual(
+      springSettleKeyframes(terms, CROSSING),
+    );
+    for (const frame of springSettleKeyframes(beats[0].terms, CROSSING)) {
+      expect(frame.width).toBeUndefined();
+      expect(frame.height).toBeUndefined();
+    }
+  });
+
+  test("a smear rides the move beat, not a resize beat", () => {
+    // The adjacent width-preset step is under the cap and rides the raster.
+    const terms = { dx: 0, dy: 0, sx: 675 / 800 };
+    const beats = planSettleBeats(terms);
+    expect(kinds(beats)).toEqual(["move"]);
+    expect(springSettleKeyframes(beats[0].terms, CROSSING)).toEqual(
+      springSettleKeyframes(terms, CROSSING),
+    );
+  });
+
+  test("a frame that neither moves nor resizes plans to nothing", () => {
+    expect(planSettleBeats({ dx: 0, dy: 0 })).toEqual([]);
+    // An equal pair is not a size term.
+    expect(planSettleBeats({ dx: 0, dy: 0, height: [600, 600] })).toEqual([]);
+  });
+
+  test("a frame with only a size term plans to no move beat", () => {
+    // The sitting member of a split column, when a card arrives beside it.
+    const shrinkOnly = planSettleBeats({ dx: 0, dy: 0, height: [1220, 607] });
+    expect(kinds(shrinkOnly)).toEqual(["shrink"]);
+    expect(shrinkOnly[0].held).toEqual({});
+    // The member left behind, when a card departs.
+    const growOnly = planSettleBeats({ dx: 0, dy: 0, height: [607, 1220] });
+    expect(kinds(growOnly)).toEqual(["grow"]);
+    expect(growOnly[0].held).toEqual({});
+  });
+
+  test("a shrink-then-move never puts a size term and a translate in one beat", () => {
+    // A card crossing from a wide column into a split one: it shrinks where
+    // it stands, then travels.
+    const terms = { dx: -640, dy: 0, height: [1220, 607] as const };
+    const beats = planSettleBeats(terms);
+    expect(kinds(beats)).toEqual(["shrink", "move"]);
+    for (const beat of beats) {
+      expect(carriesTransform(beat) && carriesSize(beat)).toBe(false);
+    }
+    const [shrink, move] = beats;
+    expect(shrink.terms.height).toEqual([1220, 607]);
+    // The shrink wears the move's constant translate, so the frame shrinks at
+    // First rather than at its committed place.
+    expect(shrink.held.transform).toEqual({ dx: -640, dy: 0, sx: 1 });
+    expect(shrink.held.height).toBeUndefined();
+    // The move carries exactly today's transform-only list; the shrunk
+    // height is the committed one, so it holds nothing.
+    expect(move.terms).toEqual({ dx: -640, dy: 0, sx: 1 });
+    expect(move.held).toEqual({});
+    for (const frame of springSettleKeyframes(shrink.terms, CROSSING)) {
+      expect(frame.transform).toBeUndefined();
+    }
+  });
+
+  test("a move-then-grow holds First height through the move", () => {
+    // A member growing into a rail's full run from the bottom tile: it
+    // travels up first, then grows into the room.
+    const terms = { dx: 0, dy: 615, height: [300, 915] as const };
+    const beats = planSettleBeats(terms);
+    expect(kinds(beats)).toEqual(["move", "grow"]);
+    const [move, grow] = beats;
+    // The frame's committed layout is already 915px tall; the hold is what
+    // keeps it at 300 until the grow beat.
+    expect(move.held).toEqual({ height: 300 });
+    expect(carriesSize(move)).toBe(false);
+    // The grow runs after the move, at the committed place: no transform.
+    expect(grow.terms).toEqual({ dx: 0, dy: 0, width: undefined, height: [300, 915] });
+    expect(grow.held).toEqual({});
+    for (const frame of springSettleKeyframes(grow.terms, CROSSING)) {
+      expect(frame.transform).toBeUndefined();
+    }
+  });
+
+  test("all three beats, in order, with the holds each one needs", () => {
+    // Width shrinking by real geometry, height growing, and a travel.
+    const beats = planSettleBeats({
+      dx: 200,
+      dy: -40,
+      width: [1230, 675],
+      height: [400, 800],
+    });
+    expect(kinds(beats)).toEqual(["shrink", "move", "grow"]);
+    const [shrink, move, grow] = beats;
+    expect(shrink.terms.width).toEqual([1230, 675]);
+    expect(shrink.terms.height).toBeUndefined();
+    expect(shrink.held).toEqual({
+      transform: { dx: 200, dy: -40, sx: 1 },
+      height: 400,
+    });
+    expect(move.held).toEqual({ height: 400 });
+    expect(grow.terms.height).toEqual([400, 800]);
+    expect(grow.terms.width).toBeUndefined();
+    expect(grow.held).toEqual({});
+    for (const beat of beats) {
+      expect(carriesTransform(beat) && carriesSize(beat)).toBe(false);
+    }
+  });
+});
+
+describe("beatLaunchVelocity", () => {
+  test("a settle nothing interrupted launches every beat from rest", () => {
+    for (const kind of ["shrink", "move", "grow"] as const) {
+      expect(beatLaunchVelocity(kind, null)).toBe(0);
+    }
+  });
+
+  test("an interrupted beat's velocity goes to the beat of the same kind", () => {
+    expect(beatLaunchVelocity("move", { kind: "move", velocity: 1.7 })).toBe(1.7);
+    expect(beatLaunchVelocity("shrink", { kind: "shrink", velocity: 0.9 })).toBe(
+      0.9,
+    );
+    expect(beatLaunchVelocity("grow", { kind: "grow", velocity: 2.2 })).toBe(2.2);
+  });
+
+  test("every other kind launches from rest, whichever beat was interrupted", () => {
+    // A shrink interrupted mid-close-up hands nothing to the move that
+    // follows it: a width's velocity is not a translate's, and a card that
+    // was closing up must not be thrown across the deck at that speed.
+    const shrinking = { kind: "shrink", velocity: 1.4 } as const;
+    expect(beatLaunchVelocity("move", shrinking)).toBe(0);
+    expect(beatLaunchVelocity("grow", shrinking)).toBe(0);
+    const moving = { kind: "move", velocity: 1.4 } as const;
+    expect(beatLaunchVelocity("shrink", moving)).toBe(0);
+    expect(beatLaunchVelocity("grow", moving)).toBe(0);
+    const growing = { kind: "grow", velocity: 1.4 } as const;
+    expect(beatLaunchVelocity("shrink", growing)).toBe(0);
+    expect(beatLaunchVelocity("move", growing)).toBe(0);
+  });
+
+  test("a matched launch is a continuation: the curve is ahead of one from rest", () => {
+    // The placement's point, read through the recipe it feeds: a move beat
+    // handed the interrupted move's velocity is further along early on than
+    // the same beat launched from rest.
+    const velocity = beatLaunchVelocity("move", { kind: "move", velocity: 2 });
+    const atRest = motionKeyframes("crossing", { nominalMs: 360 });
+    const carried = motionKeyframes("crossing", {
+      nominalMs: 360,
+      initialVelocity: velocity,
+    });
+    const early = Math.floor(atRest.progress.length * 0.2);
+    expect(carried.progress[early]).toBeGreaterThan(atRest.progress[early]);
   });
 });

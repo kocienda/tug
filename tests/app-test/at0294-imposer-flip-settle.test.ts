@@ -15,8 +15,9 @@
  * keyframe touching a layout property puts the effect back on the main thread
  * and the whole point is lost
  * (`arc/jul30-perf-brief.md#i1-sparkline-exception`). A width change past
- * the smear cap rides a SECOND effect of its own — real `width` keyframes,
- * main-thread by design ([D135]) — and the two must never merge.
+ * the smear cap crosses by real `width` keyframes, main-thread by design
+ * ([D135]) — in a resize BEAT of its own, before or after the move beat, so
+ * that no effect ever carries a size term and a translate together.
  *
  * The frames must land where the imposer says, which is hand-computable from
  * `imposeRect`'s rule: the band is the span inset by a gap at each end, and a
@@ -53,8 +54,9 @@
  *   5. A slot assignment: the frame is already on top when its tween starts,
  *      and a bare pane raise arms no window at all.
  *   6. The deck's content width: the frames scale to their new boxes on the
- *      same spring, still transform-only, and keep neither the transform nor
- *      the origin it was anchored by.
+ *      settle's beats — the move beat transform-only with the width held, then
+ *      the grow beat walking the real width — and keep neither the transform
+ *      nor the origin it was anchored by.
  *   7. Retarget: a second change dispatched inside the first one's window.
  *      Tweens are replaced, not stacked, and the final geometry is still right.
  *
@@ -237,6 +239,51 @@ async function settling(app: App): Promise<boolean> {
   );
 }
 
+/** Every `settle-release` record in the deck-trace ring, oldest first: which
+ *  clock released the session stores' hold — the settle's own completion, the
+ *  window sweep, or the unmount. */
+async function releaseSources(app: App): Promise<string[]> {
+  return app.evalJS<string[]>(
+    `window.__deckTrace.dump()
+      .filter(function (e) { return e.kind === "settle-release"; })
+      .map(function (e) { return e.source; })`,
+  );
+}
+
+/** Every retarget the trace ring saw: how the running tween ended, and which
+ *  beat was up when the arm landed — the recipe its velocity was read off. */
+async function retargets(
+  app: App,
+): Promise<Array<{ mode: string; beat: string | null }>> {
+  return app.evalJS<Array<{ mode: string; beat: string | null }>>(
+    `window.__deckTrace.dump()
+      .filter(function (e) { return e.kind === "settle-retarget"; })
+      .map(function (e) { return { mode: e.mode, beat: e.beat }; })`,
+  );
+}
+
+/** The beat the settle is running — `shrink`, `move` or `grow` — or null. */
+async function runningBeat(app: App): Promise<string | null> {
+  return app.evalJS<string | null>(
+    `(function () {
+      var el = document.querySelector("[data-imposer-beat]");
+      return el ? el.getAttribute("data-imposer-beat") : null;
+    })()`,
+  );
+}
+
+/** The inline (not computed) `width` of every frame, by pane id — where a
+ *  growing axis is held at its First size until its grow beat runs. */
+async function inlineWidths(app: App): Promise<Record<string, string>> {
+  return app.evalJS<Record<string, string>>(
+    `Array.from(document.querySelectorAll(${JSON.stringify(FRAMES)}))
+      .reduce(function (out, el) {
+        out[el.getAttribute("data-pane-id")] = el.style.width || "";
+        return out;
+      }, {})`,
+  );
+}
+
 async function setRailSide(app: App, side: "left" | "right"): Promise<void> {
   await app.evalJS<null>(
     `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: "layout", side: ${JSON.stringify(
@@ -336,6 +383,9 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0294-imposer-flip-settle",
         });
         try {
+          // The settle's own records — its arm and its release — ride the
+          // deck-trace ring, which records them only while enabled.
+          await app.enableDeckTrace(true);
           await seedRailPreferred(app);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
@@ -347,6 +397,7 @@ describe.skipIf(!SHOULD_RUN)(
           const vp = await viewportWidth(app);
 
           // --- Settle one: the Layout card crosses to the left. -------------------
+          const releasesBefore = (await releaseSources(app)).length;
           await setRailSide(app, "left");
 
           // Mid-window. The container marks the gesture, and every animation
@@ -370,6 +421,17 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
           expect(await settling(app)).toBe(false);
           expect(await frameAnimations(app)).toEqual([]);
+          // THIS settle's release — the records since the flip was
+          // dispatched — came off on the settle's own clock, after the last
+          // tween finished, and never from the window timer, which is a
+          // wedge guard rather than the release ([B04] of
+          // `three-beat-settle`).
+          {
+            const sources = (await releaseSources(app)).slice(releasesBefore);
+            expect(sources.length).toBeGreaterThan(0);
+            expect(sources[sources.length - 1]).toBe("completion");
+            expect(sources).not.toContain("sweep");
+          }
 
           // The residue rule, read off the INLINE style. A frame that never
           // wore a transform computes to `none`, so the computed value would
@@ -541,22 +603,20 @@ describe.skipIf(!SHOULD_RUN)(
           {
             // 420 → 675 is over the smear cap ([D135]:
             // `MAX_FLIP_SCALE_DISTORTION`), so the width crosses as real
-            // geometry — and each content frame carries exactly ONE effect,
-            // holding every term it is crossing. A frame with a real size term
-            // has already forfeited acceleration (its subtree lays out on every
-            // frame either way), so splitting the move into a second effect
-            // would buy nothing and cost the two terms their shared clock —
-            // which is the only thing pinning an edge that must not move.
-            // Slot 0 anchors the band's start, so p1's left never moves under a
-            // deck width change and its whole crossing IS the width; p2's left
-            // shifts with the width, so its one effect carries both terms.
-            const census = await frameAnimations(app);
-            const effectsByPane: Record<string, string[]> = {
-              p1: ["width"],
-              p2: ["transform,width"],
-            };
-            for (const [paneId, effects] of Object.entries(effectsByPane)) {
-              const perEffect = census
+            // geometry — and a real size term never shares a beat with a
+            // translate. The settle runs as beats, shrink then move then
+            // grow; whatever the deck shrinks to make room runs first, and
+            // the content frames are read at the move. Slot 0 anchors the
+            // band's start, so p1's left never moves under a deck width
+            // change and its whole crossing is the grow beat — through the
+            // move it waits, its width held at 420 inline. p2's left shifts
+            // with the width, so it moves, transform-only, at its First
+            // width, and grows after.
+            const effects = (
+              census: FrameAnimation[],
+              paneId: string,
+            ): string[] =>
+              census
                 .filter((anim) => anim.paneId === paneId)
                 .map((anim) =>
                   anim.properties
@@ -565,7 +625,15 @@ describe.skipIf(!SHOULD_RUN)(
                     .join(","),
                 )
                 .sort();
-              expect(perEffect).toEqual(effects);
+            await app.waitForCondition<boolean>(
+              `document.querySelector("[data-imposer-beat='move']") !== null`,
+              { timeoutMs: 2_000 },
+            );
+            expect(await runningBeat(app)).toBe("move");
+            {
+              const census = await frameAnimations(app);
+              expect(effects(census, "p1")).toEqual([]);
+              expect(effects(census, "p2")).toEqual(["transform"]);
             }
             // The transform tween carries no scale at all — the width delta
             // rides as real geometry, so nothing inside the frame is ever a
@@ -576,8 +644,31 @@ describe.skipIf(!SHOULD_RUN)(
             expect(starts["p2"]).toMatch(
               /^translate\(-?[\d.]+px(, -?[\d.]+px)?\)$/,
             );
-            // And the width tween walks the real endpoints: from the seed's
-            // width to the preset's, pinned at both ends.
+            // Both frames hold their First width through the move: the
+            // commit already gave them 675, and the hold is what keeps the
+            // grow for the grow beat.
+            {
+              const held = await inlineWidths(app);
+              expect(held["p1"]).toBe(`${PANE_WIDTH}px`);
+              expect(held["p2"]).toBe(`${PANE_WIDTH}px`);
+            }
+            // The origin is the transform tween's to write, so only the frame
+            // that carries one wears it.
+            const origins = await inlineTransformOrigins(app);
+            expect(origins["p1"]).toBe("");
+            expect(origins["p2"]).toBe("0px 0px");
+            // Then the grow beat: both frames' width tweens walk the real
+            // endpoints, from the seed's width to the preset's, pinned at
+            // both ends — and nothing translates.
+            await app.waitForCondition<boolean>(
+              `document.querySelector("[data-imposer-beat='grow']") !== null`,
+              { timeoutMs: 2_000 },
+            );
+            {
+              const census = await frameAnimations(app);
+              expect(effects(census, "p1")).toEqual(["width"]);
+              expect(effects(census, "p2")).toEqual(["width"]);
+            }
             const widths = await widthKeyframeEndpoints(app);
             for (const paneId of ["p1", "p2"]) {
               expect(widths[paneId]).toEqual({
@@ -585,11 +676,6 @@ describe.skipIf(!SHOULD_RUN)(
                 last: "675px",
               });
             }
-            // The origin is the transform tween's to write, so only the frame
-            // that carries one wears it.
-            const origins = await inlineTransformOrigins(app);
-            expect(origins["p1"]).toBe("");
-            expect(origins["p2"]).toBe("0px 0px");
           }
 
           // After land: the boxes are the preset's, sitting where the imposer
@@ -641,6 +727,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(AFTER_LAND_MS);
           const vp = await viewportWidth(app);
+          await app.enableDeckTrace(true);
 
           // Two changes inside one window. The second measures each frame's
           // live visual rect — which includes the running tween's transform —
@@ -655,6 +742,18 @@ describe.skipIf(!SHOULD_RUN)(
             const census = await frameAnimations(app);
             const ids = census.map((a) => a.paneId);
             expect(new Set(ids).size).toBe(ids.length);
+          }
+          // The retarget was velocity-matched, and it read the velocity off
+          // the beat that was running — a rail-side flip is a move-only
+          // settle, so the interrupted beat is the move, and the crossing it
+          // relaunched is the one beat the velocity is handed to.
+          {
+            const seen = await retargets(app);
+            expect(seen.length).toBeGreaterThan(0);
+            for (const r of seen) {
+              expect(r.mode).toBe("matched");
+              expect(r.beat).toBe("move");
+            }
           }
 
           await wait(AFTER_LAND_MS);

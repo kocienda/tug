@@ -235,6 +235,13 @@ export type DeckTraceEventShape = {
       kind: "settle-retarget";
       paneId: string;
       mode: "snap" | "matched";
+      beat: "shrink" | "move" | "grow" | null;
+    }
+  | {
+      kind: "settle-release";
+      /** Which clock released the stores' hold: the settle's own completion,
+       *  the window sweep, or the canvas unmounting. */
+      source: "completion" | "sweep" | "unmount";
     }
   | {
       kind: "session-lifecycle";
@@ -278,6 +285,7 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "store-notify",
   "settle-arm",
   "settle-retarget",
+  "settle-release",
   "session-lifecycle",
 ] as const;
 export type HarnessKnownTraceKind = (typeof HARNESS_KNOWN_TRACE_KINDS)[number];
@@ -528,7 +536,9 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
     case "settle-arm":
       return `settle-arm ${e.outcome} landing=${e.landing} panes=${e.panes} sig=${fmt(e.signature)}`;
     case "settle-retarget":
-      return `settle-retarget ${e.mode} pane=${fmt(e.paneId)}`;
+      return `settle-retarget ${e.mode} beat=${fmt(e.beat)} pane=${fmt(e.paneId)}`;
+    case "settle-release":
+      return `settle-release ${e.source}`;
     case "session-lifecycle":
       return `session-lifecycle ${fmt(e.event)} ${Object.entries(e.fields)
         .map(([k, v]) => `${k}=${fmt(v)}`)
