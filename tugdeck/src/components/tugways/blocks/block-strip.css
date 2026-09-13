@@ -12,8 +12,9 @@
  * class every altitude carries. This file adds only the per-altitude
  * TOKEN overrides keyed on `data-altitude`: `leaf` inherits the base values
  * untouched (no rule here), while `entry` and `section` bump the
- * `--tugx-toolheader-*` family so the family reads as one component at three
- * declarative sizes ([P03]).
+ * `--tugx-toolheader-*` family and `row` brings it down to the rail list's
+ * measure, so the family reads as one component at four declarative sizes
+ * ([P03]).
  *
  * Tuglaws: [L06] appearance via the `data-altitude` attribute + CSS; [L17]
  * `--tugx-toolheader-*` resolves to `--tug*` in one hop; [L19] file pair,
@@ -59,5 +60,22 @@
    not code), so it reads in the sans UI face rather than the mono detail
    font a tool header's command wants. */
 .tool-call-header[data-altitude="section"] .tool-call-header-detail {
+  font-family: var(--tug-font-family-sans);
+}
+
+/* row — a band inside a rail list row. The rail's rows read at the `xs`
+   measure (`RAIL_LIST_PRESENTATION`), and a register band beneath one of
+   them is that row's third line, not a heading over it: `xs` name and
+   detail, a tighter line box, the section's sans detail face, and a hair
+   less padding than the section so the band sits inside the row's air
+   rather than adding its own. */
+.tool-call-header[data-altitude="row"] {
+  --tugx-toolheader-name-size: var(--tug-font-size-xs);
+  --tugx-toolheader-detail-size: var(--tug-font-size-xs);
+  --tugx-toolheader-line: calc(var(--tug-font-size-xs) * 1.6);
+  --tugx-block-strip-padding: var(--tug-space-2xs) var(--tug-space-sm);
+}
+
+.tool-call-header[data-altitude="row"] .tool-call-header-detail {
   font-family: var(--tug-font-family-sans);
 }
