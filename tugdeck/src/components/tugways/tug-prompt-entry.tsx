@@ -68,7 +68,7 @@ import {
   type RestoredAttachmentEntry,
 } from "@/lib/composer-draft-payload";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
-import { mintLeadingCommandAtom } from "@/lib/command-atom";
+import { atomizeCommandArgs, mintLeadingCommandAtom } from "@/lib/command-atom";
 import type {
   CardSessionMode,
   CodeSessionPhase,
@@ -1824,20 +1824,27 @@ export const TugPromptEntry = React.forwardRef<
   // `performSubmit` is declared below this effect — the ref is assigned at
   // render time and read at fire time, which is [L07]'s own shape.
   //
-  // Nothing here atomizes the args. `buildEditingStateFromDraftRestore`
-  // places the atoms it is handed and mints none, so a `@path` in the args
-  // is seeded as the characters the reader saw and sent as those same
-  // characters — which is exactly what a hand-typed `/arc x @briefs/y.md`
-  // sends, and what claude reads as a file mention on the far side.
+  // The args are atomized on the way in: `atomizeCommandArgs` mints the file
+  // chip the `@` completion would have placed for each `@path` token, so a
+  // clicked `/arc x @briefs/y.md` seeds the same substrate as the line typed
+  // with the popup — one chip to move, delete or send rather than a run of
+  // path characters — and reaches the wire as the same backtick-`@` mention
+  // marker `buildWirePayload` writes for any file atom.
+  // `buildEditingStateFromDraftRestore` places the atoms it is handed and
+  // mints none, so the placeholders and the segment order are this effect's
+  // to get right: the command atom leads, the mentions follow in the order
+  // the args wrote them.
   const pendingCommandInsert = snap.pendingCommandInsert;
   useLayoutEffect(() => {
     if (pendingCommandInsert === null) return;
     const editor = textEditorRef.current;
     if (editor === null) return;
     const { name, args, submit } = pendingCommandInsert;
+    const seededArgs = atomizeCommandArgs(args, TUG_ATOM_CHAR);
     editor.restoreState(
-      buildEditingStateFromDraftRestore(`${TUG_ATOM_CHAR} ${args}`, [
+      buildEditingStateFromDraftRestore(`${TUG_ATOM_CHAR} ${seededArgs.text}`, [
         { kind: "atom", type: "command", label: name, value: name },
+        ...seededArgs.atoms,
       ]),
     );
     editor.focus();

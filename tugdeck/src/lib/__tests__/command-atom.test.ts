@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  atomizeCommandArgs,
   commandWireText,
   chipStyle,
   chipDisplayLabel,
@@ -255,5 +256,61 @@ describe("mintLeadingCommandAtom", () => {
   test("declines when the slash leads a word the grammar rejects", () => {
     expect(mintLeadingCommandAtom("/Commit now", [], K)).toBeNull();
     expect(mintLeadingCommandAtom("/-bad thing", [], K)).toBeNull();
+  });
+});
+
+describe("atomizeCommandArgs", () => {
+  // The placeholder character, as the seeding effect passes it in.
+  const K = "￼";
+
+  test("mints a file atom for an `@` mention and leaves a placeholder", () => {
+    const seeded = atomizeCommandArgs("sheet-reservation @briefs/x.md", K);
+    expect(seeded.text).toBe(`sheet-reservation ${K}`);
+    expect(seeded.atoms).toEqual([
+      {
+        kind: "atom",
+        type: "file",
+        label: "briefs/x.md",
+        value: "briefs/x.md",
+      },
+    ]);
+  });
+
+  test("mints one atom per mention, in the order the args wrote them", () => {
+    const seeded = atomizeCommandArgs("@a.md and @b/c.md", K);
+    expect(seeded.text).toBe(`${K} and ${K}`);
+    expect(seeded.atoms.map((a) => a.value)).toEqual(["a.md", "b/c.md"]);
+  });
+
+  test("a trailing separator is a directory atom, and the value drops it", () => {
+    const seeded = atomizeCommandArgs("@tugdeck/src/", K);
+    expect(seeded.atoms).toEqual([
+      {
+        kind: "atom",
+        type: "directory",
+        label: "tugdeck/src",
+        value: "tugdeck/src",
+      },
+    ]);
+  });
+
+  test("leaves a cited line as characters — an atom names a file", () => {
+    const seeded = atomizeCommandArgs("@src/main.ts:12", K);
+    expect(seeded.text).toBe("@src/main.ts:12");
+    expect(seeded.atoms).toEqual([]);
+  });
+
+  test("leaves a mention the grammar only partly consumes", () => {
+    expect(atomizeCommandArgs("@briefs/x.md.", K).atoms).toEqual([]);
+    expect(atomizeCommandArgs("@notapath", K).atoms).toEqual([]);
+    expect(atomizeCommandArgs("@ken@example.com", K).atoms).toEqual([]);
+  });
+
+  test("passes args with no mention through unchanged", () => {
+    expect(atomizeCommandArgs("", K)).toEqual({ text: "", atoms: [] });
+    expect(atomizeCommandArgs("one two", K)).toEqual({
+      text: "one two",
+      atoms: [],
+    });
   });
 });

@@ -31,6 +31,7 @@
 import type { ContentBlock } from "@/protocol";
 import { isSessionAtomType } from "@/lib/session-atom-shape";
 import { matchLeadingSlashCommand } from "@/lib/annotator/command-grammar";
+import { scanPathReferences } from "@/lib/annotator/detect-path-reference";
 
 /** Strip a single leading slash so the helpers are idempotent on a
  *  value that already carries one (defensive — `value` is canonically
@@ -446,4 +447,89 @@ export function mintLeadingCommandAtom<A extends { kind: "atom"; type: string }>
     value: match.name,
   };
   return { text: atomChar + text.slice(match.end), atoms: [atom, ...atoms] };
+}
+
+// ---------------------------------------------------------------------------
+// Minting the mention atoms inside a command's arguments
+// ---------------------------------------------------------------------------
+
+/**
+ * The atom an `@` mention in a command's arguments mints — structurally an
+ * `AtomSegment`, declared here for the same reason as
+ * {@link CommandAtomSegment}: the module stays free of a `tug-atom-img`
+ * cycle, and takes the placeholder character as a parameter.
+ */
+export interface MentionAtomSegment {
+  kind: "atom";
+  type: "file" | "directory";
+  label: string;
+  value: string;
+}
+
+/** Every `@`-led token in an argument string, before anything asks whether
+ *  the text after the `@` could name a file. */
+const ARGS_MENTION_RE = /@\S+/g;
+
+/**
+ * Rewrite a command's argument text so each `@` mention in it becomes the
+ * file (or directory) atom the `@` completion would have placed there,
+ * returning the `(text, atoms)` substrate — placeholders in `text`, segments
+ * in document order, ready to be concatenated after the leading command
+ * atom.
+ *
+ * **Why the click needs this.** A slash command clicked in the transcript
+ * seeds the composer, and until this existed the seed put the arguments in as
+ * the characters the reader saw: `@briefs/x.md` arrived as eleven-plus
+ * characters of prose where the same line typed with the completion popup
+ * arrives as one chip. `entity-presentation.md`'s rule is that a placed thing
+ * renders as an atom, and a mention somebody clicked is placed. Atomizing
+ * here also makes the two paths byte-identical on the wire: `buildWirePayload`
+ * wraps a file atom as the backtick-`@` mention marker, which is exactly what
+ * the typed-and-completed line already sends.
+ *
+ * The grammar is the transcript's own ({@link scanPathReferences}), and it is
+ * asked to answer about the token *whole*: a mention becomes an atom only when
+ * the text after the `@` is entirely path-shaped. Two shapes are deliberately
+ * left as characters — a token the grammar only partly consumes (a mention
+ * with prose punctuation hanging off it), and one carrying a line citation
+ * (`@foo.ts:12`), since an atom names a file and `path:line` is not one and
+ * dropping the citation would change what the command is sent with.
+ *
+ * Nothing here asks whether the path exists. The seed is a draft the user is
+ * about to look at, a chip over a path that is not there is legible as such,
+ * and a resolver round trip inside a click's paint is not a thing to wait on.
+ *
+ * Pure.
+ */
+export function atomizeCommandArgs(
+  args: string,
+  atomChar: string,
+): { text: string; atoms: MentionAtomSegment[] } {
+  const atoms: MentionAtomSegment[] = [];
+  let text = "";
+  let lastEnd = 0;
+  const re = new RegExp(ARGS_MENTION_RE.source, ARGS_MENTION_RE.flags);
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(args)) !== null) {
+    const body = match[0].slice(1);
+    const [reference] = scanPathReferences(body);
+    if (reference === undefined) continue;
+    if (reference.start !== 0 || reference.end !== body.length) continue;
+    if (reference.line !== undefined) continue;
+    text += args.slice(lastEnd, match.index) + atomChar;
+    atoms.push({
+      kind: "atom",
+      // The written form is what says which: the grammar trims the trailing
+      // separator off the value, so the raw token is the only place the
+      // directory shape survives.
+      type: body.endsWith("/") ? "directory" : "file",
+      // Label and value are both the path as the file index reports it —
+      // the shape the `@` completion mints, and what makes a chip in a
+      // command line read as the argument it is.
+      label: reference.path,
+      value: reference.path,
+    });
+    lastEnd = match.index + match[0].length;
+  }
+  return { text: text + args.slice(lastEnd), atoms };
 }

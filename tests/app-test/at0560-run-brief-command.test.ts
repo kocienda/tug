@@ -17,7 +17,13 @@
  *      pinned as pure logic in `opening-command-stash.test.ts` instead.
  *   3. `Copy Command` — the line on the pasteboard, unchanged and unrun.
  *
- * The menu itself is the fourth thing under test: all three rows are present
+ * The plain left click is the fourth verb and the one with no menu: it seeds
+ * the composer and stops there, and what it seeds is a SUBSTRATE — the
+ * command as its chip, and the `@<path>` argument as the same file chip the
+ * `@` completion would have placed. A mention somebody clicked is a placed
+ * thing, and a placed thing renders as an atom.
+ *
+ * The menu itself is the fifth thing under test: all three rows are present
  * on a live card, in the registry's order, with the runs ahead of the copies
  * ([B03]) — a menu whose height moves between right-clicks is the thing the
  * dim-don't-drop rule exists to prevent.
@@ -25,6 +31,7 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/lib/annotator/registry.ts
+ * @covers tugdeck/src/lib/command-atom.ts
  * @covers tugdeck/src/components/tugways/use-annotation-menu.tsx
  * @covers tugdeck/src/components/tugways/cards/transcript-host-helpers.ts
  * @covers tugdeck/src/lib/prompt-insert-target.ts
@@ -246,12 +253,17 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
 
         // The submit is what distinguishes this from the click that only
         // seeds: the composer is empty afterwards, and the command is in the
-        // transcript as the user's own row.
+        // transcript as the user's own row. Emptiness is asked of the atoms
+        // as well as the ink — the seed's own mention is a chip, so a
+        // text-only check would pass on a composer still holding it. The ink
+        // is asked about the slug rather than asked to be empty: an empty
+        // composer renders its placeholder, which is text.
         await app.waitForCondition<boolean>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             if (!cm) return false;
-            return (cm.textContent || '').indexOf(${JSON.stringify(BRIEF)}) === -1;
+            if (cm.querySelector('[data-atom-type]') !== null) return false;
+            return (cm.textContent || '').indexOf('a-thing') === -1;
           })()`,
           { timeoutMs: 15_000 },
         );
@@ -318,6 +330,60 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
           })()`,
         );
         expect(here.indexOf(BRIEF)).toBe(-1);
+        process.stdout.write("VERDICT: PASS\n");
+      } catch (err) {
+        process.stdout.write("VERDICT: FAIL\n");
+        const tail = app.tailLog(200);
+        if (tail !== "") process.stderr.write(`\n[at0560] log tail:\n${tail}\n`);
+        throw err;
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a click seeds the command chip and its `@` mention as a file chip",
+    async () => {
+      const app = await seedCardWithCommandLine("at0560-run-brief-click");
+      try {
+        await app.nativeClickAtElement(SPAN);
+
+        // Two chips and no loose path characters: the command leads, the
+        // mention follows, and the argument between them is still ink.
+        const atoms = await app.waitForCondition<string>(
+          `(function(){
+            var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
+            if (!cm) return "";
+            var found = Array.from(cm.querySelectorAll('[data-atom-type]')).map(function(el){
+              return el.getAttribute('data-atom-type') + ':' + el.getAttribute('data-atom-value');
+            });
+            return found.length === 2 ? JSON.stringify(found) : "";
+          })()`,
+          { timeoutMs: 15_000 },
+        );
+        expect(JSON.parse(atoms) as string[]).toEqual([
+          `command:${CMD}`,
+          `file:${BRIEF}`,
+        ]);
+
+        // The path is the chip's value, not the composer's text — which is
+        // the whole of the difference a reader sees.
+        const ink = await app.evalJS<string>(
+          `(function(){
+            var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
+            return cm ? (cm.textContent || '') : '';
+          })()`,
+        );
+        expect(ink).toContain("a-thing");
+        expect(ink.indexOf("@" + BRIEF)).toBe(-1);
+
+        // A click seeds and stops: nothing was sent.
+        const cardCount = await app.evalJS<number>(
+          `document.querySelectorAll('[data-card-id]').length`,
+        );
+        expect(cardCount).toBe(1);
         process.stdout.write("VERDICT: PASS\n");
       } catch (err) {
         process.stdout.write("VERDICT: FAIL\n");
