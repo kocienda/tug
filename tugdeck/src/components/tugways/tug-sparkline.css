@@ -5,6 +5,9 @@
  * and the line/area/baseline tint, which ride the element's resolved `color`
  * so the theme owns it. [L16] each color rule names its surface.
  *
+ * The zero line is drawn HERE as well as on the canvas — see the rest
+ * baseline below. That is the one thing in this file the canvas does not own.
+ *
  * @module components/tugways/tug-sparkline
  */
 
@@ -14,6 +17,54 @@
   flex: 0 0 auto;
   overflow: hidden;
   color: var(--tug7-element-global-text-normal-muted-rest);
+  /* `SPARKLINE_LINE_ALPHA` in `lib/sparkline-geometry.ts`. Declared as a
+     property rather than written inline below so the two homes of the number
+     are one grep apart and the test that ties them has one place to read. */
+  --sparkline-line-alpha: 0.85;
+}
+
+/* THE REST BASELINE — the instrument reading zero, drawn by the cascade.
+
+   The canvas strokes its own zero line and always did; this is the same line
+   drawn a second way, so that the one the reader sees cannot be lost to the
+   paint protocol. A dropped first paint, a parked transform disagreeing with
+   the painted origin, a lost acknowledgement, or a colour resolved before the
+   chrome ink does can each lose the ACTIVITY — none of them can reach a
+   stylesheet fact, so none of them can lose the INSTRUMENT. A quiet session
+   reads as a flatline rather than as empty air, which is what
+   `session-identity-row.tsx` has always said it should.
+
+   It sits where the canvas paints zero, to the sub-pixel: the geometry's
+   `baselineY` is `height - FLOOR - 0.5` with `FLOOR` at 1, which is the
+   centre of a 1px stroke covering the row from `height - 2` to `height - 1`
+   — exactly `bottom: 1px; height: 1px` here. The two are one line, not two.
+   `--sparkline-line-alpha` is `SPARKLINE_LINE_ALPHA` from
+   `lib/sparkline-geometry.ts`, the alpha the canvas strokes that line at; the
+   constant has two homes because the canvas has no cascade and the cascade
+   has no imports, and `__tests__/sparkline-rest-baseline-alpha.test.ts`
+   is what keeps them equal.
+
+   `::before` rather than a background on the box: it paints before the
+   positioned track, so the canvas's ink lies over it, and it is a bar of its
+   own rather than a wash the area fill would have to be told apart from.
+   [L06] — the rest state is appearance, so it is painted, never React state. */
+/* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
+.tug-sparkline::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 1px;
+  height: 1px;
+  background: currentColor;
+  /* The consumer knob the canvas reads first, then the default both share.
+     `cards/session-activity-card.css` turns the line up to 1 for its rows,
+     and a bar that ignored that would be a dimmer line the moment the canvas
+     stopped supplying the brighter one — which is the only state this bar is
+     ever seen in. Line WIDTH is deliberately not chained: that knob is a
+     unitless canvas `lineWidth`, and a quarter-pixel is not a reading. */
+  opacity: var(--tugx-sparkline-line-alpha, var(--sparkline-line-alpha));
+  pointer-events: none;
 }
 
 /* Dominant-channel tint ([P05]). When the caller supplies `getColorChannel`,
