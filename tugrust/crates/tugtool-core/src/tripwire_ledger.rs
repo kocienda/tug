@@ -293,6 +293,13 @@ pub enum TripStatus {
     Awaiting,
     /// Finished without one — a session that died, or ended without the verb.
     Failed,
+    /// Held: a deck card took the trip's session over and the user is working
+    /// in it. Not finished — the session is alive and may still run the verb,
+    /// which settles the trip from here — and not running either, because the
+    /// engine has stopped watching it. It carries no `settled_at_ms`, and it
+    /// deliberately does **not** hold the tripwire's live-run slot: the
+    /// tripwire may fire again while the user works ([B05]).
+    Adopted,
 }
 
 impl TripStatus {
@@ -306,6 +313,7 @@ impl TripStatus {
             "settled" => Some(TripStatus::Settled),
             "awaiting" => Some(TripStatus::Awaiting),
             "failed" => Some(TripStatus::Failed),
+            "adopted" => Some(TripStatus::Adopted),
             _ => None,
         }
     }
@@ -320,6 +328,7 @@ impl TripStatus {
             TripStatus::Settled => "settled",
             TripStatus::Awaiting => "awaiting",
             TripStatus::Failed => "failed",
+            TripStatus::Adopted => "adopted",
         }
     }
 }
@@ -924,6 +933,12 @@ pub fn oldest_queued(conn: &Connection) -> Result<Option<Trip>, TripwireLedgerEr
 /// it holds a question the user has not answered and an arc they may still
 /// join, and firing the tripwire again underneath that would replace the question
 /// with a newer one nobody asked for.
+///
+/// `adopted` is deliberately absent, and that absence is the decision ([B05]):
+/// a trip whose session a user has taken over is the user's, not a hold on the
+/// tripwire. The tripwire goes on watching and may fire again while they work.
+/// This is the one read where `adopted` and the live set part company — see
+/// [`live_event_keys`], which does count it.
 pub fn live_trip(conn: &Connection, tripwire_id: i64) -> Result<Option<Trip>, TripwireLedgerError> {
     let sql = format!(
         "SELECT {TRIP_COLUMNS} FROM trips
@@ -935,16 +950,25 @@ pub fn live_trip(conn: &Connection, tripwire_id: i64) -> Result<Option<Trip>, Tr
         .optional()?)
 }
 
-/// Every event key with a `running` or `awaiting` trip on it, whatever tripwire
-/// or instance claimed it.
+/// Every event key with a `running`, `awaiting` or `adopted` trip on it,
+/// whatever tripwire or instance claimed it.
 ///
 /// What the inspection-tree sweep measures against (Risk R04): a tree on disk
 /// whose landing appears nowhere in this set belongs to a run that is over,
 /// however it ended. Machine-wide rather than per-instance, because the trees
 /// are and the ledger is.
+///
+/// `adopted` counts here and does not count in [`live_trip`], and the two
+/// reads have stopped being one set on purpose ([B10]). The busy guard asks
+/// "may the tripwire fire again?", and an adopted trip is no reason it may
+/// not. This asks "is anything still using the tree?", and an adopted session
+/// is a user working in that very directory — sweeping it would delete the
+/// worktree out from under them.
 pub fn live_event_keys(conn: &Connection) -> Result<Vec<String>, TripwireLedgerError> {
-    let mut stmt = conn
-        .prepare("SELECT DISTINCT event_key FROM trips WHERE status IN ('running', 'awaiting')")?;
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT event_key FROM trips
+             WHERE status IN ('running', 'awaiting', 'adopted')",
+    )?;
     let rows = stmt.query_map([], |r| r.get(0))?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
@@ -1155,6 +1179,32 @@ pub fn resolve_running(
     )
 }
 
+/// Settle a tripwire's `adopted` trip — the fall-through both `tripwire
+/// resolve` and `tripwire dismiss` take when no live trip answered.
+///
+/// A session a user took over can still run the verb, and dismissing an
+/// adopted trip is the user's way out of a hold they no longer want. Both
+/// callers try their own state first, so a genuinely running or awaiting trip
+/// wins over an older adopted one.
+pub fn resolve_adopted(
+    conn: &Connection,
+    tripwire_id: i64,
+    status: TripStatus,
+    settlement: &Settlement,
+    author_ask: Option<&str>,
+    at_ms: i64,
+) -> Result<Resolution, TripwireLedgerError> {
+    resolve_from(
+        conn,
+        tripwire_id,
+        "adopted",
+        status,
+        settlement,
+        author_ask,
+        at_ms,
+    )
+}
+
 /// Settle a tripwire's `awaiting` trip — what `tripwire dismiss` does. The arc
 /// the trip is holding comes back with it, because discarding that arc is the
 /// other half of the dismissal ([P09]) and the caller cannot read the row
@@ -1267,6 +1317,30 @@ pub fn settle_if_running(
     Ok(changed > 0)
 }
 
+/// Hand one trip over, but only while it is still `running` — the same
+/// compare-and-set [`settle_if_running`] uses, for the same reason.
+///
+/// Not a settle: `settled_at_ms` is deliberately not written, because an
+/// adopted trip has not finished. The session is alive in a user's card and
+/// may yet run the verb, which settles the row from `adopted`. `at_ms` is
+/// accepted so this reads like its two siblings and is unwritten for that
+/// reason. The headline says what happened, so a reader who opens the trip
+/// finds out why it is held. Answers whether this caller was the one that
+/// moved it.
+pub fn adopt_if_running(
+    conn: &Connection,
+    trip_id: i64,
+    headline: &str,
+    _at_ms: i64,
+) -> Result<bool, TripwireLedgerError> {
+    let changed = conn.execute(
+        "UPDATE trips SET status = 'adopted', headline = ?1
+         WHERE id = ?2 AND status = 'running'",
+        params![headline, trip_id],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Put a running trip back in the queue, because the host was full rather than
 /// the tripwire at fault.
 ///
@@ -1323,6 +1397,10 @@ pub fn trips_for_tripwire(
 /// only effect is to hold `UNIQUE(tripwire_id, event_key)` against every later
 /// claim of the same commit. Deleting it is what lets that commit be
 /// evaluated again. Answers how many rows were failed or cleared.
+///
+/// `adopted` is left alone, the way `awaiting` is: an adopted trip's session
+/// belongs to a user's card rather than to this instance's engine, so it
+/// survives a restart unfailed.
 pub fn sweep_stale_running(
     conn: &Connection,
     instance: &str,
@@ -2515,10 +2593,128 @@ mod tests {
             TripStatus::Settled,
             TripStatus::Awaiting,
             TripStatus::Failed,
+            TripStatus::Adopted,
         ] {
             assert_eq!(TripStatus::parse(s.as_str()), Some(s));
         }
         assert_eq!(TripStatus::parse("nonsense"), None);
+    }
+
+    /// A card taking the session over moves the trip to `adopted` and writes
+    /// no `settled_at_ms`, because an adopted trip has not finished. The
+    /// compare-and-set is the whole guard: a trip the verb already settled is
+    /// not dragged back out of its outcome.
+    #[test]
+    fn adopting_moves_a_running_trip_and_loses_to_a_settle_that_landed_first() {
+        let conn = ledger();
+        let tripwire = lay_one(&conn, "ci");
+        let Claim::Claimed { trip_id } =
+            claim_trip(&conn, tripwire.id, "landing:abc", 1, "inst-a", None).unwrap()
+        else {
+            panic!("claimed");
+        };
+        record_run(&conn, trip_id, Some("sess-a"), None).unwrap();
+
+        assert!(adopt_if_running(&conn, trip_id, "a card took it over", 9).unwrap());
+        let held = trip(&conn, trip_id).unwrap().unwrap();
+        assert_eq!(held.status, "adopted");
+        assert_eq!(held.headline.as_deref(), Some("a card took it over"));
+        assert_eq!(
+            held.settled_at_ms, None,
+            "an adopted trip has not finished, so nothing stamps it settled",
+        );
+
+        // Against a trip that is no longer running, it changes nothing and
+        // says it changed nothing.
+        assert!(!adopt_if_running(&conn, trip_id, "again", 10).unwrap());
+        assert_eq!(
+            trip(&conn, trip_id).unwrap().unwrap().headline.as_deref(),
+            Some("a card took it over"),
+        );
+    }
+
+    /// The split [B10] made: the busy guard and the tree sweep stopped being
+    /// one set. An adopted trip does not hold the tripwire's live-run slot —
+    /// it may fire again while the user works — but its tree is a directory
+    /// somebody is sitting in, so the sweep still sees its event key.
+    #[test]
+    fn an_adopted_trip_frees_the_busy_slot_and_keeps_its_tree() {
+        let conn = ledger();
+        let tripwire = lay_one(&conn, "ci");
+        let Claim::Claimed { trip_id } =
+            claim_trip(&conn, tripwire.id, "landing:abc", 1, "inst-a", None).unwrap()
+        else {
+            panic!("claimed");
+        };
+        record_run(&conn, trip_id, Some("sess-a"), None).unwrap();
+        assert!(live_trip(&conn, tripwire.id).unwrap().is_some());
+
+        adopt_if_running(&conn, trip_id, "a card took it over", 9).unwrap();
+
+        assert!(
+            live_trip(&conn, tripwire.id).unwrap().is_none(),
+            "an adopted trip is the user's, not a hold on the tripwire",
+        );
+        assert_eq!(
+            live_event_keys(&conn).unwrap(),
+            vec!["landing:abc".to_string()],
+            "the sweep must not delete a tree somebody is working in",
+        );
+    }
+
+    /// An adopted session can still run the verb, and the trip settles from
+    /// `adopted` the way it would have from `running`.
+    #[test]
+    fn an_adopted_trip_still_resolves() {
+        let conn = ledger();
+        let tripwire = lay_one(&conn, "ci");
+        let Claim::Claimed { trip_id } =
+            claim_trip(&conn, tripwire.id, "landing:abc", 1, "inst-a", None).unwrap()
+        else {
+            panic!("claimed");
+        };
+        record_run(&conn, trip_id, Some("sess-a"), Some("tripwire-ci-abc12345")).unwrap();
+        adopt_if_running(&conn, trip_id, "a card took it over", 9).unwrap();
+
+        // The running read finds nothing, which is the fall-through the CLI
+        // verbs take.
+        assert_eq!(
+            resolve_running(
+                &conn,
+                tripwire.id,
+                TripStatus::Settled,
+                &Settlement::default(),
+                None,
+                10,
+            )
+            .unwrap(),
+            Resolution::NoLiveTrip {
+                state: Some("adopted".to_string())
+            }
+        );
+
+        let settlement = Settlement {
+            headline: Some("the user finished it themselves".to_string()),
+            ..Settlement::default()
+        };
+        assert_eq!(
+            resolve_adopted(
+                &conn,
+                tripwire.id,
+                TripStatus::Settled,
+                &settlement,
+                None,
+                11,
+            )
+            .unwrap(),
+            Resolution::Resolved {
+                trip_id,
+                arc: Some("tripwire-ci-abc12345".to_string()),
+            }
+        );
+        let settled = trip(&conn, trip_id).unwrap().unwrap();
+        assert_eq!(settled.status, "settled");
+        assert_eq!(settled.settled_at_ms, Some(11));
     }
 
     /// The resolution verb's whole grammar at the ledger ([P07], Spec S02):

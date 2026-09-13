@@ -2,6 +2,7 @@ mod actions;
 mod arc_api;
 mod attachments;
 mod auth;
+mod background_session;
 mod changes_journal;
 mod changes_writer;
 mod cli;

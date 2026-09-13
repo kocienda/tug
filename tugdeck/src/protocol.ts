@@ -139,6 +139,19 @@ export interface SessionRow {
   last_user_prompt: string | null;
   state: "live" | "closed" | "failed";
   card_id: string | null;
+  /**
+   * Whether `card_id` names a **background owner** rather than a deck card —
+   * a tripwire's work tier, or whatever background spawner comes after it.
+   * Computed server-side at projection from `card_id`; never stored.
+   *
+   * It is the distinction adoption turns on: a live session held by a
+   * background owner has no card a user could be raised to, so the deck may
+   * offer to seat it on one instead of refusing the gesture. `false` for an
+   * unbound session — that is a different fact and a different remedy —
+   * and `false` for an older tugcast that omits the field. Keep in lockstep
+   * with the Rust `SessionRow.background`.
+   */
+  background: boolean;
   /** Session title — the user's `/rename` choice or an auto `aiTitle`; `null`
    *  when untitled. See {@link SessionRow.name_user_set} to tell them apart. */
   name: string | null;
@@ -220,6 +233,7 @@ export function normalizeSessionRow(
     | "tag"
     | "synopsis"
     | "line_id"
+    | "background"
   > &
     Partial<
       Pick<
@@ -230,6 +244,7 @@ export function normalizeSessionRow(
         | "tag"
         | "synopsis"
         | "line_id"
+        | "background"
       >
     >,
 ): SessionRow {
@@ -243,6 +258,7 @@ export function normalizeSessionRow(
     synopsis: row.synopsis ?? null,
     private: row.private ?? false,
     line_id: row.line_id ?? "",
+    background: row.background ?? false,
   };
 }
 

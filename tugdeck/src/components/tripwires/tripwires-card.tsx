@@ -63,6 +63,12 @@ import type {
   TugListViewDataSource,
   TugListViewDelegate,
 } from "@/components/tugways/tug-list-view";
+import { getRegistryHandler } from "@/action-dispatch";
+import { dispatchCommand } from "@/command-dispatch";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { useCardIdForSession } from "@/lib/card-session-binding-store";
+import { CardIdContext } from "@/lib/card-id-context";
+import { useCitedSession } from "@/lib/session-citation-store";
 import { formatContextualStamp } from "@/lib/contextual-stamp";
 import {
   getTripwiresStore,
@@ -138,6 +144,67 @@ function PauseToggle({ tripwire }: { tripwire: TripwireRow }): React.ReactElemen
 const DOT_SIZE = 12;
 
 /**
+ * The live dot over a session, and the one gesture that reaches it.
+ *
+ * Its own component, and that is not a stylistic split: {@link
+ * TripwireStateDot} opens with an early return and then branches on the dot's
+ * kind, so the two hooks below called inside it would be conditional hook
+ * calls — correct until a row's dot changes kind, and then not. Here they run
+ * unconditionally, the way `SessionPhaseDot` is delegated to for the same
+ * reason.
+ *
+ * The branch is `session-identity-menu.tsx`'s, composed the same way rather
+ * than re-derived ([L30]): a card already holding this session is raised, and
+ * a session no card holds is seated on one through the resume the deck
+ * already ships. There is no third case and no refusal — a background
+ * session's row carries `background: true`, which is what unblocked the
+ * gesture, and the supervisor admits a live one without re-spawning it.
+ */
+function TripwireSessionDot({ sessionId }: { sessionId: string }): React.ReactElement {
+  const openCardId = useCardIdForSession(sessionId);
+  // The card this dot is mounted in, so the seated card lands in the slot
+  // beside it rather than beside whatever card happened to hold the key view
+  // when the dot was pressed.
+  const hostCardId = React.useContext(CardIdContext);
+  // Only asked when no card holds it: the resolver answers where the session's
+  // project is, which is the one thing seating a card needs and the one thing
+  // a raise does not ([L02] — the ask is the hook's, not a component's).
+  const cited = useCitedSession(openCardId === null ? sessionId : "");
+
+  const activate = React.useCallback((): void => {
+    if (openCardId !== null) {
+      // The registry's own raise — the same funnel a Cards card row's click
+      // and a chip's click go through, so three gestures cannot drift into
+      // three raises ([L30]).
+      dispatchCommand("focus-session-card", { cardId: openCardId });
+      return;
+    }
+    if (cited.status !== "found" || cited.projectDir.length === 0) return;
+    getRegistryHandler(TUG_ACTIONS.RESUME_SESSION)?.({
+      sessionId: cited.sessionId,
+      projectDir: cited.projectDir,
+      originCardId: hostCardId ?? undefined,
+    });
+  }, [openCardId, cited, hostCardId]);
+
+  return (
+    <button
+      type="button"
+      className="tripwires-dot-button"
+      onClick={activate}
+      data-tripwire-adopt={sessionId}
+      aria-label={
+        openCardId === null
+          ? "Open this tripwire's session in a card"
+          : "Show the card holding this tripwire's session"
+      }
+    >
+      <SessionPhaseDot sessionId={sessionId} size={DOT_SIZE} drift />
+    </button>
+  );
+}
+
+/**
  * The interest dot — the one thing on a tripwire row that moves ([P08]).
  *
  * Three meanings, one wrapper, and nothing hand-drawn: `TugProgressIndicator`
@@ -155,7 +222,7 @@ function TripwireStateDot({ dot }: { dot: TripwireDot }): React.ReactElement | n
   return (
     <span className="tripwires-dot" data-tripwire-dot={dot.kind}>
       {dot.kind === "session" ? (
-        <SessionPhaseDot sessionId={dot.sessionId} size={DOT_SIZE} drift />
+        <TripwireSessionDot sessionId={dot.sessionId} />
       ) : (
         <TugProgressIndicator
           variant="pulsing-dot"

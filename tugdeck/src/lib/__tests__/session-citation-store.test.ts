@@ -66,6 +66,30 @@ describe("what the ledger said", () => {
       sessionId: FULL,
       projectDir: "/Users/dev/src/tugtool",
       state: "closed",
+      background: false,
+    });
+  });
+
+  test("a background holder rides the answer beside the state", () => {
+    // The two are one fact — "live, and held by nobody a user can be sent to" —
+    // and the adoption gesture reads them together. An answer carrying the
+    // state without this one refuses the gesture for every session the listing
+    // store has not reached.
+    sessionCitationStore.applyResolved({
+      found: [
+        {
+          queried: FULL,
+          session: row({ state: "live", card_id: "tripwire:w", background: true }),
+        },
+      ],
+      unknown: [],
+    });
+    expect(sessionCitationStore.getAnswer(FULL)).toEqual({
+      status: "found",
+      sessionId: FULL,
+      projectDir: "/Users/dev/src/tugtool",
+      state: "live",
+      background: true,
     });
   });
 

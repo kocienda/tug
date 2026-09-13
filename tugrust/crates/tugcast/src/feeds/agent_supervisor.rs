@@ -46,6 +46,7 @@ use super::session_metadata::{
 };
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
+use crate::background_session::background_card_id;
 #[cfg(test)]
 use tugcast_core::LagPolicy;
 
@@ -55,15 +56,6 @@ pub const BOUNDED_QUEUE_CAP: usize = 256;
 /// WebSocket connection identifier. Matches the router's existing
 /// `client_id_counter` type.
 pub type ClientId = u64;
-
-/// The card-id prefix a tripwire's own session carries.
-///
-/// `spawn_headless_session` writes it and the tripwire engine reads it back
-/// off a fact's session: a fact from a tripwire's session never trips
-/// anything, because a work-tier tripwire that re-tripped on its own commits
-/// would be a loop with no floor. Writer and reader share the one definition
-/// so the two halves cannot drift apart.
-pub(crate) const TRIPWIRE_CARD_PREFIX: &str = "tripwire:";
 
 // ---------------------------------------------------------------------------
 // SpawnState
@@ -2123,6 +2115,10 @@ fn build_listed_union(
                     // scanned session's segments exactly as it groups a
                     // ledger row's.
                     line_id: meta.line_id.unwrap_or_default(),
+                    // Nor a background owner: `card_id` is `None` above, and
+                    // a scanned session has no `sessions` row to carry a card
+                    // at all.
+                    background: false,
                 },
                 origin: "external",
                 terminal_live,
@@ -5437,9 +5433,10 @@ impl AgentSupervisor {
     /// can later resume.
     ///
     /// The card id is `tripwire:<name>`. It names the tripwire that asked
-    /// rather than addressing a card, because no card by that id exists; the
-    /// tripwire engine reads the same prefix back off a fact's session to keep
-    /// a tripwire from tripping on its own work.
+    /// rather than addressing a card, because no card by that id exists.
+    /// `background_session` owns both the minting and the recognising, so a
+    /// reader downstream can tell a session held by a background owner from
+    /// one held by a card a user could be sent to.
     #[cfg_attr(not(test), allow(dead_code))] // the work tier is the caller
     pub(crate) async fn spawn_headless_session(
         &self,
@@ -5448,7 +5445,7 @@ impl AgentSupervisor {
         permission_mode: Option<String>,
         tag: Option<String>,
     ) -> Result<TugSessionId, ControlError> {
-        let card_id = format!("{TRIPWIRE_CARD_PREFIX}{tripwire_name}");
+        let card_id = background_card_id(tripwire_name);
         let tug_session_id = TugSessionId::new(uuid::Uuid::new_v4().to_string());
         // A headless session is the only session on its line, and it mints the
         // line itself because no drop preceded it ([P03]).
@@ -5556,13 +5553,44 @@ impl AgentSupervisor {
     /// card's own — the workspace refcount comes back, the ledger row goes
     /// `closed`, and the session-closed fact is recorded — because a headless
     /// session differs from a card's only in who asked for it.
+    ///
+    /// Unless the session is no longer the caller's. A deck card that resumes
+    /// a background session re-points the entry's `card_id` to its own, and
+    /// from that moment the session belongs to a user sitting inside it —
+    /// closing it would tear down a conversation mid-sentence. So the entry is
+    /// read before anything is torn down, and a `card_id` that is not the one
+    /// this caller minted is a refusal.
+    ///
+    /// The guard is here rather than in `do_close_session` on purpose: the
+    /// user's own close of the adopted card goes through that path and must
+    /// still work.
     #[cfg_attr(not(test), allow(dead_code))] // the work tier is the caller
     pub(crate) async fn close_headless_session(
         &self,
         tripwire_name: &str,
         tug_session_id: &TugSessionId,
     ) {
-        let card_id = format!("{TRIPWIRE_CARD_PREFIX}{tripwire_name}");
+        let card_id = background_card_id(tripwire_name);
+        let held_by = {
+            let entry_arc = self.ledger.lock().await.get(tug_session_id).cloned();
+            match entry_arc {
+                Some(entry_arc) => entry_arc.lock().await.card_id.clone(),
+                // No entry at all: nothing to hand over and nothing to close.
+                // `do_close_session` short-circuits on an unknown id anyway.
+                None => None,
+            }
+        };
+        if let Some(held_by) = held_by.filter(|held| held != &card_id) {
+            tracing::info!(
+                target: "dev::session-lifecycle",
+                event = "supervisor.headless_close_refused",
+                tug_session_id = %tug_session_id,
+                card_id = %card_id,
+                held_by = %held_by,
+                "a card took the session over; leaving it to its new holder",
+            );
+            return;
+        }
         self.do_close_session(&card_id, tug_session_id).await;
     }
 
@@ -12645,6 +12673,7 @@ mod tests {
                 arc_id: None,
                 arc_name: None,
                 line_id: line_id.to_string(),
+                background: false,
             },
             origin: "tug",
             terminal_live: None,
@@ -13214,6 +13243,7 @@ mod tests {
             arc_id: None,
             arc_name: None,
             line_id: String::new(),
+            background: false,
         };
         let frame = build_session_updated_frame(&row, None, None);
         let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
@@ -13248,6 +13278,7 @@ mod tests {
             arc_id: None,
             arc_name: None,
             line_id: String::new(),
+            background: false,
         };
 
         // No scan-cache row: a null size, and the ledger's own count stands.
@@ -13290,6 +13321,7 @@ mod tests {
             arc_id: None,
             arc_name: None,
             line_id: String::new(),
+            background: false,
         };
 
         // A segment with no telemetry says nothing rather than zero — the
@@ -20552,12 +20584,26 @@ mod tests {
                 Some("stocky-pixie"),
             )
             .unwrap();
+        // And one a tripwire's work tier holds — a live session with no card
+        // a user could be raised to.
+        let held = "0c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+        ledger
+            .record_spawn(
+                held,
+                "ws-1",
+                "/proj/alpha",
+                &crate::background_session::background_card_id("nightly-audit"),
+                1_000,
+                held,
+                Some("amber-otter"),
+            )
+            .unwrap();
 
         let payload = serde_json::to_vec(&serde_json::json!({
             "action": "resolve_sessions",
             // The full uuid a `Tug-Session-Id` carries, the 8-char token a
             // citation carries, and a session written on another machine.
-            "ids": [full, "f6e43925", "0badf00d"],
+            "ids": [full, "f6e43925", held, "0badf00d"],
         }))
         .unwrap();
         sup.handle_control("resolve_sessions", &payload, 10)
@@ -20566,7 +20612,7 @@ mod tests {
 
         let response = drain_until_action(&mut rx, "resolve_sessions_ok");
         let sessions = response["sessions"].as_array().expect("sessions array");
-        assert_eq!(sessions.len(), 2, "response: {response}");
+        assert_eq!(sessions.len(), 3, "response: {response}");
         // Keyed by the asked-for spelling; the row carries the whole identity,
         // callsign included, so the chip renders the ledger's own word.
         assert_eq!(sessions[0]["queried"], full);
@@ -20574,6 +20620,12 @@ mod tests {
         assert_eq!(sessions[0]["session"]["tag"], "stocky-pixie");
         assert_eq!(sessions[1]["queried"], "f6e43925");
         assert_eq!(sessions[1]["session"]["session_id"], full);
+        // The field the deck's adoption gesture turns on rides the same frame:
+        // a card holds the first, a background owner holds the third, and the
+        // deck can tell a session it could raise from one it must adopt.
+        assert_eq!(sessions[0]["session"]["background"], false);
+        assert_eq!(sessions[2]["queried"], held);
+        assert_eq!(sessions[2]["session"]["background"], true);
         // The miss is stated rather than merely omitted.
         assert_eq!(
             response["unknown"].as_array().expect("unknown array"),

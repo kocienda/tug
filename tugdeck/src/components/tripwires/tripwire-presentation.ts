@@ -29,11 +29,19 @@ import type { TripRow, TripwireRow } from "@/lib/tripwires-store";
  * that resolved awaiting has finished and is holding the wire's live-run slot
  * until somebody sees what it found ([P07]) — the only state on this list that
  * is waiting on a person rather than on a machine.
+ *
+ * Nor does `adopted`: a Session card took the run's session over and somebody
+ * is working in it. It is the one state that is neither the machine's nor a
+ * question — it is a conversation. It has its own member because the
+ * `default:` arm below reads every unknown status as `waiting`, and printing
+ * "Starting…" over a session the reader is sitting inside is the worst
+ * sentence this surface could say.
  */
 export type TripState =
   | "waiting"
   | "running"
   | "awaiting"
+  | "adopted"
   | "finished"
   | "failed"
   | "skipped";
@@ -44,6 +52,8 @@ export function tripState(trip: TripRow): TripState {
       return "running";
     case "awaiting":
       return "awaiting";
+    case "adopted":
+      return "adopted";
     case "settled":
       return "finished";
     case "failed":
@@ -99,6 +109,8 @@ export function tripSentence(trip: TripRow): string {
       return "Running now…";
     case "awaiting":
       return "Waiting for you to look.";
+    case "adopted":
+      return "You took this one over.";
     case "waiting":
       return trip.status === "queued"
         ? "Waiting — this tripwire is already busy."
@@ -132,6 +144,10 @@ export function tripStateLabel(trip: TripRow): string | null {
       return "finished";
     case "failed":
       return "stopped";
+    // Nothing: `tripSentence` already says the reader took this one over, and
+    // a label beside it would say it twice.
+    case "adopted":
+      return null;
     default:
       return null;
   }
@@ -162,9 +178,14 @@ export type TripwireDot =
   | null;
 
 /** The roster row's dot. Nothing at rest — a wire with no run in flight and no
- *  question outstanding has nothing to say, and says it with silence. */
+ *  question outstanding has nothing to say, and says it with silence.
+ *
+ *  An adopted trip earns the same live dot a running one does, and reaches it
+ *  by the same field: the projection folds the adopted session into
+ *  `running_session` when nothing is running, so the row keeps the dot the
+ *  user takes the session over through. No new dot kind ([P07]). */
 export function tripwireDot(tripwire: TripwireRow): TripwireDot {
-  if (tripwire.running) {
+  if (tripwire.running || tripwire.adopted) {
     return tripwire.running_session === null
       ? { kind: "working" }
       : { kind: "session", sessionId: tripwire.running_session };
@@ -178,6 +199,13 @@ export function tripDot(trip: TripRow): TripwireDot {
     case "running":
       return trip.session_id === null
         ? { kind: "working" }
+        : { kind: "session", sessionId: trip.session_id };
+    // An adopted trip's session is alive and the reader may be in it, so the
+    // dot is the live pulse the running case earns — not the held `awaiting`
+    // glyph, which means a question nobody has answered.
+    case "adopted":
+      return trip.session_id === null
+        ? null
         : { kind: "session", sessionId: trip.session_id };
     case "awaiting":
       return { kind: "awaiting" };

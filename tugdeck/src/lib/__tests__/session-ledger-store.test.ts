@@ -43,6 +43,7 @@ function makeRow(partial: Partial<SessionRow> & { session_id: string }): Session
     synopsis: partial.synopsis ?? null,
     origin: partial.origin ?? "tug",
     terminal_live: partial.terminal_live ?? null,
+    background: partial.background ?? false,
   };
 }
 

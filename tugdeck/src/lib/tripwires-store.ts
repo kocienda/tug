@@ -41,8 +41,14 @@ export interface TripwireRow {
   readonly paused: boolean;
   /** A trip is running for this tripwire right now. */
   readonly running: boolean;
+  /** A trip's session has been taken over by a Session card, and the user is
+   *  working in it. Not a hold on the tripwire — it may fire again while they
+   *  work — but the session is alive and the row's live dot reaches it. */
+  readonly adopted: boolean;
   /** The running trip's session, when it has one. A trip still inside its
-   *  probe is running with no session yet, and the two dots differ. */
+   *  probe is running with no session yet, and the two dots differ. Carries
+   *  the **adopted** trip's session when nothing is running, so a row does not
+   *  go dark at the moment somebody takes its session over. */
   readonly running_session: string | null;
   /** A run finished with something the user should see and is holding until
    *  they see it ([P07]) — the state the row's yellow dot reads. */

@@ -84,6 +84,12 @@ fn project(conn: &Connection, tripwire: &Tripwire) -> Value {
     let awaiting = trips
         .iter()
         .find(|t| t.status == TripStatus::Awaiting.as_str());
+    // And the trip a card took over. It holds no live-run slot ([B05]) — the
+    // tripwire may fire again while the user works — but its session is alive
+    // and reachable, which is the whole of what the row's live dot is for.
+    let adopted = trips
+        .iter()
+        .find(|t| t.status == TripStatus::Adopted.as_str());
     let last = trips.first();
     json!({
         "name": tripwire.name,
@@ -96,10 +102,18 @@ fn project(conn: &Connection, tripwire: &Tripwire) -> Value {
         "permission_mode": tripwire.permission_mode,
         "paused": tripwire.paused,
         "running": running.is_some(),
+        "adopted": adopted.is_some(),
         // The session the live dot reads. A trip running its probe has none
         // yet, and the section shows a plain running dot for that stretch
         // rather than a session dot keyed on nothing.
-        "running_session": running.and_then(|t| t.session_id.clone()),
+        //
+        // An adopted trip's session falls in here when nothing is running,
+        // because the alternative is that the row goes dark the instant it is
+        // adopted — and the dot the user reaches the session through is the
+        // one thing that must not disappear at that moment.
+        "running_session": running
+            .or(adopted)
+            .and_then(|t| t.session_id.clone()),
         "awaiting": awaiting.is_some(),
         "awaiting_arc": awaiting.and_then(|t| t.arc.clone()),
         "last_trip": last.map(|t| json!({

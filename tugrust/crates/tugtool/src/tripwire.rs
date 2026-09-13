@@ -623,16 +623,24 @@ fn run_resolve(
         headline: headline.map(str::to_owned),
         ..Settlement::default()
     };
-    let resolution =
+    // The running trip first, so a genuinely running one wins over an older
+    // adopted one; a session a card took over can still run this verb, and
+    // resolving from `adopted` is how its trip settles.
+    let mut resolution =
         ledger::resolve_running(&conn, tripwire.id, status, &settlement, author, now_ms())
             .map_err(|e| e.to_string())?;
+    if matches!(resolution, Resolution::NoLiveTrip { .. }) {
+        resolution =
+            ledger::resolve_adopted(&conn, tripwire.id, status, &settlement, author, now_ms())
+                .map_err(|e| e.to_string())?;
+    }
     let Resolution::Resolved { trip_id, .. } = resolution else {
         let Resolution::NoLiveTrip { state } = resolution else {
             unreachable!("a resolution is one of two things")
         };
         return Err(match state {
             Some(state) => format!(
-                "tripwire {name} has no running trip to resolve — its newest trip is {state}"
+                "tripwire {name} has no running or adopted trip to resolve — its newest trip is {state}"
             ),
             None => format!("tripwire {name} has never fired, so there is nothing to resolve"),
         });
@@ -669,15 +677,34 @@ fn run_dismiss(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     let tripwire = ledger::get(&conn, name)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()).to_string())?;
-    let resolution =
+    // The awaiting trip first, for the same reason `resolve` tries running
+    // first: a hold the user is being shown outranks an older adopted trip.
+    // Dismissing an adopted one is their door out of a session they took over
+    // and no longer want held ([B10]).
+    let mut resolution =
         ledger::resolve_awaiting(&conn, tripwire.id, now_ms()).map_err(|e| e.to_string())?;
+    if matches!(resolution, Resolution::NoLiveTrip { .. }) {
+        let settlement = Settlement {
+            headline: Some("dismissed".to_string()),
+            ..Settlement::default()
+        };
+        resolution = ledger::resolve_adopted(
+            &conn,
+            tripwire.id,
+            TripStatus::Settled,
+            &settlement,
+            None,
+            now_ms(),
+        )
+        .map_err(|e| e.to_string())?;
+    }
     let Resolution::Resolved { trip_id, arc } = resolution else {
         let Resolution::NoLiveTrip { state } = resolution else {
             unreachable!("a resolution is one of two things")
         };
         return Err(match state {
             Some(state) => format!(
-                "tripwire {name} has no awaiting trip to dismiss — its newest trip is {state}"
+                "tripwire {name} has no awaiting or adopted trip to dismiss — its newest trip is {state}"
             ),
             None => format!("tripwire {name} has never fired, so there is nothing to dismiss"),
         });

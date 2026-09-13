@@ -144,6 +144,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tugcast_core::{OverviewAuthor, OverviewPost};
 
+use crate::background_session::is_background_card_id;
 use crate::ledger_integrity;
 use crate::path_resolver::resolve_to_claude_form;
 use crate::search_tokens::subword_tokens;
@@ -496,6 +497,17 @@ pub struct SessionRow {
     /// with the TS `SessionRow.line_id`.
     #[serde(default)]
     pub line_id: String,
+    /// Whether this session's `card_id` names a background owner rather than
+    /// a deck card ([B04]). Computed at projection from `card_id`; never
+    /// stored, so there is one answer and it cannot drift from the id.
+    ///
+    /// It is the distinction adoption turns on: a live session held by a
+    /// background owner has no card a user could be raised to, which is why
+    /// the deck may offer to seat it on one instead of refusing. `false` for
+    /// an unbound session — that is a different fact and a different remedy.
+    /// Keep in lockstep with the TS `SessionRow.background`.
+    #[serde(default)]
+    pub background: bool,
 }
 
 /// One row of the `turns` submission journal. Authored by tugcast at
@@ -4013,6 +4025,10 @@ impl SessionLedger {
                 arc_id: None,
                 arc_name: None,
                 line_id: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
+                // Nor a background owner: this row's `card_id` is `None`
+                // above, and an unadopted scan row has no `sessions` row to
+                // carry a card at all.
+                background: false,
             })
         }
         let conn = self.db.lock().expect("ledger mutex");
@@ -8541,6 +8557,9 @@ fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow
     let last_user_prompt: Option<String> = row.get(6)?;
     let state_str: String = row.get(7)?;
     let card_id: Option<String> = row.get(8)?;
+    // The one place the answer is ever `true`: computed from the id, so the
+    // two cannot disagree.
+    let background = is_background_card_id(card_id.as_deref());
     let name: Option<String> = row.get(9)?;
     let name_user_set: bool = row.get::<_, i64>(10)? != 0;
     let tag: Option<String> = row.get(11)?;
@@ -8571,6 +8590,7 @@ fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow
         arc_id,
         arc_name,
         line_id,
+        background,
     }))
 }
 
@@ -9190,6 +9210,51 @@ mod tests {
             crate::session_tag_lexicon::TAG_NOUNS.contains(&noun),
             "{noun} is not in the noun pool ({tag})"
         );
+    }
+
+    /// The projection computes `background` from `card_id`, and the three
+    /// answers are three different facts: a background owner holds it, a deck
+    /// card holds it, or nobody has ever held it. Only the first is the case
+    /// adoption exists for.
+    #[test]
+    fn background_is_projected_from_the_card_id() {
+        let l = fresh();
+        l.record_spawn(
+            "s_bg",
+            WS_A,
+            "/proj",
+            &crate::background_session::background_card_id("w"),
+            millis(0),
+            "s_bg",
+            None,
+        )
+        .expect("record_spawn");
+        l.record_spawn("s_card", WS_A, "/proj", "card-1", millis(0), "s_card", None)
+            .expect("record_spawn");
+        // `record_spawn` requires a card id, so the unbound row goes in by
+        // raw SQL the way the null-binding tests below do.
+        {
+            let conn = l.db.lock().unwrap();
+            conn.execute(
+                "INSERT INTO lines (line_id, tag, name, name_user_set, card_id,
+                                    project_dir, created_at, last_used_at)
+                 VALUES ('l_none', 'amber-otter', NULL, 0, NULL, ?1, ?2, ?2)",
+                params!["/proj", millis(0)],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO sessions (session_id, workspace_key, project_dir,
+                                       created_at, last_used_at, turn_count,
+                                       last_user_prompt, state, card_id, line_id)
+                 VALUES ('s_none', ?1, '/proj', ?2, ?2, 1, NULL, 'live', NULL, 'l_none')",
+                params![WS_A, millis(0)],
+            )
+            .unwrap();
+        }
+
+        assert!(l.get("s_bg").unwrap().unwrap().background);
+        assert!(!l.get("s_card").unwrap().unwrap().background);
+        assert!(!l.get("s_none").unwrap().unwrap().background);
     }
 
     #[test]

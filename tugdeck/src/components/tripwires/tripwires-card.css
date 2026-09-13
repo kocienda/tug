@@ -92,6 +92,29 @@
   flex: 0 0 auto;
 }
 
+/* The session dot is a gesture: it opens the session on a card, or raises the
+   card already holding it. A bare button, because the dot is the affordance —
+   a chrome box around it would be a second mark on a row whose whole design is
+   one thing that moves. The hit area is the dot's own, grown a little so a
+   12px target is reachable by pointer. */
+.tripwires-dot-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  margin: -2px;
+  border: none;
+  background: none;
+  border-radius: var(--tug-radius-sm, 3px);
+  cursor: pointer;
+  color: inherit;
+}
+
+.tripwires-dot-button:focus-visible {
+  outline: var(--tug-focus-ring);
+  outline-offset: 1px;
+}
+
 /* The trip log's dot rides the first line of the body, the way the glyph
    beside it does. */
 .tripwires-trip-body > .tripwires-dot {

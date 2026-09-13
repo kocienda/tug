@@ -3993,6 +3993,7 @@ Some context.
             arc_id: None,
             arc_name: None,
             line_id: String::new(),
+            background: false,
         }
     }
 

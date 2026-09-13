@@ -29,6 +29,7 @@ function makeRow(partial: Partial<SessionRow> & { session_id: string }): Session
     origin: partial.origin ?? "tug",
     terminal_live: partial.terminal_live ?? null,
     file_size: partial.file_size ?? null,
+    background: partial.background ?? false,
   };
 }
 

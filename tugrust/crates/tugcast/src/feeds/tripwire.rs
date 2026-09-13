@@ -1041,10 +1041,20 @@ pub async fn run_pending(
     // machine. What a tree is cut from is where the commit actually landed.
     let repo_root = PathBuf::from(&landing.repo_root);
 
-    // The landing's tree, shared with every other tripwire that fired on it. Held
-    // for the whole run and given back on every exit below, including the
-    // failing ones — a reference the settle never returns is a tree that lives
-    // until the sweep.
+    // The landing's tree, shared with every other tripwire that fired on it.
+    // Held for the whole run and given back on every exit below, including the
+    // failing ones — with one exception, and it is deliberate: an **adopted**
+    // run keeps its reference, because a user is working inside that very
+    // directory and releasing it could take the tree out from under them.
+    //
+    // What collects it is the sweep, and not promptly: `sweep` skips a sha
+    // this process still holds open as well as one `live_event_keys` names,
+    // and the reference above is never given back. So the tree survives for
+    // as long as the trip is held — which is the point — and then for the
+    // rest of this tugcast's life, until the boot sweep of the next one
+    // collects it against a fresh, empty set of open references. `adopted`
+    // counts in `live_event_keys` for the first half of that ([B10]); the
+    // second half is Risk R02's accepted residual, and it costs one worktree.
     let tree = match trees.acquire(&repo_root, &landing.sha).await {
         Ok(tree) => tree,
         Err(e) => {
@@ -1055,7 +1065,9 @@ pub async fn run_pending(
         }
     };
     let settled = run_in_tree(config, db, sessions, run, &repo_root, &tree, landing).await;
-    trees.release(&run.landing_sha()).await;
+    if settled.status != TripStatus::Adopted {
+        trees.release(&run.landing_sha()).await;
+    }
     settled
 }
 
@@ -1125,6 +1137,10 @@ async fn run_in_tree(
         let _ = ledger::record_run(&conn, run.trip_id, Some(&session_id), None);
     }
     let Some(ask) = diagnosis.settled.author_ask.clone() else {
+        // Every end but an awaiting one leaves here, including an adopted
+        // diagnosis: a session a card took over carries no author ask, so the
+        // engine stops rather than opening an authoring phase against a
+        // session that is now somebody's conversation.
         return diagnosis.settled;
     };
 
@@ -1271,6 +1287,17 @@ async fn run_phase(
     };
     let headline = unresolved_headline(ended);
 
+    // A card took the session over, so this run is over for the engine and
+    // not over at all for the user. The trip is handed to them rather than
+    // settled, and the write is `settle`'s rather than this function's: the
+    // caller records the session id on the row first, and `record_run` puts a
+    // status back to `running` as it does so. So the outcome is carried out
+    // of here and written once, at the end, by the one function that writes a
+    // trip's outcome. Neither this nor the `HostFull` arm below is a failure.
+    if matches!(ended, Ok(SessionEnd::Adopted)) {
+        return phase(Settled::adopted(headline));
+    }
+
     // A full host is not a trip that failed. The engine asked before it
     // committed to this run, so getting here means a card took the last slot
     // in between — and the answer to a race the queue already handles is the
@@ -1304,6 +1331,9 @@ async fn run_phase(
 ///
 /// The fourth case is not a fault at all, and says so: a host at its spawn
 /// budget is busy rather than broken, and the row it writes is a queued one.
+///
+/// Nor is the fifth: a session a card took over ran perfectly well and simply
+/// stopped being the engine's, which is a headline rather than a failure.
 fn unresolved_headline(ended: Result<SessionEnd, &RunRefusal>) -> String {
     match ended {
         Err(RunRefusal::HostFull(_)) => {
@@ -1316,6 +1346,9 @@ fn unresolved_headline(ended: Result<SessionEnd, &RunRefusal>) -> String {
         }
         Ok(SessionEnd::Finished) => {
             "the tripwire's session ended its turn without running the resolution verb".to_string()
+        }
+        Ok(SessionEnd::Adopted) => {
+            "a card took the tripwire's session over before the resolution verb ran".to_string()
         }
     }
 }
@@ -1330,7 +1363,7 @@ fn settled_row(db: &Db, trip_id: i64) -> Option<Settled> {
     let status = TripStatus::parse(&trip.status)?;
     if !matches!(
         status,
-        TripStatus::Settled | TripStatus::Awaiting | TripStatus::Failed
+        TripStatus::Settled | TripStatus::Awaiting | TripStatus::Failed | TripStatus::Adopted
     ) {
         return None;
     }
@@ -1565,7 +1598,9 @@ async fn keep_or_discard(
     arc: &str,
     settled: Settled,
 ) -> Settled {
-    if settled.status == TripStatus::Awaiting {
+    // An adopted trip is kept for the same reason an awaiting one is, and
+    // more plainly: a user is working in that arc right now.
+    if settled.status == TripStatus::Awaiting || settled.status == TripStatus::Adopted {
         run.arc = Some(arc.to_string());
         run.engine_refs.push(OverviewRef {
             kind: OverviewRefKind::Arc,
@@ -1689,6 +1724,21 @@ impl Settled {
             author_ask: None,
         }
     }
+
+    /// Not a settle either: a card took the session over, and the trip is
+    /// held for the user rather than finished. It carries a headline for the
+    /// same reason the two above do — a reader who opens a held trip should
+    /// find out who is holding it and why.
+    fn adopted(headline: String) -> Self {
+        Settled {
+            status: TripStatus::Adopted,
+            settlement: ledger::Settlement {
+                headline: Some(headline),
+                ..ledger::Settlement::default()
+            },
+            author_ask: None,
+        }
+    }
 }
 
 /// Write a finished trip's outcome and report it.
@@ -1707,6 +1757,32 @@ fn settle(config: &TripwireEngineConfig, conn: &Connection, run: &PendingRun, se
             tripwire = %run.tripwire,
             trip = run.trip_id,
             "tripwire requeued: the host had no room"
+        );
+        return;
+    }
+    // Nor is a trip a card took over, and it gets its own write. A settle
+    // would stamp a finish time on a trip nobody finished and take the row
+    // out of the two verbs' reach; `adopt_if_running` leaves `settled_at_ms`
+    // unwritten, because the session is alive in a user's card and may yet
+    // run the verb, which settles the row from `adopted`. The compare-and-set
+    // is the same race guard the settle below relies on: a resolution the
+    // verb landed in the gap is not dragged back out of its outcome. Nothing
+    // is posted either — the user is already inside the session, so there is
+    // no hand to raise at them.
+    if settled.status == TripStatus::Adopted {
+        if let Err(e) = ledger::adopt_if_running(
+            conn,
+            run.trip_id,
+            settled.settlement.headline.as_deref().unwrap_or_default(),
+            (config.now_ms)(),
+        ) {
+            warn!(error = %e, tripwire = %run.tripwire, "tripwire engine: adopt failed");
+            return;
+        }
+        info!(
+            tripwire = %run.tripwire,
+            trip = run.trip_id,
+            "tripwire adopted: a card took the session over"
         );
         return;
     }
@@ -3136,6 +3212,9 @@ mod tests {
             /// Commit a round, then end the turn having resolved nothing — a
             /// session that did real work and then died or forgot the verb.
             Abandon,
+            /// A deck card took the session over mid-turn: the run ends
+            /// `Adopted` and the engine never closes the session.
+            Adopted,
         }
 
         /// What the host says about room for one more session — the second
@@ -3249,6 +3328,13 @@ mod tests {
                 };
                 let closing = match reply {
                     Reply::Silent => "I had a look around.",
+                    Reply::Adopted => {
+                        return Ok(TripwireSessionOutcome {
+                            session_id,
+                            transcript: transcript("I was partway through when the user arrived."),
+                            end: SessionEnd::Adopted,
+                        });
+                    }
                     Reply::Abandon => {
                         commit_a_round(&request.worktree);
                         "I made the change and then lost my way."
@@ -3824,6 +3910,114 @@ mod tests {
             assert!(
                 posts(&config.ledger).is_empty(),
                 "a failure is a trip-log row and never a post ([P08])"
+            );
+        }
+
+        /// A card taking the session over is not a failure and is not a
+        /// settle. The trip is held `adopted` with a headline saying what
+        /// happened, no settled time is stamped on a run nobody finished, and
+        /// the trip log says nothing about a fault.
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn a_taken_over_session_holds_its_trip_adopted() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 1");
+            let sessions = FakeSessions::new(&h.config.db_path, tripwire.id, vec![Reply::Adopted]);
+            let mut config = h.config;
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            let landing = scoped_landing(&config, &root);
+            work(&config, &h.conn, &landing).await;
+
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
+            assert_eq!(trips[0].status, "adopted", "{:?}", trips[0].headline);
+            assert_eq!(
+                trips[0].settled_at_ms, None,
+                "a trip somebody is still working has not settled"
+            );
+            let headline = trips[0].headline.clone().expect("a held trip says why");
+            assert!(
+                headline.contains("took the tripwire's session over"),
+                "the headline names what happened: {headline}"
+            );
+            assert!(
+                !headline.contains("fail") && !headline.contains("died"),
+                "and does not read as a fault: {headline}"
+            );
+            assert!(
+                posts(&config.ledger).is_empty(),
+                "the user is already inside the session; there is no hand to raise"
+            );
+
+            // The tree is the directory the user is working in, so the run
+            // keeps its reference rather than releasing it (Risk R02). The
+            // sweep collects it once the trip settles, because
+            // `live_event_keys` counts `adopted`.
+            assert!(
+                config.trees_root.join(&landing.sha).exists(),
+                "the tree was taken out from under the adopting card"
+            );
+        }
+
+        /// And the ordinary end still gives the tree back: the release is
+        /// conditional on the adoption, not removed.
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn a_session_that_finishes_still_gives_its_tree_back() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 1");
+            let sessions = FakeSessions::new(&h.config.db_path, tripwire.id, vec![Reply::Silent]);
+            let mut config = h.config;
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            let landing = scoped_landing(&config, &root);
+            work(&config, &h.conn, &landing).await;
+
+            assert!(
+                !config.trees_root.join(&landing.sha).exists(),
+                "a finished run's tree is collected at the release"
+            );
+        }
+
+        /// An adopted **authoring** phase keeps its arc, for the plainest of
+        /// reasons: a user is working in it. The diagnosis asks for something
+        /// to be authored, and a card takes the authoring session over.
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn an_adopted_authoring_phase_keeps_its_arc() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 1");
+            let sessions = FakeSessions::new(
+                &h.config.db_path,
+                tripwire.id,
+                vec![
+                    Reply::Resolve {
+                        status: TripStatus::Awaiting,
+                        headline: "the migration drops a column nothing backfills",
+                        author: Some("write the backfill"),
+                        closing: "here is what I found.",
+                        commits: false,
+                    },
+                    Reply::Adopted,
+                ],
+            );
+            let mut config = h.config;
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            work(&config, &h.conn, &scoped_landing(&config, &root)).await;
+
+            assert_eq!(
+                sessions.seen().len(),
+                2,
+                "the diagnosis asked, so the authoring phase opened"
+            );
+            assert!(
+                !arcs_in(&root).is_empty(),
+                "the arc the user is working in was discarded: {:?}",
+                arcs_in(&root)
             );
         }
 

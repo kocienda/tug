@@ -64,9 +64,13 @@ pub struct TripwireSessionRequest {
     pub prompt: String,
 }
 
-/// How a session's run ended. There is no third way: a run is over when the
-/// session finished or when it died, and nothing in the engine ends one
-/// otherwise.
+/// How a session's run ended.
+///
+/// Two of the three are the engine's own: the session finished, or it died.
+/// The third is the one the engine most wants a reader to know about — the
+/// session is still alive and a card has taken it over, so the run is over
+/// for the engine and not over at all for the user now sitting in it. Nothing
+/// else ends a run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionEnd {
     /// The session ended its turn with no open jobs and stayed that way for
@@ -75,6 +79,11 @@ pub enum SessionEnd {
     /// The session's child is gone, its entry errored or closed, or its entry
     /// is no longer in the ledger at all.
     Died,
+    /// Alive, and somebody else's now: a deck card resumed the session and
+    /// re-pointed its `card_id`. The engine stops watching and, crucially,
+    /// stops owning it — the session is not closed, and the trip settles
+    /// `adopted` rather than by anything the engine reads off a transcript.
+    Adopted,
 }
 
 /// What came back.
@@ -88,7 +97,9 @@ pub struct TripwireSessionOutcome {
     /// by finding nothing.
     pub transcript: String,
     /// How the run ended. A dead session still returns what it left on disk,
-    /// but the engine settles it `failed` either way.
+    /// which the engine settles `failed`. An adopted one returns what was on
+    /// disk when the card took it over, and settles neither way — the trip is
+    /// the adopting card's to finish.
     pub end: SessionEnd,
 }
 
@@ -242,11 +253,17 @@ impl TripwireSessionRunner for SupervisorTripwireSessions {
             .tugtool
             .arc
             .idle_settle();
-        let end = wait_for_session_end(&self.supervisor, &session, settle).await;
+        let end = wait_for_session_end(
+            &self.supervisor,
+            &session,
+            settle,
+            &crate::background_session::background_card_id(&request.tripwire),
+        )
+        .await;
+        // Before the close, always: the close removes the entry that carries
+        // the claude session id the transcript file is named by. An adopted
+        // session keeps its entry, so this resolves either way.
         let transcript = self.transcript_of(&session, &request.worktree).await;
-        self.supervisor
-            .close_headless_session(&request.tripwire, &session)
-            .await;
         match end {
             SessionEnd::Finished => {
                 info!(tripwire = %request.tripwire, session = %session, "tripwire session finished");
@@ -254,6 +271,18 @@ impl TripwireSessionRunner for SupervisorTripwireSessions {
             SessionEnd::Died => {
                 warn!(tripwire = %request.tripwire, session = %session, "tripwire session died");
             }
+            SessionEnd::Adopted => {
+                info!(tripwire = %request.tripwire, session = %session, "tripwire session adopted by a card");
+            }
+        }
+        // The handover: an adopted session is not the engine's to close. The
+        // guard in `close_headless_session` refuses it too, and both are
+        // wanted — this one says why in the engine's own voice, that one holds
+        // for every other caller.
+        if end != SessionEnd::Adopted {
+            self.supervisor
+                .close_headless_session(&request.tripwire, &session)
+                .await;
         }
         Ok(TripwireSessionOutcome {
             session_id: session.as_str().to_string(),
@@ -275,16 +304,36 @@ enum SessionRead {
     Quiet { turns_ended: u32 },
     /// Not coming back.
     Gone,
+    /// Alive, and held by a card id that is not the engine's: a deck card
+    /// resumed the session. Read before liveness, because an adopted session
+    /// may be anything from busy to briefly `Idle` and the answer is the same.
+    Adopted,
 }
 
 /// Read the entry the way the arc runner's `session_snapshot` does, so the two
 /// agree about what a live session is.
-async fn read_session(supervisor: &AgentSupervisor, session: &TugSessionId) -> SessionRead {
+///
+/// `mine` is the card id the engine minted for this session; an entry carrying
+/// any other one has been taken over, which is a reading of its own.
+async fn read_session(
+    supervisor: &AgentSupervisor,
+    session: &TugSessionId,
+    mine: &str,
+) -> SessionRead {
     let entry_arc = supervisor.ledger.lock().await.get(session).cloned();
     let Some(entry_arc) = entry_arc else {
         return SessionRead::Gone;
     };
     let entry = entry_arc.lock().await;
+    // Before liveness, deliberately: a session a card has taken over is the
+    // card's whatever the supervisor's spawn state says about it this instant.
+    if entry
+        .card_id
+        .as_deref()
+        .is_some_and(|held_by| held_by != mine)
+    {
+        return SessionRead::Adopted;
+    }
     let live = match entry.spawn_state {
         // An entry this process watched go `Live` and found back at `Idle`
         // has lost its child. One that never reached `Live` is still coming
@@ -323,18 +372,25 @@ async fn read_session(supervisor: &AgentSupervisor, session: &TugSessionId) -> S
 /// There is no deadline here on purpose. A session that is alive is doing the
 /// tripwire's work, and the user who can see the trip on the card is the one
 /// who decides how long that may take.
+///
+/// `card_id` is the id the engine minted for this session. A reading that
+/// finds another one ends the wait at once, whatever quiet window was
+/// accumulating: the session is a card's now, and how long it had been quiet
+/// under the engine is no longer a fact about anything.
 pub(crate) async fn wait_for_session_end(
     supervisor: &AgentSupervisor,
     session: &TugSessionId,
     settle: Option<Duration>,
+    card_id: &str,
 ) -> SessionEnd {
     let mut ticker = tokio::time::interval(SESSION_READ_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut quiet: Option<(u32, Instant)> = None;
     loop {
         ticker.tick().await;
-        match read_session(supervisor, session).await {
+        match read_session(supervisor, session, card_id).await {
             SessionRead::Gone => return SessionEnd::Died,
+            SessionRead::Adopted => return SessionEnd::Adopted,
             SessionRead::Busy => quiet = None,
             SessionRead::Quiet { turns_ended } => {
                 let Some(settle) = settle else {
@@ -361,6 +417,13 @@ mod tests {
     use crate::feeds::workspace_registry::WorkspaceKey;
     use tokio::sync::Mutex;
 
+    /// The card id the engine minted for the fixture's session — what
+    /// `spawn_headless_session` would have written, and what a reading
+    /// compares against.
+    fn mine() -> String {
+        crate::background_session::background_card_id("w")
+    }
+
     /// A supervisor holding one live headless session, mid-turn.
     async fn live_session() -> (Arc<AgentSupervisor>, TugSessionId, Arc<Mutex<LedgerEntry>>) {
         let (supervisor, _register_rx) = test_minimal_supervisor();
@@ -376,6 +439,7 @@ mod tests {
             CrashBudget::new(3, Duration::from_secs(60)),
         );
         entry.claude_session_id = Some("claude-tripwire".to_string());
+        entry.card_id = Some(mine());
         entry.spawn_state = SpawnState::Live;
         entry.ever_live_here = true;
         entry.turn_active = true;
@@ -402,7 +466,8 @@ mod tests {
             e.prompt_turns_ended = 1;
         });
         let started = Instant::now();
-        let end = wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5))).await;
+        let end =
+            wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5)), &mine()).await;
         assert_eq!(end, SessionEnd::Finished);
         assert!(
             started.elapsed() >= Duration::from_secs(61 * 60 + 5),
@@ -423,7 +488,8 @@ mod tests {
             e.child_gone_at =
                 Some(std::time::Instant::now() - CHILD_GONE_GRACE - Duration::from_secs(1));
         });
-        let end = wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5))).await;
+        let end =
+            wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5)), &mine()).await;
         assert_eq!(end, SessionEnd::Died);
     }
 
@@ -437,13 +503,13 @@ mod tests {
             e.spawn_state = SpawnState::Idle;
         }
         assert_eq!(
-            wait_for_session_end(&supervisor, &id, None).await,
+            wait_for_session_end(&supervisor, &id, None, &mine()).await,
             SessionEnd::Died
         );
 
         supervisor.ledger.lock().await.remove(&id);
         assert_eq!(
-            wait_for_session_end(&supervisor, &id, None).await,
+            wait_for_session_end(&supervisor, &id, None, &mine()).await,
             SessionEnd::Died
         );
     }
@@ -470,7 +536,7 @@ mod tests {
             e.turns_ended = 1;
         });
         let started = Instant::now();
-        let end = wait_for_session_end(&supervisor, &id, None).await;
+        let end = wait_for_session_end(&supervisor, &id, None, &mine()).await;
         assert_eq!(end, SessionEnd::Finished);
         assert!(
             started.elapsed() >= Duration::from_secs(60),
@@ -500,7 +566,8 @@ mod tests {
             e.turns_ended = 2;
         });
         let started = Instant::now();
-        let end = wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5))).await;
+        let end =
+            wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5)), &mine()).await;
         assert_eq!(end, SessionEnd::Finished);
         assert!(
             started.elapsed() >= Duration::from_secs(8),
@@ -526,8 +593,68 @@ mod tests {
             mover.lock().await.open_jobs.clear();
         });
         let started = Instant::now();
-        let end = wait_for_session_end(&supervisor, &id, None).await;
+        let end = wait_for_session_end(&supervisor, &id, None, &mine()).await;
         assert_eq!(end, SessionEnd::Finished);
         assert!(started.elapsed() >= Duration::from_secs(15 * 60));
+    }
+
+    /// A card resuming the session re-points the entry's `card_id`, and the
+    /// engine's very next reading says so — mid-turn, with the session as busy
+    /// as it ever was. Liveness is not consulted, because it would answer
+    /// `Busy` and the wait would go on watching a session that is no longer
+    /// its own.
+    #[tokio::test(start_paused = true)]
+    async fn a_repointed_card_id_ends_the_wait_adopted() {
+        let (supervisor, id, entry) = live_session().await;
+        let mover = Arc::clone(&entry);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            mover.lock().await.card_id = Some("card-7".to_string());
+        });
+        let started = Instant::now();
+        let end =
+            wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5)), &mine()).await;
+        assert_eq!(end, SessionEnd::Adopted);
+        // Inside one read interval of the hand-over, not after the settle:
+        // there is nothing to settle about a session somebody else holds.
+        assert!(
+            started.elapsed() < Duration::from_secs(30) + SESSION_READ_INTERVAL * 2,
+            "the wait ended on the reading, not on a window: {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// The refusal is the whole handover: a session a card took over survives
+    /// the engine's close with its entry, its spawn state, and its worker.
+    #[tokio::test]
+    async fn close_headless_session_refuses_a_session_a_card_took_over() {
+        let (supervisor, id, entry) = live_session().await;
+        entry.lock().await.card_id = Some("card-7".to_string());
+
+        supervisor.close_headless_session("w", &id).await;
+
+        let held = supervisor.ledger.lock().await.get(&id).cloned();
+        let held = held.expect("the entry is still the card's");
+        let held = held.lock().await;
+        assert_eq!(held.card_id.as_deref(), Some("card-7"));
+        assert_eq!(held.spawn_state, SpawnState::Live);
+        assert!(
+            !held.cancel.is_cancelled(),
+            "the worker was cancelled out from under the adopting card",
+        );
+    }
+
+    /// And the ordinary case is untouched: an entry still carrying the id the
+    /// engine minted closes the way it always did.
+    #[tokio::test]
+    async fn close_headless_session_still_closes_its_own_session() {
+        let (supervisor, id, _entry) = live_session().await;
+
+        supervisor.close_headless_session("w", &id).await;
+
+        assert!(
+            supervisor.ledger.lock().await.get(&id).is_none(),
+            "the engine's own session was left open",
+        );
     }
 }

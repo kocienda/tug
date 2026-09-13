@@ -714,3 +714,138 @@ fn a_dismissal_discards_the_arc_in_the_repository_the_landing_named() {
     );
     assert!(!worktree.exists(), "the worktree is gone");
 }
+
+/// Lay a tripwire and leave it holding one `adopted` trip — the row the engine
+/// writes when a card takes the session over. Answers the trip's id.
+fn adopted_trip(db: &Path, name: &str) -> i64 {
+    use tugtool_core::tripwire_ledger as ledger;
+
+    let out = tripwire(
+        db,
+        &[
+            "lay",
+            name,
+            "--on",
+            "fact:edit_failed",
+            "--branch",
+            "main",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
+    );
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let conn = ledger::open_ledger(db).unwrap();
+    let wire = ledger::get(&conn, name).unwrap().unwrap();
+    let ledger::Claim::Claimed { trip_id } =
+        ledger::claim_trip(&conn, wire.id, "landing:abc", 10, "inst", None).unwrap()
+    else {
+        panic!("the claim is uncontested");
+    };
+    ledger::record_run(&conn, trip_id, Some("sess-a"), None).unwrap();
+    ledger::adopt_if_running(&conn, trip_id, "a card took the session over", 20).unwrap();
+    trip_id
+}
+
+/// A session a user took over can still run the resolution verb: `resolve`
+/// finds no running trip, falls through to the adopted one, and settles it.
+#[test]
+fn resolve_settles_an_adopted_trip() {
+    use tugtool_core::tripwire_ledger as ledger;
+
+    let (_dir, db) = db();
+    let trip_id = adopted_trip(&db, "w");
+
+    let out = tripwire(&db, &["resolve", "w", "--quiet"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let conn = ledger::open_ledger(&db).unwrap();
+    let settled = ledger::trip(&conn, trip_id).unwrap().unwrap();
+    assert_eq!(settled.status, "settled");
+    assert!(settled.settled_at_ms.is_some());
+}
+
+/// And dismissing one is the user's door out of a hold they no longer want.
+#[test]
+fn dismiss_settles_an_adopted_trip() {
+    use tugtool_core::tripwire_ledger as ledger;
+
+    let (_dir, db) = db();
+    let trip_id = adopted_trip(&db, "w");
+
+    let out = tripwire(&db, &["dismiss", "w"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let conn = ledger::open_ledger(&db).unwrap();
+    let settled = ledger::trip(&conn, trip_id).unwrap().unwrap();
+    assert_eq!(settled.status, "settled");
+    assert_eq!(settled.headline.as_deref(), Some("dismissed"));
+}
+
+/// With nothing live and nothing adopted, each verb refuses naming both of the
+/// states it looked for — a reader told only "refused" cannot tell which.
+#[test]
+fn each_verb_names_both_states_it_looked_for() {
+    let (_dir, db) = db();
+    let laid = tripwire(
+        &db,
+        &[
+            "lay",
+            "w",
+            "--on",
+            "fact:edit_failed",
+            "--branch",
+            "main",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
+    );
+    assert!(laid.status.success(), "{}", stderr(&laid));
+
+    // Never fired: there is no state to name, so neither verb invents one.
+    let resolved = tripwire(&db, &["resolve", "w", "--quiet"]);
+    assert_eq!(code(&resolved), 1);
+    assert!(
+        stderr(&resolved).contains("has never fired"),
+        "{}",
+        stderr(&resolved)
+    );
+
+    // Fired and settled: the refusal names both states it looked for and the
+    // one it found instead.
+    {
+        use tugtool_core::tripwire_ledger as ledger;
+        let conn = ledger::open_ledger(&db).unwrap();
+        let wire = ledger::get(&conn, "w").unwrap().unwrap();
+        let ledger::Claim::Claimed { trip_id } =
+            ledger::claim_trip(&conn, wire.id, "landing:abc", 10, "inst", None).unwrap()
+        else {
+            panic!("the claim is uncontested");
+        };
+        ledger::record_run(&conn, trip_id, Some("sess-a"), None).unwrap();
+        ledger::settle(
+            &conn,
+            trip_id,
+            ledger::TripStatus::Settled,
+            &ledger::Settlement::default(),
+            20,
+        )
+        .unwrap();
+    }
+
+    let resolved = tripwire(&db, &["resolve", "w", "--quiet"]);
+    assert_eq!(code(&resolved), 1);
+    assert!(
+        stderr(&resolved).contains("no running or adopted trip to resolve"),
+        "{}",
+        stderr(&resolved)
+    );
+
+    let dismissed = tripwire(&db, &["dismiss", "w"]);
+    assert_eq!(code(&dismissed), 1);
+    assert!(
+        stderr(&dismissed).contains("no awaiting or adopted trip to dismiss"),
+        "{}",
+        stderr(&dismissed)
+    );
+}

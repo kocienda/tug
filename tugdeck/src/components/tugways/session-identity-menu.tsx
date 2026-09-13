@@ -187,9 +187,22 @@ export function useSessionIdentityMenu({
   const projectDir =
     row?.project_dir ?? (cited.status === "found" ? cited.projectDir : "");
   const state = row?.state ?? (cited.status === "found" ? cited.state : null);
+  // From the same source as `state`, and that matters: the two are one fact —
+  // "live, and held by nobody a user can be sent to" — and reading `state` off
+  // the resolver while reading this off the listing store refuses the gesture
+  // for every session the listing has not reached.
+  const background =
+    row?.background ?? (cited.status === "found" ? cited.background : false);
   // Held by another process — the same rule the `/resume` overlay's rows
   // enforce, since a second claim on a live session is not a resume.
-  const heldElsewhere = state === "live";
+  //
+  // A live session whose holder is a **background owner** is the exception,
+  // and the one adoption exists for: there is no card to send the user to, so
+  // seating it on one is the only way to reach it. The resume path does the
+  // seating, and the supervisor admits a live background session without
+  // re-spawning it, because such a session has no client affinity row to
+  // arbitrate against.
+  const heldElsewhere = state === "live" && !background;
 
   const showSession = React.useCallback((): void => {
     if (openCardId === null) return;

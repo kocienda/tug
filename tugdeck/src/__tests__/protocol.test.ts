@@ -391,9 +391,9 @@ describe("session ledger CONTROL encoders / decoders", () => {
         card_id: "card-1",
         name: null,
         // Bare ledger-row pushes never carry origin/terminal_live/file_size/
-        // name_user_set/tag/lineage/synopsis/private; the decoder normalizes
-        // them to the tug/not-live/no-size/not-user-set/no-tag/root-session/
-        // no-description/public defaults.
+        // name_user_set/tag/lineage/synopsis/private/background; the decoder
+        // normalizes them to the tug/not-live/no-size/not-user-set/no-tag/
+        // root-session/no-description/public/deck-held defaults.
         origin: "tug",
         terminal_live: null,
         file_size: null,
@@ -401,6 +401,7 @@ describe("session ledger CONTROL encoders / decoders", () => {
         tag: null,
         synopsis: null,
         private: false,
+        background: false,
       },
     });
   });

@@ -77,6 +77,13 @@ export type CitedSessionAnswer =
       sessionId: string;
       projectDir: string;
       state: SessionRow["state"];
+      /** Whether the session's holder is a background owner rather than a deck
+       *  card. It rides here beside `state` because the two are read together:
+       *  "live, and held by nobody a user can be sent to" is one fact, and a
+       *  guard that got `state` from the resolver and `background` from the
+       *  listing store would refuse the adoption gesture for every session the
+       *  listing has not reached yet. */
+      background: boolean;
     }
   /** The ledger holds no such session — an unresolvable citation ([P13]). */
   | { status: "unknown" };
@@ -189,6 +196,7 @@ class SessionCitationStore {
         sessionId: session.session_id,
         projectDir: session.project_dir,
         state: session.state,
+        background: session.background,
       });
       this.queued.delete(queried.trim());
       changed.push(sessionVerdictKey(queried.trim()));

@@ -31,6 +31,7 @@ function row(over: Partial<SessionRow>): SessionRow {
     synopsis: null,
     origin: "external",
     terminal_live: null,
+    background: false,
     ...over,
   };
 }
