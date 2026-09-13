@@ -1210,10 +1210,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sessionMenu.addItem(sessionCommandItem("Show Context", "context", "session.context"))
         sessionMenu.addItem(sessionCommandItem("Show Usage", "usage", "session.usage"))
 
-        // Configure ▸ — the four project/session configuration surfaces, each a
-        // viewer over what this session is working with.
-        let configureItem = NSMenuItem(title: "Configure", action: nil, keyEquivalent: "").identified("session.configure")
-        let configureMenu = NSMenu(title: "Configure")
+        // Inspect ▸ — the four project/session surfaces, each a viewer over
+        // what this session is working with rather than a configurator.
+        let configureItem = NSMenuItem(title: "Inspect", action: nil, keyEquivalent: "").identified("session.configure")
+        let configureMenu = NSMenu(title: "Inspect")
         configureItem.submenu = configureMenu
         configureMenu.addItem(sessionCommandItem("Skills…", "skills", "session.skills"))
         configureMenu.addItem(sessionCommandItem("Agents…", "agents", "session.agents"))
