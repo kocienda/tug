@@ -3002,6 +3002,17 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.UNBIND_ARC,
   TUG_ACTIONS.REQUEST_DISCARD_ARC,
   TUG_ACTIONS.REQUEST_REPLAY_ARC,
+  // The tripwire row's verbs, for the reason the arc row's are: each means
+  // "the tripwire this row is", which no chord and no menu-bar item can name.
+  // Pause/resume and the model popup are control frames as well — a row
+  // control reporting its own value — which is the other half of what this
+  // set collects.
+  TUG_ACTIONS.PAUSE_TRIPWIRE,
+  TUG_ACTIONS.RESUME_TRIPWIRE,
+  TUG_ACTIONS.TRIP_TRIPWIRE,
+  TUG_ACTIONS.RELEASE_TRIPWIRE,
+  TUG_ACTIONS.OPEN_TRIPWIRE_SESSION,
+  TUG_ACTIONS.SET_TRIPWIRE_MODEL,
   // Sent card-to-card by a surface showing that card's arc, never typed:
   // the reader already has ⌃⌘C for their own card's shade, and a chord that
   // meant "reveal somebody else's" would have no way to name whose.
