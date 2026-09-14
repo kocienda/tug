@@ -226,11 +226,11 @@ describe.skipIf(!SHOULD_RUN)(
             running.hasBar,
             "the row carries the run's own barber pole",
           ).toBe(true);
-          // The one-row inline dialog's voice, not a caption's: the title is
-          // the dialog's own 14px and the run's Cancel rides the trailing
-          // edge, because while the card is folded this row IS the run's
-          // surface — no cover rose to carry one.
-          expect(running.titleSize, "the dialog's title size").toBe("14px");
+          // The cover sheet on one line: the title is the sheet header's own
+          // size (`--tugx-header-title-size`, 0.95rem) and the run's Cancel
+          // rides the trailing edge, because while the card is folded this
+          // row IS the run's surface — no cover rose to carry one.
+          expect(running.titleSize, "the sheet's title size").toBe("15.2px");
           expect(running.text, "the run's Cancel rides the row").toContain(
             "Cancel",
           );
@@ -281,9 +281,9 @@ describe.skipIf(!SHOULD_RUN)(
             "and says why, in the run's own words",
           ).toContain(REFUSAL_TEXT);
           expect(
-            refused.text,
+            refused.text.indexOf("Compacting"),
             "the running title yields its seat for the flash's length",
-          ).not.toContain("Compacting…");
+          ).toBe(refused.text.indexOf(REFUSAL_TEXT));
           expect(refused.folded, "and the fold still stands").toBe(true);
 
           // The flash returns the seat — a refusal is a beat, not a state. The
@@ -312,7 +312,7 @@ describe.skipIf(!SHOULD_RUN)(
           const restored = await app.evalJS<RowReading>(READ_ROW);
           note("at0562 folded, refusal over", restored);
           expect(restored.text, "the run's own reading is back").toContain(
-            "Compacting…",
+            "Compacting",
           );
           expect(
             restored.text,

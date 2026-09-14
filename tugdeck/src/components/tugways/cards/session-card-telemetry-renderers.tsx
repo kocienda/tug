@@ -42,7 +42,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 
-import { MessageCircleQuestion, ShieldAlert } from "lucide-react";
+import { Archive, MessageCircleQuestion, ShieldAlert } from "lucide-react";
 
 import { TugArcGauge } from "@/components/tugways/tug-arc-gauge";
 import { createPortal } from "react-dom";
@@ -687,10 +687,14 @@ function useCompactionDeparture(
 /**
  * The compaction occupant — a folded card's Z2 row while a `/compact` runs.
  *
- * Label, bar, Cancel: the reading and the run's barber pole centred together
- * on the row's midline, the action out on the trailing edge. The title keeps
- * the inline dialogs' own size and weight, so this row and the header-only
- * dialog the transcript carries still read as one family seen in two places.
+ * **It is the cover sheet, on one line.** The same four things the
+ * `CompactionProgressSheet` shows, in the same order the eye reads them there
+ * and wearing the same clothes: the sheet header's `Archive` icon and
+ * "Compacting" title at the header's own size and weight, the sheet's 8px
+ * barber pole stretched across the middle, and the sheet's own filled primary
+ * Cancel on the trailing edge. Nothing here is a smaller or different
+ * rendering of any of them — a fold hands the run between its two faces
+ * without changing what the user is looking at.
  *
  * Cancel is the run's own cancel, taken off the store rather than rebuilt here:
  * while the card is folded this row IS the run's surface, so without it the one
@@ -735,45 +739,40 @@ function CompactionOccupant({
       data-leaving={leaving ? "" : undefined}
       role="status"
     >
-      {/* Label, then bar, centred as one group, with Cancel out on the row's
-          trailing edge (the CSS below places them). The reading and the mark
-          are one phrase — what is happening, then the motion that says it is
-          still happening — so they travel together and the action stands apart
-          from both.
-
-          Two titles, one seat. The running title is the row's own reading and
+      {/* The sheet header's icon: the same `Archive` the cover is raised with,
+          in a box the CSS sizes to the header's own icon column. */}
+      <span className="session-telemetry-occupant-icon" aria-hidden>
+        <Archive size="100%" />
+      </span>
+      {/* Two titles, one seat. The running title is the sheet's own title and
           the refusal is what replaces it for the flash's length — both mounted,
           with CSS choosing between them off `data-refused`, because a swap
           through React state would be an appearance change through the wrong
           channel ([L06]) and would make the flash a re-render rather than an
           animation. */}
-      <span className="session-telemetry-occupant-center">
-        <span className="session-telemetry-occupant-title" data-title-swap>
-          <span data-occupant-title="running">Compacting…</span>
-          <span data-occupant-title="refused">{COMPACTION_REFUSAL_TEXT}</span>
-        </span>
-        {/* The run's own mark: the barber pole, the same glyph the cover panel
-            carries at 8px, so a fold hands the run between its two faces
-            without changing what the user is looking at. The track has no
-            intrinsic width — the span around it is the width it gets. */}
-        <span className="session-telemetry-occupant-bar" aria-hidden>
-          <TugProgressIndicator
-            variant="bar"
-            // The track's HEIGHT, not a figure's diameter — the bar family's
-            // own default, and the proportion the cover's 8px carries at its
-            // width.
-            size={6}
-            state="running"
-            role="inherit"
-            aria-hidden
-          />
-        </span>
+      <span className="session-telemetry-occupant-title" data-title-swap>
+        <span data-occupant-title="running">Compacting</span>
+        <span data-occupant-title="refused">{COMPACTION_REFUSAL_TEXT}</span>
       </span>
+      {/* The sheet's barber pole, at the sheet's 8px, filling the line between
+          the title and Cancel the way it fills the sheet's width. */}
+      <span className="session-telemetry-occupant-bar" aria-hidden>
+        <TugProgressIndicator
+          variant="bar"
+          size={8}
+          state="running"
+          role="inherit"
+          aria-hidden
+        />
+      </span>
+      {/* The sheet's Cancel, exactly: `sm`, filled primary, wearing the
+          persistent default ring the sheet's does. */}
       <TugPushButton
         className="session-telemetry-occupant-action"
-        emphasis="outlined"
+        emphasis="primary"
         role="action"
-        size="xs"
+        size="sm"
+        persistentDefaultRing
         onClick={() => {
           if (cardId !== null) compactionProgressStore.requestCancel(cardId);
         }}
