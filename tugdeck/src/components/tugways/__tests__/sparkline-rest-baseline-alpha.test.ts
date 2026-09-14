@@ -61,7 +61,7 @@ describe("the sparkline's rest baseline matches the canvas's zero stroke", () =>
   });
 
   test("the bar reads the consumer's alpha knob before that default", () => {
-    const body = ruleBody(".tug-sparkline::before");
+    const body = ruleBody(".tug-sparkline[data-tape-rest]::before");
     // The canvas resolves `--tugx-sparkline-line-alpha` and falls back to
     // `SPARKLINE_LINE_ALPHA`; the bar has to walk the same two steps, or the
     // activity card's brighter line has a dimmer bar under it ([B02]).
@@ -74,13 +74,13 @@ describe("the sparkline's rest baseline matches the canvas's zero stroke", () =>
     // [B02]: `currentColor`, so the baseline inherits every path the canvas
     // colour does — the channel tints below it and the masthead's pin to the
     // chrome foreground alike.
-    expect(decl(ruleBody(".tug-sparkline::before"), "background")).toBe(
+    expect(decl(ruleBody(".tug-sparkline[data-tape-rest]::before"), "background")).toBe(
       "currentColor",
     );
   });
 
   test("the bar is one stroke thick and sits on the geometry's zero row", () => {
-    const body = ruleBody(".tug-sparkline::before");
+    const body = ruleBody(".tug-sparkline[data-tape-rest]::before");
     expect(decl(body, "height")).toBe(`${SPARKLINE_LINE_WIDTH}px`);
     // `baselineY = height - FLOOR - 0.5` is the centre of that stroke, so the
     // row it covers ends exactly FLOOR px above the box's bottom edge.

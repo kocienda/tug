@@ -23,16 +23,24 @@
   --sparkline-line-alpha: 0.85;
 }
 
-/* THE REST BASELINE — the instrument reading zero, drawn by the cascade.
+/* THE REST BASELINE — the instrument reading zero, drawn by the cascade
+   while the tape is at rest, and only then.
 
-   The canvas strokes its own zero line and always did; this is the same line
-   drawn a second way, so that the one the reader sees cannot be lost to the
-   paint protocol. A dropped first paint, a parked transform disagreeing with
-   the painted origin, a lost acknowledgement, or a colour resolved before the
-   chrome ink does can each lose the ACTIVITY — none of them can reach a
-   stylesheet fact, so none of them can lose the INSTRUMENT. A quiet session
-   reads as a flatline rather than as empty air, which is what
-   `session-identity-row.tsx` has always said it should.
+   The canvas strokes no zero line of its own: what it strokes is the data
+   staircase, which lies on the baseline only while every point is zero. So
+   this bar is the flat reading drawn a second way for the one state in which
+   the reading IS flat, keyed on `data-tape-rest` — stamped by the tape from
+   its own points, present exactly while no point is above zero. A dropped
+   first paint, a parked transform disagreeing with the painted origin, a lost
+   acknowledgement, or a colour resolved before the chrome ink does can each
+   lose the ACTIVITY — none of them can reach a stylesheet fact, so none of
+   them can lose the INSTRUMENT. A quiet session reads as a flatline rather
+   than as empty air, which is what `session-identity-row.tsx` has always said
+   it should. The moment a value exists the stamp is withdrawn and the
+   canvas's line is the whole reading: a rule under a live tape would be a
+   second line of the same weight asserting zero where the value is not.
+   Withdrawal is seamless because the canvas is already drawing the same
+   pixels the bar covered — the staircase's zero run — at the moment it goes.
 
    It sits where the canvas paints zero, to the sub-pixel: the geometry's
    `baselineY` is `height - FLOOR - 0.5` with `FLOOR` at 1, which is the
@@ -49,7 +57,7 @@
    own rather than a wash the area fill would have to be told apart from.
    [L06] — the rest state is appearance, so it is painted, never React state. */
 /* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
-.tug-sparkline::before {
+.tug-sparkline[data-tape-rest]::before {
   content: "";
   position: absolute;
   left: 0;

@@ -690,6 +690,12 @@ export function TugSparkline({
         // flight and the tape will flush the repaint at its commit.
         if (t0 !== null) painterRef.current?.refreshColors(t0);
       },
+      setRest(atRest) {
+        // The rest baseline is a stylesheet fact keyed on this attribute
+        // ([L06]); the tape stamps it from its own points, so it is present
+        // exactly while the correct picture is a flat line.
+        container?.toggleAttribute("data-tape-rest", atRest);
+      },
       refreshColors(t0) {
         painterRef.current?.refreshColors(t0);
       },

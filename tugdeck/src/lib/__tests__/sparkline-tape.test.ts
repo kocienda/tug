@@ -42,7 +42,7 @@ const CLOCK_BASE = 50_000;
 // ----------------------------------------------------------------- harness
 
 interface SurfaceCall {
-  kind: "paint" | "setEpochStart" | "pause" | "stampChannel" | "refreshColors";
+  kind: "paint" | "setEpochStart" | "pause" | "stampChannel" | "setRest" | "refreshColors";
   /** `paint` / `stampChannel` / `refreshColors`: the origin the call carried. */
   t0?: number | null;
   /** `paint`: the acknowledgement sequence, or null for an ordinary paint. */
@@ -55,6 +55,8 @@ interface SurfaceCall {
   lastV?: number;
   /** `stampChannel`: the channel stamped. */
   channel?: string | null;
+  /** `setRest`: whether every point on the tape is zero. */
+  atRest?: boolean;
   /** `setEpochStart`: the origin written. */
   timelineMs?: number;
 }
@@ -239,6 +241,9 @@ function makeHarness(
     stampChannel(channel, t0) {
       calls.push({ kind: "stampChannel", channel, t0 });
     },
+    setRest(atRest) {
+      calls.push({ kind: "setRest", atRest });
+    },
     refreshColors(t0) {
       calls.push({ kind: "refreshColors", t0 });
     },
@@ -281,7 +286,10 @@ describe("SparklineTape — birth", () => {
     // stops it immediately rather than paying for a compositor animation
     // until its first epoch end.
     expect(h.paints()).toHaveLength(1);
-    expect(h.kinds()).toEqual(["paint", "pause"]);
+    // The rest stamp lands before the first paint: every point is zero, so
+    // the cascade's baseline is up from the first frame whatever the paint does.
+    expect(h.kinds()).toEqual(["setRest", "paint", "pause"]);
+    expect(h.calls[0]).toEqual({ kind: "setRest", atRest: true });
     expect(h.clock.pending).toBe(0);
     expect(h.tape.debugState().state).toBe("flat-dormant");
   });
@@ -456,6 +464,45 @@ describe("SparklineTape — the rate decay the wall-clock seam protects", () => 
     // bin the burst touched has aged out and the pen must be back at baseline.
     h.clock.advance(RATE_WINDOW_MS + BIN_MS + SAMPLE_MS * 2);
     expect(plotted()).toBe(0);
+  });
+
+  test("the rest stamp is withdrawn by the first value and restored once every point is zero again", () => {
+    // The cascade's baseline bar is keyed on this stamp, so the stamp is the
+    // whole of "flat when there is no value, the line alone when there is."
+    // It follows the POINTS, not the state machine: a tape can be live with
+    // every point at zero (a settle burst draining) and dormant with a
+    // non-zero point still on screen (a hidden pause mid-decay), and the bar
+    // must answer to what is drawn.
+    const meter = new RateMeter(BIN_MS, WINDOW_BINS);
+    const h = makeHarness({ getSeries: (nowMs) => meter.series(nowMs) });
+    const rests = (): boolean[] =>
+      h.calls.filter((c) => c.kind === "setRest").map((c) => c.atRest!);
+    const wallBase = Date.now();
+    const wallAt = (t: number): number => wallBase + (t - CLOCK_BASE);
+
+    h.tape.start(h.clock.now());
+    expect(rests()).toEqual([true]);
+
+    // The first value: one withdrawal, and only one however many samples
+    // follow while the tape stays above zero.
+    for (let i = 0; i < 4; i++) {
+      meter.record(FULL_SCALE / 4, wallAt(h.clock.now()));
+      h.tape.onActivity();
+      h.clock.advance(BIN_MS);
+    }
+    expect(rests()).toEqual([true, false]);
+
+    // The burst ages out of the rolling window and the pen returns to zero —
+    // but the points it drew are still ON the tape, so the reading is not
+    // flat and the bar stays down. Flat dormancy, DORMANT_AFTER_MS after the
+    // last change, is when the last non-zero point has scrolled off the
+    // picture; that is when the flat reading is true again and the bar comes
+    // back — with no paint asked for, since a dormant tape paints never.
+    h.clock.advance(RATE_WINDOW_MS + BIN_MS + SAMPLE_MS * 2);
+    expect(rests()).toEqual([true, false]);
+    h.clock.advance(DORMANT_AFTER_MS + SAMPLE_MS);
+    expect(h.tape.debugState().state).toBe("flat-dormant");
+    expect(rests()).toEqual([true, false, true]);
   });
 });
 
@@ -696,6 +743,7 @@ describe("SparklineTape — the acknowledgement contract", () => {
       setEpochStart() {},
       pause() {},
       stampChannel() {},
+      setRest() {},
       refreshColors() {},
     };
     victim = new SparklineTape(reentrant, {
@@ -1082,6 +1130,7 @@ describe("SparklineTape — off screen is a pause, not a teardown", () => {
       "setEpochStart",
       "pause",
       "stampChannel",
+      "setRest",
       "refreshColors",
     ]);
     for (const kind of h.kinds()) expect(allowed.has(kind)).toBe(true);

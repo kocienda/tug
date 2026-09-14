@@ -181,6 +181,15 @@ export interface SparklineSurface {
    * because a rebase is in flight, and the commit flushes it.
    */
   stampChannel(channel: string | null, t0: number | null): void;
+  /**
+   * The rest stamp: true ⇔ every point on the tape is zero, so the correct
+   * picture is a flat line on the baseline. The cascade draws that line
+   * itself while the stamp holds (`.tug-sparkline[data-tape-rest]::before`),
+   * so a quiet instrument stays visible whatever the paint protocol does;
+   * the moment a value exists the canvas's own line is the whole reading
+   * and the stamp is withdrawn. Called only on change.
+   */
+  setRest(atRest: boolean): void;
   /** Re-read the resolved colours and repaint the current tape for `t0`. */
   refreshColors(t0: number): void;
 }
@@ -326,6 +335,8 @@ export class SparklineTape {
    */
   private lastEventAt = 0;
   private stampedChannel: string | null = null;
+  /** The last rest stamp written, or null before the first. */
+  private restStamped: boolean | null = null;
 
   /** The two finishers. Each terminates on its own; events only reset them. */
   private settleTimer: number | null = null;
@@ -696,6 +707,7 @@ export class SparklineTape {
     if (this.pending.size > 0) return;
     const now = this.opts.now();
     pruneSparklineTape(this.tape, now, DORMANT_AFTER_MS);
+    this.syncRest();
     this.painting = true;
     try {
       this.surface.paint(this.tape, this.committed, null, true);
@@ -716,6 +728,7 @@ export class SparklineTape {
   private paintProposal(t0: number, ack: number): void {
     const now = this.opts.now();
     pruneSparklineTape(this.tape, now, DORMANT_AFTER_MS);
+    this.syncRest();
     this.painting = true;
     try {
       this.surface.paint(this.tape, t0, ack, t0 === this.committed);
@@ -789,6 +802,7 @@ export class SparklineTape {
       this.lastChangeAt = now;
     }
     this.tape.push({ t: now, v });
+    this.syncRest();
     this.paint();
     if (this.opts.getColorChannel === undefined) return;
     const channel = this.opts.getColorChannel(this.storeNow(now));
@@ -912,6 +926,7 @@ export class SparklineTape {
       }
       this.tape.push({ t, v });
     }
+    this.syncRest();
   }
 
   // ------------------------------------------------------------- finishers
@@ -920,6 +935,21 @@ export class SparklineTape {
     if (this.settleTimer === null) return;
     this.opts.clearInterval(this.settleTimer);
     this.settleTimer = null;
+  }
+
+  /**
+   * Re-derive the rest stamp from the tape and write it only when it moved.
+   * Called after every mutation of the point array — append, prune, rebuild
+   * — because each can change the answer: an append can raise the first
+   * value, a prune can drop the last one. A scan rather than a running count:
+   * the tape is a few hundred points, this runs at most a few times a second,
+   * and `some` stops at the first non-zero point.
+   */
+  private syncRest(): void {
+    const atRest = !this.tape.some((p) => p.v > 0);
+    if (atRest === this.restStamped) return;
+    this.restStamped = atRest;
+    this.surface.setRest(atRest);
   }
 
   private stopFlatOff(): void {
@@ -1016,6 +1046,13 @@ export class SparklineTape {
       // value has held still AND the last event's whole window has drained, so
       // the pen is already down at the level the data supports and the picture
       // is flat at it. Nothing to redraw — just retire the scroll.
+      // The points that drew the change have scrolled off — that is what the
+      // flat-off waited for — so drop them now rather than at a paint that
+      // may never come: the rest stamp reads the array, and a dormant rate
+      // tape whose picture is flat at zero must stamp rest, or the cascade's
+      // baseline stays down in the one state it exists for.
+      pruneSparklineTape(this.tape, this.opts.now(), DORMANT_AFTER_MS);
+      this.syncRest();
       this.stopScroll();
       return;
     }

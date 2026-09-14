@@ -454,9 +454,51 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBeGreaterThan(restBox.width * 0.25);
 
           // And it is a LINE, not a wash: nothing above the baseline row.
-          expect(ink.field.inkPixels, "the live tape's field is blank").toBe(0);
+          expect(ink.field.inkPixels, "the quiet tape's field is blank").toBe(0);
           expect(restInk.field.inkPixels, "the dormant tape's field is blank").toBe(0);
           expect(bareInk.field.inkPixels, "the bare baseline's field is blank").toBe(0);
+
+          // ── Reading 4: a value ───────────────────────────────────────
+          // Drive real units through the store. The tape leaves rest, the
+          // rest rule leaves the element, and what is on screen is the
+          // canvas's line alone: ink in the field, no `::before` under it.
+          // A bar that stayed would be a second line of the line's own
+          // weight asserting zero beneath a reading that is not.
+          for (let i = 0; i < 6; i++) {
+            await app.evalJS<boolean>(
+              `window.__tug.recordActivity(${JSON.stringify(SID)}, "tools", 900)`,
+            );
+            await new Promise<void>((r) => setTimeout(r, 120));
+          }
+          await app.waitForCondition<boolean>(
+            `(function () {
+               var box = document.querySelector(${JSON.stringify(SPARK)});
+               var s = window.__tug.sparklineTapeState(${JSON.stringify(SPARK)});
+               return box !== null && !box.hasAttribute("data-tape-rest")
+                 && s !== null && s.state === "live";
+             })()`,
+            { timeoutMs: 10_000 },
+          );
+          await new Promise<void>((r) => setTimeout(r, 300));
+          const liveBox = await readTape(app);
+          note("at0567 tape box, live", JSON.stringify(liveBox));
+          expect(liveBox.rest, "the rest rule is withdrawn under a value").toBeNull();
+          const liveShot = await app.screenshot();
+          let liveInk: TapeInk;
+          try {
+            liveInk = readInk(liveShot.path, liveBox);
+          } finally {
+            if (process.env.AT0567_KEEP_SHOTS !== "1") {
+              try {
+                unlinkSync(liveShot.path);
+              } catch {
+                /* the harness reclaims what is left */
+              }
+            }
+          }
+          note("at0567 ink, live, baseline band", JSON.stringify(liveInk.baseline));
+          note("at0567 ink, live, field above", JSON.stringify(liveInk.field));
+          expect(liveInk.field.inkPixels, "the live tape's field carries the reading").toBeGreaterThan(0);
 
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {
