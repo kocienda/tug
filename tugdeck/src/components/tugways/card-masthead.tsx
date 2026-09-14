@@ -21,6 +21,11 @@
  * reason. What is genuinely this card's own is here: the glyph, and a path line
  * that truncates in the middle (`TugPath`) and can be acted on.
  *
+ * The tier answers a right-click for the whole of its three lines, with the
+ * file's own items — Show in Finder, Copy Path, Copy as Atom. That menu is
+ * {@link useFileIdentityMenu}, which is to a document what
+ * `useSessionIdentityMenu` is to a session card's masthead.
+ *
  * @module components/tugways/card-masthead
  */
 
@@ -30,6 +35,7 @@ import { icons } from "lucide-react";
 import type { DocumentMastheadPayload } from "@/lib/card-title-store";
 import { TugSessionRow } from "@/components/tugways/tug-session-row";
 import { TugPath } from "@/components/tugways/tug-path";
+import { useFileIdentityMenu } from "@/components/tugways/file-identity-menu";
 
 import "./masthead-frame.css";
 import "./card-masthead.css";
@@ -58,11 +64,26 @@ export function CardMasthead({
   const isPath = payload.descriptionKind === "path";
   const actionable = onActivateDescription !== undefined;
 
+  // The tier's own right-click, claimed for the whole of it: a card showing a
+  // file has three lines about that file, and every one of them used to answer
+  // with something else — the title with a `TugLabel`'s bare `Copy` of its
+  // characters, the path and the ground with the app's "No Actions". The items
+  // are the registry's, so the file a card is showing offers what the same file
+  // offers in prose. Only a path description names a file at all; a card whose
+  // description is text (a draft's stand-in) leaves the hook inert.
+  const menu = useFileIdentityMenu({
+    path: isPath ? payload.description : null,
+    entitySelector: ".card-masthead-description",
+  });
+
   return (
+    <>
     <div
       className="card-masthead tug-masthead-frame"
       data-slot="card-masthead"
       data-testid="card-masthead"
+      ref={menu.ref as React.Ref<HTMLDivElement>}
+      onContextMenuCapture={menu.onContextMenu}
     >
       <TugSessionRow
         className="card-masthead-row tug-masthead-frame-row"
@@ -142,5 +163,10 @@ export function CardMasthead({
         }
       />
     </div>
+    {/* Beside the tier, never inside it: the menu carries its own
+        `ResponderScope`, and mounting that within the tier would put it on the
+        chain BELOW the responder its items dispatch to. */}
+    {menu.contextMenu}
+    </>
   );
 }
