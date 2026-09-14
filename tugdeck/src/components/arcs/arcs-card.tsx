@@ -141,7 +141,11 @@ import { useSeedKeyView } from "@/components/tugways/use-focusable";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
-import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import {
+  cardIdForSession,
+  cardSessionBindingStore,
+  useCardIdForSession,
+} from "@/lib/card-session-binding-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { useChangesetAll } from "@/lib/changeset-all-store";
 import { arcSessionIndex } from "@/lib/arc-session-index";
@@ -447,35 +451,31 @@ export function resolveBindTarget(input: {
  * The open card working this arc, or null — the destination a row activation
  * routes to.
  *
- * Pure, so its whole truth table is a unit test rather than a DOM one.
  * `bound_session` is the one live session mated to the arc — an arc is bound
  * to at most one live card — and the card bound to it is the card whose
  * Changes shade shows this arc's lane.
+ *
+ * The lookup is the deck's own `cardIdForSession` and nothing narrower, which
+ * is the whole of this hook. A private walk over `binding.tugSessionId` lived
+ * here and compared the arc's segment against each card's *spawn address* —
+ * two ids that are the same string only until the card's first rotation
+ * ([P01]). The Wheel moves `bound_session` forward on every rotation, so a
+ * card that had rotated even once stopped matching: the row lost
+ * `data-activatable`, presented as inert, and the click did nothing at all.
+ * `cardIdForSession` answers for the LINE, which a rotation does not move.
  *
  * Null is the common case, not an error: the Arcs card lists every arc in every
  * open project, so an arc nobody holds — or one whose worker's card is closed —
  * simply has no room to open. That is what makes the row inert, and what the
  * row's own affordance has to advertise.
  */
-export function resolveWorkerCard(
-  boundSession: string | null,
-  bindings: ReadonlyMap<string, { tugSessionId: string }>,
-): string | null {
-  for (const [cardId, binding] of bindings) {
-    if (boundSession !== null && binding.tugSessionId === boundSession) {
-      return cardId;
-    }
-  }
-  return null;
-}
-
-/** {@link resolveWorkerCard} against the live binding snapshot. */
 function useWorkerCard(entry: ArcChangesetEntry): string | null {
-  const bindings = useSyncExternalStore(
-    cardSessionBindingStore.subscribe,
-    cardSessionBindingStore.getSnapshot,
-  );
-  return resolveWorkerCard(entry.bound_session ?? null, bindings);
+  const boundSession = entry.bound_session ?? null;
+  // Called unconditionally on every row, bound or not — hooks have no branch.
+  // The empty string is never any card's session, so an unbound arc's answer
+  // is null by both paths; the explicit guard is what says so.
+  const cardId = useCardIdForSession(boundSession ?? "");
+  return boundSession === null ? null : cardId;
 }
 
 /**
@@ -1069,11 +1069,21 @@ function ArcsBody(): React.ReactElement {
     const activate = (index: number): void => {
       const row = dataSource.rows[index];
       if (row === undefined) return;
-      const cardId = resolveWorkerCard(
-        row.entry.bound_session ?? null,
-        cardSessionBindingStore.getSnapshot(),
-      );
+      const boundSession = row.entry.bound_session ?? null;
+      if (boundSession === null) return;
+      // The same walk the row's own affordance made — `cardIdForSession`,
+      // which answers for the line rather than for a spawn address a rotation
+      // has left behind. Read live here rather than through the hook, because
+      // an activation is an event and the binding may have moved since render.
+      const cardId = cardIdForSession(boundSession);
       if (cardId === null) return;
+      // The raise comes FIRST and unconditionally, exactly as a click on this
+      // session's Cards row would: front the pane, promote the chain, flash
+      // the header once. It is not the reveal's tail — a card whose content
+      // responder is momentarily absent (mid-mount, mid-rotation) used to
+      // swallow the whole gesture, which is a dead click on a row that
+      // advertised itself as a door.
+      dispatchCommand("focus-session-card", { cardId });
       // The card-content scope, not the bare card id: `sendToTarget` walks
       // upward from its target, the bare id is `card-host`'s, and the session
       // card's handlers live one scope beneath it — a miss there fails
@@ -1081,7 +1091,6 @@ function ArcsBody(): React.ReactElement {
       // mounted session card registers this responder.
       const target = `${cardId}-card-content`;
       if (chain === null || !chain.hasResponder(target)) return;
-      dispatchCommand("focus-session-card", { cardId });
       chain.sendToTarget(target, {
         action: TUG_ACTIONS.REVEAL_CHANGES,
         phase: "discrete",

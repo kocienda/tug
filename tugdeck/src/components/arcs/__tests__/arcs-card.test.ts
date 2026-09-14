@@ -22,7 +22,6 @@ import {
   compareDocumentArcRows,
   documentArcRowsFromSnapshot,
   resolveBindTarget,
-  resolveWorkerCard,
   type ArcRow,
   type DocumentArcRow,
 } from "../arcs-card";
@@ -340,38 +339,12 @@ describe("resolveBindTarget", () => {
   });
 });
 
-/**
- * Where activating a row goes — and, just as load-bearing, when it goes
- * nowhere. Null is the ordinary answer in a list of every arc in every open
- * project, and it is what makes the row inert *and* what stops it presenting
- * as clickable, since both read this one value.
- */
-describe("resolveWorkerCard", () => {
-  const bindings = (
-    entries: Array<[string, string]>,
-  ): ReadonlyMap<string, { tugSessionId: string }> =>
-    new Map(entries.map(([cardId, tugSessionId]) => [cardId, { tugSessionId }]));
-
-  test("an arc nobody holds has no room to open", () => {
-    expect(resolveWorkerCard(null, bindings([["A", "sess-1"]]))).toBeNull();
-  });
-
-  test("a held arc whose worker has no card open here is inert too", () => {
-    // The session is live on the server; this instance simply has no card on
-    // it. The row is still worth showing — it is just not a door.
-    expect(resolveWorkerCard("sess-9", bindings([["A", "sess-1"]]))).toBeNull();
-  });
-
-  test("the card bound to the holding session is the destination", () => {
-    expect(
-      resolveWorkerCard("sess-2", bindings([["A", "sess-1"], ["B", "sess-2"]])),
-    ).toBe("B");
-  });
-
-  test("no bindings at all is null, not a throw", () => {
-    expect(resolveWorkerCard("sess-1", bindings([]))).toBeNull();
-  });
-});
+// Where activating a row goes — and, just as load-bearing, when it goes
+// nowhere — is `cardIdForSession`, the deck's own segment → card walk, which
+// the row's affordance and its click both read. Its truth table, rotation
+// included, is pinned in `__tests__/card-session-binding-store.test.ts`. The
+// private walk that used to live here answered only for a card's spawn
+// address, so a rotated card's row went inert and its click did nothing.
 
 describe("documentArcRowsFromSnapshot — the planning phase in flight", () => {
   test("every project's document arcs are rows, keyed uniquely", () => {

@@ -12,6 +12,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   CardSessionBindingStore,
+  cardIdForSession,
   cardLine,
   cardSeatedSegment,
   cardSessionBindingStore,
@@ -299,6 +300,58 @@ describe("cardSeatedSegment – the card follows the rotation, its address does 
       lineId: "seat-cold-line",
     }));
     expect(cardSeatedSegment(CARD)).toBe("seat-cold-sess");
+    cardSessionBindingStore.clearBinding(CARD);
+  });
+});
+
+/**
+ * **The question every "show me that session's card" gesture asks**, and the
+ * one the Arcs card's row used to ask with its own narrower walk.
+ *
+ * The aggregate's `bound_session` names whichever segment holds the arc's
+ * binding *right now*, which the Wheel moves forward on every rotation, while
+ * a card's `tugSessionId` stays the address it was spawned on. Compare those
+ * two directly and a rotated card stops matching its own arc — the Arcs row
+ * lost `data-activatable`, presented as inert, and the click did nothing at
+ * all. The line is what does not move, so the line is the fallback.
+ */
+describe("cardIdForSession – the card holding a segment, across a rotation", () => {
+  const CARD = "card-holder";
+  const ROOT = "holder-sess-root";
+  const LINE = "holder-line";
+  const STAGE = "holder-sess-stage";
+
+  function holderFixture(): void {
+    cardSessionBindingStore.clearBinding(CARD);
+    sessionLineStore.forgetSession(ROOT);
+    sessionLineStore.forgetSession(STAGE);
+    cardSessionBindingStore.setBinding(CARD, makeBinding({
+      tugSessionId: ROOT,
+      lineId: LINE,
+    }));
+    sessionLineStore.seat(ROOT, LINE);
+  }
+
+  test("the card's own address finds it", () => {
+    holderFixture();
+    expect(cardIdForSession(ROOT)).toBe(CARD);
+    cardSessionBindingStore.clearBinding(CARD);
+  });
+
+  test("a segment minted by a rotation finds it too", () => {
+    holderFixture();
+    // What a rotation does: a new segment on the line the card already had,
+    // and the arc's `bound_session` moves onto it. The card's address does
+    // not move, so only the line can answer.
+    sessionLineStore.seat(STAGE, LINE);
+    cardSessionBindingStore.setSeatedSegment(CARD, STAGE, LINE);
+    expect(cardIdForSession(STAGE)).toBe(CARD);
+    cardSessionBindingStore.clearBinding(CARD);
+  });
+
+  test("a session no open card holds is null, not a throw", () => {
+    holderFixture();
+    expect(cardIdForSession("holder-sess-stranger")).toBeNull();
     cardSessionBindingStore.clearBinding(CARD);
   });
 });
