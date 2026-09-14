@@ -1,38 +1,52 @@
 /**
- * at0569-sheet-reservation.test.ts — an unbound Session card stands at its
- * picker's height with the sessions list at its cap, and gives the room back
- * when a session opens.
+ * at0569-sheet-reservation.test.ts — an unbound Session card stands at LEAST
+ * at its picker's height with the sessions list at its cap, takes more when its
+ * column has more to give, and gives the room back when a session opens.
  *
  * Two mechanisms meet on one card here, and this file is where the meeting is
  * pinned THROUGH THE LIVE APP.
  *
  * A modal surface whose natural height is content-bounded declares that height
  * at its call site, the sheet measures the panel and reports the number out,
- * and the deck holds the host member's floor there for as long as the sheet is
- * up. That is the RESERVATION, and on a Session card it is inert — the pin
- * below already holds the card at the panel's height, so a floor there decides
- * nothing — but the claim is still made, still keyed by the host pane, and
- * still carries the panel's own measured height, all of which this file checks.
+ * and the deck derives the host member's floor from it and holds the member
+ * there for as long as the sheet is up. That is the RESERVATION, and the
+ * DERIVATION is the deck's ([B03]): the sheet knows its panel, and everything
+ * between a panel and the member under it — the title bar, the clip's drop,
+ * the gap the clamp keeps against the canvas, less the gap the imposition
+ * leaves under a column's last member — is arithmetic the card does not know
+ * and should not.
  *
- * What actually sizes the card is the other mechanism: the EXACT-HEIGHT PIN
- * ([P01]). A Session card with no session behind it is nothing but the picker
- * it exists to raise — no transcript, no composer, and so none of what the
- * 600px floor is for. So the card declares what it is worth unbound
- * (`SESSION_UNBOUND_HEIGHT_PX`), and `placeMembers` reads that pin as the
- * member's floor AND its ceiling with a weight of zero, exactly as it already
- * reads a folded member's tier. The card stands at the picker's height, the
- * neighbour holds the rest of the run, and the binding commit drops the pin so
- * the stored division comes back.
+ * That is why the claim is no longer 64px short of what the card needs. It
+ * used to store the sheet's number unchanged, which made it inert on a Session
+ * card — a floor under a member already well above it — and the picker's real
+ * height was carried separately, by hand, in a registration's doc-comment. The
+ * two are one quantity now, and with the sessions list at its cap the deck's
+ * measured claim and the height the card DECLARED are the same number. This
+ * file asserts that directly.
+ *
+ * What sizes the card is the other contributor: the height a Session card
+ * DECLARES while it is unbound ([B01]). A Session card with no session behind
+ * it is nothing but the picker it exists to raise — no transcript, no composer,
+ * and so none of what the 600px floor is for. So the card declares what it is
+ * worth unbound (`SESSION_UNBOUND_HEIGHT_PX`), and `placeMembers` reads that
+ * declaration as one more contributor to the member's FLOOR: the largest thing
+ * standing on the member wins, and the member keeps its weight. The card
+ * stands at the picker's height whenever its share of the run would put it
+ * lower, takes the share when the share is higher — which is the second test
+ * below, and the whole of what changed — and the sheet going drops the
+ * declaration ([B02]) so the stored division comes back either way.
  *
  * ## Why the frames MOVE here, where they used to be asserted not to
  *
  * This file's older claim was that nothing moves at all, which was the honest
  * reading of the reservation alone: a floor under a member already above it is
- * inert. The pin is not a floor: it is a number of its own, set by the picker
- * with its sessions list at its cap rather than by anything the stack floor is
- * for, and this fixture's shares are chosen so the floor would put the card
- * somewhere else — which is what makes the pin's reading distinguishable from
- * the floor's, and is asserted directly below. So the geometry assertions say
+ * inert. The declaration is a floor, but it is not the STACK floor: it is a
+ * number of its own, set by the picker with its sessions list at its cap
+ * rather than by anything the 600px floor is for, and this fixture's shares
+ * are chosen so the stack floor and the weighted share would each put the card
+ * somewhere else — which is what makes the declaration's reading
+ * distinguishable from theirs, and is asserted directly below. So the geometry
+ * assertions say
  * where the two frames stand rather than that they did not move, and the
  * binding commit's assertion is the one that did not change: after
  * `bindSession` the division is the stored one again.
@@ -68,11 +82,11 @@
  *
  * That `addCard` WRITES a pin on the production path. This test SEEDS its deck,
  * and `addCard` is the only thing that writes one, so `deckShape` seeds
- * `exactMemberHeights` itself — `seedDeckState` is an atomic in-process state
+ * `openingBids` itself — `seedDeckState` is an atomic in-process state
  * replace, so a new `DeckState` field passes straight through it. What is under
- * test here is the ALLOCATOR's reading of a pin and the binding commit's drop
- * of one. The production write is claim 4 of the choreography test, which adds
- * its card at run time.
+ * test here is the ALLOCATOR's reading of a bid and the sheet's own claim
+ * ending one. The production write is claim 4 of the choreography test, which
+ * adds its card at run time.
  *
  * The card is bound through the harness rather than by driving the picker's
  * Open, because the binding update IS what unmounts the picker on the real path
@@ -86,14 +100,15 @@
  * budget, and naming it here would make it 22 — which the covers-check refuses
  * outright on the commit that does it. What stands in its place are the two
  * seams the call site reaches the deck through, `lib/sheet-reservation.ts` and
- * `lib/exact-height-pin.ts`: an edit that changes where the picker's numbers go
+ * `lib/opening-bid.ts`: an edit that changes where the picker's numbers go
  * selects this file, and only an edit that drops a declaration while leaving
  * both modules alone would slip past.
  *
  * @covers tugdeck/src/deck-store-selectors.ts
+ * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/tugways/tug-sheet.tsx
  * @covers tugdeck/src/lib/sheet-reservation.ts
- * @covers tugdeck/src/lib/exact-height-pin.ts
+ * @covers tugdeck/src/lib/opening-bid.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-registration.tsx
  */
 
@@ -140,6 +155,20 @@ const SESSION_FLOOR_PX = 600;
  * hundreds of pixels away, not two.
  */
 const REPORTER_DRIFT = 3;
+
+/**
+ * What the deck adds between a sheet's panel and the member under it —
+ * `memberFloorForSheetPanel`'s sum, copied for the reason every other constant
+ * in this header is: `--jsx` is off here, so nothing under `components/` can be
+ * imported, and `lib/sheet-reservation.ts` reaches the card registry through
+ * the `@` alias this file does not resolve.
+ *
+ * 37 (the pane's title bar and the 1px its sheet clip drops below it) + 32
+ * (`SHEET_CANVAS_GAP`) − 5 (`IMPOSITION_GAP_PX`, the gap already under a
+ * column's last member). A copy that drifts fails the assertions below rather
+ * than passing quietly.
+ */
+const SHEET_PANEL_TO_MEMBER_PX = 64;
 
 /**
  * `SESSION_UNBOUND_HEIGHT_PX` from `session-card-registration.tsx`, copied
@@ -191,9 +220,11 @@ interface Rect {
  * and a fixture with two of them has two pickers up and two claims against one
  * run — which is a case the brief left open rather than the one under test.
  *
- * `exactMemberHeights` is SEEDED because this fixture seeds rather than adds:
+ * `openingBids` is SEEDED because this fixture seeds rather than adds:
  * `addCard` is the only thing that writes a pin, and nothing here calls it. See
- * the header for what that does and does not leave proven.
+ * the header for what that does and does not leave proven. The field is the
+ * OPENING BID a card arrives carrying ([B02]): a floor for the arrival window,
+ * cleared by a claim at least as high as it and by the sheet going.
  */
 function deckShape(shares: Record<string, number>) {
   const pane = (id: string, cardId: string, slot: number) => ({
@@ -223,7 +254,7 @@ function deckShape(shares: Record<string, number>) {
       sidebars: {},
       columns: { 0: { mode: "split", order: ["p1", "p2"], shares } },
     },
-    exactMemberHeights: { p2: SESSION_UNBOUND_HEIGHT_PX },
+    openingBids: { p2: SESSION_UNBOUND_HEIGHT_PX },
     hasFocus: true,
   };
 }
@@ -304,16 +335,30 @@ async function reservations(app: App): Promise<Record<string, number> | null> {
   );
 }
 
-/** The exact-height pins the live store holds, keyed by member. */
+/** The opening bids the live store holds, keyed by member. */
 async function pins(app: App): Promise<Record<string, number> | null> {
   return app.evalJS<Record<string, number> | null>(
-    `(window.tugdeck.diag.getDeckState().exactMemberHeights || null)`,
+    `(window.tugdeck.diag.getDeckState().openingBids || null)`,
   );
 }
 
 /** The run slot 0's column divides, as the two frames report it. */
 function runOf(frames: Record<string, Rect>): number {
   return frames.p1.height + IMPOSITION_GAP_PX + frames.p2.height;
+}
+
+/**
+ * How much run is left BENEATH the column's last member, read against slot
+ * 1's frame — one member spanning the same vertical run, so the reading is
+ * independent of the two heights the claims are about. {@link runOf} sums
+ * those two and could never see a band; this is what can.
+ *
+ * A band is the failure from the screenshot: both members held at ceilings
+ * with no weight, their heights adding up to less than the run, and the
+ * surplus left as dead pixels under the lower card ([F01]).
+ */
+function bandBeneath(frames: Record<string, Rect>): number {
+  return frames.p3.bottom - frames.p2.bottom;
 }
 
 /**
@@ -371,9 +416,26 @@ async function assertFitAtListCap(app: App): Promise<void> {
   const natural = await pickerPanelNaturalHeight(app);
   const full = await panelMeasure(app);
   const edges = await pickerEdges(app);
+  const claimed = await reservations(app);
   note(
     `with the list at its cap: panel natural ${natural ?? -1}px, overflow ${full?.overflow ?? -1}, bottom slack ${(full?.bottomSlack ?? -1).toFixed(1)}px, header ${(edges?.headerBelowTitleBar ?? -1).toFixed(1)}px below the title bar, actions ${(edges?.actionsAbovePaneBottom ?? -1).toFixed(1)}px above the frame's bottom`,
   );
+  note(
+    `with the list at its cap the deck claims ${claimed?.p2 ?? -1}px for the member; the card declared ${SESSION_UNBOUND_HEIGHT_PX}`,
+  );
+  // ── The reservation is NOT inert on a Session card any more ([B03]). The
+  //    deck derives the member's floor from the panel the sheet measured, so
+  //    with the list at its cap that derivation and the height the card
+  //    declared are the same number — one quantity where there were two, and
+  //    the whole of why the claim used to decide nothing here. ──
+  expect(
+    Math.abs((claimed?.p2 ?? -1) - ((natural ?? -1) + SHEET_PANEL_TO_MEMBER_PX)),
+    "the claim is what the member needs for this panel, not the panel's own height",
+  ).toBeLessThanOrEqual(REPORTER_DRIFT);
+  expect(
+    Math.abs((claimed?.p2 ?? -1) - SESSION_UNBOUND_HEIGHT_PX),
+    "and it agrees with the height the card declared for the same picker",
+  ).toBeLessThanOrEqual(REPORTER_DRIFT);
   expect(full, "the picker's panel is on screen with the list at its cap").not.toBeNull();
   expect(
     full?.overflow ?? 999,
@@ -420,17 +482,17 @@ async function raisePicker(app: App): Promise<void> {
   await wait(AFTER_LAND_MS);
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its picker's height", () => {
+describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least at its picker's height", () => {
   test(
     "the card opens at the pinned height, the neighbour holds the rest, and a session opening gives it back",
     async () => {
       const app = await launchTugApp({ testName: "at0569-sheet-reservation" });
       try {
         // Three parts to one. Without the pin the Session card's own share
-        // would leave it a sliver and its 600px floor would hold it up; with
-        // the pin neither number decides anything.
+        // would leave it a sliver and its 600px floor would hold it up; the
+        // declaration stands above both, so it is the floor that binds.
         await seed(app, { p1: 3, p2: 1 });
-        const before = await rects(app, ["p1", "p2"]);
+        const before = await rects(app, ["p1", "p2", "p3"]);
         const run = runOf(before);
         note(
           `pinned division: p1=${before.p1.height.toFixed(1)} p2=${before.p2.height.toFixed(1)} of run ${run.toFixed(1)}`,
@@ -442,7 +504,8 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
           "the pin is keyed by the host pane and carries the declared height",
         ).toEqual({ p2: SESSION_UNBOUND_HEIGHT_PX });
 
-        // ── The card stands EXACTLY there — floor and ceiling both. ──
+        // ── The card stands there: the declaration is the largest floor on
+        //    the member, and the one-part share the hand gave it is smaller. ──
         expect(
           Math.abs(before.p2.height - SESSION_UNBOUND_HEIGHT_PX),
           `the unbound card stands at SESSION_UNBOUND_HEIGHT_PX (${SESSION_UNBOUND_HEIGHT_PX})`,
@@ -456,14 +519,30 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
           "the neighbour holds the run less the gap and the pinned height",
         ).toBeLessThanOrEqual(EPSILON);
 
-        // ── The pin is not the floor. With these shares the floor alone would
-        //    hold the card at 600, so a pin the floor could explain would be
-        //    indistinguishable from no pin at all; the picker's height is
-        //    somewhere else, and that is what the card stands at. ──
+        // ── And nothing is left BENEATH the lower member: the column divides
+        //    its whole run. Read against slot 1's frame rather than against
+        //    the two heights the claim is about, which could not show a band
+        //    at all. A declaration that was a ceiling with no weight is what
+        //    left one ([F01]). ──
         expect(
-          Math.abs(SESSION_UNBOUND_HEIGHT_PX - SESSION_FLOOR_PX),
-          "the pin is a height the stack floor would not have given the card",
+          Math.abs(bandBeneath(before)),
+          "no run is left beneath the column's last member",
+        ).toBeLessThanOrEqual(EPSILON);
+
+        // ── The declaration is neither the stack floor nor the share. With
+        //    these shares the weighted division would put the card at a
+        //    quarter of the run and its 600px floor would lift it to 600; the
+        //    picker's height is above both, which is why it is the number the
+        //    card stands at, and why a reading here cannot be confused for
+        //    either of them. ──
+        expect(
+          SESSION_UNBOUND_HEIGHT_PX - SESSION_FLOOR_PX,
+          "the declaration is above the stack floor, so it is the floor that binds",
         ).toBeGreaterThan(EPSILON);
+        expect(
+          (run - IMPOSITION_GAP_PX) * 0.25,
+          "and above the share the hand gave it, so the share does not lift it",
+        ).toBeLessThan(SESSION_UNBOUND_HEIGHT_PX - EPSILON);
 
         await raisePicker(app);
 
@@ -479,8 +558,11 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
           `claimed ${claimed?.p2 ?? -1}px; panel natural ${panel?.natural ?? -1}px, overflow ${panel?.overflow ?? -1}, bottom slack ${(panel?.bottomSlack ?? -1).toFixed(1)}px`,
         );
         expect(
-          Math.abs((claimed?.p2 ?? -1) - (panel?.natural ?? -1)),
-          "the number on the deck is the number the sheet measured",
+          Math.abs(
+            (claimed?.p2 ?? -1) -
+              ((panel?.natural ?? -1) + SHEET_PANEL_TO_MEMBER_PX),
+          ),
+          "the number on the deck is what the member needs for the panel the sheet measured",
         ).toBeLessThanOrEqual(REPORTER_DRIFT);
 
         // ── And the panel does not clip at the pinned height, read both
@@ -494,9 +576,9 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
           "and its bottom edge sits inside the frame rather than clipped by it",
         ).toBeGreaterThanOrEqual(0);
 
-        // ── The picker is up and the card has not moved for it: the pin was
-        //    already the picker's height, so there was nothing to make room
-        //    for. This is what "no per-frame measurement" buys. ──
+        // ── The picker is up and the card has not moved for it: the
+        //    declaration was already the picker's height, so there was nothing
+        //    to make room for. This is what "no per-frame measurement" buys. ──
         const open = await rects(app, ["p1", "p2"]);
         expect(
           Math.abs(open.p2.height - before.p2.height),
@@ -508,8 +590,9 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
         //    lower member of a split column, which is the case that clipped. ──
         await assertFitAtListCap(app);
 
-        // ── A session opens: the pin comes down with the binding commit, and
-        //    the card falls back into the share the hand gave it. ──
+        // ── A session opens: the picker goes with the binding, the claim and
+        //    the bid come down with the sheet ([B02]), and the card falls back
+        //    into the share the hand gave it. ──
         await app.bindSession("B");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER_FORM)}) === null`,
@@ -519,7 +602,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
 
         expect(
           await pins(app),
-          "the pin came down with the binding, absent rather than empty",
+          "the bid came down with the sheet, absent rather than empty",
         ).toBeNull();
         expect(
           await reservations(app),
@@ -552,30 +635,47 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
   );
 
   test(
-    "a large stored share does not lift a pinned member either — a pin is a ceiling",
+    "a large stored share DOES lift the unbound member — the declaration is a floor, not a ceiling",
     async () => {
       const app = await launchTugApp({
-        testName: "at0569-sheet-reservation-no-move",
+        testName: "at0569-sheet-reservation-share-lifts",
       });
       try {
-        // The shares the other way up. Unpinned this card would stand well
-        // clear of its floor; the pin is a CEILING as well as a floor, so the
-        // stored share buys it nothing while it is unbound.
+        // The shares the other way up, which is the case from the screenshot:
+        // three parts of four is well clear of everything the member declares,
+        // so the room goes to the card that can use it. This test asserted the
+        // opposite until the declaration stopped being a ceiling — the card
+        // stood at its declared height with the rest of the column left to the
+        // neighbour, which is the dead band the one-rule change removed.
         await seed(app, { p1: 1, p2: 3 });
-        const before = await rects(app, ["p1", "p2"]);
+        const before = await rects(app, ["p1", "p2", "p3"]);
         const run = runOf(before);
         note(
-          `share 1:3 pinned: p1=${before.p1.height.toFixed(1)} p2=${before.p2.height.toFixed(1)} of run ${run.toFixed(1)}`,
+          `share 1:3 unbound: p1=${before.p1.height.toFixed(1)} p2=${before.p2.height.toFixed(1)} of run ${run.toFixed(1)}`,
         );
         expect(
-          Math.abs(before.p2.height - SESSION_UNBOUND_HEIGHT_PX),
-          "the pinned card stands at its height whatever its share says",
+          Math.abs(before.p2.height - (run - IMPOSITION_GAP_PX) * 0.75),
+          "the unbound card takes its three parts of four",
         ).toBeLessThanOrEqual(EPSILON);
+        // Read the other way, so a division that merely happened to land near
+        // the declaration could not pass: the card stands ABOVE what it
+        // declared, which a ceiling could never allow.
+        expect(
+          before.p2.height,
+          "which is well above the height it declared — no ceiling held it",
+        ).toBeGreaterThan(SESSION_UNBOUND_HEIGHT_PX + EPSILON);
         expect(
           Math.abs(
-            before.p1.height - (run - IMPOSITION_GAP_PX - SESSION_UNBOUND_HEIGHT_PX),
+            before.p1.height - (run - IMPOSITION_GAP_PX) * 0.25,
           ),
-          "and the neighbour takes everything its own share could not have won",
+          "and the neighbour keeps its own one part, no more",
+        ).toBeLessThanOrEqual(EPSILON);
+
+        // ── The other half of the roomy case: the card that took the room
+        //    reaches the bottom of the run, with no band under it. ──
+        expect(
+          Math.abs(bandBeneath(before)),
+          "the member that took the room reaches the bottom of the run",
         ).toBeLessThanOrEqual(EPSILON);
 
         await raisePicker(app);
@@ -598,7 +698,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
         ).toBeGreaterThanOrEqual(0);
         expect(
           Math.abs(open.p2.height - before.p2.height),
-          "raising the picker over a pinned card moves nothing",
+          "raising the picker moves nothing — the card is already taller than the claim",
         ).toBeLessThanOrEqual(EPSILON);
         expect(
           Math.abs(open.p1.height - before.p1.height),
@@ -607,8 +707,10 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
 
         await assertFitAtListCap(app);
 
-        // ── And the stored share is what it falls back into: the 3:1 the hand
-        //    wrote, which is well above the floor. ──
+        // ── And binding moves NOTHING here, which is the other half of the
+        //    same fact: the card was already standing at its stored share, so
+        //    dropping the declaration takes nothing away from it. Under the
+        //    old ceiling this was the moment the card jumped. ──
         await app.bindSession("B");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER_FORM)}) === null`,
@@ -620,6 +722,10 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
         note(
           `bound at 1:3: p1=${settled.p1.height.toFixed(1)} p2=${settled.p2.height.toFixed(1)}`,
         );
+        expect(
+          Math.abs(settled.p2.height - before.p2.height),
+          "the card does not move across the binding",
+        ).toBeLessThanOrEqual(EPSILON);
         expect(
           settled.p2.height,
           "the bound card takes its three parts of four, well clear of its floor",

@@ -23,8 +23,59 @@
 
 import { isSidebarCard } from "@/card-registry";
 import { getDeckStore } from "@/lib/deck-store-registry";
-import { isSidebarPinned } from "@/lib/layout-imposer";
+import { IMPOSITION_GAP_PX, isSidebarPinned } from "@/lib/layout-imposer";
 import type { DeckState } from "@/layout-tree";
+
+/**
+ * Gap kept between a sheet's bottom and the canvas bottom, in pixels.
+ *
+ * `tug-sheet.tsx`'s clamp is the only thing that enforces it and imports it
+ * from here, which looks backwards until you read what it is a term OF: the
+ * clamp caps a top-anchored panel against the CANVAS rather than against the
+ * frame it stands in, so this gap is one of the terms a member's floor has to
+ * carry ({@link memberFloorForSheetPanel}) and it lives beside that sum.
+ */
+export const SHEET_CANVAS_GAP = 32;
+
+/**
+ * What the pane's chrome puts between the frame's top and the sheet's clip: the
+ * title bar (`CARD_TITLE_BAR_HEIGHT`, 36, `--tug-chrome-height`) and the 1px
+ * `.tug-sheet-clip` drops below it (its `top: calc(chrome-height + 1px)`).
+ *
+ * Stated here rather than imported so a lib does not pull in a component
+ * module — `components/chrome/tug-pane.tsx` reaches the deck manager, and a
+ * lib the manager itself imports cannot reach back. A unit test pins this
+ * against `CARD_TITLE_BAR_HEIGHT` so the copy cannot drift silently.
+ */
+export const PANE_TITLE_BAR_AND_CLIP_PX = 37;
+
+/**
+ * The member floor a sheet's panel needs, derived from the panel's own natural
+ * height ([B03]).
+ *
+ * **The sheet reports what it knows and the deck does the arithmetic.** A
+ * sheet measures its panel's box and its own top margin and reports that one
+ * number; every other term between a panel and the member under it is the
+ * deck's — the pane's title bar and the clip's drop above the panel, the gap
+ * the clamp keeps against the canvas below it, less the gap the imposition
+ * already leaves under a column's last member, which the clamp's canvas
+ * reading gets for free. The card knows none of those and should not.
+ *
+ * This function exists because there were two answers to one question. The
+ * measured reservation stored the sheet's number unchanged, so it was short by
+ * exactly this sum and inert on any member already above it; the opening bid a
+ * registration declares had the same sum done by hand in a doc-comment. Both
+ * go through here now, so the two denominate the same quantity and the sum is
+ * written once.
+ */
+export function memberFloorForSheetPanel(panelNaturalPx: number): number {
+  return (
+    panelNaturalPx +
+    PANE_TITLE_BAR_AND_CLIP_PX +
+    SHEET_CANVAS_GAP -
+    IMPOSITION_GAP_PX
+  );
+}
 
 /**
  * The member each card last claimed under, so a drop can still name it once
@@ -66,8 +117,14 @@ export function sheetReservationMemberIdOf(
 }
 
 /**
- * Claim `height` pixels for the member `cardId` stands as, or drop the claim
- * with a `null` height.
+ * Claim what a panel of `panelNaturalPx` needs from the member `cardId` stands
+ * as, or drop the claim with a `null` height.
+ *
+ * The argument is the SHEET's number — its panel's natural height — and what
+ * is stored is the MEMBER's floor, {@link memberFloorForSheetPanel} of it
+ * ([B03]). That conversion is the whole of why the two are named differently:
+ * a claim of the panel's own height is short by the chrome around it, and a
+ * floor short of what the card needs is a floor that decides nothing.
  *
  * Silently does nothing for no card and no deck store — a card renders in the
  * gallery and in fixtures that bootstrap neither. A DROP on a card that stands
@@ -77,13 +134,13 @@ export function sheetReservationMemberIdOf(
  */
 export function reserveSheetHeightForCard(
   cardId: string | null,
-  height: number | null,
+  panelNaturalPx: number | null,
 ): void {
   if (cardId === null) return;
   const deckStore = getDeckStore();
   if (deckStore === null) return;
   const standing = sheetReservationMemberIdOf(deckStore.getSnapshot(), cardId);
-  if (height === null) {
+  if (panelNaturalPx === null) {
     const claimed = standing ?? claimedMemberByCardId.get(cardId);
     if (claimed === undefined) return;
     claimedMemberByCardId.delete(cardId);
@@ -92,5 +149,8 @@ export function reserveSheetHeightForCard(
   }
   if (standing === null) return;
   claimedMemberByCardId.set(cardId, standing);
-  deckStore.setSheetReservation(standing, height);
+  deckStore.setSheetReservation(
+    standing,
+    memberFloorForSheetPanel(panelNaturalPx),
+  );
 }

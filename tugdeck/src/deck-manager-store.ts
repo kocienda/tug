@@ -139,14 +139,16 @@ export interface IDeckManagerStore {
   setSheetReservation: (memberId: string, height: number | null) => void;
 
   /**
-   * Pin `memberId` at an EXACT height, or drop the pin with a `null` height.
+   * Write `memberId`'s opening bid, or drop it with a `null` height.
    * Keyed exactly as {@link IDeckManagerStore.setSheetReservation} above is.
    *
-   * The reservation's neighbour and not its twin: a reservation is a floor a
-   * taller member ignores, and this is a height the member stands at, with no
-   * share of the run ([P01]). Session-only for the same reason.
+   * The reservation's neighbour: both are floors the larger of which binds
+   * ([B01]), and what separates them is where the number came from and how
+   * long it lives. A reservation is measured off a sheet that is on screen; a
+   * bid is declared before the card was laid out and is cleared by the first
+   * such measurement ([B02]). Session-only for the reservation's reason.
    */
-  setMemberExactHeight: (memberId: string, height: number | null) => void;
+  setOpeningBid: (memberId: string, height: number | null) => void;
 
   /**
    * Draw the deck at a flow offset without committing it — the per-frame half

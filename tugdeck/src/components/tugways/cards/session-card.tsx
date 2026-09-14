@@ -272,7 +272,7 @@ import {
   useIsCardFolded,
 } from "@/lib/card-fold";
 import { reserveSheetHeightForCard } from "@/lib/sheet-reservation";
-import { pinExactHeightForCard } from "@/lib/exact-height-pin";
+import { openingBidForCard } from "@/lib/opening-bid";
 import { registerCardCloseAdvice } from "@/lib/card-close-advice";
 import {
   cardModalHoldAdmitsFold,
@@ -1302,11 +1302,12 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   useEffect(() => {
     return () => {
       reserveSheetHeightForCard(cardId, null);
-      // And its exact-height pin ([P04]). This is the CANCEL path — a card
-      // closed while still unbound — and on the binding path it is a no-op,
-      // because `setBinding` already dropped the pin and the drop returns
-      // without notifying against a record that no longer holds one.
-      pinExactHeightForCard(cardId, null);
+      // And its opening bid ([B02]). The bid is the sheet's to end — a claim
+      // at least as high supersedes it, and the sheet going clears it whatever
+      // it was — so on every ordinary path the line above has already taken it
+      // down and this returns without notifying. What it covers is the card
+      // torn down before its picker ever reported at all.
+      openingBidForCard(cardId, null);
     };
   }, [cardId]);
 

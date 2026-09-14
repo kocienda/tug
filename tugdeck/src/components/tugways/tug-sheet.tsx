@@ -106,6 +106,7 @@ import { readSettleMs } from "@/lib/layout-imposer";
 import { IMPOSER_SETTLE_END } from "@/lib/settle-notice";
 import { refuseCardModalHold } from "@/lib/card-modal-hold-store";
 import { useSheetLifecycle } from "@/lib/sheet-lifecycle";
+import { SHEET_CANVAS_GAP } from "@/lib/sheet-reservation";
 import { group } from "@/components/tugways/tug-animator";
 import { useTugPaneScrim } from "@/components/tugways/use-tug-pane-scrim";
 import { usePaneInert } from "@/components/tugways/use-pane-inert";
@@ -264,8 +265,6 @@ const SHEET_RESIZE_EDGES_BOTTOM: SheetResizeEdge[] = ["e", "w", "n", "ne", "nw"]
 const SHEET_RESIZE_MIN_WIDTH = 460;
 /** Lower bound for drag-resize height. */
 const SHEET_RESIZE_MIN_HEIGHT = 250;
-/** Gap kept between the sheet's bottom and the canvas bottom (px). */
-const SHEET_CANVAS_GAP = 32;
 
 /** Enter/exit keyframe pair for one presentation style. */
 interface SheetPresentationMotion {

@@ -10,11 +10,12 @@
  * only — this store exposes `subscribe + getSnapshot` and is read via
  * `useCardWorkspaceKey`, never through component state.
  *
- * It is also where a Session card's EXACT-HEIGHT PIN comes down ([B06]). A
- * card with no session behind it stands at the picker's height rather than at
- * the transcript's floor, and the binding commit is the moment that stops
- * being true — so `setBinding` drops the pin as part of the same gesture. The
- * pin itself is written by `addCard`; see `lib/exact-height-pin.ts`.
+ * The binding commit used to be where an unbound Session card's declared
+ * height came down, and it is not any more: a card's opening bid is ended by
+ * the sheet it was declared for — superseded by a measurement at least as
+ * high, cleared when the sheet goes — so no card-state transition is party to
+ * it. Binding is what makes a picker go, and the sheet going is what
+ * `sheetClaimWith` reads. See `lib/opening-bid.ts`.
  *
  * @module lib/card-session-binding-store
  */
@@ -22,7 +23,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { sessionLineStore } from "./session-line-store";
-import { pinExactHeightForCard } from "./exact-height-pin";
 
 /**
  * User's choice of session mode when the card was opened. Populated from
@@ -99,12 +99,6 @@ export class CardSessionBindingStore {
     const next = new Map(this._bindings);
     next.set(cardId, binding);
     this._bindings = next;
-    // The binding commit is the exact-height pin's DROP ([B06]). An unbound
-    // Session card stands at the picker's height because the picker is all it
-    // is; the moment a session is behind it the card is a transcript and a
-    // composer, and the 600px floor in its own size policy is the truth about
-    // it again. This is the one place that knows the condition ended.
-    pinExactHeightForCard(cardId, null);
     for (const listener of this._listeners) listener();
   };
 

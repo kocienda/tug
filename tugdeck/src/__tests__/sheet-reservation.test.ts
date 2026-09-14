@@ -15,14 +15,59 @@
  * the pane hosting it in a slot, its componentId on a rail ([B04]) — which is
  * the one thing the two places differ by and the one thing a claim published
  * under the wrong name would be silently ignored for.
+ *
+ * And the chrome arithmetic between a sheet's number and the member's ([B03]).
+ * A sheet reports its panel's natural height; the floor the member needs is
+ * that plus everything the deck puts around it, and the deck is where that sum
+ * lives now that the opening bid and the measurement both read it.
  */
 
 import { describe, test, expect } from "bun:test";
-import { sheetReservationsWith } from "../deck-manager";
-import { sheetReservationMemberIdOf } from "../lib/sheet-reservation";
+import { sheetClaimWith, sheetReservationsWith } from "../deck-manager";
+import {
+  memberFloorForSheetPanel,
+  sheetReservationMemberIdOf,
+  PANE_TITLE_BAR_AND_CLIP_PX,
+  SHEET_CANVAS_GAP,
+} from "../lib/sheet-reservation";
+import { CARD_TITLE_BAR_HEIGHT } from "../components/chrome/tug-pane";
+import { IMPOSITION_GAP_PX } from "../lib/layout-imposer";
 import { registerCard, _resetForTest } from "../card-registry";
 import { serialize, deserialize } from "../serialization";
 import type { DeckState } from "../layout-tree";
+
+describe("memberFloorForSheetPanel does the chrome arithmetic once", () => {
+  test("adds the chrome above and the canvas gap below, less the member gap", () => {
+    // The Choose Session picker with its sessions list at the cap: the sheet
+    // reports 554 and the member under it needs 618. That 64px is exactly what
+    // the measured reservation used to be short by, which is why it decided
+    // nothing on a Session card.
+    expect(memberFloorForSheetPanel(554)).toBe(618);
+    expect(memberFloorForSheetPanel(554) - 554).toBe(64);
+  });
+
+  test("is the sum of its named terms and nothing else", () => {
+    // Stated as the terms rather than as 64, so a change to any one of them
+    // fails here with the term named rather than with an opaque total.
+    expect(memberFloorForSheetPanel(0)).toBe(
+      PANE_TITLE_BAR_AND_CLIP_PX + SHEET_CANVAS_GAP - IMPOSITION_GAP_PX,
+    );
+  });
+
+  test("the title-bar term is the pane's own chrome height plus the clip's drop", () => {
+    // The copy that cannot drift: the constant is stated in the lib rather
+    // than imported from the pane component, because the pane reaches the deck
+    // manager and a lib the manager imports cannot reach back. This is what
+    // keeps the two honest.
+    expect(PANE_TITLE_BAR_AND_CLIP_PX).toBe(CARD_TITLE_BAR_HEIGHT + 1);
+  });
+
+  test("is monotonic in the panel it is given", () => {
+    expect(memberFloorForSheetPanel(400)).toBeLessThan(
+      memberFloorForSheetPanel(401),
+    );
+  });
+});
 
 describe("sheetReservationsWith", () => {
   test("writes the height on the named member, from nothing standing", () => {
@@ -200,5 +245,109 @@ describe("sheetReservationMemberIdOf names the member the allocator looks up", (
       hasFocus: true,
     };
     expect(sheetReservationMemberIdOf(state, "card-a")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sheetClaimWith — a measurement supersedes the opening bid ([B02])
+// ---------------------------------------------------------------------------
+
+describe("sheetClaimWith: a measurement supersedes the opening bid", () => {
+  test("a claim at the bid's own height writes the reservation and clears the bid", () => {
+    // The whole of [B02] in one call. The bid was what the card DECLARED
+    // before it was laid out, so that the arrival could be one motion; the
+    // sheet now on the member is the thing that knows, and its first claim is
+    // what ends the bid rather than any later card-state transition.
+    const next = sheetClaimWith(
+      { sheetReservations: undefined, openingBids: { "pane-1": 618 } },
+      "pane-1",
+      618,
+    );
+    expect(next.sheetReservations).toEqual({ "pane-1": 618 });
+    expect(next.openingBids).toBeUndefined();
+  });
+
+  test("and does it in ONE pair, so the two records move in one commit", () => {
+    // A bid cleared a commit after the claim that replaced it would be a
+    // second settle over the same fact — the judder the bid exists to prevent.
+    const next = sheetClaimWith(
+      {
+        sheetReservations: { "pane-2": 300 },
+        openingBids: { "pane-1": 618, "pane-2": 400 },
+      },
+      "pane-1",
+      700,
+    );
+    expect(next.sheetReservations).toEqual({ "pane-2": 300, "pane-1": 700 });
+    // Only the claiming member's bid. Its neighbour's is untouched.
+    expect(next.openingBids).toEqual({ "pane-2": 400 });
+  });
+
+  test("a claim LARGER than the bid supersedes it — the case the bid exists for", () => {
+    // A bid too small is the failure [F06] is about: read as a ceiling it was
+    // a permanent clip, and read as a floor the larger measurement wins the
+    // same `Math.max` and the bid has nothing left to say.
+    const next = sheetClaimWith(
+      { sheetReservations: undefined, openingBids: { "pane-1": 618 } },
+      "pane-1",
+      700,
+    );
+    expect(next.sheetReservations).toEqual({ "pane-1": 700 });
+    expect(next.openingBids).toBeUndefined();
+  });
+
+  test("a claim BELOW the bid supersedes nothing — the member does not shrink under a standing sheet", () => {
+    // The one asymmetry, and the reason for it: a claim that is smaller than
+    // the bid corrects nothing, because the panel it measured already fits.
+    // Dropping the bid for it would shrink the member under a sheet still
+    // standing on it, for no gain. A bid that was too generous costs air, and
+    // air is the price the declaration names for itself.
+    const bids = { "pane-1": 618 };
+    const next = sheetClaimWith(
+      { sheetReservations: undefined, openingBids: bids },
+      "pane-1",
+      444,
+    );
+    expect(next.sheetReservations).toEqual({ "pane-1": 444 });
+    expect(next.openingBids).toBe(bids);
+  });
+
+  test("the sheet GOING clears the bid whatever it was — which is what ends a generous one", () => {
+    // The other half of the one rule, and what replaced the binding-commit
+    // drop: binding is what makes the picker go, so the sheet going is the
+    // condition ending, read here rather than in a card-state transition.
+    const bids = { "pane-1": 618 };
+    const next = sheetClaimWith(
+      { sheetReservations: { "pane-1": 444 }, openingBids: bids },
+      "pane-1",
+      null,
+    );
+    expect(next.sheetReservations).toBeUndefined();
+    expect(next.openingBids).toBeUndefined();
+  });
+
+  test("both halves come back by IDENTITY when nothing changes", () => {
+    // What lets the verb short-circuit on the pair: a sheet re-reports the
+    // height it already reported on every resize of its own panel, and by then
+    // the bid has either been cleared or been left standing once already.
+    const reservations = { "pane-1": 444 };
+    const bids = { "pane-2": 618 };
+    const next = sheetClaimWith(
+      { sheetReservations: reservations, openingBids: bids },
+      "pane-1",
+      444,
+    );
+    expect(next.sheetReservations).toBe(reservations);
+    expect(next.openingBids).toBe(bids);
+  });
+
+  test("a claim on a member with no bid touches no bids", () => {
+    const bids = { "pane-2": 618 };
+    const next = sheetClaimWith(
+      { sheetReservations: undefined, openingBids: bids },
+      "pane-1",
+      444,
+    );
+    expect(next.openingBids).toBe(bids);
   });
 });

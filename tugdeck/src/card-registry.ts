@@ -161,25 +161,34 @@ export interface CardRegistration {
    */
   foldedSizePolicy?: CardSizePolicy;
   /**
-   * The exact height, in pixels, a fresh pane for this card type stands at
-   * while the card is nothing but the sheet it exists to raise ([P02]).
+   * The policy this card type takes while the card is nothing but the sheet it
+   * exists to raise ([P02], [B04]).
    *
-   * `foldedSizePolicy`'s model, one condition further on. A card type whose
-   * OPEN form has a tall floor because of surfaces that are not on screen yet —
-   * the Session card's transcript and composer behind its 600px floor — may say
-   * here what it is worth while it is only its picker, and `addCard` pins the
-   * member at that height for as long as the condition holds.
+   * `foldedSizePolicy`'s model, one condition further on, and the same shape:
+   * a form this card type has, declared as a whole policy rather than as a
+   * number the deck has to know what to do with. A card type whose OPEN form
+   * has a tall floor because of surfaces that are not on screen yet — the
+   * Session card's transcript and composer behind its 600px floor — may say
+   * here what it is worth while it is only its sheet.
    *
-   * Read by `addCard` and by nothing else, off the registration it already has
-   * in hand: the deck names no componentId and imports nothing from `cards/`.
-   * The pin it writes is read by `placeMembers` as FLOOR and CEILING both, with
-   * a weight of zero — the same reading a folded member already gets.
+   * **How it differs from the folded policy is the whole of [B01]:** this one
+   * declares a `min.height` and NO `max.height`. A folded card is a band and
+   * says so with `min.height === max.height`; an unbound card is a member that
+   * knows what it needs and takes more when its column has more to give. A
+   * `max.height` declared here would be the dead band the one-rule change
+   * removed, so do not declare one.
+   *
+   * Read through {@link getStackSizePolicy}'s `unbound` form selector, and
+   * directly by `addCard` off the registration it already has in hand — the
+   * deck names no componentId and imports nothing from `cards/`. What `addCard`
+   * writes from it is read by `placeMembers` as one contributor to the member's
+   * FLOOR, and the member keeps its weight.
    *
    * Omitted by every card type with no such condition, which is every type but
-   * the Session card today. Dropping the pin is the condition's own business:
-   * for a Session card that is the binding commit ([P04]).
+   * the Session card today, in which case {@link getUnboundSizePolicy} falls
+   * back to that card's ordinary policy exactly as the folded accessor does.
    */
-  unboundExactHeightPx?: number;
+  unboundSizePolicy?: CardSizePolicy;
   /**
    * Where a fresh pane for this card type opens on the canvas.
    * `"cascade"` (the default) walks the standard cascade origin;
@@ -414,6 +423,24 @@ export function getFoldedSizePolicy(componentId: string): CardSizePolicy {
 }
 
 /**
+ * The size policy for a registered card type in its UNBOUND form ([P02],
+ * [B04]).
+ *
+ * {@link getFoldedSizePolicy}'s twin, with the same fallback and for the same
+ * reason: a card type that declares no unbound form reads as its ordinary
+ * self, and a pane hosting an unbound Session tab beside a Text tab is still
+ * one box that has to fit the Text card.
+ */
+export function getUnboundSizePolicy(componentId: string): CardSizePolicy {
+  const registration = registry.get(componentId);
+  return (
+    registration?.unboundSizePolicy ??
+    registration?.sizePolicy ??
+    DEFAULT_SIZE_POLICY
+  );
+}
+
+/**
  * Aggregate size policy for a TugPane hosting a stack of cards.
  *
  * A pane is one box shared by all its tabs, so it must satisfy every
@@ -441,15 +468,25 @@ export function getFoldedSizePolicy(componentId: string): CardSizePolicy {
  * instead ([P04]). Everything else is unchanged, including the aggregation —
  * a pane is still one box, and a folded Session card sharing a pane with a
  * Text tab still has to fit the Text tab.
+ *
+ * `options.unbound` does the same through {@link getUnboundSizePolicy}
+ * ([P02]). The two are forms of one card rather than independent flags, so
+ * `folded` wins when both are named — a folded card is not showing the sheet
+ * its unbound form was declared for, which is the same precedence
+ * `placeMembers`' branch order takes.
  */
 export function getStackSizePolicy(
   componentIds: readonly string[],
-  options: { folded?: boolean } = {},
+  options: { folded?: boolean; unbound?: boolean } = {},
 ): CardSizePolicy {
   if (componentIds.length === 0) return DEFAULT_SIZE_POLICY;
-  const policies = componentIds.map(
-    options.folded === true ? getFoldedSizePolicy : getSizePolicy,
-  );
+  const forForm =
+    options.folded === true
+      ? getFoldedSizePolicy
+      : options.unbound === true
+        ? getUnboundSizePolicy
+        : getSizePolicy;
+  const policies = componentIds.map(forForm);
 
   let minWidth = 0;
   let minHeight = 0;

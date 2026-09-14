@@ -16,6 +16,7 @@ import {
   CONTENT_WIDTH_COMFY_PX,
   CONTENT_WIDTH_SLIM_PX,
 } from "@/lib/layout-imposer";
+import { memberFloorForSheetPanel } from "@/lib/sheet-reservation";
 import { FeedId } from "@/protocol";
 import { SessionCardContent } from "./session-card";
 
@@ -46,14 +47,23 @@ import { SessionCardContent } from "./session-card";
 export const SESSION_FOLDED_HEIGHT_PX = 144;
 
 /**
- * The height an UNBOUND Session card stands at, in pixels ([P02]).
+ * The natural height of the Choose Session panel, in pixels — the picker's own
+ * box plus the sheet's top margin, which is the number the SHEET reports when
+ * it measures ([B03]).
  *
  * A Session card with no session behind it is nothing but the Choose Session
  * picker it exists to raise, and the 600px floor in `sizePolicy` below is what
  * a TRANSCRIPT and a composer need — neither of which is on screen yet. So the
- * unbound form declares its own exact height, the same way the folded form
- * declares its own policy, and `addCard` pins it for as long as the card is
- * unbound.
+ * unbound form declares its own policy, the same way the folded form does, and
+ * this is the one measurement that policy rests on.
+ *
+ * **This is the panel's height, not the member's.** What the member under it
+ * needs is {@link memberFloorForSheetPanel} of this, and that sum is the
+ * deck's — the title bar and the clip's drop, the clamp's gap against the
+ * canvas, less the gap the imposition already leaves under a column's last
+ * member. The card knows its panel and nothing else about the box around it,
+ * which is what keeps the opening bid and the sheet's own measured reservation
+ * denominating one quantity instead of two.
  *
  * The terms, read off the built app rather than off the stylesheet, WITH THE
  * SESSIONS LIST AT ITS CAP. The list is `max-height: 14.5rem` and every row has
@@ -65,27 +75,14 @@ export const SESSION_FOLDED_HEIGHT_PX = 144;
  * rest. A project with fewer sessions opens with air under the list, and air
  * is the price of a constant the arrival can know before `addCard` commits.
  *
- * - `37` — the pane's title bar (36, `--tug-chrome-height` in `tug-pane.tsx`)
- *   and the 1px the sheet's clip drops below it (`.tug-sheet-clip`'s
- *   `top: calc(chrome-height + 1px)`).
- * - `12` — `--tugx-sheet-space-a`, the panel's top margin. Choose Session keeps
- *   the sheet's default TOP anchor (`modal-rest-line.ts` exempts it), whose
- *   rule is `margin: space-a auto 0`.
- * - `542` — the picker panel's own box with the list at its cap: its
- *   `scrollHeight` plus its two 1px borders. `at0569`'s diagnostics print the
- *   SHEET's reading of this over a seeded five-session project, which is the
- *   same number plus the 12px margin above (554).
- * - `32` — `SHEET_CANVAS_GAP`. This is the term that is not about the panel at
- *   all, and the one an arithmetic answer misses. `tug-sheet.tsx`'s top-anchor
- *   clamp caps the panel against the CANVAS bottom rather than the frame's, so
- *   a card sitting at the foot of a split column has to carry that gap inside
- *   its own height or the clamp cuts the panel short — which is precisely what
- *   429 did, by the 14px `at0569` measured before this number moved.
+ * The two terms this number is: `542`, the panel's own box with the list at
+ * its cap — its `scrollHeight` plus its two 1px borders — and `12`, the
+ * `--tugx-sheet-space-a` top margin, Choose Session keeping the sheet's
+ * default TOP anchor (`modal-rest-line.ts` exempts it) whose rule is
+ * `margin: space-a auto 0`. `at0569`'s diagnostics print exactly this sum as
+ * the sheet's own reading over a seeded five-session project.
  *
- * 37 + 12 + 542 + 32 = 623, less the 5px the imposition already leaves under
- * the column's last member, which the clamp's canvas reading gets for free.
- *
- * The previous number, 444, was the same arithmetic over a panel box of 368 —
+ * The member height this resolved to was 444 once, over a panel box of 368 —
  * the picker as every app-test sees it on a fresh per-instance `sessions.db`,
  * with exactly one row ("New session") in its list. It was measured honestly
  * against the wrong picker, and no test could say so while the tests measured
@@ -107,7 +104,20 @@ export const SESSION_FOLDED_HEIGHT_PX = 144;
  * picker that never sees one. Left as air-versus-scroll for whoever decides it
  * matters; the `at0569` assertions above are the fit with no notice up.
  */
-export const SESSION_UNBOUND_HEIGHT_PX = 618;
+export const SESSION_UNBOUND_PANEL_HEIGHT_PX = 554;
+
+/**
+ * The member floor an unbound Session card declares, in pixels ([P02]) — its
+ * panel's natural height through the deck's own chrome arithmetic.
+ *
+ * Derived rather than written: the sum has one home
+ * ({@link memberFloorForSheetPanel}) and the sheet's measured reservation goes
+ * through the same one, which is what makes the opening bid and the
+ * measurement that supersedes it the same quantity.
+ */
+export const SESSION_UNBOUND_HEIGHT_PX = memberFloorForSheetPanel(
+  SESSION_UNBOUND_PANEL_HEIGHT_PX,
+);
 
 export function registerSessionCard(): void {
   registerCard({
@@ -164,10 +174,18 @@ export function registerSessionCard(): void {
       },
     },
     takesContentWidth: true,
-    // While this card is unbound it is its picker and nothing else, so it
-    // stands at the picker's height rather than at the transcript's floor
-    // ([P02]). `addCard` pins it; the binding commit drops the pin ([P04]).
-    unboundExactHeightPx: SESSION_UNBOUND_HEIGHT_PX,
+    // While this card is unbound it is its picker and nothing else, so what it
+    // NEEDS is the picker's height rather than the transcript's floor ([P02]).
+    // A floor and no ceiling, which is the one way this form differs from the
+    // folded one above ([B01], [B04]): the card asks for the picker's height
+    // and takes more where its column has more to give.
+    unboundSizePolicy: {
+      min: { width: CONTENT_WIDTH_SLIM_PX, height: SESSION_UNBOUND_HEIGHT_PX },
+      preferred: {
+        width: CONTENT_WIDTH_COMFY_PX,
+        height: SESSION_UNBOUND_HEIGHT_PX,
+      },
+    },
     engineKind: "em",
   });
 }

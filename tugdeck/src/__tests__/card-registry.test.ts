@@ -16,6 +16,7 @@ import {
   getAllRegistrations,
   getStackSizePolicy,
   getFoldedSizePolicy,
+  getUnboundSizePolicy,
   DEFAULT_SIZE_POLICY,
   getLayoutRole,
   isSidebarCard,
@@ -68,6 +69,32 @@ const FOLDED_POLICY: CardSizePolicy = {
   max: { width: Number.POSITIVE_INFINITY, height: TIER },
   preferred: { width: 900, height: TIER },
 };
+
+/**
+ * The unbound form ([P02], [B04]). Taller than the tier and taller than the
+ * open floor, and — the whole of what distinguishes it from the folded one —
+ * carrying NO `max`: what the card needs while it is only its sheet, not a
+ * band it is held inside.
+ */
+const UNBOUND = 618;
+const UNBOUND_POLICY: CardSizePolicy = {
+  min: { width: 675, height: UNBOUND },
+  preferred: { width: 900, height: UNBOUND },
+};
+
+function registerUnboundable(
+  componentId: string,
+  sizePolicy: CardSizePolicy,
+  unboundSizePolicy: CardSizePolicy,
+  foldedSizePolicy?: CardSizePolicy,
+): void {
+  registerCard({
+    ...makeRegistration(componentId),
+    sizePolicy,
+    unboundSizePolicy,
+    ...(foldedSizePolicy !== undefined ? { foldedSizePolicy } : {}),
+  });
+}
 
 beforeEach(() => {
   _resetForTest();
@@ -351,6 +378,76 @@ describe("getStackSizePolicy({ folded })", () => {
     const policy = getStackSizePolicy(["session", "text"], { folded: true });
     expect(policy.min).toEqual({ width: 675, height: 420 });
     expect(policy.max?.height === policy.min.height).toBe(false);
+  });
+});
+
+// ---- getStackSizePolicy — the unbound form ([P02], [B04]) ----
+
+describe("getStackSizePolicy({ unbound })", () => {
+  it("returns the declared floor with NO ceiling on any axis", () => {
+    registerUnboundable("session", OPEN_POLICY, UNBOUND_POLICY);
+    const policy = getStackSizePolicy(["session"], { unbound: true });
+    expect(policy.min.height).toBe(UNBOUND);
+    // The one way this form differs from the folded one ([B01]): a folded card
+    // is a band and reads `min === max`, and an unbound card is a member that
+    // takes more where its column has more to give.
+    expect(policy.max).toBeUndefined();
+  });
+
+  it("uses the ordinary policy when the option is absent", () => {
+    registerUnboundable("session", OPEN_POLICY, UNBOUND_POLICY);
+    expect(getStackSizePolicy(["session"]).min.height).toBe(600);
+  });
+
+  it("lets FOLDED win when both forms are named", () => {
+    // They are forms of one card rather than independent flags, and a folded
+    // card is not showing the sheet its unbound form was declared for — the
+    // same precedence `placeMembers`' branch order takes.
+    registerUnboundable("session", OPEN_POLICY, UNBOUND_POLICY, FOLDED_POLICY);
+    const policy = getStackSizePolicy(["session"], {
+      folded: true,
+      unbound: true,
+    });
+    expect(policy.min.height).toBe(TIER);
+    expect(policy.max?.height).toBe(TIER);
+  });
+
+  it("aggregates a card with no unbound policy at its ordinary floor", () => {
+    // A pane is one box, the folded case's reason exactly: an unbound Session
+    // tab beside a Text tab is still a box that has to fit the Text tab, and a
+    // Text tab taller than the declaration wins the floor.
+    registerUnboundable("session", OPEN_POLICY, UNBOUND_POLICY);
+    registerSized("text", {
+      min: { width: 300, height: 700 },
+      preferred: { width: 400, height: 800 },
+    });
+    const policy = getStackSizePolicy(["session", "text"], { unbound: true });
+    expect(policy.min).toEqual({ width: 675, height: 700 });
+    expect(policy.max).toBeUndefined();
+  });
+});
+
+// ---- getUnboundSizePolicy — the per-card resolver ----
+
+describe("getUnboundSizePolicy", () => {
+  it("returns the declared unbound policy", () => {
+    registerUnboundable("session", OPEN_POLICY, UNBOUND_POLICY);
+    expect(getUnboundSizePolicy("session")).toEqual(UNBOUND_POLICY);
+  });
+
+  it("falls back to the ordinary policy for a card with no unbound form", () => {
+    registerSized("text", {
+      min: { width: 300, height: 420 },
+      preferred: { width: 400, height: 500 },
+    });
+    expect(getUnboundSizePolicy("text").min).toEqual({
+      width: 300,
+      height: 420,
+    });
+  });
+
+  it("falls back to DEFAULT_SIZE_POLICY for an unregistered id", () => {
+    expect(getUnboundSizePolicy("ghost")).toEqual(DEFAULT_SIZE_POLICY);
   });
 });
 

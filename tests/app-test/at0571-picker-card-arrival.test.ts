@@ -69,9 +69,21 @@
  * activates, and a fixture with two of them has two pickers up and two claims
  * against one run.
  *
+ * The third test is the ROOMY column — the case from the screenshot, and the
+ * one no app-test has ever driven. The sitter folds first, so the column has
+ * hundreds of pixels the sitter's tier does not claim, and then the same
+ * production arrival runs. The newcomer takes that room instead of standing at
+ * the height it declared with a dead band beneath it, the folded sitter does
+ * not move at all, and the column's last member reaches the run's own bottom.
+ * "No band beneath it" is read against the frame in slot 1, which is a single
+ * member spanning the same run — a reading that cannot be satisfied by the two
+ * heights the claim is about.
+ *
  * `@covers` names the planner that partitions a settle's terms into beats, the
- * lifecycle channel the sheet waits on, and the settle-end notice the clamp
- * measures from.
+ * lifecycle channel the sheet waits on, the settle-end notice the clamp
+ * measures from, and the allocator that divides the column — the arrival's own
+ * weight is derived there ({@link arrivalSharesOf}), and the roomy claim below
+ * is a claim about what that division does.
  *
  * Two modules this file is unmistakably about are deliberately NOT named, for
  * the same reason and by the same precedent. `deck-canvas.tsx`, which plans
@@ -89,6 +101,7 @@
  * @covers tugdeck/src/lib/pane-flip.ts
  * @covers tugdeck/src/lib/card-lifecycle.ts
  * @covers tugdeck/src/lib/settle-notice.ts
+ * @covers tugdeck/src/lib/layout-imposer.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -139,6 +152,15 @@ const SITTER = "p1";
 
 const PICKER_FORM = ".session-card-picker-form";
 const EXIT_GHOST = ".tug-pane-exit-ghost";
+const SHEET_PANEL = '[data-slot="tug-sheet"].tug-sheet-content';
+
+/**
+ * The tier a folded `hello` pane stands at: the card registers no folded
+ * policy, so the folded form falls back to its `sizePolicy.min.height`
+ * (`hello-world-card.tsx`). Copied for the reason every other constant here
+ * is, and a copy that drifts fails the roomy test rather than passing quietly.
+ */
+const SITTER_FOLDED_TIER_PX = 150;
 
 /**
  * How long each sampler runs. The arrival at the default tune is a shrink beat
@@ -163,7 +185,7 @@ const wait = (ms: number): Promise<void> =>
  * below join as a second MEMBER rather than as a second card on a stack. A
  * stacked arrival moves nothing and would make every claim here vacuous.
  *
- * No `exactMemberHeights` here, and that is the point of this fixture against
+ * No `openingBids` here, and that is the point of this fixture against
  * `at0569`'s: the pin under test is the one `addCard` writes.
  */
 function deckShape() {
@@ -338,10 +360,100 @@ async function atRest(app: App): Promise<{
   );
 }
 
-/** The exact-height pins the live store holds, keyed by member. */
+interface Rect {
+  top: number;
+  bottom: number;
+  height: number;
+}
+
+/** Every named pane's live frame, in viewport coordinates. */
+async function paneRects(
+  app: App,
+  paneIds: readonly string[],
+): Promise<Record<string, Rect>> {
+  return app.evalJS<Record<string, Rect>>(
+    `(function () {
+      var out = {};
+      ${JSON.stringify(paneIds)}.forEach(function (id) {
+        var el = document.querySelector('.tug-pane[data-pane-id="' + id + '"]');
+        if (el === null) return;
+        var r = el.getBoundingClientRect();
+        out[id] = { top: r.top, bottom: r.bottom, height: r.height };
+      });
+      return out;
+    })()`,
+  );
+}
+
+/**
+ * The pane id on the canvas the fixture did not seed — the arrival, read from
+ * the document rather than from the sampler, for the tests that add a card
+ * without taking a census.
+ */
+async function arrivedPaneId(app: App): Promise<string | null> {
+  return app.evalJS<string | null>(
+    `(function () {
+      var seeded = ${JSON.stringify(SEEDED_PANES)};
+      var frames = document.querySelectorAll(".tug-pane[data-pane-id]");
+      for (var i = 0; i < frames.length; i += 1) {
+        var id = frames[i].getAttribute("data-pane-id");
+        if (seeded.indexOf(id) === -1) return id;
+      }
+      return null;
+    })()`,
+  );
+}
+
+/**
+ * Whether the picker's panel is capped short inside pane `paneId`, and how far
+ * its bottom edge sits inside that pane's frame.
+ *
+ * `at0569`'s two readings, in its own words: `overflow` is the panel capped
+ * against the canvas, and `bottomSlack` is the panel hanging past the FRAME,
+ * which the clip's `overflow: hidden` would cut without touching
+ * `scrollHeight`. A card that took the room has to hold the picker whole, and
+ * this is the half of that claim the roomy case can make.
+ */
+async function panelFit(
+  app: App,
+  paneId: string,
+): Promise<{ overflow: number; bottomSlack: number } | null> {
+  return app.evalJS<{ overflow: number; bottomSlack: number } | null>(
+    `(function () {
+      var pane = document.querySelector('.tug-pane[data-pane-id="' + ${JSON.stringify(paneId)} + '"]');
+      if (pane === null) return null;
+      var el = pane.querySelector(${JSON.stringify(SHEET_PANEL)});
+      if (el === null) return null;
+      return {
+        overflow: el.scrollHeight - el.clientHeight,
+        bottomSlack:
+          pane.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom,
+      };
+    })()`,
+  );
+}
+
+/** The weights `slot`'s column holds, or `null` when it holds none. */
+async function columnShares(
+  app: App,
+  slot: number,
+): Promise<Record<string, number> | null> {
+  return app.evalJS<Record<string, number> | null>(
+    `(((window.tugdeck.diag.getDeckState().imposition.columns || {})[${slot}] || {}).shares || null)`,
+  );
+}
+
+/** Whether a pane reads as folded in the deck's own record. */
+async function isFolded(app: App, paneId: string): Promise<boolean> {
+  return app.evalJS<boolean>(
+    `window.__tug.getPaneRecord(${JSON.stringify(paneId)}).folded === true`,
+  );
+}
+
+/** The opening bids the live store holds, keyed by member. */
 async function pins(app: App): Promise<Record<string, number> | null> {
   return app.evalJS<Record<string, number> | null>(
-    `(window.tugdeck.diag.getDeckState().exactMemberHeights || null)`,
+    `(window.tugdeck.diag.getDeckState().openingBids || null)`,
   );
 }
 
@@ -376,6 +488,10 @@ async function seed(app: App): Promise<void> {
  * fixture set up for it.
  */
 const addSessionCard = `window.__tug.dispatchControlAction("show-card", { component: "session" })`;
+
+/** Fold or unfold a card through the registry-routed setter, as `at0553` does. */
+const setCardFolded = (cardId: string, folded: boolean): string =>
+  `window.__tug.dispatchControlAction("set-card-folded", { cardId: ${JSON.stringify(cardId)}, folded: ${folded} })`;
 
 /** Press the picker's Cancel, which closes the host card ([D02] cascade). */
 const cancelPicker = `(function () {
@@ -608,6 +724,125 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         ).toEqual([]);
         expect(rest.ghosts, "and no exit ghost stands").toBe(0);
         expect(rest.picker, "the picker went with its card").toBe(false);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a newcomer onto a ROOMY split column takes the room, and leaves no band beneath it",
+    async () => {
+      const app = await launchTugApp({ testName: "at0571-roomy-column" });
+      try {
+        await seed(app);
+        // The sitter folds first, which is what makes the column roomy: a
+        // folded member pins at its tier and asks for no share of the run
+        // ([P05]), so once it has somebody to divide with, everything below
+        // its 150px is room nothing has claimed. This is the screenshot's
+        // arrangement, and until the one-rule change the arrival stood at its
+        // declared height with that room left empty beneath it ([F01]).
+        await app.evalJS<null>(`(${setCardFolded("A", true)}, null)`);
+        await wait(AFTER_LAND_MS);
+        expect(await isFolded(app, SITTER), "the sitter folded").toBe(true);
+
+        const before = await paneRects(app, [SITTER, "p3"]);
+        // The run is read off SLOT 1's frame — one member spanning the same
+        // vertical run — so nothing below is checked against the numbers it is
+        // about.
+        const run = before.p3.height;
+        note(
+          "roomy column",
+          `sitter folded at ${before[SITTER].height.toFixed(1)} of run ${run.toFixed(1)}`,
+        );
+        expect(
+          Math.abs(before[SITTER].height - run),
+          "alone in its column the folded sitter is still the whole run — there is nothing yet to divide with",
+        ).toBeLessThanOrEqual(EPSILON);
+        // The room is worth having: what the tier leaves is hundreds of pixels
+        // more than the arrival declares, which is what makes this the roomy
+        // case rather than a tight one.
+        expect(
+          run - IMPOSITION_GAP_PX - SITTER_FOLDED_TIER_PX,
+          "and the room it leaves is well past what the newcomer declares",
+        ).toBeGreaterThan(SESSION_UNBOUND_HEIGHT_PX + EPSILON);
+
+        await app.evalJS<null>(`(${addSessionCard}, null)`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
+          { timeoutMs: 15_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        const newcomer = await arrivedPaneId(app);
+        expect(newcomer, "the card arrived").not.toBeNull();
+        const after = await paneRects(app, [SITTER, "p3", newcomer ?? ""]);
+        const arrival = after[newcomer ?? ""];
+        const shares = await columnShares(app, 0);
+        note(
+          "roomy arrival",
+          `sitter=${after[SITTER].height.toFixed(1)} newcomer=${arrival.height.toFixed(1)} of run ${run.toFixed(1)}; band beneath=${(after.p3.bottom - arrival.bottom).toFixed(1)}; shares=${JSON.stringify(shares)}`,
+        );
+
+        // ── It took the ROOM, not its declaration. Read the strong way
+        //    round: above the height it declared, which the ceiling this arc
+        //    removed could never have allowed. ──
+        expect(
+          arrival.height,
+          "the newcomer stands above the height it declared unbound",
+        ).toBeGreaterThan(SESSION_UNBOUND_HEIGHT_PX + EPSILON);
+        expect(
+          Math.abs(
+            arrival.height - (run - IMPOSITION_GAP_PX - SITTER_FOLDED_TIER_PX),
+          ),
+          "and it stands at everything the folded sitter's tier did not claim",
+        ).toBeLessThanOrEqual(EPSILON);
+
+        // ── And the sitter claims its TIER and nothing more. It came down
+        //    from the whole run, which is the fold taking effect rather than
+        //    a yield: what a folded member is worth is its tier as soon as it
+        //    has anyone to divide with, and every pixel past it went to the
+        //    newcomer instead of standing as a band ([B05]). ──
+        expect(
+          Math.abs(after[SITTER].height - SITTER_FOLDED_TIER_PX),
+          "the folded sitter stands at its tier and claims no more",
+        ).toBeLessThanOrEqual(EPSILON);
+
+        // ── NO BAND BENEATH IT. The column's last member reaches the run's
+        //    own bottom, read against slot 1's frame. This is the dead band
+        //    from the screenshot, asserted away. ──
+        expect(
+          Math.abs(after.p3.bottom - arrival.bottom),
+          "the column's last member reaches the bottom of the run",
+        ).toBeLessThanOrEqual(EPSILON);
+        expect(
+          Math.abs(after.p3.top - after[SITTER].top),
+          "and its first member stands at the top of it",
+        ).toBeLessThanOrEqual(EPSILON);
+
+        // ── The arrival's own weight is in the record, so the next
+        //    re-division agrees with what the eye saw rather than handing the
+        //    newcomer the unnamed default's fraction ([B05], [F08]). ──
+        expect(
+          shares?.[newcomer ?? ""],
+          "the arrival wrote its weight into the column's division",
+        ).toBeGreaterThan(1);
+
+        // ── And the other half of the claim: the card that took the room
+        //    holds the picker whole, with the list at its cap. ──
+        await measureAtListCap(app, "roomy picker");
+        const fit = await panelFit(app, newcomer ?? "");
+        note("roomy fit", JSON.stringify(fit));
+        expect(fit, "the picker's panel is on screen").not.toBeNull();
+        expect(
+          fit?.overflow ?? 999,
+          "the panel stands at its natural height rather than capped short",
+        ).toBeLessThanOrEqual(EPSILON);
+        expect(
+          fit?.bottomSlack ?? -1,
+          "and its bottom edge sits inside the frame that took the room",
+        ).toBeGreaterThanOrEqual(0);
       } finally {
         await app.close();
       }

@@ -53,7 +53,7 @@ import { CARDS_CARD_ID } from "./lib/cards-card-id";
 import { ARCS_CARD_ID } from "./lib/arcs-card-id";
 import { LAYOUT_CARD_ID } from "./lib/layout-card-id";
 import { TRIPWIRES_CARD_ID } from "./lib/tripwires-card-id";
-import { noteExactHeightMember } from "./lib/exact-height-pin";
+import { noteOpeningBidMember } from "./lib/opening-bid";
 import {
   bullseyePaneIdOf,
   columnAllocationOf,
@@ -137,6 +137,7 @@ import {
   sweptColumnOrders,
   withColumnOrder,
   withMemberSeated,
+  arrivalSharesOf,
   withColumnShares,
   withRailShares,
   placeSharesFromHeights,
@@ -657,20 +658,82 @@ export function sheetReservationsWith(
 }
 
 /**
- * {@link sheetReservationsWith}'s twin over {@link DeckState.exactMemberHeights}
+ * The PAIR of records a sheet's claim writes: `memberId`'s reservation set or
+ * dropped, and the opening bids with that member's bid cleared when the claim
+ * supersedes it ([B02]).
+ *
+ * The two move together because a measurement SUPERSEDES a bid, and they have
+ * to move in one commit: a bid cleared a commit after the claim that replaced
+ * it would be a second settle over the same fact, which is the judder the bid
+ * exists to prevent.
+ *
+ * **What supersedes is a claim AT LEAST AS HIGH as the bid, and the sheet
+ * going.** A bid's whole job is to be a floor for the arrival window, and the
+ * failure it exists to prevent is a bid too SMALL — which a larger measurement
+ * corrects by winning the same `Math.max` ([B01]) whether the bid is cleared
+ * or not, so clearing it there costs nothing and keeps the record honest. A
+ * claim BELOW the standing bid corrects nothing: dropping the bid for it would
+ * shrink a member under a sheet that is still standing on it, for a
+ * measurement that already fits. So a bid too generous stands until its sheet
+ * goes, which is when the condition it was declared for is over, and the
+ * `null` claim is what takes it down. Air under a picker on a project with
+ * few sessions is the price the declaration already names for itself.
+ *
+ * That is one answer to "what ends a bid" on every path, and no card-state
+ * transition is one of them: the binding commit used to drop the bid and does
+ * not any more, because binding is what makes the sheet go and the sheet going
+ * is what is read here ([F07]).
+ *
+ * Each half is returned by IDENTITY when it does not change, which is what
+ * lets {@link DeckManager.setSheetReservation} short-circuit on both at once:
+ * a sheet re-reports the height it already reported on every resize of its own
+ * panel, and by then the bid has either been cleared or been left standing
+ * once already.
+ *
+ * Pure and exported for {@link sheetReservationsWith}'s reason: it is the
+ * whole of what the commit decides, and it is testable without a DeckManager
+ * while the verb around it is not.
+ */
+export function sheetClaimWith(
+  standing: {
+    sheetReservations: Readonly<Record<string, number>> | undefined;
+    openingBids: Readonly<Record<string, number>> | undefined;
+  },
+  memberId: string,
+  height: number | null,
+): {
+  sheetReservations: Readonly<Record<string, number>> | undefined;
+  openingBids: Readonly<Record<string, number>> | undefined;
+} {
+  const bid = standing.openingBids?.[memberId];
+  const supersedes = bid === undefined || height === null || height >= bid;
+  return {
+    sheetReservations: sheetReservationsWith(
+      standing.sheetReservations,
+      memberId,
+      height,
+    ),
+    openingBids: supersedes
+      ? openingBidsWith(standing.openingBids, memberId, null)
+      : standing.openingBids,
+  };
+}
+
+/**
+ * {@link sheetReservationsWith}'s twin over {@link DeckState.openingBids}
  * — the same contract, term for term, over the other record.
  *
  * Returned by IDENTITY when nothing changes, which is what lets
- * {@link DeckManager.setMemberExactHeight} short-circuit, and the field goes
+ * {@link DeckManager.setOpeningBid} short-circuit, and the field goes
  * away entirely with its last entry so absence stays the one reading of "no
- * pin".
+ * bid".
  *
  * A second function rather than a parameterised one: the two records differ in
  * what they MEAN, and a shared helper keyed by which field to touch would be a
  * place for the two meanings to be confused. What they share is arithmetic over
  * a sparse record, which is small enough to say twice.
  */
-export function exactMemberHeightsWith(
+export function openingBidsWith(
   standing: Readonly<Record<string, number>> | undefined,
   memberId: string,
   height: number | null,
@@ -1733,6 +1796,24 @@ export class DeckManager implements IDeckManagerStore {
       firstCardId,
       () => {
         const arrived = [...this.deckState.panes, win];
+        // A card type that declares what it is worth while it is nothing but
+        // the sheet it exists to raise has that height written here, IN THE
+        // COMMIT that appends its pane rather than after it ([B02]): one
+        // written a commit later would re-target a settle already in flight,
+        // which is the judder it exists to remove.
+        //
+        // Read off the registration already in hand — its unbound FORM's
+        // floor, which is the one term of that policy the deck needs here.
+        // The deck names no componentId and imports nothing from `cards/`
+        // ([P02]): this is a card declaring a form and the deck reading it
+        // generically, exactly as `foldedSizePolicy` already is.
+        const bids =
+          registration.unboundSizePolicy === undefined
+            ? undefined
+            : {
+                ...this.deckState.openingBids,
+                [paneId]: registration.unboundSizePolicy.min.height,
+              };
         this.deckState = {
           ...this.deckState,
           cards: [...this.deckState.cards, ...seededCards],
@@ -1741,7 +1822,10 @@ export class DeckManager implements IDeckManagerStore {
           // A new card opening into a split column is seated at its BOTTOM,
           // in this same commit ([D194]): the column's order names it from
           // the pane's first frame, so where a new card appears is a rule
-          // rather than the fallback's reading of two uuids.
+          // rather than the fallback's reading of two uuids — and it arrives
+          // weighted, so what it takes of the run is a rule too ([B05]). The
+          // bid goes in with it because the bid IS the floor the newcomer is
+          // weighed against.
           imposition:
             win.slot === undefined
               ? this.deckState.imposition
@@ -1750,25 +1834,10 @@ export class DeckManager implements IDeckManagerStore {
                   arrived,
                   paneId,
                   win.slot,
+                  undefined,
+                  bids,
                 ),
-          // A card type that declares what it is worth while it is nothing but
-          // the sheet it exists to raise gets pinned at that height here, IN
-          // THE COMMIT that appends its pane rather than after it ([B02]): a
-          // pin written a commit later would re-target a settle already in
-          // flight, which is the judder the pin exists to remove.
-          //
-          // Read off the registration already in hand. The deck names no
-          // componentId and imports nothing from `cards/` ([P02]) — this is a
-          // card declaring a conditional height and the deck reading it
-          // generically, exactly as `foldedSizePolicy` already is.
-          ...(registration.unboundExactHeightPx !== undefined
-            ? {
-                exactMemberHeights: {
-                  ...this.deckState.exactMemberHeights,
-                  [paneId]: registration.unboundExactHeightPx,
-                },
-              }
-            : {}),
+          ...(bids !== undefined ? { openingBids: bids } : {}),
         };
         this.notify("addCard");
         this.scheduleSave();
@@ -1783,10 +1852,11 @@ export class DeckManager implements IDeckManagerStore {
         if (typeof window !== "undefined") {
           this.cardLifecycle.notifyCardWillArrive(firstCardId);
         }
-        if (registration.unboundExactHeightPx !== undefined) {
-          // The pin went in above rather than through `pinExactHeightForCard`,
-          // so the drop's map has to be told which member it landed on.
-          noteExactHeightMember(firstCardId, paneId);
+        if (registration.unboundSizePolicy !== undefined) {
+          // The height went in above rather than through
+          // `openingBidForCard`, so the drop's map has to be told which
+          // member it landed on.
+          noteOpeningBidMember(firstCardId, paneId);
         }
         for (const c of seededCards) {
           this.cardLifecycle.notifyCardDidFinishConstruction(c.id);
@@ -3816,35 +3886,60 @@ export class DeckManager implements IDeckManagerStore {
    * Returns without notifying when the record already reads that way, so a
    * sheet re-reporting the height it last reported — which it does on every
    * resize of its own panel — costs nothing.
+   *
+   * **A measurement supersedes the opening bid ([B02]).** A bid is what a card
+   * DECLARED it needs before anything of it was laid out, and it exists only
+   * so the arrival is one motion; the sheet standing on the member is the
+   * thing that actually knows, so a claim that is at least as high clears the
+   * bid in this same commit, and the sheet going clears it whatever it was.
+   * From then on the live measurement is the member's floor, which is what
+   * makes a bid that was too small cost one settle instead of clipping the
+   * card forever — and what lets the bid be written without any card-state
+   * transition having to remember to take it down.
+   * {@link sheetClaimWith} is the rule, and states why a claim BELOW a
+   * standing bid supersedes nothing.
    */
   setSheetReservation(memberId: string, height: number | null): void {
-    const next = sheetReservationsWith(
-      this.deckState.sheetReservations,
+    const next = sheetClaimWith(
+      {
+        sheetReservations: this.deckState.sheetReservations,
+        openingBids: this.deckState.openingBids,
+      },
       memberId,
       height,
     );
-    if (next === this.deckState.sheetReservations) return;
-    this.deckState = { ...this.deckState, sheetReservations: next };
+    if (
+      next.sheetReservations === this.deckState.sheetReservations &&
+      next.openingBids === this.deckState.openingBids
+    ) {
+      return;
+    }
+    this.deckState = { ...this.deckState, ...next };
     this.notify("setSheetReservation");
   }
 
   /**
-   * Pin `memberId` at an exact height, or drop the pin with `null` ([P01]).
+   * Write `memberId`'s opening bid, or drop it with `null` ([B02]).
    *
    * {@link DeckManager.setSheetReservation}'s twin, with the same
-   * no-notify-on-no-change guard: a caller that re-pins the height already
+   * no-notify-on-no-change guard: a caller that re-bids the height already
    * standing costs nothing rather than arming a settle over frames already
    * where they belong.
+   *
+   * The ordinary END of a bid is not this verb: a bid is superseded by the
+   * first measurement of the sheet it was declared for, which
+   * {@link DeckManager.setSheetReservation} does in its own commit. This is
+   * the path for a card that goes away before any measurement arrives.
    */
-  setMemberExactHeight(memberId: string, height: number | null): void {
-    const next = exactMemberHeightsWith(
-      this.deckState.exactMemberHeights,
+  setOpeningBid(memberId: string, height: number | null): void {
+    const next = openingBidsWith(
+      this.deckState.openingBids,
       memberId,
       height,
     );
-    if (next === this.deckState.exactMemberHeights) return;
-    this.deckState = { ...this.deckState, exactMemberHeights: next };
-    this.notify("setMemberExactHeight");
+    if (next === this.deckState.openingBids) return;
+    this.deckState = { ...this.deckState, openingBids: next };
+    this.notify("setOpeningBid");
   }
 
   /**
@@ -4403,9 +4498,69 @@ export class DeckManager implements IDeckManagerStore {
     paneId: string,
     slot: number,
     index?: number,
+    openingBids?: Readonly<Record<string, number>>,
   ): DeckImposition {
-    const members = columnMembersOf({ ...this.deckState, panes, imposition }, slot);
-    return withMemberSeated(imposition, slot, members, paneId, index);
+    const state = {
+      ...this.deckState,
+      panes,
+      imposition,
+      ...(openingBids !== undefined ? { openingBids } : {}),
+    };
+    const seated = withMemberSeated(
+      imposition,
+      slot,
+      columnMembersOf(state, slot),
+      paneId,
+      index,
+    );
+    // Unchanged means nothing arrived anywhere the column can divide — no
+    // sitters, or a stacked column no drop asked to split — so there is no
+    // division to write either.
+    if (seated === imposition) return seated;
+    return this._arrivalShares({ ...state, imposition: seated }, paneId, slot);
+  }
+
+  /**
+   * The seated imposition with the arriving member's weight written into
+   * `slot`'s division ([B05]) — {@link arrivalSharesOf}'s answer, in the same
+   * commit as the seating that earned it.
+   *
+   * In the SAME commit for {@link _impositionSeating}'s own reason: which slot
+   * the card stands in, where in the column it stands, and how much of the run
+   * it takes are three things about one arrangement change, and the settle can
+   * animate them as one motion only if they arrive together. A weight written
+   * a commit later would re-target a settle already in flight.
+   *
+   * `state` is the deck as the commit will leave it — the arrival's pane
+   * standing in `slot`, the seated order, and (at `addCard`) the opening bid
+   * the same commit writes, which is the floor the newcomer actually arrives
+   * on. Answering off the store's own state instead would weigh the newcomer
+   * at a floor its card never stood at.
+   */
+  private _arrivalShares(
+    state: DeckState,
+    paneId: string,
+    slot: number,
+  ): DeckImposition {
+    const imposition = state.imposition;
+    if (columnModeOf(imposition, slot) !== "split") return imposition;
+    const run = this._placeRunHeight("column");
+    if (!(run > 0)) return imposition;
+    const members = columnMembersOf(state, slot);
+    if (members.length < 2) return imposition;
+    const shares = arrivalSharesOf(
+      placeMembers(
+        state,
+        "column",
+        members,
+        imposition.columns?.[slot]?.shares,
+      ),
+      paneId,
+      run,
+      IMPOSITION_GAP_PX,
+    );
+    if (Object.keys(shares).length === 0) return imposition;
+    return withColumnShares(imposition, slot, shares);
   }
 
   /**

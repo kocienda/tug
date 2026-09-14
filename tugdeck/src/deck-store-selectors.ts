@@ -525,6 +525,15 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
  * not a target: a member whose stored share already exceeds its reservation
  * does not move ([B07]).
  *
+ * A card that is standing UNBOUND declares its own height the same way and
+ * reads into the same `Math.max` ([B01]). It used to be read ahead of both of
+ * these as an exact height — floor, ceiling, and no share of the run — which
+ * is what held a new Session card at its declared number while the column
+ * around it had hundreds of pixels to spare. It is a floor now: the largest
+ * thing standing on the member wins, the member keeps its weight, and the
+ * measurement that arrives a commit later supersedes the declaration by being
+ * larger or by making it moot.
+ *
  * The one member that reads differently is a FOLDED column member ([P05]).
  * Its floor is its stack's folded policy, its ceiling is the same number —
  * the two together are what pin it at its tier — and its weight is zero
@@ -572,29 +581,29 @@ export function placeMembers(
         weight: 0,
       };
     }
-    // An EXACT height pins the member at it — floor, ceiling, and no share of
-    // the run ([P01]). It sits AFTER the folded branch because folding is the
-    // stronger statement: a folded card is not showing the sheet the pin was
-    // written for, so its tier wins.
+    // An unbound card's DECLARED height is one more contributor to the floor
+    // ([B01]), not a band: the member keeps its weight, so a column with room
+    // to spare gives it to the card that can use it. It is read AFTER the
+    // folded branch because folding is the stronger statement: a folded card
+    // is not showing the sheet the declaration was written for, so its tier
+    // wins.
     //
-    // The guard is a GUARD rather than a required drop: a pin is written for a
-    // card standing alone in a column member, and a pane that has since gained
-    // a second card is a box that has to fit them both. Making the writer drop
-    // the pin on every such transition would put the condition in two places
-    // and leave a stale pin binding wherever one was missed; ignoring it here
-    // is the same answer with one reader.
-    const exact =
+    // The guard is a GUARD rather than a required drop: the height is declared
+    // for a card standing alone in a column member, and a pane that has since
+    // gained a second card is a box that has to fit them both. Making the
+    // writer drop it on every such transition would put the condition in two
+    // places and leave a stale binding wherever one was missed; ignoring it
+    // here is the same answer with one reader.
+    const declared =
       kind === "column" && pane?.cardIds.length === 1
-        ? state.exactMemberHeights?.[id]
+        ? state.openingBids?.[id]
         : undefined;
-    if (exact !== undefined) {
-      return { id, floor: exact, ceiling: exact, weight: 0 };
-    }
     return {
       id,
       floor: Math.max(
         getStackSizePolicy(componentIds).min.height,
         state.sheetReservations?.[id] ?? 0,
+        declared ?? 0,
       ),
       weight: railWeightOf(shares, id),
     };

@@ -788,17 +788,21 @@ describe("placeMembers reads a reservation as a floor", () => {
 });
 
 // ---------------------------------------------------------------------------
-// placeMembers and an exact-height pin ([P01])
+// placeMembers and an unbound card's declared height ([B01])
 // ---------------------------------------------------------------------------
 
-describe("placeMembers reads an exact height as floor AND ceiling", () => {
+describe("placeMembers reads an unbound card's declared height as one more floor", () => {
   const FLOOR = 600;
   const TIER = 144;
-  const PINNED = 430;
+  /** Above the stack floor, so it is the term that binds. */
+  const DECLARED = 700;
+  /** Below it, so the floor is. This is the number the constant started at,
+   *  and the case that made a ceiling out of it indefensible. */
+  const DECLARED_UNDER_FLOOR = 430;
 
   /** A card type shaped like the Session card: a tall open floor, a pinned
-   *  folded tier. The pin is deck state rather than policy, so nothing about
-   *  the registration declares it here. */
+   *  folded tier. The declaration is deck state rather than policy, so nothing
+   *  about the registration declares it here. */
   function registerPinnable(): void {
     _resetForTest();
     registerCard({
@@ -820,7 +824,7 @@ describe("placeMembers reads an exact height as floor AND ceiling", () => {
   /** Two panes in one slot, with whatever pins are standing and whatever
    *  cards `pane-a` is holding. */
   function splitState(
-    exactMemberHeights?: Readonly<Record<string, number>>,
+    openingBids?: Readonly<Record<string, number>>,
     opts: { folded?: boolean; twoCardsInA?: boolean } = {},
   ): DeckState {
     const aCards = opts.twoCardsInA ? ["card-a", "card-c"] : ["card-a"];
@@ -841,7 +845,7 @@ describe("placeMembers reads an exact height as floor AND ceiling", () => {
       activePaneId: "pane-a",
       imposition: { sidebars: {} },
       hasFocus: true,
-      ...(exactMemberHeights !== undefined ? { exactMemberHeights } : {}),
+      ...(openingBids !== undefined ? { openingBids } : {}),
     };
   }
 
@@ -851,55 +855,82 @@ describe("placeMembers reads an exact height as floor AND ceiling", () => {
       "pane-b": 1,
     });
 
-  test("a pinned column member stands exactly there, with no share of the run", () => {
+  test("the declared height is the member's floor, with NO ceiling and its weight kept", () => {
     registerPinnable();
-    const members = columnMembers(splitState({ "pane-a": PINNED }));
-    expect(members[0].floor).toBe(PINNED);
-    expect(members[0].ceiling).toBe(PINNED);
-    // Zero WHATEVER the stored shares say — a pinned member asks for nothing,
-    // exactly as a folded one does.
-    expect(members[0].weight).toBe(0);
-    // Only the member that was pinned. Its neighbour keeps both.
+    const members = columnMembers(splitState({ "pane-a": DECLARED }));
+    expect(members[0].floor).toBe(DECLARED);
+    // The whole of what changed: no ceiling, so a column with room to spare
+    // can give it to this member instead of leaving a band beneath.
+    expect(members[0].ceiling).toBeUndefined();
+    // And the weight the stored shares say, rather than the zero a band takes.
+    expect(members[0].weight).toBe(3);
+    // Only the member that declared. Its neighbour is untouched.
     expect(members[1].floor).toBe(FLOOR);
     expect(members[1].ceiling).toBeUndefined();
     expect(members[1].weight).toBe(1);
   });
 
-  test("the pin binds BELOW the card's own stack floor, which is the point", () => {
-    // The difference between a pin and a reservation, in one assertion: a
-    // reservation is the GREATER of the two and would answer 600 here.
-    registerPinnable();
-    const members = columnMembers(splitState({ "pane-a": PINNED }));
-    expect(PINNED).toBeLessThan(FLOOR);
-    expect(members[0].floor).toBe(PINNED);
-  });
-
-  test("a FOLDED member with a pin still reads as folded", () => {
-    // Folding is the stronger statement: the card is not showing the sheet the
-    // pin was written for, so its tier wins and the branch order says so.
+  test("a declaration BELOW the card's own stack floor loses to the floor", () => {
+    // The declaration is one contributor to a `Math.max`, so the largest thing
+    // standing on the member wins and a small declaration says nothing. It was
+    // 444 when it was written and the Session floor was 600, so this was the
+    // case all along — read as a ceiling it made the card SMALLER than its own
+    // floor, which is the one thing no member's height may do.
     registerPinnable();
     const members = columnMembers(
-      splitState({ "pane-a": PINNED }, { folded: true }),
+      splitState({ "pane-a": DECLARED_UNDER_FLOOR }),
+    );
+    expect(DECLARED_UNDER_FLOOR).toBeLessThan(FLOOR);
+    expect(members[0].floor).toBe(FLOOR);
+    expect(members[0].ceiling).toBeUndefined();
+    expect(members[0].weight).toBe(3);
+  });
+
+  test("a declaration and a sheet reservation are both floors, and the larger wins", () => {
+    // [B01] in one assertion: every contributor goes into the same `max`, so
+    // neither is read ahead of the other.
+    registerPinnable();
+    const under = columnMembers({
+      ...splitState({ "pane-a": DECLARED }),
+      sheetReservations: { "pane-a": DECLARED - 50 },
+    });
+    expect(under[0].floor).toBe(DECLARED);
+    const over = columnMembers({
+      ...splitState({ "pane-a": DECLARED }),
+      sheetReservations: { "pane-a": DECLARED + 50 },
+    });
+    expect(over[0].floor).toBe(DECLARED + 50);
+    expect(over[0].ceiling).toBeUndefined();
+  });
+
+  test("a FOLDED member with a declaration still reads as folded", () => {
+    // Folding is the stronger statement: the card is not showing the sheet the
+    // declaration was written for, so its tier wins and the branch order says
+    // so. This is the ONE member that still reads floor = ceiling ([P05]).
+    registerPinnable();
+    const members = columnMembers(
+      splitState({ "pane-a": DECLARED }, { folded: true }),
     );
     expect(members[0].floor).toBe(TIER);
     expect(members[0].ceiling).toBe(TIER);
+    expect(members[0].weight).toBe(0);
   });
 
-  test("a pinned pane holding TWO cards ignores the pin", () => {
-    // The guard: a pin is written for a card standing alone, and a pane that
-    // has gained a second card is a box that has to fit them both.
+  test("a pane holding TWO cards ignores the declaration", () => {
+    // The guard: the height is declared for a card standing alone, and a pane
+    // that has gained a second card is a box that has to fit them both.
     registerPinnable();
     const members = columnMembers(
-      splitState({ "pane-a": PINNED }, { twoCardsInA: true }),
+      splitState({ "pane-a": DECLARED }, { twoCardsInA: true }),
     );
     expect(members[0].floor).toBe(FLOOR);
     expect(members[0].ceiling).toBeUndefined();
     expect(members[0].weight).toBe(3);
   });
 
-  test("a RAIL member ignores a pin standing under its name", () => {
-    // Column-only, like the folded branch above it: the pin is written by
-    // `addCard`, which opens panes into slots rather than onto rails.
+  test("a RAIL member ignores a declaration standing under its name", () => {
+    // Column-only, like the folded branch above it: the declaration is written
+    // by `addCard`, which opens panes into slots rather than onto rails.
     _resetForTest();
     registerCard({
       componentId: "railcard",
@@ -915,14 +946,14 @@ describe("placeMembers reads an exact height as floor AND ceiling", () => {
       panes: [makePane("pane-r", ["card-r"], "card-r")],
       imposition: { sidebars: { railcard: { side: "right" } } },
       hasFocus: true,
-      exactMemberHeights: { railcard: PINNED },
+      openingBids: { railcard: DECLARED },
     };
     const members = placeMembers(state, "rail", ["railcard"], undefined);
     expect(members[0].floor).toBe(FLOOR);
     expect(members[0].ceiling).toBeUndefined();
   });
 
-  test("no pin at all is the branch not taken", () => {
+  test("no declaration at all is the term not contributed", () => {
     registerPinnable();
     const members = columnMembers(splitState(undefined));
     expect(members[0].floor).toBe(FLOOR);

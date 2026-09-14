@@ -3770,6 +3770,73 @@ export function placeSharesFromHeights(
 }
 
 /**
+ * The shares a place should STORE when `arrivingId` arrives among `members` —
+ * the newcomer taking the surplus first, and only then sharing ([B05]).
+ *
+ * A newcomer nobody has weighted weighs 1, which against a sitter the hand has
+ * sashed to some other number is an accidental fraction of the run rather than
+ * a division anybody chose. So the arrival writes a weight, and this is the
+ * arithmetic behind it: the room the sitters do not already claim goes to the
+ * newcomer, and only a newcomer whose own floor exceeds that room makes them
+ * yield — by the allocator's own floor pass, which hands back exactly the
+ * difference and no more.
+ *
+ * What a sitter CLAIMS is what it already stands at, and never more than its
+ * own ceiling. Those are the same number for every ordinary member, and they
+ * differ for exactly the member the surplus exists because of: a folded card
+ * alone in a column draws at its tier however tall the column is, so what it
+ * claims is the tier rather than the run the undivided allocation hands it.
+ * That is what makes the screenshot's case come out right — a folded card
+ * above a fresh one on a tall column claims 144px and the newcomer takes the
+ * rest, instead of standing at its declared height with a dead band beneath
+ * it — while an ordinary sitter keeps what it is standing at and yields only
+ * the difference a newcomer's floor cannot find in the surplus.
+ *
+ * The answer comes back through the allocator and then through the INVERSE
+ * ({@link placeSharesFromHeights}) rather than as weights of its own, so the
+ * record stored is the one that reproduces the heights the eye is about to
+ * see, floors and ceilings already reconciled. A place whose floors do not fit
+ * its run inverts to nothing, and this answers `{}` with it: those heights are
+ * floors rather than a division ([P04]), and there is no weight to keep.
+ */
+export function arrivalSharesOf(
+  members: readonly PlaceMember[],
+  arrivingId: string,
+  run: number,
+  seam: number,
+): Record<string, number> {
+  const sane = sanitizedMembers(members);
+  if (sane.length < 2) return {};
+  if (!Number.isFinite(run) || run <= 0) return {};
+  const index = sane.findIndex((member) => member.id === arrivingId);
+  if (index === -1) return {};
+  const gap = Number.isFinite(seam) && seam > 0 ? seam : 0;
+  const sitters = sane.filter((_, i) => i !== index);
+  // The allocator answers the sitters' own place, ceilings included — except
+  // for the place of ONE, which it answers as the whole run because a single
+  // member has nothing to divide with. The ceiling is what corrects that
+  // reading, and it is a no-op wherever the allocator already applied it.
+  const claims = allocatePlaceHeights(sitters, run, gap).heights.map(
+    (height, i) => Math.min(height, sitters[i].ceiling ?? height),
+  );
+  const claimed = claims.reduce((sum, height) => sum + height, 0);
+  const surplus = run - (sane.length - 1) * gap - claimed;
+  // The weights are the claims and the surplus, stated as the quantities they
+  // are: `sharedHeightsOf` reads only their ratios, so there is nothing to
+  // normalize here and nothing that would disagree with the division below.
+  const provisional = sane.map((member, i) => ({
+    ...member,
+    weight: i === index ? Math.max(0, surplus) : claims[i < index ? i : i - 1],
+  }));
+  return placeSharesFromHeights(
+    sane,
+    allocatePlaceHeights(provisional, run, gap).heights,
+    run,
+    gap,
+  );
+}
+
+/**
  * How far the seam between members `index` and `index + 1` may be dragged,
  * as the range of `heights[index]` — the clamp the gesture holds every frame,
  * and the reason a drag can never write a height the allocator would refuse to

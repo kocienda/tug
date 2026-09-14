@@ -440,35 +440,42 @@ export interface DeckState {
    */
   sheetReservations?: Readonly<Record<string, number>>;
   /**
-   * The EXACT height, in pixels, a member has been pinned at, keyed the way
+   * The OPENING BID, in pixels, a member arrived carrying — keyed the way
    * {@link DeckState.sheetReservations} above is keyed — pane id for a column
    * member and componentId for a rail one, which is how `placeMembers` names
    * them, so nothing has to translate between the two.
    *
-   * Read as its member's FLOOR *and* its CEILING, with a weight of zero: the
-   * member stands exactly here and asks for no share of the run, which is the
-   * reading a FOLDED member already gets. That is the difference between this
-   * field and the reservation above it — a reservation is a floor a taller
-   * member ignores, and a pin is a height ([P01]).
+   * Read as one contributor to its member's FLOOR, alongside the card's own
+   * stack policy and the reservation above it, with the member keeping its
+   * weight ([B01]). So this field and that one are the same KIND of thing —
+   * two floors on one member, the larger of which binds — and neither is read
+   * ahead of the other. It was a floor and a ceiling once, which is what held
+   * a card at its declared height while the column around it had room to
+   * spare; the one member that still reads floor = ceiling is a folded one.
    *
    * Written by `addCard` for a card type declaring
-   * `CardRegistration.unboundExactHeightPx`, inside the same commit that
+   * `CardRegistration.unboundSizePolicy`, inside the same commit that
    * appends the pane ([B02]), so nothing re-targets the settle a commit later.
-   * Dropped by whatever ends the condition — for a Session card, the binding
-   * commit ([P04]).
+   * **Cleared by the sheet that supersedes it**, in `setSheetReservation`'s own
+   * commit ([B02]): by a claim at least as high as the bid, and by the sheet
+   * going, whatever the bid was. So a bid that was too small is corrected by
+   * the measurement that knows better, a bid too generous costs air until its
+   * sheet goes, and no card-state transition is a party to either — binding is
+   * what makes a picker go, and the sheet going is what is read ([F07]). A card
+   * torn down before its sheet ever measured drops its own bid.
    *
    * Session state only, and never serialized, for {@link
-   * DeckState.sheetReservations}'s reason read one step further ([P03]): a pin
-   * says what a card is worth while it is UNBOUND, no card is unbound across a
-   * restart in any way the deck can know, and a restored pin would stand a
-   * bound card at a picker's height with no picker on it. It is likewise kept
-   * out of `imposition`'s stored shares — the division the hand set with the
-   * sash is what the card falls back into when the pin drops.
+   * DeckState.sheetReservations}'s reason read one step further ([P03]): a bid
+   * is what a card declared before it was laid out, nothing is arriving across
+   * a restart, and a restored bid would hold a settled card's floor at a
+   * height nothing on screen asked for. It is likewise kept out of
+   * `imposition`'s stored shares — the division the hand set with the sash is
+   * what the card falls back into once no floor is lifting it.
    *
-   * Absent, rather than empty, when nothing is pinned: the field goes away with
-   * its last entry, so absence is the one reading of "no pin".
+   * Absent, rather than empty, when nothing is bidding: the field goes away
+   * with its last entry, so absence is the one reading of "no bid".
    */
-  exactMemberHeights?: Readonly<Record<string, number>>;
+  openingBids?: Readonly<Record<string, number>>;
 }
 
 // ---- Invariant validation ----
