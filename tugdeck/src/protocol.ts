@@ -105,7 +105,7 @@ export const CONTROL_ACTION_REQUEST_REPLAY = "request_replay";
  * ≤ N committed turns loads whole and shows no "load previous" affordance.
  * Tunable in one place.
  */
-export const DEFAULT_REPLAY_WINDOW_TURNS = 25;
+export const DEFAULT_REPLAY_WINDOW_TURNS = 10;
 export const CONTROL_ACTION_RECORD_TURN_TELEMETRY = "record_turn_telemetry";
 export const CONTROL_ACTION_RECORD_CONTEXT_BREAKDOWN = "record_context_breakdown";
 export const CONTROL_ACTION_RECORD_SESSION_STATE_CHANGE =
