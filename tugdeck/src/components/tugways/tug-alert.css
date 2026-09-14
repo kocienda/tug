@@ -26,16 +26,17 @@ body {
   --tugx-alert-space-b: 1.5rem;
 }
 
-/* ---- Keyframe animations [L14] — duration scales via --tug-timing [L13] ---- */
+/* ---- Keyframe animations [L14] — duration scales via --tug-timing [L13] ----
+ *
+ * **Entrances only.** The three exit keyframes that stood here are gone, not
+ * merely unreferenced: an alert's dismissal is instant on purpose, because
+ * Radix Presence holds a closing layer until `animationend` and the body lock
+ * comes off with the unmount. The reasoning is at
+ * `.tug-alert-overlay[data-state="closed"]` below. */
 
 @keyframes tug-alert-overlay-in {
   from { opacity: 0; }
   to   { opacity: 1; }
-}
-
-@keyframes tug-alert-overlay-out {
-  from { opacity: 1; }
-  to   { opacity: 0; }
 }
 
 @keyframes tug-alert-content-in {
@@ -43,23 +44,14 @@ body {
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 
-@keyframes tug-alert-content-out {
-  from { opacity: 1; transform: translate(-50%, -50%); }
-  to   { opacity: 0; transform: translate(-50%, -50%); }
-}
-
-/* The rest-line mirror of the two above: the panel is centred horizontally on
-   its anchor but bottom-pinned to it, so there is no vertical centring to carry
-   through the transform, and the settle is the sheets' `rise` — a short travel
+/* The rest-line mirror of the entrance above: the panel is centred
+   horizontally on its anchor but bottom-pinned to it, so there is no vertical
+   centring to carry through the transform, and the settle is the sheets'
+   `rise` — a short travel
    up onto the line rather than a scale about the middle of the screen. */
 @keyframes tug-alert-content-rest-in {
   from { opacity: 0; transform: translateX(-50%) translateY(8px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-
-@keyframes tug-alert-content-rest-out {
-  from { opacity: 1; transform: translateX(-50%); }
-  to   { opacity: 0; transform: translateX(-50%); }
 }
 
 /* ---- Overlay (scrim) ---- */
@@ -78,9 +70,50 @@ body {
 }
 
 .tug-alert-overlay[data-state="closed"] {
-  animation: tug-alert-overlay-out calc(100ms * var(--tug-timing, 1)) ease-in;
-  animation-fill-mode: forwards;
-  pointer-events: none;
+  /* **No exit animation, deliberately — this is the fix, not an omission.**
+   *
+   * Radix Presence keeps a closing layer mounted until `animationend`, and it
+   * decides whether to wait by reading the computed `animation-name`: anything
+   * but `none` means "a fade is running, hold the node". When that event never
+   * arrives the node is held forever. It was arriving unreliably here — the
+   * Restoring gate opens and closes inside a fast cold restore, and a 100ms
+   * fade on a layer that may never have been composited leaves Presence
+   * waiting on an event nothing will fire. Observed stuck for the full 160s of
+   * an app-test wait, `data-state="closed"`, animation `0.1s`, long finished.
+   *
+   * A leftover layer would be cosmetic if a modal layer were only a layer. It
+   * is not: Radix sets `pointer-events: none` on `<body>` while a modal is
+   * open and takes it off when the last layer UNMOUNTS. So a layer that never
+   * unmounts leaves the WHOLE DOCUMENT click-dead with nothing on screen to
+   * explain it — an app that answers no press and looks perfectly fine. That
+   * is what `at0486` had been failing on, and `at0559` carries a
+   * `clearStaleAppModal` helper that stands the same layer down by hand.
+   *
+   * Naming no animation makes the unmount synchronous and the lock release
+   * unconditional. The cost is that a dismissed alert vanishes rather than
+   * fading over 100ms; the enter animation above is untouched. A fade whose
+   * failure mode is "the entire app stops responding, silently, forever" is
+   * not worth 100ms of polish on a surface whose whole job is to go away.
+   * The `pointer-events` override below stays as the second line of defence. */
+  /* `!important` beats Radix's own INLINE `pointer-events: auto`, which it
+     writes on the overlay and the content of an open modal to punch through
+     the `pointer-events: none` it puts on the body. Radix does not take that
+     inline style back off when the dialog closes; it relies on the node
+     unmounting, and the node unmounts on `animationend`.
+
+     Which means a zero-duration exit never unmounts it. `--tug-timing: 0`
+     makes this `animation` 0s, WebKit fires no `animationend` for a 0s
+     animation, and the closed overlay stays in the DOM forever — invisible,
+     full-canvas, `pointer-events: auto`, swallowing every click. The parent
+     `.tug-canvas-overlay-root` is `pointer-events: none`, but an inline style
+     on the child outranks it.
+
+     That is not only an app-test condition: any user whose motion is reduced
+     to zero gets the same dead app after a restore gate closes. So the rule a
+     closed dialog has to obey is stated unconditionally here rather than left
+     to depend on whether an animation happened to run. [L06] — behaviour on a
+     DOM attribute, in CSS, never React state. */
+  pointer-events: none !important;
 }
 
 /* ---- Content panel ---- */
@@ -141,10 +174,14 @@ body {
 }
 
 .tug-alert-content[data-state="closed"] {
-  animation: tug-alert-content-out calc(100ms * var(--tug-timing, 1)) ease-in;
-  animation-fill-mode: forwards;
-  pointer-events: none;
+  /* No exit animation, for the reason given on the overlay above: Presence
+   * must be able to unmount this node without waiting for an `animationend`
+   * that may never come, because the body lock comes off with it. */
+  /* Same inline-style override as the overlay above, for the same reason —
+     the content panel carries Radix's `pointer-events: auto` too. */
+  pointer-events: none !important;
 }
+
 
 /* ---- Rest-line anchored ([data-vertical-anchor="rest-line"]) ----
  *
@@ -168,7 +205,11 @@ body {
 }
 
 .tug-alert-content[data-vertical-anchor="rest-line"][data-state="closed"] {
-  animation-name: tug-alert-content-rest-out;
+  /* The rest-line variant only ever swapped the exit animation's NAME, so it
+   * has to stand down with the others — re-naming one here would put this
+   * node back to waiting on `animationend` while its centred sibling does
+   * not. */
+  animation-name: none;
 }
 
 /* ---- Body — icon left, text right (classic Mac HIG layout) ---- */

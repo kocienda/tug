@@ -68,8 +68,19 @@ fn mtime(path: &Path) -> SystemTime {
     std::fs::metadata(path).unwrap().modified().unwrap()
 }
 
+/// The restore puts the **bytes** back and deliberately does not put the
+/// **mtime** back — it advances it, and says on stdout what it restored.
+///
+/// This test used to assert the opposite, and the reversal is the point. A
+/// rewound mtime kept the relay's status+mtime bracket quiet, and it also
+/// told every mtime-driven build system that a source compiled during the
+/// probe was older than the artifact built from it — the one staleness
+/// direction cargo cannot detect. A probe then left stale rlibs behind a
+/// clean-looking tree (2026-09-14). The hint is suppressed by the
+/// `restored` declaration now, which is a claim the relay can act on rather
+/// than a lie the filesystem has to carry.
 #[test]
-fn a_probe_shows_the_patched_content_and_restores_bytes_and_mtime() {
+fn a_probe_shows_the_patched_content_restores_bytes_and_declares_the_restore() {
     let (_dir, root) = init_repo();
     let target = root.join("src/x.ts");
     let patch = write_patch(&root, EDIT_PATCH);
@@ -90,12 +101,47 @@ fn a_probe_shows_the_patched_content_and_restores_bytes_and_mtime() {
         String::from_utf8_lossy(&out.stderr)
     );
     // The command saw the patch…
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "const a = 2;\n");
+    // (the probe's own declaration follows the child's output on the same
+    // stream, so this is a prefix rather than the whole of it).
+    assert!(
+        String::from_utf8_lossy(&out.stdout).starts_with("const a = 2;\n"),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
     // …and the tree did not keep it.
     assert_eq!(std::fs::read(&target).unwrap(), before_bytes);
-    assert_eq!(mtime(&target), before_mtime);
-    // A probe records nothing.
-    assert!(!String::from_utf8_lossy(&out.stdout).contains("TUG-FILE-RECEIPT"));
+    // The mtime moved FORWARD. `fs::copy` is `fcopyfile` on macOS and carries
+    // the snapshot's mtime — the pre-patch one — so the original time comes
+    // back through the copy unasked; the restore has to bump it explicitly,
+    // and this is the assertion that keeps that bump from being deleted as
+    // redundant.
+    assert!(
+        mtime(&target) > before_mtime,
+        "a restored file must not read older than the artifacts built from it"
+    );
+    // A probe still records nothing — it declares the restore so the relay
+    // drops the bracket row it would otherwise mint for that mtime move.
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let receipt = stdout
+        .lines()
+        .find(|l| l.starts_with("TUG-FILE-RECEIPT: "))
+        .expect("the restore is declared");
+    let payload: serde_json::Value =
+        serde_json::from_str(receipt.trim_start_matches("TUG-FILE-RECEIPT: ")).unwrap();
+    assert_eq!(
+        payload["ops"].as_array().map(Vec::len),
+        Some(0),
+        "a restore is not an operation to attribute"
+    );
+    assert_eq!(
+        payload["restored"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>(),
+        vec![std::fs::canonicalize(&target).unwrap().to_string_lossy()],
+    );
 }
 
 #[test]

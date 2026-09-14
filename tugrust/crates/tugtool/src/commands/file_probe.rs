@@ -8,12 +8,22 @@
 //! there.
 //!
 //! A probe that restores changed nothing, so the correct record of one is **no
-//! record**: this verb prints no receipt. It goes further than that — restoring
-//! the original **mtime** as well as the original bytes means the relay's
-//! status+mtime worktree fingerprint reads identical before and after, so the
-//! Bash bracket around the probe mints nothing either. Routing a probe through
-//! this verb therefore removes a false `bash` hint that doing it by hand
-//! creates.
+//! record** — and the way it earns that is by **saying so**. The restore is
+//! declared on stdout as `TUG-FILE-RECEIPT: {"restored":[…]}`, and the relay
+//! drops its Bash-bracket delta rows for exactly those paths. Routing a probe
+//! through this verb therefore removes a false `bash` hint that doing it by
+//! hand creates.
+//!
+//! **It used to earn it by restoring the original `mtime` too**, so the relay's
+//! status+mtime fingerprint read identical across the bracket and had nothing
+//! to report. That worked on the relay and was a lie to everything else: every
+//! build system decides staleness by mtime, and rewinding a source *below* the
+//! artifact built from it is the one direction cargo cannot see. A probe would
+//! compile the patched bytes, rewind the clock under them, and leave a stale
+//! rlib behind a tree that looked clean — after which `cargo build` printed
+//! `Finished` having compiled nothing and `nextest` ran the pre-probe binary
+//! (2026-09-14). Declaring the restore keeps the ledger quiet on the one axis
+//! that was ever at stake and lets the filesystem tell the truth.
 
 use std::ffi::c_int;
 use std::io::Read;
@@ -47,8 +57,6 @@ struct Saved {
     /// Its bytes, held in the snapshot directory. `None` when the file did not
     /// exist — restoring it means removing whatever the patch created.
     stored: Option<PathBuf>,
-    /// Its modification time, restored alongside the bytes.
-    modified: Option<SystemTime>,
 }
 
 /// Every file the probe touched, and where the originals are held.
@@ -68,7 +76,6 @@ impl Snapshot {
                 files.push(Saved {
                     target: target.clone(),
                     stored: None,
-                    modified: None,
                 });
                 continue;
             }
@@ -77,21 +84,25 @@ impl Snapshot {
             let stored = dir.join(format!("{index}.orig"));
             std::fs::copy(target, &stored)
                 .map_err(|e| AppError::Exit1(format!("{}: {e}", target.display())))?;
-            let modified = std::fs::metadata(target).and_then(|m| m.modified()).ok();
             files.push(Saved {
                 target: target.clone(),
                 stored: Some(stored),
-                modified,
             });
         }
         Ok(Snapshot { dir, files })
     }
 
-    /// Put every target back byte- and mtime-identical, and remove the files the
-    /// patch created. Reports every path it could not restore rather than
+    /// Put every target back byte-identical and remove the files the patch
+    /// created, returning the paths whose bytes were restored — the receipt's
+    /// `restored` list. Reports every path it could not restore rather than
     /// stopping at the first.
-    fn restore(&self) -> Result<(), String> {
+    ///
+    /// The mtime is deliberately left at now. See the module doc: rewinding it
+    /// is what made a probe leave stale build artifacts, and the hint it used
+    /// to suppress is suppressed by the declaration instead.
+    fn restore(&self) -> Result<Vec<PathBuf>, String> {
         let mut failures = Vec::new();
+        let mut restored = Vec::new();
         for saved in &self.files {
             match &saved.stored {
                 Some(stored) => {
@@ -99,14 +110,20 @@ impl Snapshot {
                         failures.push(format!("{}: {err}", saved.target.display()));
                         continue;
                     }
-                    // The mtime is not cosmetic: the relay fingerprints it, so a
-                    // restored-but-touched file would still mint a hint row.
-                    if let Some(when) = saved.modified {
-                        let _ = std::fs::OpenOptions::new()
-                            .write(true)
-                            .open(&saved.target)
-                            .and_then(|f| f.set_modified(when));
-                    }
+                    // **The mtime is bumped deliberately, and the bump is the
+                    // whole fix.** Dropping the old explicit rewind was not
+                    // enough: `fs::copy` is `fcopyfile` on macOS and carries
+                    // the source's mtime, and the source here is the snapshot
+                    // taken *before* the patch — so the original time came
+                    // back through the copy whether anyone asked for it or
+                    // not. A source that reads older than the artifact built
+                    // from it is the one staleness direction cargo cannot
+                    // see, so the restore has to say "now" out loud.
+                    let _ = std::fs::OpenOptions::new()
+                        .write(true)
+                        .open(&saved.target)
+                        .and_then(|f| f.set_modified(SystemTime::now()));
+                    restored.push(saved.target.clone());
                 }
                 None => {
                     if saved.target.exists() {
@@ -119,7 +136,7 @@ impl Snapshot {
         }
         if failures.is_empty() {
             let _ = std::fs::remove_dir_all(&self.dir);
-            Ok(())
+            Ok(restored)
         } else {
             Err(failures.join("; "))
         }
@@ -140,7 +157,23 @@ impl Restorer {
             return Ok(());
         }
         self.done = true;
-        self.snapshot.restore()
+        let restored = self.snapshot.restore()?;
+        // The declaration, printed once and only when something was actually
+        // put back. It is the whole of what makes a probe recordless: the
+        // relay reads it off this Bash result and drops the bracket's rows for
+        // these paths. Printed even when the probed command failed — the
+        // restore happened either way, and the relay honours it either way.
+        if !restored.is_empty() {
+            let paths: Vec<String> = restored
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect();
+            println!(
+                "TUG-FILE-RECEIPT: {}",
+                serde_json::json!({ "ops": [], "restored": paths })
+            );
+        }
+        Ok(())
     }
 }
 

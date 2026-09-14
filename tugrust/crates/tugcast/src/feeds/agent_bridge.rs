@@ -30,11 +30,11 @@ use super::agent_supervisor::{
     LedgerEntry, SessionRecord, SessionsRecorder, SpawnState, build_session_state_frame,
 };
 use super::attribution::{
-    CMD_ORIGIN, DeclaredPromotions, InspectedReplayBatch, InspectedToolResult, InspectedToolUse,
-    OpenBracket, PendingCalls, PendingCmd, PendingCmds, RECEIPT_MARKER, bash_command_for_tool,
-    canonicalize_declared, declared_ops_for_command, exact_op_for_tool, file_path_for_tool,
-    file_repo_root, hunk_spans, op_for_declared_kind, op_for_receipt, parse_receipt_line,
-    repo_root_for, snapshot_worktree, spans_for_tool_input, top_level_type,
+    CMD_ORIGIN, CommandClaims, DeclaredPromotions, InspectedReplayBatch, InspectedToolResult,
+    InspectedToolUse, OpenBracket, PendingCalls, PendingCmd, PendingCmds, RECEIPT_MARKER,
+    bash_command_for_tool, canonicalize_declared, declared_ops_for_command, exact_op_for_tool,
+    file_path_for_tool, file_repo_root, hunk_spans, op_for_declared_kind, op_for_receipt,
+    parse_receipt_line, repo_root_for, snapshot_worktree, spans_for_tool_input, top_level_type,
 };
 use super::code::{parse_code_input, splice_tug_session_id};
 use crate::path_resolver::CanonicalPath;
@@ -1506,6 +1506,14 @@ pub async fn relay_session_io(
     let mut pending_shell_facts = PendingShellFacts::new();
     let mut turn_recorded_paths: std::collections::HashSet<String> =
         std::collections::HashSet::new();
+    // Paths a verb reported it wrote and then put back byte-identical, for the
+    // whole turn. A `tugtool file probe` restore is the only source: the tree
+    // moved and moved back, so neither the command's own bracket nor the
+    // turn's has anything to attribute. Accumulated across the turn because
+    // the turn bracket closes long after the probe's own tool_use, and cleared
+    // with `turn_recorded_paths` at `turn_complete`.
+    let mut turn_restored_paths: std::collections::HashSet<CanonicalPath> =
+        std::collections::HashSet::new();
 
     // Handshake: write protocol_init, then wait up to 5s for protocol_ack.
     let protocol_init = b"{\"type\":\"protocol_init\",\"version\":1}\n";
@@ -2299,7 +2307,18 @@ pub async fn relay_session_io(
                                         // A turn spans arbitrarily many commands;
                                         // no single command's operands can speak
                                         // for its delta.
-                                        &DeclaredPromotions::default(),
+                                        // A path a probe wrote and put back is
+                                        // not this turn's work either. The
+                                        // per-command suppression below cannot
+                                        // reach here — the turn bracket closes
+                                        // long after that tool_use — so the
+                                        // restores accumulate across the turn.
+                                        // A path genuinely edited elsewhere in
+                                        // the same turn is unaffected: that
+                                        // edit minted a row, which puts it in
+                                        // `turn_recorded_paths` and skips it
+                                        // one line below regardless.
+                                        &CommandClaims::restoring(&turn_restored_paths),
                                         at,
                                     ) {
                                         if turn_recorded_paths.contains(&row.file_path) {
@@ -2322,6 +2341,7 @@ pub async fn relay_session_io(
                                         changeset_bumper.bump(Path::new(project_dir));
                                     }
                                     turn_recorded_paths.clear();
+                                    turn_restored_paths.clear();
                                 }
                                 line.as_bytes().to_vec()
                             }
@@ -2825,6 +2845,34 @@ pub async fn relay_session_io(
                                         // exists), and any `tugtool file`
                                         // receipt the output carries.
                                         let mut recorded = false;
+                                        // The restore declaration, read before
+                                        // anything attributes and read
+                                        // WITHOUT the `is_error` gate below.
+                                        // A probe's exit status is the probed
+                                        // command's, so probing a failing test
+                                        // — the ordinary case — arrives as an
+                                        // error result, and its restore is no
+                                        // less real for that: the verb puts
+                                        // the tree back on every exit path,
+                                        // including a panic. Safe to honour
+                                        // unconditionally because it can only
+                                        // ever DROP a weak `bash` hint, never
+                                        // mint a row.
+                                        let restored_here: std::collections::HashSet<
+                                            CanonicalPath,
+                                        > = if tr.output.contains(RECEIPT_MARKER) {
+                                            parse_receipt_line(&tr.output)
+                                                .restored
+                                                .iter()
+                                                .map(|p| {
+                                                    CanonicalPath::from_raw(Path::new(p))
+                                                })
+                                                .collect()
+                                        } else {
+                                            std::collections::HashSet::new()
+                                        };
+                                        turn_restored_paths
+                                            .extend(restored_here.iter().cloned());
                                         // A verb receipt is proof (`cmd`), and
                                         // it is read FIRST — before the bracket
                                         // delta below writes its weak `bash`
@@ -2893,7 +2941,10 @@ pub async fn relay_session_io(
                                             &canonical_project_dir,
                                             "Bash",
                                             "bash",
-                                            &declared,
+                                            &CommandClaims {
+                                                declared: &declared,
+                                                restored: &restored_here,
+                                            },
                                             at,
                                         ) {
                                             // A promotion asserts authorship;

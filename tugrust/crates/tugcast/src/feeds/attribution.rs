@@ -532,7 +532,7 @@ impl OpenBracket {
         project_dir: &CanonicalPath,
         tool_name: &str,
         origin: &str,
-        declared: &DeclaredPromotions,
+        claims: &CommandClaims<'_>,
         at: i64,
     ) -> Vec<FileEventRow> {
         let mut paths: HashSet<&PathBuf> = HashSet::new();
@@ -551,12 +551,29 @@ impl OpenBracket {
                 Some(op) => op,
                 None => continue,
             };
+            // The command declared it wrote this path and put it back
+            // byte-identical. The delta still sees a change on the mtime axis
+            // — the bytes were rewritten, and honestly so — but there is
+            // nothing to attribute: the file's content is what it was before
+            // the bracket opened. Suppression is read whether or not the
+            // command succeeded, because a probe restores on every exit path
+            // including a failing one, and a hint is only ever dropped here,
+            // never minted.
+            // Compared in canonical space: the receipt's paths come from a
+            // `tugtool` process that resolved them its own way, while the
+            // delta's keys are `bracket.repo_root.join(rel)` — the same file
+            // can reach here under `/Users/…` and `/private/var/…` spellings.
+            if !claims.restored.is_empty()
+                && claims.restored.contains(&CanonicalPath::from_raw(path))
+            {
+                continue;
+            }
             // The pre/post fingerprint keys are `repo_root.join(rel)`, so the
             // strip always recovers git's repo-relative key.
             let Some(file_path) = repo_relative_key(Some(&self.repo_root), path) else {
                 continue;
             };
-            let row_origin = if declared.covers(path) {
+            let row_origin = if claims.declared.covers(path) {
                 CMD_ORIGIN
             } else {
                 origin
@@ -575,6 +592,59 @@ impl OpenBracket {
             });
         }
         rows
+    }
+}
+
+/// Everything a command said about the paths in its own bracket — the two
+/// halves of "what the command claimed", which pull in opposite directions.
+///
+/// `declared` **promotes**: a path the tool input named and the tree observed
+/// change is proof, so its row is minted `cmd` instead of the caller's weak
+/// correlation origin. `restored` **suppresses**: a path the verb wrote and
+/// put back byte-identical gets no row at all, because the bytes at the close
+/// are the bytes at the open and the delta only sees the mtime it honestly
+/// moved (see [`ReceiptScan::restored`]).
+///
+/// They ride together in one argument because they answer one question at one
+/// place — the single loop that decides a path's row — and because splitting
+/// them into two positional parameters pushed `into_delta_rows` past the arity
+/// the lint allows, which was the lint being right about the shape.
+#[derive(Debug, Clone, Copy)]
+pub struct CommandClaims<'a> {
+    pub declared: &'a DeclaredPromotions,
+    pub restored: &'a HashSet<CanonicalPath>,
+}
+
+impl<'a> CommandClaims<'a> {
+    /// A command that claimed nothing either way — the turn bracket's case,
+    /// which spans arbitrarily many commands so no single one can speak for
+    /// its delta, and every test that is not about promotion.
+    pub fn none() -> Self {
+        static NOTHING_DECLARED: std::sync::LazyLock<DeclaredPromotions> =
+            std::sync::LazyLock::new(DeclaredPromotions::default);
+        static NOTHING_RESTORED: std::sync::LazyLock<HashSet<CanonicalPath>> =
+            std::sync::LazyLock::new(HashSet::new);
+        Self {
+            declared: &NOTHING_DECLARED,
+            restored: &NOTHING_RESTORED,
+        }
+    }
+
+    /// Promotions without any restore — a parsed Bash call that named files.
+    pub fn declaring(declared: &'a DeclaredPromotions) -> Self {
+        Self {
+            declared,
+            ..Self::none()
+        }
+    }
+
+    /// Restores without any promotion — a probe, whose whole receipt is the
+    /// restore.
+    pub fn restoring(restored: &'a HashSet<CanonicalPath>) -> Self {
+        Self {
+            restored,
+            ..Self::none()
+        }
     }
 }
 
@@ -783,12 +853,29 @@ pub struct ReceiptOp {
 struct Receipt {
     #[serde(default)]
     ops: Vec<ReceiptOp>,
+    #[serde(default)]
+    restored: Vec<String>,
 }
 
 /// The result of scanning a tool result's output for receipts.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ReceiptScan {
     pub ops: Vec<ReceiptOp>,
+    /// Absolute paths the verb wrote and then put back **byte-identical** —
+    /// `tugtool file probe`'s restore. They are the receipt's negative space:
+    /// not an operation to attribute but an operation to *un*-attribute, so the
+    /// bracket delta drops its rows for them.
+    ///
+    /// A probe used to keep the ledger quiet by restoring the original **mtime**
+    /// along with the bytes, which made the status+mtime fingerprint read
+    /// identical across the bracket. That lie was told to the filesystem, and
+    /// every build system that decides staleness by mtime believed it: cargo
+    /// recorded the patched source at the probe's build, then saw an *older*
+    /// source afterwards and concluded its artifacts were current, so a probe
+    /// left stale rlibs behind a tree that looked clean (2026-09-14). Declaring
+    /// the restore instead lets the probe leave honest mtimes and keeps the
+    /// hint away on the one axis that was ever at stake.
+    pub restored: Vec<String>,
     /// A line carried the marker but its JSON did not parse. Capture failure is
     /// loud (invariant 12) — the caller warns rather than dropping it silently.
     pub malformed: bool,
@@ -806,7 +893,10 @@ pub fn parse_receipt_line(output: &str) -> ReceiptScan {
             continue;
         };
         match serde_json::from_str::<Receipt>(payload.trim()) {
-            Ok(receipt) => scan.ops.extend(receipt.ops),
+            Ok(receipt) => {
+                scan.ops.extend(receipt.ops);
+                scan.restored.extend(receipt.restored);
+            }
             Err(_) => scan.malformed = true,
         }
     }
@@ -1341,8 +1431,14 @@ mod tests {
             pre,
         };
         let project_dir = CanonicalPath::from_test_str("/proj");
-        let mut rows =
-            bracket.into_delta_rows(&post, &project_dir, "Bash", "bash", &nothing_declared(), 99);
+        let mut rows = bracket.into_delta_rows(
+            &post,
+            &project_dir,
+            "Bash",
+            "bash",
+            &CommandClaims::none(),
+            99,
+        );
         rows.sort_by(|a, b| a.file_path.cmp(&b.file_path));
 
         // file_path is repo-relative (stripped against the bracket's repo_root).
@@ -1383,7 +1479,14 @@ mod tests {
         };
         let declared = promotions(&[(DeclaredKind::EditInPlace, "/r/named.rs")]);
         let project_dir = CanonicalPath::from_test_str("/r");
-        let rows = bracket.into_delta_rows(&post, &project_dir, "Bash", "bash", &declared, 1);
+        let rows = bracket.into_delta_rows(
+            &post,
+            &project_dir,
+            "Bash",
+            "bash",
+            &CommandClaims::declaring(&declared),
+            1,
+        );
         let by_path: HashMap<&str, &str> = rows
             .iter()
             .map(|r| (r.file_path.as_str(), r.origin.as_str()))
@@ -1412,7 +1515,14 @@ mod tests {
         };
         let declared = promotions(&[(DeclaredKind::Remove, "/r/out")]);
         let project_dir = CanonicalPath::from_test_str("/r");
-        let rows = bracket.into_delta_rows(&post, &project_dir, "Bash", "bash", &declared, 1);
+        let rows = bracket.into_delta_rows(
+            &post,
+            &project_dir,
+            "Bash",
+            "bash",
+            &CommandClaims::declaring(&declared),
+            1,
+        );
         let by_path: HashMap<&str, &str> = rows
             .iter()
             .map(|r| (r.file_path.as_str(), r.origin.as_str()))
@@ -1445,7 +1555,7 @@ mod tests {
             &project_dir,
             "Bash",
             "bash",
-            &promotions(&[(DeclaredKind::EditInPlace, "/r/dir")]),
+            &CommandClaims::declaring(&promotions(&[(DeclaredKind::EditInPlace, "/r/dir")])),
             1,
         );
         let by_path: HashMap<&str, &str> = rows
@@ -1480,7 +1590,7 @@ mod tests {
             &project_dir,
             "Bash",
             "bash",
-            &promotions(&[(DeclaredKind::Restore, "/r/tugdeck")]),
+            &CommandClaims::declaring(&promotions(&[(DeclaredKind::Restore, "/r/tugdeck")])),
             1,
         );
         assert!(!rows.is_empty(), "the delta is still observed");
@@ -1579,6 +1689,71 @@ mod tests {
                     hunks: Vec::new(),
                 },
             ]
+        );
+    }
+
+    /// A probe's receipt carries no operation and a restore list — the
+    /// receipt's negative space. An older relay ignored the unknown field
+    /// entirely, which is why it could be added at all.
+    #[test]
+    fn a_probe_receipt_declares_what_it_put_back() {
+        let output = concat!(
+            "running 1 test\n",
+            "TUG-FILE-RECEIPT: {\"ops\":[],\"restored\":[\"/abs/a.rs\",\"/abs/b.rs\"]}\n",
+        );
+        let scan = parse_receipt_line(output);
+        assert!(!scan.malformed);
+        assert!(
+            scan.ops.is_empty(),
+            "a restore is not an operation to attribute"
+        );
+        assert_eq!(scan.restored, vec!["/abs/a.rs", "/abs/b.rs"]);
+    }
+
+    /// The suppression, at the one place that decides whether a path gets a
+    /// row. This is the regression the mtime rewind used to hide: the probe
+    /// now leaves an honest (newer) mtime, so the delta genuinely sees a
+    /// change and the declaration is the only thing keeping the hint away.
+    #[test]
+    fn a_declared_restore_drops_the_hint_its_mtime_change_would_have_minted() {
+        let mut pre = HashMap::new();
+        pre.insert(PathBuf::from("/r/probed.rs"), state(".M"));
+        pre.insert(PathBuf::from("/r/edited.rs"), state(".M"));
+        // Both files were rewritten during the bracket — same status, newer
+        // mtime — which is exactly what a probe's restore looks like now.
+        let touched = FileState {
+            status: ".M".to_owned(),
+            mtime: Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(9)),
+        };
+        let mut post = HashMap::new();
+        post.insert(PathBuf::from("/r/probed.rs"), touched.clone());
+        post.insert(PathBuf::from("/r/edited.rs"), touched);
+
+        let bracket = OpenBracket {
+            tug_session_id: "tug-1".to_owned(),
+            tool_use_id: "tu-bash".to_owned(),
+            parent_tool_use_id: None,
+            opened_at: 0,
+            repo_root: PathBuf::from("/r"),
+            pre,
+        };
+        let project_dir = CanonicalPath::from_test_str("/r");
+        let restored: HashSet<CanonicalPath> = [CanonicalPath::from_test_str("/r/probed.rs")]
+            .into_iter()
+            .collect();
+        let rows = bracket.into_delta_rows(
+            &post,
+            &project_dir,
+            "Bash",
+            "bash",
+            &CommandClaims::restoring(&restored),
+            7,
+        );
+        let paths: Vec<&str> = rows.iter().map(|r| r.file_path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec!["edited.rs"],
+            "the restored path is dropped; the genuinely rewritten one is not"
         );
     }
 
@@ -1915,8 +2090,14 @@ u UU N... 0 0 0 0 unmerged.rs
             pre,
         };
         let project_dir = CanonicalPath::from_test_str(root.to_str().unwrap());
-        let rows =
-            bracket.into_delta_rows(&post, &project_dir, "Bash", "bash", &nothing_declared(), 5);
+        let rows = bracket.into_delta_rows(
+            &post,
+            &project_dir,
+            "Bash",
+            "bash",
+            &CommandClaims::none(),
+            5,
+        );
         let by_path: HashMap<String, String> = rows
             .iter()
             .map(|r| (r.file_path.clone(), r.op.clone()))
@@ -1960,8 +2141,14 @@ u UU N... 0 0 0 0 unmerged.rs
             pre,
         };
         let project_dir = CanonicalPath::from_test_str(root.to_str().unwrap());
-        let rows =
-            bracket.into_delta_rows(&post, &project_dir, "Bash", "bash", &nothing_declared(), 5);
+        let rows = bracket.into_delta_rows(
+            &post,
+            &project_dir,
+            "Bash",
+            "bash",
+            &CommandClaims::none(),
+            5,
+        );
         let by_path: HashMap<String, String> = rows
             .iter()
             .map(|r| (r.file_path.clone(), r.op.clone()))
@@ -2000,8 +2187,14 @@ u UU N... 0 0 0 0 unmerged.rs
             pre: HashMap::new(),
         };
         let project_dir = CanonicalPath::from_test_str("/proj");
-        let rows =
-            bracket.into_delta_rows(&post, &project_dir, "Turn", "turn", &nothing_declared(), 7);
+        let rows = bracket.into_delta_rows(
+            &post,
+            &project_dir,
+            "Turn",
+            "turn",
+            &CommandClaims::none(),
+            7,
+        );
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].tool_name, "Turn");
         assert_eq!(rows[0].origin, "turn");
@@ -2079,7 +2272,7 @@ u UU N... 0 0 0 0 unmerged.rs
             &project_dir,
             "Bash",
             "bash",
-            &nothing_declared(),
+            &CommandClaims::none(),
             2,
         );
         let post_b = snapshot_worktree(&root).await;
@@ -2088,7 +2281,7 @@ u UU N... 0 0 0 0 unmerged.rs
             &project_dir,
             "Bash",
             "bash",
-            &nothing_declared(),
+            &CommandClaims::none(),
             3,
         );
 
