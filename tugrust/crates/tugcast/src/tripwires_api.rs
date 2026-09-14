@@ -1,6 +1,8 @@
 //! Tripwires HTTP routes: the list, one tripwire's trip log, and the card's small
 //! knobs (Spec S06).
 //!
+//! Doctrine: `tuglaws/tripwires.md` (one projection, three callers).
+//!
 //! HTTP rather than a feed for the same reason the prompt-history corpus is:
 //! the card asks a question and wants that question's answer, and a broadcast
 //! would make every reader carry echo discipline for a surface only one card

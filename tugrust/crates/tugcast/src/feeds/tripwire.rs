@@ -1,5 +1,8 @@
 //! The tripwire engine — what turns a standing tripwire into a firing.
 //!
+//! The feature's doctrine is `tuglaws/tripwires.md` — the lifecycle, the guards
+//! and the release rule are argued there and only implemented here.
+//!
 //! One engine per tugcast. Every firing it decides on becomes a row in
 //! `tripwires.db`, including the ones it refuses.
 //!

@@ -1,6 +1,8 @@
 //! The standing-tripwire ledger — every tripwire laid on this machine, and every
 //! firing any instance has claimed.
 //!
+//! The lifecycle these statuses spell out is argued in `tuglaws/tripwires.md`.
+//!
 //! **Machine-global**, beside `changes.db` rather than inside an instance
 //! directory (`tugcore::instance::tripwires_db_path`), and for a stronger
 //! reason than the other shared ledgers have. Two tugcasts watching the same

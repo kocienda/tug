@@ -1,6 +1,8 @@
 //! The roster projection: one tripwire as every surface reads it — the stored
 //! row, plus the facts about it that are not in the row at all.
 //!
+//! Doctrine: `tuglaws/tripwires.md` (one projection, three callers).
+//!
 //! **It has three callers, and that is the point.** The HTTP surface
 //! (`tugcast::tripwires_api`), the `TRIPWIRES` feed, and `tugtool tripwire
 //! list` all compute their answer here, so the card, the wire and the command

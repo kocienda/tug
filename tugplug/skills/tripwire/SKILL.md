@@ -54,7 +54,7 @@ Worth knowing, because a brief is written against it:
 2. **Diagnosis** — one session in that same disposable checkout, read-only, handed everything it needs: the landing and its diff stat, the probe's output when the probe failed, the matching facts, and the transcripts of the sessions whose work landed. It answers the brief and ends by resolving.
 3. **Authoring**, only if the diagnosis asked for it — a second session on an arc worktree of its own, with the tripwire's permission mode, which can write and commit. The user joins that arc or discards it; the tripwire never does.
 
-The trip settles one of two ways, through a verb the session runs:
+Two of a trip's three endings are verbs:
 
 ```
 tugtool tripwire resolve <name> --quiet
@@ -64,7 +64,9 @@ tugtool tripwire dismiss <name>
 
 `--quiet` is "nothing here anybody needs to see" and is the ordinary outcome — a tripwire fires on a pattern, and the pattern occurring is usually not news. `--awaiting` is the tripwire raising its hand: the headline is the one line the Tripwires row shows, and the trip **holds** — it keeps the tripwire's one-run slot and stays on the surface — until the user has seen it. `dismiss` settles an awaiting trip by hand and discards the arc it was holding.
 
-An awaiting trip is also resolved by the arc disappearing: joining or discarding it answers the question the tripwire asked. There is no timeout, on purpose — a question that evaporates overnight is a question nobody was asked.
+**The third ending is not a verb: adoption.** Open a running trip's session from the card and the deck takes it over — the engine stops watching, the trip reads `adopted`, and the session is still alive and may still run the resolution verb, which settles the trip from there. An adopted trip deliberately does **not** hold the tripwire's one-run slot, so the tripwire may fire again while the user works in the session it handed over.
+
+**An awaiting trip is held until it is answered, and nothing on a clock answers it.** A trip that authored an arc is released by that arc's fate: joining or discarding it answers the question the tripwire asked, and the engine notices on its own. A trip that authored none is released by a **Seen** act on the card, which runs `dismiss` with nothing to discard. Those are the two releases, and a question a timeout retired would be a question nobody was asked.
 
 **Raising a hand posts once, and quiet posts nothing.** An awaiting resolution drops a single pointer post in the Overview naming the tripwire and its headline; a quiet one says nothing anywhere except in the trip log. There is no knob for this and no "post everything while I shake it down" mode — the log is where a tripwire under test is read.
 
@@ -130,7 +132,7 @@ tugtool tripwire rm <name>            gone, with its log
 
 `pause` rather than `rm` for a tripwire that is misbehaving: the log is the evidence for the repair, and removing the tripwire throws it away.
 
-The **Tripwires card** shows the same things — the roster with each tripwire's branch, a dot while a trip is live and a held one while a trip is awaiting, and the trip log behind each row — with two knobs: pause and model. Its collapsed band carries the live count, so the standing watches read at a glance without opening anything. Authoring stays here, because those are the fields where a wrong value makes a tripwire silently useless rather than visibly wrong.
+The **Tripwires card** shows the same roster — each tripwire's branch, a fixed-width mark for what it is doing, and its definition and trip log behind a fold that opens in place over the row. Its collapsed band carries four counts — armed, running, awaiting, paused — so the standing watches read at a glance without opening anything. The card carries the verbs as well as the knobs: Pause and Resume, Trip now, Open session onto a trip that is running, and Release for one that is awaiting, alongside the model knob. Authoring stays here, because those are the fields where a wrong value makes a tripwire silently useless rather than visibly wrong.
 
 ## Judgement
 

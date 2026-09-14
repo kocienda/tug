@@ -2,6 +2,8 @@
 //! live state, pushed to every client and republished whenever any of it
 //! changes ([P01]).
 //!
+//! Doctrine: `tuglaws/tripwires.md` (the observation model).
+//!
 //! It replaces the card's 5-second `GET /api/tripwires` poll. The roster is
 //! small, always shown, and is what every dot and every gesture on the
 //! Tripwires card reads, which is what makes it worth pushing; the per-tripwire

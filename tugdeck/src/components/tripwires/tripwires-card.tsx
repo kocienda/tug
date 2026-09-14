@@ -2,6 +2,9 @@
  * tripwires-card.tsx — the **Tripwires** card: the standing tripwires on this
  * machine, and what each of them has done.
  *
+ * Doctrine: `tuglaws/tripwires.md` — the lifecycle the marks paint, the release
+ * rule the register band states, and why authoring is not a form on this card.
+ *
  * One level, and a fold. Each tripwire is a two-line block — line one the name,
  * a hairline, the session working its trip when one is running, and the row's
  * controls; line two a fixed-width mark, the lifecycle sentence, and the branch
