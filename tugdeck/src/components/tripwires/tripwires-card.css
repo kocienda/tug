@@ -241,14 +241,21 @@
 /* The tripwire's definition: a label column that sizes to its longest word and
    a value column that takes the rest. A grid rather than a flex row per pair so
    the values line up down the block — a definition read as a column of ragged
-   left edges is a list of unrelated facts. */
+   left edges is a list of unrelated facts.
+
+   Rows align on the **first baseline**, not on their centres. A label names
+   the thing beside it, and centring floats it into the middle of a value that
+   wraps — which is what the description row, the one value here that is a
+   sentence rather than a phrase, made obvious. Baseline rather than `start`
+   so the model knob's label sits on the button's own text rather than at the
+   top of its box. */
 .tripwires-definition {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   column-gap: var(--tug-space-sm);
   row-gap: var(--tug-space-2xs);
   margin: 0;
-  align-items: center;
+  align-items: baseline;
 }
 
 .tripwires-definition dt,
