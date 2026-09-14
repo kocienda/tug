@@ -1853,7 +1853,7 @@ pub(crate) fn build_app(
         .route("/api/tripwires", get(crate::tripwires_api::get_tripwires))
         .route(
             "/api/tripwires/{name}",
-            post(crate::tripwires_api::post_tripwire),
+            post(crate::tripwires_api::post_tripwire).delete(crate::tripwires_api::delete_tripwire),
         )
         .route(
             "/api/tripwires/{name}/trips",

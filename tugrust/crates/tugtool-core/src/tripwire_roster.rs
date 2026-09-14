@@ -60,6 +60,11 @@ pub struct RosterRow {
     pub scope: Option<String>,
     pub probe: Option<String>,
     pub brief: String,
+    /// The one sentence the card shows in place of the brief ([B01]). The
+    /// brief travels with it because the `/tripwire` skill reads it back
+    /// through `list --json` during revision; the card simply does not render
+    /// it.
+    pub description: String,
     pub model: Option<String>,
     pub branch: String,
     pub permission_mode: String,
@@ -77,6 +82,13 @@ pub struct RosterRow {
     pub running_session: Option<String>,
     pub awaiting: bool,
     pub awaiting_arc: Option<String>,
+    /// The arc an *adopted* trip is holding, when it holds one.
+    ///
+    /// The twin of `awaiting_arc`, and it is here for the same reason: a
+    /// removal dismisses an adopted trip exactly as it dismisses an awaiting
+    /// one, discarding the arc it holds — so a confirm that named only the
+    /// awaiting case would destroy a worktree it never mentioned.
+    pub adopted_arc: Option<String>,
     pub last_trip: Option<LastTrip>,
     /// [P03]. An opaque equality token over the tripwire's trip log — nothing
     /// may order or subtract two of them. Masked to 53 bits so it survives a
@@ -121,6 +133,7 @@ pub fn row_for(conn: &Connection, tripwire: &Tripwire) -> Result<RosterRow, Trip
         scope: tripwire.scope.clone(),
         probe: tripwire.probe.clone(),
         brief: tripwire.brief.clone(),
+        description: tripwire.description.clone(),
         model: tripwire.model.clone(),
         branch: tripwire.branch.clone(),
         permission_mode: tripwire.permission_mode.clone(),
@@ -132,6 +145,7 @@ pub fn row_for(conn: &Connection, tripwire: &Tripwire) -> Result<RosterRow, Trip
         // working — so `awaiting` deliberately does not imply `running`.
         awaiting: awaiting.is_some(),
         awaiting_arc: awaiting.and_then(|t| t.arc.clone()),
+        adopted_arc: adopted.and_then(|t| t.arc.clone()),
         last_trip: last.map(|t| LastTrip {
             at_ms: t.at_ms,
             status: t.status.clone(),
@@ -212,6 +226,7 @@ mod tests {
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "report anything that looks wrong",
                 "main",
+                "Reports anything that looks wrong on main",
             ),
             1,
         )
@@ -308,19 +323,22 @@ mod tests {
     }
 
     /// An adopted trip's session fills `running_session` when nothing is
-    /// running, so the row does not go dark the instant somebody takes it over.
+    /// running, so the row does not go dark the instant somebody takes it
+    /// over — and the arc it is holding comes back beside it, because a
+    /// removal discards that arc and the confirm has to be able to name it.
     #[test]
     fn an_adopted_trips_session_keeps_the_row_lit() {
         let (_dir, conn) = scratch();
         let ci = lay(&conn, "ci");
         let trip_id = claim(&conn, &ci, "abc", 10);
-        ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
+        ledger::record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-ci-abcd1234")).unwrap();
         ledger::adopt_if_running(&conn, trip_id, "taken over", 20).unwrap();
 
         let row = row_for(&conn, &ci).unwrap();
         assert!(row.adopted);
         assert!(!row.running);
         assert_eq!(row.running_session.as_deref(), Some("sess-1"));
+        assert_eq!(row.adopted_arc.as_deref(), Some("tripwire-ci-abcd1234"));
     }
 
     /// Risk R01 as a checked property rather than an argument: each of the four

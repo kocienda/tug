@@ -25,8 +25,13 @@
  *      offers the session default plus the three model names.
  *   6. The row says which branch the wire lands on, and shows no dot: a wire
  *      with no run in flight and no question outstanding is silent ([P08]).
- *   7. The brief stands whole behind a clamp rather than in a tooltip, and the
- *      retired knobs are absent — no tier, no cooldown, no post policy.
+ *   7. The retired knobs are absent — no tier, no cooldown, no post policy.
+ *   8. **The description is what the fold says the tripwire does, and the
+ *      brief is nowhere on the card** — not clamped, not in a tooltip, not
+ *      anywhere its text could be read ([B03] [B04]).
+ *   9. **Delete is on the row's menu, behind a confirm.** The `⋯` opens the
+ *      same menu the right-click does, Delete is its last item, Cancel leaves
+ *      the tripwire standing and Confirm removes it from the real ledger.
  *
  * ## What the real app cannot reach, and where it is pinned instead
  *
@@ -46,6 +51,11 @@
  * `tripwire-presentation`'s unit tests. What this file proves is the half those
  * cannot reach: the controls, pressed on the real card, landing in the real
  * ledger.
+ *
+ * Delete's one refusal is on the same side of that line. `Delete — a trip is
+ * running` needs a running trip, which is the row no CLI door records, so the
+ * refusal is pinned as a decision in `tripwire-presentation`'s unit tests and
+ * what this file drives is the verb on a quiet tripwire.
  *
  * @covers tugdeck/src/components/tripwires/tripwires-card.tsx
  * @covers tugdeck/src/components/tripwires/tripwires-card-registration.tsx
@@ -86,16 +96,20 @@ function instanceTripwiresDb(instanceId: string): string {
   );
 }
 
-/** A brief a real tripwire carries: a first sentence saying what it is for,
- *  then several more saying how. The card shows the whole of it behind a
- *  two-line clamp — printed bare, this is the shape that crushed the rail, and
- *  put in a tooltip it was the wall of text that replaced it ([B05]). */
+/** A brief a real tripwire carries: the prompt a trip runs on, addressed to
+ *  the model and hundreds of words long. The card shows none of it — this is
+ *  the shape that crushed the rail printed bare, and the wall of text one
+ *  gesture away behind a tooltip and then a clamp ([B03]). */
 const LONG_BRIEF =
   "Diagnose the failure and say whether the tool or the caller was wrong. " +
   "The evidence carries the failure class, the rendered report, how many ops " +
   "resolved, the files named, and the program itself. Read the program " +
   "against the current bytes of the files it names before judging. If the " +
   "tool could have done better, implement it with tests and say what changed.";
+
+/** The one sentence the card DOES show: written for the person reading the
+ *  rail rather than for the model ([B04]). */
+const DESCRIPTION = "Says whether a refused edit was the tool's fault or the caller's";
 
 function ledgerEnv(app: App): { TUG_TRIPWIRES_DB: string } {
   return { TUG_TRIPWIRES_DB: instanceTripwiresDb(app.instanceId) };
@@ -107,6 +121,7 @@ function layTripwire(
   name: string,
   extra: string[] = [],
   brief = `say whether ${name} saw anything worth reporting`,
+  description = DESCRIPTION,
 ): void {
   tugtool(
     [
@@ -122,6 +137,8 @@ function layTripwire(
       // that retired the tripwire whose every firing reported it had been told
       // nothing.
       brief,
+      "--description",
+      description,
       "--json",
       ...extra,
     ],
@@ -154,6 +171,21 @@ function ledgerRow(
   if (row === undefined) throw new Error(`at0492: no tripwire named ${name} in the ledger`);
   return row;
 }
+
+/** Every name the ledger holds, so a removal can be read back from it. */
+function ledgerNames(app: App): string[] {
+  const out = tugtool(["tripwire", "list", "--json"], {
+    cwd: CHECKOUT,
+    binaryRoot: CHECKOUT,
+    env: ledgerEnv(app),
+  });
+  return (JSON.parse(out) as { data: { name: string }[] }).data.map((r) => r.name);
+}
+
+/** The row's `⋯`, and the menu it opens wherever the portal put it. */
+const MENU = `[data-slot="tug-editor-context-menu"]`;
+const DELETE_ITEM = `${MENU} [data-item-action="delete-tripwire"]`;
+const CONFIRM = `[data-slot="tug-confirm-popover"]`;
 
 async function tripwireNames(app: App): Promise<string[]> {
   return app.evalJS<string[]>(
@@ -339,13 +371,24 @@ describe.skipIf(!SHOULD_RUN)(
             // than a clause in its trigger.
             expect(definition).toContain("Lands on");
 
-            // ---- The brief, whole, behind a clamp — and nowhere near a
-            // tooltip. Both halves matter: the last sentence proves nothing was
-            // abbreviated away, and the absent tooltip proves the wall of text
-            // has no door back onto the rail ([B05]).
-            expect(definition).toContain(
+            // ---- What the fold leads with: the description, one sentence
+            // written for the reader, under a label they do not have to decode.
+            expect(definition).toContain("What it does");
+            expect(definition).toContain(DESCRIPTION);
+
+            // ---- And the brief is nowhere on the card — no row naming it, no
+            // sentence of it anywhere, and no tooltip holding it one gesture
+            // away. The card's whole text is the assertion's subject rather
+            // than the fold's, because "off the card" is the decision and a
+            // reveal somewhere else on it would satisfy a narrower one ([B03]).
+            const whole = await app.evalJS<string>(
+              `document.querySelector(${JSON.stringify(CARD)}).textContent`,
+            );
+            expect(whole).not.toContain("Asks the AI to");
+            expect(whole).not.toContain(
               "If the tool could have done better, implement it with tests and say what changed.",
             );
+            expect(whole).not.toContain("Diagnose the failure");
             expect(
               await app.evalJS<number>(
                 `document.querySelectorAll(${JSON.stringify(CARD)} + " [data-radix-popper-content-wrapper], " + ${JSON.stringify(CARD)} + " [role='tooltip']").length`,
@@ -436,6 +479,84 @@ describe.skipIf(!SHOULD_RUN)(
             for (const retired of ["tier", "cooldown", "post policy", "post when"]) {
               expect(card).not.toContain(retired);
             }
+
+            // ---- Delete, on the row's menu, behind a confirm. Driven last,
+            // because it is the one act on this card that takes a row away.
+            //
+            // The `⋯` is the visible door onto the menu the right-click also
+            // opens: a destructive verb that is real and almost never pressed
+            // belongs behind a menu rather than standing on the row as a peer
+            // of pause ([D142]), and a menu with no visible opener is a verb
+            // nobody finds.
+            await app.nativeClickAtElement(`[data-tripwires-menu='beta']`);
+            await app.waitForCondition<boolean>(
+              `document.querySelector(${JSON.stringify(MENU)}) !== null`,
+              { timeoutMs: 5_000 },
+            );
+            // Last in the list, after the separator: the item that destroys
+            // something does not sit among the ones that do not.
+            expect(
+              await app.evalJS<string | null>(
+                `(() => { const items = document.querySelectorAll(${JSON.stringify(MENU)} + " .tug-menu-item");
+                    const last = items[items.length - 1];
+                    return last === undefined ? null : last.getAttribute("data-item-action"); })()`,
+              ),
+            ).toBe("delete-tripwire");
+            // Nothing is running on this tripwire, so the verb is offered
+            // rather than refused. The refusal's own label is a unit test's,
+            // for want of a door that records a running trip.
+            expect(
+              await app.evalJS<{ disabled: boolean; label: string }>(
+                `(() => { const el = document.querySelector(${JSON.stringify(DELETE_ITEM)});
+                    return { disabled: el !== null && el.hasAttribute("data-disabled"),
+                             label: el === null ? "" : (el.textContent || "") }; })()`,
+              ),
+            ).toEqual({ disabled: false, label: "Delete" });
+
+            // The item arms the confirm rather than removing anything, and the
+            // confirm names the tripwire and what goes with it ([B06]).
+            await app.nativeClickAtElement(DELETE_ITEM);
+            await app.waitForCondition<boolean>(
+              `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
+              { timeoutMs: 5_000 },
+            );
+            expect(
+              await app.evalJS<string>(
+                `document.querySelector(${JSON.stringify(CONFIRM)}).textContent`,
+              ),
+            ).toContain("Delete beta? Its trip log goes with it.");
+
+            // ---- Cancel leaves the tripwire exactly where it was, in the
+            // ledger as well as on the card: an armed confirm that half-acted
+            // would be worse than none.
+            await app.nativeClickAtElement(`[data-slot="tug-confirm-cancel"]`);
+            await app.waitForCondition<boolean>(
+              `document.querySelector(${JSON.stringify(CONFIRM)}) === null`,
+              { timeoutMs: 5_000 },
+            );
+            expect(await tripwireNames(app)).toEqual(["alpha", "alpha-probed", "beta"]);
+            expect(ledgerNames(app)).toContain("beta");
+
+            // ---- And Confirm removes it, through the real HTTP surface. The
+            // row leaves because the ledger's next frame no longer carries it,
+            // not because the card dropped it locally ([B07]).
+            await app.nativeClickAtElement(`[data-tripwires-menu='beta']`);
+            await app.waitForCondition<boolean>(
+              `document.querySelector(${JSON.stringify(DELETE_ITEM)}) !== null`,
+              { timeoutMs: 5_000 },
+            );
+            await app.nativeClickAtElement(DELETE_ITEM);
+            await app.waitForCondition<boolean>(
+              `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
+              { timeoutMs: 5_000 },
+            );
+            await app.nativeClickAtElement(`[data-slot="tug-confirm-confirm"]`);
+            await app.waitForCondition<boolean>(
+              `document.querySelector("[data-tripwire='beta']") === null`,
+              { timeoutMs: 8_000 },
+            );
+            expect(await tripwireNames(app)).toEqual(["alpha", "alpha-probed"]);
+            expect(ledgerNames(app)).not.toContain("beta");
           } finally {
             await app.close();
           }

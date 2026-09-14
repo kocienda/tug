@@ -52,6 +52,10 @@ export interface TripwireRow {
   readonly scope: string | null;
   readonly probe: string | null;
   readonly brief: string;
+  /** The one sentence the card shows in place of the brief ([B01]). The brief
+   *  travels with it because the `/tripwire` skill reads it back during
+   *  revision; the card simply does not render it. */
+  readonly description: string;
   readonly model: string | null;
   /** The base branch a landing has to be onto for this tripwire to fire. */
   readonly branch: string;
@@ -73,6 +77,10 @@ export interface TripwireRow {
   readonly awaiting: boolean;
   /** The arc that awaiting trip is holding, when it authored one. */
   readonly awaiting_arc: string | null;
+  /** The arc an *adopted* trip is holding, when it authored one. A removal
+   *  dismisses an adopted trip exactly as it dismisses an awaiting one, so
+   *  this is the other half of what a Delete confirm has to name. */
+  readonly adopted_arc: string | null;
   readonly last_trip: TripwireLastTrip | null;
   /** An opaque equality token over this tripwire's trip log. Nothing may order
    *  or subtract two of them — the only question it answers is whether an open
@@ -301,9 +309,31 @@ export class TripwiresStore {
     await this.post(`/api/tripwires/${encodeURIComponent(name)}/dismiss`);
   }
 
+  /**
+   * Remove a tripwire, its trip log, and the arc a finished run was holding.
+   *
+   * Nothing is committed on success, and no local row is dropped: the ledger
+   * write moves the `TRIPWIRES` feed's `data_version`, and the frame behind it
+   * is what takes the row off the card ([F09]). A local delete would be a
+   * second answer to a question the feed already answers, and the two would
+   * disagree the first time a removal came from another door.
+   *
+   * A tripwire with a trip running refuses with a conflict, which arrives here
+   * as the error every other write's refusal arrives as. The card states that
+   * refusal in the menu item's own label, so this path is the race rather than
+   * the ordinary case.
+   */
+  async remove(name: string): Promise<void> {
+    await this.send(`/api/tripwires/${encodeURIComponent(name)}`, "DELETE");
+  }
+
   private async post(path: string): Promise<void> {
+    await this.send(path, "POST");
+  }
+
+  private async send(path: string, method: "POST" | "DELETE"): Promise<void> {
     try {
-      const resp = await fetch(path, { method: "POST" });
+      const resp = await fetch(path, { method });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     } catch (err) {
       this.commit({ error: String(err) });

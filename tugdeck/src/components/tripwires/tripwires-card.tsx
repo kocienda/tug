@@ -17,25 +17,43 @@
  * whole of what a standing watch has to say, and a card the reader can leave
  * open says it without a band's summary line standing in for it.
  *
- * The fold leads with what the tripwire IS — trigger, scope, probe, brief,
- * model, permissions, each stated in English rather than in the JSON and the
- * enums the ledger holds — and only then shows what it has done. Those rows are
+ * The fold leads with what the tripwire IS — a one-sentence description, then
+ * trigger, scope, probe, model, permissions, each stated in English rather than
+ * in the JSON and the enums the ledger holds — and only then shows what it has
+ * done. Those rows are
  * read-only but for the model knob: authoring a tripwire stays on the CLI and
  * the `/tripwire` skill [B15], because those are the parts where a wrong value
  * makes a tripwire silently useless rather than visibly wrong. The two knobs
  * that are writable here, pause and model, are the ones a reader of the log
  * reaches for without leaving it.
  *
- * **Nothing on this card is a hover** ([B05]). The brief is the whole
- * instruction a trip runs on, and a good one is paragraphs; it stands behind a
- * two-line `TugClamp` whose own reveal is the door, rather than in a tooltip
- * that covers the rail with text nobody asked for.
+ * **The brief is not on this card at all** ([B03]). It is the prompt a trip
+ * runs on — addressed to the model, hundreds of words long — and it used to
+ * fill the fold with instructions nobody reading a sidebar is the reader of.
+ * It was tried behind a tooltip and then behind a two-line clamp, and both are
+ * the same wall of text one gesture further away. What the fold says instead
+ * is the description: one sentence, authored for the reader through the
+ * `/tripwire` skill, saying what this tripwire does and when it will speak.
+ * The brief stays in the ledger and in `tugtool tripwire list --json`, which
+ * is where the skill reads it back during revision.
+ *
+ * **Nothing on this card is a hover** ([B05]).
+ *
+ * **Delete is a row verb behind a `⋯`, and behind a confirm.** The row's rare
+ * verbs live in one menu the `⋯` button and the right-click both open, and
+ * Delete is its last item after a separator — a destructive act that is real
+ * and almost never pressed does not stand on the row as a peer of pause
+ * ([D142]). Choosing it arms the card's one `TugConfirmPopover` over the row's
+ * list cell, which names the tripwire and what goes with it: the trip log
+ * always, and the arc an awaiting trip is holding when there is one. While a
+ * trip is running the item is disabled and carries the refusal in its own
+ * label, because that refusal is the ledger's and the CLI states the same one.
  *
  * Laws: [L02] the store enters through `useSyncExternalStore`; the open folds
  * are view-scope local data in `useState`; [L06] every mark's colour is CSS on
  * a `data-state` attribute the component stamps, never a class it computes;
  * [L11] every verb is a typed action dispatched to the row's own responder;
- * [L20] the block, the band, the fold cue, the clamp and the popup are composed
+ * [L20] the block, the band, the fold cue and the popup are composed
  * from the shared components that own them, never hand-rolled.
  *
  * @module components/tripwires/tripwires-card
@@ -55,6 +73,7 @@ import {
   CircleDot,
   CircleMinus,
   Clock,
+  MoreHorizontal,
   Pause,
   Play,
   Radar,
@@ -65,7 +84,7 @@ import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-
 import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentation";
 import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
 import { TugBadge } from "@/components/tugways/tug-badge";
-import { TugClamp } from "@/components/tugways/tug-clamp";
+import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import {
   TugEditorContextMenu,
   type TugEditorContextMenuEntry,
@@ -106,6 +125,9 @@ import {
 } from "@/lib/tripwires-store";
 import {
   MODEL_CHOICES,
+  deleteConfirmMessage,
+  deleteDisabledReason,
+  deleteMenuLabel,
   modelKnobValue,
   tripDot,
   tripSentence,
@@ -167,6 +189,14 @@ interface TripwireRowHost {
   /** The reason one tripwire's log could not be read, if it could not ([B10]). */
   readonly logErrors: Readonly<Record<string, string>>;
   readonly trips: Readonly<Record<string, readonly TripRow[]>>;
+  /**
+   * Arm the card's one confirm over this tripwire, hanging it off `anchor`.
+   *
+   * The row asks rather than deletes: the popover outlives the menu item that
+   * requested it, so the question belongs to the card and the anchor is the
+   * row's list cell ([B06] [F08]).
+   */
+  readonly requestDelete: (tripwire: TripwireRow, anchor: HTMLElement | null) => void;
 }
 
 const TripwireRowHostContext = React.createContext<TripwireRowHost>({
@@ -174,6 +204,7 @@ const TripwireRowHostContext = React.createContext<TripwireRowHost>({
   toggle: () => {},
   logErrors: {},
   trips: {},
+  requestDelete: () => {},
 });
 
 // ---------------------------------------------------------------------------
@@ -364,11 +395,17 @@ function TripMark({ trip }: { trip: TripRow }): React.ReactElement {
 // ---------------------------------------------------------------------------
 
 /**
- * The row's five verbs and the one responder they land on.
+ * The row's six verbs and the one responder they land on.
  *
  * The responder is per row, so each item's dispatch carries its target by
  * construction rather than by a sampled id: the menu and the model popup both
  * live inside this scope, and the handlers close over the tripwire the row is.
+ *
+ * **One menu, two gestures.** The right-click on the row and the `⋯` button in
+ * the row's controls open the same list at different points — a press opens it
+ * where the pointer is, the button under its own bottom-left corner — because a
+ * verb that is real and rare needs a visible door, and two doors onto two item
+ * lists would be two vocabularies ([B05]).
  *
  * **A disabled item still says why.** A disabled item takes no pointer events,
  * so a tooltip on one can never fire ([L31] — a refusal that cannot be read is
@@ -379,11 +416,13 @@ function TripMark({ trip }: { trip: TripRow }): React.ReactElement {
  */
 function useTripwireRowVerbs(tripwire: TripwireRow): {
   onContextMenu: (e: React.MouseEvent) => void;
+  openMenuFrom: (anchor: HTMLElement | null) => void;
   ResponderScope: React.FC<{ children: React.ReactNode }>;
-  responderRef: (el: Element | null) => void;
+  blockRef: (el: HTMLSpanElement | null) => void;
   menu: React.ReactNode;
 } {
   const store = getTripwiresStore();
+  const host = React.useContext(TripwireRowHostContext);
   const name = tripwire.name;
   const session = tripwire.running_session;
   // The dot's own gesture, not a second reading of it: the menu item is the
@@ -398,6 +437,19 @@ function useTripwireRowVerbs(tripwire: TripwireRow): {
     e.stopPropagation();
     setOpenAt({ x: e.clientX, y: e.clientY });
   }, []);
+  // Under the button's bottom-left corner, in viewport coordinates — the menu
+  // flips itself against the viewport edges from there.
+  const openMenuFrom = useCallback((anchor: HTMLElement | null) => {
+    if (anchor === null) return;
+    const rect = anchor.getBoundingClientRect();
+    setOpenAt({ x: rect.left, y: rect.bottom });
+  }, []);
+
+  // The row's own element, and through it the list cell the confirm hangs off.
+  // The anchor is the CELL and never the menu item: the item unmounts the
+  // moment it is selected, and a popover anchored to it would be destroyed as
+  // it opened ([F08]).
+  const blockEl = React.useRef<HTMLSpanElement | null>(null);
 
   const responderId = useId();
   const { ResponderScope, responderRef } = useOptionalResponder({
@@ -416,6 +468,15 @@ function useTripwireRowVerbs(tripwire: TripwireRow): {
         const knobs = modelKnobValue(event.value);
         if (knobs === null) return;
         void store.setKnobs(name, knobs);
+      },
+      // Arms the card's confirm rather than removing anything: the question
+      // belongs to the card, because the menu item asking it is gone by the
+      // time it is answered.
+      [TUG_ACTIONS.DELETE_TRIPWIRE]: () => {
+        host.requestDelete(
+          tripwire,
+          blockEl.current?.closest(".tug-list-view-cell") as HTMLElement | null,
+        );
       },
     },
   });
@@ -447,8 +508,16 @@ function useTripwireRowVerbs(tripwire: TripwireRow): {
         label: tripwire.awaiting ? "Release" : "Release — nothing is awaiting",
         disabled: !tripwire.awaiting,
       },
+      { type: "separator" },
+      // Last, behind its own separator: the one item here that destroys
+      // something, and the one the reader presses almost never ([B05]).
+      {
+        action: TUG_ACTIONS.DELETE_TRIPWIRE,
+        label: deleteMenuLabel(tripwire),
+        disabled: deleteDisabledReason(tripwire) !== null,
+      },
     ],
-    [tripwire.paused, tripwire.running, tripwire.awaiting, session, openSession.heldByCard],
+    [tripwire, session, openSession.heldByCard],
   );
 
   const menu = (
@@ -463,7 +532,17 @@ function useTripwireRowVerbs(tripwire: TripwireRow): {
     </span>
   );
 
-  return { onContextMenu, ResponderScope, responderRef, menu };
+  // One ref for the row's block: the responder's element, and the element the
+  // confirm's anchor is resolved from.
+  const blockRef = useCallback(
+    (el: HTMLSpanElement | null) => {
+      blockEl.current = el;
+      responderRef(el);
+    },
+    [responderRef],
+  );
+
+  return { onContextMenu, openMenuFrom, ResponderScope, blockRef, menu };
 }
 
 // ---------------------------------------------------------------------------
@@ -472,9 +551,13 @@ function useTripwireRowVerbs(tripwire: TripwireRow): {
 
 /**
  * What this tripwire IS, before what it has done. The log below is a list of
- * answers, and the trigger, the scope and the brief are the question they
- * answer — a reader who cannot see those is reading verdicts about an event
- * they cannot name.
+ * answers, and the description, the trigger and the scope are the question
+ * they answer — a reader who cannot see those is reading verdicts about an
+ * event they cannot name.
+ *
+ * Every row is one `TugLabel` at the rail's measure. There is no second shape
+ * here but the model knob: the row that needed one was the brief, and the
+ * brief is off this card ([B03]).
  */
 function Definition({ tripwire }: { tripwire: TripwireRow }): React.ReactElement {
   return (
@@ -501,14 +584,6 @@ function Definition({ tripwire }: { tripwire: TripwireRow }): React.ReactElement
                   focusGroup={TRIPWIRES_FOCUS_GROUP}
                 />
               </span>
-            ) : row.clamp === true ? (
-              // The brief, whole, behind a two-line clamp — never a hover. A
-              // brief is paragraphs, and a tooltip carrying paragraphs is the
-              // wart this card shipped with; the clamp's own reveal is the
-              // door ([B05]).
-              <TugClamp lines={2} showMoreLabel="More" showLessLabel="Less">
-                <TugLabel size="2xs">{row.value}</TugLabel>
-              </TugClamp>
             ) : (
               <TugLabel size="2xs">{row.value}</TugLabel>
             )}
@@ -789,7 +864,7 @@ function TripwireCell({
       <verbs.ResponderScope>
         <span
           className="tripwires-block"
-          ref={verbs.responderRef as (el: HTMLSpanElement | null) => void}
+          ref={verbs.blockRef}
         >
           {/* Line one: WHO. The tripwire's name, the hairline, and the session
               working its trip when there is one — the Arcs eyebrow, with a
@@ -825,6 +900,21 @@ function TripwireCell({
                 }}
                 focusGroup={TRIPWIRES_FOCUS_GROUP}
                 data-tripwires-pause={tripwire.name}
+              />
+              {/* The rare verbs, behind one opener — the same menu the
+                  right-click opens, so there is one item list and one
+                  vocabulary ([B05]). Its press is swallowed for the reason
+                  pause's is: the row underneath is a door. */}
+              <TugIconButton
+                icon={<MoreHorizontal size={12} />}
+                size="xs"
+                aria-label={`Actions for ${tripwire.name}`}
+                onClick={(e) => {
+                  e?.stopPropagation();
+                  verbs.openMenuFrom(e?.currentTarget as HTMLElement | null);
+                }}
+                focusGroup={TRIPWIRES_FOCUS_GROUP}
+                data-tripwires-menu={tripwire.name}
               />
               {/* Wrapped for the same reason the model knob is: `BlockFoldCue`
                   forwards no passthrough props, so its slot has to stand on an
@@ -938,6 +1028,13 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
   const store = getTripwiresStore();
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  // Which row's delete is armed, and the element the confirm hangs off. View
+  // scope ([L24]): a half-armed confirm is not worth remembering, and closing
+  // the card forgets it.
+  const [pendingDelete, setPendingDelete] = useState<{
+    tripwire: TripwireRow;
+    anchor: HTMLElement | null;
+  } | null>(null);
 
   // A fold that opens asks for its log once; the roster's own revision token
   // re-asks it after that, with no timer anywhere ([D05]).
@@ -958,9 +1055,21 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
     });
   }, []);
 
+  const requestDelete = useCallback(
+    (tripwire: TripwireRow, anchor: HTMLElement | null) =>
+      setPendingDelete({ tripwire, anchor }),
+    [],
+  );
+
   const host = useMemo<TripwireRowHost>(
-    () => ({ expanded, toggle, logErrors: snapshot.logErrors, trips: snapshot.trips }),
-    [expanded, toggle, snapshot.logErrors, snapshot.trips],
+    () => ({
+      expanded,
+      toggle,
+      logErrors: snapshot.logErrors,
+      trips: snapshot.trips,
+      requestDelete,
+    }),
+    [expanded, toggle, snapshot.logErrors, snapshot.trips, requestDelete],
   );
 
   // The opening key view lands on a real row, never on emptiness: an empty list
@@ -1040,6 +1149,27 @@ export function TripwiresContent(_props: TripwiresContentProps): React.ReactElem
           )}
           {errorStrip}
         </div>
+        {/* One controlled confirm for the whole card, anchored to whichever
+            row armed it. `confirmRole="danger"` puts default focus on Cancel,
+            so a reflexive Return can never delete a tripwire. The removal
+            itself changes nothing here: the row leaves on the ledger's next
+            frame, which is the only thing that knows it is gone ([B07]). */}
+        <TugConfirmPopover
+          open={pendingDelete !== null}
+          anchorEl={pendingDelete?.anchor ?? null}
+          message={
+            pendingDelete !== null ? deleteConfirmMessage(pendingDelete.tripwire) : ""
+          }
+          confirmLabel="Delete"
+          confirmRole="danger"
+          side="top"
+          onConfirm={() => {
+            const armed = pendingDelete;
+            setPendingDelete(null);
+            if (armed !== null) void store.remove(armed.tripwire.name);
+          }}
+          onCancel={() => setPendingDelete(null)}
+        />
       </div>
     </TripwireRowHostContext.Provider>
   );

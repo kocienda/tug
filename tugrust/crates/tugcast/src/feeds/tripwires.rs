@@ -234,6 +234,7 @@ mod tests {
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "report anything that looks wrong",
                 "main",
+                "Reports anything that looks wrong on main",
             ),
             1,
         )

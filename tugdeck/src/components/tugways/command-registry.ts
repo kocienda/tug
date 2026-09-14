@@ -3013,6 +3013,7 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.RELEASE_TRIPWIRE,
   TUG_ACTIONS.OPEN_TRIPWIRE_SESSION,
   TUG_ACTIONS.SET_TRIPWIRE_MODEL,
+  TUG_ACTIONS.DELETE_TRIPWIRE,
   // Sent card-to-card by a surface showing that card's arc, never typed:
   // the reader already has ⌃⌘C for their own card's shade, and a chord that
   // meant "reveal somebody else's" would have no way to name whose.

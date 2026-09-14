@@ -24,6 +24,7 @@ Your job here is to turn a sentence into a tripwire that will still be right in 
 
 ```
 tugtool tripwire lay <name> --on <trigger> --brief <text|@file> --branch <branch>
+                 --description <one sentence>
                  [--where <clause>]... [--scope <path>] [--probe <cmd>]
                  [--model <m>] [--permission-mode <mode>] [--preview]
 ```
@@ -39,6 +40,8 @@ tugtool tripwire lay <name> --on <trigger> --brief <text|@file> --branch <branch
 If the change is worth making, the brief can say so — the session has a verb for asking that work be authored, and a second session with hands is spawned for it. What the brief must not do is assume the first one has them.
 
 **A brief that says nothing is refused, at the lay and at the `--preview`.** A tripwire with no probe summons a model on every firing, so a placeholder brief is not merely useless — it is a model run per landing, answered by a paraphrase of the landing and nothing else. If the refusal fires, the repair is to write the question, never to pad the words.
+
+**`--description` is the one sentence a person reads, and it is required.** The brief is addressed to the model and runs to hundreds of words; the description is addressed to whoever opens the Tripwires card and says what this tripwire does and when it will speak — "Says whether a refused edit was the tool's fault or the caller's". **It is the only thing about the tripwire the card shows**: the brief is not rendered there at all, behind no clamp and no tooltip, so a tripwire whose description merely restates its name is a row nobody can read. An empty or placeholder description is refused on the same footing as a placeholder brief. Write it in the third person, about the tripwire, and keep it to one sentence.
 
 **`--scope`** confines the tripwire to landings in one checkout, and it is where the trip's disposable copy of the commit is cut from. Unscoped, it watches the whole machine — and a hand-fired trip on an unscoped tripwire has no repository to stand in, so a tripwire you intend to shake down wants a scope.
 
@@ -96,7 +99,7 @@ tugtool tripwire lay <name> … --preview
 tugtool tripwire lay <name> … --json
 ```
 
-Report what came back — the name, the normalized trigger, the branch, the scope, the probe, the permission mode — not a paraphrase. The receipt is the tripwire.
+Report what came back — the name, the normalized trigger, the branch, the description, the scope, the probe, the permission mode — not a paraphrase. The receipt is the tripwire.
 
 **4. Shake it down. This is not optional.**
 
@@ -118,7 +121,7 @@ The log carries every firing, including the ones that said nothing — the swall
 tugtool tripwire edit <name> [same flags] [--clear scope|probe|model]
 ```
 
-Every flag is optional and what you do not name is left alone; `--clear` removes a field rather than setting it. A brief that earned a vague headline is the usual repair, and it is one `edit` and one `trip` away. The tripwire's log survives the edit, so the before and after sit next to each other.
+Every flag is optional and what you do not name is left alone; `--clear` removes a field rather than setting it. A brief that earned a vague headline is the usual repair, and it is one `edit` and one `trip` away. The tripwire's log survives the edit, so the before and after sit next to each other. `--description` is editable here too, and it is the one field `--clear` refuses: a tripwire with no sentence saying what it does is a row on the card with nothing in it.
 
 ## The rest of the verbs
 
@@ -127,12 +130,12 @@ tugtool tripwire list [--json]        every tripwire on this machine
 tugtool tripwire log <name> [--json]  one tripwire's trip log, the full workings
 tugtool tripwire pause <name>         out of service, keeping the tripwire and its log
 tugtool tripwire resume <name>        back into service
-tugtool tripwire rm <name>            gone, with its log
+tugtool tripwire rm <name>            gone, with its log; refused while a trip runs
 ```
 
 `pause` rather than `rm` for a tripwire that is misbehaving: the log is the evidence for the repair, and removing the tripwire throws it away.
 
-The **Tripwires card** shows the same roster — each tripwire's branch, a fixed-width mark for what it is doing, and its definition and trip log behind a fold that opens in place over the row. Its collapsed band carries four counts — armed, running, awaiting, paused — so the standing watches read at a glance without opening anything. The card carries the verbs as well as the knobs: Pause and Resume, Trip now, Open session onto a trip that is running, and Release for one that is awaiting, alongside the model knob. Authoring stays here, because those are the fields where a wrong value makes a tripwire silently useless rather than visibly wrong.
+The **Tripwires card** shows the same roster — each tripwire's branch, a fixed-width mark for what it is doing, and its definition and trip log behind a fold that opens in place over the row. The fold leads with the description and never shows the brief. Its collapsed band carries four counts — armed, running, awaiting, paused — so the standing watches read at a glance without opening anything. The card carries the verbs as well as the knobs: Pause and Resume, Trip now, Open session onto a trip that is running, Release for one that is awaiting, and Delete behind a confirm on the row's `⋯` menu, alongside the model knob. Deleting there is the same guarded removal `rm` performs, refused the same way while a trip runs. Authoring stays here, because those are the fields where a wrong value makes a tripwire silently useless rather than visibly wrong.
 
 ## Judgement
 

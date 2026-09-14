@@ -158,6 +158,7 @@ mod tests {
             r#"{"fact":{"kind":"edit_failed"}}"#,
             "report anything that looks wrong",
             "main",
+            "Reports anything that looks wrong on main",
         );
         new.scope = scope.map(str::to_owned);
         ledger::lay(conn, &new, 1).unwrap()

@@ -525,6 +525,11 @@ pub enum TripwireCommands {
         /// What the tripwire asks for when it fires. `@path` reads a file.
         #[arg(long)]
         brief: String,
+        /// One sentence saying what this tripwire does and when it will
+        /// speak. This is the line the Tripwires card shows; the brief is
+        /// the model's prompt and never appears there.
+        #[arg(long)]
+        description: String,
         /// Model to run the trip on. Absent uses the default.
         #[arg(long)]
         model: Option<String>,
@@ -553,6 +558,10 @@ pub enum TripwireCommands {
         probe: Option<String>,
         #[arg(long)]
         brief: Option<String>,
+        /// Rewrite the one sentence the Tripwires card shows. Not clearable:
+        /// the card leads with it.
+        #[arg(long)]
+        description: Option<String>,
         #[arg(long)]
         model: Option<String>,
         #[arg(long = "permission-mode")]
@@ -565,7 +574,7 @@ pub enum TripwireCommands {
         #[arg(long)]
         preview: bool,
     },
-    /// Remove a tripwire and its trip log.
+    /// Remove a tripwire and its trip log. Refused while a trip is running.
     Rm {
         /// Tripwire name.
         name: String,

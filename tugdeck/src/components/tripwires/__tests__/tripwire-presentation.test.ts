@@ -11,6 +11,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  deleteConfirmMessage,
+  deleteDisabledReason,
+  deleteMenuLabel,
   describePermissions,
   describeProbe,
   describeScope,
@@ -23,6 +26,7 @@ import {
   tripDot,
   tripwireDot,
   tripwireDefinition,
+  DESCRIPTION_ROW_LABEL,
 } from "../tripwire-presentation";
 import type { TripRow, TripwireRow } from "@/lib/tripwires-store";
 
@@ -55,6 +59,7 @@ function tripwire(over: Partial<TripwireRow> = {}): TripwireRow {
     scope: "/Users/me/src/tugtool",
     probe: "just ci",
     brief: "Flag anything red.",
+    description: "Runs `just ci` after every landing on main and says what went red",
     model: null,
     branch: "main",
     permission_mode: "acceptEdits",
@@ -64,6 +69,7 @@ function tripwire(over: Partial<TripwireRow> = {}): TripwireRow {
     running_session: null,
     awaiting: false,
     awaiting_arc: null,
+    adopted_arc: null,
     last_trip: null,
     trip_log_revision: 0,
     ...over,
@@ -276,39 +282,41 @@ describe("the rest of a tripwire's definition", () => {
     );
   });
 
-  test("a paragraph-long brief is carried whole, for the clamp to hold", () => {
+  test("the brief is nowhere in the definition, however long it is", () => {
     const brief =
       "Diagnose the failure and say who was wrong. The evidence carries the " +
       "class, the report, and the program itself.";
-    const row = tripwireDefinition(tripwire({ brief })).find(
-      (r) => r.label === "Asks the AI to",
-    );
-    // The whole text, never an abbreviation of it: the surface puts it behind a
-    // two-line clamp whose own reveal is the door, and never behind a hover.
-    expect(row?.value).toBe(brief);
-    expect(row?.clamp).toBe(true);
+    const rows = tripwireDefinition(tripwire({ brief }));
+    // Not clamped, not truncated, not behind a reveal — absent. The brief is
+    // the prompt a trip runs on, and every reveal is the same wall of text one
+    // gesture further away ([B03]).
+    expect(rows.some((r) => r.label === "Asks the AI to")).toBe(false);
+    expect(rows.some((r) => r.value.includes("Diagnose the failure"))).toBe(false);
+    expect(rows.some((r) => "clamp" in r)).toBe(false);
   });
 
-  test("a short brief is carried the same way, with no second shape for it", () => {
-    const row = tripwireDefinition(tripwire({ brief: "Flag anything red." })).find(
-      (r) => r.label === "Asks the AI to",
-    );
-    expect(row?.value).toBe("Flag anything red.");
-    expect(row?.clamp).toBe(true);
-  });
-
-  test("the definition leads with what the tripwire watches for", () => {
+  test("the definition leads with what the tripwire does, in a sentence", () => {
     const rows = tripwireDefinition(tripwire());
-    expect(rows[0]).toEqual({ label: "Watches for", value: "Any edit_failed fact" });
+    expect(rows[0]).toEqual({
+      label: "What it does",
+      value: "Runs `just ci` after every landing on main and says what went red",
+    });
     expect(rows.map((r) => r.label)).toEqual([
+      DESCRIPTION_ROW_LABEL,
       "Watches for",
       "Lands on",
       "In",
       "Runs first",
-      "Asks the AI to",
       "Model",
       "Permissions",
     ]);
+  });
+
+  test("a description is trimmed, so the rail's first row never leads with space", () => {
+    const rows = tripwireDefinition(
+      tripwire({ description: "  Says what broke on the last landing\n" }),
+    );
+    expect(rows[0]?.value).toBe("Says what broke on the last landing");
   });
 
   test("the model knob offers the session default first, then the three names", () => {
@@ -340,5 +348,60 @@ describe("the rest of a tripwire's definition", () => {
     );
     expect(withProbe?.mono).toBe(true);
     expect(without?.mono).toBe(false);
+  });
+});
+
+describe("what Delete says before it is pressed", () => {
+  test("a running trip is the one refusal, and it rides the label", () => {
+    const running = tripwire({ running: true });
+    expect(deleteDisabledReason(running)).toBe("a trip is running");
+    // A disabled item takes no pointer events, so the reason has nowhere else
+    // to be read ([L31]).
+    expect(deleteMenuLabel(running)).toBe("Delete — a trip is running");
+  });
+
+  test("an awaiting trip is not a refusal", () => {
+    // The removal dismisses it first and discards the arc it holds, which is
+    // what the confirm below says out loud — so the verb stays available.
+    const awaiting = tripwire({ awaiting: true, awaiting_arc: "tripwire-ci-abcd1234" });
+    expect(deleteDisabledReason(awaiting)).toBeNull();
+    expect(deleteMenuLabel(awaiting)).toBe("Delete");
+  });
+
+  test("the confirm names the tripwire and the log that goes with it", () => {
+    expect(deleteConfirmMessage(tripwire())).toBe(
+      "Delete ci-confidence? Its trip log goes with it.",
+    );
+  });
+
+  test("an arc being held is the second thing the confirm says", () => {
+    expect(
+      deleteConfirmMessage(
+        tripwire({ awaiting: true, awaiting_arc: "tripwire-ci-abcd1234" }),
+      ),
+    ).toBe(
+      "Delete ci-confidence? Its trip log goes with it, and the arc it is holding is discarded.",
+    );
+    // Awaiting with no arc authored has nothing to discard, and the sentence
+    // must not promise otherwise.
+    expect(deleteConfirmMessage(tripwire({ awaiting: true, awaiting_arc: null }))).toBe(
+      "Delete ci-confidence? Its trip log goes with it.",
+    );
+  });
+
+  test("an adopted trip's arc is named too, because the removal discards that one as well", () => {
+    // The removal runs one dismiss, and it takes an adopted trip when there is
+    // no awaiting one — so the worktree the user took over goes with the
+    // tripwire, and the confirm has to say so before they press Delete.
+    expect(
+      deleteConfirmMessage(
+        tripwire({ adopted: true, adopted_arc: "tripwire-ci-abcd1234" }),
+      ),
+    ).toBe(
+      "Delete ci-confidence? Its trip log goes with it, and the arc it is holding is discarded.",
+    );
+    expect(deleteConfirmMessage(tripwire({ adopted: true, adopted_arc: null }))).toBe(
+      "Delete ci-confidence? Its trip log goes with it.",
+    );
   });
 });

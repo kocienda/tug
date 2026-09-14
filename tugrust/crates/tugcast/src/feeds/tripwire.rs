@@ -2680,6 +2680,7 @@ mod tests {
                 trigger,
                 "diagnose the failure and propose a fix",
                 "main",
+                "Says what broke and proposes a fix",
             ),
             1,
         )
@@ -2974,6 +2975,7 @@ mod tests {
             r#"{"fact":{"kind":"edit_failed"}}"#,
             "diagnose the failure and propose a fix",
             "main",
+            "Says what broke and proposes a fix",
         );
         tripwire.scope = Some("/proj".to_string());
         ledger::lay(&h.conn, &tripwire, 1).unwrap();
@@ -3731,6 +3733,7 @@ mod tests {
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "put the suite back to green",
                 "main",
+                "Puts the suite back to green after a landing on main",
             );
             new.probe = Some(probe.to_string());
             new.scope = Some(root.to_string_lossy().into_owned());
@@ -3974,6 +3977,7 @@ mod tests {
                     r#"{"fact":{"kind":"edit_failed"}}"#,
                     "diagnose the failure and propose a fix",
                     "main",
+                    "Says what broke and proposes a fix",
                 );
                 // A probe that records the tree it ran in, so the test reads
                 // where each tripwire stood rather than inferring it.

@@ -40,6 +40,7 @@ function row(over: Partial<TripwireRow> = {}): TripwireRow {
     scope: null,
     probe: null,
     brief: "report anything that looks wrong",
+    description: "Reports anything that looks wrong on main",
     model: null,
     branch: "main",
     permission_mode: "acceptEdits",
@@ -49,6 +50,7 @@ function row(over: Partial<TripwireRow> = {}): TripwireRow {
     running_session: null,
     awaiting: false,
     awaiting_arc: null,
+    adopted_arc: null,
     last_trip: null,
     trip_log_revision: 7,
     ...over,
@@ -57,16 +59,19 @@ function row(over: Partial<TripwireRow> = {}): TripwireRow {
 
 const realFetch = globalThis.fetch;
 let calls: string[] = [];
+let methods: string[] = [];
 let bodies: (string | null)[] = [];
 let failTrips = false;
 
 /** Every `/trips` answer is one row, so a load always commits something. */
 function stubFetch(): void {
   calls = [];
+  methods = [];
   bodies = [];
   failTrips = false;
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     calls.push(String(input));
+    methods.push(init?.method ?? "GET");
     bodies.push(typeof init?.body === "string" ? init.body : null);
     if (failTrips && String(input).includes("/trips")) {
       return Promise.resolve({ ok: false, status: 503 } as Response);
@@ -234,6 +239,45 @@ describe("TripwiresStore over the TRIPWIRES feed", () => {
     push({ tripwires: [row()], error: null });
     expect(store.getSnapshot()).not.toBe(first);
     expect(store.getSnapshot()).toBe(store.getSnapshot());
+    store.dispose();
+  });
+
+  test("remove sends a DELETE and drops no row of its own", async () => {
+    const { conn, push } = stubConnection();
+    const store = new TripwiresStore(conn);
+    push({ tripwires: [row(), row({ name: "edits" })], error: null });
+
+    await store.remove("ci");
+
+    expect(calls).toEqual(["/api/tripwires/ci"]);
+    expect(methods).toEqual(["DELETE"]);
+    expect(store.getSnapshot().tripwires.map((w) => w.name)).toEqual([
+      "ci",
+      "edits",
+    ]);
+    expect(store.getSnapshot().error).toBeNull();
+
+    // The feed is what takes the row off, and it does so on the ledger's next
+    // frame rather than on this call's return.
+    push({ tripwires: [row({ name: "edits" })], error: null });
+    expect(store.getSnapshot().tripwires.map((w) => w.name)).toEqual(["edits"]);
+    store.dispose();
+  });
+
+  test("a refused remove reports why and moves nothing", async () => {
+    const { conn, push } = stubConnection();
+    const store = new TripwiresStore(conn);
+    push({ tripwires: [row()], error: null });
+    globalThis.fetch = ((): Promise<Response> =>
+      Promise.resolve({
+        ok: false,
+        status: 409,
+      } as Response)) as unknown as typeof fetch;
+
+    await store.remove("ci");
+
+    expect(store.getSnapshot().error).toContain("409");
+    expect(store.getSnapshot().tripwires.map((w) => w.name)).toEqual(["ci"]);
     store.dispose();
   });
 });

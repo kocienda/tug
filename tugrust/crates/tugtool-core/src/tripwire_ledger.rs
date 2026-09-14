@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use crate::tripwire_predicate::Predicate;
 
 /// Current on-disk schema version, stamped into `PRAGMA user_version`.
-pub const TRIPWIRE_SCHEMA_VERSION: i64 = 6;
+pub const TRIPWIRE_SCHEMA_VERSION: i64 = 7;
 
 /// How many trips are kept per tripwire. Older rows are deleted at record
 /// time — the regime the app-test results ledger already runs. A tripwire that
@@ -57,6 +57,7 @@ const TRIPWIRE_MIGRATIONS: &[(i64, &str)] = &[
     (3, MIGRATE_V3_TO_V4),
     (4, MIGRATE_V4_TO_V5),
     (5, MIGRATE_V5_TO_V6),
+    (6, MIGRATE_V6_TO_V7),
 ];
 
 /// v1 → v2: a tripwire names the base branch it watches, the retired knobs go, and
@@ -131,6 +132,25 @@ const MIGRATE_V5_TO_V6: &str = "
     -- Renames only; see `migrate_tripwire_names`.
 ";
 
+/// v6 → v7: a tripwire says what it does in a sentence a person reads.
+///
+/// The brief is the prompt a trip runs on and has exactly one reader that is
+/// not a display — the model ([B01]) — so the card's definition needs a line
+/// of its own, appended — which is what `ALTER TABLE … ADD COLUMN` does, so a
+/// migrated ledger and a fresh one carry the same column order.
+///
+/// Registered so the list above is the whole record of what every schema
+/// version was, and empty of statements for the same two reasons
+/// [`MIGRATE_V5_TO_V6`] is. `ADD COLUMN` fails the second time it runs, and a
+/// crash between a batch's statements and the version stamp re-runs the
+/// batch. And this list runs *before* [`migrate_tripwire_names`], so on a v1
+/// or v5 ledger there is no table called `tripwires` here yet to add a column
+/// to. The statement lives in [`migrate_tripwire_description`], which probes
+/// the shape on disk and does nothing when the column is already there.
+const MIGRATE_V6_TO_V7: &str = "
+    -- One appended column; see `migrate_tripwire_description`.
+";
+
 /// Default ceiling on `running` trips machine-wide, when the `settings` table
 /// names none. A commit storm must not fan out one arc worktree per commit.
 pub const DEFAULT_MAX_CONCURRENT_TRIPS: i64 = 2;
@@ -171,7 +191,8 @@ const CREATE_TRIPWIRES_SQL: &str = "
         model           TEXT,
         permission_mode TEXT    NOT NULL DEFAULT 'acceptEdits',
         paused          INTEGER NOT NULL DEFAULT 0,
-        branch          TEXT    NOT NULL DEFAULT ''
+        branch          TEXT    NOT NULL DEFAULT '',
+        description     TEXT    NOT NULL DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS trips (
         id             INTEGER PRIMARY KEY,
@@ -223,6 +244,14 @@ pub enum TripwireLedgerError {
         "the brief for tripwire {0} says nothing for the AI to do: {1}. A brief is the whole instruction a trip runs on, so a placeholder buys a model run per firing and a trip log full of `no further detail available to assess significance` — say what to look at and what to report."
     )]
     EmptyBrief(String, &'static str),
+    #[error(
+        "the description for tripwire {0} says nothing a person could recognise it by: {1}. The description is the line the Tripwires card shows in place of the brief, so a placeholder leaves a row nobody can tell from its neighbours — say in one sentence what this tripwire does and when it will speak."
+    )]
+    EmptyDescription(String, &'static str),
+    #[error(
+        "tripwire {0} has a trip running, so it cannot be removed. A running trip is a headless session working in an inspection tree; open it or wait for it to settle, and remove the tripwire after."
+    )]
+    TripRunning(String),
 }
 
 /// The floor a brief has to clear to be worth firing on.
@@ -262,6 +291,17 @@ fn brief_fault(brief: &str) -> Option<&'static str> {
 pub fn check_brief(name: &str, brief: &str) -> Result<(), TripwireLedgerError> {
     match brief_fault(brief) {
         Some(why) => Err(TripwireLedgerError::EmptyBrief(name.to_string(), why)),
+        None => Ok(()),
+    }
+}
+
+/// Refuse a description that tells a reader nothing. Called by every write
+/// path that sets one, on the same footing as [`check_brief`] and against the
+/// same placeholder floor: the point is to stop `--description d`, not to
+/// grade prose.
+pub fn check_description(name: &str, description: &str) -> Result<(), TripwireLedgerError> {
+    match brief_fault(description) {
+        Some(why) => Err(TripwireLedgerError::EmptyDescription(name.to_string(), why)),
         None => Ok(()),
     }
 }
@@ -365,6 +405,10 @@ pub struct Tripwire {
     pub branch: String,
     pub permission_mode: String,
     pub paused: bool,
+    /// The one sentence the Tripwires card shows in place of the brief
+    /// ([B01]): what this tripwire does and when it will speak, written for
+    /// the person reading the rail rather than for the model.
+    pub description: String,
 }
 
 impl Tripwire {
@@ -390,6 +434,8 @@ pub struct NewTripwire {
     pub model: Option<String>,
     pub branch: String,
     pub permission_mode: String,
+    /// The sentence the card shows ([B01]).
+    pub description: String,
 }
 
 impl NewTripwire {
@@ -397,11 +443,17 @@ impl NewTripwire {
     /// what to say about it. The branch is not among the defaults: there is no
     /// branch a tripwire could sensibly watch that a caller has not named ([P02]),
     /// so it is a parameter and [`lay`] refuses an empty one.
+    ///
+    /// The description is a parameter for the same reason. A tripwire nobody
+    /// can describe in a sentence is a tripwire nobody will recognise on the
+    /// card ([B02]), so it is asked for at the arming gesture rather than
+    /// defaulted to a blank the rail would then have to render.
     pub fn new(
         name: impl Into<String>,
         trigger: impl Into<String>,
         brief: impl Into<String>,
         branch: impl Into<String>,
+        description: impl Into<String>,
     ) -> Self {
         NewTripwire {
             name: name.into(),
@@ -412,6 +464,7 @@ impl NewTripwire {
             model: None,
             branch: branch.into(),
             permission_mode: "acceptEdits".to_string(),
+            description: description.into(),
         }
     }
 }
@@ -427,6 +480,10 @@ pub struct TripwireEdit {
     pub model: Option<Option<String>>,
     pub branch: Option<String>,
     pub permission_mode: Option<String>,
+    /// Settable, and deliberately not clearable: it is the line the card
+    /// leads with, and a tripwire that has lost it is one the rail cannot
+    /// name ([B02]).
+    pub description: Option<String>,
 }
 
 /// One firing, as the table holds it.
@@ -504,6 +561,10 @@ fn prepare(conn: &Connection) -> Result<(), TripwireLedgerError> {
     // stamped 0 and never enters the loop above at all.
     migrate_trips_arc_column(conn)?;
     migrate_tripwire_names(conn)?;
+    // The description column follows the rename, because it names the table
+    // by the name the rename gave it — and its backfill follows the column.
+    migrate_tripwire_description(conn)?;
+    backfill_descriptions(conn)?;
     // And the backfill follows the rename, because it reads the table by the
     // name the rename gave it.
     if on_disk > 0 && on_disk < TRIPWIRE_SCHEMA_VERSION {
@@ -627,6 +688,96 @@ fn backfill_branches(conn: &Connection) -> Result<(), TripwireLedgerError> {
     Ok(())
 }
 
+/// Give every row that predates v7 a description, since none of them carry one.
+///
+/// The first sentence of the brief, which is the only thing in the row that
+/// says what the tripwire is for. It is a placeholder and it is meant to be:
+/// the brief is written to the model as a question ([B01]), so its first
+/// sentence often reads as one, and the `/tripwire` skill writes a real
+/// description from here on. What it buys is a card that still names its rows
+/// on the next launch rather than showing a column of blanks ([B02]).
+///
+/// Unconditional, unlike [`backfill_branches`], because it costs one query
+/// against rows that have already been filled and because a pre-versioning
+/// ledger — stamped 0, never entering the migration loop — reaches it no
+/// other way. A row whose brief is itself empty keeps its empty description;
+/// there is nothing to make one out of, and inventing one would be worse.
+fn backfill_descriptions(conn: &Connection) -> Result<(), TripwireLedgerError> {
+    if !table_exists(conn, "tripwires")? {
+        return Ok(());
+    }
+    let mut stmt = conn.prepare("SELECT id, brief FROM tripwires WHERE description = ''")?;
+    let rows: Vec<(i64, String)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+    for (id, brief) in rows {
+        let description = first_sentence(&brief);
+        if description.is_empty() {
+            continue;
+        }
+        conn.execute(
+            "UPDATE tripwires SET description = ?1 WHERE id = ?2",
+            params![description, id],
+        )?;
+    }
+    Ok(())
+}
+
+/// How much of a brief the backfill will take. A brief with no sentence
+/// terminator in it at all is a whole prompt, and putting that on the card is
+/// the wall of text this column exists to retire.
+const DESCRIPTION_BACKFILL_CAP: usize = 200;
+
+/// The first sentence of `text`, capped, or the whole of it when it has no
+/// terminator. Cut on a word boundary and marked when it cut, so the reader
+/// can tell a sentence from a fragment.
+fn first_sentence(text: &str) -> String {
+    let trimmed = text.trim();
+    let mut end = trimmed.len();
+    let bytes = trimmed.as_bytes();
+    for (i, c) in trimmed.char_indices() {
+        if matches!(c, '.' | '!' | '?') {
+            let after = i + c.len_utf8();
+            if after == trimmed.len() || bytes[after].is_ascii_whitespace() {
+                end = after;
+                break;
+            }
+        }
+    }
+    let sentence = trimmed[..end].trim();
+    if sentence.chars().count() <= DESCRIPTION_BACKFILL_CAP {
+        return sentence.to_string();
+    }
+    let mut cut = sentence
+        .char_indices()
+        .nth(DESCRIPTION_BACKFILL_CAP)
+        .map_or(sentence.len(), |(i, _)| i);
+    if let Some(space) = sentence[..cut].rfind(char::is_whitespace) {
+        cut = space;
+    }
+    format!("{}…", sentence[..cut].trim_end())
+}
+
+/// Add the v7 description column when the table on disk does not carry one.
+///
+/// A probe rather than a statement in [`MIGRATE_V6_TO_V7`], for the reasons
+/// that constant gives: `ADD COLUMN` is not idempotent, and the migration list
+/// runs before the table is called `tripwires` at all. Runs before the DDL, so
+/// the create below finds the table in its current shape and leaves it alone,
+/// and does nothing on a fresh ledger where there is no table yet.
+fn migrate_tripwire_description(conn: &Connection) -> Result<(), TripwireLedgerError> {
+    if !table_exists(conn, "tripwires")? {
+        return Ok(());
+    }
+    let columns = columns_of(conn, "tripwires")?;
+    if columns.iter().any(|c| c == "description") {
+        return Ok(());
+    }
+    conn.execute_batch("ALTER TABLE tripwires ADD COLUMN description TEXT NOT NULL DEFAULT '';")?;
+    Ok(())
+}
+
 /// The default branch of the checkout at `path`, as git reports it, or `None`
 /// when the path is not a repository this build can ask.
 fn default_branch_of(path: &str) -> Option<String> {
@@ -662,7 +813,7 @@ fn default_branch_of(path: &str) -> Option<String> {
 // MARK: - Tripwires
 
 const TRIPWIRE_COLUMNS: &str = "id, name, created_at, trigger, scope, probe, brief, model, \
-                            permission_mode, paused, branch";
+                            permission_mode, paused, branch, description";
 
 fn tripwire_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Tripwire> {
     Ok(Tripwire {
@@ -677,6 +828,7 @@ fn tripwire_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Tripwire> {
         permission_mode: row.get(8)?,
         paused: row.get::<_, i64>(9)? != 0,
         branch: row.get(10)?,
+        description: row.get(11)?,
     })
 }
 
@@ -695,11 +847,12 @@ pub fn lay(
         return Err(TripwireLedgerError::MissingBranch(tripwire.name.clone()));
     }
     check_brief(&tripwire.name, &tripwire.brief)?;
+    check_description(&tripwire.name, &tripwire.description)?;
     let inserted = conn.execute(
         "INSERT OR IGNORE INTO tripwires
            (name, created_at, trigger, scope, probe, brief, model, permission_mode, paused,
-            branch)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9)",
+            branch, description)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10)",
         params![
             tripwire.name,
             now_ms,
@@ -710,6 +863,7 @@ pub fn lay(
             tripwire.model,
             tripwire.permission_mode,
             tripwire.branch.trim(),
+            tripwire.description.trim(),
         ],
     )?;
     if inserted == 0 {
@@ -792,6 +946,10 @@ pub fn update(
     if let Some(v) = &edit.permission_mode {
         set("permission_mode", Value::Text(v.clone()))?;
     }
+    if let Some(v) = &edit.description {
+        check_description(name, v)?;
+        set("description", Value::Text(v.trim().to_string()))?;
+    }
     get(conn, name)?.ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()))
 }
 
@@ -812,13 +970,71 @@ pub fn set_paused(
     get(conn, name)?.ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()))
 }
 
-/// Remove a tripwire and, by cascade, its trips.
+/// Remove a tripwire and, by cascade, its trips — unless one of them is
+/// running.
+///
+/// **The guard and the `DELETE` are one statement, and that is the whole of
+/// the concurrency story here** ([B07]). A running trip is a headless session
+/// working in an inspection tree against a row that is about to vanish under
+/// it, and the two doors that remove a tripwire — the card and
+/// `tugtool tripwire rm` — are separate processes that can reach for the same
+/// row at the same time. A read followed by a delete would leave a window
+/// between them wide enough for a claim to land in; `NOT EXISTS` closes it,
+/// at the cost of one read afterwards to say *why* nothing moved.
+///
+/// What the engine would do if a row did vanish under it is a separate
+/// question, and the answer is that it is already harmless: every settle path
+/// — [`settle`], [`settle_if_running`], [`adopt_if_running`],
+/// [`requeue_if_running`] — is an `UPDATE … WHERE id = ?`, which matches
+/// nothing and reports no error. The compare-and-set ones answer `false`,
+/// which their callers already read as "somebody else had the row". So the
+/// guard is not here to stop a crash; it is here to stop a run's *arc* being
+/// orphaned, which nothing else would notice.
+///
+/// An `awaiting` or `adopted` trip is deliberately not guarded: it holds an
+/// arc, and discarding that arc before the delete is
+/// `tugarc_core::tripwire_remove`'s job, which is the caller this refusal is
+/// written for.
 pub fn remove(conn: &Connection, name: &str) -> Result<(), TripwireLedgerError> {
-    let removed = conn.execute("DELETE FROM tripwires WHERE name = ?1", params![name])?;
+    let removed = conn.execute(
+        "DELETE FROM tripwires
+           WHERE name = ?1
+             AND NOT EXISTS (
+                 SELECT 1 FROM trips
+                  WHERE trips.tripwire_id = tripwires.id AND trips.status = 'running'
+             )",
+        params![name],
+    )?;
     if removed == 0 {
+        // Nothing moved for one of two reasons, and the reader wants
+        // different words for each. The row still being there is the
+        // refusal; the row being gone is a name that was never here.
+        if get(conn, name)?.is_some() {
+            return Err(TripwireLedgerError::TripRunning(name.to_string()));
+        }
         return Err(TripwireLedgerError::NoSuchTripwire(name.to_string()));
     }
     Ok(())
+}
+
+/// The tripwire's running trip, when it has one.
+///
+/// The read [`remove`]'s caller takes *before* it discards anything: a
+/// tripwire that is going to refuse the delete must not first have its
+/// adopted trip's arc thrown away. `remove`'s own `NOT EXISTS` is the
+/// backstop for the race this read cannot close; this is the ordering.
+pub fn running_trip(
+    conn: &Connection,
+    tripwire_id: i64,
+) -> Result<Option<Trip>, TripwireLedgerError> {
+    let sql = format!(
+        "SELECT {TRIP_COLUMNS} FROM trips
+         WHERE tripwire_id = ?1 AND status = 'running'
+         ORDER BY at_ms DESC, id DESC LIMIT 1"
+    );
+    Ok(conn
+        .query_row(&sql, params![tripwire_id], trip_from_row)
+        .optional()?)
 }
 
 // MARK: - Trips
@@ -1620,6 +1836,7 @@ mod tests {
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "diagnose the failure and propose a fix",
                 "main",
+                "Says what broke when an edit fails on main",
             ),
             1_000,
         )
@@ -1862,7 +2079,11 @@ mod tests {
     #[test]
     fn a_fresh_ledger_and_a_migrated_one_have_the_same_shape() {
         let fresh = ledger();
-        for (from, migrated) in [("v1", v1_ledger()), ("v5", v5_ledger())] {
+        for (from, migrated) in [
+            ("v1", v1_ledger()),
+            ("v5", v5_ledger()),
+            ("v6", v6_ledger()),
+        ] {
             prepare(&migrated).unwrap();
             for table in ["tripwires", "trips", "settings", "tripwire_marks"] {
                 assert_eq!(
@@ -1946,6 +2167,185 @@ mod tests {
         .unwrap();
         conn.pragma_update(None, "user_version", 5).unwrap();
         conn
+    }
+
+    /// The v6 DDL, verbatim — the shape after the rename and before the
+    /// description column, and what is on disk on any machine that laid a
+    /// tripwire between the two.
+    const V6_LEDGER_SQL: &str = "
+        CREATE TABLE tripwires (
+            id              INTEGER PRIMARY KEY,
+            name            TEXT    NOT NULL UNIQUE,
+            created_at      INTEGER NOT NULL,
+            trigger         TEXT    NOT NULL,
+            scope           TEXT,
+            probe           TEXT,
+            brief           TEXT    NOT NULL,
+            model           TEXT,
+            permission_mode TEXT    NOT NULL DEFAULT 'acceptEdits',
+            paused          INTEGER NOT NULL DEFAULT 0,
+            branch          TEXT    NOT NULL DEFAULT ''
+        );
+        CREATE TABLE trips (
+            id             INTEGER PRIMARY KEY,
+            tripwire_id    INTEGER NOT NULL REFERENCES tripwires(id) ON DELETE CASCADE,
+            event_key      TEXT    NOT NULL,
+            at_ms          INTEGER NOT NULL,
+            instance       TEXT    NOT NULL,
+            status         TEXT    NOT NULL,
+            swallow_reason TEXT,
+            event_payload  TEXT,
+            probe_exit     INTEGER,
+            probe_tail     TEXT,
+            session_id     TEXT,
+            arc            TEXT,
+            headline       TEXT,
+            refs           TEXT,
+            settled_at_ms  INTEGER,
+            author_ask     TEXT,
+            UNIQUE(tripwire_id, event_key)
+        );
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE tripwire_marks (
+            tripwire_id    INTEGER NOT NULL REFERENCES tripwires(id) ON DELETE CASCADE,
+            session_id     TEXT    NOT NULL,
+            max_fact_rowid INTEGER NOT NULL,
+            PRIMARY KEY (tripwire_id, session_id)
+        );
+        CREATE INDEX trips_by_tripwire ON trips (tripwire_id, id);
+        CREATE INDEX trips_by_status ON trips (status);
+    ";
+
+    /// A ledger as v6 left it, with two tripwires — one whose brief ends its
+    /// first sentence and one that is a single unterminated line — stamped so
+    /// the next open sends it through the v6 → v7 migration.
+    fn v6_ledger() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(V6_LEDGER_SQL).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tripwires (name, created_at, trigger, brief, branch)
+             VALUES
+                ('ci', 1, '{\"fact\":{\"kind\":\"edit_failed\"}}',
+                 'Did the landing break the suite? Say which check went red and whether this landing is what broke it.',
+                 'main'),
+                ('edits', 2, '{\"fact\":{\"kind\":\"edit_failed\"}}',
+                 'report anything that looks wrong',
+                 'main');
+             INSERT INTO trips (tripwire_id, event_key, at_ms, instance, status, headline)
+             VALUES (1, 'landing:abc', 10, 'inst-a', 'settled', 'looked');",
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 6).unwrap();
+        conn
+    }
+
+    /// **A migrated row arrives with a description, and it is the brief's
+    /// first sentence.**
+    ///
+    /// The column's default is empty and the card leads with it ([B04]), so a
+    /// migration that only added the column would put a row of blanks on the
+    /// rail at the next launch. The backfill is a placeholder by design
+    /// ([B02]) — what it has to be is *something a reader recognises the row
+    /// by*, which is why it is asserted as the sentence rather than as
+    /// non-empty.
+    #[test]
+    fn a_v6_ledger_gains_a_description_backfilled_from_the_brief() {
+        let conn = v6_ledger();
+        prepare(&conn).unwrap();
+
+        let stamped: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stamped, TRIPWIRE_SCHEMA_VERSION);
+
+        let ci = get(&conn, "ci").unwrap().unwrap();
+        assert_eq!(
+            ci.description, "Did the landing break the suite?",
+            "the first sentence, and not the rest of the prompt behind it"
+        );
+        let edits = get(&conn, "edits").unwrap().unwrap();
+        assert_eq!(
+            edits.description, "report anything that looks wrong",
+            "a brief with no terminator is one sentence, whole"
+        );
+        assert_eq!(
+            ci.brief.lines().count(),
+            1,
+            "the brief is left exactly where it was"
+        );
+
+        // The trip the tripwire earned is still hanging off it: `ADD COLUMN`
+        // rewrites no rows, and a migration that lost the log would be a
+        // migration nobody could tell had run.
+        assert_eq!(trips_for_tripwire(&conn, ci.id, 10).unwrap().len(), 1);
+
+        // Twice is once: the probe finds the column and the backfill finds
+        // nothing left to fill.
+        prepare(&conn).unwrap();
+        assert_eq!(
+            get(&conn, "ci").unwrap().unwrap().description,
+            "Did the landing break the suite?"
+        );
+    }
+
+    /// **A description that says nothing is refused at the arming gesture.**
+    ///
+    /// The same [B07] posture as the brief's guard, for a different reader: a
+    /// description is the only thing the card has to tell one row from
+    /// another ([B02]), and a row laid with `--description d` is a row nobody
+    /// will recognise. Refused where it is cheap to fix rather than found on
+    /// the rail weeks later.
+    #[test]
+    fn a_description_that_says_nothing_is_refused_when_a_tripwire_is_laid() {
+        let conn = ledger();
+        for placeholder in ["", "   ", "d"] {
+            let tripwire = NewTripwire::new(
+                "w",
+                r#"{"fact":{"kind":"shell"}}"#,
+                "Flag anything red.",
+                "main",
+                placeholder,
+            );
+            assert!(
+                matches!(
+                    lay(&conn, &tripwire, 1),
+                    Err(TripwireLedgerError::EmptyDescription(n, _)) if n == "w"
+                ),
+                "`{placeholder}` was accepted as a description"
+            );
+        }
+
+        // And the same guard on the other door, so an edit cannot blank what
+        // the lay insisted on.
+        let real = lay(
+            &conn,
+            &NewTripwire::new(
+                "w",
+                r#"{"fact":{"kind":"shell"}}"#,
+                "Flag anything red.",
+                "main",
+                "Flags a red shell fact on main",
+            ),
+            1,
+        )
+        .unwrap();
+        assert_eq!(real.description, "Flags a red shell fact on main");
+        assert!(matches!(
+            update(
+                &conn,
+                "w",
+                &TripwireEdit {
+                    description: Some("  ".to_string()),
+                    ..Default::default()
+                },
+            ),
+            Err(TripwireLedgerError::EmptyDescription(_, _))
+        ));
+        assert_eq!(
+            get(&conn, "w").unwrap().unwrap().description,
+            "Flags a red shell fact on main",
+            "a refused edit moves nothing"
+        );
     }
 
     /// Every index somebody named, in name order. The autoindexes SQLite mints
@@ -2095,6 +2495,7 @@ mod tests {
                 r#"{"fact":{"kind":"shell"}}"#,
                 "report anything that looks wrong",
                 "main",
+                "Watches shell facts on main and reports what looks wrong",
             ),
             2_000,
         );
@@ -2150,7 +2551,13 @@ mod tests {
     #[test]
     fn a_brief_that_says_nothing_is_refused_at_both_arming_gestures() {
         let conn = ledger();
-        let placeholder = NewTripwire::new("w", r#"{"fact":{"kind":"shell"}}"#, "b", "main");
+        let placeholder = NewTripwire::new(
+            "w",
+            r#"{"fact":{"kind":"shell"}}"#,
+            "b",
+            "main",
+            "Watches shell facts on main",
+        );
         assert!(matches!(
             lay(&conn, &placeholder, 1),
             Err(TripwireLedgerError::EmptyBrief(n, _)) if n == "w"
@@ -2158,7 +2565,13 @@ mod tests {
         assert!(matches!(
             lay(
                 &conn,
-                &NewTripwire::new("w", r#"{"fact":{"kind":"shell"}}"#, "   ", "main"),
+                &NewTripwire::new(
+                    "w",
+                    r#"{"fact":{"kind":"shell"}}"#,
+                    "   ",
+                    "main",
+                    "Watches shell facts on main",
+                ),
                 1
             ),
             Err(TripwireLedgerError::EmptyBrief(_, _))
@@ -2173,6 +2586,7 @@ mod tests {
                 r#"{"fact":{"kind":"shell"}}"#,
                 "Flag anything red.",
                 "main",
+                "Flags a red shell fact on main",
             ),
             1,
         )
@@ -2207,6 +2621,7 @@ mod tests {
             r#"{"fact":{"kind":"edit_failed"}}"#,
             "diagnose the failure and propose a fix",
             "   ",
+            "Says what broke when an edit fails",
         );
         assert!(matches!(
             lay(&conn, &tripwire, 1),
@@ -2264,6 +2679,53 @@ mod tests {
             remove(&conn, "w"),
             Err(TripwireLedgerError::NoSuchTripwire(_))
         ));
+    }
+
+    /// **A running trip refuses the delete, in one statement.**
+    ///
+    /// The refusal and the `DELETE` are one `NOT EXISTS`, because the two
+    /// doors that remove a tripwire are separate processes and a read followed
+    /// by a delete leaves a window a claim can land in. What the guard is
+    /// protecting is the run's *arc*: the settle paths survive a vanished row
+    /// on their own, and an orphaned worktree is the thing nothing else would
+    /// notice.
+    #[test]
+    fn a_running_trip_refuses_the_delete_and_a_settled_one_does_not() {
+        let conn = ledger();
+        let w = lay_one(&conn, "w");
+        let Claim::Claimed { trip_id } = claim_trip(&conn, w.id, "e1", 1, "inst", None).unwrap()
+        else {
+            panic!("the claim is uncontested");
+        };
+        record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-w-abcd1234")).unwrap();
+
+        assert!(matches!(
+            remove(&conn, "w"),
+            Err(TripwireLedgerError::TripRunning(n)) if n == "w"
+        ));
+        assert!(
+            get(&conn, "w").unwrap().is_some(),
+            "a refused delete moves nothing"
+        );
+        assert_eq!(
+            running_trip(&conn, w.id).unwrap().map(|t| t.id),
+            Some(trip_id)
+        );
+
+        // An `awaiting` trip is not guarded here: it holds an arc, and
+        // discarding that arc before the delete belongs to the caller that
+        // knows how — `tugarc_core::tripwire_remove`.
+        settle(
+            &conn,
+            trip_id,
+            TripStatus::Awaiting,
+            &Settlement::default(),
+            2,
+        )
+        .unwrap();
+        assert_eq!(running_trip(&conn, w.id).unwrap(), None);
+        remove(&conn, "w").unwrap();
+        assert!(get(&conn, "w").unwrap().is_none());
     }
 
     /// The whole of the arbitration between two instances that saw one event.
@@ -2699,6 +3161,7 @@ mod tests {
                 r#"{"portent":{"omen":"raven"}}"#,
                 "diagnose the failure and propose a fix",
                 "main",
+                "Reads a trigger this build does not know",
             ),
             1,
         )

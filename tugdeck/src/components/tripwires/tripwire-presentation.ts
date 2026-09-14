@@ -323,18 +323,31 @@ export function describePermissions(mode: string): string {
   }
 }
 
+/** What the card calls the description row. A plain word the reader does not
+ *  have to decode, over a sentence written for them rather than for the model
+ *  ([B04]). */
+export const DESCRIPTION_ROW_LABEL = "What it does";
+
 /**
  * The tripwire's definition, as the rows the detail level leads with.
  *
  * A trip log with no statement of what the tripwire is watching for is a list
  * of answers to an unasked question — this is the question.
  *
- * Every row's `value` is the whole of what it says. `clamp` marks the one row
- * that is paragraphs rather than a phrase — the brief — so the surface can put
- * it behind a two-line clamp with its own reveal. It is never a hover: a brief
- * is the whole instruction a trip runs on, and a tooltip carrying paragraphs is
- * a wall of text nobody asked for ([B05]). `mono` marks the rows that are read
- * character by character.
+ * It leads with the description — one sentence, written for the person reading
+ * the rail, saying what this tripwire does and when it will speak ([B04]).
+ *
+ * **The brief is not here, and its absence is the decision** ([B03]). The brief
+ * is the prompt a trip runs on: it is addressed to the model, it runs to
+ * hundreds of words, and printing it here filled the card with instructions
+ * nobody on this surface is the reader of. It stays in the ledger, in the
+ * roster projection and in `tugtool tripwire list --json`, which is where the
+ * `/tripwire` skill reads it during revision. No clamp, no tooltip, no
+ * secondary reveal — every one of those is the same wall of text one gesture
+ * further away.
+ *
+ * Every row's `value` is the whole of what it says, and `mono` marks the rows
+ * that are read character by character.
  */
 export function tripwireDefinition(
   tripwire: TripwireRow,
@@ -342,15 +355,62 @@ export function tripwireDefinition(
   readonly label: string;
   readonly value: string;
   readonly mono?: boolean;
-  readonly clamp?: boolean;
 }[] {
   return [
+    { label: DESCRIPTION_ROW_LABEL, value: tripwire.description.trim() },
     { label: "Watches for", value: describeTrigger(tripwire.trigger) },
     { label: "Lands on", value: tripwire.branch, mono: true },
     { label: "In", value: describeScope(tripwire.scope) },
     { label: "Runs first", value: describeProbe(tripwire.probe), mono: tripwire.probe !== null },
-    { label: "Asks the AI to", value: tripwire.brief.trim(), clamp: true },
     { label: "Model", value: tripwire.model ?? SESSION_DEFAULT_MODEL },
     { label: "Permissions", value: describePermissions(tripwire.permission_mode) },
   ];
+}
+
+/**
+ * Why Delete is unavailable on this tripwire, or null when it is available.
+ *
+ * One rule, and it is the ledger's: a tripwire with a **running** trip cannot
+ * be removed, because a headless session is working in an inspection tree
+ * against it and the row going away would leave that work with nothing to
+ * answer to ([B07]). An **awaiting** trip is not a refusal — the removal
+ * dismisses it first, discarding the arc it is holding through the path that
+ * already knows how, which is what the confirm below says out loud.
+ */
+export function deleteDisabledReason(tripwire: TripwireRow): string | null {
+  return tripwire.running ? "a trip is running" : null;
+}
+
+/**
+ * The Delete item's label, carrying its own refusal when it has one.
+ *
+ * A disabled item takes no pointer events, so a tooltip on one can never fire
+ * ([L31]); the reason rides the label the way the arc row's menu states its
+ * own, and the item stays present rather than vanishing.
+ */
+export function deleteMenuLabel(tripwire: TripwireRow): string {
+  const reason = deleteDisabledReason(tripwire);
+  return reason === null ? "Delete" : `Delete — ${reason}`;
+}
+
+/**
+ * What the confirm asks, naming the tripwire and everything that goes with it.
+ *
+ * The trip log always goes: the trips hang off the row and cascade with it. An
+ * arc a live trip is holding is the second sentence's worth of consequence,
+ * and it is stated because a reader who is about to lose a worktree is
+ * entitled to read that before pressing Delete rather than after ([B06]).
+ *
+ * **Awaiting or adopted, either holds one.** The removal runs the same dismiss
+ * for both — an adopted trip's arc is discarded exactly as an awaiting one's
+ * is — so a sentence that named only the awaiting case would destroy a
+ * worktree it never mentioned, on the row where the user is most likely to
+ * have one open.
+ */
+export function deleteConfirmMessage(tripwire: TripwireRow): string {
+  const arc =
+    (tripwire.awaiting ? tripwire.awaiting_arc : null) ??
+    (tripwire.adopted ? tripwire.adopted_arc : null);
+  const held = arc === null ? "" : ", and the arc it is holding is discarded";
+  return `Delete ${tripwire.name}? Its trip log goes with it${held}.`;
 }

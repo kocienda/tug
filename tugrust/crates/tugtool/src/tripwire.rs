@@ -16,6 +16,7 @@ use std::process::ExitCode;
 use serde::Serialize;
 
 use tugarc_core::tripwire_dismiss::DismissRefusal;
+use tugarc_core::tripwire_remove::RemoveRefusal;
 use tugtool_core::tripwire_ledger::{
     self as ledger, NewTripwire, Resolution, Settlement, TripStatus, Tripwire, TripwireEdit,
     TripwireLedgerError,
@@ -38,6 +39,7 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
             scope,
             probe,
             brief,
+            description,
             model,
             permission_mode,
             preview,
@@ -50,6 +52,7 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
                 scope,
                 probe,
                 brief,
+                description,
                 model,
                 permission_mode,
             },
@@ -66,6 +69,7 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
             branch,
             probe,
             brief,
+            description,
             model,
             permission_mode,
             clear,
@@ -79,6 +83,7 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
                 branch,
                 probe,
                 brief,
+                description,
                 model,
                 permission_mode,
                 clear,
@@ -274,6 +279,7 @@ struct LayArgs {
     scope: Option<String>,
     probe: Option<String>,
     brief: String,
+    description: String,
     model: Option<String>,
     permission_mode: Option<String>,
 }
@@ -284,7 +290,13 @@ fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), 
     let scope = args.scope.as_deref().map(canonical_scope);
     let branch = resolve_branch(args.branch.as_deref(), scope.as_deref())?;
 
-    let mut tripwire = NewTripwire::new(&args.name, &trigger, read_brief(&args.brief)?, branch);
+    let mut tripwire = NewTripwire::new(
+        &args.name,
+        &trigger,
+        read_brief(&args.brief)?,
+        branch,
+        args.description.trim(),
+    );
     tripwire.scope = scope;
     tripwire.probe = args.probe;
     tripwire.model = args.model;
@@ -301,6 +313,7 @@ fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), 
     // that showed a tripwire the lay would refuse would be a preview of
     // something that cannot happen.
     ledger::check_brief(&tripwire.name, &tripwire.brief).map_err(|e| e.to_string())?;
+    ledger::check_description(&tripwire.name, &tripwire.description).map_err(|e| e.to_string())?;
     if preview {
         let payload = TripwirePayload::preview(&tripwire);
         if json {
@@ -367,6 +380,7 @@ struct EditArgs {
     branch: Option<String>,
     probe: Option<String>,
     brief: Option<String>,
+    description: Option<String>,
     model: Option<String>,
     permission_mode: Option<String>,
     clear: Vec<String>,
@@ -396,6 +410,14 @@ fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<()
         ledger::check_brief(&args.name, &text).map_err(|e| e.to_string())?;
         edit.brief = Some(text);
     }
+    // Checked here as well as in the ledger, so a `--preview` that would be
+    // refused says so rather than echoing a change that cannot happen — the
+    // same reason the brief is checked before the preview branch in `lay`.
+    if let Some(description) = &args.description {
+        let text = description.trim().to_string();
+        ledger::check_description(&args.name, &text).map_err(|e| e.to_string())?;
+        edit.description = Some(text);
+    }
     if let Some(model) = args.model {
         edit.model = Some(Some(model));
     }
@@ -419,7 +441,7 @@ fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<()
             "model" => edit.model = Some(None),
             other => {
                 return Err(format!(
-                    "`{other}` is not a clearable column — scope, probe, or model"
+                    "`{other}` is not a clearable column — scope, probe, or model. A description is not among them: it is the line the Tripwires card leads with, so a tripwire that lost it would be one the rail cannot name."
                 ));
             }
         }
@@ -449,20 +471,44 @@ fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<()
     Ok(())
 }
 
+/// Remove a tripwire through the operation the card removes through ([B07]).
+///
+/// Not `ledger::remove` directly: the rule that a running trip refuses the
+/// removal, and that an awaiting or adopted trip's arc is discarded rather
+/// than orphaned by the cascade, has to be the same rule at both doors, and
+/// `tugarc_core::tripwire_remove` is where it lives once.
 fn run_rm(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     let conn = open()?;
-    ledger::remove(&conn, name).map_err(|e| e.to_string())?;
+    let tripwire = ledger::get(&conn, name)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()).to_string())?;
+    let removed = match tugarc_core::tripwire_remove::remove(&conn, &tripwire, now_ms()) {
+        Ok(removed) => removed,
+        Err(RemoveRefusal::TripRunning) => {
+            return Err(format!(
+                "tripwire {name} has a trip running, so it cannot be removed — a headless session is working in an inspection tree. Open it or wait for it to settle, then remove the tripwire."
+            ));
+        }
+        Err(RemoveRefusal::Ledger(e)) => return Err(e.to_string()),
+    };
+    let payload = RemovedPayload {
+        tripwire: name.to_string(),
+        removed: true,
+        arc: removed.arc.clone(),
+        discarded: removed.discarded,
+        discard_error: removed.discard_error.clone(),
+    };
     bump_live_instance();
     if json {
-        print_ok(
-            "tripwire rm",
-            &RemovedPayload {
-                tripwire: name.to_string(),
-                removed: true,
-            },
-        );
+        print_ok("tripwire rm", &payload);
     } else if !quiet {
         println!("removed tripwire {name} and its trip log");
+        match (&removed.arc, &removed.discard_error) {
+            (Some(arc), None) if removed.discarded => println!("  discarded arc {arc}"),
+            (Some(arc), Some(why)) => println!("  arc {arc} is still standing: {why}"),
+            (Some(arc), None) => println!("  arc {arc} is still standing"),
+            (None, _) => {}
+        }
     }
     Ok(())
 }
@@ -748,6 +794,7 @@ struct TripwirePayload {
     scope: Option<String>,
     probe: Option<String>,
     brief: String,
+    description: String,
     model: Option<String>,
     branch: String,
     permission_mode: String,
@@ -762,6 +809,7 @@ impl TripwirePayload {
             scope: tripwire.scope.clone(),
             probe: tripwire.probe.clone(),
             brief: tripwire.brief.clone(),
+            description: tripwire.description.clone(),
             model: tripwire.model.clone(),
             branch: tripwire.branch.clone(),
             permission_mode: tripwire.permission_mode.clone(),
@@ -778,6 +826,7 @@ impl TripwirePayload {
             scope: tripwire.scope.clone(),
             probe: tripwire.probe.clone(),
             brief: tripwire.brief.clone(),
+            description: tripwire.description.clone(),
             model: tripwire.model.clone(),
             branch: tripwire.branch.clone(),
             permission_mode: tripwire.permission_mode.clone(),
@@ -787,6 +836,7 @@ impl TripwirePayload {
 
     fn print(&self, verb: &str) {
         println!("{verb} tripwire {}", self.name);
+        println!("  what:     {}", self.description);
         println!("  on:       {}", self.trigger);
         println!(
             "  scope:    {}",
@@ -823,6 +873,9 @@ impl EditPreview {
         if let Some(v) = &edit.brief {
             set("brief", Some(v.clone()));
         }
+        if let Some(v) = &edit.description {
+            set("description", Some(v.clone()));
+        }
         if let Some(v) = &edit.model {
             set("model", v.clone());
         }
@@ -853,6 +906,11 @@ impl EditPreview {
 struct RemovedPayload {
     tripwire: String,
     removed: bool,
+    /// The arc a finished run was holding, discarded on the way out rather
+    /// than orphaned by the cascade.
+    arc: Option<String>,
+    discarded: bool,
+    discard_error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -990,6 +1048,7 @@ mod tests {
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "report anything that looks wrong",
                 "main",
+                "Reports anything that looks wrong on main",
             ),
             1,
         )

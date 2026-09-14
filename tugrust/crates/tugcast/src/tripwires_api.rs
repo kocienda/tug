@@ -38,6 +38,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::warn;
 use tugarc_core::tripwire_dismiss::DismissRefusal;
+use tugarc_core::tripwire_remove::RemoveRefusal;
 use tugtool_core::tripwire_ledger::{self as ledger, TripwireEdit, TripwireLedgerError};
 use tugtool_core::tripwire_roster;
 
@@ -264,6 +265,59 @@ fn dismiss_tripwire(db_path: &std::path::Path, name: &str) -> (StatusCode, Value
     }
 }
 
+/// Spec S04. The shared removal of `tugarc_core::tripwire_remove`, which
+/// `tugtool tripwire rm` runs too ([B07]).
+///
+/// One operation rather than a `DELETE` here and a `DELETE` there, because the
+/// rule it carries is not a matter of taste: a tripwire whose trip is running
+/// cannot be removed, and one holding a finished run's arc has that arc
+/// discarded on the way out rather than orphaned by the cascade. Two spellings
+/// of that is how the card and the terminal come to disagree about what
+/// removing a tripwire means.
+fn remove_tripwire(db_path: &std::path::Path, name: &str) -> (StatusCode, Value) {
+    let conn = match ledger::open_ledger(db_path) {
+        Ok(conn) => conn,
+        Err(e) => return ledger_error("remove", e),
+    };
+    let tripwire = match ledger::get(&conn, name) {
+        Ok(Some(tripwire)) => tripwire,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                json!({ "error": "no_such_tripwire" }),
+            );
+        }
+        Err(e) => return ledger_error("remove", e),
+    };
+    let now_ms = crate::session_ledger::now_millis();
+    match tugarc_core::tripwire_remove::remove(&conn, &tripwire, now_ms) {
+        // A discard that failed is a 200 carrying its reason, for the same
+        // reason a dismissal's is: the tripwire is gone whatever happened
+        // next, and an arc left standing is a fact somebody has to be told.
+        Ok(removed) => {
+            crate::feeds::tripwires::bump();
+            (
+                StatusCode::OK,
+                json!({
+                    "tripwire": tripwire.name,
+                    "removed": true,
+                    "arc": removed.arc,
+                    "discarded": removed.discarded,
+                    "discard_error": removed.discard_error,
+                }),
+            )
+        }
+        // A conflict rather than a forbidden: the state refuses it, not the
+        // caller, and the same request a moment later will succeed. The card
+        // states this refusal in the menu item's own label so it is rarely
+        // reached, but a race between two doors reaches it.
+        Err(RemoveRefusal::TripRunning) => {
+            (StatusCode::CONFLICT, json!({ "error": "trip_running" }))
+        }
+        Err(RemoveRefusal::Ledger(e)) => ledger_error("remove", e),
+    }
+}
+
 fn ledger_error(route: &str, err: TripwireLedgerError) -> (StatusCode, Value) {
     warn!(error = %err, "tripwires: {route} failed");
     (
@@ -365,6 +419,17 @@ pub(crate) async fn post_tripwire_dismiss(
     finish(tokio::task::spawn_blocking(move || dismiss_tripwire(&db_path(), &name)).await)
 }
 
+/// `DELETE /api/tripwires/{name}`. Restricted to loopback. Empty body.
+pub(crate) async fn delete_tripwire(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Path(name): Path<String>,
+) -> Response {
+    if let Some(denied) = deny_non_loopback(&addr, "delete_tripwire") {
+        return denied;
+    }
+    finish(tokio::task::spawn_blocking(move || remove_tripwire(&db_path(), &name)).await)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -390,6 +455,7 @@ mod tests {
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "report anything that looks wrong",
                 "main",
+                "Reports anything that looks wrong on main",
             ),
             1,
         )
@@ -635,5 +701,117 @@ mod tests {
         );
         assert_eq!(body["tripwire"]["paused"], false);
         assert!(body["tripwire"]["model"].is_null());
+    }
+
+    /// **The removal's three answers, and the one that is not a removal.**
+    ///
+    /// A quiet tripwire goes with its trip log; a running trip refuses with a
+    /// conflict rather than a forbidden, because it is the state that says no
+    /// and the same request a moment later succeeds; and a name nothing
+    /// answers to is a 404 the card can tell from either.
+    #[test]
+    fn removing_a_tripwire_answers_for_each_state_it_can_be_in() {
+        let (_dir, path) = scratch();
+        lay(&path, "ci");
+        lay(&path, "other");
+
+        let trip_id = {
+            let conn = ledger::open_ledger(&path).unwrap();
+            let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
+            let ledger::Claim::Claimed { trip_id } =
+                ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
+            else {
+                panic!("the claim is uncontested");
+            };
+            ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
+            trip_id
+        };
+
+        let (status, body) = remove_tripwire(&path, "ci");
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["error"], "trip_running");
+        let conn = ledger::open_ledger(&path).unwrap();
+        assert!(
+            ledger::get(&conn, "ci").unwrap().is_some(),
+            "a refused removal leaves the row standing"
+        );
+        drop(conn);
+
+        let (status, body) = remove_tripwire(&path, "nothing");
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], "no_such_tripwire");
+
+        let (status, body) = remove_tripwire(&path, "other");
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["removed"], true);
+        assert!(body["arc"].is_null(), "nothing was held: {body}");
+        let conn = ledger::open_ledger(&path).unwrap();
+        assert!(ledger::get(&conn, "other").unwrap().is_none());
+        assert_eq!(
+            ledger::trip(&conn, trip_id).unwrap().unwrap().status,
+            "running",
+            "and the other tripwire's trip is untouched"
+        );
+    }
+
+    /// **An arc that could not be discarded is a 200 carrying its reason.**
+    ///
+    /// The same rule a dismissal runs under: the tripwire is gone whatever
+    /// happened next, so raising a 500 would take the successful removal away
+    /// from the caller in order to report the arc. It is reported instead.
+    #[test]
+    fn an_arc_that_could_not_be_discarded_is_reported_rather_than_raised() {
+        let (_dir, path) = scratch();
+        lay(&path, "ci");
+        {
+            let conn = ledger::open_ledger(&path).unwrap();
+            let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
+            let ledger::Claim::Claimed { trip_id } =
+                ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
+            else {
+                panic!("the claim is uncontested");
+            };
+            ledger::record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-ci-abcd1234"))
+                .unwrap();
+            ledger::settle(
+                &conn,
+                trip_id,
+                TripStatus::Awaiting,
+                &ledger::Settlement::default(),
+                20,
+            )
+            .unwrap();
+        }
+
+        // The trip names no repository and the tripwire has no scope, so there
+        // is no checkout the arc could be removed from.
+        let (status, body) = remove_tripwire(&path, "ci");
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["arc"], "tripwire-ci-abcd1234");
+        assert_eq!(body["discarded"], false);
+        assert!(
+            body["discard_error"].is_string(),
+            "a discard that failed says why: {body}"
+        );
+        let conn = ledger::open_ledger(&path).unwrap();
+        assert!(
+            ledger::get(&conn, "ci").unwrap().is_none(),
+            "and the tripwire is removed regardless"
+        );
+    }
+
+    /// The description rides the projection the card reads, beside the brief
+    /// the card does not render ([B01], [B03]).
+    #[test]
+    fn the_list_carries_the_description_and_the_brief_both() {
+        let (_dir, path) = scratch();
+        lay(&path, "ci");
+        let (_, body) = list_tripwires(&path);
+        let tripwire = &body["tripwires"][0];
+        assert_eq!(
+            tripwire["description"],
+            "Reports anything that looks wrong on main"
+        );
+        assert_eq!(tripwire["brief"], "report anything that looks wrong");
     }
 }

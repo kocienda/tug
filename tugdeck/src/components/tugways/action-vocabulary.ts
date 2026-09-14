@@ -1203,12 +1203,24 @@ export const TUG_ACTIONS = {
   //                        trips run under, by name, written with
   //                        `setKnobs({ model })`. The session default is its
   //                        own item on the popup and writes `null`.
+  // DELETE_TRIPWIRE:       payload — none. Arms the card's one confirm popover
+  //                        rather than deleting: the item names the tripwire
+  //                        the row is, and the popover names what goes with it
+  //                        — the trip log, and the arc an awaiting trip is
+  //                        holding. Spelled without the `REQUEST_` the arc
+  //                        row's discard carries because the doctrine and the
+  //                        card both call the verb Delete, and the arming is
+  //                        what the item does rather than what it is.
+  //                        Disabled, with the reason in its label, while a
+  //                        trip is running: that refusal is the ledger's, and
+  //                        the CLI states the same one.
   PAUSE_TRIPWIRE:        "pause-tripwire",
   RESUME_TRIPWIRE:       "resume-tripwire",
   TRIP_TRIPWIRE:         "trip-tripwire",
   RELEASE_TRIPWIRE:      "release-tripwire",
   OPEN_TRIPWIRE_SESSION: "open-tripwire-session",
   SET_TRIPWIRE_MODEL:    "set-tripwire-model",
+  DELETE_TRIPWIRE:       "delete-tripwire",
 
   // ---- Meta ----
   //

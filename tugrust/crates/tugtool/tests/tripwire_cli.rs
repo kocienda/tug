@@ -75,6 +75,8 @@ fn a_tripwire_lays_and_reads_back_as_the_spec_s01_json_it_compiled_to() {
             "tugedit",
             "--on",
             "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure",
         ],
@@ -112,6 +114,8 @@ fn the_where_spellings_compile_into_the_stored_trigger() {
             "route=claude",
             "--where",
             "command~=file edit",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -140,6 +144,8 @@ fn a_named_branch_is_stored_on_the_wire_and_reported_back() {
             "just ci",
             "--scope",
             "/repo",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -168,6 +174,8 @@ fn a_lay_with_no_resolvable_branch_refuses_and_writes_nothing() {
             "fact:edit_failed",
             "--scope",
             &outside.path().display().to_string(),
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -197,6 +205,8 @@ fn a_preview_reports_the_tripwire_and_writes_nothing() {
             "fact:edit_failed",
             "--probe",
             "just ci",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
             "--preview",
@@ -223,6 +233,8 @@ fn an_invalid_preview_refuses_without_touching_the_ledger() {
             "w",
             "--on",
             "factt:x",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
             "--preview",
@@ -250,6 +262,8 @@ fn a_bad_where_spelling_names_the_clause_it_choked_on() {
             "fact:x",
             "--where",
             "nonsense",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -269,6 +283,8 @@ fn a_second_tripwire_under_one_name_refuses_and_leaves_the_first() {
             "w",
             "--on",
             "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -280,6 +296,8 @@ fn a_second_tripwire_under_one_name_refuses_and_leaves_the_first() {
             "w",
             "--on",
             "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "report anything that looks wrong",
         ],
@@ -301,7 +319,16 @@ fn a_placeholder_brief_is_refused_at_the_lay_and_at_the_preview() {
     let (_dir, db) = db();
     let out = tripwire(
         &db,
-        &["lay", "w", "--on", "fact:edit_failed", "--brief", "b"],
+        &[
+            "lay",
+            "w",
+            "--on",
+            "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
+            "--brief",
+            "b",
+        ],
     );
     assert_eq!(code(&out), 1);
     assert!(
@@ -331,6 +358,8 @@ fn a_placeholder_brief_is_refused_at_the_lay_and_at_the_preview() {
             "w",
             "--on",
             "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "b",
             "--preview",
@@ -355,6 +384,8 @@ fn the_lay_pause_resume_rm_lifecycle_walks() {
             "w",
             "--on",
             "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -403,6 +434,8 @@ fn an_edit_moves_only_what_it_names_and_clear_empties_a_column() {
             "/repo",
             "--branch",
             "main",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -437,6 +470,8 @@ fn where_without_on_refuses_rather_than_half_replacing_a_trigger() {
             "w",
             "--on",
             "fact:shell",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -463,6 +498,8 @@ fn a_brief_reads_from_the_file_an_at_names() {
             "w",
             "--on",
             "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             &format!("@{}", brief.display()),
         ],
@@ -484,6 +521,8 @@ fn trip_queues_a_manual_row_without_a_live_instance_and_says_so() {
             "w",
             "--on",
             "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -523,6 +562,8 @@ fn a_second_hand_fired_trip_supersedes_the_first() {
             "w",
             "--on",
             "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -567,6 +608,8 @@ fn a_tripwire_that_never_fired_has_an_empty_log_rather_than_a_refusal() {
             "w",
             "--on",
             "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -654,6 +697,8 @@ fn a_dismissal_discards_the_arc_in_the_repository_the_landing_named() {
             "fact:edit_failed",
             "--branch",
             "main",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ])
@@ -729,6 +774,8 @@ fn adopted_trip(db: &Path, name: &str) -> i64 {
             "fact:edit_failed",
             "--branch",
             "main",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -796,6 +843,8 @@ fn each_verb_names_both_states_it_looked_for() {
             "fact:edit_failed",
             "--branch",
             "main",
+            "--description",
+            "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
@@ -848,4 +897,277 @@ fn each_verb_names_both_states_it_looked_for() {
         "{}",
         stderr(&dismissed)
     );
+}
+
+/// **The description is stored, echoed, and carried to every reader.**
+///
+/// `lay --description` is required alongside `--brief` because the card leads
+/// with it ([B02]), and the three readers of a tripwire — the lay's own
+/// receipt, a preview that writes nothing, and `list --json`, which is the
+/// projection the card and the feed read — have to agree about what it says.
+#[test]
+fn a_description_is_stored_and_reported_by_every_reader() {
+    let (_dir, db) = db();
+    let laid = tripwire_json(
+        &db,
+        &[
+            "tripwire",
+            "lay",
+            "ci",
+            "--on",
+            "fact:edit_failed",
+            "--description",
+            "Runs `just lint` after every landing on main and says what went red",
+            "--brief",
+            "Did the landing break the suite? Say which check went red.",
+        ],
+    );
+    assert_envelope(&laid, "tripwire lay");
+    assert_eq!(
+        laid["data"]["description"],
+        "Runs `just lint` after every landing on main and says what went red"
+    );
+
+    let listed = tripwire_json(&db, &["tripwire", "list"]);
+    assert_eq!(
+        listed["data"][0]["description"],
+        "Runs `just lint` after every landing on main and says what went red",
+        "the roster the card reads carries it too: {listed}"
+    );
+    assert_eq!(
+        listed["data"][0]["brief"], "Did the landing break the suite? Say which check went red.",
+        "and the brief stays in the projection, for the skill's revision read"
+    );
+
+    let previewed = tripwire_json(
+        &db,
+        &[
+            "tripwire",
+            "lay",
+            "other",
+            "--on",
+            "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
+            "--brief",
+            "diagnose the failure and propose a fix",
+            "--preview",
+        ],
+    );
+    assert_eq!(
+        previewed["data"]["description"], "Says what broke on the last landing",
+        "a preview echoes what would be stored, field for field"
+    );
+}
+
+/// **A lay with no description, or a placeholder one, is refused.**
+///
+/// The two refusals arrive from different places and both matter: the flag is
+/// required, so clap stops a lay that names none at all, and the ledger's
+/// guard stops the `--description d` that clears the flag but says nothing.
+#[test]
+fn a_lay_with_no_description_or_a_placeholder_one_is_refused() {
+    let (_dir, db) = db();
+
+    let missing = tripwire(
+        &db,
+        &[
+            "lay",
+            "w",
+            "--on",
+            "fact:edit_failed",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
+    );
+    assert_ne!(code(&missing), 0);
+    assert!(
+        stderr(&missing).contains("--description"),
+        "{}",
+        stderr(&missing)
+    );
+
+    let placeholder = tripwire(
+        &db,
+        &[
+            "lay",
+            "w",
+            "--on",
+            "fact:edit_failed",
+            "--description",
+            "d",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
+    );
+    assert_eq!(code(&placeholder), 1);
+    assert!(
+        stderr(&placeholder).contains("says nothing a person could recognise it by"),
+        "{}",
+        stderr(&placeholder)
+    );
+
+    let listed = tripwire_json(&db, &["tripwire", "list"]);
+    assert_eq!(
+        listed["data"].as_array().unwrap().len(),
+        0,
+        "a refused lay writes nothing: {listed}"
+    );
+}
+
+/// **`edit --description` rewrites the line, and no `--clear` takes it away.**
+///
+/// Settable and not clearable is the decision ([B02]): the card leads with the
+/// description, so a tripwire that had lost it would be one the rail cannot
+/// name.
+#[test]
+fn a_description_is_editable_and_never_clearable() {
+    let (_dir, db) = db();
+    tripwire_json(
+        &db,
+        &[
+            "tripwire",
+            "lay",
+            "w",
+            "--on",
+            "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
+    );
+
+    let edited = tripwire_json(
+        &db,
+        &[
+            "tripwire",
+            "edit",
+            "w",
+            "--description",
+            "Reports which check went red and whether the landing broke it",
+        ],
+    );
+    assert_envelope(&edited, "tripwire edit");
+    assert_eq!(
+        edited["data"]["description"],
+        "Reports which check went red and whether the landing broke it"
+    );
+
+    let previewed = tripwire_json(
+        &db,
+        &[
+            "tripwire",
+            "edit",
+            "w",
+            "--description",
+            "Watches the suite and speaks when it breaks",
+            "--preview",
+        ],
+    );
+    assert_eq!(
+        previewed["data"]["changes"]["description"], "Watches the suite and speaks when it breaks",
+        "a preview names the column it would move: {previewed}"
+    );
+
+    let blanked = tripwire(&db, &["edit", "w", "--description", "   "]);
+    assert_eq!(code(&blanked), 1);
+    assert!(
+        stderr(&blanked).contains("says nothing a person could recognise it by"),
+        "{}",
+        stderr(&blanked)
+    );
+
+    let cleared = tripwire(&db, &["edit", "w", "--clear", "description"]);
+    assert_eq!(code(&cleared), 1);
+    assert!(
+        stderr(&cleared).contains("not a clearable column"),
+        "{}",
+        stderr(&cleared)
+    );
+
+    let listed = tripwire_json(&db, &["tripwire", "list"]);
+    assert_eq!(
+        listed["data"][0]["description"],
+        "Reports which check went red and whether the landing broke it",
+        "the two refusals moved nothing: {listed}"
+    );
+}
+
+/// **`rm` is refused while a trip is running, and the tripwire stays.**
+///
+/// The verb goes through `tugarc_core::tripwire_remove` rather than the
+/// ledger's delete, so the rule the card enforces and the rule the terminal
+/// enforces are one rule ([B07]). A running trip is a headless session working
+/// in an inspection tree; removing the row out from under it would orphan the
+/// arc it holds.
+#[test]
+fn rm_is_refused_while_a_trip_is_running() {
+    use tugtool_core::tripwire_ledger as ledger;
+
+    let (_dir, db) = db();
+    tripwire_json(
+        &db,
+        &[
+            "tripwire",
+            "lay",
+            "w",
+            "--on",
+            "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
+    );
+
+    let trip_id = {
+        let conn = ledger::open_ledger(&db).unwrap();
+        let wire = ledger::get(&conn, "w").unwrap().unwrap();
+        let ledger::Claim::Claimed { trip_id } =
+            ledger::claim_trip(&conn, wire.id, "landing:abc", 10, "inst", None).unwrap()
+        else {
+            panic!("the claim is uncontested");
+        };
+        ledger::record_run(&conn, trip_id, Some("sess-a"), Some("tripwire-w-abcd1234")).unwrap();
+        trip_id
+    };
+
+    let refused = tripwire(&db, &["rm", "w"]);
+    assert_eq!(code(&refused), 1);
+    assert!(
+        stderr(&refused).contains("has a trip running"),
+        "{}",
+        stderr(&refused)
+    );
+
+    let conn = ledger::open_ledger(&db).unwrap();
+    assert!(
+        ledger::get(&conn, "w").unwrap().is_some(),
+        "a refused removal leaves the tripwire standing"
+    );
+    assert_eq!(
+        ledger::trip(&conn, trip_id).unwrap().unwrap().status,
+        "running",
+        "and leaves the trip it was protecting alone"
+    );
+    drop(conn);
+
+    // Settled, the same verb removes it.
+    {
+        let conn = ledger::open_ledger(&db).unwrap();
+        ledger::settle(
+            &conn,
+            trip_id,
+            ledger::TripStatus::Settled,
+            &ledger::Settlement::default(),
+            20,
+        )
+        .unwrap();
+    }
+    let removed = tripwire_json(&db, &["tripwire", "rm", "w"]);
+    assert_envelope(&removed, "tripwire rm");
+    assert_eq!(removed["data"]["removed"], true);
+    let conn = ledger::open_ledger(&db).unwrap();
+    assert!(ledger::get(&conn, "w").unwrap().is_none());
 }
