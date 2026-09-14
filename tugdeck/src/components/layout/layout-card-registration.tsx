@@ -37,7 +37,8 @@ export { LAYOUT_CARD_ID };
 export const DEFAULT_LAYOUT_WIDTH_PX = 420;
 
 /** The narrowest the picture and its segmented rows still read at. It is the
- *  drawing that sets this floor: `--tugx-layouts-plan-mini-width` is 300px and
+ *  drawing that sets this floor: `--tugx-layouts-plan-mini-width-full` is
+ *  300px and
  *  the card's own padding takes the rest. */
 export const MIN_LAYOUT_WIDTH_PX = 320;
 

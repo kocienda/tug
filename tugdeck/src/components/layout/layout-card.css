@@ -18,11 +18,32 @@
      drawing's densest case — and so a place's mark has a pressable target at
      the foot of a block rather than a speck. 300 fits the card at its
      `MIN_LAYOUT_WIDTH_PX` floor (320) inside this card's own padding. */
-  --tugx-layouts-plan-mini-width: 300px;
+  --tugx-layouts-plan-mini-width-full: 300px;
+
+  /* THE SIZE KNOB. A plain 0.0–1.0 factor on the drawing's full size, where
+     1.0 is the size the drawing was designed at. It is the one number to turn
+     to make the picture smaller: the drawing, the places overlay standing on
+     it, and the flow strip under it all size themselves from the width below,
+     so they shrink together and stay in register. The drawing's height follows
+     from `aspect-ratio: 16 / 10`, so this one factor governs both axes.
+
+     Note what it does NOT scale: the drawing's own hairlines — the 1px border,
+     the 3px padding, the 2px gaps — are deliberately fixed, because a picture
+     this small reads by its separations and a scaled hairline is a blur. Turn
+     it far enough down and those constants become the drawing's floor. */
+  --tugx-layouts-plan-mini-scale: 0.7;
+
+  /* What those two come to, and the only one of the three anything else
+     reads. */
+  --tugx-layouts-plan-mini-width: calc(
+    var(--tugx-layouts-plan-mini-width-full) *
+      var(--tugx-layouts-plan-mini-scale)
+  );
 
   /* And what that width comes to in HEIGHT, which is the other number anything
      sizing itself against the drawing needs: `.layout-mini`'s
-     `aspect-ratio: 16 / 10`, so 300px of width is 187.5px of drawing. It is
+     `aspect-ratio: 16 / 10`, so the settled width is 0.625 of itself in
+     drawing — at scale 1, 300px of width is 187.5px of drawing. It is
      written here rather than only in the aspect rule because the card's own
      vertical appetite is a sum of its boxes and the drawing is the largest of
      them — `layout-card.tsx` states the arithmetic and reads these two knobs,
@@ -150,7 +171,7 @@
   display: flex;
 }
 
-/* The drawing's size. TUNE at `--tugx-layouts-plan-mini-width` above — the
+/* The drawing's size. TUNE at `--tugx-layouts-plan-mini-scale` above — the
    overlay reads the same knob, so the picture and its controls resize together
    or not at all. */
 .layouts-plan .layout-mini {
