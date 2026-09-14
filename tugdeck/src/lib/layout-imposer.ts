@@ -758,6 +758,56 @@ export function effectiveColumnOrder(
   return [...named, ...paneIds.filter((id) => !claimed.has(id))];
 }
 
+/**
+ * The imposition with `paneId` seated in slot `slot`'s column — at `index`
+ * when a drop named one, and at the BOTTOM otherwise.
+ *
+ * **A card arriving into a split column lands at the bottom, always** ([D194]).
+ * That is a rule and not a fallback. A newcomer the stored order does not name
+ * used to take the fallback reading — sorted by pane id among every other
+ * unnamed member — so the first card opened into a split landed under its
+ * sitter, and the second landed above or below the first on the toss of two
+ * uuids. Nobody could say where a new card would appear, and that is the
+ * whole of what this rule removes: the column names the newcomer in the same
+ * commit that seats it, so the order is complete from the pane's first frame
+ * and the fallback never decides where a new card goes.
+ *
+ * `members` is the column's current top-to-bottom reading INCLUDING the
+ * arriving pane — the caller projects the panes it is about to commit and
+ * reads them through `columnMembersOf`, so the seat is decided over the same
+ * list the deck will draw. Members the stored order did not name are named
+ * here too, in that reading's order, ahead of the arrival.
+ *
+ * The one seat that is not the bottom is a drop that named an index — the
+ * zones advertised it, so honoring it is the indicator's promise. An indexed
+ * arrival into a stacked slot holding exactly one other pane is the dividing
+ * gesture ([P07]): the drop CREATES the split, mode and order in one
+ * imposition, so the commit that places the pane is the commit that divides
+ * the slot. A stacked column of two or more is an arrangement the user chose
+ * whose order is z, and nothing here may write it. A pane alone in its slot
+ * has nothing to be seated against, and the imposition comes back untouched.
+ */
+export function withMemberSeated(
+  imposition: DeckImposition,
+  slot: number,
+  members: readonly string[],
+  paneId: string,
+  index?: number,
+): DeckImposition {
+  const others = members.filter((id) => id !== paneId);
+  if (others.length === 0) return imposition;
+  const split = columnModeOf(imposition, slot) === "split";
+  if (!split && (index === undefined || others.length !== 1)) return imposition;
+  const at =
+    index === undefined
+      ? others.length
+      : Math.max(0, Math.min(index, others.length));
+  const order = [...others];
+  order.splice(at, 0, paneId);
+  const divided = split ? imposition : withColumnMode(imposition, slot, "split");
+  return withColumnOrder(divided, slot, order);
+}
+
 /** Narrow an unknown (a parsed blob field, an action payload) to a width. */
 export function isContentWidth(value: unknown): value is ContentWidth {
   return value === "slim" || value === "comfy" || value === "wide";

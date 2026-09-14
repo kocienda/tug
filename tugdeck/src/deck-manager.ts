@@ -136,6 +136,7 @@ import {
   withColumnMode,
   sweptColumnOrders,
   withColumnOrder,
+  withMemberSeated,
   withColumnShares,
   withRailShares,
   placeSharesFromHeights,
@@ -1731,11 +1732,25 @@ export class DeckManager implements IDeckManagerStore {
     this._flipFirstResponder(
       firstCardId,
       () => {
+        const arrived = [...this.deckState.panes, win];
         this.deckState = {
           ...this.deckState,
           cards: [...this.deckState.cards, ...seededCards],
-          panes: [...this.deckState.panes, win],
+          panes: arrived,
           activePaneId: paneId,
+          // A new card opening into a split column is seated at its BOTTOM,
+          // in this same commit ([D194]): the column's order names it from
+          // the pane's first frame, so where a new card appears is a rule
+          // rather than the fallback's reading of two uuids.
+          imposition:
+            win.slot === undefined
+              ? this.deckState.imposition
+              : this._impositionSeating(
+                  this.deckState.imposition,
+                  arrived,
+                  paneId,
+                  win.slot,
+                ),
           // A card type that declares what it is worth while it is nothing but
           // the sheet it exists to raise gets pinned at that height here, IN
           // THE COMMIT that appends its pane rather than after it ([B02]): a
@@ -4342,7 +4357,19 @@ export class DeckManager implements IDeckManagerStore {
     // spend a rail; what licenses a re-solve is the Layouts click, the settled
     // resize, and a change to who is in the chain.
     const joinsChain = [...targets.keys()].some((id) => !chainBefore.has(id));
-    this._commitImposition(this.deckState.imposition, panes, {
+    // Every pane that CROSSED into a slot is seated at the bottom of that
+    // slot's column ([D194]), in the order the batch named them. A pane the
+    // batch re-assigned to the slot it already stood in has not arrived
+    // anywhere and keeps its place.
+    let imposition = this.deckState.imposition;
+    for (const [id, slot] of targets) {
+      const before = this.deckState.panes.find((p) => p.id === id);
+      const stayed =
+        before?.slot !== undefined && clampSlot(kind, before.slot) === slot;
+      if (stayed) continue;
+      imposition = this._impositionSeating(imposition, panes, id, slot);
+    }
+    this._commitImposition(imposition, panes, {
       retuneRails: joinsChain,
       // The batch leaves its last card first responder, and that is the card
       // the user is looking for; a slot whose column overflows must scroll it
@@ -4353,8 +4380,10 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * The imposition the arriving pane's column should hold, with the pane at the
-   * index the caller asked for.
+   * The imposition the arriving pane's column should hold, with the pane
+   * seated at the index a drop asked for, and at the bottom otherwise
+   * ([D194]). The rule itself is {@link withMemberSeated}; this reads the
+   * column the way the deck draws it and hands the reading over.
    *
    * Folded into the assignment's own commit rather than written after it,
    * because a card crossing into a split column changes two things about the
@@ -4363,41 +4392,20 @@ export class DeckManager implements IDeckManagerStore {
    * as one commit. Two commits would measure the deck once with the card
    * arrived but unplaced, which is a frame nobody asked to see.
    *
-   * An indexed arrival into a slot holding exactly one other pane is the
-   * dividing gesture ([P07]): the drop CREATES the split — mode and order in
-   * the same imposition, so the commit that places the pane is the commit
-   * that divides the slot. The zones advertised that index (Spec S02), so
-   * honoring it by z-stacking would break the indicator's promise.
-   *
-   * Returns the imposition unchanged when no index was asked for, when the
-   * destination is a stacked column of two or more other panes — a stack is
-   * an arrangement the user chose, its order is z-order, and nothing here may
-   * write it — or when the slot holds nothing else (nothing to divide).
+   * `panes` already carries the arrival, so a slot that held one pane reads
+   * back as a column of two: the arrival plus the sitter it divides with.
+   * Takes the imposition it seats into rather than reading the store's, so a
+   * batch can seat several panes into one commit.
    */
-  private _impositionWithArrival(
+  private _impositionSeating(
+    imposition: DeckImposition,
     panes: readonly TugPaneState[],
     paneId: string,
     slot: number,
-    index: number | undefined,
+    index?: number,
   ): DeckImposition {
-    const imposition = this.deckState.imposition;
-    if (index === undefined) return imposition;
-    const projected = { ...this.deckState, panes };
-    const members = columnMembersOf(projected, slot);
-    if (members.length === 0) return imposition;
-    // `panes` already carries the arrival, so a slot that held one pane reads
-    // back as a column of two: the arrival plus the sitter it divides with.
-    if (columnModeOf(imposition, slot) !== "split" && members.length !== 2) {
-      return imposition;
-    }
-    const others = members.filter((id) => id !== paneId);
-    const order = [...others];
-    order.splice(Math.max(0, Math.min(index, others.length)), 0, paneId);
-    const divided =
-      columnModeOf(imposition, slot) === "split"
-        ? imposition
-        : withColumnMode(imposition, slot, "split");
-    return withColumnOrder(divided, slot, order);
+    const members = columnMembersOf({ ...this.deckState, panes, imposition }, slot);
+    return withMemberSeated(imposition, slot, members, paneId, index);
   }
 
   /**
@@ -4460,8 +4468,14 @@ export class DeckManager implements IDeckManagerStore {
     const panes = this.deckState.panes.map((p) =>
       p.id === paneId ? ({ ...p, slot: placed } as TugPaneState) : p,
     );
+    // A pane dropped into the slot it already stands in, with no index named,
+    // has not arrived anywhere and keeps its place in the column.
+    const stayed =
+      pane.slot !== undefined && clampSlot(kind, pane.slot) === placed;
     this._commitImposition(
-      this._impositionWithArrival(panes, paneId, placed, index),
+      stayed && index === undefined
+        ? this.deckState.imposition
+        : this._impositionSeating(this.deckState.imposition, panes, paneId, placed, index),
       panes,
       { retuneRails: joinsChain, revealPaneId: paneId },
     );
