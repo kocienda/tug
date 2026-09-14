@@ -203,6 +203,15 @@ pub struct LandingEvent {
     /// the arc's bound sessions for a join. The facts the predicate reads
     /// are these sessions' facts and no others.
     pub session_ids: Vec<String>,
+    /// The landing commit's message, when the landing path had one in hand.
+    /// Nothing is read for the engine's sake to fill it: a path that does not
+    /// already hold the message leaves it `None`, and the fact composed from
+    /// this landing simply carries an empty message.
+    pub message: Option<String>,
+    /// The files the landing commit touched, as repo-relative paths. Same
+    /// rule: whatever the landing path already had, never a fresh `git` read.
+    /// An empty list means the path had no list, not that nothing moved.
+    pub files: Vec<String>,
 }
 
 /// The channel a landing reaches the engine on.
@@ -726,10 +735,30 @@ fn serve_manual(
             return;
         };
         let landing = synthetic_landing(&tripwire);
-        let payload = queued
-            .event_payload
-            .clone()
-            .or_else(|| event_payload(&landing, &[]));
+        // The fallback dossier offers the landing fact through the same
+        // predicate gate a real landing goes through (Spec S01). A hand-fired
+        // `edits` trip watches `edit_failed`, and an ungated fallback would
+        // hand it a `commit` fact for a landing it never watched — evidence
+        // the session would have to work out was noise.
+        let payload = queued.event_payload.clone().or_else(|| {
+            let facts = match tripwire.predicate() {
+                Ok(predicate) => {
+                    let row = landing_fact(&landing, (config.now_ms)());
+                    let fact = FactEvent {
+                        kind: row.kind.clone(),
+                        payload: serde_json::from_str(&row.payload)
+                            .unwrap_or(serde_json::Value::Null),
+                    };
+                    if tripwire_predicate::matches(&predicate, &fact) {
+                        vec![row]
+                    } else {
+                        Vec::new()
+                    }
+                }
+                Err(_) => Vec::new(),
+            };
+            event_payload(&landing, &facts)
+        });
         let _ = ledger::record_event_payload(&conn, queued.id, payload.as_deref());
         start_run(&conn, &tripwire, queued.id, &queued.event_key, payload)
     };
@@ -761,6 +790,8 @@ fn synthetic_landing(tripwire: &Tripwire) -> LandingEvent {
         kind: LandingKind::Commit,
         arc: None,
         session_ids: Vec::new(),
+        message: None,
+        files: Vec::new(),
     }
 }
 
@@ -896,6 +927,33 @@ fn consider(
             // spends the facts it looked at, whether or not any of them
             // matched ([P05]).
             let facts = lineage_facts(config, conn, tripwire, landing);
+            // The landing itself is a fact too ([P01]), and it is offered
+            // through the same predicate the lineage's facts were filtered
+            // by: a tripwire watching `edit_failed` is not made to fire by a
+            // landing, and one watching `fact:commit` now means "after every
+            // landing onto this branch" for a `/commit` and an `/arc-join`
+            // alike. It goes at the front because it is the event the rest of
+            // the dossier is evidence about.
+            //
+            // One commit per landing ([P04]): a lineage that already recorded
+            // the durable `commit` fact for this very sha — the `/commit`
+            // path writes one — has said it once, and the offer is dropped
+            // rather than reported twice under two rowids.
+            let mut facts = facts;
+            if let Ok(predicate) = tripwire.predicate() {
+                let row = landing_fact(landing, now);
+                let fact = FactEvent {
+                    kind: row.kind.clone(),
+                    payload: serde_json::from_str(&row.payload).unwrap_or(serde_json::Value::Null),
+                };
+                if tripwire_predicate::matches(&predicate, &fact)
+                    && !facts
+                        .iter()
+                        .any(|f| already_reports_landing(f, &landing.sha))
+                {
+                    facts.insert(0, row);
+                }
+            }
             let payload = event_payload(landing, &facts);
             let _ = ledger::record_event_payload(conn, trip_id, payload.as_deref());
             if facts.is_empty() {
@@ -990,6 +1048,54 @@ fn lineage_facts(
 /// own-arc guard compares against ([P06]).
 fn tripwire_arc_prefix(tripwire: &str) -> String {
     format!("tripwire-{tripwire}-")
+}
+
+/// Whether an already-matched row is the durable `commit` fact for this very
+/// landing — the one case where offering the landing fact would report one
+/// commit twice ([P04]).
+///
+/// A sha is compared rather than a dedupe key because the matched row came out
+/// of the facts table and the landing fact never went in, so there is no key
+/// the two share.
+fn already_reports_landing(row: &crate::session_ledger::FactRow, sha: &str) -> bool {
+    row.kind == crate::feeds::facts_library::FactKind::Commit.as_str()
+        && serde_json::from_str::<serde_json::Value>(&row.payload)
+            .ok()
+            .and_then(|p| p.get("sha").and_then(|s| s.as_str().map(str::to_owned)))
+            .is_some_and(|s| s == sha)
+}
+
+/// The landing itself, as a `commit` fact ([P01]).
+///
+/// Composed through `facts_library::commit_fact` and no other way ([P02]), so
+/// the row a tripwire reads for a landing is the same shape — payload fields,
+/// subject, rendered text — as the durable `commit` fact `/commit` writes.
+/// `numstat` is `None`: the landing carries what the gesture had in hand, and
+/// a join never holds one.
+///
+/// The `id` is `0` because this row was never written to the facts table and
+/// has no rowid to name. Nothing downstream needs one: idempotency for a
+/// landing is the trip's claim key, which is the sha ([P01]), and the fact
+/// marks `lineage_facts` advances are keyed by real rowids belonging to real
+/// sessions. A synthetic `0` can never be mistaken for one of those.
+fn landing_fact(landing: &LandingEvent, now_ms: i64) -> crate::session_ledger::FactRow {
+    let fact = crate::feeds::facts_library::commit_fact(
+        now_ms,
+        None,
+        &landing.sha,
+        landing.message.as_deref().unwrap_or(""),
+        &landing.files,
+        None,
+    );
+    crate::session_ledger::FactRow {
+        id: 0,
+        at_ms: fact.at_ms,
+        kind: fact.kind,
+        session_id: fact.session_id,
+        subject: fact.subject,
+        text: fact.text,
+        payload: fact.payload,
+    }
 }
 
 /// Mark a trip running and gather everything its turn needs.
@@ -2450,6 +2556,18 @@ mod tests {
                 opens: "                \"dash\": null,",
                 closes: "                \"dash\": null,",
             },
+            // `tier` is also a `TugSessionIdentity` prop — the size a session
+            // chip is drawn at — and the card passes it to render the worker
+            // beside a running tripwire. The scan reads whole lines, so a
+            // retired noun and a foreign component's prop that happen to be
+            // spelled alike are the same string to it; the word stays retired
+            // everywhere else on the surface.
+            Exempt {
+                file: "tugdeck/src/components/tripwires/tripwires-card.tsx",
+                name: "the session chip's size prop",
+                opens: "                tier=\"chip\"",
+                closes: "                tier=\"chip\"",
+            },
             // This test names the words it keeps out.
             Exempt {
                 file: "tugcast/src/feeds/tripwire.rs",
@@ -2604,6 +2722,8 @@ mod tests {
             kind: LandingKind::Commit,
             arc: None,
             session_ids: vec![session_id.to_string()],
+            message: Some("a landing".into()),
+            files: vec!["README.md".into()],
         }
     }
 
@@ -2678,6 +2798,133 @@ mod tests {
         // A tripwire that has looked and found nothing does not look like a tripwire
         // nobody ever landed onto.
         assert_eq!(statuses(&h.conn, tripwire.id), vec!["swallowed"]);
+    }
+
+    /// The facts a trip's `event_payload` carries, read back off its row.
+    fn payload_facts(conn: &Connection, tripwire_id: i64) -> Vec<serde_json::Value> {
+        let trips = ledger::trips_for_tripwire(conn, tripwire_id, 20).unwrap();
+        let raw = trips
+            .first()
+            .expect("a trip was written")
+            .event_payload
+            .clone()
+            .expect("the trip carries a dossier");
+        serde_json::from_str::<serde_json::Value>(&raw)
+            .unwrap()
+            .get("facts")
+            .and_then(|f| f.as_array().cloned())
+            .expect("the dossier carries a facts array")
+    }
+
+    /// Write one durable `commit` fact for a session, the way `/commit` does.
+    fn record_commit(config: &TripwireEngineConfig, session_id: &str, sha: &str) {
+        let fact = crate::feeds::facts_library::commit_fact(
+            1_700_000_000_500,
+            Some(session_id),
+            sha,
+            "a landing",
+            &["README.md".to_string()],
+            None,
+        );
+        config
+            .ledger
+            .record_fact(&fact)
+            .expect("record")
+            .expect("a fresh fact lands");
+    }
+
+    /// The whole of [P01]: a join whose lineage recorded nothing still fires a
+    /// tripwire watching `commit`, because the landing *is* the fact.
+    #[test]
+    fn a_join_landing_with_no_lineage_facts_still_fires_a_commit_tripwire() {
+        let h = harness();
+        let tripwire = lay(&h.conn, "ci", r#"{"fact":{"kind":"commit"}}"#);
+        let mut join = landing("/proj", "sess-quiet");
+        join.kind = LandingKind::Join;
+        join.arc = Some("some-feature".to_string());
+        let out = decisions(&h.config, &h.conn, &join);
+        assert_eq!(decision(&out, "ci"), Decision::Fired);
+        let facts = payload_facts(&h.conn, tripwire.id);
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0]["kind"], "commit");
+        assert_eq!(facts[0]["payload"]["sha"], join.sha);
+    }
+
+    /// One commit per landing ([P04]): a lineage that already recorded the
+    /// durable `commit` fact for this sha reports it once, not twice.
+    #[test]
+    fn a_commit_landing_whose_lineage_already_holds_the_commit_fact_reports_it_once() {
+        let h = harness();
+        let tripwire = lay(&h.conn, "ci", r#"{"fact":{"kind":"commit"}}"#);
+        let event = landing("/proj", "sess-a");
+        record_commit(&h.config, "sess-a", &event.sha);
+        let out = decisions(&h.config, &h.conn, &event);
+        assert_eq!(decision(&out, "ci"), Decision::Fired);
+        let facts = payload_facts(&h.conn, tripwire.id);
+        let with_sha: Vec<_> = facts
+            .iter()
+            .filter(|f| f["payload"]["sha"] == serde_json::json!(event.sha))
+            .collect();
+        assert_eq!(with_sha.len(), 1, "one landing is one commit: {facts:?}");
+        // The durable row is the one that survived, so the dossier names a
+        // real rowid rather than the landing fact's synthetic zero.
+        assert_ne!(with_sha[0]["id"], serde_json::json!(0));
+    }
+
+    /// One composer ([P02]): the landing fact is a `commit_fact` and nothing
+    /// else, so its payload and its rendered text are the library's.
+    #[test]
+    fn the_landing_fact_is_the_same_shape_as_a_commit_fact() {
+        let event = landing("/proj", "sess-a");
+        let row = landing_fact(&event, 1_700_000_000_000);
+        assert_eq!(row.id, 0);
+        assert_eq!(row.kind, "commit");
+        assert_eq!(row.session_id, None);
+        let payload: serde_json::Value = serde_json::from_str(&row.payload).unwrap();
+        assert_eq!(payload["sha"], event.sha);
+        assert_eq!(payload["message"], "a landing");
+        assert_eq!(payload["files"], serde_json::json!(["README.md"]));
+        assert_eq!(payload["numstat"], serde_json::Value::Null);
+        assert_eq!(
+            row.text,
+            crate::feeds::facts_library::render_text(
+                crate::feeds::facts_library::FactKind::Commit,
+                &payload
+            )
+        );
+    }
+
+    /// The landing fact goes through the same predicate every other fact does,
+    /// so a tripwire watching another kind never sees it (Spec S01).
+    #[test]
+    fn a_tripwire_watching_another_kind_is_untouched_by_the_landing_fact() {
+        let h = harness();
+        let tripwire = lay(&h.conn, "edits", r#"{"fact":{"kind":"edit_failed"}}"#);
+        let out = decisions(&h.config, &h.conn, &landing("/proj", "sess-quiet"));
+        assert_eq!(
+            decision(&out, "edits"),
+            Decision::Swallowed(ledger::SWALLOW_NO_MATCH)
+        );
+        assert!(
+            payload_facts(&h.conn, tripwire.id).is_empty(),
+            "an `edit_failed` tripwire is handed no `commit` fact to work out"
+        );
+    }
+
+    /// The `synthetic_landing` shape: a landing whose scope could not be read
+    /// has an empty sha, and the fact is still offered rather than deduped
+    /// away against some other empty-sha row ([P04]).
+    #[test]
+    fn a_landing_fact_with_an_empty_sha_is_still_offered() {
+        let h = harness();
+        let tripwire = lay(&h.conn, "ci", r#"{"fact":{"kind":"commit"}}"#);
+        let mut event = landing("/proj", "sess-quiet");
+        event.sha = String::new();
+        let out = decisions(&h.config, &h.conn, &event);
+        assert_eq!(decision(&out, "ci"), Decision::Fired);
+        let facts = payload_facts(&h.conn, tripwire.id);
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0]["payload"]["sha"], "");
     }
 
     /// A tripwire is not considered at all for a landing onto another branch, and

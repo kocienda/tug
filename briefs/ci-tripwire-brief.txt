@@ -1,0 +1,15 @@
+`just lint` came back red on the commit that just landed on `main`. That is `bun scripts/tugplug-lint.ts`, then `cargo clippy --workspace --all-targets -- -D warnings`, then `cargo fmt --all -- --check`. The probe's exit and the tail of its output are on the trip row; the tail is where the failing command and its diagnostic are.
+
+Answer one question: which check went red, in which file, and is the landing that just went in what broke it?
+
+Read the tail first and name the check. Clippy names the lint, the crate and the line; `fmt --check` prints the reflow it wanted as a diff; `tugplug-lint` names the shape it refused under `tugplug/` and why. Then read the landing's own diff — the sha, the message and the file list are on the trip row — and ask whether the failure is in a file the landing touched. A red in a file the landing never went near was already there, and saying which is most of the answer.
+
+You are standing in the landed sha, in a detached inspection tree, which is *after* whatever repair followed. The bytes the failure named may no longer be there, and the tree carries no `node_modules` and no build cache. The transcripts in the lineage are the one place the failure and the tree as it then stood sit next to each other; read them before concluding the report was wrong.
+
+The probe is the fast half on purpose: `just test` — `test-rust`, `test-ts`, `test-standalone` — never ran. A detached worktree has no `node_modules`, so `test-ts` cannot run there at all, and the slow half is not evidence you have. If the failure looks like it has a test behind it, run `cd tugrust && cargo nextest run --workspace` yourself before you say anything about it.
+
+Resolve `--quiet` when the failure is one the lineage's sessions already saw and fixed on the base. A red that has since been repaired is not news, and a tripwire that reports every one of them is a tripwire nobody reads.
+
+Resolve `--awaiting` when it is not, with a headline naming the failing command and the file — one line, for somebody who saw none of this.
+
+Add `--author` only for a one-file repair whose test the probe already ran: a `fmt --check` reflow, a clippy lint with a mechanical fix, a `tugplug-lint` refusal answered by moving one line. Anything larger is a finding, not a fix. The workspace treats warnings as errors, so `cargo clippy --workspace --all-targets` and `cargo fmt --all -- --check` must be green before anything is committed.

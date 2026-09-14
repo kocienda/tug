@@ -7056,12 +7056,15 @@ impl AgentSupervisor {
                     &summary,
                     project_dir,
                 );
+                // The landing's file list, projected once: the fact write and
+                // the tripwire send below both want it, and the receipt is
+                // thrown away after the broadcast ([P03]).
+                let files: Vec<String> = receipt.files.iter().map(|f| f.path.clone()).collect();
                 // The commit as a fact ([P08]). This is the one durable moment
                 // that knows the sha, the message, and the file list together
                 // without re-running git — today the receipt is built here and
                 // thrown away after the broadcast.
                 if let Some(sessions) = self.session_ledger.as_ref() {
-                    let files: Vec<String> = receipt.files.iter().map(|f| f.path.clone()).collect();
                     let fact = crate::feeds::facts_library::commit_fact(
                         crate::session_ledger::now_millis(),
                         request.session_id.as_deref().filter(|s| !s.is_empty()),
@@ -7091,6 +7094,8 @@ impl AgentSupervisor {
                         .filter(|s| !s.is_empty())
                         .cloned()
                         .collect(),
+                    message: Some(message.clone()),
+                    files: files.clone(),
                 });
                 let body = serde_json::json!({
                     "action": "changeset_commit_ok",
@@ -7604,26 +7609,26 @@ impl AgentSupervisor {
                 // mutated nothing, so no bump. The landed arc's join draft
                 // dies with it ([P14]).
                 let landed = !outcome.previewed && outcome.commit_hash.is_some();
+                // The lineage, stashed rather than sent. The read has to
+                // happen here — before the bindings are released — but the
+                // send does not, and moving the send down to where the
+                // join's own file list is in hand is what lets a join landing
+                // carry one ([P05]).
+                let mut landing_lineage: Option<Vec<String>> = None;
                 if landed {
                     if let Some(ledger) = self.session_ledger.as_deref() {
                         // Read the lineage BEFORE the bindings are released:
                         // the sessions bound to this arc are the whole of
                         // what a join landing knows about who did the work
                         // (Spec S01), and the very next statement clears them.
-                        let lineage = ledger
-                            .bound_session_by_arc()
-                            .ok()
-                            .and_then(|by_arc| by_arc.get(&owner_key).cloned())
-                            .into_iter()
-                            .collect();
-                        crate::feeds::tripwire::landed(crate::feeds::tripwire::LandingEvent {
-                            repo_root: project_dir.to_string(),
-                            branch: outcome.base_branch.clone(),
-                            sha: outcome.commit_hash.clone().unwrap_or_default(),
-                            kind: crate::feeds::tripwire::LandingKind::Join,
-                            arc: Some(outcome.name.clone()),
-                            session_ids: lineage,
-                        });
+                        landing_lineage = Some(
+                            ledger
+                                .bound_session_by_arc()
+                                .ok()
+                                .and_then(|by_arc| by_arc.get(&owner_key).cloned())
+                                .into_iter()
+                                .collect(),
+                        );
                         Self::clear_arc_draft(ledger, project_dir, &owner_key);
                         // The arc the sessions were mated to no longer
                         // exists ([P05]) — release every binding to it.
@@ -7652,6 +7657,34 @@ impl AgentSupervisor {
                         } else {
                             Vec::new()
                         };
+                        // The landing, to the tripwire engine ([P01], Spec
+                        // S01). It sits here rather than up beside the
+                        // binding release because `files` is the receipt's
+                        // own list and only exists at this point — and the
+                        // gesture pays nothing new for it: the `await` above
+                        // is one the receipt path already performs, so the
+                        // send is still fire-and-forget on a path that has
+                        // finished its work (Risk R01).
+                        //
+                        // The list is empty for any strategy but `squash`,
+                        // for the reason the comment above gives: a merge
+                        // sha's diff is suppressed and a rebase sha is one
+                        // round of many, and a partial list that reads as
+                        // complete is worse evidence than none.
+                        //
+                        // No session ledger means no lineage was read, which
+                        // is what happens today — and a landing with no
+                        // lineage is one nothing can be attributed to, so the
+                        // send is skipped rather than sent hollow.
+                        if let Some(lineage) = landing_lineage.take() {
+                            crate::feeds::tripwire::landed(Self::join_landing(
+                                project_dir,
+                                &outcome,
+                                sha,
+                                &files,
+                                lineage,
+                            ));
+                        }
                         let summary = crate::feeds::changeset::format_join_summary(
                             &crate::feeds::changeset::JoinSummary {
                                 sha,
@@ -8584,6 +8617,34 @@ impl AgentSupervisor {
             None => format!(
                 "Resolve on arc `{arc}` dropped your {files} identical {noun} from the base checkout — the arc already carries them. Nothing changed on disk."
             ),
+        }
+    }
+
+    /// The landing a join hands the tripwire engine ([P01], Spec S01).
+    ///
+    /// Named rather than written inline so the file-list rule is something a
+    /// test can assert on: `files` is the receipt's own list, which the join
+    /// path computes only under `squash` and leaves empty otherwise, because
+    /// a merge landing sha's diff is suppressed and a rebase landing sha is
+    /// one round of a replayed chain. A partial list that reads as complete
+    /// is worse evidence for the session that eventually reads the dossier
+    /// than no list at all.
+    fn join_landing(
+        project_dir: &str,
+        outcome: &tugarc_core::ops::JoinOutcome,
+        sha: &str,
+        files: &[tugchanges_core::FileStat],
+        lineage: Vec<String>,
+    ) -> crate::feeds::tripwire::LandingEvent {
+        crate::feeds::tripwire::LandingEvent {
+            repo_root: project_dir.to_string(),
+            branch: outcome.base_branch.clone(),
+            sha: sha.to_string(),
+            kind: crate::feeds::tripwire::LandingKind::Join,
+            arc: Some(outcome.name.clone()),
+            session_ids: lineage,
+            message: outcome.message.clone(),
+            files: files.iter().map(|f| f.path.clone()).collect(),
         }
     }
 
@@ -12094,6 +12155,87 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../../tugdeck/src/__tests__/fixtures/changeset-join-resolve-base-ok.golden.json"
     ));
+
+    /// A landed join, with everything `join_landing` reads off it.
+    fn join_outcome(strategy: &str) -> tugarc_core::ops::JoinOutcome {
+        tugarc_core::ops::JoinOutcome {
+            name: "demo".to_owned(),
+            base_branch: "main".to_owned(),
+            strategy: strategy.to_owned(),
+            commit_hash: Some("0123456789abcdef0123456789abcdef01234567".to_owned()),
+            conflicts: vec![],
+            previewed: false,
+            blockers: vec![],
+            fit: None,
+            message: Some("Land the thing\n\nBecause it was time.".to_owned()),
+            archaeology: vec![],
+            warnings: vec![],
+        }
+    }
+
+    fn file_stat(path: &str) -> tugchanges_core::FileStat {
+        tugchanges_core::FileStat {
+            path: path.to_owned(),
+            status: "modified".to_owned(),
+            added: Some(1),
+            deleted: Some(0),
+        }
+    }
+
+    /// A squash join's landing carries the same list the receipt's summary was
+    /// given — the receipt's own `landing_file_stats` read, not a second one.
+    #[test]
+    fn a_squash_join_landing_carries_the_receipts_file_list() {
+        let outcome = join_outcome("squash");
+        let files = vec![file_stat("src/deep/created.txt"), file_stat("README.md")];
+        let landing = AgentSupervisor::join_landing(
+            "/proj",
+            &outcome,
+            outcome.commit_hash.as_deref().unwrap(),
+            &files,
+            vec!["sess-a".to_owned()],
+        );
+        assert_eq!(landing.files, vec!["src/deep/created.txt", "README.md"]);
+        assert_eq!(landing.sha, outcome.commit_hash.clone().unwrap());
+        assert_eq!(landing.branch, "main");
+        assert_eq!(landing.arc.as_deref(), Some("demo"));
+        assert_eq!(landing.session_ids, vec!["sess-a".to_owned()]);
+    }
+
+    /// The non-squash arm: the join path computes no list, so the landing
+    /// carries its message and no files — and still reads as a `commit` fact
+    /// to a tripwire watching one, because the message is what a landing
+    /// always has.
+    #[test]
+    fn a_merge_join_landing_carries_its_message_and_no_files() {
+        let outcome = join_outcome("merge");
+        let landing = AgentSupervisor::join_landing(
+            "/proj",
+            &outcome,
+            outcome.commit_hash.as_deref().unwrap(),
+            &[],
+            vec!["sess-a".to_owned()],
+        );
+        assert!(landing.files.is_empty());
+        assert_eq!(landing.message, outcome.message);
+        let predicate: tugtool_core::tripwire_predicate::Predicate =
+            serde_json::from_str(r#"{"fact":{"kind":"commit"}}"#).expect("a commit predicate");
+        let fact = crate::feeds::facts_library::commit_fact(
+            0,
+            None,
+            &landing.sha,
+            landing.message.as_deref().unwrap_or(""),
+            &landing.files,
+            None,
+        );
+        assert!(tugtool_core::tripwire_predicate::matches(
+            &predicate,
+            &tugtool_core::tripwire_predicate::FactEvent {
+                kind: fact.kind,
+                payload: serde_json::from_str(&fact.payload).unwrap(),
+            }
+        ));
+    }
 
     /// The frame the deck correlates by `arc` carries one, and every other key
     /// Spec S01 names.

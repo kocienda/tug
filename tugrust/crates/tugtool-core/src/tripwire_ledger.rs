@@ -2349,7 +2349,9 @@ mod tests {
             settled_trip(&conn, w.id, &format!("e{i}"), 1_000 + i);
         }
 
-        let still = trip(&conn, held).unwrap().expect("the held trip outlives the cap");
+        let still = trip(&conn, held)
+            .unwrap()
+            .expect("the held trip outlives the cap");
         assert_eq!(still.status, "awaiting");
         assert_eq!(
             awaiting_trips_with_arcs(&conn).unwrap().len(),
