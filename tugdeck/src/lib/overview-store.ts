@@ -39,6 +39,7 @@ import {
   encodeListOverviewPosts,
   parseOverviewFrame,
   parseOverviewPost,
+  parseSessionCurrentLineFrame,
   type OverviewAttachmentWire,
   type OverviewAuthor,
   type OverviewInputAttachment,
@@ -105,6 +106,14 @@ export interface OverviewPostEntry {
   transient: boolean;
 }
 
+/** One session's per-turn current line, as the store holds it. */
+export interface SessionCurrentLineEntry {
+  /** The line itself, already in the standing sentence's register. */
+  text: string;
+  /** When the wake that wrote it answered. */
+  atMs: number;
+}
+
 export interface OverviewSnapshot {
   /** Ledger-tail load state; live folds work in any state. */
   status: "idle" | "pending" | "ready";
@@ -128,6 +137,17 @@ export interface OverviewSnapshot {
    * in flight would give the reader two spinners and one answer.
    */
   pendingRequestId: string | null;
+  /**
+   * The per-turn current line for each session that has one, newest write
+   * wins ([B04]).
+   *
+   * Held rather than persisted, and never cleared from here: the map is one
+   * short line per session the Observer has spoken about, and what decides
+   * whether a line is still true is the turn it was written in.
+   * {@link currentLineForSession} is where that is decided, because the turn
+   * is a fact the digest holds and this store does not.
+   */
+  currents: ReadonlyMap<string, SessionCurrentLineEntry>;
 }
 
 /**
@@ -169,7 +189,36 @@ export function latestPostForSession(
   return null;
 }
 
+/**
+ * The current line standing for `sessionId`'s turn in flight, or null.
+ *
+ * The turn is what makes the line true, so the turn is what the selector
+ * takes: `turnStartedAtMs` is when the turn in flight began — the ask's own
+ * stamp — and a line written before it belongs to a turn that is over. That is
+ * the clearing ([B04]), done where the fact lives rather than by a second
+ * store reaching across to watch the digest for turn ends.
+ *
+ * A caller with no turn in flight passes null and gets null: at rest the line
+ * under a session's name is its through-line, and a per-turn line has nothing
+ * to say about a session that is not in one.
+ */
+export function currentLineForSession(
+  currents: ReadonlyMap<string, SessionCurrentLineEntry>,
+  sessionId: string,
+  turnStartedAtMs: number | null,
+): string | null {
+  if (sessionId.length === 0) return null;
+  if (turnStartedAtMs === null) return null;
+  const entry = currents.get(sessionId);
+  if (entry === undefined) return null;
+  if (entry.atMs < turnStartedAtMs) return null;
+  return entry.text;
+}
+
 const EMPTY_POSTS: readonly OverviewPostEntry[] = Object.freeze([]);
+const EMPTY_CURRENTS: ReadonlyMap<string, SessionCurrentLineEntry> = Object.freeze(
+  new Map<string, SessionCurrentLineEntry>(),
+);
 const IDLE_SNAPSHOT: OverviewSnapshot = Object.freeze({
   status: "idle" as const,
   posts: EMPTY_POSTS,
@@ -177,6 +226,7 @@ const IDLE_SNAPSHOT: OverviewSnapshot = Object.freeze({
   hasMore: false,
   loadingOlder: false,
   pendingRequestId: null,
+  currents: EMPTY_CURRENTS,
 });
 
 // ---------------------------------------------------------------------------
@@ -222,6 +272,12 @@ export class OverviewStore {
   private pendingBefore: number | null = null;
   /** Whether the ledger reported history older than what is held. */
   private hasMore = false;
+  /**
+   * The current lines, as they arrive. Kept beside the snapshot rather than
+   * rebuilt from it for the same reason `hasMore` is: `commit` publishes a
+   * frozen view of what the store holds, and what it holds is here.
+   */
+  private currents = new Map<string, SessionCurrentLineEntry>();
 
   constructor(conn: TugConnection) {
     this.conn = conn;
@@ -353,6 +409,22 @@ export class OverviewStore {
    * exactly the production ones.
    */
   private _onOverview(payload: Uint8Array): void {
+    // Two shapes on one feed ([B04]). The current line is checked first
+    // because it is the cheaper read and the post parse would answer null for
+    // it anyway.
+    const current = parseSessionCurrentLineFrame(payload);
+    if (current !== null) {
+      this.currents.set(current.session_id, {
+        text: current.current,
+        atMs: current.at_ms,
+      });
+      this.commit(
+        this.snapshot.posts,
+        this.snapshot.status,
+        this.snapshot.pendingRequestId,
+      );
+      return;
+    }
     const post = parseOverviewFrame(payload);
     if (post === null) return;
     this.fold([this.entry(post)]);
@@ -496,6 +568,10 @@ export class OverviewStore {
       hasMore: this.hasMore && capped.length < OVERVIEW_MAX_ROWS,
       loadingOlder: this.pendingBefore !== null,
       pendingRequestId,
+      // A fresh view each publish, so a row reading it through
+      // `useSyncExternalStore` sees the change rather than a mutated map it
+      // already held ([L02]).
+      currents: Object.freeze(new Map(this.currents)),
     });
     this.tick();
   }
@@ -598,10 +674,11 @@ export function _resetOverviewStoreForTest(): void {
 /**
  * Test-only: feed a OVERVIEW frame body as if it arrived over the wire.
  *
- * Not a mock — the bytes go through the production `parseOverviewFrame` and the
- * production fold, so what the card sees is what the wire would have produced.
- * The parse rejects a malformed body silently, so a caller must assert on
- * rendered output rather than on having called this.
+ * Not a mock — the bytes go through the production handler, so what the card
+ * sees is what the wire would have produced: a tagged current line is held as
+ * one, and everything else goes through `parseOverviewFrame` and the
+ * production fold. Both parses reject a malformed body silently, so a caller
+ * must assert on rendered output rather than on having called this.
  */
 export function _ingestOverviewFrameForTest(body: unknown): void {
   if (_activeStore === null) return;

@@ -31,9 +31,10 @@
  *      POST about this session, whole, falling back to the ask the turn is
  *      answering ([D187]). It is set to `block` and given the two lines the
  *      tier was widened for, and a post too long for one line is read over
- *      both. The DESCRIPTION above it is the standing sentence on one line
- *      in every form, with no turn override — neither the ask nor the post
- *      ever takes it. The digest's newest line reads on neither run: the
+ *      both. The DESCRIPTION above it is one line in every form: the standing
+ *      sentence at rest, and while a turn is in flight the Observer's current
+ *      line for that turn, falling back to the turn's ask ([B08]). A POST
+ *      never takes it. The digest's newest line reads on neither run: the
  *      beat is off the masthead and one click away in the history the
  *      account run opens. At rest the account run is the activity rest
  *      sentence (`No turns. Ready.`).
@@ -610,10 +611,13 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
         // The ask, without the `asked:` head the strip gives it: on the
         // account run it is the only thing there, so the label labels nothing.
         expect(asking.text).toBe(ASK_TEXT);
-        // And the sentence over it did not move for the turn: the description
-        // run has no turn override ([D132]), so it reads the ladder's floor
-        // here and never the ask.
-        expect(asking.description).not.toContain(ASK_TEXT);
+        // And the run above it moved too, to the same ask: the description is
+        // a CURRENCY line while a turn is in flight ([B08]), and with no
+        // current line written for this turn yet the ask is its floor. The two
+        // runs read the same entry here, which is the honest thing for both to
+        // say in the seconds before the Observer's first line — and it is
+        // marked on the upper run as the stand-in it is.
+        expect(asking.description).toContain(ASK_TEXT);
 
         // ── The first post lands and takes the run ──
         await app.evalJS<boolean>(
@@ -668,11 +672,12 @@ describe.skipIf(!SHOULD_RUN)("AT0551: the folded Session card's form", () => {
         note("wall at rest", rested.text);
         expect(rested.text.endsWith("Ready.")).toBe(true);
         expect(rested.text).not.toBe("Done");
-        // The post is gone from the run the moment the turn is, and the
-        // sentence over it is exactly what it was — a turn ending moves
-        // nothing on the description line.
+        // The post is gone from the run the moment the turn is, and the line
+        // above it stops being a currency line: the turn's ask goes with the
+        // turn and the identity ladder answers again ([B03]). This session has
+        // no standing sentence, so what it falls to is the floor under one.
         expect(rested.text).not.toContain(POST_BODY);
-        expect(rested.description).toBe(open.description);
+        expect(rested.description).not.toContain(ASK_TEXT);
         note("standing sentence throughout", rested.description);
       } finally {
         await app.close();

@@ -1208,7 +1208,65 @@ export function parseOverviewPost(value: unknown): OverviewPostWire | null {
 /** Parse a OVERVIEW feed frame's payload; null on malformed/foreign shapes. */
 export function parseOverviewFrame(payload: Uint8Array): OverviewPostWire | null {
   try {
-    return parseOverviewPost(JSON.parse(new TextDecoder().decode(payload)));
+    const value = JSON.parse(new TextDecoder().decode(payload));
+    // The current line rides the same feed under its own tag ([B04]). A post
+    // reader answers null for it rather than trying to make a post out of it,
+    // which is what lets one feed carry two shapes.
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      (value as Record<string, unknown>).kind === SESSION_CURRENT_KIND
+    ) {
+      return null;
+    }
+    return parseOverviewPost(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The `kind` tag on a current-line frame, spelled as tugcast's
+ * `SessionCurrentLine` spells it.
+ */
+export const SESSION_CURRENT_KIND = "session_current";
+
+/**
+ * The per-turn line under a live session's name, as it travels on `OVERVIEW`.
+ *
+ * A sibling of the post rather than a field on it: the Observer answers both
+ * from one reading, and a wake that writes this and posts nothing is the
+ * ordinary case rather than the odd one. Already in the standing sentence's
+ * register when it arrives, so nothing here trims or cases it.
+ */
+export interface SessionCurrentLineWire {
+  session_id: string;
+  at_ms: number;
+  current: string;
+}
+
+/**
+ * Decode one current line from an `OVERVIEW` frame; null on anything else,
+ * including a post. The tag is checked rather than inferred from the fields,
+ * so a shape that merely resembles one is not read as one.
+ */
+export function parseSessionCurrentLineFrame(
+  payload: Uint8Array,
+): SessionCurrentLineWire | null {
+  try {
+    const value: unknown = JSON.parse(new TextDecoder().decode(payload));
+    if (typeof value !== "object" || value === null) return null;
+    const v = value as Record<string, unknown>;
+    if (v.kind !== SESSION_CURRENT_KIND) return null;
+    if (typeof v.session_id !== "string" || v.session_id.length === 0) {
+      return null;
+    }
+    if (typeof v.current !== "string" || v.current.length === 0) return null;
+    return {
+      session_id: v.session_id,
+      at_ms: typeof v.at_ms === "number" ? v.at_ms : 0,
+      current: v.current,
+    };
   } catch {
     return null;
   }

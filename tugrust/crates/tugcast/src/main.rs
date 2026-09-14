@@ -1469,6 +1469,10 @@ async fn main() {
         feeds::overview_agent::SITREP_SECS_KEY,
         feeds::overview_agent::DEFAULT_SITREP_SECS,
     );
+    let overview_submission_arm = overview_knob(
+        feeds::overview_agent::SUBMISSION_ARM_SECS_KEY,
+        feeds::overview_agent::DEFAULT_SUBMISSION_ARM_SECS,
+    );
     let overview_token_wake = overview_knob(
         feeds::overview_agent::TOKEN_WAKE_TOKENS_KEY,
         feeds::overview_agent::DEFAULT_TOKEN_WAKE_TOKENS,
@@ -1515,6 +1519,7 @@ async fn main() {
             agent: Some(Arc::clone(&overview_agent)),
             enabled: overview_enabled,
             sitrep_secs: overview_sitrep,
+            submission_arm_secs: overview_submission_arm,
             token_wake_tokens: overview_token_wake,
             last_k_posts: Arc::new(move || overview_last_k().max(0) as usize),
             buffer_max_frames: Arc::new(move || overview_buffer_frames().max(1) as usize),

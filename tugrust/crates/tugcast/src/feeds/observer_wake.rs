@@ -48,6 +48,51 @@ pub fn counts_as_assistant_activity(msg_type: &str) -> bool {
     !matches!(msg_type, "turn_complete" | "turn_cancelled")
 }
 
+/// Whether a submission is an **ask** — something a session was asked to do —
+/// as opposed to a command that changes a setting.
+///
+/// This is the gate on the short arm ([B07]). A `/model` or a `/compact` opens
+/// and closes a turn with nothing in between, and waking a model to be told
+/// that a setting changed spends a Sonnet call to learn there is nothing to
+/// say. The turn-end wake has its own answer to that case
+/// ([`counts_as_assistant_activity`] plus the window's `assistant_activity`
+/// flag), and it cannot serve here: a submission wake is by definition over a
+/// window holding only the prompt, which is exactly the shape that gate
+/// rejects.
+///
+/// It is the same line the description ladder's prompt rung draws ([D132]):
+/// a command is not the session's human-meaningful line, so the line that
+/// stands is left standing. Two spellings reach this predicate — the literal
+/// `/name args` the deck sends on the live wire, and the `<command-name>`
+/// envelope Claude Code persists in its place — and both are declined.
+///
+/// Everything else is an ask. The empty string answers true because the
+/// predicate is total, not because production ever asks about one: a
+/// submission with no text at all is an image, `submission_ask` answers `None`
+/// for its text, and `line_for_submission` declines the frame on the same
+/// grounds — so `handle_submission_frame` has already returned and an
+/// image-only submission arms nothing on either path.
+pub fn counts_as_ask(text: &str) -> bool {
+    let text = text.trim_start();
+    if text.starts_with("<command-") {
+        return false;
+    }
+    let Some(rest) = text.strip_prefix('/') else {
+        return true;
+    };
+    // A command's name, and nothing else before it ends or its arguments
+    // begin. A lone `/`, or a path someone opened a line with, is prose.
+    let name: &str = rest
+        .split(|c: char| c.is_whitespace())
+        .next()
+        .unwrap_or_default();
+    let is_command = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'));
+    !is_command
+}
+
 // MARK: - Wake reasons
 
 /// Why the Observer is being asked now.
@@ -69,6 +114,15 @@ pub enum WakeReason {
     SessionEnd,
     /// Cumulative token usage since the last post crossed the threshold.
     TokenThreshold,
+    /// The user submitted a new ask, and the window was armed short so this
+    /// wake lands while the turn is young.
+    ///
+    /// The one wake that is about the turn in front of the reader rather than
+    /// about work that has already happened, which is why it writes the
+    /// current line and posts nothing: a bare ask is not news, and a channel
+    /// that filled with "the user asked X" would be worse than one that waited
+    /// for something to happen.
+    Submission,
 }
 
 impl WakeReason {
@@ -80,6 +134,7 @@ impl WakeReason {
             Self::SitrepTimer => "sitrep-timer",
             Self::SessionEnd => "session-end",
             Self::TokenThreshold => "token-threshold",
+            Self::Submission => "submission",
         }
     }
 }
@@ -248,12 +303,12 @@ pub fn compose_observer_input(
 
 /// What `observer-post` answers with.
 ///
-/// One ask writes both accounts of the session: the post that goes to the
-/// Overview, and the standing sentence under the session's callsign. They are
-/// independent answers to one reading of the same work — a wake may post and
-/// not revise the sentence, revise the sentence and not post, do both, or do
-/// neither — and that is the point of carrying them together: a post and a
-/// sentence written from one reading cannot contradict each other.
+/// One ask writes all three accounts of the session: the post that goes to the
+/// Overview, the standing sentence under the session's callsign, and the
+/// current line for the turn in flight. They are independent answers to one
+/// reading of the same work — a wake may write any of them and leave the
+/// others as they stand — and that is the point of carrying them together:
+/// three answers written from one reading cannot contradict each other.
 ///
 /// `deny_unknown_fields` throughout: the contract is narrow on purpose, and a
 /// model that invented a field has drifted from it in a way worth noticing at
@@ -270,6 +325,18 @@ pub struct ObserverEnvelope {
     /// that fails.
     #[serde(default)]
     pub synopsis: Option<String>,
+    /// What the session is on in THIS turn, or `None` for "what stands is
+    /// still right". Absent as well as null, for the same reason `synopsis`
+    /// is: an older answer shape says nothing about the line rather than
+    /// failing to parse.
+    ///
+    /// A third answer to one reading, not a second spelling of the second.
+    /// The synopsis holds across a turn so a list of sessions can be scanned;
+    /// this one moves with the turn so the line under a live session's name
+    /// is about the work in front of it. One field could not have both
+    /// cadences, and asking it to have them is what moved it twice.
+    #[serde(default)]
+    pub current: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -1228,6 +1295,34 @@ mod tests {
         assert_eq!(WakeReason::SitrepTimer.as_str(), "sitrep-timer");
         assert_eq!(WakeReason::SessionEnd.as_str(), "session-end");
         assert_eq!(WakeReason::TokenThreshold.as_str(), "token-threshold");
+        assert_eq!(WakeReason::Submission.as_str(), "submission");
+    }
+
+    /// The gate on the short arm ([B07]). A command changes a setting and
+    /// opens a turn with nothing in it; everything else a person submits is
+    /// something they want the session to do.
+    #[test]
+    fn a_command_is_not_an_ask_and_prose_is() {
+        // The literal the deck sends on the live wire, bare and with args.
+        assert!(!counts_as_ask("/model"));
+        assert!(!counts_as_ask("/compact"));
+        assert!(!counts_as_ask("  /compact  "));
+        assert!(!counts_as_ask("/tugplug:arc-implement topline-currency"));
+        // The envelope Claude Code persists in a command's place.
+        assert!(!counts_as_ask(
+            "<command-name>/compact</command-name><command-args></command-args>"
+        ));
+
+        // Prose is an ask, including prose that merely mentions a command or
+        // opens on a path — neither is a command submission.
+        assert!(counts_as_ask("why is the topline stale"));
+        assert!(counts_as_ask("run /compact when you are done"));
+        assert!(counts_as_ask("/ is a lonely slash"));
+        assert!(counts_as_ask("/Users/kocienda/src/tug is the checkout"));
+        // Total over every string, though the empty one is not a case either
+        // caller reaches: `submission_ask` answers `None` for an image-only
+        // submission's text, so the arm is declined before this is asked.
+        assert!(counts_as_ask(""));
     }
 
     // MARK: - The envelope
@@ -1292,6 +1387,41 @@ mod tests {
         // one that says null, so the older shape still parses.
         let omitted = parse_envelope(r#"{"post": null}"#).expect("parses");
         assert!(omitted.synopsis.is_none());
+    }
+
+    /// The third field is read on the same terms as the second, and an answer
+    /// that predates it is a wake that said nothing about the current line
+    /// rather than a wake that failed.
+    #[test]
+    fn the_current_line_is_read_and_may_be_absent() {
+        let both = parse_envelope(
+            r#"{"post": null, "synopsis": "Rework how a session names itself", "current": "Chase the wedge in the download resume path"}"#,
+        )
+        .expect("parses");
+        assert_eq!(
+            both.synopsis.as_deref(),
+            Some("Rework how a session names itself")
+        );
+        assert_eq!(
+            both.current.as_deref(),
+            Some("Chase the wedge in the download resume path")
+        );
+
+        // The submission wake's shape: the current line alone, with nothing
+        // to tell the channel and the through-line left standing.
+        let current_only =
+            parse_envelope(r#"{"post": null, "synopsis": null, "current": "Trace the parser bug"}"#)
+                .expect("parses");
+        assert!(current_only.post.is_none());
+        assert!(current_only.synopsis.is_none());
+        assert_eq!(current_only.current.as_deref(), Some("Trace the parser bug"));
+
+        // Null and omitted are one answer, and neither field is required.
+        let explicit_none =
+            parse_envelope(r#"{"post": null, "synopsis": null, "current": null}"#).expect("parses");
+        assert!(explicit_none.current.is_none());
+        let omitted = parse_envelope(r#"{"post": null, "synopsis": null}"#).expect("parses");
+        assert!(omitted.current.is_none());
     }
 
     /// Every malformed shape posts nothing. Silence is the safe failure mode;

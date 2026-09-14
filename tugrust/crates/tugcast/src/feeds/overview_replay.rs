@@ -57,12 +57,13 @@ use serde::Deserialize;
 use crate::cli::OverviewReplayArgs;
 
 use super::observer_wake::{
-    FactLine, PriorPost, WakeReason, compose_observer_input, counts_as_assistant_activity,
-    parse_envelope, render_facts_section, synopsis_register_report, validate_refs,
+    FactLine, PriorPost, WakeReason, compose_observer_input, counts_as_ask,
+    counts_as_assistant_activity, parse_envelope, render_facts_section, synopsis_register_report,
+    validate_refs,
 };
-use super::overview_agent::{BUFFER_MAX_BYTES, DEFAULT_MODEL};
+use super::overview_agent::{BUFFER_MAX_BYTES, DEFAULT_MODEL, DEFAULT_SUBMISSION_ARM_SECS};
 use super::session_digest::{
-    DigestKind, DigestLine, SessionDigest, SessionDigester, forwardable_session,
+    DigestKind, DigestLine, SessionDigest, SessionDigester, forwardable_session, submission_ask,
 };
 
 // MARK: - Options
@@ -74,6 +75,10 @@ pub struct ReplayOptions {
     /// Seconds of continuous activity after which the Observer wakes.
     /// Zero disables the sitrep timer, leaving turn-end and session-end.
     pub sitrep_secs: i64,
+    /// Seconds after a user submission at which the Observer wakes to write
+    /// the turn's current line. Zero turns the submission wake off, which is
+    /// how a run reads the cadence the arm is measured against.
+    pub submission_arm_secs: i64,
     /// How many prior posts ride each wake — the dedup mechanism.
     pub last_k: usize,
     /// Per-window frame cap before the oldest are elided.
@@ -99,6 +104,7 @@ impl Default for ReplayOptions {
     fn default() -> Self {
         Self {
             sitrep_secs: super::overview_agent::DEFAULT_SITREP_SECS,
+            submission_arm_secs: DEFAULT_SUBMISSION_ARM_SECS,
             last_k: super::overview_agent::DEFAULT_LAST_K_POSTS,
             max_frames: super::overview_agent::DEFAULT_BUFFER_MAX_FRAMES,
             token_wake_tokens: super::overview_agent::DEFAULT_TOKEN_WAKE_TOKENS,
@@ -117,6 +123,7 @@ impl ReplayOptions {
         let d = Self::default();
         Self {
             sitrep_secs: args.sitrep_secs.unwrap_or(d.sitrep_secs),
+            submission_arm_secs: args.submission_arm_secs.unwrap_or(d.submission_arm_secs),
             last_k: args.last_k.unwrap_or(d.last_k),
             max_frames: args.max_frames.unwrap_or(d.max_frames),
             token_wake_tokens: args.token_wake_tokens.unwrap_or(d.token_wake_tokens),
@@ -562,6 +569,11 @@ pub struct WakeWindow {
 /// The sitrep timer is armed by the first frame into an empty buffer and
 /// disarmed by every wake, mirroring the bridge — a timer that ran while the
 /// buffer was empty would wake on an idle session, and silence is not news.
+///
+/// A user submission re-arms that same timer short ([B05]): one deadline, set
+/// nearer, so the turn's current line exists while the turn is young. A
+/// submission the digester does not read as an ask — a local command — arms
+/// nothing ([B07]).
 pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWindow> {
     let mut windows = Vec::new();
     let mut buffer = SessionDigest::new(opts.max_frames, BUFFER_MAX_BYTES);
@@ -575,6 +587,10 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
     let mut assistant_activity = false;
     let mut session_id = String::new();
     let sitrep_ms = opts.sitrep_secs.saturating_mul(1000);
+    let submission_arm_ms = opts.submission_arm_secs.max(0).saturating_mul(1000);
+    // Set while a submission's short arm is outstanding. It holds the arm and
+    // the wake's reason as one fact, exactly as the bridge's `short_arm` does.
+    let mut short_arm: Option<i64> = None;
 
     /// Snapshot-and-clear, exactly as the bridge does before it hands the
     /// window off: the buffer starts accumulating the next stretch
@@ -584,6 +600,7 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
         windows: &mut Vec<WakeWindow>,
         armed_at: &mut Option<i64>,
         tokens_since: &mut i64,
+        short_arm: &mut Option<i64>,
         session_id: &str,
         at_ms: i64,
         reason: WakeReason,
@@ -600,25 +617,35 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
         });
         *armed_at = None;
         *tokens_since = 0;
+        // The short arm is one turn's, so every wake gives the window back to
+        // the sitrep — which is what the bridge does and what makes a
+        // submission wake cost one extra wake rather than a faster cadence.
+        *short_arm = None;
     }
 
     for frame in frames {
         // The deadline elapsed in the gap before this frame arrived, so the
         // wake belongs at the deadline rather than at the frame.
-        if sitrep_ms > 0
-            && let Some(armed) = armed_at
-            && frame.at_ms >= armed + sitrep_ms
+        if let Some(armed) = armed_at
+            && let Some(arm_ms) = arm_for(short_arm, sitrep_ms)
+            && frame.at_ms >= armed + arm_ms
             && !buffer.is_empty()
         {
-            let at = armed + sitrep_ms;
+            let at = armed + arm_ms;
+            let reason = if short_arm.is_some() {
+                WakeReason::Submission
+            } else {
+                WakeReason::SitrepTimer
+            };
             wake(
                 &mut buffer,
                 &mut windows,
                 &mut armed_at,
                 &mut tokens_since,
+                &mut short_arm,
                 &session_id,
                 at,
-                WakeReason::SitrepTimer,
+                reason,
             );
         }
 
@@ -668,6 +695,17 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
         buffer.push(digested.line);
         tokens_since += frame.tokens;
 
+        // The submission trigger, on the same terms the bridge takes it: the
+        // window re-arms from the submission's own moment, short.
+        if submission_arm_ms > 0
+            && !frame.via_tap
+            && let Some((_, Some(text))) = submission_ask(&value)
+            && counts_as_ask(&text)
+        {
+            armed_at = Some(frame.at_ms);
+            short_arm = Some(submission_arm_ms);
+        }
+
         if frame.msg_type == "turn_complete" || frame.msg_type == "turn_cancelled" {
             // A turn that held no work is not a wake. Skipping it here rather
             // than reporting it is the whole point: this instrument's answer
@@ -679,6 +717,7 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
                     &mut windows,
                     &mut armed_at,
                     &mut tokens_since,
+                    &mut short_arm,
                     &session_id,
                     frame.at_ms,
                     WakeReason::TurnEnd,
@@ -691,6 +730,7 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
                 &mut windows,
                 &mut armed_at,
                 &mut tokens_since,
+                &mut short_arm,
                 &session_id,
                 frame.at_ms,
                 WakeReason::TokenThreshold,
@@ -705,12 +745,44 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
             &mut windows,
             &mut armed_at,
             &mut tokens_since,
+            &mut short_arm,
             &session_id,
             at,
             WakeReason::SessionEnd,
         );
     }
     windows
+}
+
+/// How long the armed window has to run: the short arm when one is outstanding,
+/// the sitrep otherwise, and nothing at all when the sitrep is off and no
+/// submission has armed. The bridge computes its one deadline the same way.
+fn arm_for(short_arm: Option<i64>, sitrep_ms: i64) -> Option<i64> {
+    match short_arm {
+        Some(arm) => Some(arm),
+        None if sitrep_ms <= 0 => None,
+        None => Some(sitrep_ms),
+    }
+}
+
+/// What the submission wake costs, as the wake count over these frames with
+/// the short arm and without it ([B12], [F12]).
+///
+/// Both halves are the same pure segmentation over the same frames, so the
+/// only thing that differs between them is the arm — which is the whole claim
+/// the number is asked to support. `None` when the run has no arm to measure.
+pub fn submission_cost(frames: &[ReplayFrame], opts: &ReplayOptions) -> Option<(usize, usize)> {
+    if opts.submission_arm_secs <= 0 {
+        return None;
+    }
+    let without = ReplayOptions {
+        submission_arm_secs: 0,
+        ..opts.clone()
+    };
+    Some((
+        segment_wakes(frames, opts).len(),
+        segment_wakes(frames, &without).len(),
+    ))
 }
 
 // MARK: - Running one replay
@@ -738,6 +810,9 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
         return 1;
     }
     let windows = segment_wakes(&frames, opts);
+    // Both halves of the measurement come off the same frames, and neither
+    // calls the model: the cost of the currency is a segmentation fact.
+    let cost = submission_cost(&frames, opts);
     let start_ms = frames.first().map(|f| f.at_ms).unwrap_or_default();
     let end_ms = frames.last().map(|f| f.at_ms).unwrap_or_default();
 
@@ -770,7 +845,7 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
             }
             println!("_(--no-model: segmentation only)_\n");
         }
-        print_footer(&windows, &Tally::default(), start_ms, end_ms);
+        print_footer(&windows, &Tally::default(), cost, start_ms, end_ms);
         return 0;
     }
 
@@ -788,6 +863,11 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
     // every wake.
     let mut standing: Option<String> = None;
     let mut sentences: Vec<(usize, String)> = Vec::new();
+    // The current lines, in the order they were written. Nothing carries one
+    // wake to wake — the line belongs to a turn — so the list is a record of
+    // how often the Observer had something to say about the turn in front of
+    // it, which is the number this half of the work is judged by.
+    let mut currents: Vec<(usize, String)> = Vec::new();
 
     for (n, window) in windows.iter().enumerate() {
         print_window_header(n + 1, window, start_ms);
@@ -841,6 +921,16 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
                             standing = Some(report.text);
                         }
                     }
+                    // The current line, on the live path's own terms: it is
+                    // per-turn and never persisted, so a replay reports each
+                    // one as it was written rather than tracking what stands.
+                    if let Some(raw) = envelope.current.as_deref() {
+                        let report = synopsis_register_report(raw);
+                        if !report.text.is_empty() {
+                            println!("**current:** {}\n", report.text);
+                            currents.push((n + 1, report.text));
+                        }
+                    }
                     match envelope.post {
                         None => {
                             tally.silent += 1;
@@ -877,7 +967,20 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
             windows.len()
         );
     }
-    print_footer(&windows, &tally, start_ms, end_ms);
+    println!("## current line\n");
+    if currents.is_empty() {
+        println!("_(never written)_\n");
+    } else {
+        for (wake, line) in &currents {
+            println!("- wake {wake}: {line}");
+        }
+        println!(
+            "\n{} of {} wakes wrote a current line\n",
+            currents.len(),
+            windows.len()
+        );
+    }
+    print_footer(&windows, &tally, cost, start_ms, end_ms);
     0
 }
 
@@ -966,8 +1069,9 @@ fn print_header(
         windows.len()
     );
     println!(
-        "- sitrep: {}s · last-k: {} · max-frames: {} · token-wake: {} · model: {}{}",
+        "- sitrep: {}s · submission-arm: {}s · last-k: {} · max-frames: {} · token-wake: {} · model: {}{}",
         opts.sitrep_secs,
+        opts.submission_arm_secs,
         opts.last_k,
         opts.max_frames,
         opts.token_wake_tokens,
@@ -1058,7 +1162,13 @@ fn print_input(input: &str) {
     println!("</details>\n");
 }
 
-fn print_footer(windows: &[WakeWindow], tally: &Tally, start_ms: i64, end_ms: i64) {
+fn print_footer(
+    windows: &[WakeWindow],
+    tally: &Tally,
+    cost: Option<(usize, usize)>,
+    start_ms: i64,
+    end_ms: i64,
+) {
     println!("---\n");
     println!("## cadence\n");
     let span_ms = (end_ms - start_ms).max(0);
@@ -1066,6 +1176,7 @@ fn print_footer(windows: &[WakeWindow], tally: &Tally, start_ms: i64, end_ms: i6
     for reason in [
         WakeReason::TurnEnd,
         WakeReason::SitrepTimer,
+        WakeReason::Submission,
         WakeReason::SessionEnd,
         WakeReason::TokenThreshold,
     ] {
@@ -1073,6 +1184,17 @@ fn print_footer(windows: &[WakeWindow], tally: &Tally, start_ms: i64, end_ms: i6
         if count > 0 {
             println!("  - {}: {count}", reason.as_str());
         }
+    }
+    // What the currency costs, in the one unit that matters: wakes. A
+    // submission wake is a whole extra call to the model, so the number is
+    // the price of the line moving at once, and it is printed rather than
+    // argued.
+    if let Some((with, without)) = cost {
+        println!(
+            "- **submission wake: {with} wakes with it, {without} without** — {} more over {}",
+            with.saturating_sub(without),
+            elapsed_label(span_ms)
+        );
     }
     let called = tally.posted + tally.silent + tally.unparseable + tally.failed;
     if called > 0 {
@@ -1166,8 +1288,18 @@ mod tests {
     fn opts(sitrep_secs: i64) -> ReplayOptions {
         ReplayOptions {
             sitrep_secs,
+            // The sitrep alone. Every cadence test below is about one timer,
+            // and a short arm on by default would make each of them about two.
+            submission_arm_secs: 0,
             no_model: true,
             ..ReplayOptions::default()
+        }
+    }
+
+    fn opts_arming(sitrep_secs: i64, submission_arm_secs: i64) -> ReplayOptions {
+        ReplayOptions {
+            submission_arm_secs,
+            ..opts(sitrep_secs)
         }
     }
 
@@ -1396,6 +1528,120 @@ mod tests {
 
         assert_eq!(windows.len(), 2, "one per turn, none for the idle hours");
         assert!(windows.iter().all(|w| w.reason == WakeReason::TurnEnd));
+    }
+
+    /// The defect this arc exists to end, read as a wake: with no short arm,
+    /// the first thing the Observer can say about a new ask waits for the
+    /// sitrep. The arm puts a wake seconds in, and that wake is the one the
+    /// current line rides.
+    #[test]
+    fn a_submission_wakes_seconds_in_rather_than_at_the_sitrep() {
+        // One prompt, then a long turn: nothing else would wake before 180s.
+        let jsonl = [
+            prompt("2026-08-07T13:00:00.000Z", "why does the download wedge"),
+            tool_call("2026-08-07T13:00:20.000Z", "t1", "Read"),
+            tool_result("2026-08-07T13:10:00.000Z", "t1", "done"),
+        ]
+        .join("\n");
+        let frames = translate_transcript(&jsonl);
+        let armed = parse_timestamp("2026-08-07T13:00:00.000Z").unwrap();
+
+        let bare = segment_wakes(&frames, &opts(180));
+        assert_eq!(bare[0].reason, WakeReason::SitrepTimer);
+        assert_eq!(bare[0].at_ms, armed + 180_000);
+
+        let arming = segment_wakes(&frames, &opts_arming(180, 6));
+        assert_eq!(
+            arming[0].reason,
+            WakeReason::Submission,
+            "the submission's own arm fires first, and says so"
+        );
+        assert_eq!(
+            arming[0].at_ms,
+            armed + 6_000,
+            "six seconds after the ask, not a sitrep later"
+        );
+        assert!(
+            arming[0].rendered.contains("why does the download wedge"),
+            "the window that wake is shown holds the ask it is about"
+        );
+    }
+
+    /// [B07]: a local command is not an ask, so it buys no wake. The gate is
+    /// `counts_as_ask`, and this pins that the replay runs it.
+    #[test]
+    fn a_command_submission_arms_nothing() {
+        let jsonl = [
+            prompt("2026-08-07T13:00:00.000Z", "/model opus"),
+            tool_call("2026-08-07T13:00:20.000Z", "t1", "Read"),
+            tool_result("2026-08-07T13:10:00.000Z", "t1", "done"),
+        ]
+        .join("\n");
+        let frames = translate_transcript(&jsonl);
+        let windows = segment_wakes(&frames, &opts_arming(180, 6));
+
+        assert_eq!(
+            windows[0].reason,
+            WakeReason::SitrepTimer,
+            "a command leaves the window on the sitrep it was already on"
+        );
+    }
+
+    /// After the short wake the window is the sitrep's again ([B05]) — the arm
+    /// buys one wake per ask rather than a faster cadence for the whole turn.
+    #[test]
+    fn the_window_returns_to_the_sitrep_after_a_submission_wake() {
+        let mut lines = vec![prompt("2026-08-07T13:00:00.000Z", "go")];
+        for minute in 0..10 {
+            lines.push(tool_call(
+                &format!("2026-08-07T13:{minute:02}:30.000Z"),
+                &format!("t{minute}"),
+                "Read",
+            ));
+        }
+        let jsonl = lines.join("\n");
+        let frames = translate_transcript(&jsonl);
+        let windows = segment_wakes(&frames, &opts_arming(180, 6));
+
+        assert_eq!(windows[0].reason, WakeReason::Submission);
+        assert!(
+            windows[1..]
+                .iter()
+                .all(|w| w.reason != WakeReason::Submission),
+            "one ask, one submission wake"
+        );
+        let armed = parse_timestamp("2026-08-07T13:00:00.000Z").unwrap();
+        assert!(
+            windows[1].at_ms - armed >= 180_000,
+            "the next deadline is a sitrep away, not another six seconds"
+        );
+    }
+
+    /// [B12]: the measurement is the point. Both halves are the same frames,
+    /// so the difference is the arm and nothing else.
+    #[test]
+    fn the_cost_is_the_two_wake_counts_over_the_same_frames() {
+        let jsonl = [
+            prompt("2026-08-07T13:00:00.000Z", "why does the download wedge"),
+            tool_call("2026-08-07T13:00:20.000Z", "t1", "Read"),
+            tool_result("2026-08-07T13:10:00.000Z", "t1", "done"),
+        ]
+        .join("\n");
+        let frames = translate_transcript(&jsonl);
+
+        let (with, without) = submission_cost(&frames, &opts_arming(180, 6))
+            .expect("an arming run has a cost to report");
+        assert_eq!(without, segment_wakes(&frames, &opts(180)).len());
+        assert_eq!(with, segment_wakes(&frames, &opts_arming(180, 6)).len());
+        assert!(
+            with > without,
+            "the arm bought a wake: {with} with it, {without} without"
+        );
+
+        assert!(
+            submission_cost(&frames, &opts(180)).is_none(),
+            "a run with no arm has nothing to measure"
+        );
     }
 
     #[test]

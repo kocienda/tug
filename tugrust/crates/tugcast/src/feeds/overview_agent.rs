@@ -57,6 +57,10 @@ pub const MAX_WORKERS_KEY: &str = "max_workers";
 /// after which the Observer wakes with `sitrep-timer`.
 pub const SITREP_SECS_KEY: &str = "sitrep_secs";
 
+/// Seconds after a user submission at which the Observer wakes with
+/// `submission`, in place of that window's ordinary sitrep.
+pub const SUBMISSION_ARM_SECS_KEY: &str = "submission_arm_secs";
+
 /// How many of the Observer's own prior posts for a session ride each wake.
 pub const LAST_K_POSTS_KEY: &str = "last_k_posts";
 
@@ -125,6 +129,26 @@ pub const DEFAULT_MAX_WORKERS: usize = 3;
 /// and `overview-replay --sitrep-secs` reads any candidate against a real
 /// transcript first.
 pub const DEFAULT_SITREP_SECS: i64 = 60;
+
+/// How long after a new ask the Observer wakes to say what the turn is on.
+///
+/// Six seconds, and deliberately not zero. The line the wake writes says what
+/// the session is DOING, and at the instant of the submission the only thing
+/// that has happened is the submission: a wake there could do no better than
+/// restate the ask, which is the least informative line on the card for the
+/// person who typed it a second earlier. A few seconds in, the window holds
+/// the turn's first tool calls as well as the prompt, and the line can name
+/// the work rather than the request.
+///
+/// Beyond that the number is the reported delay's whole answer. The complaint
+/// was a line that took a minute or more to roll over; this is the wake that
+/// makes it seconds, and after it fires the window re-arms at the sitrep
+/// exactly as before, so nothing about the channel's cadence moves.
+///
+/// A tugbank default, like `sitrep_secs`, so it turns without a rebuild, and
+/// `overview-replay --submission-arm-secs` reads a candidate against a real
+/// transcript before it ships.
+pub const DEFAULT_SUBMISSION_ARM_SECS: i64 = 6;
 
 /// How much of its own recent voice the Observer sees per wake.
 ///
@@ -297,6 +321,7 @@ The WAKE REASON tells you why you are being asked now. Use it:
 - sitrep-timer — work has been going for a while. Post only if it has gotten somewhere since your last post.
 - session-end — the session is over. Write a wrap-up of what it accomplished overall.
 - token-threshold — the session has spent a lot. Say what it has been spending on.
+- submission — the user has just asked for something and the session has started on it. This is the ONE wake that is about the turn in front of the reader rather than about work already done. Write the current line and NOTHING ELSE: answer null for the post and null for the standing sentence. A bare ask is not news — the reader typed it seconds ago — and the session's through-line has not moved just because it was asked one more thing.
 
 Write like a person telling a colleague what happened. One or two sentences, 200 characters of prose at the outside — this is a notice in a narrow rail, not a transcript. The budget counts prose only: file paths, commit shas, and session names you must spell exactly are free, so never vague-up a name to save characters. Concrete and specific: name what was built, what was found, what broke, what was asked and what the answer was. Never narrate your own process.
 
@@ -333,13 +358,19 @@ SENTENCE CASE, with proper names keeping their capitals. Articles and conjunctio
 No period at the end, no quotes, no leading article, and never an opener about the act of working — no \"Working on\", no \"Currently\", no \"It looks like\".
 Never name a tool, and never write a path.
 
-The two answers are independent. Post and leave the sentence alone, revise the sentence and post nothing, do both, or do neither.
+THE CURRENT LINE is the third thing you write, and it is a different job again. The standing sentence is what the session is FOR, across its whole run; the current line is what it is on in THIS turn, right now. A session whose through-line is a month of parser work, asked this morning to chase one crash, is still FOR the parser and is currently on the crash — the sentence says the first, the current line says the second. Both are true, and they are true at different speeds: the sentence is read in a list of sessions to tell one from another, the current line is read under a live session's name by someone who wants to know what it is doing.
+
+Write one whenever you can say what this turn is doing, and answer null when you cannot — null means \"leave the line as it stands\". Unlike the standing sentence, there is no cost to writing this one again: it is about the turn rather than the run, it is cleared when the turn ends, and nothing has to carry it afterwards. So the question for it is only whether the words are right for what the session is on now.
+
+Write it in the same shape as the standing sentence — start with a verb in the plain command form, name the work and its object, about 65 characters, sentence case, no period, no quotes, no leading article, no opener about the act of working, no tool names and no paths. What differs is what it is about: name what this turn is doing, not what the session is for.
+
+The three answers are independent. Post and leave both lines alone, move a line and post nothing, do all of it, or do none of it.
 
 To say nothing at all:
-{\"post\": null, \"synopsis\": null}
+{\"post\": null, \"synopsis\": null, \"current\": null}
 
-To post and revise the sentence:
-{\"post\": {\"body\": \"...\", \"refs\": [{\"kind\": \"commit\", \"target\": \"a1b2c3d4\"}]}, \"synopsis\": \"Rework how a session names itself\"}
+To post, revise the sentence, and move the current line:
+{\"post\": {\"body\": \"...\", \"refs\": [{\"kind\": \"commit\", \"target\": \"a1b2c3d4\"}]}, \"synopsis\": \"Rework how a session names itself\", \"current\": \"Trace the wedge in the download resume path\"}
 
 An empty refs list is fine. Answer only from the material below.";
 
@@ -484,7 +515,7 @@ mod tests {
         // Silence is a first-class output, and the parser accepts exactly this
         // shape — a model that was never told so would answer prose.
         let observer = job("observer-post").instructions;
-        assert!(observer.contains(r#"{"post": null, "synopsis": null}"#));
+        assert!(observer.contains(r#"{"post": null, "synopsis": null, "current": null}"#));
         assert!(observer.contains(r#""refs""#));
         // …but bounded to the two cases it is for. An open-ended "posting
         // nothing is often right" let the model treat a finished turn whose
@@ -503,7 +534,7 @@ mod tests {
         assert!(observer.contains("NAME THE WORK AND ITS OBJECT"));
         assert!(observer.contains("SENTENCE CASE"));
         assert!(observer.contains("No period at the end"));
-        assert!(observer.contains("The two answers are independent."));
+        assert!(observer.contains("The three answers are independent."));
         // The sentence is the session's through-line, revised in sight of
         // what stands. The wake input's heading is named so the model can
         // find the section; null is spelled out as "leave it"; and the news
@@ -519,6 +550,21 @@ mod tests {
             !observer.contains("often the right one"),
             "the open-ended silence license is what made a finished turn go unreported",
         );
+        // The current line is the other sentence, and the pins are what keep
+        // the two from collapsing back into one: the field's name, the rule
+        // that it is about the turn rather than the run, and the register it
+        // shares with the sentence. The field that carries it is optional in
+        // the envelope, so nothing but this wording makes the model write it.
+        assert!(observer.contains(r#""current""#));
+        assert!(observer.contains("THE CURRENT LINE is the third thing you write"));
+        assert!(observer.contains("what it is on in THIS turn"));
+        assert!(observer.contains("in the same shape as the standing sentence"));
+        // The submission wake's own rule ([B06]). The reason is spelled here
+        // exactly as `WakeReason::as_str` spells it, because the model reads
+        // the reason off the wake input and matches it against this list.
+        assert!(observer.contains(crate::feeds::observer_wake::WakeReason::Submission.as_str()));
+        assert!(observer.contains("Write the current line and NOTHING ELSE"));
+        assert!(observer.contains("null for the post and null for the standing sentence"));
         // Voice: one register for every subject. The rule is pinned, and so is
         // the absence of the framing that provoked it — telling the Observer to
         // post "even when it isn't code" is what produced a post opening
@@ -784,6 +830,12 @@ mod tests {
     #[test]
     fn cadence_defaults_are_the_tuned_starting_values() {
         assert_eq!(DEFAULT_SITREP_SECS, 60);
+        // A few seconds, and never zero: a wake at the instant of the ask can
+        // only restate the ask ([B05]). It must also stay well under the
+        // sitrep, since a short arm that is not short is not a trigger.
+        assert_eq!(DEFAULT_SUBMISSION_ARM_SECS, 6);
+        assert!(DEFAULT_SUBMISSION_ARM_SECS > 0);
+        assert!(DEFAULT_SUBMISSION_ARM_SECS < DEFAULT_SITREP_SECS);
         assert_eq!(DEFAULT_LAST_K_POSTS, 5);
         assert_eq!(DEFAULT_TOKEN_WAKE_TOKENS, 0, "threshold wake is opt-in");
         assert_eq!(

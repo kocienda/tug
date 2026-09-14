@@ -1407,6 +1407,35 @@ pub struct OverviewPost {
     pub transient: bool,
 }
 
+/// The per-turn **current line** for one session, as it travels on
+/// `FeedId::OVERVIEW` beside the posts.
+///
+/// Two sentences describe a session and they want opposite cadences. The
+/// synopsis is the through-line — what the session is FOR — and it holds
+/// across a turn on purpose, so a list of sessions can be scanned. This is the
+/// other one: what the session is on in THIS turn, written or revised on any
+/// wake while a turn is in flight, and true only for as long as that turn
+/// lasts.
+///
+/// So it is not a post and it is not a ledger column. It travels on the
+/// channel because that is the wire the Observer already writes on, tagged so
+/// a reader that only knows about posts skips it rather than mangling it; and
+/// it is held in memory on the deck and cleared when the turn ends, because a
+/// fact about a turn in flight has nothing to restore after a restart.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename = "session_current")]
+pub struct SessionCurrentLine {
+    /// The session the line is about — the same id an Observer post carries.
+    pub session_id: String,
+    /// When the wake that wrote it answered.
+    pub at_ms: i64,
+    /// The line itself, already through the synopsis register: no quotes, no
+    /// leading article, no terminal period, clipped to `MAX_SYNOPSIS_CHARS`.
+    /// Never empty — a line that normalized to nothing is not broadcast at
+    /// all, since the one that stands is better than none.
+    pub current: String,
+}
+
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -1414,6 +1443,41 @@ fn is_false(value: &bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The current line is tagged on the wire, because it shares a feed with
+    /// the posts and a reader has to be able to tell them apart. The tag is
+    /// what makes a post-only reader skip it instead of mangling it, so it is
+    /// pinned here rather than left to the derive's default.
+    #[test]
+    fn the_current_line_carries_its_tag_and_a_post_is_not_one() {
+        let line = SessionCurrentLine {
+            session_id: "s1".to_string(),
+            at_ms: 1_700_000_000_000,
+            current: "Chase the wedge in the download resume path".to_string(),
+        };
+        let json = serde_json::to_value(&line).expect("serializes");
+        assert_eq!(json["kind"], "session_current");
+        assert_eq!(
+            serde_json::from_value::<SessionCurrentLine>(json).expect("round-trips"),
+            line,
+        );
+
+        // The two shapes are mutually unreadable, which is the whole contract:
+        // an untagged post is not a current line, and a current line has none
+        // of a post's required fields.
+        let post = serde_json::json!({
+            "at_ms": 1_700_000_000_000i64,
+            "author": "observer",
+            "body": "Vendored the light faces.",
+        });
+        assert!(serde_json::from_value::<SessionCurrentLine>(post).is_err());
+        assert!(
+            serde_json::from_value::<OverviewPost>(
+                serde_json::to_value(&line).expect("serializes")
+            )
+            .is_err()
+        );
+    }
 
     /// Every author and ref kind round-trips through its wire spelling, and
     /// an unknown one is `None` rather than a default — a drifted writer has

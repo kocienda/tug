@@ -311,6 +311,11 @@ export const SessionResumeCell: TugListViewCellRenderer<SessionsDataSource> = ({
       // answers with app-wide ambience for any scope, so a closed session's row
       // would otherwise narrate whatever the app happened to be saying.
       beats={isLive}
+      // A list to resume FROM has no turn in flight from its reader's point of
+      // view, so the description keeps the through-line always ([B03]): what
+      // a live row's turn is currently on would tell it apart from its
+      // neighbours less well, not better.
+      currency={false}
       activityOverride={activityOverride}
       // A browse list of external sessions is where a runaway first prompt
       // actually lands, so the description is bounded in text as well as by the

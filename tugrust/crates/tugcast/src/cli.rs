@@ -162,6 +162,14 @@ pub struct OverviewReplayArgs {
     #[arg(long)]
     pub sitrep_secs: Option<i64>,
 
+    /// Seconds after a user submission before the Observer wakes to write the
+    /// turn's current line. 0 turns the submission wake off, which is the
+    /// baseline half of the comparison the footer prints: the same transcript
+    /// segmented with the short arm and without it says exactly what the
+    /// currency costs in wakes.
+    #[arg(long)]
+    pub submission_arm_secs: Option<i64>,
+
     /// How many prior posts ride each wake — the dedup mechanism.
     #[arg(long)]
     pub last_k: Option<usize>,

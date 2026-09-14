@@ -50,7 +50,7 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
-use tugcast_core::{FeedId, Frame, OverviewAuthor, OverviewPost, StreamFeed};
+use tugcast_core::{FeedId, Frame, OverviewAuthor, OverviewPost, SessionCurrentLine, StreamFeed};
 
 use crate::feeds::draft_engine::SessionResolver;
 use crate::session_ledger::SessionLedger;
@@ -58,12 +58,14 @@ use crate::shared_agent::SharedAgentPool;
 
 use super::observer_wake::{
     FactLine, OBSERVER_PROSE_GRACE, OBSERVER_PROSE_LIMIT, PriorPost, WakeReason, clamp_post_body,
-    compose_observer_input, counts_as_assistant_activity, parse_envelope, prose_len,
-    render_facts_section, synopsis_register_report, validate_refs,
+    compose_observer_input, counts_as_ask, counts_as_assistant_activity, parse_envelope,
+    prose_len, render_facts_section, synopsis_register_report, validate_refs,
 };
 use super::overview_agent::DEFAULT_CARD_ROWS;
 use super::payload_inspector::InspectedPayload;
-use super::session_digest::{SessionDigest, SessionDigester, forwardable_session};
+use super::session_digest::{
+    SessionDigest, SessionDigester, forwardable_session, submission_ask,
+};
 
 /// How many posts the card's CONTROL tail read answers with when it asks for
 /// no particular number. Matches the opening request `card_rows` sizes, so a
@@ -131,6 +133,10 @@ pub struct ObserverBridgeConfig {
     /// ask. What it switches off is the only model cost in the subsystem.
     pub enabled: Arc<dyn Fn() -> bool + Send + Sync>,
     pub sitrep_secs: Arc<dyn Fn() -> i64 + Send + Sync>,
+    /// Seconds after a user submission at which that window wakes, in place of
+    /// its ordinary sitrep ([B05]). Read at the submission, so a turned knob
+    /// lands on the next ask. Zero disables the short arm and nothing else.
+    pub submission_arm_secs: Arc<dyn Fn() -> i64 + Send + Sync>,
     pub last_k_posts: Arc<dyn Fn() -> usize + Send + Sync>,
     pub token_wake_tokens: Arc<dyn Fn() -> i64 + Send + Sync>,
     pub buffer_max_frames: Arc<dyn Fn() -> usize + Send + Sync>,
@@ -204,6 +210,15 @@ struct SessionWindow {
     /// the wire at all. Rebuilding it at settle time would be a second
     /// rendering of the same facts, which is the drift this plan forbids.
     in_flight_facts: Option<String>,
+    /// How long this window's arm is, when a submission armed it short
+    /// ([B05]). `None` is the ordinary sitrep arm.
+    ///
+    /// Not a second timer: the loop's one deadline is `armed_at` plus
+    /// whichever duration this names, and the wake it fires is called
+    /// `submission` rather than `sitrep-timer` for exactly as long as this is
+    /// set. A wake that takes the window clears it, so the session re-arms at
+    /// the sitrep afterwards as it always did.
+    short_arm: Option<Duration>,
 }
 
 impl SessionWindow {
@@ -215,6 +230,7 @@ impl SessionWindow {
             assistant_activity: false,
             in_flight: None,
             in_flight_facts: None,
+            short_arm: None,
         }
     }
 }
@@ -250,19 +266,17 @@ async fn observer_bridge_task(
     let mut muted: HashSet<String> = HashSet::new();
 
     loop {
-        // The only timer is the earliest armed sitrep deadline. Recomputed
-        // each pass, so a knob turned between frames lands on the next arm.
+        // The only timer is the earliest armed deadline. Recomputed each pass,
+        // so a knob turned between frames lands on the next arm. A window a
+        // submission armed short carries its own, shorter duration ([B05]);
+        // every other window is the sitrep's.
         let sitrep = Duration::from_secs(sitrep_secs(&config).max(0) as u64);
-        let next_deadline = if sitrep.is_zero() {
-            None
-        } else {
-            sessions
-                .values()
-                .filter(|w| w.in_flight.is_none())
-                .filter_map(|w| w.armed_at)
-                .map(|armed| armed + sitrep)
-                .min()
-        };
+        let next_deadline = sessions
+            .values()
+            .filter(|w| w.in_flight.is_none())
+            .filter_map(|w| Some((w.armed_at?, arm_for(w, sitrep)?)))
+            .map(|(armed, arm)| armed + arm)
+            .min();
 
         tokio::select! {
             _ = cancel.cancelled() => {
@@ -313,17 +327,46 @@ async fn observer_bridge_task(
             }
             _ = sleep_until_opt(next_deadline) => {
                 let now = Instant::now();
-                let due: Vec<String> = sessions
+                let due: Vec<(String, WakeReason)> = sessions
                     .iter()
                     .filter(|(_, w)| w.in_flight.is_none())
-                    .filter(|(_, w)| w.armed_at.is_some_and(|a| now >= a + sitrep))
-                    .map(|(id, _)| id.clone())
+                    .filter(|(_, w)| {
+                        arm_for(w, sitrep)
+                            .zip(w.armed_at)
+                            .is_some_and(|(arm, a)| now >= a + arm)
+                    })
+                    // A window armed short is what a submission wake IS: the
+                    // arm and the reason are one fact, so nothing has to
+                    // remember which timer fired.
+                    .map(|(id, w)| {
+                        let reason = if w.short_arm.is_some() {
+                            WakeReason::Submission
+                        } else {
+                            WakeReason::SitrepTimer
+                        };
+                        (id.clone(), reason)
+                    })
                     .collect();
-                for session_id in due {
-                    wake(&config, &mut sessions, &session_id, WakeReason::SitrepTimer, &outcome_tx);
+                for (session_id, reason) in due {
+                    wake(&config, &mut sessions, &session_id, reason, &outcome_tx);
                 }
             }
         }
+    }
+}
+
+/// How long this window's arm runs for, or `None` when it has no deadline at
+/// all.
+///
+/// A short arm always has one, whatever the sitrep knob says: it is a fixed
+/// few seconds set by a submission, and turning the sitrep off is a statement
+/// about the channel's cadence rather than about a line under a session's
+/// name. A sitrep of zero disables the sitrep and nothing else.
+fn arm_for(window: &SessionWindow, sitrep: Duration) -> Option<Duration> {
+    match window.short_arm {
+        Some(arm) => Some(arm),
+        None if sitrep.is_zero() => None,
+        None => Some(sitrep),
     }
 }
 
@@ -437,6 +480,32 @@ fn handle_submission_frame(
     };
     let window = window_for(config, sessions, &session_id);
     push(window, digested.line);
+    // The short arm ([B05]). The submission is what the reader is waiting on a
+    // line about, so this window's next wake is a few seconds out rather than
+    // a minute — and it is the SAME timer, given a shorter duration, because a
+    // second one would have to be kept in step with this one.
+    //
+    // A command is declined ([B07]): `/model` and `/compact` change a setting
+    // and open a turn with nothing in it, and the line that stands is better
+    // than a Sonnet call spent learning that. Such a window keeps whatever arm
+    // it already had, so its ordinary sitrep behaviour is untouched.
+    let Some((_, Some(text))) = submission_ask(&value) else {
+        return;
+    };
+    if !counts_as_ask(&text) {
+        debug!(
+            session_id,
+            "overview observer: submission is a command; not arming short"
+        );
+        return;
+    }
+    let arm = (config.submission_arm_secs)().max(0) as u64;
+    if arm == 0 {
+        return;
+    }
+    let window = window_for(config, sessions, &session_id);
+    window.armed_at = Some(Instant::now());
+    window.short_arm = Some(Duration::from_secs(arm));
 }
 
 fn window_for<'a>(
@@ -536,6 +605,7 @@ fn wake(
     // declines.
     if window.buffer.is_empty() {
         window.armed_at = None;
+        window.short_arm = None;
         return;
     }
 
@@ -560,6 +630,7 @@ fn wake(
     if private {
         window.buffer.take();
         window.armed_at = None;
+        window.short_arm = None;
         window.tokens = 0;
         window.assistant_activity = false;
         return;
@@ -567,6 +638,9 @@ fn wake(
 
     let taken = window.buffer.take();
     window.armed_at = None;
+    // The short arm belongs to the wake it fired ([B05]); once that wake has
+    // taken the window the session re-arms at the sitrep exactly as before.
+    window.short_arm = None;
     window.tokens = 0;
     window.assistant_activity = false;
 
@@ -720,6 +794,15 @@ fn settle(
     // sentence alone, do both, or do neither — so this runs before the post
     // branch's early return, not after it.
     write_synopsis(config, &session_id, envelope.synopsis.as_deref());
+    // The current line, likewise independent of the post and of the sentence:
+    // a wake may move the line under a live session's name and have nothing to
+    // tell the channel, which is the whole point of carrying it here.
+    broadcast_current_line(
+        &overview_tx,
+        &session_id,
+        envelope.current.as_deref(),
+        reason,
+    );
 
     let Some(post) = envelope.post else {
         debug!(
@@ -863,6 +946,57 @@ fn write_synopsis(config: &ObserverBridgeConfig, session_id: &str, raw: Option<&
     }
 }
 
+/// Broadcast the wake's current line, or leave the one that stands alone.
+///
+/// Silence is the safe failure mode here as it is for the post and the
+/// sentence: the model answered `null`, or the answer normalized to nothing
+/// under the register, and either way the line the deck is already showing is
+/// better than a blank one. Nothing on this path ever clears the line — the
+/// turn ending is what clears it, on the deck, because the line's whole claim
+/// is about a turn in flight.
+///
+/// It writes no ledger row and takes no resolver. The line is a fact about a
+/// turn rather than about a session, so there is nothing for a restart to
+/// restore ([B04]); it travels on `OVERVIEW` tagged as its own shape, which is
+/// what lets a reader that only knows about posts skip it.
+fn broadcast_current_line(
+    overview_tx: &broadcast::Sender<Frame>,
+    session_id: &str,
+    raw: Option<&str>,
+    reason: WakeReason,
+) {
+    let Some(raw) = raw else {
+        return;
+    };
+    let report = synopsis_register_report(raw);
+    if report.text.is_empty() {
+        debug!(
+            session_id,
+            raw, "overview observer: current line normalized to nothing; the line stands"
+        );
+        return;
+    }
+    let line = SessionCurrentLine {
+        session_id: session_id.to_string(),
+        at_ms: now_ms(),
+        current: report.text,
+    };
+    match serde_json::to_vec(&line) {
+        Ok(bytes) => {
+            info!(
+                session_id,
+                reason = reason.as_str(),
+                current = %line.current,
+                normalized = report.normalized,
+                clipped = report.clipped,
+                "overview observer: current line written",
+            );
+            let _ = overview_tx.send(Frame::new(FeedId::OVERVIEW, bytes));
+        }
+        Err(error) => warn!(%error, session_id, "overview observer: current line did not serialize"),
+    }
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -917,6 +1051,26 @@ mod tests {
         start_with(
             spawner,
             sitrep_secs,
+            // Off unless a test is about it: every other test here sends no
+            // submissions at all, and a short arm they never trip would only
+            // be a second number in their setup.
+            0,
+            Arc::new(|id: &str| Some(id.to_string())),
+        )
+        .await
+    }
+
+    /// A harness whose submissions arm the window short ([B05]) — the timer
+    /// the trigger rides, in the same shape production gives it.
+    async fn start_arming(
+        spawner: Arc<dyn AgentWorkerSpawner>,
+        sitrep_secs: i64,
+        submission_arm_secs: i64,
+    ) -> Harness {
+        start_with(
+            spawner,
+            sitrep_secs,
+            submission_arm_secs,
             Arc::new(|id: &str| Some(id.to_string())),
         )
         .await
@@ -925,12 +1079,13 @@ mod tests {
     /// A harness whose resolver never answers — a session the supervisor has
     /// no entry for, or a contended lock, which are indistinguishable here.
     async fn start_unresolvable(spawner: Arc<dyn AgentWorkerSpawner>) -> Harness {
-        start_with(spawner, 90, Arc::new(|_| None)).await
+        start_with(spawner, 90, 0, Arc::new(|_| None)).await
     }
 
     async fn start_with(
         spawner: Arc<dyn AgentWorkerSpawner>,
         sitrep_secs: i64,
+        submission_arm_secs: i64,
         resolver: SessionResolver,
     ) -> Harness {
         let (code_tx, keep_code) = broadcast::channel(64);
@@ -959,6 +1114,7 @@ mod tests {
                 let sitrep = Arc::clone(&sitrep);
                 Arc::new(move || sitrep.load(Ordering::SeqCst))
             },
+            submission_arm_secs: Arc::new(move || submission_arm_secs),
             last_k_posts: Arc::new(|| 5),
             token_wake_tokens: Arc::new(|| 0),
             buffer_max_frames: Arc::new(|| 256),
@@ -1026,13 +1182,51 @@ mod tests {
         serde_json::json!({ "post": { "body": body } }).to_string()
     }
 
+    /// A user submission as the CODE_INPUT wire carries it.
+    fn submission(session: &str, text: &str) -> Frame {
+        Frame::new(
+            FeedId::CODE_INPUT,
+            serde_json::json!({
+                "tug_session_id": session,
+                "type": "user_message",
+                "content": text,
+            })
+            .to_string()
+            .into_bytes(),
+        )
+    }
+
     async fn next_post(rx: &mut broadcast::Receiver<Frame>) -> OverviewPost {
-        let frame = tokio::time::timeout(Duration::from_secs(3), rx.recv())
-            .await
-            .expect("a OVERVIEW frame arrived in time")
-            .expect("frame");
-        assert_eq!(frame.feed_id, FeedId::OVERVIEW);
-        serde_json::from_slice(&frame.payload).expect("a OverviewPost on the wire")
+        // The channel carries two shapes now — posts, and the per-turn current
+        // line — so a reader waiting for a post skips past the other rather
+        // than failing on it, which is exactly what the deck does.
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+                .await
+                .expect("a OVERVIEW frame arrived in time")
+                .expect("frame");
+            assert_eq!(frame.feed_id, FeedId::OVERVIEW);
+            if let Ok(post) = serde_json::from_slice::<OverviewPost>(&frame.payload) {
+                return post;
+            }
+            serde_json::from_slice::<SessionCurrentLine>(&frame.payload)
+                .expect("a OverviewPost or a SessionCurrentLine on the wire");
+        }
+    }
+
+    /// The next current line on the channel, or `None` if none arrives
+    /// promptly. Posts are skipped for the same reason `next_post` skips
+    /// these: one channel, two shapes.
+    async fn next_current_line(rx: &mut broadcast::Receiver<Frame>) -> Option<SessionCurrentLine> {
+        loop {
+            let frame = tokio::time::timeout(Duration::from_millis(800), rx.recv())
+                .await
+                .ok()?
+                .ok()?;
+            if let Ok(line) = serde_json::from_slice::<SessionCurrentLine>(&frame.payload) {
+                return Some(line);
+            }
+        }
     }
 
     async fn expect_no_post(rx: &mut broadcast::Receiver<Frame>) {
@@ -1091,6 +1285,171 @@ mod tests {
             next_written_synopsis(&mut h.control_rx).await.as_deref(),
             Some("Rework how a session names itself"),
         );
+
+        h.cancel.cancel();
+    }
+
+    /// A new ask wakes the Observer in seconds rather than at the sitrep
+    /// ([B05]), and the wake it fires is called `submission`.
+    ///
+    /// The timing is the whole point and so it is the assertion: the sitrep is
+    /// far out of reach of this test's wait, so a wake arriving at all is the
+    /// short arm having fired, and nothing else could have produced it.
+    #[tokio::test]
+    async fn a_submission_arms_the_window_short() {
+        let spawner = FakeSpawner::always(Ok(serde_json::json!({
+            "post": { "body": "Started on the resume path." },
+            "current": "Chase the wedge in the download resume path",
+        })
+        .to_string()));
+        let mut h = start_arming(spawner, 600, 1).await;
+        h.ledger
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+            .expect("spawn");
+
+        h.submission_tx
+            .send(submission("s1", "why does the resume path wedge"))
+            .unwrap();
+
+        let post = next_post(&mut h.overview_rx).await;
+        assert_eq!(post.wake_reason.as_deref(), Some("submission"));
+
+        h.cancel.cancel();
+    }
+
+    /// A `/model` or a `/compact` changes a setting and opens a turn with
+    /// nothing in it, so it does not spend a wake ([B07]). The window is left
+    /// on whatever arm it already had — the sitrep, out of this test's reach.
+    #[tokio::test]
+    async fn a_command_submission_does_not_arm_short() {
+        for text in ["/model", "/compact", "/tugplug:arc-implement topline"] {
+            let spawner = FakeSpawner::always(Ok(envelope("Should never be posted.")));
+            let mut h = start_arming(spawner, 600, 1).await;
+            h.ledger
+                .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+                .expect("spawn");
+
+            h.submission_tx.send(submission("s1", text)).unwrap();
+            expect_no_post(&mut h.overview_rx).await;
+
+            h.cancel.cancel();
+        }
+    }
+
+    /// The short arm belongs to the wake it fired. Afterwards the session is
+    /// on the sitrep again, which is what makes this a trigger rather than a
+    /// second cadence ([B05]).
+    #[tokio::test]
+    async fn the_window_re_arms_at_the_sitrep_after_a_submission_wake() {
+        let spawner = FakeSpawner::always(Ok(envelope("Working on it.")));
+        let mut h = start_arming(spawner, 2, 1).await;
+        h.ledger
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+            .expect("spawn");
+
+        h.submission_tx
+            .send(submission("s1", "why does the resume path wedge"))
+            .unwrap();
+        let first = next_post(&mut h.overview_rx).await;
+        assert_eq!(first.wake_reason.as_deref(), Some("submission"));
+
+        // New work in the same session arms the window again — at the sitrep,
+        // because the short arm went with the wake that took it.
+        h.code_tx
+            .send(assistant_text("s1", "Reading the resume path."))
+            .unwrap();
+        let second = next_post(&mut h.overview_rx).await;
+        assert_eq!(second.wake_reason.as_deref(), Some("sitrep-timer"));
+
+        h.cancel.cancel();
+    }
+
+    /// The current line is the third independent answer: a wake that tells the
+    /// channel nothing and leaves the through-line standing may still say what
+    /// the turn in front of it is on, and that is the whole point of the field.
+    #[tokio::test]
+    async fn a_current_line_lands_on_the_channel_on_its_own() {
+        let spawner = FakeSpawner::always(Ok(serde_json::json!({
+            "post": null,
+            "synopsis": null,
+            "current": "Chase the wedge in the download resume path",
+        })
+        .to_string()));
+        let mut h = start(spawner, 90).await;
+        h.ledger
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+            .expect("spawn");
+
+        h.code_tx
+            .send(assistant_text("s1", "Reading the resume path first."))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+
+        let line = next_current_line(&mut h.overview_rx)
+            .await
+            .expect("a current line on the channel");
+        assert_eq!(line.session_id, "s1");
+        assert_eq!(line.current, "Chase the wedge in the download resume path");
+        // Nothing was persisted: the line is a fact about a turn ([B04]).
+        assert!(h.ledger.get("s1").unwrap().unwrap().synopsis.is_none());
+
+        h.cancel.cancel();
+    }
+
+    /// Every way of saying nothing about the current line leaves the one that
+    /// stands alone, exactly as the sentence does: nothing on this path ever
+    /// broadcasts a blank, because the turn ending is what clears the line.
+    #[tokio::test]
+    async fn nothing_usable_broadcasts_no_current_line() {
+        for answer in [
+            serde_json::json!({ "post": null, "synopsis": null, "current": null }),
+            serde_json::json!({ "post": null, "synopsis": null, "current": "   " }),
+            serde_json::json!({ "post": null, "synopsis": null, "current": "\"\"" }),
+        ] {
+            let spawner = FakeSpawner::always(Ok(answer.to_string()));
+            let mut h = start(spawner, 90).await;
+            h.ledger
+                .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+                .expect("spawn");
+
+            h.code_tx
+                .send(assistant_text("s1", "Reading the resume path first."))
+                .unwrap();
+            h.code_tx.send(turn_complete("s1")).unwrap();
+
+            assert!(
+                next_current_line(&mut h.overview_rx).await.is_none(),
+                "{answer} should have left the line standing",
+            );
+
+            h.cancel.cancel();
+        }
+    }
+
+    /// The register the sentence is held to is the register the line is held
+    /// to — one normalizer, so the two lines cannot read as two voices.
+    #[tokio::test]
+    async fn the_current_line_is_held_to_the_sentences_register() {
+        let spawner = FakeSpawner::always(Ok(serde_json::json!({
+            "post": null,
+            "synopsis": null,
+            "current": "\"The wedge in the download resume path.\"",
+        })
+        .to_string()));
+        let mut h = start(spawner, 90).await;
+        h.ledger
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "s1", None)
+            .expect("spawn");
+
+        h.code_tx
+            .send(assistant_text("s1", "Reading the resume path first."))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+
+        let line = next_current_line(&mut h.overview_rx)
+            .await
+            .expect("a current line on the channel");
+        assert_eq!(line.current, "wedge in the download resume path");
 
         h.cancel.cancel();
     }

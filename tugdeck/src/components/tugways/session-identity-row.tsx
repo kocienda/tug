@@ -49,13 +49,38 @@
  * picker's badges and trash, the masthead's popovers and copy handles).
  *
  * ── The description ladder ([D132]) ──────────────────────────────────────
- * The agent's rolling synopsis, else the session's own first prompt, else what
- * the arc it is seated on is here to do, else the date it was created, else
- * {@link UNDESCRIBED}. Every rung below the first is a fact STANDING IN for a
- * line nobody has written yet, so they are marked and painted a step quieter.
+ * The agent's current line while a turn is in flight, else that turn's own
+ * ask, else its rolling synopsis, else the session's own first prompt, else
+ * what the arc it is seated on is here to do, else the date it was created,
+ * else {@link UNDESCRIBED}. Every rung but the current line and the synopsis
+ * is a fact STANDING IN for a line nobody has written yet, so they are marked
+ * and painted a step quieter.
  * The whole of it is {@link sessionDescription}, pure and total: it answers
  * with a non-empty string for every input, and the test that says so is what
  * keeps the line from going blank again.
+ *
+ * **The top rung is the one that moves ([B03]).** The two sentences the
+ * Observer writes want opposite cadences: the synopsis is what the session is
+ * FOR and holds across a turn so a wall of sessions can be scanned, and the
+ * current line is what this turn is on. So the line is a CURRENCY line while a
+ * turn is in flight and an IDENTITY line at rest — which is why [D187]'s
+ * live-turn override, removed from here because it put a post's lede where the
+ * sentence belonged, is not what came back: what came back is a second written
+ * sentence in the sentence's own register, and the synopsis's rubric is
+ * untouched by it. The session picker declines the rung entirely
+ * ({@link SessionIdentityRowProps.currency}): a list of sessions to resume has
+ * no turn in flight from its reader's point of view, and the through-line is
+ * what tells one row there from another.
+ *
+ * **The ask rung is a floor, not a feature ([B08], [B09]).** A written line
+ * has a latency tail — the Observer's lane is shared, a wake may decline, and
+ * the whole writer can be switched off — and the topline going stale in any of
+ * those cases is the reported bug in a narrower window. So while a turn is in
+ * flight and no current line stands for it, the line is the turn's ask,
+ * marked as the stand-in it is. It is the least informative line on the card
+ * for the person who typed it seconds earlier, and it is here to close the
+ * window rather than to be read. The account run keeps its own ask rung
+ * unchanged: both read the same entry, so the two cannot disagree.
  *
  * All five rungs on every surface. The Cards card carried only two, on the argument
  * that its rows are always bound live cards and so never reach the prompt rung
@@ -172,7 +197,11 @@ import {
   turnInFlightForScope,
   useDigest,
 } from "@/lib/digest-store";
-import { latestPostForSession, useOverview } from "@/lib/overview-store";
+import {
+  currentLineForSession,
+  latestPostForSession,
+  useOverview,
+} from "@/lib/overview-store";
 import {
   sessionActivityBeat,
   sessionActivityRestLine,
@@ -214,9 +243,10 @@ export const UNDESCRIBED = "Not yet described";
 
 /**
  * The description ladder ([D132]), as a function: the agent's rolling
- * synopsis, else the session's own first prompt, else what the arc it is
- * seated on is here to do, else the date it was made, else {@link
- * UNDESCRIBED}.
+ * current line while a turn is in flight, else that turn's own ask, else its
+ * rolling synopsis, else the session's own first prompt, else what the arc it
+ * is seated on is here to do, else the date it was made, else
+ * {@link UNDESCRIBED}.
  *
  * Pure and total — it returns a non-empty string for every input, which is
  * the property the rungs above cannot each guarantee on their own. It lives
@@ -226,6 +256,18 @@ export const UNDESCRIBED = "Not yet described";
  * See the module docblock for why each rung sits where it does.
  */
 export function sessionDescription(input: {
+  /**
+   * The Observer's line for the turn in flight, or null — at rest, and
+   * wherever the surface wants identity rather than currency.
+   */
+  current: string | null;
+  /**
+   * The ask the turn in flight is answering, or null. The floor under the
+   * current line ([B08]) and a stand-in rather than a written line: it is
+   * what the topline says in the seconds before the Observer's first answer,
+   * and whenever the Observer cannot answer at all.
+   */
+  ask: string | null;
   /** The written synopsis, or null when none has been composed. */
   synopsis: string | null;
   /** The session's first prompt, trimmed; empty when it has none. */
@@ -235,6 +277,8 @@ export function sessionDescription(input: {
   /** When the session was made, or null while nothing has said. */
   createdAtMs: number | null;
 }): string {
+  if (input.current !== null) return input.current;
+  if (input.ask !== null) return input.ask;
   if (input.synopsis !== null) return input.synopsis;
   if (input.prompt.length > 0) return input.prompt;
   if (input.arc !== null) return arcSessionPurpose(input.arc);
@@ -783,6 +827,18 @@ export interface SessionIdentityRowProps
    */
   beats?: boolean;
   /**
+   * Whether the description line takes the Observer's current line while a
+   * turn is in flight ([B03]).
+   *
+   * True on the surfaces that watch a session work — the masthead and the
+   * Cards rail — where the reader wants to know what it is doing. False in the
+   * session picker, which is a list to resume FROM: nothing in it is in flight
+   * from its reader's point of view, and a row that said what a turn was on
+   * would be harder to tell from the row beside it, not easier.
+   * @default true
+   */
+  currency?: boolean;
+  /**
    * Pace the composed entries — hold each line {@link MIN_DWELL_MS} before
    * the next replaces it. For a line being READ; a list being scanned wants
    * the newest fact. Off, the dwell is a pass-through that schedules and
@@ -870,6 +926,7 @@ export function SessionIdentityRow({
   descriptionMaxChars,
   activityOverride = null,
   beats = true,
+  currency = true,
   pace = false,
   markdown = false,
   activityClassName,
@@ -953,15 +1010,58 @@ export function SessionIdentityRow({
   // session row in the app. A row with no card subscribes to nothing at all.
   const compacting = useIsCompactingCard(cardId);
 
+  // Whether a turn is running, which both ladders switch on. Read before the
+  // description because the description's top rung is a live-turn rung now
+  // ([B03]) — the same fact, asked once.
+  const turnInFlight =
+    beats &&
+    turnInFlightForScope(
+      digest.lines,
+      sessionId,
+      digest.cleared.get(sessionId),
+    );
+  // The ask the turn in flight is answering. It is the turn's own start, which
+  // is what says whether a current line still belongs to it, and it is the
+  // description's floor under that line ([B08] lands on the same entry).
+  const turnAsk = turnInFlight
+    ? latestAskForScope(digest.lines, sessionId)
+    : null;
+
   // ── The description ladder ([D132]) ───────────────────────────────────
-  // The standing sentence, and the rungs under it — and nothing over the top
-  // of it. This is the IDENTITY run: the line a wall of sessions is scanned
-  // by and the line that tells one session from another, and a line that
-  // changed because a turn started could do neither job. [D187]'s live-turn
-  // override used to sit here, replacing the sentence with the post's lede
-  // for the length of a turn; it moved down to the account run below.
+  // The current line while a turn is in flight, the standing sentence under
+  // it, and the rungs under that. This run is an IDENTITY run at rest — the
+  // line a wall of sessions is scanned by, which is why the sentence's own
+  // rubric holds it steady — and a CURRENCY run while the session is working
+  // ([B03]). [D187]'s live-turn override, which put a POST's lede here, is
+  // still gone: what sits on top now is a written sentence in the same
+  // register as the one below it, answered by the same wake.
+  const currentLine = currency
+    ? currentLineForSession(
+        overview.currents,
+        sessionId,
+        turnAsk?.atMs ?? null,
+      )
+    : null;
+  // The floor under it ([B08]). The Observer's line takes seconds to arrive
+  // and a wake may decline to write one at all — and the switch can turn the
+  // writer off entirely — so for as long as no line stands for this turn the
+  // topline says what the turn was asked. It is explicitly NOT the solve: the
+  // ask is the least informative line on the card for the person who typed it
+  // a second earlier ([B09]), and it is here so the reported staleness has no
+  // window left to happen in rather than because it is worth reading.
+  //
+  // It is the same entry the account run reads, so the two lines cannot
+  // disagree about what the turn is for; `sessionActivity` is untouched
+  // ([B10]), and for the seconds before the first line lands they say the
+  // same thing, which is the only thing either of them knows.
+  const askLine =
+    currency && currentLine === null && turnAsk !== null
+      ? askPromptText(turnAsk)
+      : null;
   const prompt = facts?.last_user_prompt?.trim() ?? "";
   const descriptionSource = sessionDescription({
+    current: currentLine,
+    ask: askLine,
     synopsis: identity.description,
     prompt,
     arc: arcModel,
@@ -987,9 +1087,15 @@ export function SessionIdentityRow({
     [descriptionSource],
   );
   // A written line is not a stand-in; a fact wearing one's clothes is. The
-  // standing sentence is written ABOUT the session, so it is not marked; every
-  // rung under it is a fact standing in for a line nobody has written yet.
-  const descriptionStandIn = identity.description === null;
+  // current line and the standing sentence are both written ABOUT the session,
+  // so neither is marked; every rung under them is a fact standing in for a
+  // line nobody has written yet.
+  //
+  // The ask rung is squarely a stand-in, and marked: it is the turn's own
+  // prompt text standing in for a sentence nobody has written yet, which is
+  // exactly what the treatment is for.
+  const descriptionStandIn =
+    currentLine === null && (askLine !== null || identity.description === null);
 
   // ── The activity ladder ───────────────────────────────────────────────
   // The newest BEAT the feed has about this session: the newest line that
@@ -1004,13 +1110,6 @@ export function SessionIdentityRow({
   const latestLine = beats
     ? latestBeatForScope(digest.lines, sessionId, digest.cleared.get(sessionId))
     : null;
-  const turnInFlight =
-    beats &&
-    turnInFlightForScope(
-      digest.lines,
-      sessionId,
-      digest.cleared.get(sessionId),
-    );
   // The bare `Done` marker is filtered on the way in: it is the ABSENCE of a
   // beat, and the rest sentence says the same thing with facts in it.
   const beat = sessionActivityBeat(latestLine);
@@ -1029,7 +1128,7 @@ export function SessionIdentityRow({
     : null;
   const liveAsk =
     turnInFlight && livePost === null
-      ? latestAskForScope(digest.lines, sessionId)
+      ? turnAsk
       : null;
   // **Join readiness outranks the digester ([B10]).** A session whose arc has
   // finished with an offer standing is at rest for one reason, and that reason

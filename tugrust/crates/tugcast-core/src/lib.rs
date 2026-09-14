@@ -36,7 +36,7 @@ pub use protocol::{
 };
 pub use types::{
     FileStatus, FileTreeSnapshot, FsEvent, GitStatus, OverviewAttachment, OverviewAuthor,
-    OverviewPost, OverviewRef, OverviewRefKind, ScoredResult,
+    OverviewPost, OverviewRef, OverviewRefKind, ScoredResult, SessionCurrentLine,
 };
 
 /// Default port for the Vite dev server.
