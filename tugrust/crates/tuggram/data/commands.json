@@ -11251,11 +11251,14 @@
     },
     {
       "name": "ls",
-      "source": "man",
-      "version": "15.6",
-      "synopsis": "ls – list directory contents\n\nUsage: ls [-@ABCFGHILOPRSTUWabcdefghiklmnopqrstuvwxy1%,] [--color=when] [-D format] [file ...]\n\nFlags: --color -A -B -C -D -F -G -H -I -L -O -P -R -S -T -U -W -X -a -b -c -d -e -f -g -h -i -k -l -m -n -o -p -q -r -s -t -u -v -w -x -y\n\n(ls 15.6, distilled from its man page)",
+      "source": "curated",
+      "synopsis": "ls — list directory contents.\n\nUsage: ls [-@ABCFGHILOPRSTUWXabcdefghiklmnopqrstuvwxy1%,] [--color=when] [-D format] [file ...]\n\nFlags: -l long format; -a include dotfiles; -A the same without . and ..; -R recurse; -d list a directory itself, not its contents; -1 one entry per line; -h human-readable sizes; -t sort by modification time; -S by size; -U by creation time; -u by access time; -c by inode change time; -r reverse the order; -f do not sort; -F append a type indicator; -p append a slash to directories; -G colorize; --color=<when> auto, always or never; -i print the serial number; -s print block usage; -k sizes in kilobytes; -n numeric owner and group; -o omit the group; -g omit the owner; -@ extended attributes; -e the ACL; -O file flags; -T the full time; -D <format> an strftime date format; -L, -H, -P how symlinks are followed; -b, -B, -q, -v, -w how non-printable characters are shown; -C multi-column; -m comma separated; -x sort columns across, not down; -W show whiteouts; -I, -X, -y, -%, -, are rarely-used macOS extensions.\n\nRemaining arguments are files and directories; with none, ls lists the working directory.\n\n(ls, curated)",
       "flags": [
         "--color",
+        "-%",
+        "-,",
+        "-1",
+        "-@",
         "-A",
         "-B",
         "-C",
@@ -11300,9 +11303,10 @@
       ],
       "value_flags": [
         "--color",
+        "-%",
         "-D"
       ],
-      "positionals": "free"
+      "positionals": "files"
     },
     {
       "name": "lsappinfo",
