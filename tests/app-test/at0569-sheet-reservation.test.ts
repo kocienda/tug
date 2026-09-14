@@ -1,6 +1,7 @@
 /**
  * at0569-sheet-reservation.test.ts — an unbound Session card stands at its
- * picker's height, and gives the room back when a session opens.
+ * picker's height with the sessions list at its cap, and gives the room back
+ * when a session opens.
  *
  * Two mechanisms meet on one card here, and this file is where the meeting is
  * pinned THROUGH THE LIVE APP.
@@ -8,11 +9,10 @@
  * A modal surface whose natural height is content-bounded declares that height
  * at its call site, the sheet measures the panel and reports the number out,
  * and the deck holds the host member's floor there for as long as the sheet is
- * up. That is the RESERVATION, and on a Session card it is inert — the picker
- * asks for a little under 400px and the card's own stack floor is 600 — so the
- * claim is still made, still keyed by the host pane, and still carries the
- * panel's own measured height, all of which this file checks, and the division
- * ignores it.
+ * up. That is the RESERVATION, and on a Session card it is inert — the pin
+ * below already holds the card at the panel's height, so a floor there decides
+ * nothing — but the claim is still made, still keyed by the host pane, and
+ * still carries the panel's own measured height, all of which this file checks.
  *
  * What actually sizes the card is the other mechanism: the EXACT-HEIGHT PIN
  * ([P01]). A Session card with no session behind it is nothing but the picker
@@ -28,12 +28,41 @@
  *
  * This file's older claim was that nothing moves at all, which was the honest
  * reading of the reservation alone: a floor under a member already above it is
- * inert. The pin is not a floor, and it binds BELOW the card's stack floor on
- * purpose — that is the whole difference between the two records, and it is
- * asserted directly below by checking the pinned height is the lesser number.
- * So the geometry assertions now say where the two frames stand rather than
- * that they did not move, and the binding commit's assertion is the one that
- * did not change: after `bindSession` the division is the stored one again.
+ * inert. The pin is not a floor: it is a number of its own, set by the picker
+ * with its sessions list at its cap rather than by anything the stack floor is
+ * for, and this fixture's shares are chosen so the floor would put the card
+ * somewhere else — which is what makes the pin's reading distinguishable from
+ * the floor's, and is asserted directly below. So the geometry assertions say
+ * where the two frames stand rather than that they did not move, and the
+ * binding commit's assertion is the one that did not change: after
+ * `bindSession` the division is the stored one again.
+ *
+ * ## The picker this file measures, and why it is not the one a fresh instance shows
+ *
+ * Every app-test launches on a fresh per-instance `sessions.db`, so the picker
+ * a card raises here lists one row — "New session" — and its panel is some
+ * 380px tall. The Sessions list is capped at 14.5rem with a 3.5rem floor per
+ * row, so on any real project with more than three sessions the list stands
+ * at its cap and the panel is about 174px taller than that. A pin measured
+ * against the one-row picker fits the one-row picker, and the first real
+ * project cut the Choose Session header off above the path field and the
+ * action row off below the list, with nothing in this file able to say so —
+ * every fit assertion it made was against the picker that fit.
+ *
+ * So the fit claim that matters is made over a SEEDED project
+ * (`picker-sessions-fixture.ts`): five two-line sessions, enough to stand the
+ * list at its cap. The Session card is the LOWER member of a split column,
+ * which is the case from the screenshot — the sheet's top-anchor clamp caps
+ * the panel against the canvas bottom, and the lower member is the one whose
+ * frame can be too short for that. With the list at its cap the panel's
+ * overflow is within a pixel, the Choose Session header sits wholly below the
+ * title bar, and the action row sits wholly above the FRAME's bottom edge. The
+ * frame is the edge that matters and the clip is not: `.tug-sheet-clip` is
+ * `height: 100vh` on purpose ("it must NOT bound the panel"), so a reading
+ * against its bottom is a reading against something a viewport below anything
+ * on screen, and could not go negative for any clipping this card can produce.
+ * The one-row picker's fit is still read before the list fills, because a
+ * panel that fits the cap must also fit less.
  *
  * ## What this file does NOT prove
  *
@@ -68,10 +97,17 @@
  * @covers tugdeck/src/components/tugways/cards/session-card-registration.tsx
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
+import {
+  pickerPanelNaturalHeight,
+  pointPickerAt,
+  removePickerSessions,
+  seedPickerSessions,
+  type PickerSessionsFixture,
+} from "./picker-sessions-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -83,8 +119,9 @@ const AFTER_LAND_MS = 900;
 
 /**
  * The Session card's own stack floor (`session-card-registration.tsx`). Named
- * here because the pin binding BELOW it is what separates a pin from a
- * reservation, and that is asserted rather than assumed.
+ * here because the pin standing somewhere the floor would not put the card is
+ * what separates a pin from a reservation, and that is asserted rather than
+ * assumed.
  */
 const SESSION_FLOOR_PX = 600;
 
@@ -114,7 +151,24 @@ const REPORTER_DRIFT = 3;
  * assertion below is against this number, so changing the constant without
  * changing this one turns the file red on the commit that does it.
  */
-const SESSION_UNBOUND_HEIGHT_PX = 444;
+const SESSION_UNBOUND_HEIGHT_PX = 618;
+
+/**
+ * A project whose Sessions list stands at its 14.5rem cap. The picker a fresh
+ * instance opens lists one row, and a height measured against that picker is
+ * wrong on every real project; the fixture is what makes the panel's height
+ * here the height the pin has to hold.
+ */
+let fixture: PickerSessionsFixture | null = null;
+
+beforeAll(() => {
+  if (!SHOULD_RUN) return;
+  fixture = seedPickerSessions("at0569");
+});
+
+afterAll(() => {
+  removePickerSessions(fixture);
+});
 
 const PICKER_FORM = ".session-card-picker-form";
 const SHEET_PANEL = '[data-slot="tug-sheet"].tug-sheet-content';
@@ -262,6 +316,88 @@ function runOf(frames: Record<string, Rect>): number {
   return frames.p1.height + IMPOSITION_GAP_PX + frames.p2.height;
 }
 
+/**
+ * The picker's edges against the chrome around it, read inside pane `p2`: how
+ * far the Choose Session header's top sits below the title bar's bottom, and
+ * how far the action row's bottom sits above the PANE FRAME's bottom. Either
+ * negative is the sheet cut off at that end — the screenshot's failure, read
+ * at the two edges it showed.
+ *
+ * The two edges are not symmetric, and reading them both against the clip
+ * would get one of them wrong. The clip's TOP is a real edge: it sits at
+ * `chrome-height + 1px` with `overflow: hidden`, so a panel riding up under
+ * the title bar is genuinely cut there. Its BOTTOM is not an edge at all —
+ * `.tug-sheet-clip` is `height: 100vh` deliberately ("it must NOT bound the
+ * panel"; `tug-sheet.css`), because the panel is capped in JS against the
+ * measured canvas instead. So the bottom reading is against the frame the
+ * panel has to fit inside, which is the same box `panelMeasure`'s
+ * `bottomSlack` reads and the one a height constant a pixel too small
+ * overruns.
+ */
+async function pickerEdges(app: App): Promise<{
+  headerBelowTitleBar: number;
+  actionsAbovePaneBottom: number;
+} | null> {
+  return app.evalJS<{
+    headerBelowTitleBar: number;
+    actionsAbovePaneBottom: number;
+  } | null>(
+    `(function () {
+      var pane = document.querySelector('.tug-pane[data-pane-id="p2"]');
+      if (pane === null) return null;
+      var bar = pane.querySelector('[data-testid="tug-pane-title-bar"]');
+      var header = pane.querySelector('.tug-sheet-header');
+      var actions = pane.querySelector('.tug-sheet-actions');
+      if (bar === null || header === null || actions === null) return null;
+      return {
+        headerBelowTitleBar:
+          header.getBoundingClientRect().top - bar.getBoundingClientRect().bottom,
+        actionsAbovePaneBottom:
+          pane.getBoundingClientRect().bottom - actions.getBoundingClientRect().bottom,
+      };
+    })()`,
+  );
+}
+
+/**
+ * Point the open picker at the seeded project, let the list reach its cap,
+ * and assert the panel fits the pinned card whole. The natural height this
+ * prints is the reading `SESSION_UNBOUND_HEIGHT_PX` is resolved from.
+ */
+async function assertFitAtListCap(app: App): Promise<void> {
+  if (fixture === null) throw new Error("the picker sessions fixture was not seeded");
+  await pointPickerAt(app, fixture);
+  await wait(AFTER_LAND_MS);
+  const natural = await pickerPanelNaturalHeight(app);
+  const full = await panelMeasure(app);
+  const edges = await pickerEdges(app);
+  note(
+    `with the list at its cap: panel natural ${natural ?? -1}px, overflow ${full?.overflow ?? -1}, bottom slack ${(full?.bottomSlack ?? -1).toFixed(1)}px, header ${(edges?.headerBelowTitleBar ?? -1).toFixed(1)}px below the title bar, actions ${(edges?.actionsAbovePaneBottom ?? -1).toFixed(1)}px above the frame's bottom`,
+  );
+  expect(full, "the picker's panel is on screen with the list at its cap").not.toBeNull();
+  expect(
+    full?.overflow ?? 999,
+    "with the list at its cap the panel stands at its natural height rather than capped short",
+  ).toBeLessThanOrEqual(EPSILON);
+  // The panel not hanging past the frame it stands in. This is the reading
+  // that catches a height constant one pixel too small: the clip's
+  // `overflow: hidden` cuts the panel there without touching `scrollHeight`,
+  // so the overflow reading above stays 0 while the card clips.
+  expect(
+    full?.bottomSlack ?? -1,
+    "the panel's bottom edge sits inside the card's frame",
+  ).toBeGreaterThanOrEqual(0);
+  expect(edges, "the header, the action row and the title bar are all on screen").not.toBeNull();
+  expect(
+    edges?.headerBelowTitleBar ?? -1,
+    "the Choose Session header sits wholly below the title bar",
+  ).toBeGreaterThanOrEqual(0);
+  expect(
+    edges?.actionsAbovePaneBottom ?? -1,
+    "and the action row sits wholly above the frame's bottom edge",
+  ).toBeGreaterThanOrEqual(0);
+}
+
 /** Seed the deck, wait for all three frames, and let the imposer settle. */
 async function seed(app: App, shares: Record<string, number>): Promise<void> {
   await app.seedDeckState({ state: deckShape(shares), focusCardId: "A" });
@@ -320,12 +456,14 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
           "the neighbour holds the run less the gap and the pinned height",
         ).toBeLessThanOrEqual(EPSILON);
 
-        // ── The pin binds BELOW the card's stack floor. That is the whole
-        //    difference between a pin and the reservation below it. ──
+        // ── The pin is not the floor. With these shares the floor alone would
+        //    hold the card at 600, so a pin the floor could explain would be
+        //    indistinguishable from no pin at all; the picker's height is
+        //    somewhere else, and that is what the card stands at. ──
         expect(
-          SESSION_UNBOUND_HEIGHT_PX,
-          "the pin is under the floor a reservation could never get below",
-        ).toBeLessThan(SESSION_FLOOR_PX);
+          Math.abs(SESSION_UNBOUND_HEIGHT_PX - SESSION_FLOOR_PX),
+          "the pin is a height the stack floor would not have given the card",
+        ).toBeGreaterThan(EPSILON);
 
         await raisePicker(app);
 
@@ -365,6 +503,11 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
           "raising the picker moves nothing — the card was already its height",
         ).toBeLessThanOrEqual(EPSILON);
 
+        // ── The same picker over a project with more sessions than the
+        //    list's cap holds — the case a real project presents, on the
+        //    lower member of a split column, which is the case that clipped. ──
+        await assertFitAtListCap(app);
+
         // ── A session opens: the pin comes down with the binding commit, and
         //    the card falls back into the share the hand gave it. ──
         await app.bindSession("B");
@@ -398,9 +541,9 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
           "and the neighbour gave the room back",
         ).toBeLessThanOrEqual(EPSILON);
         expect(
-          settled.p2.height,
-          "the card really did grow — the pin was doing something",
-        ).toBeGreaterThan(before.p2.height + EPSILON);
+          Math.abs(settled.p2.height - before.p2.height),
+          "the card really did move — the pin was doing something",
+        ).toBeGreaterThan(EPSILON);
       } finally {
         await app.close();
       }
@@ -461,6 +604,8 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at its p
           Math.abs(open.p1.height - before.p1.height),
           "so the neighbour does not move either",
         ).toBeLessThanOrEqual(EPSILON);
+
+        await assertFitAtListCap(app);
 
         // ── And the stored share is what it falls back into: the 3:1 the hand
         //    wrote, which is well above the floor. ──

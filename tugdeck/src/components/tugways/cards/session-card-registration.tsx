@@ -55,7 +55,15 @@ export const SESSION_FOLDED_HEIGHT_PX = 144;
  * declares its own policy, and `addCard` pins it for as long as the card is
  * unbound.
  *
- * The terms, read off the built app rather than off the stylesheet:
+ * The terms, read off the built app rather than off the stylesheet, WITH THE
+ * SESSIONS LIST AT ITS CAP. The list is `max-height: 14.5rem` and every row has
+ * a 3.5rem floor, so on any project with more than three sessions the list
+ * stands at that cap and the picker is as tall as it ever gets. That is the
+ * picker this number has to hold: a card pinned at the height of a shorter
+ * list opens with the Choose Session header cut off above the path field and
+ * the action row cut off below the list, and the sheet's clamp scrolls the
+ * rest. A project with fewer sessions opens with air under the list, and air
+ * is the price of a constant the arrival can know before `addCard` commits.
  *
  * - `37` — the pane's title bar (36, `--tug-chrome-height` in `tug-pane.tsx`)
  *   and the 1px the sheet's clip drops below it (`.tug-sheet-clip`'s
@@ -63,9 +71,10 @@ export const SESSION_FOLDED_HEIGHT_PX = 144;
  * - `12` — `--tugx-sheet-space-a`, the panel's top margin. Choose Session keeps
  *   the sheet's default TOP anchor (`modal-rest-line.ts` exempts it), whose
  *   rule is `margin: space-a auto 0`.
- * - `368` — the picker panel's own box: its `scrollHeight` plus its two 1px
- *   borders. `at0569`'s diagnostics print the SHEET's reading of this, which is
- *   the same number plus the 12px margin above.
+ * - `542` — the picker panel's own box with the list at its cap: its
+ *   `scrollHeight` plus its two 1px borders. `at0569`'s diagnostics print the
+ *   SHEET's reading of this over a seeded five-session project, which is the
+ *   same number plus the 12px margin above (554).
  * - `32` — `SHEET_CANVAS_GAP`. This is the term that is not about the panel at
  *   all, and the one an arithmetic answer misses. `tug-sheet.tsx`'s top-anchor
  *   clamp caps the panel against the CANVAS bottom rather than the frame's, so
@@ -73,17 +82,32 @@ export const SESSION_FOLDED_HEIGHT_PX = 144;
  *   its own height or the clamp cuts the panel short — which is precisely what
  *   429 did, by the 14px `at0569` measured before this number moved.
  *
- * 37 + 12 + 368 + 32 = 449, less the 5px the imposition already leaves under
+ * 37 + 12 + 542 + 32 = 623, less the 5px the imposition already leaves under
  * the column's last member, which the clamp's canvas reading gets for free.
  *
- * MEASURED, not derived: `at0569` opens the picker in the built app and fails
- * if the panel clips at this height, which is what would catch a picker that
- * outgrows it — another row in the list, a taller action row, a wider path
- * field that wraps. Nothing measures the picker at RUNTIME to find this number
- * ([P02]): a measured height arrives a commit after the card does and re-targets
- * the settle mid-beat, which is the judder this constant exists to remove.
+ * The previous number, 444, was the same arithmetic over a panel box of 368 —
+ * the picker as every app-test sees it on a fresh per-instance `sessions.db`,
+ * with exactly one row ("New session") in its list. It was measured honestly
+ * against the wrong picker, and no test could say so while the tests measured
+ * the same one. The list's cap is 174px above the one-row list, and so is this.
+ *
+ * MEASURED, not derived: `at0569` opens the picker in the built app over a
+ * seeded list at the cap and fails if the panel clips at this height, which is
+ * what would catch a picker that outgrows it — a taller cap, a taller action
+ * row, a wider path field that wraps. Nothing measures the picker at RUNTIME to
+ * find this number ([P02]): a measured height arrives a commit after the card
+ * does and re-targets the settle mid-beat, which is the judder this constant
+ * exists to remove.
+ *
+ * One state is KNOWINGLY outside it: the picker re-presented after a failed
+ * resume carries an inline notice above the form (`SessionProjectPickerForm`'s
+ * `notice`), and a panel already at the cap plus a notice is taller than this
+ * number holds, so the clamp scrolls it. That is a transient state on a
+ * conditional element, and carrying it here would be permanent air under every
+ * picker that never sees one. Left as air-versus-scroll for whoever decides it
+ * matters; the `at0569` assertions above are the fit with no notice up.
  */
-export const SESSION_UNBOUND_HEIGHT_PX = 444;
+export const SESSION_UNBOUND_HEIGHT_PX = 618;
 
 export function registerSessionCard(): void {
   registerCard({

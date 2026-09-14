@@ -91,10 +91,17 @@
  * @covers tugdeck/src/lib/settle-notice.ts
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
+import {
+  pickerPanelNaturalHeight,
+  pointPickerAt,
+  removePickerSessions,
+  seedPickerSessions,
+  type PickerSessionsFixture,
+} from "./picker-sessions-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -107,7 +114,23 @@ const TEST_TIMEOUT_MS = 180_000;
  *
  * A copy that drifts fails claim 4 rather than passing quietly.
  */
-const SESSION_UNBOUND_HEIGHT_PX = 444;
+const SESSION_UNBOUND_HEIGHT_PX = 618;
+
+/**
+ * A project whose Sessions list stands at its 14.5rem cap, so the picker the
+ * arriving card raises is the one a real project presents rather than the
+ * one-row picker of a fresh instance.
+ */
+let fixture: PickerSessionsFixture | null = null;
+
+beforeAll(() => {
+  if (!SHOULD_RUN) return;
+  fixture = seedPickerSessions("at0571");
+});
+
+afterAll(() => {
+  removePickerSessions(fixture);
+});
 
 /** The seeded panes. Everything else on the canvas arrived at run time. */
 const SEEDED_PANES = ["p1", "p3"] as const;
@@ -322,6 +345,18 @@ async function pins(app: App): Promise<Record<string, number> | null> {
   );
 }
 
+/**
+ * Point the open picker at the seeded project, let the list reach its cap,
+ * and print the panel's natural height as it then stands.
+ */
+async function measureAtListCap(app: App, label: string): Promise<void> {
+  if (fixture === null) throw new Error("the picker sessions fixture was not seeded");
+  await pointPickerAt(app, fixture);
+  await wait(AFTER_LAND_MS);
+  const natural = await pickerPanelNaturalHeight(app);
+  note(label, `panel natural ${natural ?? -1}px with the list at its cap`);
+}
+
 /** Seed the deck, wait for both frames, and let the imposer settle. */
 async function seed(app: App): Promise<void> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -484,6 +519,10 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         ).toEqual([]);
         expect(rest.ghosts, "and no exit ghost stands").toBe(0);
         expect(rest.picker, "the picker is up at rest").toBe(true);
+
+        // The picker over a project with more sessions than the list's cap
+        // holds — the case a real project presents.
+        await measureAtListCap(app, "arrival picker");
       } finally {
         await app.close();
       }
@@ -503,6 +542,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           { timeoutMs: 15_000 },
         );
         await wait(AFTER_LAND_MS);
+        await measureAtListCap(app, "departure picker");
 
         const samples = await census(app, cancelPicker);
         const order = beatOrder(samples);

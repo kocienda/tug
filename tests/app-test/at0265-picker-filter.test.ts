@@ -32,9 +32,10 @@
  * ## Deterministic rows
  *
  * The picker's rows come from tugcast's ledger plus a JSONL scan of real host
- * state, so this test seeds its own: real transcript files in the encoded
- * claude project dir for a fresh temp path, picked up by the real scan. No
- * mocks, and no dependence on whatever sessions the host happens to have.
+ * state, so this test seeds its own through `picker-sessions-fixture.ts`: real
+ * transcript files in the encoded claude project dir for a fresh temp path,
+ * picked up by the real scan. No mocks, and no dependence on whatever sessions
+ * the host happens to have.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -47,28 +48,18 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
 import { launchTugApp, note } from "./_harness";
+import {
+  PICKER_RESUME_COUNT as RESUME_COUNT,
+  PICKER_RESUME_ROW as RESUME_ROW,
+  removePickerSessions,
+  seedPickerSessions,
+  type PickerSessionsFixture,
+  type SeededSession,
+} from "./picker-sessions-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
-
-/**
- * Encode an absolute project dir the way claude names its per-project subdir
- * under `~/.claude/projects/` (every character outside `[A-Za-z0-9-]` → `-`).
- * Kept inline so the app-test graph does not import tugcode.
- */
-const encodeProjectDir = (absDir: string): string =>
-  absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
 /**
  * The seeded sessions. Each carries an `ai-title` record and a prompt, so the
@@ -80,7 +71,7 @@ const encodeProjectDir = (absDir: string): string =>
  * instead. Assertions here therefore read the whole row's rendered text, not
  * the title line alone.
  */
-const SEEDED = [
+const SEEDED: readonly SeededSession[] = [
   {
     id: "a7c02650-0000-4000-8000-0000000000a1",
     prompt: "zebra harmonica calibration",
@@ -102,94 +93,24 @@ const MATCHING_FRAGMENT = "zebra";
 /** A fragment of no title at all. */
 const ABSENT_FRAGMENT = "qqzzxx";
 
-/** A minimal one-turn session JSONL in claude's own shape. */
-function buildFixtureJsonl(
-  cwd: string,
-  sessionId: string,
-  prompt: string,
-  title: string,
-): string {
-  const base = {
-    isSidechain: false,
-    userType: "external",
-    cwd,
-    sessionId,
-    version: "2.1.105",
-    gitBranch: "main",
-  };
-  const suffix = sessionId.slice(-2);
-  const lines = [
-    {
-      ...base,
-      parentUuid: null,
-      type: "user",
-      uuid: `00000000-0000-4000-8000-0000000${suffix}d01`,
-      timestamp: "2026-07-20T10:00:00.000Z",
-      message: { role: "user", content: [{ type: "text", text: prompt }] },
-    },
-    {
-      ...base,
-      parentUuid: `00000000-0000-4000-8000-0000000${suffix}d01`,
-      type: "assistant",
-      uuid: `00000000-0000-4000-8000-0000000${suffix}d02`,
-      timestamp: "2026-07-20T10:00:01.000Z",
-      message: {
-        id: `msg-filter-${suffix}`,
-        type: "message",
-        role: "assistant",
-        model: "claude-opus-4-8",
-        content: [{ type: "text", text: "ok" }],
-        stop_reason: "end_turn",
-        stop_sequence: null,
-        usage: {
-          input_tokens: 10,
-          output_tokens: 2,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-      },
-    },
-    { type: "ai-title", aiTitle: title, sessionId },
-  ];
-  return lines.map((e) => JSON.stringify(e)).join("\n") + "\n";
-}
-
+let fixture: PickerSessionsFixture | null = null;
 let projectDir = "";
-let fixtureDir = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  // realpath: macOS `mkdtemp` returns `/var/folders/…` but the scan resolves
-  // `/var` → `/private/var` before encoding — encode the SAME resolved string.
-  projectDir = realpathSync(mkdtempSync(join(tmpdir(), "at0265-proj-")));
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir));
-  mkdirSync(fixtureDir, { recursive: true });
-  for (const session of SEEDED) {
-    writeFileSync(
-      join(fixtureDir, `${session.id}.jsonl`),
-      buildFixtureJsonl(projectDir, session.id, session.prompt, session.title),
-    );
-  }
+  fixture = seedPickerSessions("at0265", SEEDED);
+  projectDir = fixture.projectDir;
 });
 
 afterAll(() => {
-  if (projectDir !== "" && existsSync(projectDir)) {
-    rmSync(projectDir, { recursive: true, force: true });
-  }
-  if (fixtureDir !== "" && existsSync(fixtureDir)) {
-    rmSync(fixtureDir, { recursive: true, force: true });
-  }
+  removePickerSessions(fixture);
 });
 
 const PICKER_FORM = ".session-card-picker-form";
 const PICKER_OPEN = `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`;
 const FILTER_INPUT = '[data-testid="session-card-picker-filter"] input';
 const FILTER_CLEAR = '[data-testid="session-card-picker-filter"] button';
-const RESUME_ROW = '[data-testid="session-card-picker-session-resume"]';
 const SESSIONS_LIST = '[data-tug-focus-key="session-picker-cycle:2"]';
-
-/** How many `session-resume` rows the list is showing. */
-const RESUME_COUNT = `document.querySelectorAll(${JSON.stringify(RESUME_ROW)}).length`;
 
 /**
  * The full rendered text of every visible resume row — the callsign line and
