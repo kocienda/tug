@@ -1844,13 +1844,13 @@ async fn main() {
         turn_complete_rx,
     ));
 
-    // TRIPWIRE — standing tripwires that watch the landings this instance
-    // makes, and decide whether one is worth acting on ([P01]). A sibling of
+    // TRIPWIRE — standing tripwires that watch the facts this instance
+    // records, and decide whether one is worth acting on ([B01]). A sibling of
     // the Overview rather than a part of it: it reads the same facts and will
     // post to the same feed, but it is its own task with its own
     // machine-global ledger, so nothing here is reachable from an Observer
-    // wake. Its one trigger arrives on the process-global landing channel the
-    // two landing gestures send on, so there is nothing to subscribe here.
+    // wake. Its one trigger arrives on the process-global fact channel
+    // `record_fact_tx` sends on, so there is nothing to subscribe here.
     tokio::spawn(feeds::tripwire::run_tripwire_engine(
         feeds::tripwire::TripwireEngineConfig {
             ledger: Arc::clone(&ledger),

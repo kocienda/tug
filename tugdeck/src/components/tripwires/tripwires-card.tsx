@@ -7,9 +7,9 @@
  *
  * One level, and a fold. Each tripwire is a two-line block — line one the name,
  * a hairline, the session working its trip when one is running, and the row's
- * controls; line two a fixed-width mark, the lifecycle sentence, and the branch
- * it lands on. A row with a trip in flight or a question outstanding carries a
- * register band beneath. The fold opens in place over the tripwire's definition
+ * controls; line two a fixed-width mark and the lifecycle sentence. A row with
+ * a trip in flight or a question outstanding carries a register band beneath.
+ * The fold opens in place over the tripwire's definition
  * and its trip log, which is the Arcs card's own gesture and replaces the
  * second level this card used to push to ([B02]).
  *
@@ -234,7 +234,7 @@ function lifecycleSentence(tripwire: TripwireRow): string {
     case "armed":
       return last === null
         ? "Armed — never tripped"
-        : `Armed — last trip ${ago}, nothing to report`;
+        : `Armed — last trip ${ago}, ${last.status === "quiet" ? "quiet" : last.status}`;
   }
 }
 
@@ -424,7 +424,11 @@ function useTripwireRowVerbs(tripwire: TripwireRow): {
   const store = getTripwiresStore();
   const host = React.useContext(TripwireRowHostContext);
   const name = tripwire.name;
-  const session = tripwire.running_session;
+  // The one field the dot and this item both read ([P10]): the running trip's
+  // session, else the adopted trip's, else the newest trip that had one. A
+  // quiet trip's session is still the session that did the work, so a finished
+  // row opens onto it rather than going dead.
+  const session = tripwire.open_session;
   // The dot's own gesture, not a second reading of it: the menu item is the
   // keyboard's name for the press, and `focus-session-card` raises a card by
   // id — handed a session id it warns and does nothing, which is how this item
@@ -497,7 +501,7 @@ function useTripwireRowVerbs(tripwire: TripwireRow): {
         action: TUG_ACTIONS.OPEN_TRIPWIRE_SESSION,
         label:
           session === null
-            ? "Open session — no trip is running"
+            ? "Open session — no trip has run"
             : openSession.heldByCard
               ? "Show session"
               : "Open session",
@@ -764,7 +768,7 @@ function Fold({ tripwire }: { tripwire: TripwireRow }): React.ReactElement {
  * button that duplicates the Join sheet.
  */
 function RegisterBand({ tripwire }: { tripwire: TripwireRow }): React.ReactElement | null {
-  const worker = useSessionIdentity(tripwire.running_session);
+  const worker = useSessionIdentity(tripwire.open_session);
   const state = rowState(tripwire);
 
   if (state === "running") {
@@ -834,7 +838,7 @@ function TripwireCell({
 }: TugListViewCellProps<TripwiresDataSource>): React.ReactElement {
   const host = React.useContext(TripwireRowHostContext);
   const tripwire = dataSource.rowAt(index);
-  const worker = useSessionIdentity(tripwire.running_session);
+  const worker = useSessionIdentity(tripwire.open_session);
   const verbs = useTripwireRowVerbs(tripwire);
   const state = rowState(tripwire);
   const expanded = host.expanded.has(tripwire.name);
@@ -891,9 +895,9 @@ function TripwireCell({
                 aria-label={
                   tripwire.paused ? `Resume ${tripwire.name}` : `Pause ${tripwire.name}`
                 }
-                // Swallowed, or the press that pauses would also open the fold:
-                // the row itself is a door, and a control standing on a door has
-                // to say it was pressed instead of the door.
+                // Stopped here, or the press that pauses would also open the
+                // fold: the row itself is a door, and a control standing on a
+                // door has to say it was pressed instead of the door.
                 onClick={(e) => {
                   e?.stopPropagation();
                   void store.setKnobs(tripwire.name, { paused: !tripwire.paused });
@@ -903,8 +907,8 @@ function TripwireCell({
               />
               {/* The rare verbs, behind one opener — the same menu the
                   right-click opens, so there is one item list and one
-                  vocabulary ([B05]). Its press is swallowed for the reason
-                  pause's is: the row underneath is a door. */}
+                  vocabulary ([B05]). Its press stops here for the reason
+                  pause's does: the row underneath is a door. */}
               <TugIconButton
                 icon={<MoreHorizontal size={12} />}
                 size="xs"
@@ -935,21 +939,13 @@ function TripwireCell({
               </span>
             </span>
           </span>
-          {/* Line two: WHAT. The mark, the sentence, and the branch it lands
-              on, at the row's own size, with the mark's box held apart from the
-              text so which dot belongs to which line is never in doubt. */}
+          {/* Line two: WHAT. The mark and the sentence, at the row's own size,
+              with the mark's box held apart from the text so which dot belongs
+              to which line is never in doubt. */}
           <span className="tripwires-line" data-slot="tripwire-line">
             <RowMark tripwire={tripwire} />
             <TugLabel size="xs" className="tripwires-sentence">
               {lifecycleSentence(tripwire)}
-            </TugLabel>
-            <TugLabel
-              size="xs"
-              emphasis="calm"
-              className="tripwires-branch"
-              data-tripwire-branch={tripwire.branch}
-            >
-              {tripwire.branch}
             </TugLabel>
           </span>
           {/* Line three, only when there is something live to register. */}
@@ -977,10 +973,19 @@ function CollapsedBand({ rows }: { rows: readonly TripwireRow[] }): React.ReactE
   const awaiting = rows.filter((r) => r.awaiting).length;
   const paused = rows.filter((r) => r.paused).length;
   const armed = rows.length - paused;
+  // Every trip that ran, quiet ones included ([B04]): the count is what says
+  // the watch has been doing something on a machine where nothing is in
+  // flight right now. Skipped rows are already out of it, at the ledger.
+  const tripped = rows.reduce((n, r) => n + r.trip_count, 0);
   return (
     <span className="tripwires-band" data-slot="tripwire-band">
       <Radar size={12} aria-hidden />
       <TugLabel size="xs">{`${armed} armed`}</TugLabel>
+      {tripped > 0 ? (
+        <span className="tripwires-band-count" data-state="tripped">
+          <TugLabel size="xs" emphasis="calm">{`${tripped} ${tripped === 1 ? "trip" : "trips"}`}</TugLabel>
+        </span>
+      ) : null}
       {running > 0 ? (
         <span className="tripwires-band-count" data-state="running">
           <TugProgressIndicator

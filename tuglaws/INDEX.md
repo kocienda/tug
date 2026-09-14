@@ -62,7 +62,7 @@
 
 ## Tripwires
 
-- [tripwires.md](tripwires.md) — The standing-watch facility: what fires a tripwire and what is deliberately invisible to it, the trip lifecycle over its nine statuses, the one-live-run slot and why `adopted` does not hold it, the two ways an awaiting trip is released and why neither is a clock, the two provenance guards (the own-arc skip and the `laid_by` stamp), the session-not-arc rule, the slash-command door and why the card carries no lay form, the one projection with three callers, and the observation model whose correctness rests on the ledger's own `data_version`. Read before changing the engine, the ledger, the roster feed, or the Tripwires card.
+- [tripwires.md](tripwires.md) — The standing-watch facility: the fact-time trigger and what is deliberately invisible to it, the trip lifecycle over its six statuses, the disposable tree cut at `HEAD` and the uncommitted diff beside it, the one-live-run slot and why `adopted` does not hold it, the two ways an awaiting trip is released and why neither is a clock, the own-session guard and the `laid_by` stamp, the session-not-arc rule, the slash-command door and why the card carries no lay form, the one projection with three callers, and the observation model whose correctness rests on the ledger's own `data_version`. Read before changing the engine, the ledger, the roster feed, or the Tripwires card.
 
 ## Templates
 

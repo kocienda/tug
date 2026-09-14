@@ -40,7 +40,7 @@ use tugtool_core::tripwire_ledger as ledger;
 use tugtool_core::tripwire_roster::{self, RosterRow};
 
 /// How long a bump waits before recomposing, so a burst of them costs one
-/// compose. `changeset_all`'s floor, for the same reason: a landing settles
+/// compose. `changeset_all`'s floor, for the same reason: a trip settles
 /// several trips in quick succession and each one nudges.
 const BUMP_FLOOR: Duration = Duration::from_millis(150);
 
@@ -214,7 +214,7 @@ impl SnapshotFeed for TripwiresFeed {
 mod tests {
     use super::*;
     use tugcast_core::spawn_snapshot_feed;
-    use tugtool_core::tripwire_ledger::{Claim, NewTripwire, Settlement, TripStatus};
+    use tugtool_core::tripwire_ledger::{NewTrip, NewTripwire, Settlement, TripStatus};
 
     fn scratch() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
@@ -233,7 +233,6 @@ mod tests {
                 name,
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "report anything that looks wrong",
-                "main",
                 "Reports anything that looks wrong on main",
             ),
             1,
@@ -387,11 +386,21 @@ mod tests {
 
         let conn = ledger::open_ledger(&path).unwrap();
         let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
-        let Claim::Claimed { trip_id } =
-            ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
+        let trip_id = ledger::insert_trip(
+            &conn,
+            &NewTrip {
+                tripwire_id: tripwire.id,
+                event_key: "fact:inst:1".to_string(),
+                at_ms: 10,
+                instance: "inst".to_string(),
+                status: TripStatus::Running,
+                reason: None,
+                event_payload: None,
+                repo_root: None,
+            },
+        )
+        .unwrap()
+        .expect("this tripwire has no row for that key yet");
         ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
         ledger::settle(
             &conn,

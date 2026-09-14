@@ -71,7 +71,7 @@ pub fn dismiss(
         resolution = ledger::resolve_adopted(
             conn,
             tripwire.id,
-            TripStatus::Settled,
+            TripStatus::Quiet,
             &settlement,
             None,
             now_ms,
@@ -102,18 +102,21 @@ pub fn dismiss(
 /// Remove a dismissed trip's arc, handing nothing back to the base checkout
 /// ([P09]).
 ///
-/// Addressed by the **landing's** repository rather than by the tripwire's scope,
+/// Addressed by the **trip's own** repository rather than by the tripwire's scope,
 /// because that is where the engine cut the arc: a scope is a path prefix a
 /// tripwire is confined to, which may be an ancestor of the checkout or absent
 /// altogether, and an unscoped tripwire's arc is still an arc. The scope is the
-/// fallback for a trip whose row carries no landing — a hand-fired one.
+/// fallback for a trip whose row names no checkout at all.
 fn discard_tripwire_arc(
     conn: &Connection,
     tripwire: &Tripwire,
     trip_id: i64,
     arc: &str,
 ) -> Result<(), String> {
-    let root = landing_repo_root(conn, trip_id)
+    let root = ledger::repo_root_of_trip(conn, trip_id)
+        .ok()
+        .flatten()
+        .filter(|root| !root.is_empty())
         .or_else(|| tripwire.scope.clone())
         .ok_or_else(|| {
             format!(
@@ -125,19 +128,6 @@ fn discard_tripwire_arc(
     crate::ops::discard_agent_arc_in(std::path::Path::new(&root), arc, Some("tripwire")).map(|_| ())
 }
 
-/// The repository a trip's landing happened in, read off the evidence the row
-/// carries — the same place the engine reads it from when it sweeps.
-fn landing_repo_root(conn: &Connection, trip_id: i64) -> Option<String> {
-    let payload = ledger::trip(conn, trip_id).ok().flatten()?.event_payload?;
-    let value: serde_json::Value = serde_json::from_str(&payload).ok()?;
-    value
-        .get("landing")?
-        .get("repo_root")?
-        .as_str()
-        .filter(|root| !root.is_empty())
-        .map(str::to_owned)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,7 +136,7 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
     use tempfile::TempDir;
-    use tugtool_core::tripwire_ledger::{Claim, NewTripwire, TripStatus};
+    use tugtool_core::tripwire_ledger::{NewTrip, NewTripwire, TripStatus};
 
     fn scratch_ledger(dir: &Path) -> Connection {
         ledger::open_ledger(dir.join("tripwires.db")).unwrap()
@@ -157,26 +147,35 @@ mod tests {
             name,
             r#"{"fact":{"kind":"edit_failed"}}"#,
             "report anything that looks wrong",
-            "main",
             "Reports anything that looks wrong on main",
         );
         new.scope = scope.map(str::to_owned);
         ledger::lay(conn, &new, 1).unwrap()
     }
 
-    /// An awaiting trip holding `arc`, with `payload` as the evidence the
-    /// dismiss reads the repository off.
+    /// An awaiting trip holding `arc`, standing in `repo_root` — the column
+    /// the dismiss reads the repository off ([P05]).
     fn awaiting_trip(
         conn: &Connection,
         tripwire: &Tripwire,
         arc: Option<&str>,
-        payload: Option<&str>,
+        repo_root: Option<&str>,
     ) -> i64 {
-        let Claim::Claimed { trip_id } =
-            ledger::claim_trip(conn, tripwire.id, "abc", 10, "inst", payload).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
+        let trip_id = ledger::insert_trip(
+            conn,
+            &NewTrip {
+                tripwire_id: tripwire.id,
+                event_key: "fact:i:1".to_string(),
+                at_ms: 10,
+                instance: "inst".to_string(),
+                status: TripStatus::Running,
+                reason: None,
+                event_payload: None,
+                repo_root: repo_root.map(str::to_owned),
+            },
+        )
+        .unwrap()
+        .expect("this tripwire has no row for that key yet");
         ledger::record_run(conn, trip_id, Some("sess-1"), arc).unwrap();
         ledger::settle(
             conn,
@@ -231,7 +230,7 @@ mod tests {
         assert_eq!(dismissed.discard_error, None);
         assert_eq!(
             ledger::trip(&conn, trip_id).unwrap().unwrap().status,
-            "settled",
+            "quiet",
             "the row is settled whether or not an arc came with it"
         );
     }
@@ -251,15 +250,11 @@ mod tests {
 
         let conn = scratch_ledger(temp.path());
         let tripwire = lay(&conn, "ci", None);
-        let payload = serde_json::json!({
-            "landing": { "repo_root": root.to_string_lossy() }
-        })
-        .to_string();
         let trip_id = awaiting_trip(
             &conn,
             &tripwire,
             Some("tripwire-ci-abcd1234"),
-            Some(&payload),
+            Some(&root.to_string_lossy()),
         );
 
         let dismissed = dismiss(&conn, &tripwire, 30).unwrap();
@@ -271,7 +266,7 @@ mod tests {
         );
         assert_eq!(
             ledger::trip(&conn, trip_id).unwrap().unwrap().status,
-            "settled"
+            "quiet"
         );
         assert!(
             !crate::ops::arc_exists_in(&root, "tripwire-ci-abcd1234"),
@@ -298,14 +293,14 @@ mod tests {
         ledger::settle(
             &conn,
             trip_id,
-            TripStatus::Settled,
+            TripStatus::Quiet,
             &Settlement::default(),
             25,
         )
         .unwrap();
         match dismiss(&conn, &settled, 30) {
             Err(DismissRefusal::NoLiveTrip { state }) => {
-                assert_eq!(state.as_deref(), Some("settled"))
+                assert_eq!(state.as_deref(), Some("quiet"))
             }
             other => panic!("an already-settled tripwire names its state: {other:?}"),
         }

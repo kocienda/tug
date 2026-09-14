@@ -2877,6 +2877,7 @@ mod tests {
                     "tugways: regularize tooltip presentation",
                     &["tugdeck/src/tooltip.tsx".to_string()],
                     None,
+                    None,
                 ),
             );
         }
@@ -2997,6 +2998,7 @@ mod tests {
                 "tugways(transcript-copy): route native ⌘C through onCopy substitution",
                 &files,
                 None,
+                None,
             ),
         );
 
@@ -3065,6 +3067,7 @@ mod tests {
                 "ac462ba3a1ae",
                 "tugways(entity-tips): unify commit hover into a real TugTooltip",
                 &["tugdeck/src/chrome/entity-tips.tsx".to_string()],
+                None,
                 None,
             ),
         );
@@ -3188,6 +3191,7 @@ mod tests {
                 "b17c9f2d0011",
                 "tugdeck(transcript): stop repaint flicker on theme switch",
                 &["tugdeck/src/transcript.tsx".to_string()],
+                None,
                 None,
             ),
         );
@@ -5387,6 +5391,7 @@ mod tests {
                     &format!("{i:040x}"),
                     "tugways(transcript-copy): route native ⌘C through onCopy substitution",
                     &files,
+                    None,
                     None,
                 ),
             );

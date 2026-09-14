@@ -99,7 +99,7 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
     use tempfile::TempDir;
-    use tugtool_core::tripwire_ledger::{Claim, NewTripwire, Settlement, TripStatus};
+    use tugtool_core::tripwire_ledger::{NewTrip, NewTripwire, Settlement, TripStatus};
 
     fn scratch_ledger(dir: &Path) -> Connection {
         ledger::open_ledger(dir.join("tripwires.db")).unwrap()
@@ -112,7 +112,6 @@ mod tests {
                 name,
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "report anything that looks wrong",
-                "main",
                 "Reports anything that looks wrong on main",
             ),
             1,
@@ -120,33 +119,41 @@ mod tests {
         .unwrap()
     }
 
-    /// A claimed trip moved to `running`, holding `arc`.
+    /// A `running` trip holding `arc`.
     fn running_trip(conn: &Connection, tripwire: &Tripwire, arc: Option<&str>) -> i64 {
-        let Claim::Claimed { trip_id } =
-            ledger::claim_trip(conn, tripwire.id, "abc", 10, "inst", None).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
+        let trip_id = write_running(conn, tripwire, None);
         ledger::record_run(conn, trip_id, Some("sess-1"), arc).unwrap();
         trip_id
     }
 
-    /// An awaiting trip holding `arc`, with `payload` as the evidence the
-    /// dismiss reads the repository off.
+    /// A `running` row, the way the engine writes one.
+    fn write_running(conn: &Connection, tripwire: &Tripwire, repo_root: Option<&str>) -> i64 {
+        ledger::insert_trip(
+            conn,
+            &NewTrip {
+                tripwire_id: tripwire.id,
+                event_key: "fact:i:1".to_string(),
+                at_ms: 10,
+                instance: "inst".to_string(),
+                status: TripStatus::Running,
+                reason: None,
+                event_payload: None,
+                repo_root: repo_root.map(str::to_owned),
+            },
+        )
+        .unwrap()
+        .expect("this tripwire has no row for that key yet")
+    }
+
+    /// An awaiting trip holding `arc`, standing in `repo_root` — the column
+    /// the removal reads the repository off ([P05]).
     fn awaiting_trip(
         conn: &Connection,
         tripwire: &Tripwire,
         arc: Option<&str>,
-        payload: Option<&str>,
+        repo_root: Option<&str>,
     ) -> i64 {
-        let trip_id = {
-            let Claim::Claimed { trip_id } =
-                ledger::claim_trip(conn, tripwire.id, "abc", 10, "inst", payload).unwrap()
-            else {
-                panic!("the claim is uncontested");
-            };
-            trip_id
-        };
+        let trip_id = write_running(conn, tripwire, repo_root);
         ledger::record_run(conn, trip_id, Some("sess-1"), arc).unwrap();
         ledger::settle(
             conn,
@@ -198,7 +205,7 @@ mod tests {
         ledger::settle(
             &conn,
             trip_id,
-            TripStatus::Settled,
+            TripStatus::Quiet,
             &Settlement::default(),
             25,
         )
@@ -266,15 +273,11 @@ mod tests {
 
         let conn = scratch_ledger(temp.path());
         let tripwire = lay(&conn, "ci");
-        let payload = serde_json::json!({
-            "landing": { "repo_root": root.to_string_lossy() }
-        })
-        .to_string();
         awaiting_trip(
             &conn,
             &tripwire,
             Some("tripwire-ci-abcd1234"),
-            Some(&payload),
+            Some(&root.to_string_lossy()),
         );
 
         let removed = remove(&conn, &tripwire, 30).unwrap();

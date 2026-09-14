@@ -1195,10 +1195,11 @@ export const TUG_ACTIONS = {
   //                        is the same `dismiss`; an awaiting trip that
   //                        authored an arc is released by that arc's fate
   //                        instead, so the band under it carries no control.
-  // OPEN_TRIPWIRE_SESSION: payload — none. Open the session the running trip
-  //                        is in, on a card — the gesture the row's live dot
-  //                        performs, under the keyboard's name. Disabled, with
-  //                        the reason in its label, when no trip is running.
+  // OPEN_TRIPWIRE_SESSION: payload — none. Open the session the tripwire's
+  //                        newest trip that had one is in, on a card — the
+  //                        gesture the row's live dot performs, under the
+  //                        keyboard's name. Disabled, with the reason in its
+  //                        label, when no trip has ever run.
   // SET_TRIPWIRE_MODEL:    payload — `value: string`. The model this tripwire's
   //                        trips run under, by name, written with
   //                        `setKnobs({ model })`. The session default is its

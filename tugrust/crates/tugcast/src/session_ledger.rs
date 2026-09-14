@@ -7890,7 +7890,22 @@ impl SessionLedger {
         if affected == 0 {
             return Ok(None);
         }
-        Ok(Some(conn.last_insert_rowid()))
+        let id = conn.last_insert_rowid();
+        // The one funnel every fact passes through, and so the one place the
+        // tripwire engine's trigger can live ([P01], [B01]). Fifteen callers
+        // inherit it from here. A build with no engine has no receiver and the
+        // send is skipped silently; a private session returned above, so a
+        // private session's facts never reach the engine at all.
+        crate::feeds::tripwire::fact_recorded(FactRow {
+            id,
+            at_ms: fact.at_ms,
+            kind: fact.kind.clone(),
+            session_id: fact.session_id.clone(),
+            subject: fact.subject.clone(),
+            text: fact.text.clone(),
+            payload: fact.payload.clone(),
+        });
+        Ok(Some(id))
     }
 
     /// Append one fact, acquiring the ledger lock. Callers that already hold
@@ -7898,29 +7913,6 @@ impl SessionLedger {
     pub fn record_fact(&self, fact: &NewFact) -> Result<Option<i64>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         Self::record_fact_tx(&conn, fact)
-    }
-
-    /// One session's facts newer than a rowid, oldest first, capped.
-    ///
-    /// The read behind the tripwire engine's high-water mark ([P05]): a
-    /// landing asks each of its lineage sessions for what that session has
-    /// done since this wire last looked at it. Per session rather than over
-    /// the whole tail, because the mark is per session — sessions run
-    /// concurrently, and one that started before the last landing can land
-    /// afterwards carrying facts whose rowids sit below a global mark.
-    pub fn facts_for_session_after(
-        &self,
-        session_id: &str,
-        after_rowid: i64,
-        cap: usize,
-    ) -> Result<Vec<FactRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT id, at_ms, kind, session_id, subject, text, payload
-             FROM facts WHERE session_id = ?1 AND id > ?2 ORDER BY id ASC LIMIT ?3",
-        )?;
-        let rows = stmt.query_map(params![session_id, after_rowid, cap as i64], fact_from_row)?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     /// Facts about one session, optionally narrowed to a single kind and to
@@ -11897,60 +11889,6 @@ mod tests {
 
         assert_eq!(stored_facts(&ledger).len(), 1);
         assert_eq!(fts_hits(&ledger, "cargo"), 1);
-    }
-
-    #[test]
-    fn a_sessions_fact_tail_pages_by_rowid_oldest_first() {
-        let ledger = fresh();
-        assert!(
-            ledger
-                .facts_for_session_after("s1", 0, 10)
-                .expect("empty")
-                .is_empty()
-        );
-
-        // Two facts share a millisecond on purpose: a tail keyed by timestamp
-        // would have to re-read one or skip one here, with no way to tell
-        // which. The rowid is what makes the resume exact.
-        for i in 0..5 {
-            let mut f = fact(1_000, "shell", &format!("cmd-{i}"), &format!("$ cmd-{i}"));
-            f.session_id = Some("s1".to_string());
-            ledger.record_fact(&f).expect("record");
-        }
-        // Another session's facts are never in this session's tail — the mark
-        // is per session, and so is the read it advances ([P05]).
-        let mut theirs = fact(1_000, "shell", "cmd-x", "$ cmd-x");
-        theirs.session_id = Some("s2".to_string());
-        ledger.record_fact(&theirs).expect("record");
-
-        let first_two = ledger.facts_for_session_after("s1", 0, 2).expect("tail");
-        assert_eq!(first_two.len(), 2);
-        assert_eq!(first_two[0].text, "$ cmd-0");
-        assert_eq!(first_two[1].text, "$ cmd-1");
-        assert!(first_two[0].id < first_two[1].id, "oldest first");
-
-        let rest = ledger
-            .facts_for_session_after("s1", first_two[1].id, 10)
-            .expect("tail");
-        assert_eq!(rest.len(), 3);
-        assert_eq!(rest[0].text, "$ cmd-2");
-
-        let tip = rest[2].id;
-        assert!(
-            ledger
-                .facts_for_session_after("s1", tip, 10)
-                .expect("tail")
-                .is_empty(),
-            "a wire whose mark is at the tip re-reads nothing"
-        );
-        assert_eq!(
-            ledger
-                .facts_for_session_after("s2", 0, 10)
-                .expect("tail")
-                .len(),
-            1,
-            "and the other session's own tail is untouched by either"
-        );
     }
 
     #[test]

@@ -309,12 +309,12 @@ pub fn tripwires_db_path() -> PathBuf {
 }
 
 /// The **machine-global** scratch root every tripwire inspection tree lives
-/// under: one directory per landing sha, each a detached `git worktree` at
-/// that commit ([P10]).
+/// under: one directory per `HEAD` sha, each a detached `git worktree` at
+/// that commit ([P06]).
 ///
 /// Machine-global for the same reason `tripwires.db` is — the trips that
-/// refcount a tree are claimed out of one ledger by whichever instance saw the
-/// landing, so partitioning the trees per instance would let two instances cut
+/// refcount a tree are written into one ledger by whichever instance recorded
+/// the fact, so partitioning the trees per instance would let two instances cut
 /// two checkouts of one commit and each sweep the other's.
 ///
 /// The layout is load-bearing rather than tidy: naming a tree by its sha is

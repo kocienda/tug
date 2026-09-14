@@ -381,9 +381,10 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 None => info!("dispatch_action: shared_agent_classify missing text"),
             }
         }
-        // A tripwire fired by hand. The CLI already wrote the queued row, so
-        // this is only the nudge that says not to wait out the engine's tick —
-        // and with no engine listening, the row simply waits for the next one.
+        // A tripwire fired by hand. The engine is what mints the row ([P08]),
+        // so this is the firing itself rather than a nudge — and the tripwire
+        // row has to be read first, because the scope is what a hand-fired
+        // trip stands in and a tripwire without one is refused at the door.
         "tripwire_trip" => {
             let name = serde_json::from_slice::<serde_json::Value>(raw_payload)
                 .ok()
@@ -394,8 +395,12 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 });
             match name {
                 Some(name) => {
-                    let served = crate::feeds::tripwire::kick(&name);
-                    info!(tripwire = %name, served, "dispatch_action: tripwire_trip");
+                    let served = tugtool_core::tripwire_ledger::open()
+                        .ok()
+                        .and_then(|conn| tugtool_core::tripwire_ledger::get(&conn, &name).ok())
+                        .flatten()
+                        .map(|tripwire| crate::feeds::tripwire::kick(&tripwire));
+                    info!(tripwire = %name, served = ?served, "dispatch_action: tripwire_trip");
                 }
                 None => info!("dispatch_action: tripwire_trip names no tripwire"),
             }

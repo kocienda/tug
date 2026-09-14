@@ -2,9 +2,9 @@
  * tripwire-presentation — English for everything the tripwire ledger stores as
  * an enum, a JSON blob, or a mode string.
  *
- * The section used to print `trip.status` and `swallow_reason` straight out of
- * the row, so a reader met `settled` and `swallowed: cooldown` with nothing to
- * read them against. A status enum is a name two halves of the engine agree on;
+ * The section used to print `trip.status` and its reason straight out of the
+ * row, so a reader met `quiet` and `skipped: busy` with nothing to read them
+ * against. A status enum is a name two halves of the engine agree on;
  * it is not a sentence, and a surface that shows one is asking its reader to
  * have read the schema.
  *
@@ -20,13 +20,18 @@ import type { TripRow, TripwireRow } from "@/lib/tripwires-store";
 /**
  * What a trip is doing, in the five states a reader actually distinguishes.
  *
- * The ledger's seven statuses collapse here on purpose: `claimed` and `queued`
- * are both "it hasn't started", and `swallowed` and `superseded` are both "it
- * never ran". The differences between them matter to the engine and to the
- * `swallow_reason` sentence below — they do not deserve four glyphs.
+ * The ledger's six statuses collapse to the six a reader tells apart: every
+ * way a trip can fail to run is one `skipped` row whose reason says which,
+ * and `quiet` — a trip that ran and found nothing — reads as finished. The
+ * differences the engine keeps live in the reason sentence below, which is
+ * where a word like `busy` earns its clause instead of a glyph.
+ *
+ * `waiting` survives the collapse with no status of its own. It is the
+ * `default:` arm's answer — a status this build has not learned — and a
+ * newer engine's row reads as "Starting…" rather than as nothing.
  *
  * `awaiting` is the one status that does not collapse into anything. A run
- * that resolved awaiting has finished and is holding the wire's live-run slot
+ * that resolved awaiting has finished and is holding the tripwire's live-run slot
  * until somebody sees what it found ([P07]) — the only state on this list that
  * is waiting on a person rather than on a machine.
  *
@@ -54,12 +59,11 @@ export function tripState(trip: TripRow): TripState {
       return "awaiting";
     case "adopted":
       return "adopted";
-    case "settled":
+    case "quiet":
       return "finished";
     case "failed":
       return "failed";
-    case "swallowed":
-    case "superseded":
+    case "skipped":
       return "skipped";
     default:
       return "waiting";
@@ -70,7 +74,7 @@ export function tripState(trip: TripRow): TripState {
  * Why a trip was skipped or stopped, as a clause that finishes "Didn't run —"
  * or "Stopped —".
  *
- * An unrecognized reason is passed through rather than swallowed: a reason the
+ * An unrecognized reason is passed through rather than dropped: a reason the
  * engine writes and this table has not learned yet is still more use to a
  * reader than nothing, and it shows up as slightly-off English rather than as
  * a silence nobody can debug.
@@ -79,12 +83,10 @@ function reasonClause(reason: string): string {
   switch (reason) {
     case "busy":
       return "this tripwire was already working a trip";
-    case "own-arc":
-      return "the landing was this tripwire's own arc";
-    case "no-scope":
-      return "the event was outside this tripwire's scope";
-    case "superseded":
-      return "a newer event took its place";
+    case "ceiling":
+      return "the machine was already running its limit of trips";
+    case "no-room":
+      return "the host had no room for a session";
     case "instance restarted":
       return "Tug restarted while it was running";
     case "abandoned":
@@ -100,10 +102,10 @@ function reasonClause(reason: string): string {
  * Every trip says something, because the whole value of the log is that a
  * firing which produced no post is still visible in it. A trip that never ran
  * says so in a full sentence and gives the reason inline, which is what
- * retires the bare `swallowed: cooldown` this replaced.
+ * retires the bare `skipped: busy` this replaced.
  */
 export function tripSentence(trip: TripRow): string {
-  const reason = trip.swallow_reason;
+  const reason = trip.reason;
   switch (tripState(trip)) {
     case "running":
       return "Running now…";
@@ -112,11 +114,9 @@ export function tripSentence(trip: TripRow): string {
     case "adopted":
       return "You took this one over.";
     case "waiting":
-      return trip.status === "queued"
-        ? "Waiting — this tripwire is already busy."
-        : "Starting…";
+      return "Starting…";
     case "skipped":
-      return `Didn't run — ${reasonClause(reason ?? "superseded")}.`;
+      return `Didn't run — ${reasonClause(reason ?? "busy")}.`;
     case "failed":
       return reason === null
         ? "Stopped before it finished."
@@ -167,7 +167,7 @@ export function tripStateLabel(trip: TripRow): string | null {
  * what `SessionPhaseDot` reads. `working` is the same liveness with no session
  * to key on: a trip inside its probe is running before any session exists, and
  * a session dot keyed on nothing would answer `idle` and rest — a still dot on
- * a wire that is working. `awaiting` is the held state, and it is deliberately
+ * a tripwire that is working. `awaiting` is the held state, and it is deliberately
  * not a session dot: by the time a trip is awaiting its session has ended, and
  * `useSessionPhase` answers `idle` for a session it cannot reach.
  */
@@ -177,36 +177,36 @@ export type TripwireDot =
   | { readonly kind: "awaiting" }
   | null;
 
-/** The roster row's dot. Nothing at rest — a wire with no run in flight and no
+/** The roster row's dot. Nothing at rest — a tripwire with no run in flight and no
  *  question outstanding has nothing to say, and says it with silence.
  *
  *  An adopted trip earns the same live dot a running one does, and reaches it
  *  by the same field: the projection folds the adopted session into
- *  `running_session` when nothing is running, so the row keeps the dot the
+ *  `open_session` when nothing is running, so the row keeps the dot the
  *  user takes the session over through. No new dot kind ([P07]). */
 export function tripwireDot(tripwire: TripwireRow): TripwireDot {
   if (tripwire.running || tripwire.adopted) {
-    return tripwire.running_session === null
+    return tripwire.open_session === null
       ? { kind: "working" }
-      : { kind: "session", sessionId: tripwire.running_session };
+      : { kind: "session", sessionId: tripwire.open_session };
   }
   return tripwire.awaiting ? { kind: "awaiting" } : null;
 }
 
-/** One trip's dot in the log — the same three meanings, read off the row. */
+/** One trip's dot in the log — the same three meanings, read off the row.
+ *
+ *  Any trip that had a session keeps its dot, quiet and failed included
+ *  ([B04]): the session is what the reader opens to see what the trip did,
+ *  and a finished trip is exactly the row they reach for it from. The dot
+ *  rests when the session is over, which is what a session dot is for. */
 export function tripDot(trip: TripRow): TripwireDot {
+  if (trip.session_id !== null) {
+    return { kind: "session", sessionId: trip.session_id };
+  }
   switch (tripState(trip)) {
+    // Running with no session yet: still inside its probe.
     case "running":
-      return trip.session_id === null
-        ? { kind: "working" }
-        : { kind: "session", sessionId: trip.session_id };
-    // An adopted trip's session is alive and the reader may be in it, so the
-    // dot is the live pulse the running case earns — not the held `awaiting`
-    // glyph, which means a question nobody has answered.
-    case "adopted":
-      return trip.session_id === null
-        ? null
-        : { kind: "session", sessionId: trip.session_id };
+      return { kind: "working" };
     case "awaiting":
       return { kind: "awaiting" };
     default:
@@ -359,7 +359,6 @@ export function tripwireDefinition(
   return [
     { label: DESCRIPTION_ROW_LABEL, value: tripwire.description.trim() },
     { label: "Watches for", value: describeTrigger(tripwire.trigger) },
-    { label: "Lands on", value: tripwire.branch, mono: true },
     { label: "In", value: describeScope(tripwire.scope) },
     { label: "Runs first", value: describeProbe(tripwire.probe), mono: tripwire.probe !== null },
     { label: "Model", value: tripwire.model ?? SESSION_DEFAULT_MODEL },

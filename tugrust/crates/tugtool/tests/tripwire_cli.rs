@@ -64,6 +64,28 @@ fn assert_envelope(value: &serde_json::Value, command: &str) {
     assert!(value["issues"].is_array());
 }
 
+/// A `running` trip, written the way the engine writes one ([P03]) — there is
+/// no CLI verb that mints a row any more, so a test that needs one goes
+/// through the ledger's own verb.
+fn fire(conn: &rusqlite::Connection, tripwire_id: i64, repo_root: Option<&str>) -> i64 {
+    use tugtool_core::tripwire_ledger as ledger;
+    ledger::insert_trip(
+        conn,
+        &ledger::NewTrip {
+            tripwire_id,
+            event_key: "fact:inst:1".to_string(),
+            at_ms: 10,
+            instance: "inst".to_string(),
+            status: ledger::TripStatus::Running,
+            reason: None,
+            event_payload: None,
+            repo_root: repo_root.map(str::to_owned),
+        },
+    )
+    .unwrap()
+    .expect("this tripwire has no row for that key yet")
+}
+
 #[test]
 fn a_tripwire_lays_and_reads_back_as_the_spec_s01_json_it_compiled_to() {
     let (_dir, db) = db();
@@ -88,10 +110,9 @@ fn a_tripwire_lays_and_reads_back_as_the_spec_s01_json_it_compiled_to() {
         r#"{"fact":{"kind":"edit_failed"}}"#
     );
     assert_eq!(
-        laid["data"]["branch"], "main",
-        "no --branch given, so the checkout's default branch is the sugar"
+        laid["data"]["paused"], false,
+        "a tripwire is armed the moment it is laid"
     );
-    assert_eq!(laid["data"]["paused"], false);
 
     let listed = tripwire_json(&db, &["tripwire", "list"]);
     assert_envelope(&listed, "tripwire list");
@@ -123,70 +144,6 @@ fn the_where_spellings_compile_into_the_stored_trigger() {
     assert_eq!(
         laid["data"]["trigger"],
         r#"{"fact":{"kind":"shell","where":{"command":{"contains":"file edit"},"route":"claude"}}}"#
-    );
-}
-
-/// The branch is a column the wire carries, and `--branch` is what sets it.
-#[test]
-fn a_named_branch_is_stored_on_the_wire_and_reported_back() {
-    let (_dir, db) = db();
-    let laid = tripwire_json(
-        &db,
-        &[
-            "tripwire",
-            "lay",
-            "ci",
-            "--on",
-            "fact:edit_failed",
-            "--branch",
-            "release",
-            "--probe",
-            "just ci",
-            "--scope",
-            "/repo",
-            "--description",
-            "Says what broke on the last landing",
-            "--brief",
-            "diagnose the failure and propose a fix",
-        ],
-    );
-    assert_eq!(laid["data"]["branch"], "release");
-    assert_eq!(laid["data"]["probe"], "just ci");
-    assert_eq!(
-        laid["data"]["trigger"],
-        r#"{"fact":{"kind":"edit_failed"}}"#
-    );
-}
-
-/// The branch sugar reads the scope's repository, and a scope that is not one
-/// leaves nothing to read — so the lay refuses rather than writing a wire that
-/// nothing could ever trip ([P02]).
-#[test]
-fn a_lay_with_no_resolvable_branch_refuses_and_writes_nothing() {
-    let (_dir, db) = db();
-    let outside = tempfile::tempdir().unwrap();
-    let out = tripwire(
-        &db,
-        &[
-            "lay",
-            "w",
-            "--on",
-            "fact:edit_failed",
-            "--scope",
-            &outside.path().display().to_string(),
-            "--description",
-            "Says what broke on the last landing",
-            "--brief",
-            "diagnose the failure and propose a fix",
-        ],
-    );
-    assert_eq!(code(&out), 1);
-    assert!(stderr(&out).contains("--branch"), "{}", stderr(&out));
-
-    let listed = tripwire_json(&db, &["tripwire", "list"]);
-    assert!(
-        listed["data"].as_array().unwrap().is_empty(),
-        "a refused lay writes nothing: {listed}"
     );
 }
 
@@ -432,22 +389,19 @@ fn an_edit_moves_only_what_it_names_and_clear_empties_a_column() {
             "just ci",
             "--scope",
             "/repo",
-            "--branch",
-            "main",
             "--description",
             "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
         ],
     );
-    let edited = tripwire_json(&db, &["tripwire", "edit", "w", "--branch", "release"]);
+    let edited = tripwire_json(&db, &["tripwire", "edit", "w", "--probe", "just test"]);
     assert_envelope(&edited, "tripwire edit");
-    assert_eq!(edited["data"]["branch"], "release");
+    assert_eq!(edited["data"]["probe"], "just test");
     assert_eq!(
         edited["data"]["brief"], "diagnose the failure and propose a fix",
         "untouched"
     );
-    assert_eq!(edited["data"]["probe"], "just ci", "untouched");
 
     let cleared = tripwire_json(&db, &["tripwire", "edit", "w", "--clear", "probe"]);
     assert!(cleared["data"]["probe"].is_null());
@@ -507,11 +461,11 @@ fn a_brief_reads_from_the_file_an_at_names() {
     assert_eq!(laid["data"]["brief"], "the long form\n");
 }
 
-/// The verb writes a queued row and says so. There is no engine yet to serve
-/// a live kick, and reporting one from a process that will do nothing with it
-/// is the one answer worse than "queued".
+/// The verb writes no row and refuses ([P08]). With no queue there is nothing
+/// a later engine could pick up, so a row written here would be one nobody
+/// would ever see fire — the refusal is the honest answer.
 #[test]
-fn trip_queues_a_manual_row_without_a_live_instance_and_says_so() {
+fn trip_refuses_without_a_live_instance_and_says_so() {
     let (_dir, db) = db();
     tripwire_json(
         &db,
@@ -528,60 +482,19 @@ fn trip_queues_a_manual_row_without_a_live_instance_and_says_so() {
         ],
     );
 
-    let tripped = tripwire_json(&db, &["tripwire", "trip", "w"]);
-    assert_envelope(&tripped, "tripwire trip");
-    assert_eq!(tripped["data"]["status"], "queued");
-    let key = tripped["data"]["event_key"].as_str().unwrap();
-    assert!(key.starts_with("manual:"), "{key}");
+    let out = tripwire(&db, &["trip", "w"]);
+    assert_eq!(code(&out), 1);
+    assert!(
+        stderr(&out).contains("no Tug instance is running"),
+        "{}",
+        stderr(&out)
+    );
 
     let log = tripwire_json(&db, &["tripwire", "log", "w"]);
     assert_envelope(&log, "tripwire log");
-    assert_eq!(log["data"].as_array().unwrap().len(), 1);
-    assert_eq!(log["data"][0]["status"], "queued");
-    assert_eq!(log["data"][0]["event_key"], key);
-
-    let plain = tripwire(&db, &["trip", "w"]);
-    assert_eq!(code(&plain), 0);
     assert!(
-        String::from_utf8_lossy(&plain.stdout).contains("queued"),
-        "{}",
-        String::from_utf8_lossy(&plain.stdout)
-    );
-}
-
-/// One slot per tripwire: firing by hand twice supersedes the older queued row
-/// rather than stacking two.
-#[test]
-fn a_second_hand_fired_trip_supersedes_the_first() {
-    let (_dir, db) = db();
-    tripwire_json(
-        &db,
-        &[
-            "tripwire",
-            "lay",
-            "w",
-            "--on",
-            "fact:edit_failed",
-            "--description",
-            "Says what broke on the last landing",
-            "--brief",
-            "diagnose the failure and propose a fix",
-        ],
-    );
-    tripwire_json(&db, &["tripwire", "trip", "w"]);
-    tripwire_json(&db, &["tripwire", "trip", "w"]);
-
-    let log = tripwire_json(&db, &["tripwire", "log", "w"]);
-    let statuses: Vec<&str> = log["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|t| t["status"].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        statuses,
-        vec!["queued", "superseded"],
-        "newest first, and the coalescing is visible: {log}"
+        log["data"].as_array().unwrap().is_empty(),
+        "a refused firing writes nothing: {log}"
     );
 }
 
@@ -695,8 +608,6 @@ fn a_dismissal_discards_the_arc_in_the_repository_the_landing_named() {
             "w",
             "--on",
             "fact:edit_failed",
-            "--branch",
-            "main",
             "--description",
             "Says what broke on the last landing",
             "--brief",
@@ -708,22 +619,12 @@ fn a_dismissal_discards_the_arc_in_the_repository_the_landing_named() {
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
 
-    // The trip the engine would have written: claimed on a landing, holding
-    // the arc, awaiting the user.
+    // The trip the engine would have written: fired on a fact, holding the
+    // arc, awaiting the user.
     {
         let conn = ledger::open_ledger(&db).unwrap();
         let wire = ledger::get(&conn, "w").unwrap().unwrap();
-        let ledger::Claim::Claimed { trip_id } =
-            ledger::claim_trip(&conn, wire.id, "landing:abc", 10, "inst", None).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
-        let payload = serde_json::json!({
-            "landing": { "kind": "commit", "branch": "main", "sha": "abc",
-                         "repo_root": root.display().to_string(), "sessions": [] }
-        })
-        .to_string();
-        ledger::record_event_payload(&conn, trip_id, Some(&payload)).unwrap();
+        let trip_id = fire(&conn, wire.id, Some(&root.display().to_string()));
         ledger::record_run(&conn, trip_id, Some("sess-a"), Some(arc)).unwrap();
         ledger::settle(
             &conn,
@@ -772,8 +673,6 @@ fn adopted_trip(db: &Path, name: &str) -> i64 {
             name,
             "--on",
             "fact:edit_failed",
-            "--branch",
-            "main",
             "--description",
             "Says what broke on the last landing",
             "--brief",
@@ -784,11 +683,7 @@ fn adopted_trip(db: &Path, name: &str) -> i64 {
 
     let conn = ledger::open_ledger(db).unwrap();
     let wire = ledger::get(&conn, name).unwrap().unwrap();
-    let ledger::Claim::Claimed { trip_id } =
-        ledger::claim_trip(&conn, wire.id, "landing:abc", 10, "inst", None).unwrap()
-    else {
-        panic!("the claim is uncontested");
-    };
+    let trip_id = fire(&conn, wire.id, None);
     ledger::record_run(&conn, trip_id, Some("sess-a"), None).unwrap();
     ledger::adopt_if_running(&conn, trip_id, "a card took the session over", 20).unwrap();
     trip_id
@@ -808,7 +703,7 @@ fn resolve_settles_an_adopted_trip() {
 
     let conn = ledger::open_ledger(&db).unwrap();
     let settled = ledger::trip(&conn, trip_id).unwrap().unwrap();
-    assert_eq!(settled.status, "settled");
+    assert_eq!(settled.status, "quiet");
     assert!(settled.settled_at_ms.is_some());
 }
 
@@ -825,7 +720,7 @@ fn dismiss_settles_an_adopted_trip() {
 
     let conn = ledger::open_ledger(&db).unwrap();
     let settled = ledger::trip(&conn, trip_id).unwrap().unwrap();
-    assert_eq!(settled.status, "settled");
+    assert_eq!(settled.status, "quiet");
     assert_eq!(settled.headline.as_deref(), Some("dismissed"));
 }
 
@@ -841,8 +736,6 @@ fn each_verb_names_both_states_it_looked_for() {
             "w",
             "--on",
             "fact:edit_failed",
-            "--branch",
-            "main",
             "--description",
             "Says what broke on the last landing",
             "--brief",
@@ -866,16 +759,12 @@ fn each_verb_names_both_states_it_looked_for() {
         use tugtool_core::tripwire_ledger as ledger;
         let conn = ledger::open_ledger(&db).unwrap();
         let wire = ledger::get(&conn, "w").unwrap().unwrap();
-        let ledger::Claim::Claimed { trip_id } =
-            ledger::claim_trip(&conn, wire.id, "landing:abc", 10, "inst", None).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
+        let trip_id = fire(&conn, wire.id, None);
         ledger::record_run(&conn, trip_id, Some("sess-a"), None).unwrap();
         ledger::settle(
             &conn,
             trip_id,
-            ledger::TripStatus::Settled,
+            ledger::TripStatus::Quiet,
             &ledger::Settlement::default(),
             20,
         )
@@ -1124,11 +1013,7 @@ fn rm_is_refused_while_a_trip_is_running() {
     let trip_id = {
         let conn = ledger::open_ledger(&db).unwrap();
         let wire = ledger::get(&conn, "w").unwrap().unwrap();
-        let ledger::Claim::Claimed { trip_id } =
-            ledger::claim_trip(&conn, wire.id, "landing:abc", 10, "inst", None).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
+        let trip_id = fire(&conn, wire.id, None);
         ledger::record_run(&conn, trip_id, Some("sess-a"), Some("tripwire-w-abcd1234")).unwrap();
         trip_id
     };
@@ -1159,7 +1044,7 @@ fn rm_is_refused_while_a_trip_is_running() {
         ledger::settle(
             &conn,
             trip_id,
-            ledger::TripStatus::Settled,
+            ledger::TripStatus::Quiet,
             &ledger::Settlement::default(),
             20,
         )

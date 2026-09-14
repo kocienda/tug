@@ -32,10 +32,10 @@ function trip(over: Partial<TripRow> & { status: string }): TripRow {
   return {
     id: nextId++,
     tripwire_id: 1,
-    event_key: `landing:${nextId}`,
+    event_key: `fact:inst:${nextId}`,
     at_ms: 1_700_000_000_000 - nextId * 60_000,
     instance: "inst",
-    swallow_reason: null,
+    reason: null,
     event_payload: null,
     probe_exit: null,
     probe_tail: null,
@@ -45,14 +45,16 @@ function trip(over: Partial<TripRow> & { status: string }): TripRow {
     refs: null,
     settled_at_ms: null,
     author_ask: null,
+    repo_root: "/Users/me/src/tug",
+    head_sha: "abc1234",
     ...over,
   };
 }
 
 const skipped = (reason: string): TripRow =>
-  trip({ status: "swallowed", swallow_reason: reason });
+  trip({ status: "skipped", reason });
 const quiet = (exit: number | null = 0): TripRow =>
-  trip({ status: "settled", probe_exit: exit });
+  trip({ status: "quiet", probe_exit: exit });
 
 describe("which trips fold", () => {
   test("a trip that never ran folds, and so does one that finished silently", () => {
@@ -61,8 +63,14 @@ describe("which trips fold", () => {
   });
 
   test("a finish that found something never folds — it is the row the log is for", () => {
-    const found = trip({ status: "settled", probe_exit: 1, headline: "One unused import." });
+    const found = trip({ status: "quiet", probe_exit: 1, headline: "One unused import." });
     expect(rollupKind(found)).toBeNull();
+  });
+
+  test("a quiet trip whose session is still openable never folds", () => {
+    // [B04]: the fold would take the dot the reader opens the work through,
+    // so what folds is the probe-settled trip that never seated a session.
+    expect(rollupKind(trip({ status: "quiet", session_id: "sess-3" }))).toBeNull();
   });
 
   test("a failure, a question and a run in flight each stand as their own row", () => {
@@ -70,7 +78,7 @@ describe("which trips fold", () => {
     expect(rollupKind(trip({ status: "awaiting", headline: "Look at this." }))).toBeNull();
     expect(rollupKind(trip({ status: "running", session_id: "s1" }))).toBeNull();
     expect(rollupKind(trip({ status: "adopted", session_id: "s1" }))).toBeNull();
-    expect(rollupKind(trip({ status: "queued" }))).toBeNull();
+    expect(rollupKind(trip({ status: "quarantined" }))).toBeNull();
   });
 });
 
@@ -105,7 +113,7 @@ describe("the roll-up", () => {
   test("a row worth reading breaks the run it lands in", () => {
     // Chronological, never gathered: a roll-up that collected every skipped
     // trip in the file would put one row's time span across the whole history.
-    const found = trip({ status: "settled", headline: "Found it." });
+    const found = trip({ status: "quiet", headline: "Found it." });
     const entries = rollUp([skipped("busy"), skipped("busy"), found, skipped("busy"), skipped("busy")]);
     expect(entries.map((e) => e.kind)).toEqual(["rollup", "trip", "rollup"]);
   });
@@ -117,9 +125,9 @@ describe("what a folded run says", () => {
     expect(rollupSentence("skipped", rows)).toBe("Didn't run ×3 — busy ×2, no-match ×1");
   });
 
-  test("a skip with no recorded reason is a supersession, not a blank", () => {
-    expect(rollupSentence("skipped", [trip({ status: "superseded" })])).toBe(
-      "Didn't run ×1 — superseded ×1",
+  test("a skip with no recorded reason reads as busy, not as a blank", () => {
+    expect(rollupSentence("skipped", [trip({ status: "skipped" })])).toBe(
+      "Didn't run ×1 — busy ×1",
     );
   });
 

@@ -23,8 +23,9 @@
  *      second level and its back control ([B02]).
  *   5. The model knob stands in the fold showing the ledger's own value, and
  *      offers the session default plus the three model names.
- *   6. The row says which branch the wire lands on, and shows no dot: a wire
- *      with no run in flight and no question outstanding is silent ([P08]).
+ *   6. The row shows no dot and the band no trip count: a wire with no run in
+ *      flight, no question outstanding and nothing ever fired is silent
+ *      ([P08]).
  *   7. The retired knobs are absent — no tier, no cooldown, no post policy.
  *   8. **The description is what the fold says the tripwire does, and the
  *      brief is nowhere on the card** — not clamped, not in a tooltip, not
@@ -130,8 +131,6 @@ function layTripwire(
       name,
       "--on",
       "fact:edit_failed",
-      "--branch",
-      "main",
       "--brief",
       // A real brief, because `tripwire lay` refuses a placeholder — the guard
       // that retired the tripwire whose every firing reported it had been told
@@ -267,14 +266,9 @@ describe.skipIf(!SHOULD_RUN)(
             // read to learn there is nothing to read.
             expect(band).not.toContain("running");
             expect(band).not.toContain("awaiting");
-
-            // The wire's other half. The same trigger onto two branches is two
-            // different watches, and the roster has to tell them apart.
-            expect(
-              await app.evalJS<string>(
-                `document.querySelector("[data-tripwire='alpha'] [data-tripwire-branch]").textContent`,
-              ),
-            ).toBe("main");
+            // And no trip count: none of the three has ever fired, and a
+            // "0 trips" on the band would be a number saying nothing.
+            expect(band).not.toContain("trip");
 
             // Nothing is running and nothing is awaiting, so nothing moves.
             // The dot is the interest signal, and silence is what it says
@@ -367,9 +361,6 @@ describe.skipIf(!SHOULD_RUN)(
               `document.querySelector("[data-tripwire='alpha'] [data-slot='tripwire-definition']").textContent`,
             );
             expect(definition).toContain("Any edit_failed fact");
-            // And the branch it lands on, which is a column on the wire rather
-            // than a clause in its trigger.
-            expect(definition).toContain("Lands on");
 
             // ---- What the fold leads with: the description, one sentence
             // written for the reader, under a label they do not have to decode.

@@ -1,21 +1,29 @@
-//! The standing-tripwire ledger — every tripwire laid on this machine, and every
-//! firing any instance has claimed.
+//! The standing-tripwire ledger — every tripwire laid on this machine, and
+//! every trip any instance has run.
 //!
 //! The lifecycle these statuses spell out is argued in `tuglaws/tripwires.md`.
 //!
 //! **Machine-global**, beside `changes.db` rather than inside an instance
-//! directory (`tugcore::instance::tripwires_db_path`), and for a stronger
-//! reason than the other shared ledgers have. Two tugcasts watching the same
-//! workspace see the same commit, and the thing that stops both of them
-//! firing one tripwire twice is the `UNIQUE(tripwire_id, event_key)` constraint on
-//! `trips`: the first insert wins, the second gets a constraint violation and
-//! stops. That is only arbitration if both writers are in the same table.
+//! directory (`tugcore::instance::tripwires_db_path`), because a tripwire is a
+//! standing condition on *the machine's* sessions: it is laid by a `tugtool`
+//! in one process, read by whichever instances happen to be up, and expected
+//! to still be there tomorrow when none of them are. Per-instance, a tripwire
+//! would be laid in a window and vanish with it.
 //!
-//! **Multi-writer by design, with no writer lock.** The claim *requires*
-//! concurrent inserts from independent processes, so a single-writer contract
-//! would need cross-instance routing that does not exist machine-globally.
-//! WAL plus `busy_timeout` carries this write pattern — small rows, no
-//! cross-row invariants — and the constraint is the only arbitration there is.
+//! **The machine ceiling is the one cross-instance invariant**, and the only
+//! reason two engines need one table: `max_concurrent_trips` rations worktrees
+//! across every instance at once, so a count that each instance kept to itself
+//! would ration nothing. A *firing* is not arbitrated here and needs no
+//! arbitration — each fact is recorded by one instance and evaluated by that
+//! instance's engine, and the event key carries the instance id, so two
+//! engines never meet on one row.
+//!
+//! **Multi-writer by design, with no writer lock.** Four independent processes
+//! write here — this instance's engine and request surface, a `tugtool` in
+//! another process, and another instance's engine — so a single-writer
+//! contract would need cross-instance routing that does not exist
+//! machine-globally. WAL plus `busy_timeout` carries this write pattern: small
+//! rows, single statements, no cross-row invariants.
 //!
 //! **The rule that keeps it true: no API here may hold a transaction across a
 //! network call, a subprocess, or an await point.** Every write below is a
@@ -35,11 +43,11 @@ use serde::{Deserialize, Serialize};
 use crate::tripwire_predicate::Predicate;
 
 /// Current on-disk schema version, stamped into `PRAGMA user_version`.
-pub const TRIPWIRE_SCHEMA_VERSION: i64 = 7;
+pub const TRIPWIRE_SCHEMA_VERSION: i64 = 8;
 
 /// How many trips are kept per tripwire. Older rows are deleted at record
 /// time — the regime the app-test results ledger already runs. A tripwire that
-/// fires on every landing would otherwise grow its log without bound, and the
+/// fires on every commit fact would otherwise grow its log without bound, and the
 /// card's older-trips cue would never bottom out. The rows a reader wants are
 /// the newest ones, so the cap loses nothing anybody would page to.
 ///
@@ -58,6 +66,7 @@ const TRIPWIRE_MIGRATIONS: &[(i64, &str)] = &[
     (4, MIGRATE_V4_TO_V5),
     (5, MIGRATE_V5_TO_V6),
     (6, MIGRATE_V6_TO_V7),
+    (7, MIGRATE_V7_TO_V8),
 ];
 
 /// v1 → v2: a tripwire names the base branch it watches, the retired knobs go, and
@@ -106,7 +115,7 @@ const MIGRATE_V3_TO_V4: &str = "
     ALTER TABLE trips DROP COLUMN outcome;
 ";
 
-/// v4 → v5: the work unit is an arc, so the value a swallow records is too.
+/// v4 → v5: the work unit is an arc, so the value a refusal records is too.
 ///
 /// Only the stored *value* is here. The column rename that goes with it lives
 /// in [`migrate_trips_arc_column`] rather than in this string, because
@@ -151,6 +160,32 @@ const MIGRATE_V6_TO_V7: &str = "
     -- One appended column; see `migrate_tripwire_description`.
 ";
 
+/// v7 → v8: the trigger is the fact, so the status vocabulary shrinks to six
+/// words, the branch gate goes, the per-session marks go, and the row carries
+/// the checkout it stood in (Spec S03).
+///
+/// The four statuses that arbitrated one event between two instances collapse
+/// to the one word that describes every one of them from a reader's side: the
+/// trip did not run. `settled` becomes `quiet`, which says what it meant. The
+/// marks table held a per-session ceiling over a fact lookback that no longer
+/// happens.
+///
+/// Only the two value rewrites are here, and for the reason
+/// [`MIGRATE_V6_TO_V7`] gives twice over. This list runs *before*
+/// [`migrate_tripwire_names`], so on a v1 or v5 ledger there is no table
+/// called `tripwires` yet to drop a column from; and `RENAME COLUMN`,
+/// `ADD COLUMN` and `DROP COLUMN` all fail the second time they run, while a
+/// crash between a batch's statements and the version stamp re-runs the batch.
+/// So everything shape-changing lives in a probe:
+/// [`migrate_trips_reason_column`], [`migrate_tripwire_branch_column`],
+/// [`migrate_trips_repo_columns`] and [`migrate_drop_tripwire_marks`]. These
+/// two `UPDATE`s are idempotent, name a table that has always been called
+/// `trips`, and match zero rows the second time.
+const MIGRATE_V7_TO_V8: &str = "
+    UPDATE trips SET status = 'skipped' WHERE status IN ('claimed','swallowed','superseded','queued');
+    UPDATE trips SET status = 'quiet'   WHERE status = 'settled';
+";
+
 /// Default ceiling on `running` trips machine-wide, when the `settings` table
 /// names none. A commit storm must not fan out one arc worktree per commit.
 pub const DEFAULT_MAX_CONCURRENT_TRIPS: i64 = 2;
@@ -175,10 +210,10 @@ pub const SETTING_MAX_CONCURRENT_TRIPS: &str = "max_concurrent_trips";
 /// that failed says why at the end.
 pub const PROBE_TAIL_CAP: usize = 8 * 1024;
 
-/// The schema spells the feature's own noun. `tripwires`, `tripwire_marks`
-/// and `trips.tripwire_id` are what a reader of this ledger — in `sqlite3`, in
-/// a dossier, in a query somebody writes at three in the morning — finds, and
-/// they are the same word the card, the CLI and every other surface use.
+/// The schema spells the feature's own noun. `tripwires` and
+/// `trips.tripwire_id` are what a reader of this ledger — in a query somebody
+/// writes at three in the morning — finds, and they are the same word the
+/// card, the CLI and every other surface use.
 const CREATE_TRIPWIRES_SQL: &str = "
     CREATE TABLE IF NOT EXISTS tripwires (
         id              INTEGER PRIMARY KEY,
@@ -191,7 +226,6 @@ const CREATE_TRIPWIRES_SQL: &str = "
         model           TEXT,
         permission_mode TEXT    NOT NULL DEFAULT 'acceptEdits',
         paused          INTEGER NOT NULL DEFAULT 0,
-        branch          TEXT    NOT NULL DEFAULT '',
         description     TEXT    NOT NULL DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS trips (
@@ -201,7 +235,7 @@ const CREATE_TRIPWIRES_SQL: &str = "
         at_ms          INTEGER NOT NULL,
         instance       TEXT    NOT NULL,
         status         TEXT    NOT NULL,
-        swallow_reason TEXT,
+        reason         TEXT,
         event_payload  TEXT,
         probe_exit     INTEGER,
         probe_tail     TEXT,
@@ -211,15 +245,11 @@ const CREATE_TRIPWIRES_SQL: &str = "
         refs           TEXT,
         settled_at_ms  INTEGER,
         author_ask     TEXT,
+        repo_root      TEXT,
+        head_sha       TEXT,
         UNIQUE(tripwire_id, event_key)
     );
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS tripwire_marks (
-        tripwire_id    INTEGER NOT NULL REFERENCES tripwires(id) ON DELETE CASCADE,
-        session_id     TEXT    NOT NULL,
-        max_fact_rowid INTEGER NOT NULL,
-        PRIMARY KEY (tripwire_id, session_id)
-    );
     CREATE INDEX IF NOT EXISTS trips_by_tripwire ON trips (tripwire_id, id);
     CREATE INDEX IF NOT EXISTS trips_by_status ON trips (status);
 ";
@@ -236,10 +266,6 @@ pub enum TripwireLedgerError {
     NoSuchTripwire(String),
     #[error("{0}")]
     BadTrigger(String),
-    #[error(
-        "tripwire {0} names no base branch. A tripwire fires on a landing onto a branch, so the branch is what it watches — give it --branch <name>"
-    )]
-    MissingBranch(String),
     #[error(
         "the brief for tripwire {0} says nothing for the AI to do: {1}. A brief is the whole instruction a trip runs on, so a placeholder buys a model run per firing and a trip log full of `no further detail available to assess significance` — say what to look at and what to report."
     )]
@@ -308,43 +334,44 @@ pub fn check_description(name: &str, description: &str) -> Result<(), TripwireLe
 
 // MARK: - Rows
 
-/// Why a claim was refused before the predicate ever ran. Free text in the
-/// column, named constants here, because a reason a reader sees on a row and a
-/// reason the engine writes have to be the same word.
-pub const SWALLOW_BUSY: &str = "busy";
+/// Why a trip did not run. Free text in the column, named constants here,
+/// because a reason a reader sees on a row and a reason the engine writes have
+/// to be the same word.
+///
+/// The three are the whole list, and each is an engineering guard rather than
+/// a judgment about the fact: the tripwire was already working a trip, the
+/// machine was at its trip ceiling, or the host had no room for a session. A
+/// fact that simply did not match writes no row at all ([P04]) — there is
+/// nothing on disk to explain.
+pub const SKIP_BUSY: &str = "busy";
 
-/// The landing is a join of an arc this very tripwire created ([P06]).
-pub const SWALLOW_OWN_ARC: &str = "own-arc";
+/// The machine was already running its ceiling of trips.
+pub const SKIP_CEILING: &str = "ceiling";
 
-/// The landing's lineage carried nothing the tripwire is watching for. A row
-/// rather than a silence, so a tripwire that has looked at fifty landings and
-/// found nothing does not read like a tripwire nobody ever landed onto.
-pub const SWALLOW_NO_MATCH: &str = "no-match";
+/// The host had no room to spawn the trip's session.
+pub const SKIP_NO_ROOM: &str = "no-room";
 
-/// Where a trip stands. The whole life of one firing, and every value is
-/// written down — a swallowed trip is a row, not a silence.
+/// Where a trip stands — six words, and the whole life of one firing ([P04]).
+///
+/// Every value here is a row somebody can read. The gates that write *no* row
+/// — a fact that did not match, a fact outside the scope, a fact the tripwire's
+/// own session recorded — are not statuses, because nothing happened that a
+/// trip log should carry a line about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TripStatus {
-    /// This instance won the insert and owns the firing.
-    Claimed,
-    /// Refused before any work: a tripwire already busy, a landing of the tripwire's
-    /// own arc, a paused tripwire.
-    Swallowed,
-    /// Serviceable, but the machine is at its ceiling or the tripwire is busy.
-    Queued,
-    /// A newer queued event for this tripwire replaced this one.
-    Superseded,
+    /// The fact matched and the trip did not run anyway: the tripwire was
+    /// busy, the machine was at its ceiling, or the host had no room. The
+    /// `reason` column says which.
+    Skipped,
     /// An agent or a probe is working it now.
     Running,
-    /// Finished, with an outcome.
-    Settled,
+    /// Finished with nothing to report.
+    Quiet,
     /// Finished with something the user should see, and holding until they
     /// see it ([P07]). The one settled state that keeps the tripwire's live-run
     /// slot, because the question it raised is still open.
     Awaiting,
-    /// Finished without one — a session that died, or ended without the verb.
-    Failed,
     /// Held: a deck card took the trip's session over and the user is working
     /// in it. Not finished — the session is alive and may still run the verb,
     /// which settles the trip from here — and not running either, because the
@@ -352,35 +379,32 @@ pub enum TripStatus {
     /// deliberately does **not** hold the tripwire's live-run slot: the
     /// tripwire may fire again while the user works ([B05]).
     Adopted,
+    /// Finished without an outcome — a session that died, or ended without
+    /// the verb.
+    Failed,
 }
 
 impl TripStatus {
     pub fn parse(s: &str) -> Option<TripStatus> {
         match s {
-            "claimed" => Some(TripStatus::Claimed),
-            "swallowed" => Some(TripStatus::Swallowed),
-            "queued" => Some(TripStatus::Queued),
-            "superseded" => Some(TripStatus::Superseded),
+            "skipped" => Some(TripStatus::Skipped),
             "running" => Some(TripStatus::Running),
-            "settled" => Some(TripStatus::Settled),
+            "quiet" => Some(TripStatus::Quiet),
             "awaiting" => Some(TripStatus::Awaiting),
-            "failed" => Some(TripStatus::Failed),
             "adopted" => Some(TripStatus::Adopted),
+            "failed" => Some(TripStatus::Failed),
             _ => None,
         }
     }
 
     pub const fn as_str(self) -> &'static str {
         match self {
-            TripStatus::Claimed => "claimed",
-            TripStatus::Swallowed => "swallowed",
-            TripStatus::Queued => "queued",
-            TripStatus::Superseded => "superseded",
+            TripStatus::Skipped => "skipped",
             TripStatus::Running => "running",
-            TripStatus::Settled => "settled",
+            TripStatus::Quiet => "quiet",
             TripStatus::Awaiting => "awaiting",
-            TripStatus::Failed => "failed",
             TripStatus::Adopted => "adopted",
+            TripStatus::Failed => "failed",
         }
     }
 }
@@ -399,10 +423,6 @@ pub struct Tripwire {
     pub probe: Option<String>,
     pub brief: String,
     pub model: Option<String>,
-    /// The base branch a landing has to be onto for this tripwire to be evaluated
-    /// ([P02]). Required, because a tripwire that watches every branch watches its
-    /// own arc branches too.
-    pub branch: String,
     pub permission_mode: String,
     pub paused: bool,
     /// The one sentence the Tripwires card shows in place of the brief
@@ -432,7 +452,6 @@ pub struct NewTripwire {
     pub probe: Option<String>,
     pub brief: String,
     pub model: Option<String>,
-    pub branch: String,
     pub permission_mode: String,
     /// The sentence the card shows ([B01]).
     pub description: String,
@@ -440,11 +459,9 @@ pub struct NewTripwire {
 
 impl NewTripwire {
     /// A tripwire with the schema's defaults, needing only what it watches and
-    /// what to say about it. The branch is not among the defaults: there is no
-    /// branch a tripwire could sensibly watch that a caller has not named ([P02]),
-    /// so it is a parameter and [`lay`] refuses an empty one.
+    /// what to say about it.
     ///
-    /// The description is a parameter for the same reason. A tripwire nobody
+    /// The description is a parameter rather than a default. A tripwire nobody
     /// can describe in a sentence is a tripwire nobody will recognise on the
     /// card ([B02]), so it is asked for at the arming gesture rather than
     /// defaulted to a blank the rail would then have to render.
@@ -452,7 +469,6 @@ impl NewTripwire {
         name: impl Into<String>,
         trigger: impl Into<String>,
         brief: impl Into<String>,
-        branch: impl Into<String>,
         description: impl Into<String>,
     ) -> Self {
         NewTripwire {
@@ -462,7 +478,6 @@ impl NewTripwire {
             probe: None,
             brief: brief.into(),
             model: None,
-            branch: branch.into(),
             permission_mode: "acceptEdits".to_string(),
             description: description.into(),
         }
@@ -478,7 +493,6 @@ pub struct TripwireEdit {
     pub probe: Option<Option<String>>,
     pub brief: Option<String>,
     pub model: Option<Option<String>>,
-    pub branch: Option<String>,
     pub permission_mode: Option<String>,
     /// Settable, and deliberately not clearable: it is the line the card
     /// leads with, and a tripwire that has lost it is one the rail cannot
@@ -495,7 +509,9 @@ pub struct Trip {
     pub at_ms: i64,
     pub instance: String,
     pub status: String,
-    pub swallow_reason: Option<String>,
+    /// Why the trip did not run, on a `skipped` row, or how it stopped on a
+    /// `failed` one. `None` on a trip that ran.
+    pub reason: Option<String>,
     pub event_payload: Option<String>,
     pub probe_exit: Option<i64>,
     pub probe_tail: Option<String>,
@@ -507,14 +523,13 @@ pub struct Trip {
     /// What a resolution asked to have authored, when it asked for anything
     /// ([P04]). `None` on a resolution that settled the firing outright.
     pub author_ask: Option<String>,
-}
-
-/// What a claim attempt found. `AlreadyClaimed` is the ordinary outcome of two
-/// instances seeing one event, not an error: the loser stops, silently.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Claim {
-    Claimed { trip_id: i64 },
-    AlreadyClaimed,
+    /// The checkout the fact was recorded in — the repository the trip's
+    /// disposable tree is cut from, and the one `tugarc` runs its arc verbs in
+    /// ([P05]). Written at insert.
+    pub repo_root: Option<String>,
+    /// The commit the trip's tree stands at, resolved from `repo_root`'s
+    /// `HEAD` when the run opens ([P05]). `None` until then.
+    pub head_sha: Option<String>,
 }
 
 // MARK: - Open
@@ -560,16 +575,20 @@ fn prepare(conn: &Connection) -> Result<(), TripwireLedgerError> {
     // are reachable from a stamp they never saw: a pre-versioning ledger is
     // stamped 0 and never enters the loop above at all.
     migrate_trips_arc_column(conn)?;
+    // After the arc probe, which still spells the reason column by its v4 name
+    // for the pre-versioning ledgers it exists for, and before anything below
+    // reads the table by its v8 names.
+    migrate_trips_reason_column(conn)?;
     migrate_tripwire_names(conn)?;
+    // These three name `tripwires` or read its shape, so they follow the
+    // rename that gives the table that name.
+    migrate_tripwire_branch_column(conn)?;
+    migrate_trips_repo_columns(conn)?;
+    migrate_drop_tripwire_marks(conn)?;
     // The description column follows the rename, because it names the table
     // by the name the rename gave it — and its backfill follows the column.
     migrate_tripwire_description(conn)?;
     backfill_descriptions(conn)?;
-    // And the backfill follows the rename, because it reads the table by the
-    // name the rename gave it.
-    if on_disk > 0 && on_disk < TRIPWIRE_SCHEMA_VERSION {
-        backfill_branches(conn)?;
-    }
     conn.execute_batch(CREATE_TRIPWIRES_SQL)?;
     conn.pragma_update(None, "user_version", TRIPWIRE_SCHEMA_VERSION)?;
     Ok(())
@@ -607,6 +626,69 @@ fn migrate_trips_arc_column(conn: &Connection) -> Result<(), TripwireLedgerError
     Ok(())
 }
 
+/// Give the trip's reason column its v8 name when the old one is what is on
+/// disk (Spec S03).
+///
+/// A probe rather than a line in [`MIGRATE_V7_TO_V8`], for both of the reasons
+/// [`migrate_trips_arc_column`] is one: `RENAME COLUMN` is not idempotent, and
+/// a pre-versioning ledger never enters the registered-migration loop at all.
+///
+/// The column stopped being about one refusal when the four statuses that meant
+/// "refused" became the one word `skipped`, and it now carries a failed trip's
+/// reason as well ([P04]) — so the name is the general one.
+fn migrate_trips_reason_column(conn: &Connection) -> Result<(), TripwireLedgerError> {
+    let columns = columns_of(conn, "trips")?;
+    if columns.iter().any(|c| c == "reason") || !columns.iter().any(|c| c == "swallow_reason") {
+        return Ok(());
+    }
+    conn.execute_batch("ALTER TABLE trips RENAME COLUMN swallow_reason TO reason;")?;
+    Ok(())
+}
+
+/// Drop the branch column when v7 left one behind ([P02]).
+///
+/// A probe for the two reasons every shape change in this file is one, and for
+/// a third: [`MIGRATE_V7_TO_V8`] runs before the table is called `tripwires` at
+/// all on a v1 or v5 ledger.
+fn migrate_tripwire_branch_column(conn: &Connection) -> Result<(), TripwireLedgerError> {
+    if !columns_of(conn, "tripwires")?.iter().any(|c| c == "branch") {
+        return Ok(());
+    }
+    conn.execute_batch("ALTER TABLE tripwires DROP COLUMN branch;")?;
+    Ok(())
+}
+
+/// Give a migrated `trips` the two columns v8 appends ([P05]).
+///
+/// Appended in this order and after `author_ask`, which is where
+/// [`CREATE_TRIPWIRES_SQL`] puts them: a migrated ledger and a fresh one have
+/// to be indistinguishable, and column order is part of the shape.
+fn migrate_trips_repo_columns(conn: &Connection) -> Result<(), TripwireLedgerError> {
+    let columns = columns_of(conn, "trips")?;
+    if columns.is_empty() {
+        return Ok(());
+    }
+    for column in ["repo_root", "head_sha"] {
+        if !columns.iter().any(|c| c == column) {
+            conn.execute_batch(&format!("ALTER TABLE trips ADD COLUMN {column} TEXT;"))?;
+        }
+    }
+    Ok(())
+}
+
+/// Take the retired per-session marks table off disk, under either of the two
+/// names it has worn.
+///
+/// The marks held a ceiling over a per-session fact lookback, and the
+/// lookback is what the fact-time trigger replaced: there is no window to
+/// remember the end of. Both spellings, because this runs after
+/// [`migrate_tripwire_names`] on a versioned ledger and before it ever runs on
+/// a pre-versioning one.
+fn migrate_drop_tripwire_marks(conn: &Connection) -> Result<(), TripwireLedgerError> {
+    conn.execute_batch("DROP TABLE IF EXISTS tripwire_marks; DROP TABLE IF EXISTS wire_marks;")?;
+    Ok(())
+}
+
 /// Give the two tables and the foreign-key column the feature's own noun when
 /// the old ones are what is on disk.
 ///
@@ -623,18 +705,12 @@ fn migrate_trips_arc_column(conn: &Connection) -> Result<(), TripwireLedgerError
 /// index is dropped rather than renamed, because the DDL below mints the new
 /// one and a migrated ledger and a fresh one have to be indistinguishable.
 fn migrate_tripwire_names(conn: &Connection) -> Result<(), TripwireLedgerError> {
-    for (old, new) in [("wires", "tripwires"), ("wire_marks", "tripwire_marks")] {
-        if table_exists(conn, old)? && !table_exists(conn, new)? {
-            conn.execute_batch(&format!("ALTER TABLE {old} RENAME TO {new};"))?;
-        }
+    if table_exists(conn, "wires")? && !table_exists(conn, "tripwires")? {
+        conn.execute_batch("ALTER TABLE wires RENAME TO tripwires;")?;
     }
-    for table in ["trips", "tripwire_marks"] {
-        let columns = columns_of(conn, table)?;
-        if columns.iter().any(|c| c == "wire_id") && !columns.iter().any(|c| c == "tripwire_id") {
-            conn.execute_batch(&format!(
-                "ALTER TABLE {table} RENAME COLUMN wire_id TO tripwire_id;"
-            ))?;
-        }
+    let columns = columns_of(conn, "trips")?;
+    if columns.iter().any(|c| c == "wire_id") && !columns.iter().any(|c| c == "tripwire_id") {
+        conn.execute_batch("ALTER TABLE trips RENAME COLUMN wire_id TO tripwire_id;")?;
     }
     conn.execute_batch("DROP INDEX IF EXISTS trips_by_wire;")?;
     Ok(())
@@ -661,33 +737,6 @@ fn columns_of(conn: &Connection, table: &str) -> Result<Vec<String>, TripwireLed
     Ok(columns)
 }
 
-/// Give every migrated row a branch, since v1 rows carry none.
-///
-/// A tripwire's scope is a checkout, so the branch it was implicitly watching is
-/// that checkout's default branch — asked of git, because the answer lives
-/// there and nowhere in this ledger. A scopeless tripwire, or one whose scope git
-/// cannot answer for, gets `main`: a row left with no branch would be silently
-/// unfireable, whereas a tripwire watching the wrong branch says so the first time
-/// somebody reads `tripwire list`.
-fn backfill_branches(conn: &Connection) -> Result<(), TripwireLedgerError> {
-    let mut stmt = conn.prepare("SELECT id, scope FROM tripwires WHERE branch = ''")?;
-    let rows: Vec<(i64, Option<String>)> = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    drop(stmt);
-    for (id, scope) in rows {
-        let branch = scope
-            .as_deref()
-            .and_then(default_branch_of)
-            .unwrap_or_else(|| "main".to_string());
-        conn.execute(
-            "UPDATE tripwires SET branch = ?1 WHERE id = ?2",
-            params![branch, id],
-        )?;
-    }
-    Ok(())
-}
-
 /// Give every row that predates v7 a description, since none of them carry one.
 ///
 /// The first sentence of the brief, which is the only thing in the row that
@@ -697,7 +746,7 @@ fn backfill_branches(conn: &Connection) -> Result<(), TripwireLedgerError> {
 /// description from here on. What it buys is a card that still names its rows
 /// on the next launch rather than showing a column of blanks ([B02]).
 ///
-/// Unconditional, unlike [`backfill_branches`], because it costs one query
+/// Unconditional, because it costs one query
 /// against rows that have already been filled and because a pre-versioning
 /// ledger — stamped 0, never entering the migration loop — reaches it no
 /// other way. A row whose brief is itself empty keeps its empty description;
@@ -778,42 +827,10 @@ fn migrate_tripwire_description(conn: &Connection) -> Result<(), TripwireLedgerE
     Ok(())
 }
 
-/// The default branch of the checkout at `path`, as git reports it, or `None`
-/// when the path is not a repository this build can ask.
-fn default_branch_of(path: &str) -> Option<String> {
-    let symref = std::process::Command::new("git")
-        .args([
-            "-C",
-            path,
-            "symbolic-ref",
-            "--short",
-            "refs/remotes/origin/HEAD",
-        ])
-        .output()
-        .ok()?;
-    if symref.status.success() {
-        let text = String::from_utf8_lossy(&symref.stdout);
-        let branch = text.trim().rsplit('/').next().unwrap_or_default();
-        if !branch.is_empty() {
-            return Some(branch.to_string());
-        }
-    }
-    for candidate in ["main", "master"] {
-        let verified = std::process::Command::new("git")
-            .args(["-C", path, "rev-parse", "--verify", "--quiet", candidate])
-            .output()
-            .ok()?;
-        if verified.status.success() {
-            return Some(candidate.to_string());
-        }
-    }
-    None
-}
-
 // MARK: - Tripwires
 
 const TRIPWIRE_COLUMNS: &str = "id, name, created_at, trigger, scope, probe, brief, model, \
-                            permission_mode, paused, branch, description";
+                            permission_mode, paused, description";
 
 fn tripwire_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Tripwire> {
     Ok(Tripwire {
@@ -827,8 +844,7 @@ fn tripwire_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Tripwire> {
         model: row.get(7)?,
         permission_mode: row.get(8)?,
         paused: row.get::<_, i64>(9)? != 0,
-        branch: row.get(10)?,
-        description: row.get(11)?,
+        description: row.get(10)?,
     })
 }
 
@@ -839,20 +855,13 @@ pub fn lay(
     tripwire: &NewTripwire,
     now_ms: i64,
 ) -> Result<Tripwire, TripwireLedgerError> {
-    // A tripwire fires on a landing onto a named branch, so a tripwire with no branch
-    // is a tripwire nothing can ever trip. Refused at the arming gesture rather
-    // than at the firing: finding that out from an empty trip log weeks later
-    // is finding out too late [B07].
-    if tripwire.branch.trim().is_empty() {
-        return Err(TripwireLedgerError::MissingBranch(tripwire.name.clone()));
-    }
     check_brief(&tripwire.name, &tripwire.brief)?;
     check_description(&tripwire.name, &tripwire.description)?;
     let inserted = conn.execute(
         "INSERT OR IGNORE INTO tripwires
            (name, created_at, trigger, scope, probe, brief, model, permission_mode, paused,
-            branch, description)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10)",
+            description)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9)",
         params![
             tripwire.name,
             now_ms,
@@ -862,7 +871,6 @@ pub fn lay(
             tripwire.brief,
             tripwire.model,
             tripwire.permission_mode,
-            tripwire.branch.trim(),
             tripwire.description.trim(),
         ],
     )?;
@@ -908,16 +916,9 @@ pub fn update(
     name: &str,
     edit: &TripwireEdit,
 ) -> Result<Tripwire, TripwireLedgerError> {
-    let Some(before) = get(conn, name)? else {
+    let Some(_before) = get(conn, name)? else {
         return Err(TripwireLedgerError::NoSuchTripwire(name.to_string()));
     };
-    // The same rule as `lay`, against the row the edit would produce: an edit
-    // that blanks the branch is the same unrunnable tripwire arriving by another
-    // door.
-    let after_branch = edit.branch.clone().unwrap_or(before.branch.clone());
-    if after_branch.trim().is_empty() {
-        return Err(TripwireLedgerError::MissingBranch(name.to_string()));
-    }
     let set = |column: &str, value: rusqlite::types::Value| -> Result<(), TripwireLedgerError> {
         let sql = format!("UPDATE tripwires SET {column} = ?1 WHERE name = ?2");
         conn.execute(&sql, params![value, name])?;
@@ -939,9 +940,6 @@ pub fn update(
     }
     if let Some(v) = &edit.model {
         set("model", v.clone().map_or(Value::Null, Value::Text))?;
-    }
-    if let Some(v) = &edit.branch {
-        set("branch", Value::Text(v.trim().to_string()))?;
     }
     if let Some(v) = &edit.permission_mode {
         set("permission_mode", Value::Text(v.clone()))?;
@@ -1039,9 +1037,9 @@ pub fn running_trip(
 
 // MARK: - Trips
 
-const TRIP_COLUMNS: &str = "id, tripwire_id, event_key, at_ms, instance, status, swallow_reason, \
+const TRIP_COLUMNS: &str = "id, tripwire_id, event_key, at_ms, instance, status, reason, \
                             event_payload, probe_exit, probe_tail, session_id, arc, headline, \
-                            refs, settled_at_ms, author_ask";
+                            refs, settled_at_ms, author_ask, repo_root, head_sha";
 
 fn trip_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Trip> {
     Ok(Trip {
@@ -1051,7 +1049,7 @@ fn trip_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Trip> {
         at_ms: row.get(3)?,
         instance: row.get(4)?,
         status: row.get(5)?,
-        swallow_reason: row.get(6)?,
+        reason: row.get(6)?,
         event_payload: row.get(7)?,
         probe_exit: row.get(8)?,
         probe_tail: row.get(9)?,
@@ -1061,131 +1059,204 @@ fn trip_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Trip> {
         refs: row.get(13)?,
         settled_at_ms: row.get(14)?,
         author_ask: row.get(15)?,
+        repo_root: row.get(16)?,
+        head_sha: row.get(17)?,
     })
 }
 
-/// Try to claim one firing.
+/// A trip to write. The row's whole first state: a fact the tripwire matched
+/// either ran or did not, and [`insert_trip`] writes whichever it was ([P03]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewTrip {
+    pub tripwire_id: i64,
+    /// `fact:<instance>:<rowid>` for a fact, `manual:<uuid>` for a hand-fired
+    /// trip. Unique per tripwire, which is what makes a replayed rowid write
+    /// nothing rather than a second row.
+    pub event_key: String,
+    pub at_ms: i64,
+    pub instance: String,
+    pub status: TripStatus,
+    /// One of [`SKIP_BUSY`], [`SKIP_CEILING`], [`SKIP_NO_ROOM`] on a skip.
+    pub reason: Option<String>,
+    pub event_payload: Option<String>,
+    /// The checkout the fact was recorded in ([P05]).
+    pub repo_root: Option<String>,
+}
+
+/// Write one trip in the state it is already in, and prune the tripwire's log.
 ///
-/// This is the whole of the arbitration between instances: the insert either
-/// wins or violates `UNIQUE(tripwire_id, event_key)`, and the loser stops. It is
-/// one statement on purpose — anything wider would be a lock, and a lock is
-/// what this design does without.
+/// There is no claim to make and no queue to join: a fact is recorded by one
+/// instance and evaluated by one engine, so the gates run *before* anything is
+/// on disk and the row arrives knowing whether it ran ([P03]). A gate that
+/// writes no row — a fact that did not match, one outside the scope, one the
+/// tripwire's own session recorded — simply never reaches here.
 ///
-/// A won claim then prunes the tripwire's log back to
+/// `INSERT OR IGNORE` against the surviving `UNIQUE(tripwire_id, event_key)`,
+/// answering `None` when the tripwire already has a row for this fact. That is
+/// the case the constraint exists for — a replayed rowid — and `None` reads as
+/// "nothing to do" rather than as an error with nowhere to go.
+///
+/// An inserted row then prunes the tripwire's log back to
 /// [`MAX_TRIPS_PER_TRIPWIRE`]. The prune is a second statement rather than a
 /// wider one: it touches only rows this tripwire already lost interest in, so
-/// a racing claim on another tripwire is unaffected and neither statement
+/// an insert on another tripwire is unaffected and neither statement
 /// waits on the other.
 ///
-/// **Only a settled row is ever pruned.** A `claimed`, `queued`, `running`,
-/// `awaiting` or `adopted` trip is state rather than log: an awaiting one is
+/// **Only a terminal row is ever pruned.** A `running`, `awaiting` or
+/// `adopted` trip is state rather than log: an awaiting one is
 /// holding a question the user has not answered ([P07]) and may hold it for
-/// weeks, and a tripwire that fires on every landing would otherwise delete
+/// weeks, and a tripwire that fires on every fact would otherwise delete
 /// that question — and orphan the arc it authored, which nothing then settles
 /// because [`awaiting_trips_with_arcs`]'s sweep reads rows that exist. So the
 /// cap is on what the log remembers, and a held trip outlives it. The list is
 /// the terminal statuses by name rather than the live ones negated: a status
 /// this build has not learned is left alone, which costs a row and cannot
 /// cost a question.
-pub fn claim_trip(
-    conn: &Connection,
-    tripwire_id: i64,
-    event_key: &str,
-    at_ms: i64,
-    instance: &str,
-    event_payload: Option<&str>,
-) -> Result<Claim, TripwireLedgerError> {
+pub fn insert_trip(conn: &Connection, trip: &NewTrip) -> Result<Option<i64>, TripwireLedgerError> {
     let inserted = conn.execute(
-        "INSERT OR IGNORE INTO trips (tripwire_id, event_key, at_ms, instance, status, event_payload)
-         VALUES (?1, ?2, ?3, ?4, 'claimed', ?5)",
-        params![tripwire_id, event_key, at_ms, instance, event_payload],
+        "INSERT OR IGNORE INTO trips
+           (tripwire_id, event_key, at_ms, instance, status, reason, event_payload, repo_root)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            trip.tripwire_id,
+            trip.event_key,
+            trip.at_ms,
+            trip.instance,
+            trip.status.as_str(),
+            trip.reason,
+            trip.event_payload,
+            trip.repo_root,
+        ],
     )?;
     if inserted == 0 {
-        return Ok(Claim::AlreadyClaimed);
+        return Ok(None);
     }
     let trip_id = conn.last_insert_rowid();
     conn.execute(
         "DELETE FROM trips
           WHERE tripwire_id = ?1
-            AND status IN ('settled', 'failed', 'swallowed', 'superseded')
+            AND status IN ('quiet', 'failed', 'skipped')
             AND id NOT IN (
                 SELECT id FROM trips WHERE tripwire_id = ?1
                  ORDER BY id DESC LIMIT ?2
             )",
-        params![tripwire_id, MAX_TRIPS_PER_TRIPWIRE],
+        params![trip.tripwire_id, MAX_TRIPS_PER_TRIPWIRE],
     )?;
-    Ok(Claim::Claimed { trip_id })
+    Ok(Some(trip_id))
 }
 
-/// Move a trip to a status, leaving everything else alone.
+/// Whether this session is one *this* tripwire spawned for a trip ([B03]).
 ///
-/// This is how a firing is refused: every guard runs *after* the claim, so a
-/// swallow is a transition on the row the claim made rather than a second row
-/// beside it. One event is one row per tripwire, which is what the unique
-/// constraint already promises — and a refusal that wrote its own row would
-/// quietly break that promise the first time two instances raced.
-pub fn set_status(
+/// The own-session gate, and the whole of it: a tripwire never fires on facts
+/// its own trip's session recorded, or every shell command a trip runs would
+/// fire the tripwire that started it. Per tripwire on purpose ([Q01]) — another
+/// tripwire's session is an ordinary session as far as this one is concerned,
+/// and widening this is dropping one clause when the first cross-tripwire loop
+/// is actually observed.
+pub fn is_trip_session(
+    conn: &Connection,
+    tripwire_id: i64,
+    session_id: &str,
+) -> Result<bool, TripwireLedgerError> {
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM trips WHERE tripwire_id = ?1 AND session_id = ?2 LIMIT 1",
+            params![tripwire_id, session_id],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// Name the commit the trip's tree stands at, once `git rev-parse HEAD` has
+/// answered ([P05]).
+pub fn record_head_sha(
     conn: &Connection,
     trip_id: i64,
-    status: TripStatus,
-    swallow_reason: Option<&str>,
+    head_sha: &str,
 ) -> Result<(), TripwireLedgerError> {
     conn.execute(
-        "UPDATE trips SET status = ?1, swallow_reason = COALESCE(?2, swallow_reason) WHERE id = ?3",
-        params![status.as_str(), swallow_reason, trip_id],
+        "UPDATE trips SET head_sha = ?1 WHERE id = ?2",
+        params![head_sha, trip_id],
     )?;
     Ok(())
 }
 
-/// Queue a trip the machine cannot serve yet, superseding any older queued
-/// trip on the same tripwire.
+/// Every commit a live trip is standing at, machine-wide — what the
+/// inspection-tree sweep measures against ([P05]).
 ///
-/// One slot per tripwire, because coalescing to the newest pending event is what
-/// a tripwire actually wants: a CI tripwire asked to verdict five commits in a storm
-/// wants the last one's verdict, not five worktrees. The superseded row stays
-/// in the log — the coalescing is visible, which is the point.
-pub fn queue_trip(
-    conn: &Connection,
-    tripwire_id: i64,
-    trip_id: i64,
-) -> Result<(), TripwireLedgerError> {
-    conn.execute(
-        "UPDATE trips SET status = 'superseded', swallow_reason = 'superseded'
-         WHERE tripwire_id = ?1 AND status = 'queued' AND id != ?2",
-        params![tripwire_id, trip_id],
+/// A tree on disk cut at a sha that appears nowhere here belongs to a run that
+/// is over, however it ended. `adopted` counts: the user is standing in that
+/// worktree, and sweeping it would delete the directory out from under them.
+/// [`live_trip_ids`] reads the same status set, so the tree and the diff file
+/// beside it are swept on one rule.
+pub fn live_head_shas(conn: &Connection) -> Result<Vec<String>, TripwireLedgerError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT head_sha FROM trips
+             WHERE head_sha IS NOT NULL AND status IN ('running', 'awaiting', 'adopted')",
     )?;
-    conn.execute(
-        "UPDATE trips SET status = 'queued' WHERE id = ?1",
-        params![trip_id],
-    )?;
-    Ok(())
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
-/// Fire a tripwire by hand: mint a manual event key, claim the trip, and queue
-/// it. Answers the trip id and the key it was claimed under.
-///
-/// A manual key is unique by construction, so a hand-fired trip bypasses the
-/// guard a real landing meets: the permanent `landing:<sha>` claim, which
-/// would let a tripwire be hand-fired on one commit exactly once. Firing by
-/// hand is how a tripwire is tested, and a test that could be swallowed would
-/// test nothing.
-///
-/// Shared rather than the CLI's own because the HTTP surface fires a tripwire
-/// the same way, and two spellings of one verb is how the two answers drift.
-pub fn queue_manual_trip(
+/// Every live trip's id — the same status set [`live_head_shas`] reads, for
+/// the per-trip `.diff` file the tree sweep also removes ([P06]).
+pub fn live_trip_ids(
     conn: &Connection,
-    tripwire_id: i64,
-    now_ms: i64,
-    instance: &str,
-) -> Result<(i64, String), TripwireLedgerError> {
-    let event_key = format!("manual:{}", uuid::Uuid::new_v4());
-    let Claim::Claimed { trip_id } =
-        claim_trip(conn, tripwire_id, &event_key, now_ms, instance, None)?
-    else {
-        unreachable!("a v4 uuid event key cannot collide with a claimed row");
-    };
-    queue_trip(conn, tripwire_id, trip_id)?;
-    Ok((trip_id, event_key))
+) -> Result<std::collections::HashSet<i64>, TripwireLedgerError> {
+    let mut stmt =
+        conn.prepare("SELECT id FROM trips WHERE status IN ('running', 'awaiting', 'adopted')")?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    Ok(rows.collect::<Result<std::collections::HashSet<i64>, _>>()?)
+}
+
+/// The checkout one trip stood in, by id ([P05]).
+pub fn repo_root_of_trip(
+    conn: &Connection,
+    trip_id: i64,
+) -> Result<Option<String>, TripwireLedgerError> {
+    Ok(conn
+        .query_row(
+            "SELECT repo_root FROM trips WHERE id = ?1",
+            params![trip_id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+/// A checkout some trip cut a tree at this sha from, newest row first.
+///
+/// Newest rather than "any", and the ordering is the decision: a base checkout
+/// and a worktree of it sit at one sha with two different `repo_root`s, and
+/// either is a valid repository to run `git worktree remove` from — but a query
+/// that picks arbitrarily makes the sweep's behaviour depend on row order.
+pub fn repo_root_of_head_sha(
+    conn: &Connection,
+    head_sha: &str,
+) -> Result<Option<String>, TripwireLedgerError> {
+    Ok(conn
+        .query_row(
+            "SELECT repo_root FROM trips WHERE head_sha = ?1 ORDER BY id DESC LIMIT 1",
+            params![head_sha],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+/// How many trips a tripwire has that actually ran — the number the card's
+/// band shows ([P10]).
+///
+/// `skipped` rows are excluded: a broad tripwire writes one per busy fact, and
+/// a count dominated by "didn't run" would say nothing about the tripwire's
+/// work.
+pub fn trip_count(conn: &Connection, tripwire_id: i64) -> Result<i64, TripwireLedgerError> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM trips WHERE tripwire_id = ?1 AND status != 'skipped'",
+        params![tripwire_id],
+        |r| r.get(0),
+    )?)
 }
 
 /// How many trips are running machine-wide. Read immediately before a run
@@ -1199,15 +1270,6 @@ pub fn running_count(conn: &Connection) -> Result<i64, TripwireLedgerError> {
     )?)
 }
 
-/// The oldest queued trip, or `None`. What the engine starts when one of its
-/// own runs settles.
-pub fn oldest_queued(conn: &Connection) -> Result<Option<Trip>, TripwireLedgerError> {
-    let sql = format!(
-        "SELECT {TRIP_COLUMNS} FROM trips WHERE status = 'queued' ORDER BY at_ms, id LIMIT 1"
-    );
-    Ok(conn.query_row(&sql, [], trip_from_row).optional()?)
-}
-
 /// The tripwire's live trip, if it has one — the whole of the busy guard ([P06]).
 ///
 /// `running` and `awaiting` both count. An awaiting trip holds no process, but
@@ -1219,7 +1281,7 @@ pub fn oldest_queued(conn: &Connection) -> Result<Option<Trip>, TripwireLedgerEr
 /// a trip whose session a user has taken over is the user's, not a hold on the
 /// tripwire. The tripwire goes on watching and may fire again while they work.
 /// This is the one read where `adopted` and the live set part company — see
-/// [`live_event_keys`], which does count it.
+/// [`live_head_shas`], which does count it.
 pub fn live_trip(conn: &Connection, tripwire_id: i64) -> Result<Option<Trip>, TripwireLedgerError> {
     let sql = format!(
         "SELECT {TRIP_COLUMNS} FROM trips
@@ -1228,43 +1290,6 @@ pub fn live_trip(conn: &Connection, tripwire_id: i64) -> Result<Option<Trip>, Tr
     );
     Ok(conn
         .query_row(&sql, params![tripwire_id], trip_from_row)
-        .optional()?)
-}
-
-/// Every event key with a `running`, `awaiting` or `adopted` trip on it,
-/// whatever tripwire or instance claimed it.
-///
-/// What the inspection-tree sweep measures against (Risk R04): a tree on disk
-/// whose landing appears nowhere in this set belongs to a run that is over,
-/// however it ended. Machine-wide rather than per-instance, because the trees
-/// are and the ledger is.
-///
-/// `adopted` counts here and does not count in [`live_trip`], and the two
-/// reads have stopped being one set on purpose ([B10]). The busy guard asks
-/// "may the tripwire fire again?", and an adopted trip is no reason it may
-/// not. This asks "is anything still using the tree?", and an adopted session
-/// is a user working in that very directory — sweeping it would delete the
-/// worktree out from under them.
-pub fn live_event_keys(conn: &Connection) -> Result<Vec<String>, TripwireLedgerError> {
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT event_key FROM trips
-             WHERE status IN ('running', 'awaiting', 'adopted')",
-    )?;
-    let rows = stmt.query_map([], |r| r.get(0))?;
-    Ok(rows.collect::<Result<Vec<_>, _>>()?)
-}
-
-/// Any trip claimed for one event key, newest first — what the sweep reads a
-/// landing's repository off when it needs to remove that landing's tree.
-pub fn any_trip_for_event_key(
-    conn: &Connection,
-    event_key: &str,
-) -> Result<Option<Trip>, TripwireLedgerError> {
-    let sql = format!(
-        "SELECT {TRIP_COLUMNS} FROM trips WHERE event_key = ?1 ORDER BY at_ms DESC, id DESC LIMIT 1"
-    );
-    Ok(conn
-        .query_row(&sql, params![event_key], trip_from_row)
         .optional()?)
 }
 
@@ -1295,62 +1320,18 @@ pub fn settle_if_awaiting(
     at_ms: i64,
 ) -> Result<bool, TripwireLedgerError> {
     let changed = conn.execute(
-        "UPDATE trips SET status = 'settled', headline = ?1, settled_at_ms = ?2
+        "UPDATE trips SET status = 'quiet', headline = ?1,
+                          reason = COALESCE(?4, reason), settled_at_ms = ?2
          WHERE id = ?3 AND status = 'awaiting'",
-        params![settlement.headline, at_ms, trip_id],
+        params![settlement.headline, at_ms, trip_id, settlement.reason],
     )?;
     Ok(changed > 0)
 }
 
-/// The highest fact rowid this tripwire has already considered for one session
-/// ([P05]), or `None` when it has never evaluated that session.
+/// Attach the evidence a trip was evaluated against.
 ///
-/// The mark is per `(tripwire, session)` rather than one global rowid because
-/// sessions run concurrently: a session that started before the last landing
-/// can land afterwards carrying facts whose rowids are *below* a global mark,
-/// and a global mark would spend them without anyone ever evaluating that
-/// lineage.
-pub fn fact_mark(
-    conn: &Connection,
-    tripwire_id: i64,
-    session_id: &str,
-) -> Result<Option<i64>, TripwireLedgerError> {
-    Ok(conn
-        .query_row(
-            "SELECT max_fact_rowid FROM tripwire_marks WHERE tripwire_id = ?1 AND session_id = ?2",
-            params![tripwire_id, session_id],
-            |r| r.get(0),
-        )
-        .optional()?)
-}
-
-/// Advance a tripwire's mark for one session, which only an evaluation may do.
-///
-/// `MAX` rather than a plain assignment: marks only ever move forward, so a
-/// landing evaluated out of order cannot un-spend facts an earlier one already
-/// considered.
-pub fn set_fact_mark(
-    conn: &Connection,
-    tripwire_id: i64,
-    session_id: &str,
-    max_fact_rowid: i64,
-) -> Result<(), TripwireLedgerError> {
-    conn.execute(
-        "INSERT INTO tripwire_marks (tripwire_id, session_id, max_fact_rowid)
-         VALUES (?1, ?2, ?3)
-         ON CONFLICT(tripwire_id, session_id)
-           DO UPDATE SET max_fact_rowid = MAX(max_fact_rowid, excluded.max_fact_rowid)",
-        params![tripwire_id, session_id, max_fact_rowid],
-    )?;
-    Ok(())
-}
-
-/// Attach the evidence a claimed trip was evaluated against.
-///
-/// Written after the claim rather than with it, because the evidence is what
-/// the tripwire's guards let it look at: a landing refused as `busy` or `own-arc`
-/// looked at nothing, and a row carrying a fact set it never read would be a
-/// record of an evaluation that did not happen.
+/// [`insert_trip`] writes the payload with the row; this is for the hand-fired
+/// path, which composes its synthetic fact after the row exists.
 pub fn record_event_payload(
     conn: &Connection,
     trip_id: i64,
@@ -1392,12 +1373,40 @@ pub fn record_run(
     Ok(())
 }
 
+/// Name the session a *running* trip was just seated in, and nothing else.
+///
+/// The seat happens the moment the supervisor has a session id, long before
+/// the phase it opens returns, and the whole point of writing it then is that
+/// the card can show a trip's session while the trip is still working. So this
+/// write touches one column and guards on `status = 'running'`: a trip the
+/// session's own verb has already settled keeps its settle (Risk R03), and a
+/// seat notification that arrives after it changes nothing. `record_run` would
+/// put such a row back to `running`, which is why the seat does not go through
+/// it.
+///
+/// Answers whether a row moved.
+pub fn record_session_if_running(
+    conn: &Connection,
+    trip_id: i64,
+    session_id: &str,
+) -> Result<bool, TripwireLedgerError> {
+    let changed = conn.execute(
+        "UPDATE trips SET session_id = ?1 WHERE id = ?2 AND status = 'running'",
+        params![session_id, trip_id],
+    )?;
+    Ok(changed > 0)
+}
+
 /// What a trip finished with.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Settlement {
     pub headline: Option<String>,
     /// The refs, already serialized — the ledger stores what it is handed.
     pub refs: Option<String>,
+    /// Why, in one word, when the outcome has a word for it: a skip's
+    /// [`SKIP_NO_ROOM`], a failure's `instance restarted` or `abandoned`
+    /// ([P04]). `None` leaves whatever the row already carries.
+    pub reason: Option<String>,
 }
 
 /// Settle a trip, with `failed` for a run that produced no outcome.
@@ -1409,12 +1418,14 @@ pub fn settle(
     at_ms: i64,
 ) -> Result<(), TripwireLedgerError> {
     conn.execute(
-        "UPDATE trips SET status = ?1, headline = ?2, refs = ?3, settled_at_ms = ?4
-         WHERE id = ?5",
+        "UPDATE trips SET status = ?1, headline = ?2, refs = ?3,
+                          reason = COALESCE(?4, reason), settled_at_ms = ?5
+         WHERE id = ?6",
         params![
             status.as_str(),
             settlement.headline,
             settlement.refs,
+            settlement.reason,
             at_ms,
             trip_id,
         ],
@@ -1503,7 +1514,7 @@ pub fn resolve_awaiting(
         conn,
         tripwire_id,
         "awaiting",
-        TripStatus::Settled,
+        TripStatus::Quiet,
         &settlement,
         None,
         at_ms,
@@ -1533,13 +1544,14 @@ fn resolve_from(
     };
     let changed = conn.execute(
         "UPDATE trips SET status = ?1, headline = ?2, refs = ?3, author_ask = ?4,
-                          settled_at_ms = ?5
-         WHERE id = ?6 AND status = ?7",
+                          reason = COALESCE(?5, reason), settled_at_ms = ?6
+         WHERE id = ?7 AND status = ?8",
         params![
             status.as_str(),
             settlement.headline,
             settlement.refs,
             author_ask,
+            settlement.reason,
             at_ms,
             trip.id,
             from,
@@ -1585,12 +1597,14 @@ pub fn settle_if_running(
     at_ms: i64,
 ) -> Result<bool, TripwireLedgerError> {
     let changed = conn.execute(
-        "UPDATE trips SET status = ?1, headline = ?2, refs = ?3, settled_at_ms = ?4
-         WHERE id = ?5 AND status = 'running'",
+        "UPDATE trips SET status = ?1, headline = ?2, refs = ?3,
+                          reason = COALESCE(?4, reason), settled_at_ms = ?5
+         WHERE id = ?6 AND status = 'running'",
         params![
             status.as_str(),
             settlement.headline,
             settlement.refs,
+            settlement.reason,
             at_ms,
             trip_id,
         ],
@@ -1616,28 +1630,6 @@ pub fn adopt_if_running(
 ) -> Result<bool, TripwireLedgerError> {
     let changed = conn.execute(
         "UPDATE trips SET status = 'adopted', headline = ?1
-         WHERE id = ?2 AND status = 'running'",
-        params![headline, trip_id],
-    )?;
-    Ok(changed > 0)
-}
-
-/// Put a running trip back in the queue, because the host was full rather than
-/// the tripwire at fault.
-///
-/// The compare-and-set is the same one [`settle_if_running`] uses and for the
-/// same reason: a resolution the verb landed in the gap must not be undone by
-/// a refusal the engine met afterwards. What differs is that this is not a
-/// settle — `settled_at_ms` is cleared, because the trip has not finished and
-/// the drain is about to start it again. The headline stays, so a reader who
-/// opens a queued trip finds out why it is waiting.
-pub fn requeue_if_running(
-    conn: &Connection,
-    trip_id: i64,
-    headline: &str,
-) -> Result<bool, TripwireLedgerError> {
-    let changed = conn.execute(
-        "UPDATE trips SET status = 'queued', headline = ?1, settled_at_ms = NULL
          WHERE id = ?2 AND status = 'running'",
         params![headline, trip_id],
     )?;
@@ -1672,12 +1664,9 @@ pub fn trips_for_tripwire(
 /// engine boot: their processes went with the previous tugcast, and a row
 /// that reads `running` forever holds a concurrency slot nothing will free.
 ///
-/// A `claimed` row is cleared rather than failed. Every normal path moves a
-/// claim on at once, so one still standing is a crash between the claim and
-/// its first transition — nothing ran, nothing was recorded, and the row's
-/// only effect is to hold `UNIQUE(tripwire_id, event_key)` against every later
-/// claim of the same commit. Deleting it is what lets that commit be
-/// evaluated again. Answers how many rows were failed or cleared.
+/// Answers how many rows were failed. There is no half-made row to clear any
+/// more: a trip is inserted in the state it is already in ([P03]), so the only
+/// thing a crash can leave behind is a `running` one.
 ///
 /// `adopted` is left alone, the way `awaiting` is: an adopted trip's session
 /// belongs to a user's card rather than to this instance's engine, so it
@@ -1688,16 +1677,12 @@ pub fn sweep_stale_running(
     at_ms: i64,
 ) -> Result<usize, TripwireLedgerError> {
     let failed = conn.execute(
-        "UPDATE trips SET status = 'failed', swallow_reason = 'instance restarted',
+        "UPDATE trips SET status = 'failed', reason = 'instance restarted',
                           settled_at_ms = ?1
          WHERE status = 'running' AND instance = ?2",
         params![at_ms, instance],
     )?;
-    let cleared = conn.execute(
-        "DELETE FROM trips WHERE status = 'claimed' AND instance = ?1",
-        params![instance],
-    )?;
-    Ok(failed + cleared)
+    Ok(failed)
 }
 
 /// This instance's `running` trips — what [`sweep_stale_running`] is about to
@@ -1736,15 +1721,14 @@ pub fn amend_failed_headline(
     Ok(changed > 0)
 }
 
-/// Fail every `running` trip another instance claimed before `before_ms`, and
-/// clear every `claimed` row it left there.
+/// Fail every `running` trip another instance started before `before_ms`.
 ///
 /// [`sweep_stale_running`] is the clean half and cannot be the whole of it: an
 /// instance only ever knows its own name, so a tugcast that crashed and never
 /// came back leaves rows no boot sweep will ever reach. `running_count` is
 /// machine-wide, so those rows spend the ceiling for every tripwire on the machine
-/// — and nothing recovers on its own, because draining the queue is what a
-/// settle does and no settle is coming for a dead instance's trip.
+/// — and nothing recovers on its own, because no settle is coming for a dead
+/// instance's trip.
 ///
 /// Age is the only evidence available about another instance, so the caller's
 /// bound is what stands between an abandoned run and a long one. This
@@ -1756,16 +1740,12 @@ pub fn sweep_orphaned_running(
     instance: &str,
 ) -> Result<usize, TripwireLedgerError> {
     let failed = conn.execute(
-        "UPDATE trips SET status = 'failed', swallow_reason = 'abandoned',
+        "UPDATE trips SET status = 'failed', reason = 'abandoned',
                           settled_at_ms = ?1
          WHERE status = 'running' AND at_ms < ?1 AND instance != ?2",
         params![before_ms, instance],
     )?;
-    let cleared = conn.execute(
-        "DELETE FROM trips WHERE status = 'claimed' AND at_ms < ?1 AND instance != ?2",
-        params![before_ms, instance],
-    )?;
-    Ok(failed + cleared)
+    Ok(failed)
 }
 
 // MARK: - Settings
@@ -1835,12 +1815,54 @@ mod tests {
                 name,
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "diagnose the failure and propose a fix",
-                "main",
                 "Says what broke when an edit fails on main",
             ),
             1_000,
         )
         .unwrap()
+    }
+
+    /// A trip in the state the engine would have written it in, and the id it
+    /// got. Every test below goes through the one verb that writes a row
+    /// ([P03]), so a shape the engine cannot produce is one no fixture here
+    /// can produce either.
+    fn write_trip(
+        conn: &Connection,
+        tripwire_id: i64,
+        key: &str,
+        at_ms: i64,
+        instance: &str,
+        status: TripStatus,
+        reason: Option<&str>,
+    ) -> Option<i64> {
+        insert_trip(
+            conn,
+            &NewTrip {
+                tripwire_id,
+                event_key: key.to_string(),
+                at_ms,
+                instance: instance.to_string(),
+                status,
+                reason: reason.map(str::to_owned),
+                event_payload: None,
+                repo_root: None,
+            },
+        )
+        .unwrap()
+    }
+
+    /// A trip that fired and is running — the ordinary shape.
+    fn fire(conn: &Connection, tripwire_id: i64, key: &str, at_ms: i64) -> i64 {
+        write_trip(
+            conn,
+            tripwire_id,
+            key,
+            at_ms,
+            "inst",
+            TripStatus::Running,
+            None,
+        )
+        .expect("this tripwire has no row for that key yet")
     }
 
     #[test]
@@ -1947,7 +1969,7 @@ mod tests {
         rows.collect::<rusqlite::Result<Vec<_>>>().unwrap()
     }
 
-    /// **The column a trip holds its work unit in, and the value a swallow
+    /// **The column a trip holds its work unit in, and the value a refusal
     /// records, move to the arc together.**
     ///
     /// Two halves of one rename, and both are checked here because they fail
@@ -1959,15 +1981,18 @@ mod tests {
     fn a_v4_ledger_renames_the_trip_arc_column_and_its_swallow_value() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(CREATE_TRIPWIRES_SQL).unwrap();
-        // Put the table back into its v4 shape: the DDL above mints `arc`,
-        // and v4 spelled it `dash`. Without this the probe under test finds
-        // nothing to rename and the assertions below pass on a table that was
-        // never old.
-        conn.execute_batch("ALTER TABLE trips RENAME COLUMN arc TO dash;")
-            .unwrap();
+        // Put the table back into its v4 shape: the DDL above mints `arc` and
+        // `reason`, and v4 spelled them `dash` and `swallow_reason`. Without
+        // this the probes under test find nothing to rename and the assertions
+        // below pass on a table that was never old.
+        conn.execute_batch(
+            "ALTER TABLE trips RENAME COLUMN arc TO dash;
+             ALTER TABLE trips RENAME COLUMN reason TO swallow_reason;",
+        )
+        .unwrap();
         conn.execute(
-            "INSERT INTO tripwires (name, created_at, trigger, brief, branch)
-             VALUES ('w', 1, '{\"fact\":{\"kind\":\"edit_failed\"}}', 'diagnose', 'main')",
+            "INSERT INTO tripwires (name, created_at, trigger, brief)
+             VALUES ('w', 1, '{\"fact\":{\"kind\":\"edit_failed\"}}', 'diagnose')",
             [],
         )
         .unwrap();
@@ -1997,14 +2022,19 @@ mod tests {
 
         let held = trip(&conn, 1).unwrap().unwrap();
         assert_eq!(held.arc.as_deref(), Some("tripwire-w-1"));
-        assert_eq!(held.swallow_reason.as_deref(), Some(SWALLOW_OWN_ARC));
+        assert_eq!(
+            held.reason.as_deref(),
+            Some("own-arc"),
+            "the value the v4 rename wrote is read back for life, whatever the \
+             guard that wrote it became"
+        );
         assert_eq!(held.headline.as_deref(), Some("held"), "the row is intact");
 
         let asked = trip(&conn, 2).unwrap().unwrap();
         assert_eq!(asked.arc.as_deref(), Some("tripwire-w-2"));
         assert_eq!(
-            asked.swallow_reason, None,
-            "a row that recorded no swallow is left alone"
+            asked.reason, None,
+            "a row that recorded no reason is left alone"
         );
 
         // The sweep can find the awaiting trip, which is the reader the
@@ -2040,10 +2070,6 @@ mod tests {
 
         let migrated = get(&conn, "legacy").unwrap().unwrap();
         assert_eq!(
-            migrated.branch, "main",
-            "a scopeless v1 row has no repository to read a default branch from"
-        );
-        assert_eq!(
             migrated.probe.as_deref(),
             Some("just ci"),
             "the probe was never on the deletion list ([P10])"
@@ -2061,12 +2087,15 @@ mod tests {
                 "`{retired}` survived the migration"
             );
         }
-        assert!(columns.contains(&"branch".to_string()));
-
-        // The marks table arrives with the migration, not only with the DDL.
-        let w = get(&conn, "legacy").unwrap().unwrap();
-        set_fact_mark(&conn, w.id, "session-a", 3).unwrap();
-        assert_eq!(fact_mark(&conn, w.id, "session-a").unwrap(), Some(3));
+        assert!(
+            !columns.contains(&"branch".to_string()),
+            "v8 drops the branch column wherever it is found ([P02])"
+        );
+        assert!(
+            !table_exists(&conn, "tripwire_marks").unwrap()
+                && !table_exists(&conn, "wire_marks").unwrap(),
+            "the marks table goes under either name it has worn"
+        );
     }
 
     /// The one assertion that catches the DDL and the migration drifting apart.
@@ -2085,7 +2114,7 @@ mod tests {
             ("v6", v6_ledger()),
         ] {
             prepare(&migrated).unwrap();
-            for table in ["tripwires", "trips", "settings", "tripwire_marks"] {
+            for table in ["tripwires", "trips", "settings"] {
                 assert_eq!(
                     table_info(&fresh, table),
                     table_info(&migrated, table),
@@ -2226,13 +2255,13 @@ mod tests {
             "INSERT INTO tripwires (name, created_at, trigger, brief, branch)
              VALUES
                 ('ci', 1, '{\"fact\":{\"kind\":\"edit_failed\"}}',
-                 'Did the landing break the suite? Say which check went red and whether this landing is what broke it.',
+                 'Did the fact break the suite? Say which check went red and whether the change under it is what broke it.',
                  'main'),
                 ('edits', 2, '{\"fact\":{\"kind\":\"edit_failed\"}}',
                  'report anything that looks wrong',
                  'main');
              INSERT INTO trips (tripwire_id, event_key, at_ms, instance, status, headline)
-             VALUES (1, 'landing:abc', 10, 'inst-a', 'settled', 'looked');",
+             VALUES (1, 'fact:inst-a:7', 10, 'inst-a', 'settled', 'looked');",
         )
         .unwrap();
         conn.pragma_update(None, "user_version", 6).unwrap();
@@ -2260,7 +2289,7 @@ mod tests {
 
         let ci = get(&conn, "ci").unwrap().unwrap();
         assert_eq!(
-            ci.description, "Did the landing break the suite?",
+            ci.description, "Did the fact break the suite?",
             "the first sentence, and not the rest of the prompt behind it"
         );
         let edits = get(&conn, "edits").unwrap().unwrap();
@@ -2284,7 +2313,7 @@ mod tests {
         prepare(&conn).unwrap();
         assert_eq!(
             get(&conn, "ci").unwrap().unwrap().description,
-            "Did the landing break the suite?"
+            "Did the fact break the suite?"
         );
     }
 
@@ -2303,7 +2332,6 @@ mod tests {
                 "w",
                 r#"{"fact":{"kind":"shell"}}"#,
                 "Flag anything red.",
-                "main",
                 placeholder,
             );
             assert!(
@@ -2323,7 +2351,6 @@ mod tests {
                 "w",
                 r#"{"fact":{"kind":"shell"}}"#,
                 "Flag anything red.",
-                "main",
                 "Flags a red shell fact on main",
             ),
             1,
@@ -2396,24 +2423,22 @@ mod tests {
             .unwrap();
         assert_eq!(stamped, TRIPWIRE_SCHEMA_VERSION);
 
-        for (old, new) in [("wires", "tripwires"), ("wire_marks", "tripwire_marks")] {
-            assert!(table_exists(&conn, new).unwrap(), "`{new}` was not created");
-            assert!(
-                !table_exists(&conn, old).unwrap(),
-                "`{old}` survived the rename"
-            );
-        }
-        for table in ["trips", "tripwire_marks"] {
-            let columns = columns_of(&conn, table).unwrap();
-            assert!(
-                columns.iter().any(|c| c == "tripwire_id"),
-                "{table}: {columns:?}"
-            );
-            assert!(
-                !columns.iter().any(|c| c == "wire_id"),
-                "{table}: {columns:?}"
-            );
-        }
+        assert!(
+            table_exists(&conn, "tripwires").unwrap(),
+            "`tripwires` was not created"
+        );
+        assert!(
+            !table_exists(&conn, "wires").unwrap(),
+            "`wires` survived the rename"
+        );
+        assert!(
+            !table_exists(&conn, "wire_marks").unwrap()
+                && !table_exists(&conn, "tripwire_marks").unwrap(),
+            "v8 drops the marks table under either name it has worn"
+        );
+        let columns = columns_of(&conn, "trips").unwrap();
+        assert!(columns.iter().any(|c| c == "tripwire_id"), "{columns:?}");
+        assert!(!columns.iter().any(|c| c == "wire_id"), "{columns:?}");
         let indexes = named_indexes(&conn);
         assert!(
             indexes.iter().any(|(name, _)| name == "trips_by_tripwire"),
@@ -2430,19 +2455,15 @@ mod tests {
         let t = trip(&conn, 1).unwrap().expect("the trip came through");
         assert_eq!(t.tripwire_id, w.id);
         assert_eq!(t.headline.as_deref(), Some("looked"));
-        assert_eq!(fact_mark(&conn, w.id, "sess-1").unwrap(), Some(7));
         assert_eq!(max_concurrent_trips(&conn).unwrap(), 3);
 
         // The child still follows the parent: the `REFERENCES` clause was
         // rewritten with the rename, not left pointing at a table that is gone.
         remove(&conn, "w").unwrap();
-        let marks: i64 = conn
-            .query_row("SELECT COUNT(*) FROM tripwire_marks", [], |r| r.get(0))
-            .unwrap();
         let trips: i64 = conn
             .query_row("SELECT COUNT(*) FROM trips", [], |r| r.get(0))
             .unwrap();
-        assert_eq!((trips, marks), (0, 0), "the cascade reaches both children");
+        assert_eq!(trips, 0, "the cascade reaches the trips");
 
         // Twice is once.
         let before = schema_of(&conn);
@@ -2462,15 +2483,9 @@ mod tests {
 
         prepare(&conn).unwrap();
 
-        assert!(table_exists(&conn, "tripwire_marks").unwrap());
         assert!(!table_exists(&conn, "wire_marks").unwrap());
-        for table in ["trips", "tripwire_marks"] {
-            let columns = columns_of(&conn, table).unwrap();
-            assert!(
-                columns.iter().any(|c| c == "tripwire_id"),
-                "{table}: {columns:?}"
-            );
-        }
+        let columns = columns_of(&conn, "trips").unwrap();
+        assert!(columns.iter().any(|c| c == "tripwire_id"), "{columns:?}");
         assert_eq!(trip(&conn, 1).unwrap().unwrap().tripwire_id, 1);
         assert_eq!(
             table_info(&ledger(), "trips"),
@@ -2484,7 +2499,6 @@ mod tests {
         let conn = ledger();
         let laid = lay_one(&conn, "tugedit");
         assert_eq!(laid.name, "tugedit");
-        assert_eq!(laid.branch, "main");
         assert!(!laid.paused);
         assert_eq!(get(&conn, "tugedit").unwrap().as_ref(), Some(&laid));
 
@@ -2494,7 +2508,6 @@ mod tests {
                 "tugedit",
                 r#"{"fact":{"kind":"shell"}}"#,
                 "report anything that looks wrong",
-                "main",
                 "Watches shell facts on main and reports what looks wrong",
             ),
             2_000,
@@ -2515,14 +2528,12 @@ mod tests {
             &conn,
             "w",
             &TripwireEdit {
-                branch: Some("release".to_string()),
                 probe: Some(Some("just ci".to_string())),
                 scope: Some(Some("/repo".to_string())),
                 ..Default::default()
             },
         )
         .unwrap();
-        assert_eq!(edited.branch, "release");
         assert_eq!(edited.probe.as_deref(), Some("just ci"));
         assert_eq!(
             edited.brief, "diagnose the failure and propose a fix",
@@ -2555,7 +2566,6 @@ mod tests {
             "w",
             r#"{"fact":{"kind":"shell"}}"#,
             "b",
-            "main",
             "Watches shell facts on main",
         );
         assert!(matches!(
@@ -2569,7 +2579,6 @@ mod tests {
                     "w",
                     r#"{"fact":{"kind":"shell"}}"#,
                     "   ",
-                    "main",
                     "Watches shell facts on main",
                 ),
                 1
@@ -2585,7 +2594,6 @@ mod tests {
                 "w",
                 r#"{"fact":{"kind":"shell"}}"#,
                 "Flag anything red.",
-                "main",
                 "Flags a red shell fact on main",
             ),
             1,
@@ -2609,53 +2617,11 @@ mod tests {
         );
     }
 
-    /// A tripwire fires on a landing onto a named branch, so a tripwire with no branch
-    /// is a tripwire nothing can ever trip. The refusal is at the arming gesture —
-    /// both of them — rather than at the firing, because a tripwire nobody
-    /// could have run is a tripwire that should never have been laid [B07].
-    #[test]
-    fn a_tripwire_cannot_arm_without_a_branch_to_watch() {
-        let conn = ledger();
-        let mut tripwire = NewTripwire::new(
-            "w",
-            r#"{"fact":{"kind":"edit_failed"}}"#,
-            "diagnose the failure and propose a fix",
-            "   ",
-            "Says what broke when an edit fails",
-        );
-        assert!(matches!(
-            lay(&conn, &tripwire, 1),
-            Err(TripwireLedgerError::MissingBranch(_))
-        ));
-
-        tripwire.branch = "main".to_string();
-        lay(&conn, &tripwire, 1).unwrap();
-
-        // And the same rule against the row an edit would produce: blanking
-        // the branch is the same unrunnable tripwire arriving by another door.
-        assert!(matches!(
-            update(
-                &conn,
-                "w",
-                &TripwireEdit {
-                    branch: Some("  ".to_string()),
-                    ..Default::default()
-                },
-            ),
-            Err(TripwireLedgerError::MissingBranch(_))
-        ));
-        assert_eq!(
-            get(&conn, "w").unwrap().unwrap().branch,
-            "main",
-            "a refused edit moves nothing"
-        );
-    }
-
     #[test]
     fn pausing_leaves_the_tripwire_and_its_log_and_takes_it_out_of_armed() {
         let conn = ledger();
         let w = lay_one(&conn, "w");
-        claim_trip(&conn, w.id, "e1", 1, "inst", None).unwrap();
+        fire(&conn, w.id, "e1", 1);
         assert_eq!(armed(&conn).unwrap().len(), 1);
 
         set_paused(&conn, "w", true).unwrap();
@@ -2671,7 +2637,9 @@ mod tests {
     fn removing_a_tripwire_takes_its_trips_with_it() {
         let conn = ledger();
         let w = lay_one(&conn, "w");
-        claim_trip(&conn, w.id, "e1", 1, "inst", None).unwrap();
+        // A settled trip, because a *running* one refuses the delete — that
+        // guard has a test of its own below.
+        settled_trip(&conn, w.id, "e1", 1);
         remove(&conn, "w").unwrap();
         assert!(get(&conn, "w").unwrap().is_none());
         assert!(trips_for_tripwire(&conn, w.id, 10).unwrap().is_empty());
@@ -2693,10 +2661,7 @@ mod tests {
     fn a_running_trip_refuses_the_delete_and_a_settled_one_does_not() {
         let conn = ledger();
         let w = lay_one(&conn, "w");
-        let Claim::Claimed { trip_id } = claim_trip(&conn, w.id, "e1", 1, "inst", None).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
+        let trip_id = fire(&conn, w.id, "e1", 1);
         record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-w-abcd1234")).unwrap();
 
         assert!(matches!(
@@ -2728,48 +2693,64 @@ mod tests {
         assert!(get(&conn, "w").unwrap().is_none());
     }
 
-    /// The whole of the arbitration between two instances that saw one event.
+    /// A replayed fact writes no second row: the tripwire already has one for
+    /// that key, and `INSERT OR IGNORE` against the surviving unique
+    /// constraint is what makes that a no-op rather than an error with nowhere
+    /// to go (Spec S03).
     #[test]
-    fn one_event_key_is_claimed_once_and_the_second_claim_says_so() {
+    fn a_replayed_event_key_writes_no_second_row() {
         let conn = ledger();
         let w = lay_one(&conn, "w");
-        let first = claim_trip(&conn, w.id, "sha-abc", 10, "inst-a", Some("{}")).unwrap();
-        let second = claim_trip(&conn, w.id, "sha-abc", 11, "inst-b", Some("{}")).unwrap();
-        assert!(matches!(first, Claim::Claimed { .. }));
-        assert_eq!(second, Claim::AlreadyClaimed);
+        let first = write_trip(
+            &conn,
+            w.id,
+            "fact:i:7",
+            10,
+            "inst-a",
+            TripStatus::Running,
+            None,
+        );
+        let second = write_trip(
+            &conn,
+            w.id,
+            "fact:i:7",
+            11,
+            "inst-a",
+            TripStatus::Running,
+            None,
+        );
+        assert!(first.is_some());
+        assert_eq!(second, None, "the second insert is refused, not an error");
         assert_eq!(trips_for_tripwire(&conn, w.id, 10).unwrap().len(), 1);
     }
 
-    /// Two tripwires watching one commit are two firings, not one — the claim is
-    /// per tripwire, not per event.
+    /// Two tripwires watching one fact are two trips, not one — the key is
+    /// unique per tripwire, not machine-wide.
     #[test]
-    fn two_tripwires_each_claim_the_same_event() {
+    fn two_tripwires_each_write_a_row_for_one_fact() {
         let conn = ledger();
         let a = lay_one(&conn, "a");
         let b = lay_one(&conn, "b");
-        assert!(matches!(
-            claim_trip(&conn, a.id, "sha", 1, "i", None).unwrap(),
-            Claim::Claimed { .. }
-        ));
-        assert!(matches!(
-            claim_trip(&conn, b.id, "sha", 1, "i", None).unwrap(),
-            Claim::Claimed { .. }
-        ));
+        assert!(write_trip(&conn, a.id, "fact:i:1", 1, "i", TripStatus::Running, None).is_some());
+        assert!(write_trip(&conn, b.id, "fact:i:1", 1, "i", TripStatus::Running, None).is_some());
     }
 
-    /// Claim a trip and settle it, which is what a firing that ran and
+    /// Write a trip and settle it, which is what a firing that ran and
     /// reported nothing leaves behind — and the only shape the log retains.
     fn settled_trip(conn: &Connection, tripwire_id: i64, key: &str, at_ms: i64) -> i64 {
-        let Claim::Claimed { trip_id } =
-            claim_trip(conn, tripwire_id, key, at_ms, "inst", None).unwrap()
-        else {
-            unreachable!("each event key is claimed once");
-        };
-        set_status(conn, trip_id, TripStatus::Settled, None).unwrap();
-        trip_id
+        write_trip(
+            conn,
+            tripwire_id,
+            key,
+            at_ms,
+            "inst",
+            TripStatus::Quiet,
+            None,
+        )
+        .expect("each event key is this tripwire's first")
     }
 
-    /// Retention is per tripwire and runs at claim time: the oldest row falls
+    /// Retention is per tripwire and runs at insert time: the oldest row falls
     /// out as the five-hundred-and-first arrives, and a neighbour's log is not
     /// touched by it.
     #[test]
@@ -2793,19 +2774,15 @@ mod tests {
 
     /// A trip that is still holding is state rather than log, and the cap is
     /// on the log: an awaiting trip asked the user a question and may wait
-    /// weeks for the answer, and a tripwire firing on every landing must not
+    /// weeks for the answer, and a tripwire firing on every fact must not
     /// delete the question — nor the row the awaiting sweep reads to release
     /// it when its arc goes.
     #[test]
     fn retention_spares_a_trip_that_is_still_holding() {
         let conn = ledger();
         let w = lay_one(&conn, "w");
-        let Claim::Claimed { trip_id: held } =
-            claim_trip(&conn, w.id, "held", 1, "inst", None).unwrap()
-        else {
-            unreachable!("the first claim on an empty log wins");
-        };
-        set_status(&conn, held, TripStatus::Awaiting, None).unwrap();
+        let held = write_trip(&conn, w.id, "held", 1, "inst", TripStatus::Awaiting, None)
+            .expect("the first row on an empty log is written");
 
         for i in 0..(MAX_TRIPS_PER_TRIPWIRE + 5) {
             settled_trip(&conn, w.id, &format!("e{i}"), 1_000 + i);
@@ -2822,165 +2799,139 @@ mod tests {
         );
     }
 
+    /// **Only the three terminal statuses are pruned**, and the list is by
+    /// name rather than the live ones negated: a status this build has not
+    /// learned costs a row and can never cost a question.
     #[test]
-    fn a_claim_contended_across_threads_is_won_exactly_once() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("tripwires.db");
-        let setup = open_ledger(&path).unwrap();
-        let tripwire = lay_one(&setup, "w");
-        drop(setup);
+    fn retention_prunes_only_the_three_terminal_statuses() {
+        let conn = ledger();
+        let w = lay_one(&conn, "w");
+        let live: Vec<i64> = [
+            TripStatus::Running,
+            TripStatus::Awaiting,
+            TripStatus::Adopted,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, status)| {
+            write_trip(
+                &conn,
+                w.id,
+                &format!("live{i}"),
+                1 + i as i64,
+                "inst",
+                status,
+                None,
+            )
+            .expect("each key is its tripwire's first")
+        })
+        .collect();
+        let skipped = write_trip(
+            &conn,
+            w.id,
+            "old-skip",
+            9,
+            "inst",
+            TripStatus::Skipped,
+            Some(SKIP_BUSY),
+        )
+        .expect("written");
 
-        let outcomes: Vec<Claim> = std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..8)
-                .map(|i| {
-                    let path = path.clone();
-                    scope.spawn(move || {
-                        let conn = open_ledger(&path).unwrap();
-                        claim_trip(&conn, tripwire.id, "one-event", 100 + i, "inst", None).unwrap()
-                    })
-                })
-                .collect();
-            handles.into_iter().map(|h| h.join().unwrap()).collect()
-        });
+        for i in 0..(MAX_TRIPS_PER_TRIPWIRE + 5) {
+            settled_trip(&conn, w.id, &format!("e{i}"), 1_000 + i);
+        }
 
-        let won = outcomes
-            .iter()
-            .filter(|c| matches!(c, Claim::Claimed { .. }))
-            .count();
-        assert_eq!(won, 1, "exactly one writer owns the firing: {outcomes:?}");
-
-        let conn = open_ledger(&path).unwrap();
-        assert_eq!(
-            trips_for_tripwire(&conn, tripwire.id, 100).unwrap().len(),
-            1
+        for id in live {
+            assert!(
+                trip(&conn, id).unwrap().is_some(),
+                "a live trip is state rather than log and outlives the cap"
+            );
+        }
+        assert!(
+            trip(&conn, skipped).unwrap().is_none(),
+            "a skipped row is log, and the oldest log falls out"
         );
     }
 
-    /// A swallowed firing keeps its row and its reason. A swallow is not a
-    /// silence: the reason is what a reader of the trip log finds when they
-    /// ask why a tripwire they armed never spoke.
+    /// The own-session gate's one read ([B03]): a session this tripwire's own
+    /// trip ran in, and no other tripwire's.
     #[test]
-    fn a_swallowed_claim_keeps_its_row_and_its_reason() {
+    fn an_own_session_is_recognised_by_tripwire_and_session_id() {
         let conn = ledger();
-        let w = lay_one(&conn, "w");
-        claim_trip(&conn, w.id, "e1", 1_000, "inst", None).unwrap();
-        let Claim::Claimed { trip_id } =
-            claim_trip(&conn, w.id, "e2", 5_000, "inst", None).unwrap()
-        else {
-            panic!("claimed");
-        };
-        set_status(&conn, trip_id, TripStatus::Swallowed, Some(SWALLOW_BUSY)).unwrap();
+        let mine = lay_one(&conn, "mine");
+        let theirs = lay_one(&conn, "theirs");
+        let trip_id = fire(&conn, mine.id, "fact:i:1", 1);
+        record_session_if_running(&conn, trip_id, "sess-trip").unwrap();
 
-        let trips = trips_for_tripwire(&conn, w.id, 10).unwrap();
-        assert_eq!(trips[0].status, "swallowed");
-        assert_eq!(trips[0].swallow_reason.as_deref(), Some(SWALLOW_BUSY));
-    }
-
-    /// The mark is per `(tripwire, session)`, and the case that decides it is the
-    /// one a single global mark loses silently: two sessions running at once,
-    /// the later-landing one carrying facts whose rowids sit *below* what the
-    /// first landing already considered ([P05]).
-    #[test]
-    fn a_mark_is_per_session_so_a_concurrent_lineage_is_never_spent_unseen() {
-        let conn = ledger();
-        let w = lay_one(&conn, "w");
-
-        // The first landing evaluates session A up to fact 90.
-        set_fact_mark(&conn, w.id, "session-a", 90).unwrap();
-        assert_eq!(fact_mark(&conn, w.id, "session-a").unwrap(), Some(90));
-
-        // Session B started earlier and lands afterwards, carrying fact 40. A
-        // global high-water mark of 90 would have spent it; its own mark is
-        // absent, so every fact it carries is still to be evaluated.
-        assert_eq!(fact_mark(&conn, w.id, "session-b").unwrap(), None);
-
-        // Marks only move forward, so a landing evaluated out of order cannot
-        // un-spend what an earlier one already considered.
-        set_fact_mark(&conn, w.id, "session-a", 40).unwrap();
-        assert_eq!(fact_mark(&conn, w.id, "session-a").unwrap(), Some(90));
-
-        // And a mark belongs to its tripwire alone.
-        let other = lay_one(&conn, "other");
-        assert_eq!(fact_mark(&conn, other.id, "session-a").unwrap(), None);
-    }
-
-    /// Marks ride the same cascade the trips do: removing a tripwire takes the
-    /// rows that only meant anything alongside it.
-    #[test]
-    fn removing_a_tripwire_takes_its_marks_with_it() {
-        let conn = ledger();
-        let w = lay_one(&conn, "w");
-        set_fact_mark(&conn, w.id, "session-a", 7).unwrap();
-        remove(&conn, "w").unwrap();
-        let left: i64 = conn
-            .query_row("SELECT COUNT(*) FROM tripwire_marks", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(left, 0);
-    }
-
-    #[test]
-    fn queuing_supersedes_the_older_queued_trip_on_the_same_tripwire() {
-        let conn = ledger();
-        let w = lay_one(&conn, "w");
-        let other = lay_one(&conn, "other");
-        let Claim::Claimed { trip_id: first } =
-            claim_trip(&conn, w.id, "e1", 1, "inst", None).unwrap()
-        else {
-            panic!("claimed");
-        };
-        let Claim::Claimed { trip_id: second } =
-            claim_trip(&conn, w.id, "e2", 2, "inst", None).unwrap()
-        else {
-            panic!("claimed");
-        };
-        let Claim::Claimed { trip_id: elsewhere } =
-            claim_trip(&conn, other.id, "e3", 3, "inst", None).unwrap()
-        else {
-            panic!("claimed");
-        };
-        queue_trip(&conn, w.id, first).unwrap();
-        queue_trip(&conn, other.id, elsewhere).unwrap();
-        queue_trip(&conn, w.id, second).unwrap();
-
-        assert_eq!(trip(&conn, first).unwrap().unwrap().status, "superseded");
-        assert_eq!(trip(&conn, second).unwrap().unwrap().status, "queued");
-        assert_eq!(
-            trip(&conn, elsewhere).unwrap().unwrap().status,
-            "queued",
-            "another tripwire's queue is its own"
+        assert!(is_trip_session(&conn, mine.id, "sess-trip").unwrap());
+        assert!(
+            !is_trip_session(&conn, theirs.id, "sess-trip").unwrap(),
+            "another tripwire's trip session is an ordinary session to this one ([Q01])"
         );
-        assert_eq!(
-            trip(&conn, first)
-                .unwrap()
-                .unwrap()
-                .swallow_reason
-                .as_deref(),
-            Some("superseded"),
-            "the coalescing is visible in the log"
-        );
+        assert!(!is_trip_session(&conn, mine.id, "sess-somebody-else").unwrap());
     }
 
+    /// The band's count is of trips that ran ([P10]): a broad tripwire's
+    /// busy-skips must not drown it.
     #[test]
-    fn the_oldest_queued_trip_is_the_one_drained_next() {
+    fn trip_count_excludes_skipped_rows() {
         let conn = ledger();
-        let a = lay_one(&conn, "a");
-        let b = lay_one(&conn, "b");
-        let Claim::Claimed { trip_id: newer } =
-            claim_trip(&conn, a.id, "e1", 900, "inst", None).unwrap()
-        else {
-            panic!("claimed");
-        };
-        let Claim::Claimed { trip_id: older } =
-            claim_trip(&conn, b.id, "e2", 100, "inst", None).unwrap()
-        else {
-            panic!("claimed");
-        };
-        queue_trip(&conn, a.id, newer).unwrap();
-        queue_trip(&conn, b.id, older).unwrap();
-        assert_eq!(oldest_queued(&conn).unwrap().unwrap().id, older);
+        let w = lay_one(&conn, "w");
+        assert_eq!(trip_count(&conn, w.id).unwrap(), 0);
+        fire(&conn, w.id, "ran", 1);
+        settled_trip(&conn, w.id, "quiet", 2);
+        write_trip(
+            &conn,
+            w.id,
+            "busy",
+            3,
+            "inst",
+            TripStatus::Skipped,
+            Some(SKIP_BUSY),
+        )
+        .expect("written");
+        assert_eq!(trip_count(&conn, w.id).unwrap(), 2);
+    }
 
-        set_status(&conn, older, TripStatus::Running, None).unwrap();
-        assert_eq!(oldest_queued(&conn).unwrap().unwrap().id, newer);
+    /// The tree sweep's live set, and the one status it must not leave out: a
+    /// user is standing in an adopted trip's worktree ([P05]).
+    #[test]
+    fn live_head_shas_names_only_live_trips() {
+        let conn = ledger();
+        let w = lay_one(&conn, "w");
+        for (i, status) in [
+            TripStatus::Running,
+            TripStatus::Awaiting,
+            TripStatus::Adopted,
+            TripStatus::Quiet,
+            TripStatus::Failed,
+            TripStatus::Skipped,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let id = write_trip(
+                &conn,
+                w.id,
+                &format!("e{i}"),
+                1 + i as i64,
+                "inst",
+                status,
+                None,
+            )
+            .expect("written");
+            record_head_sha(&conn, id, &format!("sha{i}")).unwrap();
+        }
+        let mut live = live_head_shas(&conn).unwrap();
+        live.sort();
+        assert_eq!(live, vec!["sha0", "sha1", "sha2"]);
+
+        let ids = live_trip_ids(&conn).unwrap();
+        assert_eq!(
+            ids.len(),
+            3,
+            "the diff files are swept on the same rule the trees are"
+        );
     }
 
     #[test]
@@ -2988,20 +2939,18 @@ mod tests {
         let conn = ledger();
         let w = lay_one(&conn, "w");
         assert_eq!(running_count(&conn).unwrap(), 0);
-        let Claim::Claimed { trip_id } = claim_trip(&conn, w.id, "e1", 1, "inst", None).unwrap()
-        else {
-            panic!("claimed");
-        };
+        let trip_id = fire(&conn, w.id, "e1", 1);
         record_run(&conn, trip_id, Some("tug-1"), Some("tripwire-w-abc")).unwrap();
         assert_eq!(running_count(&conn).unwrap(), 1);
 
         settle(
             &conn,
             trip_id,
-            TripStatus::Settled,
+            TripStatus::Quiet,
             &Settlement {
                 headline: Some("it broke".to_string()),
                 refs: Some(r#"[{"kind":"arc","target":"tripwire-w-abc"}]"#.to_string()),
+                ..Settlement::default()
             },
             9_000,
         )
@@ -3009,7 +2958,7 @@ mod tests {
         assert_eq!(running_count(&conn).unwrap(), 0);
 
         let settled = trip(&conn, trip_id).unwrap().unwrap();
-        assert_eq!(settled.status, "settled");
+        assert_eq!(settled.status, "quiet");
         assert_eq!(settled.session_id.as_deref(), Some("tug-1"));
         assert_eq!(settled.arc.as_deref(), Some("tripwire-w-abc"));
         assert_eq!(settled.headline.as_deref(), Some("it broke"));
@@ -3020,10 +2969,7 @@ mod tests {
     fn a_probe_tail_is_kept_capped_and_the_cut_is_marked() {
         let conn = ledger();
         let w = lay_one(&conn, "w");
-        let Claim::Claimed { trip_id } = claim_trip(&conn, w.id, "e1", 1, "inst", None).unwrap()
-        else {
-            panic!("claimed");
-        };
+        let trip_id = fire(&conn, w.id, "e1", 1);
         record_probe(&conn, trip_id, 1, "short output").unwrap();
         assert_eq!(
             trip(&conn, trip_id).unwrap().unwrap().probe_tail.as_deref(),
@@ -3048,18 +2994,10 @@ mod tests {
     fn the_boot_sweep_fails_this_instances_orphaned_runs_and_no_others() {
         let conn = ledger();
         let w = lay_one(&conn, "w");
-        let Claim::Claimed { trip_id: mine } =
-            claim_trip(&conn, w.id, "e1", 1, "me", None).unwrap()
-        else {
-            panic!("claimed");
-        };
-        let Claim::Claimed { trip_id: theirs } =
-            claim_trip(&conn, w.id, "e2", 2, "them", None).unwrap()
-        else {
-            panic!("claimed");
-        };
-        record_run(&conn, mine, None, None).unwrap();
-        record_run(&conn, theirs, None, None).unwrap();
+        let mine =
+            write_trip(&conn, w.id, "e1", 1, "me", TripStatus::Running, None).expect("written");
+        let theirs =
+            write_trip(&conn, w.id, "e2", 2, "them", TripStatus::Running, None).expect("written");
 
         assert_eq!(sweep_stale_running(&conn, "me", 5_000).unwrap(), 1);
         assert_eq!(trip(&conn, mine).unwrap().unwrap().status, "failed");
@@ -3070,56 +3008,34 @@ mod tests {
         );
     }
 
-    /// A `claimed` row a dead instance left behind is a crash between the
-    /// claim and its first transition. It is cleared, and the commit it held
-    /// can be claimed again.
-    #[test]
-    fn the_boot_sweep_clears_a_claimed_row_so_the_commit_can_be_claimed_again() {
-        let conn = ledger();
-        let w = lay_one(&conn, "w");
-        assert!(matches!(
-            claim_trip(&conn, w.id, "landing:abc", 1, "me", None).unwrap(),
-            Claim::Claimed { .. }
-        ));
-        assert_eq!(
-            claim_trip(&conn, w.id, "landing:abc", 2, "me", None).unwrap(),
-            Claim::AlreadyClaimed,
-            "the crashed claim poisons the commit until it is swept"
-        );
-
-        assert_eq!(sweep_stale_running(&conn, "me", 5_000).unwrap(), 1);
-        assert!(
-            matches!(
-                claim_trip(&conn, w.id, "landing:abc", 3, "me", None).unwrap(),
-                Claim::Claimed { .. }
-            ),
-            "the same commit can be evaluated again"
-        );
-    }
-
-    /// The age sweep clears another instance's stale claim the same way, and
+    /// The age sweep fails another instance's abandoned run, and
     /// leaves this instance's own rows alone however old they are: a session
     /// this instance is running has no clock on it.
     #[test]
-    fn the_age_sweep_clears_another_instances_claim_and_never_this_instances_rows() {
+    fn the_age_sweep_fails_another_instances_run_and_never_this_instances_rows() {
         let conn = ledger();
         let w = lay_one(&conn, "w");
-        assert!(matches!(
-            claim_trip(&conn, w.id, "landing:theirs", 1, "them", None).unwrap(),
-            Claim::Claimed { .. }
-        ));
-        let Claim::Claimed { trip_id: mine } =
-            claim_trip(&conn, w.id, "landing:mine", 1, "me", None).unwrap()
-        else {
-            panic!("claimed");
-        };
-        record_run(&conn, mine, None, None).unwrap();
+        let theirs = write_trip(
+            &conn,
+            w.id,
+            "fact:t:1",
+            1,
+            "them",
+            TripStatus::Running,
+            None,
+        )
+        .expect("written");
+        let mine = write_trip(&conn, w.id, "fact:m:1", 1, "me", TripStatus::Running, None)
+            .expect("written");
 
         assert_eq!(sweep_orphaned_running(&conn, 5_000, "me").unwrap(), 1);
-        assert!(matches!(
-            claim_trip(&conn, w.id, "landing:theirs", 6_000, "me", None).unwrap(),
-            Claim::Claimed { .. }
-        ));
+        let swept = trip(&conn, theirs).unwrap().unwrap();
+        assert_eq!(swept.status, "failed");
+        assert_eq!(
+            swept.reason.as_deref(),
+            Some("abandoned"),
+            "the row says what became of it"
+        );
         assert_eq!(
             trip(&conn, mine).unwrap().unwrap().status,
             "running",
@@ -3160,7 +3076,6 @@ mod tests {
                 "future",
                 r#"{"portent":{"omen":"raven"}}"#,
                 "diagnose the failure and propose a fix",
-                "main",
                 "Reads a trigger this build does not know",
             ),
             1,
@@ -3178,19 +3093,52 @@ mod tests {
     #[test]
     fn every_status_spelling_round_trips() {
         for s in [
-            TripStatus::Claimed,
-            TripStatus::Swallowed,
-            TripStatus::Queued,
-            TripStatus::Superseded,
+            TripStatus::Skipped,
             TripStatus::Running,
-            TripStatus::Settled,
+            TripStatus::Quiet,
             TripStatus::Awaiting,
-            TripStatus::Failed,
             TripStatus::Adopted,
+            TripStatus::Failed,
         ] {
             assert_eq!(TripStatus::parse(s.as_str()), Some(s));
         }
         assert_eq!(TripStatus::parse("nonsense"), None);
+    }
+
+    /// The seat write names the session on a running row and refuses a
+    /// settled one, which is how a trip whose own verb won the poll keeps its
+    /// settle while still being reachable (Risk R03).
+    #[test]
+    fn record_session_if_running_writes_only_a_running_row() {
+        let conn = ledger();
+        let tripwire = lay_one(&conn, "ci");
+        let trip_id = fire(&conn, tripwire.id, "fact:i:1", 1);
+        record_run(&conn, trip_id, None, None).unwrap();
+
+        assert!(record_session_if_running(&conn, trip_id, "sess-seated").unwrap());
+        let seated = trip(&conn, trip_id).unwrap().unwrap();
+        assert_eq!(seated.session_id.as_deref(), Some("sess-seated"));
+        assert_eq!(seated.status, "running", "the seat settles nothing");
+
+        // A second trip, settled before anything seats it: the write is
+        // refused and the row keeps its null.
+        let settled = fire(&conn, tripwire.id, "fact:i:2", 2);
+        settle(
+            &conn,
+            settled,
+            TripStatus::Quiet,
+            &Settlement {
+                headline: Some("nothing to report".to_string()),
+                ..Settlement::default()
+            },
+            5,
+        )
+        .unwrap();
+
+        assert!(!record_session_if_running(&conn, settled, "sess-late").unwrap());
+        let held = trip(&conn, settled).unwrap().unwrap();
+        assert_eq!(held.session_id, None);
+        assert_eq!(held.status, "quiet");
     }
 
     /// A card taking the session over moves the trip to `adopted` and writes
@@ -3201,11 +3149,7 @@ mod tests {
     fn adopting_moves_a_running_trip_and_loses_to_a_settle_that_landed_first() {
         let conn = ledger();
         let tripwire = lay_one(&conn, "ci");
-        let Claim::Claimed { trip_id } =
-            claim_trip(&conn, tripwire.id, "landing:abc", 1, "inst-a", None).unwrap()
-        else {
-            panic!("claimed");
-        };
+        let trip_id = fire(&conn, tripwire.id, "fact:i:1", 1);
         record_run(&conn, trip_id, Some("sess-a"), None).unwrap();
 
         assert!(adopt_if_running(&conn, trip_id, "a card took it over", 9).unwrap());
@@ -3229,17 +3173,14 @@ mod tests {
     /// The split [B10] made: the busy guard and the tree sweep stopped being
     /// one set. An adopted trip does not hold the tripwire's live-run slot —
     /// it may fire again while the user works — but its tree is a directory
-    /// somebody is sitting in, so the sweep still sees its event key.
+    /// somebody is sitting in, so the sweep still sees its sha.
     #[test]
     fn an_adopted_trip_frees_the_busy_slot_and_keeps_its_tree() {
         let conn = ledger();
         let tripwire = lay_one(&conn, "ci");
-        let Claim::Claimed { trip_id } =
-            claim_trip(&conn, tripwire.id, "landing:abc", 1, "inst-a", None).unwrap()
-        else {
-            panic!("claimed");
-        };
+        let trip_id = fire(&conn, tripwire.id, "fact:i:1", 1);
         record_run(&conn, trip_id, Some("sess-a"), None).unwrap();
+        record_head_sha(&conn, trip_id, "abc123").unwrap();
         assert!(live_trip(&conn, tripwire.id).unwrap().is_some());
 
         adopt_if_running(&conn, trip_id, "a card took it over", 9).unwrap();
@@ -3249,8 +3190,8 @@ mod tests {
             "an adopted trip is the user's, not a hold on the tripwire",
         );
         assert_eq!(
-            live_event_keys(&conn).unwrap(),
-            vec!["landing:abc".to_string()],
+            live_head_shas(&conn).unwrap(),
+            vec!["abc123".to_string()],
             "the sweep must not delete a tree somebody is working in",
         );
     }
@@ -3261,11 +3202,7 @@ mod tests {
     fn an_adopted_trip_still_resolves() {
         let conn = ledger();
         let tripwire = lay_one(&conn, "ci");
-        let Claim::Claimed { trip_id } =
-            claim_trip(&conn, tripwire.id, "landing:abc", 1, "inst-a", None).unwrap()
-        else {
-            panic!("claimed");
-        };
+        let trip_id = fire(&conn, tripwire.id, "fact:i:1", 1);
         record_run(&conn, trip_id, Some("sess-a"), Some("tripwire-ci-abc12345")).unwrap();
         adopt_if_running(&conn, trip_id, "a card took it over", 9).unwrap();
 
@@ -3275,7 +3212,7 @@ mod tests {
             resolve_running(
                 &conn,
                 tripwire.id,
-                TripStatus::Settled,
+                TripStatus::Quiet,
                 &Settlement::default(),
                 None,
                 10,
@@ -3291,22 +3228,14 @@ mod tests {
             ..Settlement::default()
         };
         assert_eq!(
-            resolve_adopted(
-                &conn,
-                tripwire.id,
-                TripStatus::Settled,
-                &settlement,
-                None,
-                11,
-            )
-            .unwrap(),
+            resolve_adopted(&conn, tripwire.id, TripStatus::Quiet, &settlement, None, 11,).unwrap(),
             Resolution::Resolved {
                 trip_id,
                 arc: Some("tripwire-ci-abc12345".to_string()),
             }
         );
         let settled = trip(&conn, trip_id).unwrap().unwrap();
-        assert_eq!(settled.status, "settled");
+        assert_eq!(settled.status, "quiet");
         assert_eq!(settled.settled_at_ms, Some(11));
     }
 
@@ -3324,7 +3253,7 @@ mod tests {
             resolve_running(
                 &conn,
                 tripwire.id,
-                TripStatus::Settled,
+                TripStatus::Quiet,
                 &Settlement::default(),
                 None,
                 1,
@@ -3333,29 +3262,35 @@ mod tests {
             Resolution::NoLiveTrip { state: None }
         );
 
-        let Claim::Claimed { trip_id } =
-            claim_trip(&conn, tripwire.id, "landing:abc", 1, "inst-a", None).unwrap()
-        else {
-            panic!("claimed");
-        };
-
-        // Claimed is not running: a trip nobody started cannot be resolved,
-        // and the refusal names the state rather than the fact of refusal.
+        // A skipped trip is not a running one: a trip that never ran cannot be
+        // resolved, and the refusal names the state rather than the bare fact
+        // of refusal.
+        write_trip(
+            &conn,
+            tripwire.id,
+            "fact:i:0",
+            1,
+            "inst-a",
+            TripStatus::Skipped,
+            Some(SKIP_BUSY),
+        )
+        .expect("written");
         assert_eq!(
             resolve_running(
                 &conn,
                 tripwire.id,
-                TripStatus::Settled,
+                TripStatus::Quiet,
                 &Settlement::default(),
                 None,
                 2,
             )
             .unwrap(),
             Resolution::NoLiveTrip {
-                state: Some("claimed".to_string())
+                state: Some("skipped".to_string())
             }
         );
 
+        let trip_id = fire(&conn, tripwire.id, "fact:i:1", 3);
         record_run(&conn, trip_id, Some("sess-a"), Some("tripwire-ci-abc12345")).unwrap();
         let settlement = Settlement {
             headline: Some("the assertion is stale".to_string()),
@@ -3395,11 +3330,7 @@ mod tests {
     fn a_dismissal_settles_the_awaiting_trip_and_names_its_arc() {
         let conn = ledger();
         let tripwire = lay_one(&conn, "ci");
-        let Claim::Claimed { trip_id } =
-            claim_trip(&conn, tripwire.id, "landing:abc", 1, "inst-a", None).unwrap()
-        else {
-            panic!("claimed");
-        };
+        let trip_id = fire(&conn, tripwire.id, "fact:i:1", 1);
         record_run(&conn, trip_id, Some("sess-a"), Some("tripwire-ci-abc12345")).unwrap();
 
         // A running trip is not a dismissable one.
@@ -3430,7 +3361,7 @@ mod tests {
                 arc: Some("tripwire-ci-abc12345".to_string()),
             }
         );
-        assert_eq!(trip(&conn, trip_id).unwrap().unwrap().status, "settled");
+        assert_eq!(trip(&conn, trip_id).unwrap().unwrap().status, "quiet");
         assert_eq!(
             live_trip(&conn, tripwire.id).unwrap(),
             None,
@@ -3449,11 +3380,7 @@ mod tests {
     fn the_sweep_loses_to_a_dismissal_that_already_landed() {
         let conn = ledger();
         let tripwire = lay_one(&conn, "ci");
-        let Claim::Claimed { trip_id } =
-            claim_trip(&conn, tripwire.id, "landing:abc", 1, "inst-a", None).unwrap()
-        else {
-            panic!("claimed");
-        };
+        let trip_id = fire(&conn, tripwire.id, "fact:i:1", 1);
         record_run(&conn, trip_id, Some("sess-a"), Some("tripwire-ci-abc12345")).unwrap();
         resolve_running(
             &conn,

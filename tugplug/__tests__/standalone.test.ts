@@ -243,65 +243,60 @@ describe("the arc verbs on a project that declares nothing", () => {
  * bundle owes a user whose machine has none of our files on it.
  *
  * **What this does not prove, and why.** There is no `Tug.app` here and
- * therefore no engine, so nothing turns the hand-fired claim into a firing:
- * `trip` writes the row and reports that no live instance took it, the row
- * stands `queued`, and the next engine to run would pick it up. So no probe
- * runs, no session is spawned, and nothing settles. The firing is proved by
- * the app-tests against a real `Tug.app`; asserting it here would be claiming
- * more than the lab runs.
+ * therefore no engine, and the engine is what mints a trip row — so `trip`
+ * refuses outright and says there is no instance to fire it in, rather than
+ * writing a row nothing would ever pick up. That refusal is what this asserts.
+ * No probe runs, no session is spawned, and nothing settles. The firing is
+ * proved by the app-tests against a real `Tug.app`; asserting it here would be
+ * claiming more than the lab runs.
  */
 describe("the tripwire door on a project with nothing of ours", () => {
   const name = "standalone-smoke";
   const brief = "Say whether this failure is the tool's fault or the program's, and name the file.";
+  const description = "Says whether a refused edit was the tool's fault or the caller's";
   const roster = () => JSON.parse(tugtool(["--json", "tripwire", "list"]).out).data as { name: string; paused: boolean; probe: string | null }[];
 
-  test("lay --preview → lay → list → trip → log → edit → pause → resume → rm", () => {
+  test("lay --preview → lay → list → trip → edit → pause → resume → rm", () => {
     // 1. Validate. `--preview` parses everything and writes nothing, which is
     //    what the second half of this assertion is for: a preview that laid a
     //    tripwire would be a syntax check with a side effect.
-    const preview = tugtool(["--json", "tripwire", "lay", name, "--on", "fact:edit_failed", "--brief", brief, "--scope", project, "--preview"]);
+    const preview = tugtool(["--json", "tripwire", "lay", name, "--on", "fact:edit_failed", "--brief", brief, "--description", description, "--scope", project, "--preview"]);
     expect(preview.code, preview.err).toBe(0);
     const previewed = JSON.parse(preview.out).data;
     expect(previewed.trigger).toBe(JSON.stringify({ fact: { kind: "edit_failed" } }));
-    // The branch is read from the scope's own repository rather than declared.
-    expect(previewed.branch).toBe("main");
     expect(previewed.scope).toBe(realpathSync(project));
     expect(roster().find((w) => w.name === name)).toBeUndefined();
 
     // 2. Lay it. The receipt is the tripwire.
-    const laid = tugtool(["--json", "tripwire", "lay", name, "--on", "fact:edit_failed", "--brief", brief, "--scope", project]);
+    const laid = tugtool(["--json", "tripwire", "lay", name, "--on", "fact:edit_failed", "--brief", brief, "--description", description, "--scope", project]);
     expect(laid.code, laid.err).toBe(0);
-    expect(JSON.parse(laid.out).data).toMatchObject({ name, branch: "main", brief, paused: false });
+    expect(JSON.parse(laid.out).data).toMatchObject({ name, brief, description, paused: false });
 
     // 3. Read the roster back — the same projection the card and the feed read.
     expect(roster().find((w) => w.name === name)).toMatchObject({ paused: false, running: false, awaiting: false });
 
-    // 4. Fire it by hand. A manual event key is unique by construction, so the
-    //    permanent landing claim cannot swallow a bench test.
+    // 4. Fire it by hand — and meet the refusal, because the engine that mints
+    //    a trip row lives in the app and there is no app here. Naming the
+    //    reason rather than merely failing is the point: the user is sent to
+    //    start Tug rather than left to guess at the tripwire.
     const fired = tugtool(["--json", "tripwire", "trip", name]);
-    expect(fired.code, fired.err).toBe(0);
-    const trip = JSON.parse(fired.out).data;
-    expect(trip.tripwire).toBe(name);
-    expect(trip.event_key).toStartWith("manual:");
-    // Queued rather than running: there is no engine on this machine.
-    expect(trip.status).toBe("queued");
+    expect(fired.code).not.toBe(0);
+    expect(fired.err).toContain("no Tug instance is running to fire it in");
+    // And nothing was written: a refusal that left a row behind would be a row
+    // some later engine picked up for a bench test nobody is watching.
+    expect(JSON.parse(tugtool(["--json", "tripwire", "log", name]).out).data).toHaveLength(0);
 
-    // 5. The log carries it — including, as here, the firings that ran nothing.
-    const log = JSON.parse(tugtool(["--json", "tripwire", "log", name]).out).data as { id: number; event_key: string; status: string }[];
-    expect(log.map((t) => [t.event_key, t.status])).toEqual([[trip.event_key, "queued"]]);
-
-    // 6. Revise in place. What is not named is left alone, and the log survives.
+    // 5. Revise in place. What is not named is left alone.
     const edited = tugtool(["--json", "tripwire", "edit", name, "--probe", "true"]);
     expect(edited.code, edited.err).toBe(0);
     expect(JSON.parse(edited.out).data).toMatchObject({ probe: "true", brief });
-    expect(JSON.parse(tugtool(["--json", "tripwire", "log", name]).out).data).toHaveLength(1);
 
-    // 7. Out of service and back, keeping the tripwire and its log.
+    // 6. Out of service and back, keeping the tripwire and its log.
     expect(JSON.parse(tugtool(["--json", "tripwire", "pause", name]).out).data.paused).toBe(true);
     expect(roster().find((w) => w.name === name)?.paused).toBe(true);
     expect(JSON.parse(tugtool(["--json", "tripwire", "resume", name]).out).data.paused).toBe(false);
 
-    // 8. Gone, with its log.
+    // 7. Gone, with its log.
     const removed = tugtool(["--json", "tripwire", "rm", name]);
     expect(removed.code, removed.err).toBe(0);
     expect(JSON.parse(removed.out).data).toMatchObject({ tripwire: name, removed: true });
@@ -310,7 +305,7 @@ describe("the tripwire door on a project with nothing of ours", () => {
 
   test("a brief that says nothing is refused, at the lay and at the preview", () => {
     for (const tail of [[], ["--preview"]]) {
-      const r = tugtool(["--json", "tripwire", "lay", "standalone-empty", "--on", "fact:edit_failed", "--brief", "look at it", "--scope", project, ...tail]);
+      const r = tugtool(["--json", "tripwire", "lay", "standalone-empty", "--on", "fact:edit_failed", "--brief", "look at it", "--description", description, "--scope", project, ...tail]);
       expect(r.code, `${r.out}${r.err}`).not.toBe(0);
       // Named rather than merely non-zero: an exit code alone would pass on a
       // refusal about anything else, which is the whole of what this asserts.

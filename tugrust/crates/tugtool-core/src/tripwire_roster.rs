@@ -5,7 +5,7 @@
 //!
 //! **It has three callers, and that is the point.** The HTTP surface
 //! (`tugcast::tripwires_api`), the `TRIPWIRES` feed, and `tugtool tripwire
-//! list` all compute their answer here, so the card, the wire and the command
+//! list` all compute their answer here, so the card, the feed and the command
 //! line cannot disagree about whether a tripwire is running. That is what
 //! [B05]'s "one projection over one ledger" means — *not* one endpoint: the
 //! CLI has to work with the app closed, so the projection is a library
@@ -17,8 +17,8 @@
 //! a tripwire that is running reported as idle, and nobody told. [`row_for`]
 //! returns a `Result` and the same failure now reaches the caller, which the
 //! feed needs: Spec S01's frame has an `error` field so it can say a read
-//! failed rather than publish a roster of `false`. Do not restore the swallow
-//! as a kindness.
+//! failed rather than publish a roster of `false`. Do not put the quiet
+//! fallback back as a kindness.
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -47,6 +47,10 @@ pub struct LastTrip {
     pub at_ms: i64,
     pub status: String,
     pub headline: Option<String>,
+    /// The session the newest trip ran in, when it had one — including a trip
+    /// that finished quiet, whose session is still the one Open session opens
+    /// ([P10]).
+    pub session_id: Option<String>,
 }
 
 /// One tripwire as the card, the feed and the CLI read it (Spec S02).
@@ -66,20 +70,21 @@ pub struct RosterRow {
     /// it.
     pub description: String,
     pub model: Option<String>,
-    pub branch: String,
     pub permission_mode: String,
     pub paused: bool,
     pub running: bool,
     pub adopted: bool,
-    /// The session the live dot reads. A trip running its probe has none yet,
-    /// and the section shows a plain running dot for that stretch rather than
-    /// a session dot keyed on nothing.
+    /// The session the row's dot reads and the row menu's Open session opens
+    /// — the two have to be the same value or the dot lies ([P10]).
     ///
-    /// An adopted trip's session falls in here when nothing is running,
-    /// because the alternative is that the row goes dark the instant it is
-    /// adopted — and the dot the user reaches the session through is the one
-    /// thing that must not disappear at that moment.
-    pub running_session: Option<String>,
+    /// The running trip's session, else the adopted trip's, else the newest
+    /// trip's when it had one. The last of the three is what makes a *quiet*
+    /// resolution reachable ([B04]): a trip that found nothing still ran a
+    /// session somebody may want to read, and the row going dark the moment it
+    /// finished is the thing this fallback exists to stop. A trip running its
+    /// probe has no session yet, and the row shows a plain running dot for
+    /// that stretch rather than a session dot keyed on nothing.
+    pub open_session: Option<String>,
     pub awaiting: bool,
     pub awaiting_arc: Option<String>,
     /// The arc an *adopted* trip is holding, when it holds one.
@@ -90,6 +95,10 @@ pub struct RosterRow {
     /// awaiting case would destroy a worktree it never mentioned.
     pub adopted_arc: Option<String>,
     pub last_trip: Option<LastTrip>,
+    /// How many trips this tripwire has that actually ran — the number the
+    /// card's band sums ([P10]). `skipped` rows are excluded, so a broad
+    /// tripwire's busy-skips do not drown the count.
+    pub trip_count: i64,
     /// [P03]. An opaque equality token over the tripwire's trip log — nothing
     /// may order or subtract two of them. Masked to 53 bits so it survives a
     /// JSON round trip into a TypeScript `number`.
@@ -111,7 +120,7 @@ pub fn row_for(conn: &Connection, tripwire: &Tripwire) -> Result<RosterRow, Trip
         .iter()
         .find(|t| t.status == TripStatus::Running.as_str());
     // Awaiting is what the card exists to surface: a run that finished with
-    // something the user should see and is holding the wire's live-run slot
+    // something the user should see and is holding the tripwire's live-run slot
     // until they see it ([P07]). The arc it is holding comes back with it,
     // because that arc is the thing there is to decide about. Nothing checks
     // the arc is still on disk: an arc that was joined or discarded resolves
@@ -135,13 +144,21 @@ pub fn row_for(conn: &Connection, tripwire: &Tripwire) -> Result<RosterRow, Trip
         brief: tripwire.brief.clone(),
         description: tripwire.description.clone(),
         model: tripwire.model.clone(),
-        branch: tripwire.branch.clone(),
         permission_mode: tripwire.permission_mode.clone(),
         paused: tripwire.paused,
         running: running.is_some(),
         adopted: adopted.is_some(),
-        running_session: running.or(adopted).and_then(|t| t.session_id.clone()),
-        // An awaiting run has finished — it holds the wire's slot, it is not
+        // Then the newest trip that *had* a session, which is not the same as
+        // the newest trip. A tripwire with a live trip writes a `skipped` row
+        // per matching fact, and a skip never ran a session at all — so
+        // reading `first()` here put the row dark the moment one skip was
+        // written after the quiet trip whose session is the one Open session
+        // means ([B04], [P10]).
+        open_session: running
+            .or(adopted)
+            .or_else(|| trips.iter().find(|t| t.session_id.is_some()))
+            .and_then(|t| t.session_id.clone()),
+        // An awaiting run has finished — it holds the tripwire's slot, it is not
         // working — so `awaiting` deliberately does not imply `running`.
         awaiting: awaiting.is_some(),
         awaiting_arc: awaiting.and_then(|t| t.arc.clone()),
@@ -150,7 +167,9 @@ pub fn row_for(conn: &Connection, tripwire: &Tripwire) -> Result<RosterRow, Trip
             at_ms: t.at_ms,
             status: t.status.clone(),
             headline: t.headline.clone(),
+            session_id: t.session_id.clone(),
         }),
+        trip_count: ledger::trip_count(conn, tripwire.id)?,
         trip_log_revision: trip_log_revision(conn, tripwire.id)?,
     })
 }
@@ -159,9 +178,9 @@ pub fn row_for(conn: &Connection, tripwire: &Tripwire) -> Result<RosterRow, Trip
 /// [`REVISION_DEPTH`] trips, masked to 53 bits ([P03]).
 ///
 /// The columns that move in place — `status`, `settled_at_ms`, `probe_exit`,
-/// `headline`, `author_ask`, `arc`, `session_id`, `swallow_reason` — go in by
+/// `headline`, `author_ask`, `arc`, `session_id`, `reason` — go in by
 /// value. The three bulky ones — `probe_tail` (8 KiB cap), `refs` and
-/// `event_payload` (a landing's whole JSON) — go in by `LENGTH`, because 500
+/// `event_payload` (the fact's whole JSON) — go in by `LENGTH`, because 500
 /// rows of them by value would be megabytes of transient string per recompose,
 /// and every statement that writes one of them also moves a by-value column.
 ///
@@ -177,7 +196,7 @@ pub fn trip_log_revision(conn: &Connection, tripwire_id: i64) -> Result<i64, Tri
                 quote(at_ms)          || char(31) || quote(settled_at_ms) || char(31) ||
                 quote(probe_exit)     || char(31) || quote(headline)      || char(31) ||
                 quote(author_ask)     || char(31) || quote(arc)           || char(31) ||
-                quote(session_id)     || char(31) || quote(swallow_reason)|| char(31) ||
+                quote(session_id)     || char(31) || quote(reason)        || char(31) ||
                 quote(event_key)      || char(31) || quote(instance)      || char(31) ||
                 COALESCE(LENGTH(probe_tail), -1)    || char(31) ||
                 COALESCE(LENGTH(refs), -1)          || char(31) ||
@@ -210,7 +229,7 @@ fn fnv1a_53(bytes: &[u8]) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tripwire_ledger::{Claim, NewTripwire, Settlement};
+    use crate::tripwire_ledger::{NewTrip, NewTripwire, Settlement, TripStatus};
 
     fn scratch() -> (tempfile::TempDir, Connection) {
         let dir = tempfile::tempdir().unwrap();
@@ -225,7 +244,6 @@ mod tests {
                 name,
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "report anything that looks wrong",
-                "main",
                 "Reports anything that looks wrong on main",
             ),
             1,
@@ -233,13 +251,23 @@ mod tests {
         .unwrap()
     }
 
-    fn claim(conn: &Connection, tripwire: &Tripwire, key: &str, at_ms: i64) -> i64 {
-        let Claim::Claimed { trip_id } =
-            ledger::claim_trip(conn, tripwire.id, key, at_ms, "inst", None).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
-        trip_id
+    /// A trip in the state the engine would have written it in.
+    fn fire(conn: &Connection, tripwire: &Tripwire, key: &str, at_ms: i64) -> i64 {
+        ledger::insert_trip(
+            conn,
+            &NewTrip {
+                tripwire_id: tripwire.id,
+                event_key: key.to_string(),
+                at_ms,
+                instance: "inst".to_string(),
+                status: TripStatus::Running,
+                reason: None,
+                event_payload: None,
+                repo_root: None,
+            },
+        )
+        .unwrap()
+        .expect("this tripwire has no row for that key yet")
     }
 
     #[test]
@@ -248,12 +276,11 @@ mod tests {
         let tripwire = lay(&conn, "ci");
         let row = row_for(&conn, &tripwire).unwrap();
         assert_eq!(row.name, "ci");
-        assert_eq!(row.branch, "main");
         assert!(!row.paused);
         assert!(!row.running);
         assert!(!row.awaiting);
         assert!(!row.adopted);
-        assert!(row.running_session.is_none());
+        assert!(row.open_session.is_none());
         assert!(row.awaiting_arc.is_none());
         assert!(
             row.last_trip.is_none(),
@@ -273,14 +300,14 @@ mod tests {
         let (_dir, conn) = scratch();
         let ci = lay(&conn, "ci");
         let other = lay(&conn, "other");
-        let trip_id = claim(&conn, &ci, "abc", 10);
+        let trip_id = fire(&conn, &ci, "abc", 10);
         ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
 
         let rows = roster(&conn).unwrap();
         assert_eq!(rows.len(), 2);
         assert!(rows[0].running);
         assert_eq!(
-            rows[0].running_session.as_deref(),
+            rows[0].open_session.as_deref(),
             Some("sess-1"),
             "the live dot is keyed on the session, so the projection has to carry it"
         );
@@ -295,7 +322,7 @@ mod tests {
     fn an_awaiting_trip_shows_with_the_arc_it_is_holding() {
         let (_dir, conn) = scratch();
         let ci = lay(&conn, "ci");
-        let trip_id = claim(&conn, &ci, "abc", 10);
+        let trip_id = fire(&conn, &ci, "abc", 10);
         ledger::record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-ci-abcd1234")).unwrap();
         ledger::settle(
             &conn,
@@ -314,7 +341,7 @@ mod tests {
         assert_eq!(row.awaiting_arc.as_deref(), Some("tripwire-ci-abcd1234"));
         assert!(
             !row.running,
-            "an awaiting run has finished — it holds the wire's slot, it is not working"
+            "an awaiting run has finished — it holds the tripwire's slot, it is not working"
         );
         assert_eq!(
             row.last_trip.as_ref().unwrap().headline.as_deref(),
@@ -322,7 +349,7 @@ mod tests {
         );
     }
 
-    /// An adopted trip's session fills `running_session` when nothing is
+    /// An adopted trip's session fills `open_session` when nothing is
     /// running, so the row does not go dark the instant somebody takes it
     /// over — and the arc it is holding comes back beside it, because a
     /// removal discards that arc and the confirm has to be able to name it.
@@ -330,15 +357,86 @@ mod tests {
     fn an_adopted_trips_session_keeps_the_row_lit() {
         let (_dir, conn) = scratch();
         let ci = lay(&conn, "ci");
-        let trip_id = claim(&conn, &ci, "abc", 10);
+        let trip_id = fire(&conn, &ci, "abc", 10);
         ledger::record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-ci-abcd1234")).unwrap();
         ledger::adopt_if_running(&conn, trip_id, "taken over", 20).unwrap();
 
         let row = row_for(&conn, &ci).unwrap();
         assert!(row.adopted);
         assert!(!row.running);
-        assert_eq!(row.running_session.as_deref(), Some("sess-1"));
+        assert_eq!(row.open_session.as_deref(), Some("sess-1"));
         assert_eq!(row.adopted_arc.as_deref(), Some("tripwire-ci-abcd1234"));
+    }
+
+    /// A quiet trip's session is the one Open session opens, and a `skipped`
+    /// row written after it does not take that away.
+    ///
+    /// The skip is the case that matters, because it is the common one: a
+    /// tripwire with a live trip writes one `skipped` row per matching fact,
+    /// and those rows are the newest rows in the log while carrying no session
+    /// at all. A fallback that read the newest row rather than the newest row
+    /// *with a session* left a finished trip's work unreachable the moment a
+    /// single fact arrived behind it — which is the thing [B04] exists to stop.
+    #[test]
+    fn a_quiet_trips_session_is_the_one_open_session_opens() {
+        let (_dir, conn) = scratch();
+        let ci = lay(&conn, "ci");
+        let trip_id = fire(&conn, &ci, "fact:inst:1", 10);
+        ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
+        ledger::resolve_running(
+            &conn,
+            ci.id,
+            TripStatus::Quiet,
+            &Settlement {
+                headline: None,
+                ..Settlement::default()
+            },
+            None,
+            20,
+        )
+        .unwrap();
+
+        let row = row_for(&conn, &ci).unwrap();
+        assert!(!row.running);
+        assert_eq!(
+            row.open_session.as_deref(),
+            Some("sess-1"),
+            "a trip that resolved quiet still did the work, so its session stays openable"
+        );
+
+        // And a skip on top of it — the shape a busy tripwire writes by the
+        // dozen — is a row with no session, not an answer to this question.
+        ledger::insert_trip(
+            &conn,
+            &NewTrip {
+                tripwire_id: ci.id,
+                event_key: "fact:inst:2".to_string(),
+                at_ms: 30,
+                instance: "inst".to_string(),
+                status: TripStatus::Skipped,
+                reason: Some(ledger::SKIP_BUSY.to_string()),
+                event_payload: None,
+                repo_root: None,
+            },
+        )
+        .unwrap()
+        .expect("the skip is this tripwire's first row for that key");
+
+        let row = row_for(&conn, &ci).unwrap();
+        assert_eq!(
+            row.last_trip.as_ref().unwrap().status,
+            TripStatus::Skipped.as_str(),
+            "the skip is the newest row, and the log says so"
+        );
+        assert_eq!(
+            row.open_session.as_deref(),
+            Some("sess-1"),
+            "but it never ran a session, so it is not what Open session opens"
+        );
+        assert_eq!(
+            row.trip_count, 1,
+            "and it is not a trip the band counts either"
+        );
     }
 
     /// Risk R01 as a checked property rather than an argument: each of the four
@@ -349,7 +447,7 @@ mod tests {
     fn every_in_place_write_moves_the_revision() {
         let (_dir, conn) = scratch();
         let ci = lay(&conn, "ci");
-        let trip_id = claim(&conn, &ci, "abc", 10);
+        let trip_id = fire(&conn, &ci, "abc", 10);
 
         let claimed = trip_log_revision(&conn, ci.id).unwrap();
         assert_ne!(claimed, 0, "a claimed trip is a log with something in it");
@@ -376,7 +474,7 @@ mod tests {
         let settled = trip_log_revision(&conn, ci.id).unwrap();
         assert_ne!(settled, ran, "settle");
 
-        let trip_id2 = claim(&conn, &ci, "def", 30);
+        let trip_id2 = fire(&conn, &ci, "def", 30);
         ledger::record_run(&conn, trip_id2, Some("sess-2"), None).unwrap();
         let before_adopt = trip_log_revision(&conn, ci.id).unwrap();
         ledger::adopt_if_running(&conn, trip_id2, "taken over", 40).unwrap();
@@ -394,7 +492,7 @@ mod tests {
         let other = lay(&conn, "other");
         let quiet = trip_log_revision(&conn, ci.id).unwrap();
 
-        let trip_id = claim(&conn, &other, "abc", 10);
+        let trip_id = fire(&conn, &other, "abc", 10);
         ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
 
         assert_eq!(trip_log_revision(&conn, ci.id).unwrap(), quiet);
@@ -407,7 +505,7 @@ mod tests {
         let (_dir, conn) = scratch();
         let ci = lay(&conn, "ci");
         for i in 0..REVISION_DEPTH {
-            claim(&conn, &ci, &format!("key-{i}"), 10 + i);
+            fire(&conn, &ci, &format!("key-{i}"), 10 + i);
         }
         let revision = trip_log_revision(&conn, ci.id).unwrap();
         assert!(revision > 0);

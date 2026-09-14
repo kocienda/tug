@@ -73,7 +73,8 @@
   gap: var(--tug-space-xs);
 }
 
-.tripwires-band-count[data-state="paused"] {
+.tripwires-band-count[data-state="paused"],
+.tripwires-band-count[data-state="tripped"] {
   color: var(--tugx-text-muted);
 }
 
@@ -151,12 +152,6 @@
 .tripwires-sentence {
   flex: 1 1 auto;
   min-width: 0;
-}
-
-/* The branch, at the row's own size: it is the tripwire's other half, and a
-   2xs badge read as a footnote on a line that is not one ([B06]). */
-.tripwires-branch {
-  flex: 0 0 auto;
 }
 
 /* The mark's box is fixed so the sentence beside it stands at one x whether the

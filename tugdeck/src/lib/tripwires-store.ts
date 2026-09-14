@@ -57,8 +57,6 @@ export interface TripwireRow {
    *  revision; the card simply does not render it. */
   readonly description: string;
   readonly model: string | null;
-  /** The base branch a landing has to be onto for this tripwire to fire. */
-  readonly branch: string;
   readonly permission_mode: string;
   readonly paused: boolean;
   /** A trip is running for this tripwire right now. */
@@ -67,11 +65,12 @@ export interface TripwireRow {
    *  working in it. Not a hold on the tripwire — it may fire again while they
    *  work — but the session is alive and the row's live dot reaches it. */
   readonly adopted: boolean;
-  /** The running trip's session, when it has one. A trip still inside its
-   *  probe is running with no session yet, and the two dots differ. Carries
-   *  the **adopted** trip's session when nothing is running, so a row does not
-   *  go dark at the moment somebody takes its session over. */
-  readonly running_session: string | null;
+  /** The session Open session opens: the running trip's, else the adopted
+   *  trip's, else the newest trip that had one ([P10]). A trip still inside
+   *  its probe is running with no session yet, and the two dots differ. A
+   *  quiet trip's session stays openable, so a row whose work is done is not
+   *  a row whose session is gone. */
+  readonly open_session: string | null;
   /** A run finished with something the user should see and is holding until
    *  they see it ([P07]) — the state the row's yellow dot reads. */
   readonly awaiting: boolean;
@@ -82,6 +81,9 @@ export interface TripwireRow {
    *  this is the other half of what a Delete confirm has to name. */
   readonly adopted_arc: string | null;
   readonly last_trip: TripwireLastTrip | null;
+  /** How many trips this tripwire has that actually ran — the number the
+   *  band sums ([P10]). `skipped` rows are excluded. */
+  readonly trip_count: number;
   /** An opaque equality token over this tripwire's trip log. Nothing may order
    *  or subtract two of them — the only question it answers is whether an open
    *  log is stale, which is what lets the log be a request with no timer. */
@@ -92,6 +94,9 @@ export interface TripwireLastTrip {
   readonly at_ms: number;
   readonly status: string;
   readonly headline: string | null;
+  /** The session that trip ran in, when it had one — including a quiet one,
+   *  which is what keeps Open session reachable from a finished row. */
+  readonly session_id: string | null;
 }
 
 /** One firing, as `GET /api/tripwires/<name>/trips` serializes the row. */
@@ -102,7 +107,7 @@ export interface TripRow {
   readonly at_ms: number;
   readonly instance: string;
   readonly status: string;
-  readonly swallow_reason: string | null;
+  readonly reason: string | null;
   readonly event_payload: string | null;
   readonly probe_exit: number | null;
   readonly probe_tail: string | null;
@@ -114,6 +119,11 @@ export interface TripRow {
   /** What a resolution asked to have authored, when it asked for anything.
    *  `null` on a resolution that settled the firing outright. */
   readonly author_ask: string | null;
+  /** The checkout the fact came from — the repository the trip's disposable
+   *  worktree was cut from. */
+  readonly repo_root: string | null;
+  /** The commit that worktree stands at. */
+  readonly head_sha: string | null;
 }
 
 export interface TripwiresSnapshot {
@@ -127,7 +137,7 @@ export interface TripwiresSnapshot {
   readonly logErrors: Readonly<Record<string, string>>;
   /** Non-null when the roster itself could not be read, or a write against it
    *  failed. The rows stay as they were. A log fetch's failure is scoped to
-   *  its own row in `logErrors` rather than landing here. */
+   *  its own row in `logErrors` rather than arriving here. */
   readonly error: string | null;
   /** False until the first frame lands, so the section can tell empty from
    *  unasked — an empty list and a list nobody has heard about look identical. */
@@ -231,7 +241,7 @@ export class TripwiresStore {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const body = (await resp.json()) as { trips?: TripRow[] };
       // The revision read *here*, as the answer commits — never the one that
-      // was current when the request went out. A frame landing mid-flight
+      // was current when the request went out. A frame arriving mid-flight
       // would otherwise mark a log fresh against a revision its rows predate.
       const current = this.snapshot.tripwires.find((w) => w.name === name);
       if (current !== undefined) this.loadedRevisions.set(name, current.trip_log_revision);

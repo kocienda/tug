@@ -3,7 +3,7 @@
  *
  * What these pin is a single rule: nothing the ledger stores as an enum, a mode
  * string, or a JSON predicate reaches the surface in that form. A reader who has
- * not read the schema met `settled`, `swallowed: busy` and
+ * not read the schema met `quiet`, `skipped: busy` and
  * `{"fact":{"kind":"edit_failed"}}` and could not tell what any of them said —
  * so every one of them is a sentence here, and a test says which sentence.
  */
@@ -37,8 +37,8 @@ function trip(over: Partial<TripRow> = {}): TripRow {
     event_key: "commit:abc1234",
     at_ms: 1_700_000_000_000,
     instance: "inst",
-    status: "settled",
-    swallow_reason: null,
+    status: "quiet",
+    reason: null,
     event_payload: null,
     probe_exit: null,
     probe_tail: null,
@@ -48,6 +48,8 @@ function trip(over: Partial<TripRow> = {}): TripRow {
     refs: null,
     settled_at_ms: 1_700_000_001_000,
     author_ask: null,
+    repo_root: "/Users/me/src/tugtool",
+    head_sha: "abc1234",
     ...over,
   };
 }
@@ -61,31 +63,28 @@ function tripwire(over: Partial<TripwireRow> = {}): TripwireRow {
     brief: "Flag anything red.",
     description: "Runs `just ci` after every landing on main and says what went red",
     model: null,
-    branch: "main",
     permission_mode: "acceptEdits",
     paused: false,
     running: false,
     adopted: false,
-    running_session: null,
+    open_session: null,
     awaiting: false,
     awaiting_arc: null,
     adopted_arc: null,
     last_trip: null,
+    trip_count: 0,
     trip_log_revision: 0,
     ...over,
   };
 }
 
 describe("a trip's state", () => {
-  test("the nine ledger statuses collapse to the seven a reader tells apart", () => {
-    expect(tripState(trip({ status: "claimed" }))).toBe("waiting");
-    expect(tripState(trip({ status: "queued" }))).toBe("waiting");
+  test("the six ledger statuses collapse to the six a reader tells apart", () => {
+    expect(tripState(trip({ status: "skipped" }))).toBe("skipped");
     expect(tripState(trip({ status: "running" }))).toBe("running");
     expect(tripState(trip({ status: "awaiting" }))).toBe("awaiting");
-    expect(tripState(trip({ status: "settled" }))).toBe("finished");
+    expect(tripState(trip({ status: "quiet" }))).toBe("finished");
     expect(tripState(trip({ status: "failed" }))).toBe("failed");
-    expect(tripState(trip({ status: "swallowed" }))).toBe("skipped");
-    expect(tripState(trip({ status: "superseded" }))).toBe("skipped");
     // Never "waiting": the `default:` arm below would print "Starting…" over
     // a session the reader is sitting inside.
     expect(tripState(trip({ status: "adopted" }))).toBe("adopted");
@@ -100,29 +99,26 @@ describe("a trip's state", () => {
 });
 
 describe("the sentence a trip says when the agent left no headline", () => {
-  test("a busy swallow says what swallowed it, in English", () => {
-    // The regression: this row read `swallowed: busy`, which named a column
+  test("a busy skip says what skipped it, in English", () => {
+    // The regression: this row read `skipped: busy`, which named a column
     // value and a database verb and told the reader nothing.
-    expect(tripSentence(trip({ status: "swallowed", swallow_reason: "busy" }))).toBe(
+    expect(tripSentence(trip({ status: "skipped", reason: "busy" }))).toBe(
       "Didn't run — this tripwire was already working a trip.",
-    );
-    expect(tripSentence(trip({ status: "swallowed", swallow_reason: "own-arc" }))).toBe(
-      "Didn't run — the landing was this tripwire's own arc.",
     );
   });
 
-  test("an out-of-scope event and a superseded one each give their own reason", () => {
-    expect(tripSentence(trip({ status: "swallowed", swallow_reason: "no-scope" }))).toBe(
-      "Didn't run — the event was outside this tripwire's scope.",
+  test("the two budget skips each give their own reason", () => {
+    expect(tripSentence(trip({ status: "skipped", reason: "ceiling" }))).toBe(
+      "Didn't run — the machine was already running its limit of trips.",
     );
-    expect(tripSentence(trip({ status: "superseded", swallow_reason: "superseded" }))).toBe(
-      "Didn't run — a newer event took its place.",
+    expect(tripSentence(trip({ status: "skipped", reason: "no-room" }))).toBe(
+      "Didn't run — the host had no room for a session.",
     );
   });
 
   test("a failure names the thing that stopped it", () => {
     expect(
-      tripSentence(trip({ status: "failed", swallow_reason: "instance restarted" })),
+      tripSentence(trip({ status: "failed", reason: "instance restarted" })),
     ).toBe("Stopped — Tug restarted while it was running.");
     expect(tripSentence(trip({ status: "failed" }))).toBe("Stopped before it finished.");
   });
@@ -134,12 +130,12 @@ describe("the sentence a trip says when the agent left no headline", () => {
   });
 
   test("a reason this build has not learned is passed through, not dropped", () => {
-    expect(tripSentence(trip({ status: "swallowed", swallow_reason: "rate limit" }))).toBe(
+    expect(tripSentence(trip({ status: "skipped", reason: "rate limit" }))).toBe(
       "Didn't run — rate limit.",
     );
   });
 
-  test("a settled trip with nothing to say still says something", () => {
+  test("a quiet trip with nothing to say still says something", () => {
     expect(tripSentence(trip())).toBe("Finished with nothing to report.");
   });
 
@@ -155,9 +151,9 @@ describe("the state word beside a trip's time", () => {
   test("it is absent exactly where the sentence already carries the state", () => {
     // No row says "didn't run" twice: the skipped and waiting states put their
     // state in the body, so the meta line beside them is the clock alone.
-    expect(tripStateLabel(trip({ status: "swallowed", swallow_reason: "cooldown" }))).toBeNull();
-    expect(tripStateLabel(trip({ status: "queued" }))).toBeNull();
-    expect(tripStateLabel(trip({ status: "settled" }))).toBe("finished");
+    expect(tripStateLabel(trip({ status: "skipped", reason: "cooldown" }))).toBeNull();
+    expect(tripStateLabel(trip({ status: "quarantined" }))).toBeNull();
+    expect(tripStateLabel(trip({ status: "quiet" }))).toBe("finished");
     expect(tripStateLabel(trip({ status: "running" }))).toBe("running");
     expect(tripStateLabel(trip({ status: "awaiting" }))).toBe("awaiting");
     expect(tripStateLabel(trip({ status: "failed" }))).toBe("stopped");
@@ -172,13 +168,25 @@ describe("the dot a row earns", () => {
     // The whole of [P08]: a reporter that only raises its hand when it has a
     // question needs no mark for the times it has nothing to say.
     expect(tripwireDot(tripwire())).toBeNull();
-    expect(tripDot(trip({ status: "settled" }))).toBeNull();
-    expect(tripDot(trip({ status: "swallowed", swallow_reason: "busy" }))).toBeNull();
-    expect(tripDot(trip({ status: "queued" }))).toBeNull();
+    expect(tripDot(trip({ status: "quiet" }))).toBeNull();
+    expect(tripDot(trip({ status: "skipped", reason: "busy" }))).toBeNull();
+  });
+
+  test("a quiet trip with a session keeps its dot, so the work stays reachable", () => {
+    // [B04]: a trip that ran and found nothing is still a trip somebody can
+    // open and read. The dot is the door, and a finished row keeps it.
+    expect(tripDot(trip({ status: "quiet", session_id: "sess-3" }))).toEqual({
+      kind: "session",
+      sessionId: "sess-3",
+    });
+    expect(tripDot(trip({ status: "failed", session_id: "sess-4" }))).toEqual({
+      kind: "session",
+      sessionId: "sess-4",
+    });
   });
 
   test("a run with a session is the live pulse, keyed on that session", () => {
-    expect(tripwireDot(tripwire({ running: true, running_session: "sess-7" }))).toEqual({
+    expect(tripwireDot(tripwire({ running: true, open_session: "sess-7" }))).toEqual({
       kind: "session",
       sessionId: "sess-7",
     });
@@ -200,9 +208,7 @@ describe("the dot a row earns", () => {
     // answers `idle` for a session it cannot reach — so the held state cannot
     // be read off a session and is driven by the trip status instead.
     expect(tripwireDot(tripwire({ awaiting: true }))).toEqual({ kind: "awaiting" });
-    expect(tripDot(trip({ status: "awaiting", session_id: "sess-7" }))).toEqual({
-      kind: "awaiting",
-    });
+    expect(tripDot(trip({ status: "awaiting" }))).toEqual({ kind: "awaiting" });
   });
 
   test("a run in flight outranks a question already asked", () => {
@@ -210,16 +216,16 @@ describe("the dot a row earns", () => {
     // later landing can still be working — and the row has one dot. The live
     // one wins, because it is the one that is changing.
     expect(
-      tripwireDot(tripwire({ running: true, running_session: "sess-9", awaiting: true })),
+      tripwireDot(tripwire({ running: true, open_session: "sess-9", awaiting: true })),
     ).toEqual({ kind: "session", sessionId: "sess-9" });
   });
 
   test("an adopted trip keeps the live dot, keyed on the session somebody is in", () => {
     // The row must not go dark at the moment the session is taken over: the
     // dot is what the user reaches it through. The projection folds the
-    // adopted session into `running_session`, so no new dot kind is needed
+    // adopted session into `open_session`, so no new dot kind is needed
     // ([P07]).
-    expect(tripwireDot(tripwire({ adopted: true, running_session: "sess-11" }))).toEqual({
+    expect(tripwireDot(tripwire({ adopted: true, open_session: "sess-11" }))).toEqual({
       kind: "session",
       sessionId: "sess-11",
     });
@@ -304,7 +310,6 @@ describe("the rest of a tripwire's definition", () => {
     expect(rows.map((r) => r.label)).toEqual([
       DESCRIPTION_ROW_LABEL,
       "Watches for",
-      "Lands on",
       "In",
       "Runs first",
       "Model",

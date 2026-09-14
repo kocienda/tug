@@ -5,13 +5,12 @@
 //! touches IO, a clock, or a database: the engine reads a tripwire row, hands
 //! the trigger an event, and gets a bool.
 //!
-//! **One source, because the landing is no longer one of them.** A tripwire fires
-//! when a landing gesture commits onto its named base branch ([P01]), and the
-//! branch is a column on the tripwire rather than a clause in its trigger. What
-//! the predicate decides is the narrower question the landing then asks: does
-//! this lineage carry the facts the tripwire is watching for? Facts are the
-//! uniform, searchable record of everything a session does, so a new trigger
-//! source is a new fact kind rather than new machinery here.
+//! **One source, because the fact is the trigger.** A tripwire fires when a
+//! fact is recorded ([B01]), and the question the predicate decides is the
+//! narrow one about that fact alone: is this the kind the tripwire watches,
+//! and does its payload satisfy the `where` clause? Facts are the uniform,
+//! searchable record of everything a session does, so a new trigger source is
+//! a new fact kind rather than new machinery here.
 //!
 //! **A `where` clause reads the fact's payload and nothing else.** A missing
 //! field never matches — the same posture the shell-op grammar takes, because
@@ -88,9 +87,9 @@ impl Matcher {
 /// One fact, as the engine hands it to a predicate.
 ///
 /// Only what the condition reads. Where the fact happened, which session wrote
-/// it, and which landing carried it are the engine's business — the scope is
-/// compared against the landing's repository and the claim is keyed by the
-/// landing's sha ([P01]), so none of it reaches here.
+/// it, and when are the engine's business — the scope is compared against the
+/// session's checkout and the row is keyed by the fact's rowid, so none of it
+/// reaches here.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FactEvent {
     pub kind: String,

@@ -168,18 +168,9 @@ fn set_knobs(db_path: &std::path::Path, name: &str, body: KnobsBody) -> (StatusC
     }
 }
 
-/// The instance label a trip claimed from this surface carries. `api:` rather
-/// than the CLI's `cli:`, so the trip log says which door a hand-firing came
-/// through.
-fn instance_label() -> String {
-    match tugcore::instance::instance_id() {
-        Some(id) if !id.is_empty() => format!("api:{id}"),
-        _ => "api".to_string(),
-    }
-}
-
-/// Spec S03. Queues a manual trip exactly as `tugtool tripwire trip` does —
-/// the two share `queue_manual_trip` — then tells this process's engine.
+/// Spec S03. Hands a hand-firing to this process's engine, which is the only
+/// thing that can mint the row ([P08]): with no queue there is no row a later
+/// engine could pick up, so a refusal here is a refusal and not a deferral.
 fn trip_tripwire(db_path: &std::path::Path, name: &str) -> (StatusCode, Value) {
     let conn = match ledger::open_ledger(db_path) {
         Ok(conn) => conn,
@@ -195,27 +186,41 @@ fn trip_tripwire(db_path: &std::path::Path, name: &str) -> (StatusCode, Value) {
         }
         Err(e) => return ledger_error("trip", e),
     };
-    let now_ms = crate::session_ledger::now_millis();
-    let (trip_id, event_key) =
-        match ledger::queue_manual_trip(&conn, tripwire.id, now_ms, &instance_label()) {
-            Ok(queued) => queued,
-            Err(e) => return ledger_error("trip", e),
-        };
-    // The row is the firing and the kick is only a nudge that says not to wait
-    // out the engine's tick, so `served` reports which of the two happened
-    // rather than gating on it.
-    let served = crate::feeds::tripwire::kick(&tripwire.name);
-    crate::feeds::tripwires::bump();
-    (
-        StatusCode::OK,
-        json!({
-            "tripwire": tripwire.name,
-            "trip_id": trip_id,
-            "event_key": event_key,
-            "status": "queued",
-            "served": served,
-        }),
-    )
+    // The two refusals are different things and say so. A tripwire with no
+    // `--scope` has no checkout for a hand-fired trip to stand in — a real
+    // fact supplies one from its session — and telling that user "no engine is
+    // running" would send them looking in the wrong place entirely.
+    match crate::feeds::tripwire::kick(&tripwire) {
+        crate::feeds::tripwire::Kick::Served => (
+            StatusCode::OK,
+            json!({
+                "tripwire": tripwire.name,
+                "status": "running",
+                "served": true,
+            }),
+        ),
+        crate::feeds::tripwire::Kick::NoScope => (
+            StatusCode::CONFLICT,
+            json!({
+                "error": "no_scope",
+                "message": format!(
+                    "tripwire {} has no --scope, so a hand-fired trip has no checkout to stand in; \
+                     a real fact supplies one from its session",
+                    tripwire.name
+                ),
+            }),
+        ),
+        crate::feeds::tripwire::Kick::NoEngine => (
+            StatusCode::CONFLICT,
+            json!({
+                "error": "no_engine",
+                "message": format!(
+                    "tripwire {} cannot be fired: no Tug instance is running to fire it in",
+                    tripwire.name
+                ),
+            }),
+        ),
+    }
 }
 
 /// Spec S04. The shared dismiss of `tugarc_core::tripwire_dismiss`, which the
@@ -454,7 +459,6 @@ mod tests {
                 name,
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "report anything that looks wrong",
-                "main",
                 "Reports anything that looks wrong on main",
             ),
             1,
@@ -470,11 +474,10 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let tripwire = &body["tripwires"][0];
         assert_eq!(tripwire["name"], "ci");
-        assert_eq!(tripwire["branch"], "main");
         assert_eq!(tripwire["paused"], false);
         assert_eq!(tripwire["running"], false);
         assert_eq!(tripwire["awaiting"], false);
-        assert!(tripwire["running_session"].is_null());
+        assert!(tripwire["open_session"].is_null());
         assert!(tripwire["awaiting_arc"].is_null());
         assert!(
             tripwire["last_trip"].is_null(),
@@ -492,18 +495,28 @@ mod tests {
         lay(&path, "other");
         let conn = ledger::open_ledger(&path).unwrap();
         let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
-        let ledger::Claim::Claimed { trip_id } =
-            ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
+        let trip_id = ledger::insert_trip(
+            &conn,
+            &ledger::NewTrip {
+                tripwire_id: tripwire.id,
+                event_key: "fact:inst:1".to_string(),
+                at_ms: 10,
+                instance: "inst".to_string(),
+                status: ledger::TripStatus::Running,
+                reason: None,
+                event_payload: None,
+                repo_root: None,
+            },
+        )
+        .unwrap()
+        .expect("this tripwire has no row for that key yet");
         ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
 
         let (_, body) = list_tripwires(&path);
         let tripwires = body["tripwires"].as_array().unwrap();
         assert_eq!(tripwires[0]["running"], true);
         assert_eq!(
-            tripwires[0]["running_session"], "sess-1",
+            tripwires[0]["open_session"], "sess-1",
             "the live dot is keyed on the session, so the projection has to carry it"
         );
         assert_eq!(tripwires[0]["last_trip"]["status"], "running");
@@ -518,11 +531,21 @@ mod tests {
         lay(&path, "ci");
         let conn = ledger::open_ledger(&path).unwrap();
         let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
-        let ledger::Claim::Claimed { trip_id } =
-            ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
+        let trip_id = ledger::insert_trip(
+            &conn,
+            &ledger::NewTrip {
+                tripwire_id: tripwire.id,
+                event_key: "fact:inst:1".to_string(),
+                at_ms: 10,
+                instance: "inst".to_string(),
+                status: ledger::TripStatus::Running,
+                reason: None,
+                event_payload: None,
+                repo_root: None,
+            },
+        )
+        .unwrap()
+        .expect("this tripwire has no row for that key yet");
         ledger::record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-ci-abcd1234")).unwrap();
         ledger::settle(
             &conn,
@@ -542,7 +565,7 @@ mod tests {
         assert_eq!(tripwire["awaiting_arc"], "tripwire-ci-abcd1234");
         assert_eq!(
             tripwire["running"], false,
-            "an awaiting run has finished — it holds the wire's slot, it is not working"
+            "an awaiting run has finished — it holds the tripwire's slot, it is not working"
         );
         assert_eq!(
             tripwire["last_trip"]["headline"],
@@ -557,7 +580,20 @@ mod tests {
         let conn = ledger::open_ledger(&path).unwrap();
         let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
         for (i, key) in ["one", "two"].iter().enumerate() {
-            ledger::claim_trip(&conn, tripwire.id, key, 10 + i as i64, "inst", None).unwrap();
+            ledger::insert_trip(
+                &conn,
+                &ledger::NewTrip {
+                    tripwire_id: tripwire.id,
+                    event_key: key.to_string(),
+                    at_ms: 10 + i as i64,
+                    instance: "inst".to_string(),
+                    status: ledger::TripStatus::Running,
+                    reason: None,
+                    event_payload: None,
+                    repo_root: None,
+                },
+            )
+            .unwrap();
         }
 
         let (status, body) = tripwire_trips(&path, "ci", None);
@@ -571,30 +607,51 @@ mod tests {
         assert_eq!(body["error"], "no_such_tripwire");
     }
 
-    /// Firing by hand through the API writes the same row the CLI's verb
-    /// writes — the two share `queue_manual_trip`, and the `manual:` key is
-    /// what lets a tripwire be fired twice on one commit.
+    /// Firing by hand is the engine's to serve ([P08]), so this surface with
+    /// no engine behind it refuses — and the two refusals are told apart by
+    /// their own error codes, because a missing scope and a missing engine
+    /// send the user to different places.
     #[test]
-    fn the_trip_endpoint_queues_a_manual_trip_and_refuses_an_unknown_tripwire() {
+    fn the_trip_endpoint_refuses_without_an_engine_and_without_a_scope() {
         let (_dir, path) = scratch();
         lay(&path, "ci");
 
+        // `lay` writes no scope, so the door refuses on that before it ever
+        // asks whether an engine is listening.
         let (status, body) = trip_tripwire(&path, "ci");
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["tripwire"], "ci");
-        assert_eq!(body["status"], "queued");
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["error"], "no_scope");
         assert!(
-            body["event_key"].as_str().unwrap().starts_with("manual:"),
-            "a hand-fired trip carries a manual key: {}",
-            body["event_key"]
+            body["message"].as_str().unwrap().contains("--scope"),
+            "the refusal names the flag that fixes it: {body}"
         );
 
+        // A scoped tripwire gets past that gate and meets the other refusal:
+        // there is no engine in this test process to mint the row.
+        {
+            let conn = ledger::open_ledger(&path).unwrap();
+            ledger::update(
+                &conn,
+                "ci",
+                &ledger::TripwireEdit {
+                    scope: Some(Some("/proj".to_string())),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        let (status, body) = trip_tripwire(&path, "ci");
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["error"], "no_engine");
+
+        // And neither refusal wrote a row ([P08]).
         let conn = ledger::open_ledger(&path).unwrap();
         let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
-        let trips = ledger::trips_for_tripwire(&conn, tripwire.id, 10).unwrap();
-        assert_eq!(trips.len(), 1);
-        assert_eq!(trips[0].status, "queued");
-        assert_eq!(trips[0].id, body["trip_id"].as_i64().unwrap());
+        assert!(
+            ledger::trips_for_tripwire(&conn, tripwire.id, 10)
+                .unwrap()
+                .is_empty()
+        );
 
         let (status, body) = trip_tripwire(&path, "nobody");
         assert_eq!(status, StatusCode::NOT_FOUND);
@@ -619,11 +676,21 @@ mod tests {
 
         let conn = ledger::open_ledger(&path).unwrap();
         let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
-        let ledger::Claim::Claimed { trip_id } =
-            ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
+        let trip_id = ledger::insert_trip(
+            &conn,
+            &ledger::NewTrip {
+                tripwire_id: tripwire.id,
+                event_key: "fact:inst:1".to_string(),
+                at_ms: 10,
+                instance: "inst".to_string(),
+                status: ledger::TripStatus::Running,
+                reason: None,
+                event_payload: None,
+                repo_root: None,
+            },
+        )
+        .unwrap()
+        .expect("this tripwire has no row for that key yet");
         ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
         ledger::settle(
             &conn,
@@ -644,13 +711,13 @@ mod tests {
         assert_eq!(body["discarded"], false);
         assert_eq!(
             ledger::trip(&conn, trip_id).unwrap().unwrap().status,
-            "settled"
+            "quiet"
         );
 
         let (status, body) = dismiss_tripwire(&path, "ci");
         assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(
-            body["state"], "settled",
+            body["state"], "quiet",
             "a caller told only `refused` could not tell this from a tripwire that never fired"
         );
 
@@ -718,11 +785,21 @@ mod tests {
         let trip_id = {
             let conn = ledger::open_ledger(&path).unwrap();
             let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
-            let ledger::Claim::Claimed { trip_id } =
-                ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
-            else {
-                panic!("the claim is uncontested");
-            };
+            let trip_id = ledger::insert_trip(
+                &conn,
+                &ledger::NewTrip {
+                    tripwire_id: tripwire.id,
+                    event_key: "fact:inst:1".to_string(),
+                    at_ms: 10,
+                    instance: "inst".to_string(),
+                    status: ledger::TripStatus::Running,
+                    reason: None,
+                    event_payload: None,
+                    repo_root: None,
+                },
+            )
+            .unwrap()
+            .expect("this tripwire has no row for that key yet");
             ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
             trip_id
         };
@@ -766,11 +843,21 @@ mod tests {
         {
             let conn = ledger::open_ledger(&path).unwrap();
             let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
-            let ledger::Claim::Claimed { trip_id } =
-                ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
-            else {
-                panic!("the claim is uncontested");
-            };
+            let trip_id = ledger::insert_trip(
+                &conn,
+                &ledger::NewTrip {
+                    tripwire_id: tripwire.id,
+                    event_key: "fact:inst:1".to_string(),
+                    at_ms: 10,
+                    instance: "inst".to_string(),
+                    status: ledger::TripStatus::Running,
+                    reason: None,
+                    event_payload: None,
+                    repo_root: None,
+                },
+            )
+            .unwrap()
+            .expect("this tripwire has no row for that key yet");
             ledger::record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-ci-abcd1234"))
                 .unwrap();
             ledger::settle(

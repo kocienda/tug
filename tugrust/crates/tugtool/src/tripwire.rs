@@ -17,11 +17,11 @@ use serde::Serialize;
 
 use tugarc_core::tripwire_dismiss::DismissRefusal;
 use tugarc_core::tripwire_remove::RemoveRefusal;
+use tugcore::facts::FactKind;
 use tugtool_core::tripwire_ledger::{
     self as ledger, NewTripwire, Resolution, Settlement, TripStatus, Tripwire, TripwireEdit,
     TripwireLedgerError,
 };
-use tugcore::facts::FactKind;
 use tugtool_core::tripwire_predicate::{FactTrigger, Matcher, Predicate};
 use tugtool_core::tripwire_roster;
 
@@ -36,7 +36,6 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
             name,
             on,
             clauses,
-            branch,
             scope,
             probe,
             brief,
@@ -49,7 +48,6 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
                 name,
                 on,
                 clauses,
-                branch,
                 scope,
                 probe,
                 brief,
@@ -67,7 +65,6 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
             on,
             clauses,
             scope,
-            branch,
             probe,
             brief,
             description,
@@ -81,7 +78,6 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
                 on,
                 clauses,
                 scope,
-                branch,
                 probe,
                 brief,
                 description,
@@ -157,8 +153,8 @@ fn compile_trigger(on: &str, clauses: &[String]) -> Result<Predicate, String> {
             }))
         }
         "commit" => Err(
-            "a tripwire no longer watches commits directly: it fires on a landing onto the branch \
-             it names, so say --branch <name> and watch a fact with --on fact:<kind>"
+            "a tripwire watches a fact, not a source of its own: a commit is the `commit` fact, \
+             so say --on fact:commit (and --where branch=main to narrow it to one branch)"
                 .to_string(),
         ),
         other => Err(format!(
@@ -215,11 +211,11 @@ fn read_brief(brief: &str) -> Result<String, String> {
 }
 
 /// A scope as the engine will compare it ([P12]): in the Claude form the
-/// canonicalization gateway produces ([L29]), because the landing's
-/// `repo_root` is the deck's project dir in that same form and the scope is a
-/// prefix compared against it. A bare `canonicalize` would store the
-/// `/System/Volumes/Data/…` spelling and the prefix guard would swallow every
-/// landing as out of scope. Deliberately **not** folded to its base checkout —
+/// canonicalization gateway produces ([L29]), because the fact's `repo_root`
+/// is the deck's project dir in that same form and the scope is a prefix
+/// compared against it. A bare `canonicalize` would store the
+/// `/System/Volumes/Data/…` spelling and the prefix guard would put every
+/// fact out of scope. Deliberately **not** folded to its base checkout —
 /// an authoring trip commits on its own arc worktree, and folding worktrees
 /// into their base would make those commits re-trip the tripwire that made
 /// them. A path that does not exist keeps its literal form rather than failing
@@ -228,56 +224,6 @@ fn canonical_scope(scope: &str) -> String {
     tugcore::pathform::resolve_to_claude_form(std::path::Path::new(scope))
         .display()
         .to_string()
-}
-
-/// The branch a tripwire watches: what `--branch` said, or the default branch of
-/// the repository the tripwire is scoped to.
-///
-/// The sugar is worth having and the storing is not optional ([P02]): a tripwire
-/// laid without a branch it can resolve is refused here rather than written as
-/// a tripwire nothing will ever trip.
-fn resolve_branch(branch: Option<&str>, scope: Option<&str>) -> Result<String, String> {
-    if let Some(named) = branch.map(str::trim).filter(|b| !b.is_empty()) {
-        return Ok(named.to_string());
-    }
-    let repo = scope.unwrap_or(".");
-    git_default_branch(repo).ok_or_else(|| {
-        format!(
-            "no --branch given and `{repo}` has no default branch to read one from — \
-             a tripwire fires on a landing onto a named branch, so name it"
-        )
-    })
-}
-
-/// The default branch of the checkout at `path`, as git reports it.
-fn git_default_branch(path: &str) -> Option<String> {
-    let symref = std::process::Command::new("git")
-        .args([
-            "-C",
-            path,
-            "symbolic-ref",
-            "--short",
-            "refs/remotes/origin/HEAD",
-        ])
-        .output()
-        .ok()?;
-    if symref.status.success() {
-        let text = String::from_utf8_lossy(&symref.stdout);
-        let branch = text.trim().rsplit('/').next().unwrap_or_default();
-        if !branch.is_empty() {
-            return Some(branch.to_string());
-        }
-    }
-    for candidate in ["main", "master"] {
-        let verified = std::process::Command::new("git")
-            .args(["-C", path, "rev-parse", "--verify", "--quiet", candidate])
-            .output()
-            .ok()?;
-        if verified.status.success() {
-            return Some(candidate.to_string());
-        }
-    }
-    None
 }
 
 fn open() -> Result<rusqlite::Connection, String> {
@@ -290,7 +236,6 @@ struct LayArgs {
     name: String,
     on: String,
     clauses: Vec<String>,
-    branch: Option<String>,
     scope: Option<String>,
     probe: Option<String>,
     brief: String,
@@ -303,13 +248,11 @@ fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), 
     let predicate = compile_trigger(&args.on, &args.clauses)?;
     let trigger = serde_json::to_string(&predicate).map_err(|e| e.to_string())?;
     let scope = args.scope.as_deref().map(canonical_scope);
-    let branch = resolve_branch(args.branch.as_deref(), scope.as_deref())?;
 
     let mut tripwire = NewTripwire::new(
         &args.name,
         &trigger,
         read_brief(&args.brief)?,
-        branch,
         args.description.trim(),
     );
     tripwire.scope = scope;
@@ -368,11 +311,10 @@ fn run_list(json: bool, quiet: bool) -> Result<(), String> {
         }
         for tripwire in &payload {
             println!(
-                "{}{}  {}  branch={}{}{}{}{}",
+                "{}{}  {}{}{}{}{}",
                 tripwire.name,
                 if tripwire.paused { " (paused)" } else { "" },
                 tripwire.trigger,
-                tripwire.branch,
                 tripwire
                     .scope
                     .as_deref()
@@ -392,7 +334,6 @@ struct EditArgs {
     on: Option<String>,
     clauses: Vec<String>,
     scope: Option<String>,
-    branch: Option<String>,
     probe: Option<String>,
     brief: Option<String>,
     description: Option<String>,
@@ -435,16 +376,6 @@ fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<()
     }
     if let Some(model) = args.model {
         edit.model = Some(Some(model));
-    }
-    if let Some(branch) = args.branch.as_deref() {
-        let named = branch.trim();
-        if named.is_empty() {
-            return Err(
-                "--branch names the branch a landing has to be onto, so it is not empty"
-                    .to_string(),
-            );
-        }
-        edit.branch = Some(named.to_string());
     }
     if let Some(mode) = args.permission_mode {
         edit.permission_mode = Some(mode);
@@ -564,7 +495,7 @@ fn run_log(name: &str, limit: i64, json: bool, quiet: bool) -> Result<(), String
             println!("tripwire {name} has never fired");
         }
         for trip in &payload {
-            // The swallowed firings print too. A tripwire that swallowed a hundred
+            // The skipped firings print too. A tripwire that skipped a hundred
             // and a tripwire that never saw one look identical from outside, and
             // only one of them is working.
             println!(
@@ -572,7 +503,7 @@ fn run_log(name: &str, limit: i64, json: bool, quiet: bool) -> Result<(), String
                 trip.at_ms,
                 trip.status,
                 trip.event_key,
-                trip.swallow_reason
+                trip.reason
                     .as_deref()
                     .map(|r| format!("  ({r})"))
                     .unwrap_or_default(),
@@ -588,49 +519,69 @@ fn run_log(name: &str, limit: i64, json: bool, quiet: bool) -> Result<(), String
 
 /// Fire a tripwire by hand.
 ///
-/// The queued row is written first and the live instance is told second, in
-/// that order on purpose: the row is the firing, and the tell is only a nudge
-/// that says not to wait out the engine's tick. With no instance listening the
-/// row still stands and the next engine to run picks it up, so the verb
-/// reports which of the two happened rather than claiming the firing was lost.
+/// This verb writes no row ([P08]). With no queue there is nothing a later
+/// engine could pick up, so a row written here would be one nobody would ever
+/// see fire — the engine on a live instance is the only thing that can mint
+/// one, and with no live instance the firing is refused rather than deferred.
+///
+/// The refusal has two forms and the instance decides which: no engine at all,
+/// or a tripwire with no `--scope` for a hand-fired trip to stand in. The
+/// message the API returns is printed verbatim rather than guessed at here.
 fn run_trip(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     let conn = open()?;
-    let tripwire = ledger::get(&conn, name)
+    let _tripwire = ledger::get(&conn, name)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()).to_string())?;
 
-    let (trip_id, event_key) =
-        ledger::queue_manual_trip(&conn, tripwire.id, now_ms(), &instance_label())
-            .map_err(|e| e.to_string())?;
-
-    let payload = TripQueuedPayload {
+    let served = fire_on_live_instance(name)?;
+    let payload = TripFiredPayload {
         tripwire: name.to_string(),
-        trip_id,
-        event_key,
-        status: "queued".to_string(),
-        served: kick_live_instance(name),
+        status: "running".to_string(),
+        served,
     };
     if json {
         print_ok("tripwire trip", &payload);
     } else if !quiet {
-        if payload.served {
-            println!("tripwire {name} queued trip {trip_id} and a live instance took it up");
-        } else {
-            println!(
-                "tripwire {name} queued trip {trip_id} ({}) — the next engine to run picks it up",
-                payload.event_key
-            );
-        }
+        println!("tripwire {name} fired; a live instance is running its trip");
     }
     bump_live_instance();
     Ok(())
 }
 
-/// Nudge a live instance to work the queued row now, reporting whether one
-/// answered. A failure here is not the verb's failure: the row is written, and
-/// no instance running is the ordinary case for a machine with the app closed.
-fn kick_live_instance(tripwire: &str) -> bool {
-    crate::commands::tell::tell_quietly("tripwire_trip", &[format!("tripwire={tripwire}")]).is_ok()
+/// Ask the live instance to fire the tripwire, and hand back its refusal when
+/// it has one.
+///
+/// The HTTP route rather than the `tell` door, because a tell is
+/// fire-and-forget and this verb has an answer to report: the engine is what
+/// mints the row, and "it did not happen, and here is why" is the whole of
+/// what the user needs.
+fn fire_on_live_instance(tripwire: &str) -> Result<bool, String> {
+    let port = crate::commands::tell::resolve_port(None, None).map_err(|_| {
+        format!("tripwire {tripwire} cannot be fired: no Tug instance is running to fire it in")
+    })?;
+    let response = ureq::post(&format!(
+        "http://127.0.0.1:{port}/api/tripwires/{tripwire}/trip"
+    ))
+    .send_empty()
+    .map_err(|_| {
+        format!("tripwire {tripwire} cannot be fired: no Tug instance is running to fire it in")
+    })?;
+    let status = response.status().as_u16();
+    if status == 200 {
+        return Ok(true);
+    }
+    // The instance's own sentence, which is the one that knows which refusal
+    // this is — a missing scope and a missing engine are different problems
+    // and send the user to different places.
+    let body: serde_json::Value = response
+        .into_body()
+        .read_json()
+        .unwrap_or(serde_json::Value::Null);
+    Err(body
+        .get("message")
+        .and_then(|m| m.as_str())
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("tripwire {tripwire} could not be fired (status {status})")))
 }
 
 /// Settle the tripwire's running trip (Spec S02) — the only settle a live session
@@ -675,7 +626,7 @@ fn run_resolve(
     let status = if awaiting {
         TripStatus::Awaiting
     } else {
-        TripStatus::Settled
+        TripStatus::Quiet
     };
     let settlement = Settlement {
         headline: headline.map(str::to_owned),
@@ -770,7 +721,7 @@ fn run_dismiss(name: &str, json: bool, quiet: bool) -> Result<(), String> {
         println!("tripwire {name} dismissed trip {trip_id}");
     }
     // The settle is written whatever happened next, so a discard that could
-    // not run is reported rather than swallowed: an arc left standing is the
+    // not run is reported rather than hidden: an arc left standing is the
     // leak this verb exists to close, and silence about it is how nobody
     // finds out.
     if let Some(e) = discard_error {
@@ -811,7 +762,6 @@ struct TripwirePayload {
     brief: String,
     description: String,
     model: Option<String>,
-    branch: String,
     permission_mode: String,
     paused: bool,
 }
@@ -826,7 +776,6 @@ impl TripwirePayload {
             brief: tripwire.brief.clone(),
             description: tripwire.description.clone(),
             model: tripwire.model.clone(),
-            branch: tripwire.branch.clone(),
             permission_mode: tripwire.permission_mode.clone(),
             paused: tripwire.paused,
         }
@@ -843,7 +792,6 @@ impl TripwirePayload {
             brief: tripwire.brief.clone(),
             description: tripwire.description.clone(),
             model: tripwire.model.clone(),
-            branch: tripwire.branch.clone(),
             permission_mode: tripwire.permission_mode.clone(),
             paused: false,
         }
@@ -858,7 +806,6 @@ impl TripwirePayload {
             self.scope.as_deref().unwrap_or("(machine-wide)")
         );
         println!("  probe:    {}", self.probe.as_deref().unwrap_or("(none)"));
-        println!("  branch:   {}", self.branch);
     }
 }
 
@@ -894,9 +841,6 @@ impl EditPreview {
         if let Some(v) = &edit.model {
             set("model", v.clone());
         }
-        if let Some(v) = &edit.branch {
-            set("branch", Some(v.clone()));
-        }
         if let Some(v) = &edit.permission_mode {
             set("permission_mode", Some(v.clone()));
         }
@@ -929,12 +873,11 @@ struct RemovedPayload {
 }
 
 #[derive(Debug, Serialize)]
-struct TripQueuedPayload {
+struct TripFiredPayload {
     tripwire: String,
-    trip_id: i64,
-    event_key: String,
     status: String,
-    /// Whether a live instance took the nudge. `false` means the row waits.
+    /// Always true: a firing that was not served is a refusal, and this verb
+    /// errors rather than reporting one.
     served: bool,
 }
 
@@ -977,7 +920,9 @@ struct TripPayload {
     at_ms: i64,
     instance: String,
     status: String,
-    swallow_reason: Option<String>,
+    reason: Option<String>,
+    repo_root: Option<String>,
+    head_sha: Option<String>,
     probe_exit: Option<i64>,
     session_id: Option<String>,
     arc: Option<String>,
@@ -993,7 +938,9 @@ impl TripPayload {
             at_ms: trip.at_ms,
             instance: trip.instance.clone(),
             status: trip.status.clone(),
-            swallow_reason: trip.swallow_reason.clone(),
+            reason: trip.reason.clone(),
+            repo_root: trip.repo_root.clone(),
+            head_sha: trip.head_sha.clone(),
             probe_exit: trip.probe_exit,
             session_id: trip.session_id.clone(),
             arc: trip.arc.clone(),
@@ -1008,15 +955,6 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or_default()
-}
-
-/// Which instance wrote a row. The CLI is not an instance, so a hand-fired
-/// trip says so rather than borrowing an id it does not own.
-fn instance_label() -> String {
-    match std::env::var("TUG_INSTANCE_ID") {
-        Ok(id) if !id.is_empty() => format!("cli:{id}"),
-        _ => "cli".to_string(),
-    }
 }
 
 #[cfg(test)]
@@ -1062,7 +1000,6 @@ mod tests {
                 "ci",
                 r#"{"fact":{"kind":"edit_failed"}}"#,
                 "report anything that looks wrong",
-                "main",
                 "Reports anything that looks wrong on main",
             ),
             1,
@@ -1075,11 +1012,21 @@ mod tests {
             "a tripwire that never fired says so: {refusal}"
         );
 
-        let ledger::Claim::Claimed { trip_id } =
-            ledger::claim_trip(&conn, tripwire.id, "abc", 10, "inst", None).unwrap()
-        else {
-            panic!("the claim is uncontested");
-        };
+        let trip_id = ledger::insert_trip(
+            &conn,
+            &ledger::NewTrip {
+                tripwire_id: tripwire.id,
+                event_key: "fact:inst:1".to_string(),
+                at_ms: 10,
+                instance: "inst".to_string(),
+                status: TripStatus::Running,
+                reason: None,
+                event_payload: None,
+                repo_root: None,
+            },
+        )
+        .unwrap()
+        .expect("this tripwire has no row for that key yet");
         ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
         ledger::settle(
             &conn,
@@ -1096,12 +1043,12 @@ mod tests {
         run_dismiss("ci", true, true).expect("the awaiting trip is dismissed");
         assert_eq!(
             ledger::trip(&conn, trip_id).unwrap().unwrap().status,
-            "settled"
+            "quiet"
         );
 
         let refusal = run_dismiss("ci", true, true).unwrap_err();
         assert!(
-            refusal.contains("its newest trip is settled"),
+            refusal.contains("its newest trip is quiet"),
             "an already-settled tripwire names the state it is in: {refusal}"
         );
 
@@ -1150,23 +1097,9 @@ mod tests {
             "one matcher per field in v1, and a silent overwrite would hide the second"
         );
         assert!(
-            err("commit:main", &[]).contains("--branch"),
-            "a v1 commit spelling is steered at the column that replaced it"
+            err("commit:main", &[]).contains("fact:commit"),
+            "a v1 commit spelling is steered at the fact that replaced it"
         );
-    }
-
-    #[test]
-    fn a_named_branch_wins_and_an_unresolvable_one_refuses() {
-        assert_eq!(resolve_branch(Some("release"), None).unwrap(), "release");
-        assert_eq!(
-            resolve_branch(Some("  release  "), None).unwrap(),
-            "release",
-            "the stored branch is the trimmed one"
-        );
-        let dir = tempfile::tempdir().unwrap();
-        let outside = dir.path().display().to_string();
-        let refusal = resolve_branch(None, Some(&outside)).unwrap_err();
-        assert!(refusal.contains("no --branch given"), "{refusal}");
     }
 
     #[test]
@@ -1200,7 +1133,7 @@ mod tests {
     }
 
     /// [L29]: the stored scope is the Claude form, never the data-volume
-    /// spelling `realpath(3)` expands to, because the landing it is compared
+    /// spelling `realpath(3)` expands to, because the checkout it is compared
     /// against arrives in the Claude form.
     #[test]
     #[cfg(target_os = "macos")]
@@ -1212,7 +1145,7 @@ mod tests {
         let stored = canonical_scope(&format!("/System/Volumes/Data{home}"));
         assert!(
             !stored.starts_with("/System/Volumes/Data/"),
-            "stored {stored}, which is the spelling no landing ever carries"
+            "stored {stored}, which is the spelling no fact ever carries"
         );
     }
 

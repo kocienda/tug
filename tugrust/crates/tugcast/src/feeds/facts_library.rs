@@ -560,6 +560,12 @@ pub fn compact_fact(
 
 /// A commit landed through a Tug gesture, from the receipt that knows its sha,
 /// message, and file list all at once.
+///
+/// The branch is a payload field rather than a column on the tripwire ([P02]):
+/// a tripwire that wants to watch one branch writes
+/// `--on fact:commit --where branch=main`, which is the same grammar every
+/// other narrowing uses, and a `shell` fact has no branch for a column to gate
+/// on at all.
 pub fn commit_fact(
     at_ms: i64,
     session_id: Option<&str>,
@@ -567,6 +573,7 @@ pub fn commit_fact(
     message: &str,
     files: &[String],
     numstat: Option<&str>,
+    branch: Option<&str>,
 ) -> NewFact {
     compose(
         at_ms,
@@ -578,6 +585,7 @@ pub fn commit_fact(
             "message": message,
             "files": files,
             "numstat": numstat,
+            "branch": branch,
         }),
         Some(commit_key(sha)),
     )
@@ -1092,6 +1100,7 @@ mod tests {
                     "tugcast(facts): land it\n\nbody",
                     &["a.rs".to_string(), "b.rs".to_string()],
                     None,
+                    None,
                 ),
                 // Eight characters of sha, git's own abbreviation and the
                 // length every Tug surface shows — the agents copy this
@@ -1182,6 +1191,7 @@ mod tests {
             "tugcast(facts): land it\n\nthe body, which is not the subject line",
             &files,
             None,
+            None,
         );
         let detail = detail_of(&fact);
         assert_eq!(detail["sha"], "a1b2c3d4e5f6a7b8");
@@ -1202,7 +1212,7 @@ mod tests {
         let files: Vec<String> = (0..DETAIL_FILES_CAP + 7)
             .map(|i| format!("f{i}.rs"))
             .collect();
-        let fact = commit_fact(1, Some("s1"), "abc123", "big one", &files, None);
+        let fact = commit_fact(1, Some("s1"), "abc123", "big one", &files, None, None);
         let detail = detail_of(&fact);
         assert_eq!(detail["files"].as_array().unwrap().len(), DETAIL_FILES_CAP);
         assert_eq!(detail["files_elided"], 7);

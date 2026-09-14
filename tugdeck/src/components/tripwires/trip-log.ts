@@ -39,11 +39,17 @@ export type LogEntry =
  * A finished trip folds only when it left no headline: a run that found
  * something and said so is the whole point of the log, and folding it into a
  * count would hide the one row a reader came for.
+ *
+ * It folds only when it also left no **session** ([B04]). A quiet trip whose
+ * session is still openable is a row the reader can reach the work from, and
+ * a fold takes its dot with it. What is left to fold is the probe-settled
+ * trip — one that never seated a session and found nothing — which is the
+ * row this fold was written for.
  */
 export function rollupKind(row: TripRow): RollupKind | null {
   const state = tripState(row);
   if (state === "skipped") return "skipped";
-  if (state === "finished" && row.headline === null) return "quiet";
+  if (state === "finished" && row.headline === null && row.session_id === null) return "quiet";
   return null;
 }
 
@@ -85,7 +91,7 @@ export function rollupSentence(roll: RollupKind, rows: readonly TripRow[]): stri
   for (const r of rows) {
     const key =
       roll === "skipped"
-        ? (r.swallow_reason ?? "superseded")
+        ? (r.reason ?? "busy")
         : r.probe_exit === null
           ? "no probe"
           : `probe ${r.probe_exit}`;
@@ -103,8 +109,8 @@ export function rollupSentence(roll: RollupKind, rows: readonly TripRow[]): stri
  *
  * It names the page it will actually add and, past one page, how deep the rest
  * goes — so a reader can tell "one more press" from "this log is long". The
- * ledger keeps the most recent five hundred per tripwire, pruned at claim time,
- * which is what makes this cue bottom out at all ([B04]).
+ * ledger keeps the most recent five hundred per tripwire, pruned as each trip
+ * is written, which is what makes this cue bottom out at all ([B04]).
  */
 export function olderCueLabel(entryCount: number, shown: number): string | null {
   const older = entryCount - Math.min(shown, entryCount);

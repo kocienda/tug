@@ -53,7 +53,7 @@ pub mod shell_words;
 pub mod terminal;
 pub mod text_ref;
 pub mod tripwire;
-pub mod tripwire_dossier;
+pub mod tripwire_prompt;
 pub mod tripwire_session;
 pub mod tripwire_tree;
 pub mod tripwires;

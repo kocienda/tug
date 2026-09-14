@@ -510,11 +510,6 @@ pub enum TripwireCommands {
         /// `field=value` (exact), `field~=substr`, `field^=prefix`.
         #[arg(long = "where")]
         clauses: Vec<String>,
-        /// The base branch a landing has to be onto for this wire to fire.
-        /// Absent reads the default branch of --scope, or of the current
-        /// directory when the wire is machine-wide.
-        #[arg(long)]
-        branch: Option<String>,
         /// Only fire on events under this path. Unscoped fires machine-wide.
         #[arg(long)]
         scope: Option<String>,
@@ -552,8 +547,6 @@ pub enum TripwireCommands {
         clauses: Vec<String>,
         #[arg(long)]
         scope: Option<String>,
-        #[arg(long)]
-        branch: Option<String>,
         #[arg(long)]
         probe: Option<String>,
         #[arg(long)]

@@ -1409,12 +1409,16 @@ mod tests {
 
         // The submission wake's shape: the current line alone, with nothing
         // to tell the channel and the through-line left standing.
-        let current_only =
-            parse_envelope(r#"{"post": null, "synopsis": null, "current": "Trace the parser bug"}"#)
-                .expect("parses");
+        let current_only = parse_envelope(
+            r#"{"post": null, "synopsis": null, "current": "Trace the parser bug"}"#,
+        )
+        .expect("parses");
         assert!(current_only.post.is_none());
         assert!(current_only.synopsis.is_none());
-        assert_eq!(current_only.current.as_deref(), Some("Trace the parser bug"));
+        assert_eq!(
+            current_only.current.as_deref(),
+            Some("Trace the parser bug")
+        );
 
         // Null and omitted are one answer, and neither field is required.
         let explicit_none =

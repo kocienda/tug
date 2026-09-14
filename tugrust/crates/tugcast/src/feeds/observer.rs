@@ -58,14 +58,12 @@ use crate::shared_agent::SharedAgentPool;
 
 use super::observer_wake::{
     FactLine, OBSERVER_PROSE_GRACE, OBSERVER_PROSE_LIMIT, PriorPost, WakeReason, clamp_post_body,
-    compose_observer_input, counts_as_ask, counts_as_assistant_activity, parse_envelope,
-    prose_len, render_facts_section, synopsis_register_report, validate_refs,
+    compose_observer_input, counts_as_ask, counts_as_assistant_activity, parse_envelope, prose_len,
+    render_facts_section, synopsis_register_report, validate_refs,
 };
 use super::overview_agent::DEFAULT_CARD_ROWS;
 use super::payload_inspector::InspectedPayload;
-use super::session_digest::{
-    SessionDigest, SessionDigester, forwardable_session, submission_ask,
-};
+use super::session_digest::{SessionDigest, SessionDigester, forwardable_session, submission_ask};
 
 /// How many posts the card's CONTROL tail read answers with when it asks for
 /// no particular number. Matches the opening request `card_rows` sizes, so a
@@ -798,7 +796,7 @@ fn settle(
     // a wake may move the line under a live session's name and have nothing to
     // tell the channel, which is the whole point of carrying it here.
     broadcast_current_line(
-        &overview_tx,
+        overview_tx,
         &session_id,
         envelope.current.as_deref(),
         reason,
@@ -993,7 +991,9 @@ fn broadcast_current_line(
             );
             let _ = overview_tx.send(Frame::new(FeedId::OVERVIEW, bytes));
         }
-        Err(error) => warn!(%error, session_id, "overview observer: current line did not serialize"),
+        Err(error) => {
+            warn!(%error, session_id, "overview observer: current line did not serialize")
+        }
     }
 }
 
@@ -1761,6 +1761,7 @@ mod tests {
                 "03fcaa087",
                 "private sessions",
                 &["tugdeck/src/protocol.ts".to_string()],
+                None,
                 None,
             ))
             .expect("fact recorded");

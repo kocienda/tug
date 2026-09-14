@@ -4,7 +4,7 @@
 //! to write there when the phase allows it, and the whole tool surface a
 //! session carries. That is an ordinary Tug session in every respect except
 //! who asked for it, which is what [`AgentSupervisor::spawn_headless_session`]
-//! exists to open ([P11]). The diagnosis phase runs one in the landing's
+//! exists to open ([P11]). The diagnosis phase runs one in the trip's
 //! inspection tree; the authoring phase runs one in the tripwire's own arc
 //! worktree. Each phase's session says what it decided by running the
 //! resolution verb, which writes the trip row — nothing here reads a
@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::oneshot;
 use tokio::time::Instant;
 use tracing::{info, warn};
 use tugcast_core::TugSessionId;
@@ -62,6 +63,15 @@ pub struct TripwireSessionRequest {
     pub model: Option<String>,
     /// The whole prompt: brief, evidence, probe result, and the S04 contract.
     pub prompt: String,
+    /// Sent once, right after the supervisor seats the session and before its
+    /// prompt is rotated in.
+    ///
+    /// It is how the trip row names its session while the run is still
+    /// happening, rather than after the phase returns — the difference
+    /// between a running trip a reader can open and one they can only watch
+    /// ([B04], [F05]). A runner that never seats drops the sender, and the
+    /// receiving end reads that as the seat it will not get.
+    pub seated: Option<oneshot::Sender<String>>,
 }
 
 /// How a session's run ended.
@@ -205,7 +215,7 @@ impl TripwireSessionRunner for SupervisorTripwireSessions {
 
     async fn run(
         &self,
-        request: TripwireSessionRequest,
+        mut request: TripwireSessionRequest,
     ) -> Result<TripwireSessionOutcome, RunRefusal> {
         let session = self
             .supervisor
@@ -227,6 +237,13 @@ impl TripwireSessionRunner for SupervisorTripwireSessions {
                     _ => RunRefusal::Fault(message),
                 }
             })?;
+
+        // The seat, the first thing this run reports: the supervisor has a
+        // session id and the engine wants it on the row now, not when the
+        // phase returns.
+        if let Some(tx) = request.seated.take() {
+            let _ = tx.send(session.as_str().to_string());
+        }
 
         // The rotation is the deck's own opening gesture: `model_change` first
         // so tugcode records the selector before it spawns claude ([P06]), then

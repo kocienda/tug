@@ -72,10 +72,10 @@ function layTripwire(app: App, name: string): void {
       name,
       "--on",
       "fact:edit_failed",
-      "--branch",
-      "main",
       "--brief",
       `say whether ${name} saw anything worth reporting`,
+      "--description",
+      `Says whether ${name} saw anything worth reporting`,
       "--json",
     ],
     {
