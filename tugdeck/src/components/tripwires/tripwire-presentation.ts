@@ -266,6 +266,38 @@ export function describeProbe(probe: string | null): string {
   return probe ?? "Nothing — the AI looks at the event itself";
 }
 
+/** What the card calls a tripwire with no model of its own — the label the
+ *  definition's Model row shows, and the popup's first item. */
+export const SESSION_DEFAULT_MODEL = "The session default";
+
+/**
+ * The model knob's items, in the order the popup offers them.
+ *
+ * The session default leads, because a tripwire that names no model is the
+ * ordinary case and the one a reader undoes a choice back to.
+ */
+export const MODEL_CHOICES: readonly string[] = [
+  SESSION_DEFAULT_MODEL,
+  "opus",
+  "sonnet",
+  "haiku",
+];
+
+/**
+ * What the ledger is asked to hold when the reader picks `label`.
+ *
+ * The session default is `null` rather than its own string: the column means
+ * "this tripwire overrides the account's model", and a tripwire that overrode
+ * it with the words "the session default" would be a row nothing could read
+ * back. A label the popup does not offer writes nothing at all — the knob
+ * cannot mint a model name, and a payload that arrived from somewhere else is
+ * not a reason to store one.
+ */
+export function modelKnobValue(label: string): { model: string | null } | null {
+  if (!MODEL_CHOICES.includes(label)) return null;
+  return { model: label === SESSION_DEFAULT_MODEL ? null : label };
+}
+
 /** Where the tripwire is listening. */
 export function describeScope(scope: string | null): string {
   return scope ?? "Anywhere on this machine";
@@ -292,38 +324,17 @@ export function describePermissions(mode: string): string {
 }
 
 /**
- * A brief's gist: its first sentence, and no more than a line's worth of it.
- *
- * A brief is the whole instruction a trip runs on, and a good one is
- * paragraphs — printing it whole turned the definition into a wall of text
- * that buried the six other rows and the trip log under it. The first sentence
- * is what the author wrote to say what the tripwire is for; the rest is how.
- * The full text is still reachable, on the row itself.
- */
-export function briefGist(brief: string): string {
-  const flat = brief.trim().replace(/\s+/g, " ");
-  // The sentence end, not a period: `tugtool file edit` and `v1.2` both carry
-  // one, and neither ends a sentence. A terminator followed by a space and a
-  // capital is the shape a sentence actually ends on.
-  const end = flat.search(/[.!?](?=\s+[A-Z(`"'“])/u);
-  const first = end === -1 ? flat : flat.slice(0, end + 1);
-  if (first.length <= GIST_MAX) return first;
-  const cut = first.lastIndexOf(" ", GIST_MAX);
-  return `${first.slice(0, cut === -1 ? GIST_MAX : cut)}…`;
-}
-
-/** Two lines at the rail's width. Past it the gist is the wall it replaced. */
-const GIST_MAX = 120;
-
-/**
  * The tripwire's definition, as the rows the detail level leads with.
  *
  * A trip log with no statement of what the tripwire is watching for is a list
  * of answers to an unasked question — this is the question.
  *
- * A row's `full` is the whole text when the `value` is an abbreviation of it,
- * and absent when the value is already whole — which is what tells the surface
- * whether there is anything more to show.
+ * Every row's `value` is the whole of what it says. `clamp` marks the one row
+ * that is paragraphs rather than a phrase — the brief — so the surface can put
+ * it behind a two-line clamp with its own reveal. It is never a hover: a brief
+ * is the whole instruction a trip runs on, and a tooltip carrying paragraphs is
+ * a wall of text nobody asked for ([B05]). `mono` marks the rows that are read
+ * character by character.
  */
 export function tripwireDefinition(
   tripwire: TripwireRow,
@@ -331,19 +342,15 @@ export function tripwireDefinition(
   readonly label: string;
   readonly value: string;
   readonly mono?: boolean;
-  readonly full?: string;
+  readonly clamp?: boolean;
 }[] {
   return [
     { label: "Watches for", value: describeTrigger(tripwire.trigger) },
     { label: "Lands on", value: tripwire.branch, mono: true },
     { label: "In", value: describeScope(tripwire.scope) },
     { label: "Runs first", value: describeProbe(tripwire.probe), mono: tripwire.probe !== null },
-    {
-      label: "Asks the AI to",
-      value: briefGist(tripwire.brief),
-      full: briefGist(tripwire.brief) === tripwire.brief.trim() ? undefined : tripwire.brief,
-    },
-    { label: "Model", value: tripwire.model ?? "The session default" },
+    { label: "Asks the AI to", value: tripwire.brief.trim(), clamp: true },
+    { label: "Model", value: tripwire.model ?? SESSION_DEFAULT_MODEL },
     { label: "Permissions", value: describePermissions(tripwire.permission_mode) },
   ];
 }

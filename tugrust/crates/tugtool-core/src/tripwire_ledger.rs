@@ -35,6 +35,16 @@ use crate::tripwire_predicate::Predicate;
 /// Current on-disk schema version, stamped into `PRAGMA user_version`.
 pub const TRIPWIRE_SCHEMA_VERSION: i64 = 6;
 
+/// How many trips are kept per tripwire. Older rows are deleted at record
+/// time — the regime the app-test results ledger already runs. A tripwire that
+/// fires on every landing would otherwise grow its log without bound, and the
+/// card's older-trips cue would never bottom out. The rows a reader wants are
+/// the newest ones, so the cap loses nothing anybody would page to.
+///
+/// This is a DELETE at write time rather than DDL, so it moves no schema
+/// version and registers no migration.
+pub const MAX_TRIPS_PER_TRIPWIRE: i64 = 500;
+
 /// Registered migrations, each keyed by the on-disk version it upgrades
 /// *from*. Every migration whose `from` is at or above the version found on
 /// disk is applied in order. Empty at v1; a schema change adds an entry here
@@ -842,6 +852,23 @@ fn trip_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Trip> {
 /// wins or violates `UNIQUE(tripwire_id, event_key)`, and the loser stops. It is
 /// one statement on purpose — anything wider would be a lock, and a lock is
 /// what this design does without.
+///
+/// A won claim then prunes the tripwire's log back to
+/// [`MAX_TRIPS_PER_TRIPWIRE`]. The prune is a second statement rather than a
+/// wider one: it touches only rows this tripwire already lost interest in, so
+/// a racing claim on another tripwire is unaffected and neither statement
+/// waits on the other.
+///
+/// **Only a settled row is ever pruned.** A `claimed`, `queued`, `running`,
+/// `awaiting` or `adopted` trip is state rather than log: an awaiting one is
+/// holding a question the user has not answered ([P07]) and may hold it for
+/// weeks, and a tripwire that fires on every landing would otherwise delete
+/// that question — and orphan the arc it authored, which nothing then settles
+/// because [`awaiting_trips_with_arcs`]'s sweep reads rows that exist. So the
+/// cap is on what the log remembers, and a held trip outlives it. The list is
+/// the terminal statuses by name rather than the live ones negated: a status
+/// this build has not learned is left alone, which costs a row and cannot
+/// cost a question.
 pub fn claim_trip(
     conn: &Connection,
     tripwire_id: i64,
@@ -858,9 +885,18 @@ pub fn claim_trip(
     if inserted == 0 {
         return Ok(Claim::AlreadyClaimed);
     }
-    Ok(Claim::Claimed {
-        trip_id: conn.last_insert_rowid(),
-    })
+    let trip_id = conn.last_insert_rowid();
+    conn.execute(
+        "DELETE FROM trips
+          WHERE tripwire_id = ?1
+            AND status IN ('settled', 'failed', 'swallowed', 'superseded')
+            AND id NOT IN (
+                SELECT id FROM trips WHERE tripwire_id = ?1
+                 ORDER BY id DESC LIMIT ?2
+            )",
+        params![tripwire_id, MAX_TRIPS_PER_TRIPWIRE],
+    )?;
+    Ok(Claim::Claimed { trip_id })
 }
 
 /// Move a trip to a status, leaving everything else alone.
@@ -1398,9 +1434,9 @@ pub fn trip(conn: &Connection, trip_id: i64) -> Result<Option<Trip>, TripwireLed
         .optional()?)
 }
 
-/// A tripwire's trips, newest first, capped. The log is the record — no retention
-/// policy trims it, and `limit` is the reader's window rather than the
-/// ledger's memory.
+/// A tripwire's trips, newest first, capped. `limit` is the reader's window;
+/// the ledger's own memory is [`MAX_TRIPS_PER_TRIPWIRE`], pruned at claim
+/// time, so a reader that pages to the end of a log reaches it.
 pub fn trips_for_tripwire(
     conn: &Connection,
     tripwire_id: i64,
@@ -2255,6 +2291,69 @@ mod tests {
             claim_trip(&conn, b.id, "sha", 1, "i", None).unwrap(),
             Claim::Claimed { .. }
         ));
+    }
+
+    /// Claim a trip and settle it, which is what a firing that ran and
+    /// reported nothing leaves behind — and the only shape the log retains.
+    fn settled_trip(conn: &Connection, tripwire_id: i64, key: &str, at_ms: i64) -> i64 {
+        let Claim::Claimed { trip_id } =
+            claim_trip(conn, tripwire_id, key, at_ms, "inst", None).unwrap()
+        else {
+            unreachable!("each event key is claimed once");
+        };
+        set_status(conn, trip_id, TripStatus::Settled, None).unwrap();
+        trip_id
+    }
+
+    /// Retention is per tripwire and runs at claim time: the oldest row falls
+    /// out as the five-hundred-and-first arrives, and a neighbour's log is not
+    /// touched by it.
+    #[test]
+    fn retention_keeps_the_newest_trips_per_tripwire() {
+        let conn = ledger();
+        let w = lay_one(&conn, "w");
+        let other = lay_one(&conn, "other");
+        settled_trip(&conn, other.id, "neighbour", 1);
+
+        let ids: Vec<i64> = (0..(MAX_TRIPS_PER_TRIPWIRE + 1))
+            .map(|i| settled_trip(&conn, w.id, &format!("e{i}"), 1_000 + i))
+            .collect();
+
+        let kept = trips_for_tripwire(&conn, w.id, MAX_TRIPS_PER_TRIPWIRE * 2).unwrap();
+        assert_eq!(kept.len() as i64, MAX_TRIPS_PER_TRIPWIRE);
+        assert!(trip(&conn, ids[0]).unwrap().is_none());
+        assert!(trip(&conn, ids[1]).unwrap().is_some());
+        assert!(trip(&conn, *ids.last().unwrap()).unwrap().is_some());
+        assert_eq!(trips_for_tripwire(&conn, other.id, 10).unwrap().len(), 1);
+    }
+
+    /// A trip that is still holding is state rather than log, and the cap is
+    /// on the log: an awaiting trip asked the user a question and may wait
+    /// weeks for the answer, and a tripwire firing on every landing must not
+    /// delete the question — nor the row the awaiting sweep reads to release
+    /// it when its arc goes.
+    #[test]
+    fn retention_spares_a_trip_that_is_still_holding() {
+        let conn = ledger();
+        let w = lay_one(&conn, "w");
+        let Claim::Claimed { trip_id: held } =
+            claim_trip(&conn, w.id, "held", 1, "inst", None).unwrap()
+        else {
+            unreachable!("the first claim on an empty log wins");
+        };
+        set_status(&conn, held, TripStatus::Awaiting, None).unwrap();
+
+        for i in 0..(MAX_TRIPS_PER_TRIPWIRE + 5) {
+            settled_trip(&conn, w.id, &format!("e{i}"), 1_000 + i);
+        }
+
+        let still = trip(&conn, held).unwrap().expect("the held trip outlives the cap");
+        assert_eq!(still.status, "awaiting");
+        assert_eq!(
+            awaiting_trips_with_arcs(&conn).unwrap().len(),
+            0,
+            "this one authored no arc; the sweep's read is still over rows that exist"
+        );
     }
 
     #[test]

@@ -11,11 +11,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  briefGist,
   describePermissions,
   describeProbe,
   describeScope,
   describeTrigger,
+  modelKnobValue,
+  MODEL_CHOICES,
   tripSentence,
   tripState,
   tripStateLabel,
@@ -275,41 +276,25 @@ describe("the rest of a tripwire's definition", () => {
     );
   });
 
-  test("a paragraph-long brief shows its first sentence, and keeps the rest", () => {
+  test("a paragraph-long brief is carried whole, for the clamp to hold", () => {
     const brief =
       "Diagnose the failure and say who was wrong. The evidence carries the " +
       "class, the report, and the program itself.";
-    expect(briefGist(brief)).toBe("Diagnose the failure and say who was wrong.");
     const row = tripwireDefinition(tripwire({ brief })).find(
       (r) => r.label === "Asks the AI to",
     );
-    expect(row?.value).toBe("Diagnose the failure and say who was wrong.");
-    // The whole text is still carried, which is what the surface shows on hover.
-    expect(row?.full).toBe(brief);
+    // The whole text, never an abbreviation of it: the surface puts it behind a
+    // two-line clamp whose own reveal is the door, and never behind a hover.
+    expect(row?.value).toBe(brief);
+    expect(row?.clamp).toBe(true);
   });
 
-  test("a brief already short enough is shown whole, with nothing held back", () => {
+  test("a short brief is carried the same way, with no second shape for it", () => {
     const row = tripwireDefinition(tripwire({ brief: "Flag anything red." })).find(
       (r) => r.label === "Asks the AI to",
     );
     expect(row?.value).toBe("Flag anything red.");
-    expect(row?.full).toBeUndefined();
-  });
-
-  test("a period inside a name does not end the sentence", () => {
-    // `tugtool file edit` and `v1.2` both carry a period, and neither closes a
-    // sentence — a naive split on `.` would cut the gist mid-phrase.
-    expect(briefGist("Watch v1.2 of the parser and report drift. Then stop.")).toBe(
-      "Watch v1.2 of the parser and report drift.",
-    );
-  });
-
-  test("one long sentence is cut at a word, never mid-word", () => {
-    const long = `${"alpha ".repeat(40)}omega.`;
-    const gist = briefGist(long);
-    expect(gist.endsWith("…")).toBe(true);
-    expect(gist.length).toBeLessThanOrEqual(121);
-    expect(gist).not.toContain("alp…");
+    expect(row?.clamp).toBe(true);
   });
 
   test("the definition leads with what the tripwire watches for", () => {
@@ -324,6 +309,28 @@ describe("the rest of a tripwire's definition", () => {
       "Model",
       "Permissions",
     ]);
+  });
+
+  test("the model knob offers the session default first, then the three names", () => {
+    expect(MODEL_CHOICES).toEqual(["The session default", "opus", "sonnet", "haiku"]);
+  });
+
+  test("the session default clears the column rather than storing its own words", () => {
+    // The column means "this tripwire overrides the account's model", and a row
+    // holding the words "The session default" is one nothing could read back.
+    expect(modelKnobValue("The session default")).toEqual({ model: null });
+  });
+
+  test("a named model is stored as itself", () => {
+    expect(modelKnobValue("opus")).toEqual({ model: "opus" });
+    expect(modelKnobValue("haiku")).toEqual({ model: "haiku" });
+  });
+
+  test("a label the knob does not offer writes nothing", () => {
+    // The knob cannot mint a model name: a payload that arrived from somewhere
+    // else is not a reason to store one.
+    expect(modelKnobValue("gpt-4")).toBeNull();
+    expect(modelKnobValue("")).toBeNull();
   });
 
   test("only a real probe is set in the command face", () => {

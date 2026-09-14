@@ -1,17 +1,17 @@
 /**
- * tripwires-data-source.ts — the two `TugListView` data sources the
- * **Tripwires** card stands on: one tripwire per row at level one, one trip
- * per row at level two.
+ * tripwires-data-source.ts — the `TugListView` data source the **Tripwires**
+ * card stands on: one tripwire per row.
  *
- * Both are the same shape and both are trivial projections of the store's
- * snapshot, because neither level filters, sorts, or groups: the ledger's
- * order is the order (tripwires oldest-first, the order they were laid in;
- * trips newest-first, the order a log is read in), and a level that
- * re-sorted them would be inventing a second opinion about a question the
- * ledger already answered.
+ * A trivial projection of the store's snapshot, because the roster does not
+ * filter, sort, or group: the ledger's order is the order — oldest-first, the
+ * order the tripwires were laid in — and a card that re-sorted them would be
+ * inventing a second opinion about a question the ledger already answered. A
+ * tripwire's trip log has no source of its own: the fold draws its rows
+ * directly, because a roll-up is not one row per trip and a list view over a
+ * projection that collapses rows would have to be told so twice.
  *
- * One cell kind per source — a tripwire row's appearance evolves with its state
- * and never with its kind ([L26]).
+ * One cell kind — a tripwire row's appearance evolves with its state and never
+ * with its kind ([L26]).
  *
  * @module components/tripwires/tripwires-data-source
  */
@@ -19,7 +19,7 @@
 import { useLayoutEffect, useRef } from "react";
 
 import type { TugListViewDataSource } from "@/components/tugways/tug-list-view";
-import type { TripRow, TripwireRow } from "@/lib/tripwires-store";
+import type { TripwireRow } from "@/lib/tripwires-store";
 
 /** A list over an array whose identity is its own change signal. */
 class ArrayDataSource<T> implements TugListViewDataSource {
@@ -75,7 +75,6 @@ class ArrayDataSource<T> implements TugListViewDataSource {
 }
 
 export type TripwiresDataSource = ArrayDataSource<TripwireRow>;
-export type TripsDataSource = ArrayDataSource<TripRow>;
 
 function useArrayDataSource<T>(
   rows: readonly T[],
@@ -97,9 +96,4 @@ function useArrayDataSource<T>(
 /** The tripwire list — a tripwire's name is its address everywhere, so it is the id. */
 export function useTripwiresDataSource(tripwires: readonly TripwireRow[]): TripwiresDataSource {
   return useArrayDataSource(tripwires, "tripwire", (w) => w.name);
-}
-
-/** One tripwire's trip log. */
-export function useTripsDataSource(trips: readonly TripRow[]): TripsDataSource {
-  return useArrayDataSource(trips, "trip", (t) => String(t.id));
 }

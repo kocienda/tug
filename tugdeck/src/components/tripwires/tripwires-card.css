@@ -1,18 +1,25 @@
 /**
- * tripwires-card.css — the Tripwires card's own layout and its four status
- * glyphs.
+ * tripwires-card.css — the Tripwires card's layout, and the colour every mark
+ * on it reads.
  *
- * Everything here is appearance [L06]: the glyph colors are role tokens, and
- * the state a glyph reads comes off the store through a `data-` attribute the
- * card stamps, never through a class the component computes.
+ * Everything here is appearance [L06]: a mark's state comes off the
+ * `data-state` attribute the card stamps, never off a class the component
+ * computed, and every colour is a token, never a hex [L15].
+ *
+ * @tug-pairings
+ * | Element                                          | Surface                                           | Role          | Context                     |
+ * |--------------------------------------------------|---------------------------------------------------|---------------|-----------------------------|
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-default-rest | informational | .tripwires-mark (rest)      |
+ * | --tug7-element-global-text-normal-subtle-rest    | --tug7-surface-global-primary-normal-default-rest | informational | .tripwires-log-empty        |
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-default-rest | informational | .tripwires-probe-tail       |
  */
 
-/* The card root is the SCROLLER at both levels, and everything the card draws
-   stands in `.tripwires-card-content` inside it — the card's content element,
-   whose border-box height is its natural height ([B01]). One scroller per
-   card, at the top: the roster and the detail alike scroll as one document,
-   which is what lets a single element hold everything the level draws and
-   still be measurable. */
+/* The card root is the SCROLLER, and everything the card draws stands in
+   `.tripwires-card-content` inside it — the card's content element, whose
+   border-box height is its natural height ([B01]). One scroller per card, at
+   the top: the roster and every open fold scroll as one document, which is what
+   lets a single element hold everything the card draws and still be
+   measurable. */
 .tripwires-card {
   box-sizing: border-box;
   block-size: 100%;
@@ -21,9 +28,9 @@
   overflow-y: scroll;
 }
 
-/* The content element: everything the level draws as one in-flow column,
-   inside the scroller with nothing stretched between them ([B02]). A taller
-   pane cannot make it taller. */
+/* The content element: everything the card draws as one in-flow column, inside
+   the scroller with nothing stretched between them ([B02]). A taller pane
+   cannot make it taller. */
 .tripwires-card-content {
   display: flex;
   flex-direction: column;
@@ -41,55 +48,141 @@
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
-.tripwires-list,
-.tripwires-trips {
-  /* Stand at their rows' own height and hand overflow to the card root. */
+.tripwires-error {
+  padding: 10px 12px;
+}
+
+/* --------------------------------------------------------------------------
+   The collapsed band — the card's first line
+   ----------------------------------------------------------------------- */
+
+.tripwires-band {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-md);
+  min-block-size: 28px;
+  padding-inline: var(--tug-space-md);
+  border-block-end: 1px solid var(--tugx-block-border);
+  color: var(--tug7-element-global-text-normal-muted-rest);
   flex: 0 0 auto;
 }
 
-/* Neither the roster nor the detail column scrolls on its own any more: a
-   scroller here would absorb the card's run and the content element's height
-   would follow the pane's ([B02]). Doubled selector on the roster so this
-   beats the base `.tug-list-view` rule regardless of bundle order. Both axes,
-   because `overflow-y: visible` beside a clipped x computes back to `auto`
-   and the element would be a scroll container again. */
-.tug-list-view.tripwires-list,
-.tripwires-detail {
+.tripwires-band-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+}
+
+.tripwires-band-count[data-state="paused"] {
+  color: var(--tugx-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   The list and its rows
+   ----------------------------------------------------------------------- */
+
+/* The list stands at its rows' own height and hands overflow to the card root.
+   Doubled selector so this beats the base `.tug-list-view` rule regardless of
+   bundle order. Both axes, because `overflow-y: visible` beside a clipped x
+   computes back to `auto` and the element would be a scroll container again. */
+.tug-list-view.tripwires-list {
+  flex: 0 0 auto;
+  height: auto;
   overflow: visible;
 }
 
-/* The roster's second line is the Cards card's session description, and it
-   has to read as that line rather than as a heavier relative of it: a plain
-   run at the row's own color, not `TugLabel`'s medium weight over muted ink.
-   `TugListRow` renders every subtitle through a label, so the correction is
-   here rather than a second subtitle API on the row. */
-.tripwires-list .tug-list-row-subtitle {
-  font-weight: var(--tug-font-weight-normal);
+.tripwires-row[data-slot] {
+  min-width: 0;
+  padding-inline-end: calc(
+    var(--tugx-list-row-padding-inline) + var(--tugx-list-row-indicator-gutter)
+  );
+}
+
+.tripwires-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-block: var(--tug-space-md);
+}
+
+/* Line one: name, hairline, worker chip, controls. */
+.tripwires-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+}
+
+.tripwires-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  flex: 0 0 auto;
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-/* The arm/pause control rides the title's line, not the row's centre. Every
-   other rail row hangs its leading glyph off the first line, and a two-line
-   row that centred its control put it between the two lines, pointing at
-   neither. */
-.tripwires-list .tug-list-row-leading,
-.tripwires-detail-head .tug-list-row-leading {
-  align-items: flex-start;
+.tripwires-name .tug-label {
+  font-weight: var(--tug-font-weight-semibold);
 }
 
-.tripwires-row-trailing {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.tripwires-rule {
+  flex: 1 1 auto;
+  min-width: var(--tug-space-sm);
+  border-block-start: 1px solid var(--tugx-block-border);
 }
 
-/* The dot's own box, so a dot and a glyph occupy the same width and the
-   chevron beside them does not shift when a run starts. Nothing here colors
-   or moves the mark — `TugProgressIndicator` owns both [L20]. */
-.tripwires-dot {
+.tripwires-controls {
   display: inline-flex;
   align-items: center;
+  gap: var(--tug-space-2xs);
   flex: 0 0 auto;
+}
+
+/* Line two: the mark, the sentence, the branch. */
+.tripwires-line {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+.tripwires-sentence {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The branch, at the row's own size: it is the tripwire's other half, and a
+   2xs badge read as a footnote on a line that is not one ([B06]). */
+.tripwires-branch {
+  flex: 0 0 auto;
+}
+
+/* The mark's box is fixed so the sentence beside it stands at one x whether the
+   row wears a dot, a glyph, or nothing. Colour is the state's, read from the
+   attribute rather than from a class the component computed ([L06]). Nothing
+   here colours or moves a live dot — `TugProgressIndicator` owns both [L20]. */
+.tripwires-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 12px;
+  block-size: 12px;
+  flex: 0 0 auto;
+  color: var(--tugx-text-muted);
+}
+
+/* A failure is danger; everything else is quiet on purpose, because a firing
+   with nothing to report is the ordinary case and the log's ink belongs to the
+   ones that found something. */
+.tripwires-mark[data-state="failed"] {
+  color: var(--tugx-danger);
+}
+
+/* Paused reads one step quieter than the rest of the row. */
+.tripwires-row[data-state="paused"] .tripwires-sentence {
+  color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
 /* The session dot is a gesture: it opens the session on a card, or raises the
@@ -115,140 +208,128 @@
   outline-offset: 1px;
 }
 
-/* The trip log's dot rides the first line of the body, the way the glyph
-   beside it does. */
-.tripwires-trip-body > .tripwires-dot {
-  margin-block-start: 1px;
+/* Line three: the register band, inset to the text like the Arcs card's. */
+.tripwires-register {
+  display: flex;
+  min-width: 0;
+  border-radius: var(--tug-radius-md);
+  overflow: hidden;
+  /* Held to the row's own inset: the band's dot stands where the line's mark
+     stands, and the band's text where the line's text does. */
+  margin-inline-start: calc(12px + var(--tug-space-sm));
 }
 
-/* The glyphs — how a trip ended. A failure is danger; everything else is
-   quiet on purpose, because a firing with nothing to report is the ordinary
-   case and the log's ink belongs to the ones that found something. The two
-   live states are not here at all: they are dots, and the indicator owns
-   their color [L20]. */
-.tripwires-glyph {
-  flex: 0 0 auto;
+.tripwires-register-target {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
 }
 
-.tripwires-glyph-failed {
-  color: var(--tugx-danger);
-}
+/* --------------------------------------------------------------------------
+   The fold
+   ----------------------------------------------------------------------- */
 
-.tripwires-glyph-routine {
-  color: var(--tugx-text-muted);
-}
-
-/* A trip that never ran and one that has not started yet are both quiet: the
-   log's ink belongs to the firings that did something. */
-.tripwires-glyph-skipped,
-.tripwires-glyph-waiting {
-  color: var(--tugx-text-muted);
-}
-
-.tripwires-error {
-  padding: 10px 12px;
-}
-
-.tripwires-detail {
+.tripwires-fold {
   display: flex;
   flex-direction: column;
-  /* Stands at its full content height inside the card's scroller. Everything
-     in the detail — the definition, the knobs, the whole trip log — scrolls
-     together as one document, which is what the reader asked the level for.
-     The alternative (a column that shrinks and hands overflow to an inner
-     list's scroller) puts a scrollbar around the log alone and leaves the
-     definition above it clipped with no way to reach the rest. */
-  flex: 0 0 auto;
-}
-
-/* Inside the detail nothing scrolls on its own and nothing shrinks: each part
-   stands at its full height and the card's scroller carries the overflow. */
-.tripwires-detail > * {
-  flex: 0 0 auto;
-}
-
-.tripwires-detail .tripwires-trips {
-  overflow: visible;
-}
-
-/* The head is a row outside a list, so it pays the inline padding the list
-   would have given its cells. Stated as the list's own knob rather than a
-   copied number: the title has to land on the same vertical as the closed
-   row's, and two numbers that must agree should be one number. */
-.tripwires-detail-head {
-  margin-inline: var(--tugx-list-view-padding-inline);
-}
-
-.tripwires-detail-knobs {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding-block: 6px 8px;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+  padding-block-start: var(--tug-space-xs);
 }
 
 /* The tripwire's definition: a label column that sizes to its longest word and
-   a value column that takes the rest. A grid rather than a flex row per pair
-   so the values line up down the block — a definition read as a column of
-   ragged left edges is a list of unrelated facts. */
+   a value column that takes the rest. A grid rather than a flex row per pair so
+   the values line up down the block — a definition read as a column of ragged
+   left edges is a list of unrelated facts. */
 .tripwires-definition {
   display: grid;
-  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
-  align-items: baseline;
-  gap: 3px 10px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--tug-space-sm);
+  row-gap: var(--tug-space-2xs);
   margin: 0;
-  padding-block: 4px 6px;
-  /* Whole, never scrolled. The definition is what the log below it is about,
-     and a definition behind its own scrollbar is one a reader has to work to
-     finish — the detail column scrolls, which is the right place for it. */
-  flex: 0 0 auto;
+  align-items: center;
 }
 
-/* Everything below the head lines up with the head's own content edge — the
-   list's inset plus the row's inline padding, both read from the knobs that
-   set them rather than copied as a number. */
-.tripwires-definition,
-.tripwires-detail-knobs {
-  padding-inline: calc(
-    var(--tugx-list-view-padding-inline) + var(--tugx-list-row-padding-inline-compact)
-  );
-}
-
-.tripwires-definition > dt,
-.tripwires-definition > dd {
+.tripwires-definition dt,
+.tripwires-definition dd {
   margin: 0;
   min-width: 0;
 }
 
 /* A probe is a command, and a command is read character by character. */
-.tripwires-definition > dd[data-mono] {
+.tripwires-definition dd[data-mono] .tug-label {
   font-family: var(--tug-font-family-mono);
 }
 
-.tripwires-trip {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
+.tripwires-log-label {
+  padding-inline: 0;
 }
 
-/* The state glyph rides the first line of the body rather than the block's
-   centre, so a three-line headline does not float its glyph into the middle of
-   the paragraph. */
+.tripwires-log-empty {
+  font-size: 12px;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+  padding-block: var(--tug-space-2xs);
+}
+
+.tripwires-trip[data-slot] {
+  padding-inline: 0;
+}
+
 .tripwires-trip-body {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-block: var(--tug-space-2xs);
+}
+
+/* The state mark rides the first line of the body rather than the block's
+   centre, so a three-line headline does not float its mark into the middle of
+   the paragraph. */
+.tripwires-trip-head {
+  display: flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: var(--tug-space-sm);
   min-width: 0;
 }
 
-.tripwires-trip-body > .tripwires-glyph {
+.tripwires-trip-head > .tripwires-mark {
   margin-block-start: 2px;
 }
 
 .tripwires-trip-meta {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--tug-space-xs);
+  padding-inline-start: calc(12px + var(--tug-space-sm));
+}
+
+/* The probe's tail: mono, a few lines, indented under the mark like the meta
+   line. A `<pre>` rather than a code view — three lines do not need an editor
+   behind them. */
+.tripwires-probe-tail {
+  margin: 0;
+  margin-inline-start: calc(12px + var(--tug-space-sm));
+  padding: var(--tug-space-2xs) var(--tug-space-xs);
+  font-family: var(--tug-font-family-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  border-inline-start: 2px solid var(--tugx-block-border);
+}
+
+.tripwires-log-error {
+  padding-block: var(--tug-space-2xs);
+}
+
+/* The older-trips cue sits under the log's text column, quiet until hovered. */
+.tripwires-log-older {
+  display: flex;
+  padding-inline-start: calc(12px + var(--tug-space-sm));
+  padding-block: var(--tug-space-2xs);
 }

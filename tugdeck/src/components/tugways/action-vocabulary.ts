@@ -1167,6 +1167,49 @@ export const TUG_ACTIONS = {
   REQUEST_DISCARD_ARC:   "request-discard-arc",
   REQUEST_REPLAY_ARC:     "request-replay-arc",
 
+  // ---- The tripwire row's verbs ----
+  //
+  // Chain actions, both: each is a menu row over a sampled target — "the
+  // tripwire this row is" — and PAUSE/RESUME and SET_TRIPWIRE_MODEL are also
+  // control frames, emitted by the row's pause control and its model popup.
+  // None is a chord: a tripwire is addressed by pointing at the row it is.
+  // Every one lands on a `tripwiresStore` call the store already has, so
+  // minting them fetches nothing new.
+  //
+  // PAUSE_TRIPWIRE:        payload — none. Stop this tripwire firing, via
+  //                        `setKnobs({ paused: true })`. Split from its
+  //                        complement rather than one toggle, because both
+  //                        doors — the row's control and the menu item — say
+  //                        which way they go, and a toggle would make each ask
+  //                        the reader to remember the row's state.
+  // RESUME_TRIPWIRE:       payload — none. The complement, `setKnobs({ paused:
+  //                        false })`. The two never appear together; the row
+  //                        carries whichever it is.
+  // TRIP_TRIPWIRE:         payload — none. Fire this tripwire by hand — the
+  //                        same queued row `tugtool tripwire trip` writes.
+  //                        Disabled, with the reason in its label, while a
+  //                        trip is already running.
+  // RELEASE_TRIPWIRE:      payload — none. Settle what the tripwire is holding
+  //                        ([P07]) and discard the arc it was holding it with.
+  //                        The keyboard's name for the fold's Seen act, which
+  //                        is the same `dismiss`; an awaiting trip that
+  //                        authored an arc is released by that arc's fate
+  //                        instead, so the band under it carries no control.
+  // OPEN_TRIPWIRE_SESSION: payload — none. Open the session the running trip
+  //                        is in, on a card — the gesture the row's live dot
+  //                        performs, under the keyboard's name. Disabled, with
+  //                        the reason in its label, when no trip is running.
+  // SET_TRIPWIRE_MODEL:    payload — `value: string`. The model this tripwire's
+  //                        trips run under, by name, written with
+  //                        `setKnobs({ model })`. The session default is its
+  //                        own item on the popup and writes `null`.
+  PAUSE_TRIPWIRE:        "pause-tripwire",
+  RESUME_TRIPWIRE:       "resume-tripwire",
+  TRIP_TRIPWIRE:         "trip-tripwire",
+  RELEASE_TRIPWIRE:      "release-tripwire",
+  OPEN_TRIPWIRE_SESSION: "open-tripwire-session",
+  SET_TRIPWIRE_MODEL:    "set-tripwire-model",
+
   // ---- Meta ----
   //
   // SET_PROPERTY: payload — `{ path: string; value: unknown; source?: string }`.

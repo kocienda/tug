@@ -57,16 +57,24 @@ function row(over: Partial<TripwireRow> = {}): TripwireRow {
 
 const realFetch = globalThis.fetch;
 let calls: string[] = [];
+let bodies: (string | null)[] = [];
+let failTrips = false;
 
 /** Every `/trips` answer is one row, so a load always commits something. */
 function stubFetch(): void {
   calls = [];
-  globalThis.fetch = ((input: RequestInfo | URL) => {
+  bodies = [];
+  failTrips = false;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     calls.push(String(input));
+    bodies.push(typeof init?.body === "string" ? init.body : null);
+    if (failTrips && String(input).includes("/trips")) {
+      return Promise.resolve({ ok: false, status: 503 } as Response);
+    }
     return Promise.resolve({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ trips: [] }),
+      json: () => Promise.resolve({ trips: [] } as unknown),
     } as Response);
   }) as typeof fetch;
 }
@@ -126,6 +134,10 @@ describe("TripwiresStore over the TRIPWIRES feed", () => {
     await settle();
     expect(calls.length).toBe(2);
     expect(calls[1]).toContain("/api/tripwires/ci/trips");
+    // And it asks for the whole of what the ledger keeps, so the fold's
+    // older-trips cue bottoms out at the log rather than at a server default
+    // four hundred and fifty rows short of it.
+    expect(calls[1]).toContain("limit=500");
     store.dispose();
   });
 
@@ -141,6 +153,66 @@ describe("TripwiresStore over the TRIPWIRES feed", () => {
     await settle();
 
     expect(Object.keys(store.getSnapshot().trips)).toEqual([]);
+    store.dispose();
+  });
+
+  test("a log that will not read says so under its own row, not over the card", async () => {
+    const { conn, push } = stubConnection();
+    const store = new TripwiresStore(conn);
+    push({ tripwires: [row(), row({ name: "edits" })], error: null });
+
+    failTrips = true;
+    await store.loadTrips("ci");
+    await settle();
+
+    // Scoped to the row whose log it is: `edits` is untouched, and no banner
+    // goes over a card whose roster read perfectly well [B10].
+    expect(store.getSnapshot().logErrors.ci).toContain("503");
+    expect(store.getSnapshot().logErrors.edits).toBeUndefined();
+    expect(store.getSnapshot().error).toBeNull();
+
+    failTrips = false;
+    await store.loadTrips("ci");
+    await settle();
+
+    expect(store.getSnapshot().logErrors.ci).toBeUndefined();
+    expect(store.getSnapshot().trips.ci).toEqual([]);
+    store.dispose();
+  });
+
+  test("a feed failure stays on the roster and a healthy log does not clear it", async () => {
+    const { conn, push } = stubConnection();
+    const store = new TripwiresStore(conn);
+    push({ tripwires: [row()], error: "the ledger could not be read" });
+
+    await store.loadTrips("ci");
+    await settle();
+
+    // The log read succeeding says nothing about the roster, so the reason the
+    // roster is stale is still on the card.
+    expect(store.getSnapshot().error).toBe("the ledger could not be read");
+    store.dispose();
+  });
+
+  test("a knob write posts only the knob it was asked to move", async () => {
+    const { conn, push } = stubConnection();
+    const store = new TripwiresStore(conn);
+    push({ tripwires: [row()], error: null });
+
+    await store.setKnobs("ci", { paused: true });
+    await store.setKnobs("ci", { model: "opus" });
+    // The session default clears the column, and `null` has to survive the
+    // round trip as a value rather than being dropped as an absent field —
+    // an omitted `model` means "leave it alone", which is the opposite.
+    await store.setKnobs("ci", { model: null });
+    await settle();
+
+    expect(calls.filter((c) => c.endsWith("/api/tripwires/ci"))).toHaveLength(3);
+    expect(bodies.slice(0, 3)).toEqual([
+      `{"paused":true}`,
+      `{"model":"opus"}`,
+      `{"model":null}`,
+    ]);
     store.dispose();
   });
 

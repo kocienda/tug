@@ -31,6 +31,20 @@ import type { TugConnection } from "../connection";
 import { getConnection } from "./connection-singleton";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 
+/**
+ * How many trips a log read asks for.
+ *
+ * The whole of what the ledger keeps, and named rather than left to the
+ * server's default: `tripwire_ledger` prunes each tripwire's settled trips
+ * back to five hundred at claim time, the HTTP surface clamps a named limit to
+ * the same five hundred, and the fold's older-trips cue pages through what
+ * arrived. Asking for the default — fifty — made that cue bottom out four
+ * hundred and fifty rows short of the log, with nothing on the card saying a
+ * log went on. One number, so what the ledger remembers and what the card can
+ * page to are the same fact.
+ */
+const LOG_WINDOW_ROWS = 500;
+
 /** One tripwire, as the roster projects it. */
 export interface TripwireRow {
   readonly name: string;
@@ -98,7 +112,14 @@ export interface TripwiresSnapshot {
   readonly tripwires: readonly TripwireRow[];
   /** Trip logs, keyed by tripwire name, for tripwires the section has opened. */
   readonly trips: Readonly<Record<string, readonly TripRow[]>>;
-  /** Non-null when the last read failed. The rows stay as they were. */
+  /** Why one tripwire's trip log could not be read, keyed by tripwire name,
+   *  for the tripwires whose last log read failed. A log belongs to the row it
+   *  is under, so its failure is reported there and not as a strip over the
+   *  whole card ([B10]); the entry is cleared the next time that log reads. */
+  readonly logErrors: Readonly<Record<string, string>>;
+  /** Non-null when the roster itself could not be read, or a write against it
+   *  failed. The rows stay as they were. A log fetch's failure is scoped to
+   *  its own row in `logErrors` rather than landing here. */
   readonly error: string | null;
   /** False until the first frame lands, so the section can tell empty from
    *  unasked — an empty list and a list nobody has heard about look identical. */
@@ -108,6 +129,7 @@ export interface TripwiresSnapshot {
 const EMPTY: TripwiresSnapshot = Object.freeze({
   tripwires: [],
   trips: {},
+  logErrors: {},
   error: null,
   loaded: false,
 });
@@ -189,13 +211,15 @@ export class TripwiresStore {
     this.loadedRevisions.delete(name);
     const trips = { ...this.snapshot.trips };
     delete trips[name];
-    this.commit({ trips });
+    this.commit({ trips, logErrors: withoutLogError(this.snapshot.logErrors, name) });
   }
 
-  /** Read one tripwire's trip log — the section's second level. */
+  /** Read one tripwire's trip log — what the card's fold opens over. */
   async loadTrips(name: string): Promise<void> {
     try {
-      const resp = await fetch(`/api/tripwires/${encodeURIComponent(name)}/trips`);
+      const resp = await fetch(
+        `/api/tripwires/${encodeURIComponent(name)}/trips?limit=${LOG_WINDOW_ROWS}`,
+      );
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const body = (await resp.json()) as { trips?: TripRow[] };
       // The revision read *here*, as the answer commits — never the one that
@@ -205,10 +229,13 @@ export class TripwiresStore {
       if (current !== undefined) this.loadedRevisions.set(name, current.trip_log_revision);
       this.commit({
         trips: { ...this.snapshot.trips, [name]: body.trips ?? [] },
-        error: null,
+        logErrors: withoutLogError(this.snapshot.logErrors, name),
       });
     } catch (err) {
-      this.commit({ error: String(err) });
+      // Under the row whose log it is, never over the card: the roster is
+      // still whatever the last frame said, and one unreadable log is no
+      // reason to put a failure banner across four healthy tripwires [B10].
+      this.commit({ logErrors: { ...this.snapshot.logErrors, [name]: String(err) } });
     }
   }
 
@@ -265,9 +292,10 @@ export class TripwiresStore {
    * Settle what a tripwire is holding and discard the arc it was holding it
    * with.
    *
-   * A seam rather than a gesture anything presses: its only caller today is a test,
-   * because a destructive act's confirmation belongs on the card and the card
-   * has not grown one yet ([B10]).
+   * Two doors on the card press this, and they are one verb under two names:
+   * the fold's Seen act on an awaiting trip that authored no arc, and the row
+   * menu's Release ([B03]). A trip that authored one is released by that arc's
+   * fate instead, which the engine already sweeps.
    */
   async dismiss(name: string): Promise<void> {
     await this.post(`/api/tripwires/${encodeURIComponent(name)}/dismiss`);
@@ -289,6 +317,19 @@ export class TripwiresStore {
 }
 
 let singleton: TripwiresStore | null = null;
+
+/** The log errors without `name`'s, or the same object when it had none — so a
+ *  read that was already fine leaves the map's identity alone, and a surface
+ *  keyed on it is not rebuilt for an error that neither arrived nor left. */
+function withoutLogError(
+  errors: Readonly<Record<string, string>>,
+  name: string,
+): Readonly<Record<string, string>> {
+  if (!(name in errors)) return errors;
+  const next = { ...errors };
+  delete next[name];
+  return next;
+}
 
 export function getTripwiresStore(): TripwiresStore {
   if (singleton === null) singleton = new TripwiresStore(getConnection());
