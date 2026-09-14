@@ -7622,6 +7622,33 @@ impl AgentSupervisor {
                         } else {
                             Vec::new()
                         };
+                        // The join's commit as a fact, exactly as the commit
+                        // path records its own: a join is a commit made through
+                        // Tug, and recording the fact is the whole of what
+                        // reaches the tripwire engine ([B01]) — a tripwire on
+                        // `fact:commit` that saw `/commit` and not `/arc-join`
+                        // would be watching half the landings. The initiating
+                        // session is the fact's session, which is also what
+                        // the engine resolves the checkout from; the branch is
+                        // the base the join landed on. No numstat here — the
+                        // list above is `--stat` shaped, and under any strategy
+                        // but `squash` it is empty for the reason given there.
+                        if let Some(sessions) = self.session_ledger.as_ref() {
+                            let paths: Vec<String> =
+                                files.iter().map(|f| f.path.clone()).collect();
+                            let fact = crate::feeds::facts_library::commit_fact(
+                                crate::session_ledger::now_millis(),
+                                request.session_id.as_deref().filter(|s| !s.is_empty()),
+                                sha,
+                                outcome.message.as_deref().unwrap_or(""),
+                                &paths,
+                                None,
+                                Some(&outcome.base_branch),
+                            );
+                            if let Err(e) = sessions.record_fact(&fact) {
+                                warn!(error = %e, "join commit fact write failed");
+                            }
+                        }
                         let summary = crate::feeds::changeset::format_join_summary(
                             &crate::feeds::changeset::JoinSummary {
                                 sha,
@@ -16086,6 +16113,83 @@ mod tests {
         assert!(
             ledger.get("sess-1").unwrap().unwrap().arc_id.is_none(),
             "the binding to the landed arc was released"
+        );
+    }
+
+    /// A join is a commit made through Tug, so it records a `commit` fact
+    /// exactly as `/commit` does — under the initiating session, carrying the
+    /// landed sha and the base branch. That fact is the whole of what reaches
+    /// the tripwire engine, so a `fact:commit` tripwire that saw one landing
+    /// gesture and not the other would be watching half of them.
+    #[tokio::test]
+    async fn joining_an_arc_records_the_landed_commit_as_a_fact() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git_in(&root, &["init", "-b", "main"]);
+        git_in(&root, &["config", "user.name", "t"]);
+        git_in(&root, &["config", "user.email", "t@t"]);
+        std::fs::write(root.join("a.txt"), "base\n").unwrap();
+        git_in(&root, &["add", "-A"]);
+        git_in(&root, &["commit", "-m", "base"]);
+        let worktree = root.join(".tug/worktrees/demo");
+        git_in(
+            &root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "tugarc/demo",
+                worktree.to_str().unwrap(),
+            ],
+        );
+        std::fs::write(worktree.join("b.txt"), "work\n").unwrap();
+        git_in(&worktree, &["add", "-A"]);
+        git_in(&worktree, &["commit", "-m", "round"]);
+        tugarc_core::ops::ensure_arc_id(&root, "demo").unwrap();
+
+        let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.session_ledger = Some(Arc::new(
+            crate::session_ledger::SessionLedger::open_in_memory().unwrap(),
+        ));
+        let ledger = sup.session_ledger.clone().unwrap();
+        let project = root.to_string_lossy().to_string();
+        seed_live_session(&ledger, "sess-1", "card-1", &project);
+        assert!(
+            ledger
+                .list_facts_for_session_since("sess-1", Some("commit"), None, 10)
+                .unwrap()
+                .is_empty(),
+            "nothing has been committed through this session yet"
+        );
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join",
+            "project_dir": project,
+            "arc": "demo",
+            "session_id": "sess-1",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join", &payload, 1).await;
+
+        let landed = std::process::Command::new("git")
+            .args(["-C", &project, "rev-parse", "main"])
+            .output()
+            .unwrap();
+        let landed = String::from_utf8_lossy(&landed.stdout).trim().to_string();
+        let facts = ledger
+            .list_facts_for_session_since("sess-1", Some("commit"), None, 10)
+            .unwrap();
+        assert_eq!(facts.len(), 1, "one landing, one commit fact: {facts:?}");
+        let payload: serde_json::Value = serde_json::from_str(&facts[0].payload).unwrap();
+        assert_eq!(payload["sha"], landed, "the fact names the commit the join landed");
+        assert_eq!(payload["branch"], "main", "and the base it landed on");
+        assert_eq!(
+            payload["files"],
+            serde_json::json!(["b.txt"]),
+            "a squash join's file list is the landing's own"
         );
     }
 
