@@ -31,7 +31,23 @@ tugtool tripwire lay <name> --on <trigger> --brief <text|@file> --branch <branch
 
 **`--branch`** is the base branch a landing has to be onto for this tripwire to fire. It is stored on the tripwire, not buried in the trigger, because it is the first thing a reader of the roster wants: the same watch on two branches is two different watches. Absent, it reads the default branch of `--scope`, or of the current directory for a machine-wide tripwire — sugar for the common case, and the stored value is what fires.
 
-**`--on`** is the fact condition the landing has to carry: `fact:<kind>`, where the kind is something the app recorded. `fact:edit_failed` is an edit program that would not resolve. The tripwire fires when a landing onto its branch carries a matching fact in the work behind it — the branch is *when*, the fact is *what*.
+**`--on`** is the fact condition the landing has to carry: `fact:<kind>`, where the kind is anything the session ledger records about the sessions whose work landed. The tripwire fires when a landing onto its branch carries a matching fact in the work behind it — the branch is *when*, the fact is *what*. **No kind is privileged.** A refused edit is one fact among many; the same door watches a red test run, a shell command that failed, a prompt that mentioned a subject, or a session that compacted before it landed.
+
+The kinds the ledger records today, and the payload fields a `--where` can narrow on:
+
+| kind | filed when | narrow on |
+|---|---|---|
+| `prompt` | the user submitted a prompt | `text` |
+| `shell` | the model ran a shell command | `command`, `ok`, `exit_code`, `cwd` |
+| `test_run` | a shell command's output read as a test run | `verdict`, `runner`, `passed`, `failed`, `skipped` |
+| `edit_failed` | an edit program refused | `class`, `exit`, `files` |
+| `commit` | a commit was made through the session | `sha`, `message`, `files` |
+| `session.spawned`, `session.resumed`, `session.closed`, `session.errored`, `session.reset`, `session.renamed` | the session's own lifecycle | |
+| `session.compacted` | the session's context compacted | `trigger` |
+
+**This table is a snapshot, not the vocabulary.** The ledger grows kinds as the product learns to record more, and `lay` refuses a kind it does not record, naming the ones it does — so the refusal is the current list, and it outranks this table. When the user's sentence names a condition none of the kinds can express, say so plainly rather than bending the nearest kind to fit — a tripwire on the wrong fact fires on the wrong landings.
+
+Pick the kind by asking what the landing's sessions would have *recorded* when the thing happened. "Tell me when a landing came from a session that saw tests fail" is `fact:test_run --where verdict=failed`. "Tell me when a landing's work ran a command that died" is `fact:shell --where ok=false`. "Tell me when something landed from a session that compacted" is `fact:session.compacted`. The cheapest tripwire to shake down is one on `fact:shell` or `fact:prompt`, because nearly every session files those, so nearly every landing carries a match.
 
 **`--where`** narrows a fact by its payload, and repeats. `field=value` is exact, `field~=substr` is contains, `field^=prefix` is a prefix. A field the payload does not carry never matches — a clause you cannot spell is a tripwire that never fires, not a tripwire that fires on everything.
 

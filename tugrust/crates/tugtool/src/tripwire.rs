@@ -21,6 +21,7 @@ use tugtool_core::tripwire_ledger::{
     self as ledger, NewTripwire, Resolution, Settlement, TripStatus, Tripwire, TripwireEdit,
     TripwireLedgerError,
 };
+use tugcore::facts::FactKind;
 use tugtool_core::tripwire_predicate::{FactTrigger, Matcher, Predicate};
 use tugtool_core::tripwire_roster;
 
@@ -138,8 +139,17 @@ fn compile_trigger(on: &str, clauses: &[String]) -> Result<Predicate, String> {
     match source {
         "fact" => {
             let kind = rest.filter(|k| !k.is_empty()).ok_or_else(|| {
-                "a fact trigger names its kind: --on fact:<kind>, e.g. fact:edit_failed".to_string()
+                format!(
+                    "a fact trigger names its kind: --on fact:<kind>, one of {}",
+                    FactKind::all_spelled()
+                )
             })?;
+            if FactKind::parse(kind).is_none() {
+                return Err(format!(
+                    "`{kind}` is not a fact kind the ledger records — a tripwire watches one of {}",
+                    FactKind::all_spelled()
+                ));
+            }
             let r#where = compile_clauses(clauses)?;
             Ok(Predicate::Fact(FactTrigger {
                 kind: kind.to_string(),
@@ -204,15 +214,20 @@ fn read_brief(brief: &str) -> Result<String, String> {
     }
 }
 
-/// A scope as the engine will compare it ([P12]): canonical, and deliberately
-/// **not** folded to its base checkout — an authoring trip commits on its own
-/// arc worktree, and folding worktrees into their base would make those
-/// commits re-trip the tripwire that made them. A path that cannot be
-/// canonicalized keeps its literal form rather than failing the lay.
+/// A scope as the engine will compare it ([P12]): in the Claude form the
+/// canonicalization gateway produces ([L29]), because the landing's
+/// `repo_root` is the deck's project dir in that same form and the scope is a
+/// prefix compared against it. A bare `canonicalize` would store the
+/// `/System/Volumes/Data/…` spelling and the prefix guard would swallow every
+/// landing as out of scope. Deliberately **not** folded to its base checkout —
+/// an authoring trip commits on its own arc worktree, and folding worktrees
+/// into their base would make those commits re-trip the tripwire that made
+/// them. A path that does not exist keeps its literal form rather than failing
+/// the lay.
 fn canonical_scope(scope: &str) -> String {
-    std::fs::canonicalize(scope)
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| scope.to_string())
+    tugcore::pathform::resolve_to_claude_form(std::path::Path::new(scope))
+        .display()
+        .to_string()
 }
 
 /// The branch a tripwire watches: what `--branch` said, or the default branch of
@@ -1099,16 +1114,16 @@ mod tests {
     #[test]
     fn the_first_equals_is_the_operator_and_its_neighbour_says_which() {
         assert_eq!(
-            compiled("fact:x", &["f~=a=b"]),
-            r#"{"fact":{"kind":"x","where":{"f":{"contains":"a=b"}}}}"#
+            compiled("fact:shell", &["f~=a=b"]),
+            r#"{"fact":{"kind":"shell","where":{"f":{"contains":"a=b"}}}}"#
         );
         assert_eq!(
-            compiled("fact:x", &["f^=a=b"]),
-            r#"{"fact":{"kind":"x","where":{"f":{"prefix":"a=b"}}}}"#
+            compiled("fact:shell", &["f^=a=b"]),
+            r#"{"fact":{"kind":"shell","where":{"f":{"prefix":"a=b"}}}}"#
         );
         assert_eq!(
-            compiled("fact:x", &["f=a~=b"]),
-            r#"{"fact":{"kind":"x","where":{"f":"a~=b"}}}"#,
+            compiled("fact:shell", &["f=a~=b"]),
+            r#"{"fact":{"kind":"shell","where":{"f":"a~=b"}}}"#,
             "a bare = earlier than a ~= is still the exact match"
         );
     }
@@ -1122,10 +1137,16 @@ mod tests {
         assert!(err("factt:x", &[]).contains("factt"));
         assert!(err("fact", &[]).contains("names its kind"));
         assert!(err("fact:", &[]).contains("names its kind"));
-        assert!(err("fact:x", &["nonsense"]).contains("nonsense"));
-        assert!(err("fact:x", &["=v"]).contains("names no field"));
+        let unknown = err("fact:not_a_kind", &[]);
+        assert!(unknown.contains("not_a_kind"), "{unknown}");
         assert!(
-            err("fact:x", &["f=1", "f=2"]).contains("twice"),
+            unknown.contains("shell") && unknown.contains("edit_failed"),
+            "a refusal names the kinds that would have been accepted: {unknown}"
+        );
+        assert!(err("fact:shell", &["nonsense"]).contains("nonsense"));
+        assert!(err("fact:shell", &["=v"]).contains("names no field"));
+        assert!(
+            err("fact:shell", &["f=1", "f=2"]).contains("twice"),
             "one matcher per field in v1, and a silent overwrite would hide the second"
         );
         assert!(
@@ -1166,7 +1187,7 @@ mod tests {
     #[test]
     fn a_scope_is_canonicalized_and_never_folded_to_a_base_checkout() {
         let dir = tempfile::tempdir().unwrap();
-        let real = dir.path().canonicalize().unwrap();
+        let real = tugcore::pathform::resolve_to_claude_form(dir.path());
         let nested = real.join("a/b");
         std::fs::create_dir_all(&nested).unwrap();
         let dotted = format!("{}/a/./b", real.display());
@@ -1174,7 +1195,24 @@ mod tests {
         assert_eq!(
             canonical_scope("/no/such/path"),
             "/no/such/path",
-            "a path that cannot be canonicalized keeps its literal form"
+            "a path that does not exist keeps its literal form"
+        );
+    }
+
+    /// [L29]: the stored scope is the Claude form, never the data-volume
+    /// spelling `realpath(3)` expands to, because the landing it is compared
+    /// against arrives in the Claude form.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn a_scope_never_stores_the_data_volume_spelling() {
+        let home = std::env::var("HOME").unwrap();
+        if !home.starts_with("/Users/") {
+            return;
+        }
+        let stored = canonical_scope(&format!("/System/Volumes/Data{home}"));
+        assert!(
+            !stored.starts_with("/System/Volumes/Data/"),
+            "stored {stored}, which is the spelling no landing ever carries"
         );
     }
 

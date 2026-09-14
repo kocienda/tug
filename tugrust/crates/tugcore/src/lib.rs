@@ -10,6 +10,7 @@
 
 #[cfg(test)]
 mod cli_test_env_scan;
+pub mod facts;
 pub mod host_tools;
 pub mod instance;
 pub mod janitor;

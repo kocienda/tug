@@ -259,7 +259,7 @@ fn a_bad_where_spelling_names_the_clause_it_choked_on() {
             "lay",
             "w",
             "--on",
-            "fact:x",
+            "fact:shell",
             "--where",
             "nonsense",
             "--description",

@@ -81,66 +81,9 @@ const EDIT_MESSAGE_DETAIL_CAP: usize = 500;
 
 // MARK: - Kinds
 
-/// Every kind of fact the library records. The `as_str` spelling is what
-/// lands in `facts.kind` and what the Operator's `kind=` filter matches, so it
-/// is wire-stable — rename a variant freely, never its string.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FactKind {
-    Prompt,
-    SessionSpawned,
-    SessionResumed,
-    SessionClosed,
-    SessionErrored,
-    SessionReset,
-    SessionRenamed,
-    SessionCompacted,
-    Commit,
-    Shell,
-    TestRun,
-    EditFailed,
-}
-
-impl FactKind {
-    /// The exact inverse of [`FactKind::as_str`] — what turns a `FactRow`'s
-    /// stored `kind` string back into the variant a projection dispatches on.
-    /// An unrecognized string is `None`: a row written by a newer build is a
-    /// row this one renders without depth, never an error.
-    pub fn parse(s: &str) -> Option<FactKind> {
-        let kind = match s {
-            "prompt" => FactKind::Prompt,
-            "session.spawned" => FactKind::SessionSpawned,
-            "session.resumed" => FactKind::SessionResumed,
-            "session.closed" => FactKind::SessionClosed,
-            "session.errored" => FactKind::SessionErrored,
-            "session.reset" => FactKind::SessionReset,
-            "session.renamed" => FactKind::SessionRenamed,
-            "session.compacted" => FactKind::SessionCompacted,
-            "commit" => FactKind::Commit,
-            "shell" => FactKind::Shell,
-            "test_run" => FactKind::TestRun,
-            "edit_failed" => FactKind::EditFailed,
-            _ => return None,
-        };
-        Some(kind)
-    }
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            FactKind::Prompt => "prompt",
-            FactKind::SessionSpawned => "session.spawned",
-            FactKind::SessionResumed => "session.resumed",
-            FactKind::SessionClosed => "session.closed",
-            FactKind::SessionErrored => "session.errored",
-            FactKind::SessionReset => "session.reset",
-            FactKind::SessionRenamed => "session.renamed",
-            FactKind::SessionCompacted => "session.compacted",
-            FactKind::Commit => "commit",
-            FactKind::Shell => "shell",
-            FactKind::TestRun => "test_run",
-            FactKind::EditFailed => "edit_failed",
-        }
-    }
-}
+/// The kinds the ledger records live in `tugcore` so the tripwire verbs can
+/// refuse a kind nothing writes; this is the same enum under its old address.
+pub use tugcore::facts::FactKind;
 
 // MARK: - Rendering
 
