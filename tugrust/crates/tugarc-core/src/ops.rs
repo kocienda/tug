@@ -86,16 +86,39 @@ pub struct BaseDirtPath {
 }
 
 /// One entry in the [`list`] outcome.
+///
+/// Two populations wear this one shape, told apart by `status`. An `active`
+/// item is a `tugarc/*` branch: it has a base, a round count, and (unless it
+/// was pruned) a worktree. A `paperwork` item is an arc that exists only as
+/// documents under `.tug/arcs/<name>/` — the front half of an arc, before any
+/// branch — so it carries `documents` and no `base_branch`, `worktree`, or
+/// rounds. Listing only the first population is what let the CLI and the Arcs
+/// card read as though they disagreed.
 #[derive(Debug, Clone, Serialize)]
 pub struct ArcListItem {
     pub name: String,
     /// The arc's owner key ([P01]); the legacy branch ref for an id-less arc.
     pub id: Option<String>,
     pub description: Option<String>,
+    /// `"active"` for a branched arc, `"paperwork"` for a documents-only one.
     pub status: String,
     pub round_count: i64,
     pub worktree: Option<String>,
-    pub base_branch: String,
+    /// The branch this arc forked from. `None` on a `paperwork` item, which
+    /// has no branch to have forked anything — never `""`, which would make a
+    /// branchless arc structurally indistinguishable from a branched one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_branch: Option<String>,
+    /// Which of the arc's documents exist, present on a `paperwork` item.
+    /// This is what says briefed from planned without inventing a phase: a
+    /// branched arc's live documents are in its worktree, so the field stays
+    /// `None` there rather than reporting the frozen base copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documents: Option<ArcDocuments>,
+    /// The arc's *recorded* kind ([B01]): `"plain"` | `"planned"`. Absent
+    /// means the log never said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arc_kind: Option<String>,
     /// Who laid this arc, when it was not a person — `tripwire/<name>` for a
     /// tripwire's staged work ([P15]). `None` on every hand-made arc.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1504,7 +1527,27 @@ fn base_census(repo_root: &Path, base_branch: &str) -> (Vec<BaseDirtPath>, Optio
     (base_working_set_dirt(repo_root), off_base)
 }
 
-/// List every active arc (each `tugarc/*` branch), with round count + worktree.
+/// List every arc — both halves of the lifecycle, in one enumeration.
+///
+/// First every **active** arc (each `tugarc/*` branch), with round count and
+/// worktree. Then every **paperwork** arc: a directory under `.tug/arcs/`
+/// holding a brief, a plan, or a task list, with no `tugarc/<name>` branch
+/// yet. That second population is the front half of an arc — the span between
+/// the `/arc` door and the worktree its implement stage takes — and it is
+/// where every plain arc begins.
+///
+/// Reporting only the branched half is what let this verb and the Arcs card
+/// read as though they disagreed: the card lists paperwork rows beside live
+/// arcs by design, so a name on screen and absent here looked like drift when
+/// it was a subset nothing declared. The filter is the same one the card's
+/// producer applies — an arc-named directory with at least one document and no
+/// branch — so the two cannot diverge on membership. The card additionally
+/// lists an *empty* directory a session is bound to, which is a door mid-act
+/// and only a caller holding the bindings can identify; this verb has no
+/// ledger, so it keeps [`document_arcs`]'s decision.
+///
+/// Live work outranks waiting paperwork, so the order is branched arcs first,
+/// then paperwork, each sorted as its own scan yields it.
 pub fn list() -> Result<Vec<ArcListItem>, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
     reconcile_branches(&repo_root, &mut Vec::new());
@@ -1537,8 +1580,36 @@ pub fn list() -> Result<Vec<ArcListItem>, String> {
             worktree: worktree
                 .exists()
                 .then(|| worktree.to_string_lossy().into_owned()),
-            base_branch: base,
+            base_branch: Some(base),
+            documents: None,
+            arc_kind: None,
             laid_by,
+        });
+    }
+
+    // The paperwork half: documents with no branch. A directory whose branch
+    // exists is already above, so the branch check is what keeps one arc from
+    // being listed twice — an arc keeps its base copy of the documents for its
+    // whole life, so presence in `.tug/arcs/` says nothing on its own.
+    for name in document_arcs(&repo_root) {
+        if branch_exists(&repo_root, &format!("{BRANCH_PREFIX}{name}")) {
+            continue;
+        }
+        let documents = ArcDocuments::read(&repo_root, &name);
+        let arc_kind = crate::arc::read_arc(&repo_root, &name)
+            .and_then(|r| r.kind)
+            .map(|k| k.as_str().to_owned());
+        items.push(ArcListItem {
+            id: Some(arc_owner_key(&repo_root, &name)),
+            description: config_get(&repo_root, &description_config_key(&name)),
+            laid_by: config_get(&repo_root, &laid_by_config_key(&name)),
+            name,
+            status: "paperwork".to_string(),
+            round_count: 0,
+            worktree: None,
+            base_branch: None,
+            documents: Some(documents),
+            arc_kind,
         });
     }
 
@@ -5646,6 +5717,71 @@ mod tests {
             "a linked worktree must not resolve its own .tug/arcs: {}",
             from_worktree.display()
         );
+    }
+
+    /// The regression the Arcs card exposed: an arc that exists only as
+    /// documents was invisible to `arc list`, so a name on screen had no
+    /// answer here and read as drift between two surfaces.
+    #[test]
+    #[serial]
+    fn list_reports_the_paperwork_half_beside_the_branched_one() {
+        let temp = TempDir::new().unwrap();
+        let repo = repo_beside_state(&temp);
+        create("branched", None, false, None).unwrap();
+        let root = fs::canonicalize(&repo).unwrap();
+
+        // Paperwork: a brief and a task list, no branch.
+        let dir = documents_dir(&root, "waiting");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("brief.md"), "# Waiting\n").unwrap();
+        fs::write(dir.join("tasks.md"), "# Tasks\n").unwrap();
+        // Litter: an arc-named directory holding nothing is not an arc.
+        fs::create_dir_all(documents_dir(&root, "abandoned")).unwrap();
+
+        let items = list().unwrap();
+        let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["branched", "waiting"],
+            "live work first, then paperwork, and never the empty directory"
+        );
+
+        let branched = &items[0];
+        assert_eq!(branched.status, "active");
+        assert!(branched.base_branch.is_some(), "a branched arc has a base");
+        assert!(
+            branched.documents.is_none(),
+            "a branched arc's live documents are in its worktree, not here"
+        );
+
+        let waiting = &items[1];
+        assert_eq!(waiting.status, "paperwork");
+        assert!(
+            waiting.base_branch.is_none() && waiting.worktree.is_none(),
+            "a branchless arc must not report a base or a worktree"
+        );
+        assert_eq!(waiting.round_count, 0);
+        let documents = waiting.documents.as_ref().expect("documents reported");
+        assert!(documents.brief.is_some() && documents.tasks.is_some());
+        assert!(documents.plan.is_none());
+    }
+
+    /// The double-listing the branch filter prevents: adoption leaves the base
+    /// copy of the documents exactly where it was, so an arc mid-implement has
+    /// both a branch and a `.tug/arcs/<name>/` directory for its whole life.
+    #[test]
+    #[serial]
+    fn list_never_reports_one_arc_as_both_active_and_paperwork() {
+        let temp = TempDir::new().unwrap();
+        let repo = repo_beside_state(&temp);
+        create("adopted", None, false, None).unwrap();
+        let dir = documents_dir(&fs::canonicalize(&repo).unwrap(), "adopted");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("plan.md"), "# Adopted\n").unwrap();
+
+        let items = list().unwrap();
+        assert_eq!(items.len(), 1, "one arc, one row");
+        assert_eq!(items[0].status, "active");
     }
 
     #[test]

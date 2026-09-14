@@ -997,19 +997,37 @@ function PlaceSeam({
             property,
             overflowing ? `${Math.round(value)}px` : String(value),
           );
+          // Released BEFORE the commit, the way every other gesture machine
+          // releases it ([P11]).
+          //
+          // It is tempting to hold the mark through the commit — the members
+          // are already drawn at their new heights, so the settle would only
+          // carry them from where they are to where they already are. But the
+          // settle reads the mark TWICE, at two different moments, and the
+          // pointerup handler only spans the first. The arm (the First pass)
+          // runs synchronously inside the commit and skips a pointer-owned
+          // frame, leaving it with no First rect; the Last pass runs later,
+          // from the layout effect of the render the commit caused, by which
+          // time this handler has returned and the mark is gone. A frame with
+          // no First rect and no mark is what the Last pass calls an ARRIVAL,
+          // so both members were being held at `opacity: 0` and faded back up
+          // — the two cards the hand had just been holding flashing to
+          // invisible at the release.
+          //
+          // Clearing first costs the redundant zero-distance carry and buys
+          // the frames a First rect equal to their Last, which is the honest
+          // description of what the release did: nothing moved, because the
+          // hand had already moved it.
+          for (const el of divided) el.removeAttribute("data-pointer-owned");
           onCommit(place, index, value);
         } finally {
-          // Released after the commit, not before: the members are already
-          // drawn at their new heights when it lands, so they are still the
-          // hand's through it. Clearing first would offer the settle two frames
-          // to carry from where they are to where they already are.
-          //
           // And on EVERY path out, which is what the `finally` is for. A press
           // that never travelled commits nothing and returns above; a mark left
           // standing there would exempt both members from every settle for the
           // rest of the session, and the seam's own double-click equalize is
           // two such presses — so the leak would land first on the gesture that
-          // most needs its members carried.
+          // most needs its members carried. Idempotent against the release
+          // above, which is the path that matters.
           for (const el of divided) el.removeAttribute("data-pointer-owned");
         }
       };

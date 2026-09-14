@@ -2236,16 +2236,54 @@ fn run_list(json: bool, quiet: bool) -> Result<(), String> {
             println!("No arcs found");
         } else {
             for item in &items {
-                println!("{} (active, {} rounds)", item.name, item.round_count);
-                match &item.worktree {
-                    Some(worktree) => println!("  Worktree: {}", worktree),
-                    None => println!("  Worktree: (missing)"),
+                match &item.base_branch {
+                    // A branched arc: base, rounds, worktree.
+                    Some(base) => {
+                        println!("{} (active, {} rounds)", item.name, item.round_count);
+                        match &item.worktree {
+                            Some(worktree) => println!("  Worktree: {}", worktree),
+                            None => println!("  Worktree: (missing)"),
+                        }
+                        println!("  Base: {}", base);
+                    }
+                    // A paperwork arc: documents and nothing else. Saying
+                    // "no branch yet" is the whole point of listing it — a
+                    // row that read like the one above would trade one
+                    // silence for a lie.
+                    None => {
+                        println!("{} (paperwork, no branch yet)", item.name);
+                        println!("  Documents: {}", document_words(item));
+                    }
                 }
-                println!("  Base: {}", item.base_branch);
             }
         }
     }
     Ok(())
+}
+
+/// Which documents a paperwork arc holds, in lifecycle order — the one fact
+/// that says a briefed arc from a planned one, and the only thing the text
+/// rendering has to say about a row with no branch. An arc-named directory
+/// with no document is not listed at all, so the empty case cannot arise;
+/// `(none)` is there so a future filter change cannot print a bare label.
+fn document_words(item: &ops::ArcListItem) -> String {
+    let Some(documents) = &item.documents else {
+        return "(none)".to_string();
+    };
+    let mut words = Vec::new();
+    if documents.brief.is_some() {
+        words.push("brief");
+    }
+    if documents.plan.is_some() {
+        words.push("plan");
+    }
+    if documents.tasks.is_some() {
+        words.push("tasks");
+    }
+    if words.is_empty() {
+        return "(none)".to_string();
+    }
+    words.join(", ")
 }
 
 fn run_show(name: &str, json: bool, quiet: bool) -> Result<(), String> {
