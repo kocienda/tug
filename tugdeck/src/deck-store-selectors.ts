@@ -572,6 +572,24 @@ export function placeMembers(
         weight: 0,
       };
     }
+    // An EXACT height pins the member at it — floor, ceiling, and no share of
+    // the run ([P01]). It sits AFTER the folded branch because folding is the
+    // stronger statement: a folded card is not showing the sheet the pin was
+    // written for, so its tier wins.
+    //
+    // The guard is a GUARD rather than a required drop: a pin is written for a
+    // card standing alone in a column member, and a pane that has since gained
+    // a second card is a box that has to fit them both. Making the writer drop
+    // the pin on every such transition would put the condition in two places
+    // and leave a stale pin binding wherever one was missed; ignoring it here
+    // is the same answer with one reader.
+    const exact =
+      kind === "column" && pane?.cardIds.length === 1
+        ? state.exactMemberHeights?.[id]
+        : undefined;
+    if (exact !== undefined) {
+      return { id, floor: exact, ceiling: exact, weight: 0 };
+    }
     return {
       id,
       floor: Math.max(

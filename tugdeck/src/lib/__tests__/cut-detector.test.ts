@@ -17,6 +17,7 @@ function sample(
     height: 600,
     animations: 0,
     gesture: false,
+    visible: true,
     ...over,
   };
 }
@@ -104,6 +105,27 @@ describe("classifySamples", () => {
     const before = frame(sample("p1"));
     const after = frame(sample("p1"), sample("p2", { x: 900, animations: 1 }));
     expect(classifySamples(before, after)).toEqual([]);
+  });
+
+  test("a frame the settle is holding INVISIBLE has not appeared", () => {
+    // The window between the commit that appends an arriving frame and its
+    // ARRIVE beat, which is the last of the five: the frame is in the DOM, is
+    // not animating, and is not on screen either. Requiring it to be animating
+    // through that window would be requiring it to animate before its beat.
+    const before = frame(sample("p1"));
+    const after = frame(sample("p1"), sample("p2", { x: 900, visible: false }));
+    expect(classifySamples(before, after)).toEqual([]);
+  });
+
+  test("but it has appeared the moment it paints with nothing carrying it", () => {
+    // The other side of the same rule, so the hold is not a loophole: a frame
+    // that becomes visible with no animation on it is the promise broken, and
+    // it is the case the detector exists to find.
+    const before = frame(sample("p1"));
+    const after = frame(sample("p1"), sample("p2", { x: 900, visible: true }));
+    const [record] = classifySamples(before, after);
+    expect(record?.kind).toBe("appeared");
+    expect(record?.paneId).toBe("p2");
   });
 
   test("a departing frame is not reported", () => {

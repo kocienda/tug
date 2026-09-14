@@ -65,11 +65,24 @@ import path from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import {
-  ARRIVAL_BEAT_MS,
   IMPOSITION_GAP_PX,
+  IMPOSITION_SETTLE_MS,
   RAIL_EDGE_INSET_PX,
   RAIL_GUTTER_PX,
 } from "../../tugdeck/src/lib/layout-imposer";
+import { motionDurationMs } from "../../tugdeck/src/lib/imposer-motion";
+
+/**
+ * How long a card that has just landed stands there before the deck travels
+ * to it — the ARRIVE BEAT's own window.
+ *
+ * This used to be a constant of its own, a number chosen to be about as long
+ * as the entrance took. The entrance is a BEAT of the
+ * settle now, the last one, and the deck travels on that beat's completion —
+ * so the hold is the beat's window rather than a clock set beside it, and the
+ * floor below is read off the same recipe the beat itself plays.
+ */
+const ARRIVE_BEAT_MS = motionDurationMs("divide-join", IMPOSITION_SETTLE_MS);
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -969,7 +982,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         expect(
           heldMs,
           "and stands there for a beat before anything moves",
-        ).toBeGreaterThanOrEqual(ARRIVAL_BEAT_MS / 2);
+        ).toBeGreaterThanOrEqual(ARRIVE_BEAT_MS / 2);
 
         // 3. THEN the deck travels to it — a crossing with a middle, not a
         //    cut from one place to the other.

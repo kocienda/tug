@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   MAX_FLIP_SCALE_DISTORTION,
+  BEAT_ORDER,
   beatLaunchVelocity,
   flipDelta,
   planSettleBeats,
@@ -306,6 +307,28 @@ describe("springSettleKeyframes, with a real size term", () => {
   });
 });
 
+describe("BEAT_ORDER", () => {
+  test("is the five kinds, outermost first", () => {
+    // The one place the order lives: the canvas folds its chain over this
+    // array, so a chain that disagreed with the kinds would have to disagree
+    // with this.
+    expect(BEAT_ORDER).toEqual([
+      "depart",
+      "shrink",
+      "move",
+      "grow",
+      "arrive",
+    ]);
+  });
+
+  test("the middle three are the ones planSettleBeats can emit, in its order", () => {
+    // A departure has no Last rect to invert and an arrival no First, so the
+    // planner emits neither — the canvas authors the outer two because it is
+    // the only thing that knows they happened.
+    expect(BEAT_ORDER.slice(1, -1)).toEqual(["shrink", "move", "grow"]);
+  });
+});
+
 describe("planSettleBeats", () => {
   /** The kinds a plan runs, in the order it runs them. */
   const kinds = (beats: SettleBeat[]) => beats.map((b) => b.kind);
@@ -346,6 +369,26 @@ describe("planSettleBeats", () => {
     expect(planSettleBeats({ dx: 0, dy: 0 })).toEqual([]);
     // An equal pair is not a size term.
     expect(planSettleBeats({ dx: 0, dy: 0, height: [600, 600] })).toEqual([]);
+  });
+
+  test("never emits an outer beat, whatever the terms", () => {
+    // [B02] of `briefs/three-beat-settle-brief.md` held: widening `BeatKind`
+    // did not widen what the planner partitions. Every shape the canvas can
+    // hand it, and not one of them names depart or arrive.
+    const shapes = [
+      { dx: -300, dy: -160 },
+      { dx: 0, dy: 0, sx: 675 / 800 },
+      { dx: 0, dy: 0, height: [600, 400] as const },
+      { dx: 0, dy: 0, height: [400, 600] as const },
+      { dx: -40, dy: 20, width: [800, 675] as const, height: [400, 600] as const },
+      { dx: 0, dy: 0 },
+    ];
+    for (const terms of shapes) {
+      for (const beat of planSettleBeats(terms)) {
+        expect(beat.kind).not.toBe("depart");
+        expect(beat.kind).not.toBe("arrive");
+      }
+    }
   });
 
   test("a frame with only a size term plans to no move beat", () => {

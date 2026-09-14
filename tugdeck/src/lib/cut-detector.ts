@@ -42,6 +42,18 @@ export interface PaneSample {
   readonly animations: number;
   /** Whether a pointer gesture owned the frame at this instant. */
   readonly gesture: boolean;
+  /**
+   * Whether the frame was painting at this instant — its computed `opacity`
+   * above zero.
+   *
+   * An arriving frame is in the DOM from the commit that appended it, but the
+   * settle holds it invisible until its ARRIVE beat, which is the last of the
+   * five. So there is a window — the whole of the departure, the shrink, the
+   * move and the grow — in which the frame is present, is not animating, and is
+   * not on screen either. To the reader nothing has appeared, and the rule
+   * below says so.
+   */
+  readonly visible: boolean;
 }
 
 /**
@@ -51,7 +63,8 @@ export interface PaneSample {
  * nothing animating it.
  *
  * `appeared` — it arrived already at its final geometry with nothing animating
- * it. This is not a jump and no rect delta describes it: there is no earlier
+ * it and nothing hiding it. This is not a jump and no rect delta describes it:
+ * there is no earlier
  * sample to subtract. It is still the promise broken, because a card that
  * materializes at full opacity in one frame has not entered, it has cut.
  *
@@ -110,10 +123,17 @@ export function isCut(record: CutRecord): boolean {
  *   one under the hand ([F05], [B05]).
  *
  * A pane present only in the later sample is reported as `appeared` when
- * nothing is animating it — the enter question, which has no delta to measure
- * and so would be invisible to the jump rule above. A frame that arrives
- * already tweening (an enter effect, or the settle catching it) is carried and
- * says nothing here.
+ * nothing is animating it AND it is painting — the enter question, which has no
+ * delta to measure and so would be invisible to the jump rule above. A frame
+ * that arrives already tweening (an enter effect, or the settle catching it) is
+ * carried and says nothing here.
+ *
+ * Nor does a frame the settle is holding INVISIBLE until its arrive beat. That
+ * is not a loophole in the promise, it is the promise kept the other way round:
+ * the reader is owed that no card materializes at full opacity, and a frame at
+ * `opacity: 0` has not materialized at all. Requiring it to be animating for
+ * the whole settle would be requiring it to animate before its beat, which is
+ * the overlap the three-beat choreography exists to remove.
  *
  * A departing frame is not reported at all: once it is out of the DOM there is
  * nothing left to ask about, and whether its exit was carried is a question
@@ -127,7 +147,7 @@ export function classifySamples(
   for (const [paneId, after] of next) {
     const before = prev.get(paneId);
     if (before === undefined) {
-      if (after.gesture || after.animations > 0) continue;
+      if (after.gesture || after.animations > 0 || !after.visible) continue;
       records.push({
         kind: "appeared",
         paneId,
@@ -185,6 +205,10 @@ export function sampleFrames(root: ParentNode): Map<string, PaneSample> {
       // never travelled is still the settle's to carry, and a cut it suffers
       // there is a cut the detector exists to report.
       gesture: frame.hasAttribute("data-pointer-owned"),
+      // Read off the computed style rather than the inline one: the hold the
+      // settle writes is inline, but a frame hidden any other way has equally
+      // not appeared, and the question is what the reader can see.
+      visible: Number.parseFloat(getComputedStyle(frame).opacity) > 0,
     });
   }
   return samples;

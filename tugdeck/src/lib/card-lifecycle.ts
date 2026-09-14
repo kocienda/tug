@@ -41,6 +41,17 @@
  *     card. Subscribers can read state.
  *   - When a close happens on the active card, deactivation fires
  *     before destruction, both sync, then the deck removes.
+ *   - ARRIVAL is the one channel that is not an event about the store. A card
+ *     the deck OPENS is marked arriving in `addCard`'s own commit and stays
+ *     marked until the settle's arrive beat has ended, and
+ *     `onceCardDidArrive(cardId, cb)` is how a caller waits for a frame that
+ *     has stopped moving. Its rule is FIRE AT ONCE: a card that is not marked
+ *     has nothing to wait for, so the callback runs synchronously rather than
+ *     taking out a subscription no event will reach ([B05]). Most cards are
+ *     never marked — a click-activated card, a card restored at launch, any
+ *     card in a window-less host — so the at-once path is the common one, and
+ *     it is what lets a caller write one line instead of branching on whether
+ *     an arrival happens to be in flight.
  *
  * Observer vs delegate — how to choose:
  *   - `observeCard*(cardId | null, cb)` returns the observer primitive.
@@ -138,11 +149,23 @@ export class CardLifecycle {
   private readonly willResizeSubs: Set<Subscription> = new Set();
   private readonly didResizeSubs: Set<Subscription> = new Set();
   private readonly destructionSubs: Set<Subscription> = new Set();
+  private readonly arrivalSubs: Set<Subscription> = new Set();
 
   // Tracks which cards have been constructed but not yet destroyed.
   // Used for construction initial-sync: a hook subscribing after
   // the card was already constructed should still fire once.
   private readonly constructedCards: Set<string> = new Set();
+
+  /**
+   * Cards the deck has opened whose frames have not finished arriving.
+   *
+   * A card is marked at `addCard` and unmarked when the settle's ARRIVE beat
+   * ends. Membership is the whole of what {@link CardLifecycle.onceCardDidArrive}
+   * reads: a card NOT in this set has nothing left to wait for, so a caller
+   * that asks about one is answered at once rather than left holding a
+   * subscription that no event will ever reach.
+   */
+  private readonly arrivingCards: Set<string> = new Set();
 
   private manager: CardLifecycleManager | null;
 
@@ -296,6 +319,57 @@ export class CardLifecycle {
     if (LIFECYCLE_LOG) console.log(`[CardLifecycle] cardWillBeginDestruction id=${cardId}`);
     this.fire(this.destructionSubs, cardId);
     this.constructedCards.delete(cardId);
+    // A card torn down before its frame finished arriving leaves a mark
+    // nothing will ever clear, and every later `onceCardDidArrive` for that id
+    // would defer forever. The card is going; the arrival is moot.
+    this.arrivingCards.delete(cardId);
+    // And so are the callers already waiting on it. A one-shot arrival waiter
+    // unsubscribes itself when it fires, and this card will never fire: it is
+    // leaving the deck, and a cardId is never reused. Nothing else drops the
+    // subscription — the canvas's drain reaches only cards the deck still
+    // holds, and `_revealAfterArrival` keeps no cancel to run — so a card the
+    // reader shuts during its own arrival would leave its waiter in the set
+    // for the life of the lifecycle. Wildcard subscribers are not touched:
+    // they are about the channel rather than about this card.
+    for (const sub of this.arrivalSubs) {
+      if (sub.cardId === cardId) this.arrivalSubs.delete(sub);
+    }
+  }
+
+  /**
+   * Mark `cardId` as ARRIVING — its frame is in the DOM but the settle has not
+   * finished bringing it on screen.
+   *
+   * Called by `DeckManager.addCard` inside the commit that appends the pane, so
+   * the mark is standing before anything downstream can ask about it. Between
+   * this and {@link CardLifecycle.notifyCardDidArrive}, an
+   * {@link CardLifecycle.onceCardDidArrive} for this card DEFERS.
+   */
+  notifyCardWillArrive(cardId: string): void {
+    if (LIFECYCLE_LOG) console.log(`[CardLifecycle] cardWillArrive id=${cardId}`);
+    this.arrivingCards.add(cardId);
+  }
+
+  /**
+   * Fire ARRIVAL for `cardId` — the settle's arrive beat has ended and the card
+   * is on screen and still.
+   *
+   * The mark is cleared BEFORE the fire, which is the ordering that matters: a
+   * callback that re-enters `onceCardDidArrive` for the same card — a sheet
+   * presenting, which activates the card, which observes arrival again — must
+   * see a card that has ARRIVED and be answered at once, rather than subscribing
+   * against an event that has already been fired.
+   *
+   * Idempotent by construction: the second call finds nothing in the set, and
+   * fires to a channel whose one-shot subscribers have already unsubscribed
+   * themselves. That matters because the drain that guarantees the event
+   * ([R01]) deliberately calls this for every marked card it can find, from
+   * several places, rather than reasoning about which one owns it.
+   */
+  notifyCardDidArrive(cardId: string): void {
+    if (LIFECYCLE_LOG) console.log(`[CardLifecycle] cardDidArrive id=${cardId}`);
+    this.arrivingCards.delete(cardId);
+    this.fire(this.arrivalSubs, cardId);
   }
 
   /**
@@ -438,6 +512,55 @@ export class CardLifecycle {
         this.safeInvoke(sub.callback, active);
       }
     });
+  }
+
+  /**
+   * Subscribe to ARRIVAL events — every one, for the length of the
+   * subscription. No initial-sync: an arrival is a moment rather than a state,
+   * and a card that has already arrived has no arrival left to replay.
+   *
+   * {@link CardLifecycle.onceCardDidArrive} is what a caller waiting on ONE
+   * card's arrival wants; this is the wildcard channel, for an observer that
+   * wants to see every card land.
+   */
+  observeCardDidArrive(
+    cardId: string | null,
+    callback: CardLifecycleObserver,
+  ): () => void {
+    return this.subscribe(this.arrivalSubs, cardId, callback);
+  }
+
+  /**
+   * Run `callback` once `cardId` has finished arriving — AT ONCE when it is not
+   * arriving, and otherwise on the next {@link CardLifecycle.notifyCardDidArrive}
+   * for it. Returns a cancel.
+   *
+   * Fire-at-once is the contract and not an optimisation ([B05]). Most cards
+   * are never marked at all: a card activated by a click, a card restored at
+   * launch, a card in a host with no window. A caller that subscribed and
+   * waited in those cases would wait forever, so "is this card arriving?" is
+   * asked first and the subscription is only ever taken out when the answer is
+   * yes. That is what lets every caller write one line rather than branching on
+   * whether an arrival is in flight.
+   *
+   * The wrapper unsubscribes itself before invoking, so the callback runs
+   * exactly once even if a drain fires the arrival twice, and so a callback
+   * that itself opens a card cannot re-enter this subscription.
+   */
+  onceCardDidArrive(cardId: string, callback: () => void): () => void {
+    if (!this.arrivingCards.has(cardId)) {
+      callback();
+      return () => {};
+    }
+    let cancel = (): void => {};
+    let fired = false;
+    cancel = this.subscribe(this.arrivalSubs, cardId, () => {
+      if (fired) return;
+      fired = true;
+      cancel();
+      callback();
+    });
+    return cancel;
   }
 
   /**

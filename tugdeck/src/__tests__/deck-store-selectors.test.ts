@@ -787,6 +787,150 @@ describe("placeMembers reads a reservation as a floor", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// placeMembers and an exact-height pin ([P01])
+// ---------------------------------------------------------------------------
+
+describe("placeMembers reads an exact height as floor AND ceiling", () => {
+  const FLOOR = 600;
+  const TIER = 144;
+  const PINNED = 430;
+
+  /** A card type shaped like the Session card: a tall open floor, a pinned
+   *  folded tier. The pin is deck state rather than policy, so nothing about
+   *  the registration declares it here. */
+  function registerPinnable(): void {
+    _resetForTest();
+    registerCard({
+      componentId: "pinnable",
+      contentFactory: () => null,
+      defaultMeta: { title: "Pinnable", closable: true },
+      sizePolicy: {
+        min: { width: 400, height: FLOOR },
+        preferred: { width: 600, height: 1200 },
+      },
+      foldedSizePolicy: {
+        min: { width: 400, height: TIER },
+        max: { width: Number.POSITIVE_INFINITY, height: TIER },
+        preferred: { width: 600, height: TIER },
+      },
+    });
+  }
+
+  /** Two panes in one slot, with whatever pins are standing and whatever
+   *  cards `pane-a` is holding. */
+  function splitState(
+    exactMemberHeights?: Readonly<Record<string, number>>,
+    opts: { folded?: boolean; twoCardsInA?: boolean } = {},
+  ): DeckState {
+    const aCards = opts.twoCardsInA ? ["card-a", "card-c"] : ["card-a"];
+    return {
+      cards: [
+        makeCard("card-a", "pinnable"),
+        makeCard("card-b", "pinnable"),
+        makeCard("card-c", "pinnable"),
+      ],
+      panes: [
+        {
+          ...makePane("pane-a", aCards, "card-a"),
+          slot: 0,
+          ...(opts.folded === true ? { folded: true as const } : {}),
+        },
+        { ...makePane("pane-b", ["card-b"], "card-b"), slot: 0 },
+      ],
+      activePaneId: "pane-a",
+      imposition: { sidebars: {} },
+      hasFocus: true,
+      ...(exactMemberHeights !== undefined ? { exactMemberHeights } : {}),
+    };
+  }
+
+  const columnMembers = (state: DeckState): PlaceMember[] =>
+    placeMembers(state, "column", ["pane-a", "pane-b"], {
+      "pane-a": 3,
+      "pane-b": 1,
+    });
+
+  test("a pinned column member stands exactly there, with no share of the run", () => {
+    registerPinnable();
+    const members = columnMembers(splitState({ "pane-a": PINNED }));
+    expect(members[0].floor).toBe(PINNED);
+    expect(members[0].ceiling).toBe(PINNED);
+    // Zero WHATEVER the stored shares say — a pinned member asks for nothing,
+    // exactly as a folded one does.
+    expect(members[0].weight).toBe(0);
+    // Only the member that was pinned. Its neighbour keeps both.
+    expect(members[1].floor).toBe(FLOOR);
+    expect(members[1].ceiling).toBeUndefined();
+    expect(members[1].weight).toBe(1);
+  });
+
+  test("the pin binds BELOW the card's own stack floor, which is the point", () => {
+    // The difference between a pin and a reservation, in one assertion: a
+    // reservation is the GREATER of the two and would answer 600 here.
+    registerPinnable();
+    const members = columnMembers(splitState({ "pane-a": PINNED }));
+    expect(PINNED).toBeLessThan(FLOOR);
+    expect(members[0].floor).toBe(PINNED);
+  });
+
+  test("a FOLDED member with a pin still reads as folded", () => {
+    // Folding is the stronger statement: the card is not showing the sheet the
+    // pin was written for, so its tier wins and the branch order says so.
+    registerPinnable();
+    const members = columnMembers(
+      splitState({ "pane-a": PINNED }, { folded: true }),
+    );
+    expect(members[0].floor).toBe(TIER);
+    expect(members[0].ceiling).toBe(TIER);
+  });
+
+  test("a pinned pane holding TWO cards ignores the pin", () => {
+    // The guard: a pin is written for a card standing alone, and a pane that
+    // has gained a second card is a box that has to fit them both.
+    registerPinnable();
+    const members = columnMembers(
+      splitState({ "pane-a": PINNED }, { twoCardsInA: true }),
+    );
+    expect(members[0].floor).toBe(FLOOR);
+    expect(members[0].ceiling).toBeUndefined();
+    expect(members[0].weight).toBe(3);
+  });
+
+  test("a RAIL member ignores a pin standing under its name", () => {
+    // Column-only, like the folded branch above it: the pin is written by
+    // `addCard`, which opens panes into slots rather than onto rails.
+    _resetForTest();
+    registerCard({
+      componentId: "railcard",
+      contentFactory: () => null,
+      defaultMeta: { title: "Rail", closable: true },
+      sizePolicy: {
+        min: { width: 300, height: FLOOR },
+        preferred: { width: 400, height: 900 },
+      },
+    });
+    const state: DeckState = {
+      cards: [makeCard("card-r", "railcard")],
+      panes: [makePane("pane-r", ["card-r"], "card-r")],
+      imposition: { sidebars: { railcard: { side: "right" } } },
+      hasFocus: true,
+      exactMemberHeights: { railcard: PINNED },
+    };
+    const members = placeMembers(state, "rail", ["railcard"], undefined);
+    expect(members[0].floor).toBe(FLOOR);
+    expect(members[0].ceiling).toBeUndefined();
+  });
+
+  test("no pin at all is the branch not taken", () => {
+    registerPinnable();
+    const members = columnMembers(splitState(undefined));
+    expect(members[0].floor).toBe(FLOOR);
+    expect(members[0].ceiling).toBeUndefined();
+    expect(members[0].weight).toBe(3);
+  });
+});
+
 describe("a reserving member's place divides around the claim", () => {
   // The composition this step exists for: `placeMembers` derives the floor and
   // `allocatePlaceHeights` honours it before it divides anything ([F07]), so

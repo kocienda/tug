@@ -228,8 +228,24 @@ export function springSettleKeyframes(
   return frames;
 }
 
-/** The three beats a settle runs in, in the order it runs them. */
-export type BeatKind = "shrink" | "move" | "grow";
+/** The beats a settle runs in, in the order it runs them. */
+export type BeatKind = "depart" | "shrink" | "move" | "grow" | "arrive";
+
+/**
+ * The order the canvas chains them in — the one place the order lives, so a
+ * chain folded over this array cannot disagree with the kinds above it.
+ *
+ * A frame's departure opens the settle and its arrival closes it: the room is
+ * given up before anything moves into it, and nothing appears until every
+ * frame that was already on screen has finished going where it is going.
+ */
+export const BEAT_ORDER: readonly BeatKind[] = [
+  "depart",
+  "shrink",
+  "move",
+  "grow",
+  "arrive",
+];
 
 /**
  * What a beat keeps still while it runs — applied as constant inline style by
@@ -288,6 +304,14 @@ export interface SettleBeat {
  * size on one clock — does not arise here, because no beat ever carries the
  * sum. Air opening between members during the shrink is the make-room beat
  * being legible, not a seam failing.
+ *
+ * It emits only the MIDDLE three of {@link BEAT_ORDER}, and the outer two are
+ * not an omission. This function partitions one frame's FLIP terms, and the
+ * outer beats have no FLIP terms to partition: an arrival has no First rect to
+ * invert and a departure has no Last one. They are the canvas's to author
+ * because the canvas is the only thing that knows they happened — a frame that
+ * was not on screen when the settle armed, and a pane `arm` measured whose
+ * frame the commit took away.
  */
 export function planSettleBeats(terms: SettleTerms): SettleBeat[] {
   const { dx, dy, sx = 1 } = terms;
@@ -368,6 +392,11 @@ export interface InterruptedBeat {
  *
  * A settle nothing interrupted has no interrupted beat, and every beat of it
  * launches from rest.
+ *
+ * The two outer beats are fades, and 0 is the right answer for them however a
+ * retarget landed: `planSettleBeats` never emits either kind, so nothing can
+ * ever be recorded as having interrupted one, and a fade has no position to
+ * carry velocity into in any case.
  */
 export function beatLaunchVelocity(
   kind: BeatKind,

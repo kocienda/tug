@@ -80,6 +80,7 @@
  */
 
 import { getDeckStore } from "./lib/deck-store-registry";
+import type { BeatKind } from "./lib/pane-flip";
 import { isFocusDestination } from "./deck-store-selectors";
 
 // ---------------------------------------------------------------------------
@@ -642,7 +643,12 @@ export type DeckTraceEvent = {
       // The beat that was running when the arm landed — the recipe the
       // velocity was read off — or null when no beat was up (a fade-only
       // settle, or a frame whose chain had already finished).
-      beat: "shrink" | "move" | "grow" | null;
+      //
+      // The outer two are fades and carry no velocity — `velocityAt` answers 0
+      // for a `zeta: null` recipe — so a retarget landing in one relaunches
+      // from rest. They are recorded all the same, because which beat was up is
+      // what the census reads.
+      beat: BeatKind | null;
     }
   | {
       // Fired when a settle releases the session stores' notification hold.

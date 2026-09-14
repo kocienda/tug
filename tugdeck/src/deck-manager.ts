@@ -53,6 +53,7 @@ import { CARDS_CARD_ID } from "./lib/cards-card-id";
 import { ARCS_CARD_ID } from "./lib/arcs-card-id";
 import { LAYOUT_CARD_ID } from "./lib/layout-card-id";
 import { TRIPWIRES_CARD_ID } from "./lib/tripwires-card-id";
+import { noteExactHeightMember } from "./lib/exact-height-pin";
 import {
   bullseyePaneIdOf,
   columnAllocationOf,
@@ -105,7 +106,6 @@ import type {
 } from "./deck-manager-store";
 import {
   allocateSidebarWidths,
-  ARRIVAL_BEAT_MS,
   clampSlot,
   centerSlot,
   slotCount,
@@ -656,6 +656,34 @@ export function sheetReservationsWith(
 }
 
 /**
+ * {@link sheetReservationsWith}'s twin over {@link DeckState.exactMemberHeights}
+ * — the same contract, term for term, over the other record.
+ *
+ * Returned by IDENTITY when nothing changes, which is what lets
+ * {@link DeckManager.setMemberExactHeight} short-circuit, and the field goes
+ * away entirely with its last entry so absence stays the one reading of "no
+ * pin".
+ *
+ * A second function rather than a parameterised one: the two records differ in
+ * what they MEAN, and a shared helper keyed by which field to touch would be a
+ * place for the two meanings to be confused. What they share is arithmetic over
+ * a sparse record, which is small enough to say twice.
+ */
+export function exactMemberHeightsWith(
+  standing: Readonly<Record<string, number>> | undefined,
+  memberId: string,
+  height: number | null,
+): Readonly<Record<string, number>> | undefined {
+  if (height === null) {
+    if (standing === undefined || !(memberId in standing)) return standing;
+    const { [memberId]: _dropped, ...rest } = standing;
+    return Object.keys(rest).length === 0 ? undefined : rest;
+  }
+  if (standing?.[memberId] === height) return standing;
+  return { ...(standing ?? {}), [memberId]: height };
+}
+
+/**
  * Whether a column is a WALL: some member other than `openPaneId` is folded.
  *
  * The definition [P06] rests on, and separate from {@link panesWithWallFolded}
@@ -985,29 +1013,33 @@ export class DeckManager implements IDeckManagerStore {
    * as a reader is concerned. The card has to be ON SCREEN — risen into the
    * slot it landed in and held there — before the deck starts travelling, or
    * the file appears already in view and the only thing left to conclude is
-   * that it opened somewhere it did not. {@link ARRIVAL_BEAT_MS} is that hold,
-   * and `--tug-timing` scales it as it scales every other Tug duration.
+   * that it opened somewhere it did not.
    *
-   * Its own timer therefore means its own commit, its own arrangement
-   * signature, and its own crossing ([P10]) — which is what makes the slide a
-   * move the reader watches rather than a fact they are handed.
+   * The hold is the ARRIVE BEAT'S OWN COMPLETION, which is a fact about the
+   * frame rather than a clock guessing at one. It used to be a timer set to
+   * a constant of its own, chosen to be about as long as the entrance
+   * took; that is a number that has to be re-guessed whenever the entrance
+   * changes, and it is wrong in both directions — short, and the deck travels
+   * over a card still fading in; long, and the reader waits on a card that
+   * stopped moving a while ago. `onceCardDidArrive` waits for the thing
+   * itself, and answers AT ONCE for a card with no settle to wait for, which
+   * is the single-slot case where there was never anything to hold for.
+   *
+   * Landing after the arrival therefore means its own commit, its own
+   * arrangement signature, and its own crossing ([P10]) — which is what makes
+   * the slide a move the reader watches rather than a fact they are handed.
    *
    * Everything conditional about it belongs to {@link revealCard}, which is
    * the whole of the move: it commits nothing when the band already shows the
    * card whole, and answers silence for a card closed before the frame
    * arrived — a card the reader shut during the beat, say. A window-less host
-   * — a manager driven with no DOM — takes the reveal synchronously instead,
-   * since there is nothing to paint in between and a deferred commit would
-   * never arrive at all.
+   * — a manager driven with no DOM — takes the reveal synchronously, and needs
+   * no branch of its own to do it: nothing marks an arrival there, so the
+   * at-once path is the one that runs.
    */
   private _revealAfterArrival(cardId: string): void {
-    if (typeof window === "undefined") {
-      this.revealCard(cardId);
-      return;
-    }
-    window.setTimeout(
-      () => this.revealCard(cardId),
-      ARRIVAL_BEAT_MS * getTugTiming(),
+    this.cardLifecycle.onceCardDidArrive(cardId, () =>
+      this.revealCard(cardId),
     );
   }
 
@@ -1704,9 +1736,43 @@ export class DeckManager implements IDeckManagerStore {
           cards: [...this.deckState.cards, ...seededCards],
           panes: [...this.deckState.panes, win],
           activePaneId: paneId,
+          // A card type that declares what it is worth while it is nothing but
+          // the sheet it exists to raise gets pinned at that height here, IN
+          // THE COMMIT that appends its pane rather than after it ([B02]): a
+          // pin written a commit later would re-target a settle already in
+          // flight, which is the judder the pin exists to remove.
+          //
+          // Read off the registration already in hand. The deck names no
+          // componentId and imports nothing from `cards/` ([P02]) — this is a
+          // card declaring a conditional height and the deck reading it
+          // generically, exactly as `foldedSizePolicy` already is.
+          ...(registration.unboundExactHeightPx !== undefined
+            ? {
+                exactMemberHeights: {
+                  ...this.deckState.exactMemberHeights,
+                  [paneId]: registration.unboundExactHeightPx,
+                },
+              }
+            : {}),
         };
         this.notify("addCard");
         this.scheduleSave();
+        // The card is on the deck but its frame has not finished arriving, and
+        // anything that wants to act on a card that has stopped moving — the
+        // reveal below, the picker a Session card raises — waits on this mark.
+        //
+        // Guarded on a window because the clearing half lives in the canvas's
+        // settle: a manager driven with no DOM has no canvas, so a mark made
+        // here would stand forever and every `onceCardDidArrive` for the card
+        // would defer rather than answering at once.
+        if (typeof window !== "undefined") {
+          this.cardLifecycle.notifyCardWillArrive(firstCardId);
+        }
+        if (registration.unboundExactHeightPx !== undefined) {
+          // The pin went in above rather than through `pinExactHeightForCard`,
+          // so the drop's map has to be told which member it landed on.
+          noteExactHeightMember(firstCardId, paneId);
+        }
         for (const c of seededCards) {
           this.cardLifecycle.notifyCardDidFinishConstruction(c.id);
         }
@@ -3745,6 +3811,25 @@ export class DeckManager implements IDeckManagerStore {
     if (next === this.deckState.sheetReservations) return;
     this.deckState = { ...this.deckState, sheetReservations: next };
     this.notify("setSheetReservation");
+  }
+
+  /**
+   * Pin `memberId` at an exact height, or drop the pin with `null` ([P01]).
+   *
+   * {@link DeckManager.setSheetReservation}'s twin, with the same
+   * no-notify-on-no-change guard: a caller that re-pins the height already
+   * standing costs nothing rather than arming a settle over frames already
+   * where they belong.
+   */
+  setMemberExactHeight(memberId: string, height: number | null): void {
+    const next = exactMemberHeightsWith(
+      this.deckState.exactMemberHeights,
+      memberId,
+      height,
+    );
+    if (next === this.deckState.exactMemberHeights) return;
+    this.deckState = { ...this.deckState, exactMemberHeights: next };
+    this.notify("setMemberExactHeight");
   }
 
   /**

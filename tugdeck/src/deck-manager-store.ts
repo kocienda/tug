@@ -139,6 +139,16 @@ export interface IDeckManagerStore {
   setSheetReservation: (memberId: string, height: number | null) => void;
 
   /**
+   * Pin `memberId` at an EXACT height, or drop the pin with a `null` height.
+   * Keyed exactly as {@link IDeckManagerStore.setSheetReservation} above is.
+   *
+   * The reservation's neighbour and not its twin: a reservation is a floor a
+   * taller member ignores, and this is a height the member stands at, with no
+   * share of the run ([P01]). Session-only for the same reason.
+   */
+  setMemberExactHeight: (memberId: string, height: number | null) => void;
+
+  /**
    * Draw the deck at a flow offset without committing it — the per-frame half
    * of a scrub, and the one writer of it ([P11]). It writes the property the
    * imposed frames read and publishes the fraction the instruments read, and

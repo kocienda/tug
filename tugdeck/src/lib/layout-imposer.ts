@@ -1021,9 +1021,18 @@ export function resolveContentWidthPx(
  * arriving frame plays, and the landing a drop animates into its zone. Raising
  * it slows all of them together, which is the only way they stay one motion.
  * The durations deliberately outside it are named where they are declared —
- * {@link PANE_EXIT_GHOST_MS}, which is a departure rather than a crossing,
- * {@link ARRIVAL_BEAT_MS}, which is a pause rather than a motion at all, and
- * `--tug-timing`, the app-wide multiplier over every Tug animation.
+ * `--tug-timing`, the app-wide multiplier over every Tug animation, is the one
+ * left.
+ *
+ * A departure used to be named here too, on its own constant, because it was
+ * an effect launched alongside the settle rather than part of it. It is a BEAT
+ * of the settle now — the first one — so it rides this number like every other
+ * motion in the choreography, and there is nothing left outside for it.
+ *
+ * So did the pause between a card landing and the deck travelling to it, and
+ * it went the same way for a better reason: it was a clock guessing at how
+ * long the entrance took. The hold is the ARRIVE BEAT'S own completion now, so
+ * there is no second number to keep in step with this one.
  */
 export const IMPOSITION_SETTLE_MS = 400;
 
@@ -1060,40 +1069,6 @@ export function readSettleMs(el: HTMLElement): number {
  * did not come from anywhere.
  */
 export const PANE_ENTER_RISE_PX = 8;
-
-/**
- * How long a closing pane's ghost lingers, in milliseconds.
- *
- * React unmounts a closing frame within the commit, so the frame itself cannot
- * be animated out — by the time there is anything to animate, there is no
- * element. What outlives it is a ghost: a plain tile the canvas plants at the
- * frame's last rect and fades. It rides its own duration rather than the
- * settle's because it is not part of the arrangement — nothing is waiting on
- * it, and a departure that lingers as long as a crossing reads as slower than
- * the gesture that caused it.
- */
-export const PANE_EXIT_GHOST_MS = 180;
-
-/**
- * How long a card that has just arrived is left standing where it landed
- * before the deck travels to it, in milliseconds.
- *
- * Opening a file is two things happening — a card arrives, and the band moves
- * to show it — and a reader who is shown both at once is shown neither: the
- * card materializes already in view, the deck's travel is invisible, and the
- * only reading left is that the file opened somewhere it did not. So the
- * arrival is given the screen on its own first. The card rises into its slot
- * ({@link PANE_ENTER_RISE_PX}) wherever the band happens to be standing, holds
- * for this beat, and only then does the strip cross to bring it in.
- *
- * A pause rather than a motion, which is why it is not on the settle's knob:
- * nothing is moving during it, and it is measured against the eye rather than
- * against any tween. Two events fuse into one below roughly 150ms; this clears
- * that with margin and still stops short of the crossing that follows it, so
- * the whole gesture reads as one-two and lands inside a second. Scaled by
- * `--tug-timing` at the call site like every other Tug duration.
- */
-export const ARRIVAL_BEAT_MS = 250;
 
 /**
  * Which side a pinned rail holds, as a number: 0 is the left edge, 1 the

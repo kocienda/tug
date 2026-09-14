@@ -45,6 +45,46 @@ import { SessionCardContent } from "./session-card";
  */
 export const SESSION_FOLDED_HEIGHT_PX = 144;
 
+/**
+ * The height an UNBOUND Session card stands at, in pixels ([P02]).
+ *
+ * A Session card with no session behind it is nothing but the Choose Session
+ * picker it exists to raise, and the 600px floor in `sizePolicy` below is what
+ * a TRANSCRIPT and a composer need — neither of which is on screen yet. So the
+ * unbound form declares its own exact height, the same way the folded form
+ * declares its own policy, and `addCard` pins it for as long as the card is
+ * unbound.
+ *
+ * The terms, read off the built app rather than off the stylesheet:
+ *
+ * - `37` — the pane's title bar (36, `--tug-chrome-height` in `tug-pane.tsx`)
+ *   and the 1px the sheet's clip drops below it (`.tug-sheet-clip`'s
+ *   `top: calc(chrome-height + 1px)`).
+ * - `12` — `--tugx-sheet-space-a`, the panel's top margin. Choose Session keeps
+ *   the sheet's default TOP anchor (`modal-rest-line.ts` exempts it), whose
+ *   rule is `margin: space-a auto 0`.
+ * - `368` — the picker panel's own box: its `scrollHeight` plus its two 1px
+ *   borders. `at0569`'s diagnostics print the SHEET's reading of this, which is
+ *   the same number plus the 12px margin above.
+ * - `32` — `SHEET_CANVAS_GAP`. This is the term that is not about the panel at
+ *   all, and the one an arithmetic answer misses. `tug-sheet.tsx`'s top-anchor
+ *   clamp caps the panel against the CANVAS bottom rather than the frame's, so
+ *   a card sitting at the foot of a split column has to carry that gap inside
+ *   its own height or the clamp cuts the panel short — which is precisely what
+ *   429 did, by the 14px `at0569` measured before this number moved.
+ *
+ * 37 + 12 + 368 + 32 = 449, less the 5px the imposition already leaves under
+ * the column's last member, which the clamp's canvas reading gets for free.
+ *
+ * MEASURED, not derived: `at0569` opens the picker in the built app and fails
+ * if the panel clips at this height, which is what would catch a picker that
+ * outgrows it — another row in the list, a taller action row, a wider path
+ * field that wraps. Nothing measures the picker at RUNTIME to find this number
+ * ([P02]): a measured height arrives a commit after the card does and re-targets
+ * the settle mid-beat, which is the judder this constant exists to remove.
+ */
+export const SESSION_UNBOUND_HEIGHT_PX = 444;
+
 export function registerSessionCard(): void {
   registerCard({
     componentId: "session",
@@ -100,6 +140,10 @@ export function registerSessionCard(): void {
       },
     },
     takesContentWidth: true,
+    // While this card is unbound it is its picker and nothing else, so it
+    // stands at the picker's height rather than at the transcript's floor
+    // ([P02]). `addCard` pins it; the binding commit drops the pin ([P04]).
+    unboundExactHeightPx: SESSION_UNBOUND_HEIGHT_PX,
     engineKind: "em",
   });
 }

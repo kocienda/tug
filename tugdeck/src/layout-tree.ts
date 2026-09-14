@@ -439,6 +439,36 @@ export interface DeckState {
    * with its last entry, so absence is the one reading of "no reservation".
    */
   sheetReservations?: Readonly<Record<string, number>>;
+  /**
+   * The EXACT height, in pixels, a member has been pinned at, keyed the way
+   * {@link DeckState.sheetReservations} above is keyed — pane id for a column
+   * member and componentId for a rail one, which is how `placeMembers` names
+   * them, so nothing has to translate between the two.
+   *
+   * Read as its member's FLOOR *and* its CEILING, with a weight of zero: the
+   * member stands exactly here and asks for no share of the run, which is the
+   * reading a FOLDED member already gets. That is the difference between this
+   * field and the reservation above it — a reservation is a floor a taller
+   * member ignores, and a pin is a height ([P01]).
+   *
+   * Written by `addCard` for a card type declaring
+   * `CardRegistration.unboundExactHeightPx`, inside the same commit that
+   * appends the pane ([B02]), so nothing re-targets the settle a commit later.
+   * Dropped by whatever ends the condition — for a Session card, the binding
+   * commit ([P04]).
+   *
+   * Session state only, and never serialized, for {@link
+   * DeckState.sheetReservations}'s reason read one step further ([P03]): a pin
+   * says what a card is worth while it is UNBOUND, no card is unbound across a
+   * restart in any way the deck can know, and a restored pin would stand a
+   * bound card at a picker's height with no picker on it. It is likewise kept
+   * out of `imposition`'s stored shares — the division the hand set with the
+   * sash is what the card falls back into when the pin drops.
+   *
+   * Absent, rather than empty, when nothing is pinned: the field goes away with
+   * its last entry, so absence is the one reading of "no pin".
+   */
+  exactMemberHeights?: Readonly<Record<string, number>>;
 }
 
 // ---- Invariant validation ----

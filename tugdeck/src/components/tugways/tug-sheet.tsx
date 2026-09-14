@@ -103,6 +103,7 @@ import { raisePaneAbovePeers } from "@/components/tugways/pane-raise";
 import { isCardFolded, unfoldCardForBiddenSurface } from "@/lib/card-fold";
 import { CardIdContext } from "@/lib/card-id-context";
 import { readSettleMs } from "@/lib/layout-imposer";
+import { IMPOSER_SETTLE_END } from "@/lib/settle-notice";
 import { refuseCardModalHold } from "@/lib/card-modal-hold-store";
 import { useSheetLifecycle } from "@/lib/sheet-lifecycle";
 import { group } from "@/components/tugways/tug-animator";
@@ -1165,9 +1166,21 @@ export function TugSheetContent({
   // pinned under the chrome via CSS while the panel fits, so setting `bottom`
   // makes the clip exactly the band between the title bar and the anchor;
   // `tug-sheet.css` bottom-aligns the panel within it and caps its height to
-  // that band. Re-measured whenever the pane, the canvas or the anchor resizes
-  // — dragging the Session card's sash and growing the Z2 telemetry row both
-  // change the anchor's height.
+  // that band.
+  //
+  // Re-measured on three occasions and not one more ([B07], [P07]): on open,
+  // on window resize, and once when the deck's settle ends. The anchor keeps
+  // its own observer, because the Z2 telemetry row growing under the panel is
+  // a change the deck never hears about — so that case still lands on the
+  // frame it happens on. What came off is the observation of the pane frame
+  // and of the canvas: those are exactly the boxes a settle tweens, and
+  // watching them re-measured `max-height` on every frame of a resize beat
+  // ([F06]) — a sheet flickering its own cap while the card under it
+  // travelled. Their cases are not lost, only deferred to the end: a column
+  // reflow and a sash drag both commit to the deck, which arms a settle, whose
+  // end is the notice this effect listens for. So a sash drag re-clamps when
+  // the hand lets go, and through the motion the sheet holds still, which is
+  // what [B07] asks for rather than a cost it accepts.
   //
   // A panel that does NOT fit is sized against the visible CANVAS rather than
   // against this pane's frame ([B02], sheet-visibility). The frame does not
@@ -1259,19 +1272,19 @@ export function TugSheetContent({
     };
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(paneFrameEl);
     observer.observe(bottomAnchorEl);
-    // The canvas is an input now that it, rather than the frame, is what the
-    // panel is sized against — a column reflow that moves the wall's bottom
-    // edge changes how far this clip may grow.
-    if (canvas !== null) observer.observe(canvas);
     // The panel's own height is an input now: an accordion row opening inside
     // the AI mixer is what tips a fitting sheet into an overflowing one.
     if (sheetContentRef.current !== null) observer.observe(sheetContentRef.current);
     window.addEventListener("resize", measure);
+    // The canvas is still an input — it, rather than the frame, is what the
+    // panel is sized against, and a column reflow moves the wall's bottom edge
+    // — but it is read at the settle's end rather than watched through it.
+    canvas?.addEventListener(IMPOSER_SETTLE_END, measure);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", measure);
+      canvas?.removeEventListener(IMPOSER_SETTLE_END, measure);
       // Leave no inline geometry behind. The anchor no longer changes under a
       // mounted sheet, but a card dragged to another pane re-runs this effect
       // against a new frame, and the top anchor's CSS gives the clip `height:
@@ -1388,17 +1401,28 @@ export function TugSheetContent({
       content.style.maxHeight = `${Math.max(SHEET_RESIZE_MIN_HEIGHT, available)}px`;
     };
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(canvas);
-    observer.observe(paneFrameEl);
     // Aspect-lock re-measures when the body's content resizes — chiefly when
     // the image loads and the aspect region takes its true shape. Safe against
     // feedback because `measure()` is idempotent under width changes.
-    if (aspectLockContent) observer.observe(content);
+    //
+    // It is also the effect's ONLY remaining observation, so the observer is
+    // constructed only when there is something for it to watch: with the frame
+    // and the canvas retired, an unconditional one would watch nothing at all.
+    let observer: ResizeObserver | null = null;
+    if (aspectLockContent) {
+      observer = new ResizeObserver(measure);
+      observer.observe(content);
+    }
     window.addEventListener("resize", measure);
+    // The frame and the canvas are no longer watched, for the reason the
+    // bottom-anchor effect above states at length ([B07], [P07], [F06]): they
+    // are the boxes a settle tweens, and this cap re-measured on every frame
+    // of one. The settle's end is where that measure lives now.
+    canvas.addEventListener(IMPOSER_SETTLE_END, measure);
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       window.removeEventListener("resize", measure);
+      canvas.removeEventListener(IMPOSER_SETTLE_END, measure);
     };
   }, [paneFrameEl, mounted, maxHostFraction, aspectLockContent, presentation, bottomAnchorEl]);
 
@@ -1408,6 +1432,12 @@ export function TugSheetContent({
   // taken for the same reason it is stable there: `scrollHeight` is what the
   // panel wants whether or not a cap is currently biting, so a report cannot
   // move under the room the report wins.
+  //
+  // Its `ResizeObserver` is not the one [B07] retires, and that is the same
+  // fact said from the other side: it watches the sheet's own panel, never the
+  // pane frame or the canvas, so a settle tweening the room around it does not
+  // fire it — and if it did, the measure would return the same number, because
+  // `scrollHeight` is stable against the room the report wins.
   //
   // The callback is held on a ref rather than read from the effect's closure,
   // the way `exclusive` is: a call site writing an inline arrow hands a new

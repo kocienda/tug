@@ -161,6 +161,26 @@ export interface CardRegistration {
    */
   foldedSizePolicy?: CardSizePolicy;
   /**
+   * The exact height, in pixels, a fresh pane for this card type stands at
+   * while the card is nothing but the sheet it exists to raise ([P02]).
+   *
+   * `foldedSizePolicy`'s model, one condition further on. A card type whose
+   * OPEN form has a tall floor because of surfaces that are not on screen yet —
+   * the Session card's transcript and composer behind its 600px floor — may say
+   * here what it is worth while it is only its picker, and `addCard` pins the
+   * member at that height for as long as the condition holds.
+   *
+   * Read by `addCard` and by nothing else, off the registration it already has
+   * in hand: the deck names no componentId and imports nothing from `cards/`.
+   * The pin it writes is read by `placeMembers` as FLOOR and CEILING both, with
+   * a weight of zero — the same reading a folded member already gets.
+   *
+   * Omitted by every card type with no such condition, which is every type but
+   * the Session card today. Dropping the pin is the condition's own business:
+   * for a Session card that is the binding commit ([P04]).
+   */
+  unboundExactHeightPx?: number;
+  /**
    * Where a fresh pane for this card type opens on the canvas.
    * `"cascade"` (the default) walks the standard cascade origin;
    * `"center"` centers the pane in the live canvas — for app-level

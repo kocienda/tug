@@ -102,8 +102,10 @@ import { openOpenQuickly } from "@/lib/open-quickly-store";
 import { clearRecentDocuments } from "@/lib/recent-documents";
 import { allocateUntitledNumber } from "@/lib/untitled-naming";
 import { cardServicesStore } from "@/lib/card-services-store";
+import { useCardLifecycle } from "@/lib/card-lifecycle";
 import {
   MAX_FLIP_SCALE_DISTORTION,
+  BEAT_ORDER,
   beatLaunchVelocity,
   flipDelta,
   planSettleBeats,
@@ -114,6 +116,7 @@ import {
   type InterruptedBeat,
   type SettleBeat,
 } from "@/lib/pane-flip";
+import { dispatchImposerSettleEnd } from "@/lib/settle-notice";
 import {
   motionDurationMs,
   motionKeyframes,
@@ -177,7 +180,6 @@ import {
   IMPOSITION_SETTLE_MS,
   readSettleMs,
   PANE_ENTER_RISE_PX,
-  PANE_EXIT_GHOST_MS,
   RESIZE_RETUNE_QUIET_MS,
   FLOW_OFFSET_PROPERTY,
   FLOW_STRIP_PROPERTY,
@@ -625,11 +627,18 @@ function inlineRestorer(
  * The recipe each beat of a settle plays on. The move beat IS the crossing —
  * the settle the whole choreography is measured against — and the two resize
  * beats have recipes of their own in `lib/imposer-motion.ts`.
+ *
+ * The two outer beats are fades and share `divide-join`, the recipe the mode-
+ * flip fade already uses: a frame appearing in a place or leaving one is
+ * carried by opacity rather than by travel, so what it needs from a recipe is a
+ * window rather than a spring.
  */
 const BEAT_RECIPE: Record<BeatKind, MotionRecipe> = {
+  depart: "divide-join",
   shrink: "shrink",
   move: "crossing",
   grow: "grow",
+  arrive: "divide-join",
 };
 
 /**
@@ -2736,6 +2745,47 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     });
   }, []);
 
+  // The lifecycle, on a ref so the settle's effects do not re-key on it. The
+  // canvas renders inside `CardLifecycleContext.Provider` (see the provider
+  // list in `DeckManager`'s `reactRoot.render`), so this is non-null in the
+  // app and null in a fixture that mounts the canvas alone.
+  const cardLifecycle = useCardLifecycle();
+  const cardLifecycleRef = useRef(cardLifecycle);
+  cardLifecycleRef.current = cardLifecycle;
+
+  /**
+   * Fire `cardDidArrive` for every card the deck holds that is still marked
+   * arriving — the UNCONDITIONAL DRAIN, and the whole of [R01]'s answer.
+   *
+   * A mark is made in `addCard` and is meant to be cleared by the arrive beat
+   * ending. The beat is not guaranteed to run. `arm` measures a First rect for
+   * an arriving frame like any other, so a second arrangement change landing
+   * inside the settle re-reads that frame as TRAVELLING rather than arriving —
+   * it has a First rect now — and no arrive beat will ever be planned for it.
+   * The card is on screen and still, and the caller waiting on its arrival
+   * waits forever: a picker that never opens, a deck that never travels.
+   *
+   * So the drain is called from every place a settle can end rather than from
+   * the one that normally ends it — the completion, both early returns, the
+   * window sweep, and the unmount. It is idempotent (`notifyCardDidArrive`
+   * clears the mark before firing, and the one-shot subscribers unsubscribe
+   * themselves), so calling it from five places costs nothing and reasoning
+   * about which place owns a given arrival costs a defect.
+   */
+  const drainArrivals = useCallback(() => {
+    const lifecycle = cardLifecycleRef.current;
+    if (lifecycle === null) return;
+    // Off the store rather than the rendered snapshot: the drain runs from
+    // timers and teardowns, and what it wants is the panes the deck holds NOW.
+    for (const pane of store.getSnapshot().panes) {
+      for (const cardId of pane.cardIds) {
+        lifecycle.notifyCardDidArrive(cardId);
+      }
+    }
+  }, [store]);
+  const drainArrivalsRef = useRef(drainArrivals);
+  drainArrivalsRef.current = drainArrivals;
+
   // Drop a frame's tween registration and, crucially, the inline `transform`
   // TugAnimator leaves on it — along with the `transform-origin` the tween was
   // anchored by, which is the settle's to write and the settle's to take away.
@@ -2810,6 +2860,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         settleTimerRef.current = null;
         el.removeAttribute("data-imposer-settling");
         el.removeAttribute("data-imposer-beat");
+        // Paired with the marks coming off, here as at every other point they
+        // do: "the settle is over" and "the notice went out" are one
+        // condition, and a sheet clamped against a frame this sweep just
+        // snapped is owed the same measure a completion would have earned it.
+        dispatchImposerSettleEnd(el);
         releaseSettle("sweep");
         for (const [paneId, entry] of [...settleTweensRef.current]) {
           for (const anim of entry.anims) anim.cancel("snap-to-end");
@@ -2825,6 +2880,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // at all) closes here rather than waiting for its own net.
         for (const [, handle] of settleEpisodesRef.current) handle.end();
         settleEpisodesRef.current.clear();
+        // Outside every guard above, because the window is over: an arrival
+        // still marked here has no beat coming for it, whoever owns the marks.
+        drainArrivalsRef.current();
       }, windowMs);
     };
     settleSweepRef.current = scheduleSweep;
@@ -3091,8 +3149,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       settleFirstRectsRef.current.clear();
       settleFirstFoldsRef.current.clear();
       settleFadePlanRef.current.clear();
+      // Nothing is left to run an arrive beat, so nothing is left to clear a
+      // mark. A caller still waiting would wait past the canvas itself.
+      drainArrivalsRef.current();
       containerRef.current?.removeAttribute("data-imposer-settling");
       containerRef.current?.removeAttribute("data-imposer-beat");
+      // No settle-end notice here, and that is the one place the pairing does
+      // not hold. This is the arm effect's teardown: the canvas is coming
+      // down, every sheet listening on it is coming down with it, and the
+      // notice's only answer is a clamp measure against a container that is
+      // about to leave the document.
     };
   }, [store, holdSessions, releaseSessions]);
 
@@ -3132,8 +3198,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       if (settleTweensRef.current.size === 0) {
         el?.removeAttribute("data-imposer-settling");
         el?.removeAttribute("data-imposer-beat");
+        if (el !== null) dispatchImposerSettleEnd(el);
         settleReleaseRef.current?.("completion");
       }
+      // OUTSIDE that guard, unlike the marks above it. Those are conditional
+      // because they may belong to an earlier pass still running, which will
+      // take them off itself. An arrival marked and never drained is stranded
+      // whoever owns the marks, and this pass has nothing that will run a beat.
+      drainArrivalsRef.current();
       return;
     }
     // Reduced motion: the layout has already snapped, and that IS the settle.
@@ -3151,8 +3223,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       if (settleTweensRef.current.size === 0) {
         el.removeAttribute("data-imposer-settling");
         el.removeAttribute("data-imposer-beat");
+        dispatchImposerSettleEnd(el);
         settleReleaseRef.current?.("completion");
       }
+      // Outside the guard, for the reason the other early return states: under
+      // reduced motion no beat runs at all, so nothing else will ever clear a
+      // mark this pass found standing.
+      drainArrivalsRef.current();
       return;
     }
     const clearFlip = clearFlipRef.current;
@@ -3213,6 +3290,22 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       crossingId: number | null;
     }
     const choreography: Choreographed[] = [];
+    /**
+     * The frames arriving in this settle, and the ghosts standing in for the
+     * panes leaving it — collected by the passes below and launched by the
+     * chain's outer beats ([P05]).
+     *
+     * Neither is a `Choreographed`: a `SettleBeat` is a partition of one
+     * frame's FLIP terms, and these two have none — an arrival has no First
+     * rect to invert and a departure has no Last one. They are collected as
+     * what they are and the chain gives each its beat.
+     */
+    const arrivals: Array<{
+      paneId: string;
+      frame: HTMLElement;
+      restores: Array<() => void>;
+    }> = [];
+    const departures: Array<{ paneId: string; ghost: HTMLElement }> = [];
     // This launch. Every completion below — a fade's, an entrance's, the
     // beat choreography's — checks it before touching anything, because a
     // retarget that landed in between has already cancelled, restored and
@@ -3228,7 +3321,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // clock, and the sweep behind it finds nothing left to do.
       el.removeAttribute("data-imposer-settling");
       el.removeAttribute("data-imposer-beat");
+      // The settle's own clock announcing its own end. Every sheet up on this
+      // canvas measures its clamp here, and nowhere in between ([P07]).
+      dispatchImposerSettleEnd(el);
       settleReleaseRef.current?.("completion");
+      // Every card the deck holds that is still marked has arrived, whether or
+      // not an arrive beat is what brought it: this is the moment the settle
+      // is over, and the drain is what makes the event unmissable ([R01]).
+      drainArrivalsRef.current();
     };
     const settled = (): void => {
       outstanding -= 1;
@@ -3294,43 +3394,27 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // The entrance bakes an opacity on its way out, exactly as the
         // geometry effect bakes a width — so it is handed back the same way,
         // and by the same restorer a cancel would run.
-        const enteringRestore = inlineRestorer(frame, "opacity");
-        const entering = animate(
-          frame,
-          {
-            opacity: [0, 1],
-            transform: [
-              `translateY(${PANE_ENTER_RISE_PX}px)`,
-              "translateY(0px)",
-            ],
-          },
-          {
-            ...settleOpts,
-            // An arrival is `divide-join`: a member appearing in a place,
-            // carried by opacity rather than by travel. Its window is that
-            // recipe's, and its easing is the plain one the recipe states —
-            // a fade has no position to spring.
-            duration: fadeCurve.durationMs,
-            easing: "ease-out",
-            key: "imposer-enter",
-          },
-        );
+        //
+        // The entrance is now the chain's LAST beat rather than an effect
+        // launched alongside it ([P05]), so what happens here is the opening
+        // pose and nothing else: the frame is held invisible until its arrive
+        // beat comes round, which is the same rule `applyHolds` states for an
+        // axis whose grow beat is still to come. Registered in
+        // `settleTweensRef` with an empty `anims` array so `arm`, the sweep and
+        // the unmount teardown all hand the opacity back — a frame left wearing
+        // the hold would be a card nobody can see.
+        //
+        // No `outstanding += 1` here: the chain accounts for the arrive beat,
+        // and counting it twice would leave the settle's hold outstanding
+        // forever.
+        const restores = [inlineRestorer(frame, "opacity")];
+        frame.style.opacity = "0";
         settleTweensRef.current.set(paneId, {
           el: frame,
-          anims: [entering],
-          restores: [enteringRestore],
+          anims: [],
+          restores,
         });
-        outstanding += 1;
-        void entering.finished.then(() => {
-          // The same residue rule the geometry effect follows: TugAnimator
-          // commits an animation's final value into `el.style` whatever `fill`
-          // says, and a frame left wearing a transform is a containing block
-          // for every `position: fixed` descendant it holds.
-          enteringRestore();
-          clearFlipRef.current(paneId, frame, [entering]);
-          endEpisode(paneId);
-          settled();
-        });
+        arrivals.push({ paneId, frame, restores });
         continue;
       }
       const lastRect = frame.getBoundingClientRect();
@@ -3553,6 +3637,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // it — so the ghost goes exactly there, fades, and is taken away. Planted
     // on the container rather than the frames' parent chain so nothing it
     // outlives can strand it.
+    //
+    // The fade is the chain's FIRST beat now ([P05]) rather than an effect
+    // launched alongside it, so this pass plants the ghost and collects it; the
+    // depart beat fades it and takes it away. The room a closing pane gives up
+    // is therefore given up before any survivor moves into it.
     for (const [paneId, rect] of firstRects) {
       if (survivors.has(paneId)) continue;
       endEpisode(paneId);
@@ -3564,22 +3653,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       ghost.style.width = `${rect.width}px`;
       ghost.style.height = `${rect.height}px`;
       el.appendChild(ghost);
-      const fading = animate(
-        ghost,
-        { opacity: [1, 0] },
-        {
-          // Outside the recipe family on purpose, like the refusal flash: this
-          // animates a GHOST div standing in for a pane that no longer exists,
-          // not a frame the imposer is placing. It has nowhere to travel to,
-          // so there is no motion to state — only a length of time to be gone
-          // over, which is its own constant.
-          duration: PANE_EXIT_GHOST_MS,
-          easing: "ease-out",
-          fill: "none",
-          key: "imposer-exit-ghost",
-        },
-      );
-      void fading.finished.then(() => ghost.remove());
+      departures.push({ paneId, ghost });
     }
     // The beats. Every frame's shrink tweens together; on their joint
     // completion every frame's move tweens; then every frame's grow tweens —
@@ -3588,7 +3662,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // are cut from that beat's terms alone on that beat's recipe, and the
     // container names the running beat in `data-imposer-beat` so a sampled
     // frame can be read against the beat it belongs to.
-    if (choreography.length > 0) {
+    if (choreography.length + arrivals.length + departures.length > 0) {
       outstanding += 1;
       const present = (kind: BeatKind): Choreographed[] =>
         choreography.filter((c) => c.beats[c.next]?.kind === kind);
@@ -3597,10 +3671,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // fire mid-choreography and snap every frame to its end. The store
       // hold's cap is re-sized against the same total, for the same reason:
       // a cap that fired mid-choreography would publish into a beat.
-      const kinds: BeatKind[] = ["shrink", "move", "grow"];
-      const launched = kinds.filter((kind) =>
-        choreography.some((c) => c.beats.some((b) => b.kind === kind)),
-      );
+      //
+      // A kind counts when some frame has a beat of it OR — for the outer two,
+      // which no frame plans — when anything is arriving or departing. Leaving
+      // them out of the sum would size the window to the middle three alone and
+      // fire the sweep and the hold's cap mid-choreography.
+      const launched = BEAT_ORDER.filter((kind) => {
+        if (kind === "depart") return departures.length > 0;
+        if (kind === "arrive") return arrivals.length > 0;
+        return choreography.some((c) => c.beats.some((b) => b.kind === kind));
+      });
       const totalMs = launched.reduce(
         (sum, kind) => sum + motionDurationMs(BEAT_RECIPE[kind], duration),
         0,
@@ -3618,6 +3698,88 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           return Promise.resolve();
         }
         const launches = present(kind);
+        // The outer two are not planned beats, so they are launched from what
+        // the passes above collected rather than from `present`.
+        if (kind === "depart" || kind === "arrive") {
+          const fadeOpts = {
+            ...settleOpts,
+            // A fade is `divide-join`: carried by opacity rather than by
+            // travel, so its window is that recipe's and its easing is the
+            // plain one the recipe states — there is no position to spring.
+            duration: fadeCurve.durationMs,
+            easing: "ease-out",
+          } as const;
+          const fades: TugAnimation[] =
+            kind === "depart"
+              ? departures.map(({ ghost }) =>
+                  animate(
+                    ghost,
+                    { opacity: [1, 0] },
+                    { ...fadeOpts, key: "imposer-exit-ghost" },
+                  ),
+                )
+              : arrivals.map(({ frame }) =>
+                  animate(
+                    frame,
+                    {
+                      opacity: [0, 1],
+                      transform: [
+                        `translateY(${PANE_ENTER_RISE_PX}px)`,
+                        "translateY(0px)",
+                      ],
+                    },
+                    { ...fadeOpts, key: "imposer-enter" },
+                  ),
+                );
+          if (fades.length === 0) return Promise.resolve();
+          el.setAttribute("data-imposer-beat", kind);
+          settleBeatRef.current = {
+            kind,
+            launchedAt: performance.now(),
+            initialVelocity: beatLaunchVelocity(kind, launch),
+          };
+          // An arriving frame's fade is registered on its own entry so a
+          // retarget cancels what is actually in flight, exactly as a planned
+          // beat's tween is.
+          if (kind === "arrive") {
+            for (const [i, { paneId }] of arrivals.entries()) {
+              const entry = settleTweensRef.current.get(paneId);
+              const anim = fades[i];
+              if (entry !== undefined && anim !== undefined) {
+                entry.anims.push(anim);
+              }
+            }
+          }
+          return Promise.allSettled(fades.map((anim) => anim.finished)).then(
+            () => {
+              if (kind === "depart") {
+                // The ghost stood in for a pane that no longer exists, so
+                // there is nothing to hand anything back to: it goes.
+                //
+                // Unconditional on the generation, and the only thing in this
+                // chain that is. Every other frame here is still on screen and
+                // still registered in `settleTweensRef`, so a retarget's `arm`
+                // cancels its tween, runs its restorers, and a later Last pass
+                // owns it. A ghost is in neither: it stands for a pane that has
+                // already left the deck, so `arm` never looks at it and no
+                // later pass will ever collect it again — a departed pane has
+                // no First rect to be measured from. Returning here without
+                // removing it would strand the tile in the document for the
+                // life of the canvas, one per close interrupted mid-fade.
+                for (const { ghost } of departures) ghost.remove();
+                return;
+              }
+              if (settleGenerationRef.current !== generation) return;
+              // The same rule the move and grow beats follow: `fill: none`
+              // means the effect's end value is the underlying inline style,
+              // and a frame left wearing the opacity hold would snap back to
+              // invisible the moment its tween ended.
+              for (const { frame } of arrivals) {
+                frame.style.removeProperty("opacity");
+              }
+            },
+          );
+        }
         if (launches.length === 0) return Promise.resolve();
         el.setAttribute("data-imposer-beat", kind);
         const curve = beatCurve(kind);
@@ -3683,9 +3845,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           },
         );
       };
-      void runBeat("shrink")
-        .then(() => runBeat("move"))
-        .then(() => runBeat("grow"))
+      void BEAT_ORDER.reduce(
+        (chain, kind) => chain.then(() => runBeat(kind)),
+        Promise.resolve(),
+      )
         .then(() => {
           if (settleGenerationRef.current !== generation) return;
           // The settle's one completion, after the final beat's last tween,
@@ -3702,10 +3865,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             for (const restore of c.restores) restore();
             clearFlip(c.paneId, c.frame, c.anims);
           }
+          // The arrivals take the same three, in the same order, because the
+          // arrive beat replaced the effect that used to do this in its own
+          // completion handler. An arriving frame has no fold crossing — it was
+          // not on screen to open one — so it joins at the restore and the
+          // episode, not in the crossing loop between them.
+          for (const { paneId, frame, restores } of arrivals) {
+            for (const restore of restores) restore();
+            clearFlip(paneId, frame, settleTweensRef.current.get(paneId)?.anims ?? []);
+          }
           for (const c of choreography) {
             if (c.crossingId !== null) endFoldCrossing(c.frame, c.crossingId);
           }
           for (const c of choreography) endEpisode(c.paneId);
+          for (const { paneId } of arrivals) endEpisode(paneId);
           settleBeatRef.current = null;
           settled();
         });

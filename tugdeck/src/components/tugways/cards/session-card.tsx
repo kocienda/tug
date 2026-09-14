@@ -272,6 +272,7 @@ import {
   useIsCardFolded,
 } from "@/lib/card-fold";
 import { reserveSheetHeightForCard } from "@/lib/sheet-reservation";
+import { pinExactHeightForCard } from "@/lib/exact-height-pin";
 import { registerCardCloseAdvice } from "@/lib/card-close-advice";
 import {
   cardModalHoldAdmitsFold,
@@ -1103,6 +1104,17 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   // subscribe time when the card is already the focused card — so a
   // fresh `addCard("dev")` (dev IS the new FR) presents the sheet
   // on mount without waiting for a macrotask drain.
+  //
+  // And an ARRIVING card waits too, for the neighbouring reason ([F03], [B05]).
+  // `addCard` flips first responder inside the same commit that appends the
+  // pane, so the activation above lands while the frame has not yet been
+  // brought on screen: the settle is holding it invisible until its arrive
+  // beat. A sheet presenting there plays its entrance inside a frame that is
+  // itself mid-fade — two motions over one rectangle, which is a motion nobody
+  // can read. `onceCardDidArrive` waits for the frame to stop moving, and
+  // answers AT ONCE for a card with no settle in flight, which is every card
+  // activated by a click and the single-slot open where there was never
+  // anything to wait for.
   const cardLifecycle = useCardLifecycle();
   // The picker is the one sheet on the card nobody asked for: it arrives
   // because the card has no session, not because the user named it. So it
@@ -1265,7 +1277,20 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
 
   useLayoutEffect(() => {
     if (cardLifecycle === null) return;
-    return cardLifecycle.observeCardDidActivate(cardId, () => presentSheet());
+    // Two subscriptions, one inside the other: activation, then arrival. The
+    // inner cancel is held so the effect's teardown runs it, and so a second
+    // activation replaces the pending wait rather than stacking a second one.
+    let cancelArrival: (() => void) | null = null;
+    const stopObserving = cardLifecycle.observeCardDidActivate(cardId, () => {
+      cancelArrival?.();
+      cancelArrival = cardLifecycle.onceCardDidArrive(cardId, () =>
+        presentSheet(),
+      );
+    });
+    return () => {
+      cancelArrival?.();
+      stopObserving();
+    };
   }, [cardLifecycle, cardId, presentSheet]);
 
   // A card that goes away takes its reservation with it ([B05]). The sheet
@@ -1277,6 +1302,11 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   useEffect(() => {
     return () => {
       reserveSheetHeightForCard(cardId, null);
+      // And its exact-height pin ([P04]). This is the CANCEL path — a card
+      // closed while still unbound — and on the binding path it is a no-op,
+      // because `setBinding` already dropped the pin and the drop returns
+      // without notifying against a record that no longer holds one.
+      pinExactHeightForCard(cardId, null);
     };
   }, [cardId]);
 
