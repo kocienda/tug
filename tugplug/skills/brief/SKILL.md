@@ -36,13 +36,29 @@ Three addresses, in order. Take the first that applies.
 
 ## What it does not do
 
-No sharpening of its own. No plan, no task list, no arc, no worktree, no commit. No second dialog, and no question about the format, the filename, or whether to go ahead. A brief is a document, and writing one is not a decision that needs confirming.
+No sharpening of its own. No plan, no task list, no arc, no worktree. No second dialog, and no question about the format, the filename, or whether to go ahead. A brief is a document, and writing one is not a decision that needs confirming — and neither is landing it, which is why the commit below asks nothing either.
 
 `tugtool plan lint` exits 2 on a brief — "not a plan document" — and that is correct rather than a failure: a brief is detected as a non-plan by having no execution-steps section.
 
+## Land it
+
+**Commit the brief before you present it.** This is the last act before the hand-off, and it is not optional: a brief left uncommitted straggles in the working tree, and an arc opened on it forks from the base's last commit — so the worktree the arc walks on does not have the document the arc was opened on. The user forgets this step far more often than they mean to, which is why the skill does it rather than reminding them.
+
+The commit is one command, scoped to exactly the file you wrote and nothing else:
+
+```bash
+tugtool commit --paths <path> --message "briefs(<slug>): Add brief for <what it decides, imperative, under 50 chars>"
+```
+
+where `<slug>` is the filename's stem with a trailing `-brief` removed — the same slug the hand-off command below prints. The subject is the whole message; `tugtool commit` adds the session trailers itself, and there is no body, no `Co-Authored-By`, and no mention of AI or agents. `--paths` is what keeps this honest: the user's own inflight edits in the tree are never swept into a brief's commit, and nothing here runs raw `git`.
+
+**Two cases skip the commit, and you say which in the report.** An arc's own brief (address 2) lives under `.tug/arcs/<name>/`, which is never tracked, so there is nothing to commit. And an explicit path that lands outside the project's checkout cannot be committed to it. In every other case — the briefs directory, or an explicit path inside the checkout — the commit runs.
+
+If `tugtool commit` fails, say so with its output and still hand off; a written brief with a failed commit is a brief the user can land by hand, and a swallowed failure is the straggler this section exists to prevent.
+
 ## Hand off
 
-Name the path you wrote, print the command below, and stop. What happens to the brief next — an arc opened on it by `/arc`, a spike, or nothing at all — is the user's call, and the document is what makes it theirs to make. Whether that arc walks a task list or devises a plan first is the door's decision, made from the brief's content when it is handed over; this skill does not pre-empt it, and the brief's Exit section names an arc rather than a plan for that reason.
+Name the path you wrote and the sha it landed as — the bare sha in backticks, `` `63de5762a` ``, never `commit 63de5762a` — print the command below, and stop. What happens to the brief next — an arc opened on it by `/arc`, a spike, or nothing at all — is the user's call, and the document is what makes it theirs to make. Whether that arc walks a task list or devises a plan first is the door's decision, made from the brief's content when it is handed over; this skill does not pre-empt it, and the brief's Exit section names an arc rather than a plan for that reason.
 
 **The command goes last, on its own line, written as inline code:**
 
@@ -52,4 +68,4 @@ where `<path>` is the file you just wrote and `<slug>` is that filename's stem w
 
 **The backticks are load-bearing.** A command line inside them is one object — a thing to do, which a surface reading your reply can offer to run, copy, or hand somewhere else. The same characters in a fenced block are a sample of text being quoted, and the same characters bare are prose. Write one inline-code span holding the whole line and nothing else: no fence, no leading prompt character, no trailing punctuation inside the span.
 
-Printing a line is not running one. The command is text in your reply until somebody sends it, which is the same promise the rest of this skill makes: the brief is written, and what becomes of it is still the user's call.
+Printing a line is not running one. The command is text in your reply until somebody sends it, which is the same promise the rest of this skill makes: the brief is written and landed, and what becomes of it is still the user's call.

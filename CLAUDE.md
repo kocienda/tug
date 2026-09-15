@@ -11,6 +11,7 @@ Tug is a developer tool suite. Its centerpiece is the **Session card** — a gra
 **Exceptions:**
 - Autonomous implementation: when the user explicitly authorizes autonomous sub-step execution (e.g., "go on your own"), commit after each sub-step using the `/tugplug:draft` skill's message style. Report each commit hash and message.
 - The `/arc` door's arcs commit on their **arc worktree** (never on `main`) via `tugtool arc commit`, as part of walking an arc's steps. `main` is only updated by the user's landing gestures.
+- The `/tugplug:brief` skill commits the one brief it wrote, via `tugtool commit --paths <path>`, as its last act before the hand-off — an uncommitted brief is missing from the worktree of any arc opened on it. That commit carries nothing but the brief.
 
 The `/tugplug:draft` skill **never commits** — it authors the session's landing draft via `tugtool draft set`. Landing is the user's act: `/commit` (main lane) and `/arc-join <name>` (arc lane) in the Session card are the landing gestures.
 
