@@ -461,6 +461,16 @@ export interface OpeningForm {
   title: string;
   /** The sheet's optional Lucide icon name, for the same reason. */
   icon?: string;
+  /**
+   * Make ready whatever the panel's HEIGHT depends on that no render can
+   * produce — a store's answer for a path, fetched lazily and landing a few
+   * frames after the first render asks for it. `addCard` waits on this before
+   * it measures and commits, so what is measured is the panel as it will
+   * stand rather than the placeholder its data replaces. `null` when nothing
+   * is pending, in which case the measure and the commit run synchronously
+   * inside the `addCard` call, exactly as for a form that declares none.
+   */
+  ready?: () => Promise<void> | null;
 }
 
 /**

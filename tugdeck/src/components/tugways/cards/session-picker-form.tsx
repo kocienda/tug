@@ -43,7 +43,7 @@ import {
 import { TugProgressIndicator } from "../tug-progress-indicator";
 import { TugFilterField } from "@/components/tugways/tug-filter-field";
 import { useAttachedFilter } from "@/components/tugways/attached-filter";
-import { useResponder } from "../use-responder";
+import { useOptionalResponder } from "../use-responder";
 import { useFocusManager } from "../use-focusable";
 import { rowGridOrder, type SpatialOrder } from "../spatial-order";
 import { useSpatialOrder } from "../use-spatial-order";
@@ -67,14 +67,13 @@ import {
   useSessionLedger,
   getSessionLedgerStore,
 } from "@/lib/session-ledger-store";
-import type { TaggedValue } from "@/lib/tugbank-client";
 import { useSessionsDataSource } from "@/lib/session-picker-data-source";
 import {
   PickerCellProvider,
   SESSIONS_CELL_RENDERERS,
   type PickerSelection,
 } from "./session-picker-cells";
-import { seedPathFrom } from "./session-picker-seed";
+import { parseRecents, parseString, seedPathFrom } from "./session-picker-seed";
 import { useIsMeasuringRender } from "@/lib/measuring-render";
 import { noticeContent } from "./session-picker-notice-content";
 
@@ -114,34 +113,6 @@ interface SessionRecord {
   sessionId: string;
   projectDir: string;
   createdAt: number;
-}
-
-/**
- * Pure parser for the `dev.tugapp.dev / recent-projects` tagged-value
- * entry. Mirrors `readSessionRecentProjects` in shape — split out so the
- * picker can subscribe to live updates via `useTugbankValue` instead of
- * reading once into `useState` (an L02 violation when external state
- * is copied into React state, even via a lazy initial value).
- */
-function parseRecents(entry: TaggedValue | undefined): string[] {
-  if (!entry || entry.kind !== "json" || entry.value === undefined) return [];
-  const raw = entry.value as { paths?: unknown } | null;
-  if (!raw || typeof raw !== "object" || !Array.isArray(raw.paths)) return [];
-  return raw.paths.filter(
-    (p): p is string => typeof p === "string" && p.length > 0,
-  );
-}
-
-/**
- * Parse a tugbank string value. The Swift host writes
- * `dev.tugapp.app/initial-project-path` as `{ kind: "string" }` via
- * `TugbankClient.setString` — empty string when the key is missing
- * or shaped unexpectedly.
- */
-function parseString(entry: TaggedValue | undefined): string {
-  if (!entry || entry.kind !== "string" || typeof entry.value !== "string")
-    return "";
-  return entry.value;
 }
 
 /** Stable `[]` reference — useTugbankValue's `fallback` must be reference-stable. */
@@ -555,10 +526,17 @@ export function SessionProjectPickerForm({
     string | null
   >(null);
 
+  // The TOLERANT form, because this component is rendered twice: live, inside
+  // the deck's `ResponderChainProvider`, and off-screen by the deck's measuring
+  // root before the card is committed ([P02], [P09]). The measuring root
+  // provides no chain — a ruler registers no responders — and the strict hook
+  // throws there, which rendered the whole measure empty and left every
+  // arrival without a bid. Live, the provider is always present and the two
+  // hooks are the same hook.
   const {
     ResponderScope: PickerFormResponderScope,
     responderRef: pickerFormResponderRef,
-  } = useResponder({
+  } = useOptionalResponder({
     id: formResponderId,
     actions: {
       [TUG_ACTIONS.REQUEST_TRASH_SESSION]: handleRequestTrashSession,

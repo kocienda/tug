@@ -2828,6 +2828,28 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    */
   const departureFacesRef = useRef<Map<string, HTMLElement>>(new Map());
 
+  /**
+   * The frames that are ARRIVING — held invisible by a Last pass and not yet
+   * launched into their arrive beat.
+   *
+   * A frame is arriving until its arrive beat runs, and a retarget in between
+   * does not change that. Without this record it did: `arm` measured the held
+   * frame's First rect like any other, so the replacement Last pass read it as
+   * TRAVELLING — it had a First rect now — planned no arrive beat, ran the
+   * unfused shrink/move/grow chain because nothing was arriving any more, and
+   * the retarget's own restorers had already taken the opacity hold off, so
+   * the card popped in at full opacity a beat before the room was made. One
+   * arrangement change landing inside the arrival window was enough: three
+   * motions and a pop where the contract is two ([P08]).
+   *
+   * So `arm` skips a pending frame — no First rect, no restore, no cancel —
+   * and the Last pass finds it exactly as an arrival again: still held, still
+   * owed its beat, and enough to keep the replacement settle fused. Entries
+   * leave when their arrive beat launches, and the whole set is emptied when a
+   * settle releases, since nothing is pending past the end of the settle.
+   */
+  const pendingArrivalsRef = useRef<Set<string>>(new Set());
+
   useLayoutEffect(() => {
     const lifecycle = cardLifecycle;
     if (lifecycle === null) return;
@@ -2957,6 +2979,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       settleReleasedRef.current = true;
       releaseSessions();
       deckTrace.record({ kind: "settle-release", source });
+      pendingArrivalsRef.current.clear();
     };
     settleReleaseRef.current = releaseSettle;
     // The window sweep. Every tween should have finished and swept itself by
@@ -3103,6 +3126,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (frame.hasAttribute("data-pointer-owned")) continue;
         const paneId = frame.getAttribute("data-pane-id");
         if (paneId === null) continue;
+        // Still arriving: not on screen as far as this settle is concerned,
+        // so it has no First rect to measure and nothing to hand back yet.
+        // The Last pass finds it as an arrival again ([P08]).
+        if (pendingArrivalsRef.current.has(paneId)) continue;
         if (motion) firstRects.set(paneId, frame.getBoundingClientRect());
         // The fold's near side. Read for every frame rather than only the
         // ones that turn out to cross, because which frames those are is not
@@ -3559,7 +3586,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // No `outstanding += 1` here: the chain accounts for the arrive beat,
         // and counting it twice would leave the settle's hold outstanding
         // forever.
-        const restores = [inlineRestorer(frame, "opacity")];
+        // A frame this settle found still ARRIVING — held invisible by the
+        // settle a retarget just replaced, its arrive beat never launched —
+        // keeps the restorer that knows the opacity it had before any hold.
+        // Capturing a fresh one here would record the hold itself as the
+        // value to hand back, and the card would end its arrival invisible.
+        const prior = settleTweensRef.current.get(paneId);
+        const restores =
+          prior !== undefined && pendingArrivalsRef.current.has(paneId)
+            ? prior.restores
+            : [inlineRestorer(frame, "opacity")];
+        pendingArrivalsRef.current.add(paneId);
         frame.style.opacity = "0";
         settleTweensRef.current.set(paneId, {
           el: frame,
@@ -3941,6 +3978,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           // beat's tween is.
           if (kind === "arrive") {
             for (const [i, { paneId }] of arrivals.entries()) {
+              pendingArrivalsRef.current.delete(paneId);
               const entry = settleTweensRef.current.get(paneId);
               const anim = fades[i];
               if (entry !== undefined && anim !== undefined) {

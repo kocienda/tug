@@ -1000,7 +1000,7 @@ export function initActionDispatch(
     // directly, so the surface that dispatched this — the identity row's
     // menu, mounted in some other card — must bank its focus bag first.
     if (outgoing !== null) deckManager.invokeSaveCallback(outgoing);
-    const cardId = deckManager.addCard("session", undefined, { slot });
+    const cardId = deckManager.addCard("session", undefined, { slot, opening: "bound" });
     if (cardId === null) {
       console.warn("resume-session: no session card registration");
       return;
@@ -1060,7 +1060,7 @@ export function initActionDispatch(
     // Save-before-activation ([L23]): `addCard` activates the fresh card, so
     // the surface that dispatched this banks its focus bag first.
     if (outgoing !== null) deckManager.invokeSaveCallback(outgoing);
-    const cardId = deckManager.addCard("session", undefined, { slot });
+    const cardId = deckManager.addCard("session", undefined, { slot, opening: "bound" });
     if (cardId === null) {
       console.warn("run-command-in-new-session: no session card registration");
       return;

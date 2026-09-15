@@ -139,6 +139,7 @@ declare global {
         captureCardState(cardId: string): unknown;
         registeredComponentKeys(cardId: string): string[];
         lastOpeningFormMeasureMs(): number | null;
+        lastOpeningFormMeasureError(): string | null;
       };
       /**
        * Measurement surface — the two write-capable moves a profiling
@@ -775,6 +776,13 @@ if (!container) {
        * test or a profiling session reads it without a channel of its own.
        */
       lastOpeningFormMeasureMs: () => deck.getLastOpeningFormMeasureMs(),
+      /**
+       * The message of the error the last measure's render threw, or `null`
+       * when it rendered clean. A measure that threw wrote no bid, and the
+       * card it was for arrived at its ordinary policy.
+       */
+      lastOpeningFormMeasureError: () =>
+        deck.getLastOpeningFormMeasureError()?.message ?? null,
     },
 
     /**

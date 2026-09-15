@@ -19,10 +19,12 @@
 
 import type { OpeningForm } from "@/card-registry";
 import type { PickerNotice } from "@/lib/picker-notice-store";
+import { getSessionLedgerStore } from "@/lib/session-ledger-store";
 import {
   SessionProjectPickerForm,
   type SessionProjectPickerFormProps,
 } from "./session-picker-form";
+import { readSeedPath } from "./session-picker-seed";
 /**
  * The picker's handlers. Every one is optional: the measuring render supplies
  * none, because a render taken to read a number has nothing to open or cancel,
@@ -62,6 +64,15 @@ export function sessionPickerPanel({
     // three-line summary plus two trailing controls — the decision width
     // truncates all three.
     displayWidth: "lg",
+    // What the panel's height depends on that no render can produce: the
+    // sessions for the path the picker opens on. The ledger store answers a
+    // path it has never seen with a pending snapshot and fetches behind it,
+    // so a picker rendered before the rows land is the `checking…` placeholder
+    // — some 170px short of the picker the user is about to see. The deck
+    // waits on this before it measures ([P02]), so the bid is read over the
+    // rows rather than over the placeholder they replace, and the live
+    // picker's own once-per-open refresh finds the request already in flight.
+    ready: () => getSessionLedgerStore()?.ensureListed(readSeedPath()) ?? null,
     panel: (
       <SessionProjectPickerForm
         key={cardId}

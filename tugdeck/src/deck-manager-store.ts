@@ -285,11 +285,18 @@ export interface IDeckManagerStore {
    *
    * `options.slot` names the slot the card joins under a multi-slot
    * arrangement (clamped to it); omitted, the card takes the first slot.
+   * `options.opening: "bound"` says the caller binds the card in the same
+   * gesture, so the form its registration declares for an unbound opening
+   * is neither readied nor measured and the card lands in the call.
+   *
+   * A card whose registration declares an opening form with something to
+   * make ready lands a moment AFTER this returns — once the form is ready to
+   * be measured — and the id is the caller's from the return either way.
    */
   addCard: (
     componentId: string,
     initialContent?: unknown,
-    options?: { slot?: number },
+    options?: { slot?: number; opening?: "bound" },
   ) => string | null;
 
   /**

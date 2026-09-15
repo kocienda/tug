@@ -484,10 +484,18 @@ export function ConfigureTug(): ReactElement {
   // Without a path or a connection there is nothing to spawn with; the card
   // still opens and presents its picker, which is the honest fallback.
   const handleOpenSession = (): void => {
-    const cardId = deck.addCard("session");
     const projectDir = projectPathValue.trim();
     const connection = getConnection();
-    if (cardId !== null && connection !== null && projectDir !== "") {
+    // A card that opens straight into a spawn never shows its picker, so it
+    // opens BOUND — nothing is measured for it and it lands in the call — and
+    // only a card with nothing to spawn opens as the picker.
+    const spawns = connection !== null && projectDir !== "";
+    const cardId = deck.addCard(
+      "session",
+      undefined,
+      spawns ? { opening: "bound" } : undefined,
+    );
+    if (cardId !== null && connection !== null && spawns) {
       fireFreshSpawn(cardId, crypto.randomUUID(), projectDir, connection);
     }
     setOpenedFirstSession(true);
