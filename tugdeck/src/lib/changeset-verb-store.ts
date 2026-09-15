@@ -220,6 +220,32 @@ const DISCARD_IDLE: DiscardState = Object.freeze({
 });
 
 /**
+ * One documents-delete round trip's state, keyed by the initiating card entry.
+ *
+ * The discard's shape over a different verb, and deliberately its own state
+ * rather than a second meaning for `DiscardState`: a delete destroys a brief
+ * and touches no branch, so the two can never be read for one another — not on
+ * the wire, not in the store, and not in the receipt a row shows.
+ */
+export type DeleteDocumentsPhase = "idle" | "pending" | "error" | "done";
+
+export interface DeleteDocumentsState {
+  phase: DeleteDocumentsPhase;
+  error: string | null;
+  /** The server-formatted delete summary when `phase === "done"`. */
+  summary: string | null;
+  /** The persisted receipt's ledger row id — see {@link CommitState.receiptId}. */
+  receiptId: number | null;
+}
+
+const DELETE_DOCUMENTS_IDLE: DeleteDocumentsState = Object.freeze({
+  phase: "idle",
+  error: null,
+  summary: null,
+  receiptId: null,
+});
+
+/**
  * An arc's terminal receipt, as the server announced it ([P12]).
  *
  * Not a round-trip state and deliberately not shaped like one: it has no
@@ -372,6 +398,10 @@ export class ChangesetVerbStore {
   private _discards = new Map<string, DiscardState>();
   /** `verbKey(project_dir, arc)` → the entry key whose discard is in flight. */
   private _discardInflight = new Map<string, string>();
+  /** entry key → documents-delete round-trip state. Absent ⇒ idle. */
+  private _deleteDocuments = new Map<string, DeleteDocumentsState>();
+  /** `verbKey(project_dir, arc)` → the entry key whose delete is in flight. */
+  private _deleteDocumentsInflight = new Map<string, string>();
   /** entry key → replay round-trip state. Absent ⇒ idle. */
   private _replays = new Map<string, ReplayState>();
   /** `verbKey(project_dir, arc)` → the entry key whose replay is in flight. */
@@ -613,6 +643,35 @@ export class ChangesetVerbStore {
       this._discardInflight.delete(key);
       const detail = typeof body.detail === "string" ? body.detail : "discard failed";
       this._setDiscard(entryKey, { phase: "error", error: detail, summary: null, receiptId: null });
+    } else if (body.action === "changeset_delete_documents_ok") {
+      const arc = typeof body.arc === "string" ? body.arc : null;
+      if (arc === null) return;
+      const key = verbKey(sentDir, arc);
+      const entryKey = this._deleteDocumentsInflight.get(key);
+      if (entryKey === undefined) return;
+      this._deleteDocumentsInflight.delete(key);
+      // As on the discard path: the aggregate recompute drops the row, and
+      // `done` carries the summary the transcript's receipt hangs off.
+      this._setDeleteDocuments(entryKey, {
+        phase: "done",
+        error: null,
+        summary: typeof body.summary === "string" ? body.summary : null,
+        receiptId: receiptIdOf(body),
+      });
+    } else if (body.action === "changeset_delete_documents_err") {
+      const arc = typeof body.arc === "string" ? body.arc : null;
+      if (arc === null) return;
+      const key = verbKey(sentDir, arc);
+      const entryKey = this._deleteDocumentsInflight.get(key);
+      if (entryKey === undefined) return;
+      this._deleteDocumentsInflight.delete(key);
+      const detail = typeof body.detail === "string" ? body.detail : "delete failed";
+      this._setDeleteDocuments(entryKey, {
+        phase: "error",
+        error: detail,
+        summary: null,
+        receiptId: null,
+      });
     } else if (body.action === "changeset_replay_ok") {
       const arc = typeof body.arc === "string" ? body.arc : null;
       if (arc === null) return;
@@ -944,6 +1003,43 @@ export class ChangesetVerbStore {
     this._setDiscard(entryKey, DISCARD_IDLE);
   }
 
+  private _setDeleteDocuments(entryKey: string, state: DeleteDocumentsState): void {
+    if (state.phase === "idle") {
+      this._deleteDocuments.delete(entryKey);
+    } else {
+      this._deleteDocuments.set(entryKey, state);
+    }
+    for (const listener of [...this._listeners]) listener();
+  }
+
+  /**
+   * Send `changeset_delete_documents` for `(workspaceKey, arc)`; mark
+   * `entryKey` in-flight. `sessionId` is the card's tug session id, which the
+   * server needs to leave the receipt ([P06]); absent, the delete still runs.
+   */
+  deleteDocuments(entryKey: string, workspaceKey: string, arc: string, sessionId?: string): void {
+    this._deleteDocumentsInflight.set(verbKey(workspaceKey, arc), entryKey);
+    this._setDeleteDocuments(entryKey, {
+      phase: "pending",
+      error: null,
+      summary: null,
+      receiptId: null,
+    });
+    this._connection.sendControlFrame("changeset_delete_documents", {
+      project_dir: workspaceKey,
+      arc: arc,
+      ...(sessionId !== undefined ? { session_id: sessionId } : {}),
+    });
+  }
+
+  deleteDocumentsState(entryKey: string): DeleteDocumentsState {
+    return this._deleteDocuments.get(entryKey) ?? DELETE_DOCUMENTS_IDLE;
+  }
+
+  clearDeleteDocuments(entryKey: string): void {
+    this._setDeleteDocuments(entryKey, DELETE_DOCUMENTS_IDLE);
+  }
+
   private _setReplay(entryKey: string, state: ReplayState): void {
     if (state.phase === "idle") {
       this._replays.delete(entryKey);
@@ -1160,6 +1256,32 @@ export function useChangesetDiscard(entryKey: string): DiscardState & {
     _activeStore?.clearDiscard(entryKey);
   };
   return { ...state, discard, clear };
+}
+
+/**
+ * React hook: the documents-delete round-trip state for one arc entry plus its
+ * triggers. Returns idle + no-op triggers when no store is attached.
+ */
+export function useChangesetDeleteDocuments(entryKey: string): DeleteDocumentsState & {
+  deleteDocuments: (workspaceKey: string, arc: string, sessionId?: string) => void;
+  clear: () => void;
+} {
+  const state = useSyncExternalStore(
+    (listener) => {
+      const store = _activeStore;
+      if (store === null) return () => {};
+      return store.subscribe(listener);
+    },
+    () => _activeStore?.deleteDocumentsState(entryKey) ?? DELETE_DOCUMENTS_IDLE,
+    () => DELETE_DOCUMENTS_IDLE,
+  );
+  const deleteDocuments = (workspaceKey: string, arc: string, sessionId?: string): void => {
+    _activeStore?.deleteDocuments(entryKey, workspaceKey, arc, sessionId);
+  };
+  const clear = (): void => {
+    _activeStore?.clearDeleteDocuments(entryKey);
+  };
+  return { ...state, deleteDocuments, clear };
 }
 
 /**

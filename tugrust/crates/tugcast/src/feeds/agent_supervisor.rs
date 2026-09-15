@@ -2944,6 +2944,44 @@ fn parse_changeset_discard_payload(
     })
 }
 
+/// Parsed `changeset_delete_documents` request: the project checkout and the
+/// arc whose paperwork is to go. Shaped exactly like the discard's, because
+/// the two are the same round trip over a different verb — and deliberately
+/// *not* routed through it ([B05]).
+struct ChangesetDeleteDocumentsPayload {
+    project_dir: String,
+    arc: String,
+    /// The calling card's tug session id, for the receipt's row ([P06]).
+    session_id: Option<String>,
+}
+
+fn parse_changeset_delete_documents_payload(
+    payload: &[u8],
+) -> Result<ChangesetDeleteDocumentsPayload, ControlError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    let project_dir = value
+        .get("project_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::InvalidProjectDir {
+            reason: "missing_project_dir",
+        })?
+        .to_string();
+    let arc = value
+        .get("arc")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::Malformed)?
+        .to_string();
+    let session_id = parse_optional_session_id(&value);
+    Ok(ChangesetDeleteDocumentsPayload {
+        project_dir,
+        arc,
+        session_id,
+    })
+}
+
 /// Parsed `changeset_replay` request: the project checkout and the arc name.
 struct ChangesetReplayPayload {
     project_dir: String,
@@ -4396,6 +4434,15 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
+            "changeset_delete_documents" => {
+                match parse_changeset_delete_documents_payload(payload) {
+                    Ok(parsed) => {
+                        self.do_changeset_delete_documents(&parsed).await;
+                        Ok(())
+                    }
+                    Err(e) => return ControlOutcome::Error(e),
+                }
+            }
             "changeset_replay" => match parse_changeset_replay_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_replay(&parsed).await;
@@ -8872,6 +8919,120 @@ impl AgentSupervisor {
         ));
     }
 
+    /// Handle a `changeset_delete_documents` CONTROL request: delete
+    /// `.tug/arcs/<arc>/` and nothing else, via `tugarc-core`.
+    ///
+    /// The same two guards the discard verb takes, and the same aggregate bump
+    /// so the paperwork row leaves the card — but none of the discard's
+    /// teardown: no draft cleared, no bindings cleared, no arc-log line. The
+    /// arc's record is untouched, because deleting a brief is not ending an
+    /// arc ([B05]); `delete_documents_in` refuses outright for a name that
+    /// still has a branch or a worktree, which is the case `arc discard` owns.
+    ///
+    /// Broadcasts `changeset_delete_documents_ok {…}` /
+    /// `changeset_delete_documents_err`.
+    async fn do_changeset_delete_documents(&self, request: &ChangesetDeleteDocumentsPayload) {
+        let project_dir = request.project_dir.as_str();
+        let dir = std::path::Path::new(project_dir);
+
+        if self.registry.find_entry_by_path(dir).is_none() {
+            Self::send_changeset_delete_documents_err(
+                &self.control_tx,
+                project_dir,
+                &request.arc,
+                "not an open project",
+            );
+            return;
+        }
+        if !crate::feeds::git::is_within_git_worktree(dir).await {
+            Self::send_changeset_delete_documents_err(
+                &self.control_tx,
+                project_dir,
+                &request.arc,
+                "not a git repository",
+            );
+            return;
+        }
+
+        let dir_owned = dir.to_path_buf();
+        let arc = request.arc.clone();
+        let result =
+            tokio::task::spawn_blocking(move || tugarc_core::delete_documents_in(&dir_owned, &arc))
+                .await;
+
+        match result {
+            Ok(Ok(outcome)) => {
+                tracing::info!(
+                    arc = %outcome.name,
+                    removed = outcome.removed.is_some(),
+                    files = outcome.files.len(),
+                    "arc-delete-documents: completed"
+                );
+                self.registry.changeset_all_bump().notify_one();
+                let summary = crate::feeds::changeset::format_delete_documents_summary(
+                    &outcome.name,
+                    &outcome.files,
+                );
+                let receipt_id = Self::record_landing_receipt(
+                    self.shell_ledger.as_ref(),
+                    self.session_ledger.as_ref(),
+                    request.session_id.as_deref(),
+                    "/arc-delete-documents",
+                    &summary,
+                    project_dir,
+                );
+                let body = serde_json::json!({
+                    "action": "changeset_delete_documents_ok",
+                    "project_dir": project_dir,
+                    "arc": request.arc,
+                    "name": outcome.name,
+                    "removed": outcome.removed,
+                    "files": outcome.files,
+                    "summary": summary,
+                    "receipt_id": receipt_id,
+                });
+                let _ = self.control_tx.send(Frame::new(
+                    FeedId::CONTROL,
+                    serde_json::to_vec(&body).expect("changeset_delete_documents_ok serializes"),
+                ));
+            }
+            Ok(Err(detail)) => {
+                Self::send_changeset_delete_documents_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.arc,
+                    &detail,
+                );
+            }
+            Err(join_err) => {
+                Self::send_changeset_delete_documents_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.arc,
+                    &format!("delete task failed: {join_err}"),
+                );
+            }
+        }
+    }
+
+    fn send_changeset_delete_documents_err(
+        control_tx: &broadcast::Sender<Frame>,
+        project_dir: &str,
+        arc: &str,
+        detail: &str,
+    ) {
+        let body = serde_json::json!({
+            "action": "changeset_delete_documents_err",
+            "project_dir": project_dir,
+            "arc": arc,
+            "detail": detail,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("changeset_delete_documents_err serializes"),
+        ));
+    }
+
     /// Handle a `changeset_replay` CONTROL request: replay an arc's rounds onto
     /// its base branch's current tip, via `tugarc-core`. Same two guards as the
     /// discard verb; fires the aggregate bump so the row's divergence facts
@@ -13092,6 +13253,28 @@ mod tests {
     }
 
     #[test]
+    fn changeset_delete_documents_payload_parses_like_the_discard_s() {
+        let bare = br#"{"project_dir":"/p","arc":"d"}"#;
+        let parsed = parse_changeset_delete_documents_payload(bare).expect("parse");
+        assert_eq!(parsed.project_dir, "/p");
+        assert_eq!(parsed.arc, "d");
+        assert_eq!(parsed.session_id, None);
+
+        let tagged = br#"{"project_dir":"/p","arc":"d","session_id":"sess-1"}"#;
+        assert_eq!(
+            parse_changeset_delete_documents_payload(tagged)
+                .expect("parse")
+                .session_id
+                .as_deref(),
+            Some("sess-1")
+        );
+
+        // The two fields the frame cannot do without.
+        assert!(parse_changeset_delete_documents_payload(br#"{"arc":"d"}"#).is_err());
+        assert!(parse_changeset_delete_documents_payload(br#"{"project_dir":"/p"}"#).is_err());
+    }
+
+    #[test]
     fn changeset_replay_payload_parses_like_the_discard_s() {
         let bare = br#"{"project_dir":"/p","arc":"d"}"#;
         let parsed = parse_changeset_replay_payload(bare).expect("parse");
@@ -14001,6 +14184,82 @@ mod tests {
             1,
             "the front beat is said once and has no paired done: {beats:?}"
         );
+
+        cancel.cancel();
+    }
+
+    /// The documents-delete round trip: the paperwork goes, the receipt names
+    /// what went, and nothing else about the repo moves. A press on a ghost
+    /// row is the case — no branch, no worktree, documents nothing else can
+    /// remove ([B04], [B05]).
+    #[tokio::test]
+    async fn changeset_delete_documents_removes_only_the_documents() {
+        use std::process::Command;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let status = Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        }
+
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        std::fs::write(root.join("keep.txt"), "base\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+
+        let documents = root.join(".tug/arcs/ghost");
+        std::fs::create_dir_all(&documents).unwrap();
+        std::fs::write(documents.join("brief.md"), "# Ghost\n").unwrap();
+        std::fs::write(documents.join("tasks.md"), "# Tasks\n").unwrap();
+        let neighbour = root.join(".tug/arcs/keeper");
+        std::fs::create_dir_all(&neighbour).unwrap();
+        std::fs::write(neighbour.join("brief.md"), "# Keeper\n").unwrap();
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_delete_documents",
+            "project_dir": root_str,
+            "arc": "ghost",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_delete_documents", &payload, 1)
+            .await;
+
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
+            .await
+            .expect("control response within timeout")
+            .expect("sender alive");
+        let done: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(done["action"], "changeset_delete_documents_ok", "{done}");
+        assert_eq!(done["name"], "ghost");
+        assert_eq!(done["files"][0], "brief.md");
+        assert_eq!(done["files"][1], "tasks.md");
+        assert!(
+            done["summary"]
+                .as_str()
+                .expect("a summary")
+                .contains("git will not give them back"),
+            "{done}"
+        );
+
+        assert!(!documents.exists(), "the arc's documents are gone");
+        assert!(
+            neighbour.join("brief.md").is_file(),
+            "the neighbouring arc's brief is untouched"
+        );
+        assert!(root.join("keep.txt").is_file(), "the checkout is untouched");
 
         cancel.cancel();
     }

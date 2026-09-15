@@ -78,6 +78,7 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
             return run_redo(name.as_deref(), list, json, quiet);
         }
         ArcCommands::Discard { name, break_lease } => run_discard(&name, break_lease, json, quiet),
+        ArcCommands::DeleteDocuments { name } => run_delete_documents(&name, json, quiet),
         ArcCommands::Config => run_config(json, quiet),
         ArcCommands::List => run_list(json, quiet),
         ArcCommands::Show { name } => run_show(&name, json, quiet),
@@ -485,6 +486,30 @@ fn run_discard(name: &str, break_lease: bool, json: bool, quiet: bool) -> Result
         }
         for warning in &data.warnings {
             println!("  Warning: {}", warning);
+        }
+    }
+    Ok(())
+}
+
+/// `arc delete-documents <name>` — remove the paperwork and say what went.
+///
+/// No `broadcast_arc_gone`: nothing about the arc's git state or its record
+/// changed, and a row that was drawn off the documents stops being drawn
+/// because the documents stopped existing. The scan recomputes on its own.
+fn run_delete_documents(name: &str, json: bool, quiet: bool) -> Result<(), String> {
+    let data = ops::delete_documents(name)?;
+    if json {
+        print_ok("arc delete-documents", &data);
+    } else if !quiet {
+        match data.removed.as_deref() {
+            Some(dir) => {
+                println!("Deleted the documents for arc '{}' at {dir}", data.name);
+                if !data.files.is_empty() {
+                    println!("  Destroyed: {}", data.files.join(", "));
+                }
+                println!("  Untracked, so git will not give them back.");
+            }
+            None => println!("Arc '{}' has no documents directory", data.name),
         }
     }
     Ok(())

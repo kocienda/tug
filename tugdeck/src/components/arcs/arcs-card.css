@@ -146,10 +146,33 @@
 }
 
 /* The row's affordances. An arc row's verbs are its context menu, and this box
-   holds only that menu's portal — a plan row has no control at all. */
+   holds only that menu's portal — a plan row wears its controls in the
+   eyebrow's trailing slot instead. */
 .arcs-verbs {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: var(--tug-space-2xs);
+}
+
+/* A paperwork row's delete, beside the transport in the same trailing slot and
+   taking the same footprint, so the two read as one cluster rather than as a
+   control with something stuck to it.
+
+   Quiet until the row is under the pointer or the button itself has focus: the
+   verb is rare and destructive, and a trash can drawn at full strength on every
+   waiting brief reads as an instruction. Visibility rides CSS off the row's
+   hover, never React state ([L06]) — and never `display: none`, which would
+   take the button out of the tab order and hide the one gesture a keyboard
+   reader has. */
+.arcs-document-delete {
+  flex: 0 0 auto;
+  opacity: 0.45;
+  transition: opacity var(--tug-duration-fast, 120ms) ease;
+}
+
+.arcs-row:hover .arcs-document-delete,
+.arcs-document-delete:hover,
+.arcs-document-delete:focus-visible {
+  opacity: 1;
 }

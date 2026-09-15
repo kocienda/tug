@@ -346,6 +346,82 @@ pub struct DiscardOutcome {
     pub warnings: Vec<String>,
 }
 
+/// Outcome of [`delete_documents_in`].
+#[derive(Debug, Clone, Serialize)]
+pub struct DeleteDocumentsOutcome {
+    pub name: String,
+    /// The directory that was removed. Absent when there was nothing there —
+    /// a delete of documents that are already gone is a state, not an error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<String>,
+    /// The file names the directory held, read before the removal so the
+    /// receipt can say what was destroyed. Unrecoverable afterwards: `.tug/`
+    /// is excluded from git, so nothing on disk or in history holds a copy.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
+}
+
+/// Delete an arc's documents directory — `.tug/arcs/<name>/` — and nothing
+/// else. No branch, no worktree, no arc-log teardown ([B05]).
+///
+/// **This is not a discard, and must never route through one.** `discard` is
+/// about a branch and a worktree, keeps the documents on purpose ([P11]), and
+/// refuses outright for a name that has neither — which is exactly the case
+/// this verb exists for: a discarded arc, or a door abandoned before it cut a
+/// branch, leaves a documents directory that nothing else can remove. Keeping
+/// the two distinct is what stops the destructive teardown path from
+/// acquiring a second meaning.
+///
+/// An arc that still has a branch or a worktree is refused by name: those are
+/// the arc's own, `discard` is the verb that ends them, and deleting the brief
+/// out from under a running arc would strand it. A directory that is not there
+/// reports `removed: None` and succeeds, so a double press is quiet.
+pub fn delete_documents_in(repo_root: &Path, name: &str) -> Result<DeleteDocumentsOutcome, String> {
+    validate_arc_name(name).map_err(|e| e.to_string())?;
+
+    let branch = branch_name(name);
+    if branch_exists(repo_root, &branch) {
+        return Err(format!(
+            "arc '{name}' still has the branch {branch}; `tugtool arc discard {name}` ends an arc"
+        ));
+    }
+    if worktree_path(repo_root, name).exists() {
+        return Err(format!(
+            "arc '{name}' still has a worktree; `tugtool arc discard {name}` ends an arc"
+        ));
+    }
+
+    let dir = documents_dir(repo_root, name);
+    if !dir.is_dir() {
+        return Ok(DeleteDocumentsOutcome {
+            name: name.to_string(),
+            removed: None,
+            files: Vec::new(),
+        });
+    }
+
+    let mut files: Vec<String> = std::fs::read_dir(&dir)
+        .map_err(|e| format!("cannot read {}: {e}", dir.display()))?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    files.sort();
+
+    std::fs::remove_dir_all(&dir).map_err(|e| format!("cannot delete {}: {e}", dir.display()))?;
+
+    Ok(DeleteDocumentsOutcome {
+        name: name.to_string(),
+        removed: Some(dir.display().to_string()),
+        files,
+    })
+}
+
+/// [`delete_documents_in`] against the process cwd's repo root.
+pub fn delete_documents(name: &str) -> Result<DeleteDocumentsOutcome, String> {
+    let repo_root = find_repo_root().map_err(|e| e.to_string())?;
+    delete_documents_in(&repo_root, name)
+}
+
 // --- git helpers -----------------------------------------------------------
 
 /// Run a git command in `dir`, returning its raw output.
@@ -5612,6 +5688,66 @@ mod tests {
         assert!(brief_file(root, "foo-bar").ends_with(".tug/arcs/foo-bar/brief.md"));
         assert!(plan_file(root, "foo-bar").ends_with(".tug/arcs/foo-bar/plan.md"));
         assert!(tasks_file(root, "foo-bar").ends_with(".tug/arcs/foo-bar/tasks.md"));
+    }
+
+    /// The delete destroys the directory and names what was in it — the
+    /// receipt's only chance, since `.tug/` is excluded from git and nothing
+    /// gives the brief back.
+    #[test]
+    fn deleting_documents_removes_the_directory_and_names_its_files() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        write_arc_document(root, "ghost", "brief.md");
+        write_arc_document(root, "ghost", "tasks.md");
+        // A neighbour, so this is a delete of one arc rather than of `.tug/`.
+        write_arc_document(root, "keeper", "brief.md");
+
+        let outcome = delete_documents_in(root, "ghost").unwrap();
+        assert_eq!(outcome.name, "ghost");
+        assert!(outcome.removed.is_some());
+        assert_eq!(outcome.files, vec!["brief.md", "tasks.md"]);
+        assert!(!documents_dir(root, "ghost").exists());
+        assert!(
+            brief_file(root, "keeper").is_file(),
+            "the neighbouring arc's brief is untouched"
+        );
+    }
+
+    /// A delete of documents that are already gone is a state, not an error:
+    /// a second press on a row mid-recompute must not raise a notice.
+    #[test]
+    fn deleting_absent_documents_succeeds_quietly() {
+        let temp = TempDir::new().unwrap();
+        let outcome = delete_documents_in(temp.path(), "never-was").unwrap();
+        assert_eq!(outcome.removed, None);
+        assert!(outcome.files.is_empty());
+    }
+
+    /// **An arc that still has a branch is refused by name.** Deleting the
+    /// brief out from under a running arc would strand it, and ending an arc
+    /// is `discard`'s job — the two verbs stay distinct ([B05]).
+    #[serial]
+    #[test]
+    fn deleting_documents_refuses_an_arc_that_still_has_a_branch() {
+        let (_temp, root) = repo_for_create();
+        create_in(&root, "live-arc", None, false, None).unwrap();
+        write_arc_document(&root, "live-arc", "brief.md");
+
+        let err = delete_documents_in(&root, "live-arc").expect_err("refused");
+        assert!(err.contains("tugarc/live-arc"), "{err}");
+        assert!(err.contains("arc discard"), "{err}");
+        assert!(
+            brief_file(&root, "live-arc").is_file(),
+            "a refusal deletes nothing"
+        );
+    }
+
+    /// An invalid name never reaches the filesystem — the guard is the same
+    /// one every other arc verb takes.
+    #[test]
+    fn deleting_documents_validates_the_arc_name() {
+        let temp = TempDir::new().unwrap();
+        assert!(delete_documents_in(temp.path(), "../escape").is_err());
     }
 
     /// The whole of the discrimination between plain and planned: which

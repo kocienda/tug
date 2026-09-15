@@ -107,6 +107,8 @@ import React, {
   useSyncExternalStore,
 } from "react";
 
+import { Trash2 } from "lucide-react";
+
 import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentation";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
@@ -132,6 +134,7 @@ import type {
 } from "@/components/tugways/tug-list-view";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import {
   FollowedCardContext,
   useFollowedCard,
@@ -151,7 +154,11 @@ import { useChangesetAll } from "@/lib/changeset-all-store";
 import { arcSessionIndex } from "@/lib/arc-session-index";
 import { isLiveRun, type FollowedCardFacts } from "@/lib/arc-transport";
 import { sessionDisplayTitle, useSessionIdentity } from "@/lib/session-identity";
-import { useChangesetDiscard, useChangesetReplay } from "@/lib/changeset-verb-store";
+import {
+  useChangesetDeleteDocuments,
+  useChangesetDiscard,
+  useChangesetReplay,
+} from "@/lib/changeset-verb-store";
 import {
   replayDisabledReason,
   useArcRowMenu,
@@ -550,6 +557,14 @@ function useFollowedCardFacts(): FollowedCardFacts | null {
 /** What a row may ask of the section around it. */
 interface ArcVerbs {
   requestDiscard: (row: ArcRow, anchor: HTMLElement | null) => void;
+  /**
+   * Arm the delete of a paperwork row's documents — the verb `discard` refuses
+   * outright, because a branchless arc has no git state for it to end ([B05]).
+   */
+  requestDeleteDocuments: (
+    row: DocumentArcRow,
+    anchor: HTMLElement | null,
+  ) => void;
   /** Send `changeset_replay`; the outcome speaks on the followed card. */
   requestReplay: (row: ArcRow, tugSessionId: string | null) => void;
   /** Why every Replay in this section is unavailable right now, or null. */
@@ -874,22 +889,76 @@ const ArcCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
 };
 
 /**
+ * A paperwork row's Delete — the one gesture that can remove a `.tug/arcs/`
+ * directory nothing else will.
+ *
+ * **A visible button, not a context-menu item**, and that is the exception
+ * rather than the house idiom: {@link useArcRowVerbsMenu} argues at length
+ * against spending a row's trailing end on verbs nobody presses, and a
+ * paperwork row's trailing end already holds the transport ([D142]). The
+ * exception is earned by what the row is. A ghost row is litter — a discarded
+ * arc's brief, an abandoned door's empty directory — and litter the reader
+ * wants gone is exactly the case where a hidden verb is a verb that does not
+ * exist. `ArcCell`'s verbs are reachable another way; this one was reachable
+ * nowhere at all ([F06]).
+ *
+ * The press arms the card's one {@link TugConfirmPopover} rather than acting:
+ * the delete destroys a brief permanently, and `.tug/` is excluded from git,
+ * so there is nothing to undo it with. The anchor is the row **cell**, never
+ * this button — the confirm outlives the press, and a recycled cell would
+ * strand a popover hung off a control inside it.
+ */
+function PlanDeleteButton({ row }: { row: DocumentArcRow }): React.ReactElement {
+  const verbs = React.useContext(ArcVerbsContext);
+  const ref = React.useRef<HTMLButtonElement | null>(null);
+  const name = row.entry.display_name;
+  const label = `Delete the documents for arc ${name}`;
+  return (
+    <TugTooltip content={label}>
+      <TugPushButton
+        ref={ref}
+        data-slot="arc-document-delete"
+        className="arcs-document-delete"
+        size="xs"
+        emphasis="ghost"
+        subtype="icon"
+        icon={<Trash2 />}
+        aria-label={label}
+        onClick={(event) => {
+          // The row underneath is not a door, but a press here is this
+          // button's own gesture either way.
+          event?.stopPropagation();
+          event?.preventDefault();
+          verbs?.requestDeleteDocuments(
+            row,
+            ref.current?.closest(".tug-list-view-cell") as HTMLElement | null,
+          );
+        }}
+      />
+    </TugTooltip>
+  );
+}
+
+/**
  * A waiting plan document, in the section's own two-line grammar: an eyebrow
- * naming the document and carrying its one affordance, over a meta line saying
+ * naming the document and carrying its affordances, over a meta line saying
  * what it is and how far it goes.
  *
- * The affordance is the transport control, never row activation ([D142]): a
- * plan row has no room to open, and pressing anywhere on it must not start
- * anything. The control is a Start — an arc that exists only as documents has
- * no run to stop or resume — and pressing it opens the arc on the followed
- * card through the server's own `arc_run`. The press names no kind: the
- * server derives that from the arc's documents at the opening ([D178] as
- * amended, [P03]). A press that cannot land is not disabled: it stays
- * pressable and speaks its reason ([L31], [P07]).
+ * The affordances are the transport control and the delete, never row
+ * activation ([D142]): a plan row has no room to open, and pressing anywhere
+ * on it must not start anything. The control is a Start — an arc that exists
+ * only as documents has no run to stop or resume — and pressing it opens the
+ * arc on the followed card through the server's own `arc_run`. The press names
+ * no kind: the server derives that from the arc's documents at the opening
+ * ([D178] as amended, [P03]). A press that cannot land is not disabled: it
+ * stays pressable and speaks its reason ([L31], [P07]).
  *
- * No fold cue beside it: [D176] left the plan rows out of the fold, because
- * the ledger a fold opens is one a waiting document's entry does not carry.
- * The transport is the one trailing thing these rows have.
+ * Beside it, {@link PlanDeleteButton} — the second control on a row [D142]
+ * describes as having room for one, and the exception is argued there.
+ *
+ * No fold cue beside either: [D176] left the plan rows out of the fold,
+ * because the ledger a fold opens is one a waiting document's entry does not
+ * carry.
  */
 const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   index,
@@ -929,17 +998,20 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           // sentence stays on the line rather than being demoted to a hover
           // with nowhere to land ([B06]).
           trailing={
-            <ArcTransportControl
-              arc={entry.display_name}
-              projectDir={row.projectDir}
-              run={entry.arc ?? null}
-              documents={entry.documents}
-              boundSession={entry.bound_session ?? null}
-              surface="arcs"
-              followed={followed}
-              size="xs"
-              form="icon"
-            />
+            <>
+              <ArcTransportControl
+                arc={entry.display_name}
+                projectDir={row.projectDir}
+                run={entry.arc ?? null}
+                documents={entry.documents}
+                boundSession={entry.bound_session ?? null}
+                surface="arcs"
+                followed={followed}
+                size="xs"
+                form="icon"
+              />
+              <PlanDeleteButton row={row} />
+            </>
           }
         />
       </span>
@@ -1013,20 +1085,32 @@ function ArcsBody(): React.ReactElement {
   const populated = rows.length + plans.length > 0;
 
   const discardVerb = useChangesetDiscard(ARCS_VERB_KEY);
+  // And one documents-delete, for the reason the discard has one.
+  const deleteVerb = useChangesetDeleteDocuments(ARCS_VERB_KEY);
   // One replay round trip for the section, for the reason the discard has one:
   // the state is a slot per key, and a second press would render the first's
   // phase.
   const replayVerb = useChangesetReplay(ARCS_VERB_KEY);
-  // Which row's discard is armed, and the element the confirm hangs off. View
-  // scope ([L24]): a half-armed confirm is not worth remembering, and closing
-  // the card forgets it.
-  const [pendingDiscard, setPendingDiscard] = useState<{
-    row: ArcRow;
-    anchor: HTMLElement | null;
-  } | null>(null);
+  // Which row armed the card's one confirm, which act it armed, and the
+  // element the popover hangs off. View scope ([L24]): a half-armed confirm is
+  // not worth remembering, and closing the card forgets it.
+  //
+  // One slot for two acts rather than two slots, because there is one popover
+  // ([B04]) and a second armed confirm would have nowhere to draw. The kind
+  // rides the slot so the message, the label and the frame all read the same
+  // press — a discard ends an arc's git state, a delete destroys a brief, and
+  // nothing here may ever confuse the two ([B05]).
+  const [pendingConfirm, setPendingConfirm] = useState<
+    | { kind: "discard"; row: ArcRow; anchor: HTMLElement | null }
+    | { kind: "delete"; row: DocumentArcRow; anchor: HTMLElement | null }
+    | null
+  >(null);
   const verbs = useMemo<ArcVerbs>(
     () => ({
-      requestDiscard: (row, anchor) => setPendingDiscard({ row, anchor }),
+      requestDiscard: (row, anchor) =>
+        setPendingConfirm({ kind: "discard", row, anchor }),
+      requestDeleteDocuments: (row, anchor) =>
+        setPendingConfirm({ kind: "delete", row, anchor }),
       // No confirm: a replay destroys nothing, and its every refusal path
       // leaves the repository exactly as it found it. What it needs instead is
       // a voice, which is the session id — the outcome posts on that card's
@@ -1143,29 +1227,40 @@ function ArcsBody(): React.ReactElement {
         </div>
         {/* One controlled confirm for the whole card, anchored to whichever
             row armed it. `confirmRole="danger"` puts default focus on Cancel,
-            so a reflexive Return can never destroy an arc. */}
+            so a reflexive Return can never destroy an arc or a brief. */}
         <TugConfirmPopover
-          open={pendingDiscard !== null}
-          anchorEl={pendingDiscard?.anchor ?? null}
+          open={pendingConfirm !== null}
+          anchorEl={pendingConfirm?.anchor ?? null}
           message={
-            pendingDiscard !== null
-              ? `Discard ${pendingDiscard.row.entry.display_name}? Its branch and worktree go with it, and any uncommitted work in the worktree is handed back to the base checkout.`
-              : ""
+            pendingConfirm === null
+              ? ""
+              : pendingConfirm.kind === "discard"
+                ? `Discard ${pendingConfirm.row.entry.display_name}? Its branch and worktree go with it, and any uncommitted work in the worktree is handed back to the base checkout.`
+                : // What it destroys, said plainly, because nothing can put it
+                  // back: `.tug/` is excluded from git, so the brief is in no
+                  // commit and no reflog ([B04]).
+                  `Delete the documents for ${pendingConfirm.row.entry.display_name}? Its brief and any plan or task list are destroyed permanently — they are untracked, so git will not give them back.`
           }
-          confirmLabel="Discard"
+          confirmLabel={pendingConfirm?.kind === "delete" ? "Delete" : "Discard"}
           confirmRole="danger"
           side="top"
           onConfirm={() => {
-            const armed = pendingDiscard;
-            setPendingDiscard(null);
-            if (armed !== null) {
+            const armed = pendingConfirm;
+            setPendingConfirm(null);
+            if (armed === null) return;
+            if (armed.kind === "discard") {
               discardVerb.discard(
+                armed.row.projectDir,
+                armed.row.entry.display_name,
+              );
+            } else {
+              deleteVerb.deleteDocuments(
                 armed.row.projectDir,
                 armed.row.entry.display_name,
               );
             }
           }}
-          onCancel={() => setPendingDiscard(null)}
+          onCancel={() => setPendingConfirm(null)}
         />
       </div>
     </ArcVerbsContext>

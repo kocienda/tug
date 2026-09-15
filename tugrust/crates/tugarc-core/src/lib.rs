@@ -62,7 +62,8 @@ pub use arc::{
 pub use doctor::{ArcDiagnosis, ArcFinding, ArcRepair, DoctorOutcome, diagnose, doctor};
 pub use log::{
     ArcDeclaration, ArcDeclarations, ArcRoundMeta, MarkStage, StepPhase, append_arc_log,
-    detect_default_branch, is_terminal, read_declarations, split_log_line, validate_arc_name,
+    arc_has_ended, detect_default_branch, is_terminal, read_declarations, split_log_line,
+    validate_arc_name,
 };
 pub use oplog::{
     JoinPhase, JoinProgress, OpAfter, OpBefore, OpConfig, OpPayload, OpVerb, RedoOutcome,
@@ -70,12 +71,13 @@ pub use oplog::{
 };
 pub use ops::{
     ArcDetail, ArcDetailFile, ArcDocuments, ArcDraftKey, ArcListItem, ArcStatus, BaseDirtPath,
-    CommitOutcome, CreateOutcome, DiscardOutcome, DocumentArgument, JoinBlocker, JoinOptions,
-    JoinOutcome, JoinStrategy, MarkOutcome, OpenOutcome, RoundItem, ShowOutcome, StepOutcome,
-    arc_detail_entries_in, arc_draft_key, brief_file, commit, create, derive_stage, discard,
-    discard_in, document_arcs, documents_dir, ensure_tug_excluded, join, join_in, join_in_flight,
-    join_in_with_progress, join_preflight_in, ledger_file, list, mark, open_arc, plan_file, show,
-    status, status_in, step_done, step_start, tasks_file, worktree_path,
+    CommitOutcome, CreateOutcome, DeleteDocumentsOutcome, DiscardOutcome, DocumentArgument,
+    JoinBlocker, JoinOptions, JoinOutcome, JoinStrategy, MarkOutcome, OpenOutcome, RoundItem,
+    ShowOutcome, StepOutcome, arc_detail_entries_in, arc_draft_key, brief_file, commit, create,
+    delete_documents, delete_documents_in, derive_stage, discard, discard_in, document_arcs,
+    documents_dir, ensure_tug_excluded, join, join_in, join_in_flight, join_in_with_progress,
+    join_preflight_in, ledger_file, list, mark, open_arc, plan_file, show, status, status_in,
+    step_done, step_start, tasks_file, worktree_path,
 };
 pub use replay::{ReplayOutcome, ReplayedRounds, replay, replay_onto};
 pub use resolve::{

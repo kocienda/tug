@@ -1486,6 +1486,15 @@ fn document_arc_entries_in(
     tugarc_core::ops::document_arc_dirs(root)
         .into_iter()
         .filter(|name| !tugarc_core::ops::branch_exists(root, &format!("tugarc/{name}")))
+        // And the arc's own end, which the branch check cannot see: a discard
+        // tears the branch and worktree down but keeps the documents, so a
+        // discarded arc passes the check above and draws a row reading
+        // "Briefed" — the reading a brand-new arc gets. The arc log says
+        // outright that the generation ended, and `arc_has_ended` is the read
+        // that reports it; `read_arc` below deliberately cannot, since its
+        // generation reset empties the record at the same terminal line. The
+        // documents are untouched, so `arc run <name>` still reopens on them.
+        .filter(|name| !tugarc_core::arc_has_ended(root, name))
         .filter_map(|name| {
             let documents = tugarc_core::ArcDocuments::read(root, &name);
             let owner_id = tugarc_core::ops::arc_owner_key(root, &name);
@@ -2053,6 +2062,23 @@ pub(crate) fn format_discard_summary(
     if lines.is_empty() {
         return header;
     }
+    format!("{header}\n{}", lines.join("\n"))
+}
+
+/// The documents-delete receipt: what was destroyed, and that git has no copy.
+///
+/// The discard's summary says the documents *stay*; this one is the other
+/// half of that sentence, and it has to be as plain, because `.tug/` is
+/// excluded from git — no commit, no reflog, nothing to restore from. The
+/// files are named rather than counted for the same reason a discard names
+/// its round subjects: a count cannot be checked against afterwards.
+pub(crate) fn format_delete_documents_summary(arc: &str, files: &[String]) -> String {
+    let header = format!("deleted the documents for {arc}");
+    let mut lines = Vec::new();
+    if !files.is_empty() {
+        lines.push(format!("Destroyed .tug/arcs/{arc}/: {}", files.join(", ")));
+    }
+    lines.push("Untracked, so git will not give them back.".to_string());
     format!("{header}\n{}", lines.join("\n"))
 }
 
@@ -3369,6 +3395,82 @@ Some context.
         // one read, and this is what says the hoist kept both.
         assert!(by_name["plain-arc"].arc.is_some());
         assert_eq!(by_name["pre-kind"].arc_kind, None);
+    }
+
+    /// **A discarded arc draws no row, and its documents stay.** The discard
+    /// keeps the brief on purpose — `arc run <name>` reopens on it — so the
+    /// directory outlives the branch, passes the branch check, and used to be
+    /// drawn as a brand-new arc reading "Briefed". The arc log's terminal line
+    /// is what the scan reads instead.
+    #[test]
+    fn a_discarded_arc_draws_no_row() {
+        // The arc log lives under the data dir; nextest runs one process per
+        // test, so redirecting it here cannot reach another test.
+        let data = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded setup, and this process runs one test.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", data.path());
+        }
+        let (_dir, root) = init_repo();
+        write_arc_brief(&root, "ghost", "The ghost brief");
+        write_arc_task_list(&root, "ghost", &["pending"]);
+        tugarc_core::append_arc_start(&root, "ghost", ".tug/arcs/ghost/tasks.md").unwrap();
+        // A live arc beside it, so this is the filter rather than an empty scan.
+        write_arc_brief(&root, "live", "The live brief");
+        tugarc_core::append_arc_start(&root, "live", ".tug/arcs/live/brief.md").unwrap();
+
+        assert_eq!(
+            document_entries(&root)
+                .iter()
+                .map(|e| e.display_name.clone())
+                .collect::<Vec<_>>(),
+            vec!["ghost".to_string(), "live".to_string()],
+            "both are listed while both are live"
+        );
+
+        tugarc_core::append_arc_log(&root, "ghost", "discarded", "via cli").unwrap();
+
+        assert_eq!(
+            document_entries(&root)
+                .iter()
+                .map(|e| e.display_name.clone())
+                .collect::<Vec<_>>(),
+            vec!["live".to_string()],
+            "the discarded arc's row is gone"
+        );
+        assert!(
+            root.join(".tug/arcs/ghost/brief.md").is_file(),
+            "and its brief is not: the row disappears, the documents do not"
+        );
+    }
+
+    /// A name reopened after a discard is live again. `arc run <name>` writes
+    /// a fresh `arc-start` on the documents the discard kept, and the row has
+    /// to come back with it — the filter reads the *newest* generation, not
+    /// whether the name was ever ended.
+    #[test]
+    fn a_discarded_name_draws_its_row_again_once_restarted() {
+        let data = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded setup, and this process runs one test.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", data.path());
+        }
+        let (_dir, root) = init_repo();
+        write_arc_brief(&root, "revived", "The revived brief");
+        tugarc_core::append_arc_start(&root, "revived", ".tug/arcs/revived/brief.md").unwrap();
+        tugarc_core::append_arc_log(&root, "revived", "discarded", "via cli").unwrap();
+        assert!(document_entries(&root).is_empty());
+
+        tugarc_core::append_arc_start(&root, "revived", ".tug/arcs/revived/brief.md").unwrap();
+
+        let entries = document_entries(&root);
+        assert_eq!(
+            entries
+                .iter()
+                .map(|e| e.display_name.clone())
+                .collect::<Vec<_>>(),
+            vec!["revived".to_string()]
+        );
     }
 
     /// A document-only arc reads its plan's review state and ledger the same
@@ -5004,6 +5106,30 @@ Some context.
             s,
             "joined abcdef0123 · d → trunk · 1 round(s)\n\
              Subject line\n\nA longer body paragraph."
+        );
+    }
+
+    #[test]
+    fn format_delete_documents_summary_names_the_files_and_says_git_has_no_copy() {
+        let s = format_delete_documents_summary(
+            "ghost",
+            &["brief.md".to_string(), "tasks.md".to_string()],
+        );
+        assert_eq!(
+            s,
+            "deleted the documents for ghost\n\
+             Destroyed .tug/arcs/ghost/: brief.md, tasks.md\n\
+             Untracked, so git will not give them back."
+        );
+    }
+
+    /// A directory that was already empty still says what the delete means —
+    /// the sentence about git is the point of the receipt, not the file list.
+    #[test]
+    fn format_delete_documents_summary_keeps_its_warning_without_files() {
+        assert_eq!(
+            format_delete_documents_summary("ghost", &[]),
+            "deleted the documents for ghost\nUntracked, so git will not give them back."
         );
     }
 

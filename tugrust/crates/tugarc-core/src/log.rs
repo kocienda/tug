@@ -477,6 +477,48 @@ pub fn is_terminal(marker: &str, note: &str) -> bool {
     marker == "discarded" || marker == "released" || note == "joined" || note.starts_with("joined ")
 }
 
+/// Whether this arc name's newest generation *ended* — a terminal line
+/// ([`is_terminal`]) with no `arc-start` after it.
+///
+/// Neither [`read_declarations`] nor `read_arc` can answer this, and that is
+/// deliberate rather than an omission: both apply the generation reset, so a
+/// discarded arc reads as no record at all — byte-identical to a name that was
+/// briefed and never created. A surface that must tell those two apart is
+/// asking a different question, and asks it here, over the same line walk and
+/// the same [`is_terminal`] spellings, so there is one answer rather than a
+/// per-surface reconstruction of the arc-log grammar.
+///
+/// `arc-start` is the one line that re-opens a name. It is the first line of
+/// every generation, and `arc run <name>` writes it again when it reopens a
+/// discarded arc on the documents the discard kept. Nothing else following a
+/// terminal line starts a generation — a late `note` or a second teardown
+/// belongs to the one that just ended — so only `arc-start` clears the fact.
+///
+/// A missing log, an empty log, and a name the log never mentions all read
+/// `false`: never having started is not having ended.
+pub fn arc_has_ended(repo_root: &Path, arc: &str) -> bool {
+    let path = tugtool_core::paths::arc_log_path(repo_root);
+    let Ok(text) = fs::read_to_string(&path) else {
+        return false;
+    };
+
+    let mut ended = false;
+    for line in text.lines() {
+        let Some((_, name, marker, note)) = split_log_line(line) else {
+            continue;
+        };
+        if name != arc {
+            continue;
+        }
+        if is_terminal(marker, note) {
+            ended = true;
+        } else if marker == "arc-start" {
+            ended = false;
+        }
+    }
+    ended
+}
+
 /// Read the `i`/`N` a step declaration's note leads with. An unparseable note
 /// is skipped rather than guessed at.
 ///
@@ -932,6 +974,112 @@ mod tests {
             read_declarations(fixture.root(), "some-arc"),
             ArcDeclarations::default()
         );
+    }
+
+    #[test]
+    #[serial]
+    fn a_discarded_arc_reads_as_ended() {
+        let fixture = log_repo(&format!(
+            "{}{}",
+            log_line("d", "arc-start", "arc/idea.md"),
+            log_line("d", "discarded", ""),
+        ));
+        assert!(arc_has_ended(fixture.root(), "d"));
+    }
+
+    #[test]
+    #[serial]
+    fn the_historical_released_spelling_still_ends_an_arc() {
+        let fixture = log_repo(&format!(
+            "{}{}",
+            log_line("d", "arc-start", "arc/idea.md"),
+            log_line("d", "released", ""),
+        ));
+        assert!(
+            arc_has_ended(fixture.root(), "d"),
+            "a log written before the verb was renamed still ends its arc"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn both_join_spellings_end_an_arc() {
+        let bare = log_repo(&format!(
+            "{}{}",
+            log_line("d", "arc-start", "arc/idea.md"),
+            log_line("d", "abc1234", "joined"),
+        ));
+        assert!(arc_has_ended(bare.root(), "d"));
+
+        let routed = log_repo(&format!(
+            "{}{}",
+            log_line("d", "arc-start", "arc/idea.md"),
+            log_line("d", "abc1234", "joined via card"),
+        ));
+        assert!(
+            arc_has_ended(routed.root(), "d"),
+            "the join's note carries the route that landed it"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn a_name_restarted_after_a_terminal_line_has_not_ended() {
+        let fixture = log_repo(&format!(
+            "{}{}{}",
+            log_line("d", "arc-start", "arc/idea.md"),
+            log_line("d", "discarded", ""),
+            log_line("d", "arc-start", "arc/next.md"),
+        ));
+        assert!(
+            !arc_has_ended(fixture.root(), "d"),
+            "`arc run <name>` reopens a discarded arc on its surviving documents"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn a_late_line_after_a_teardown_does_not_reopen_an_arc() {
+        let fixture = log_repo(&format!(
+            "{}{}{}",
+            log_line("d", "arc-start", "arc/idea.md"),
+            log_line("d", "discarded", ""),
+            log_line("d", "note", "a straggler from the generation that ended"),
+        ));
+        assert!(arc_has_ended(fixture.root(), "d"));
+    }
+
+    #[test]
+    #[serial]
+    fn a_live_arc_and_an_unknown_name_have_not_ended() {
+        let fixture = log_repo(&format!(
+            "{}{}",
+            log_line("d", "arc-start", "arc/idea.md"),
+            log_line("d", "created", "tugarc/d"),
+        ));
+        assert!(!arc_has_ended(fixture.root(), "d"));
+        assert!(
+            !arc_has_ended(fixture.root(), "never-mentioned"),
+            "never having started is not having ended"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn another_arcs_teardown_never_ends_this_one() {
+        let fixture = log_repo(&format!(
+            "{}{}",
+            log_line("d", "arc-start", "arc/idea.md"),
+            log_line("other", "discarded", ""),
+        ));
+        assert!(!arc_has_ended(fixture.root(), "d"));
+    }
+
+    #[test]
+    #[serial]
+    fn a_missing_log_ends_nothing() {
+        let fixture = log_repo("");
+        assert!(!arc_has_ended(fixture.root(), "d"));
     }
 
     #[test]

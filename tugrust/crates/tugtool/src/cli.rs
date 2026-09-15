@@ -737,6 +737,21 @@ pub enum ArcCommands {
         #[arg(long = "break-lease")]
         break_lease: bool,
     },
+    /// Delete an arc's documents — `.tug/arcs/<name>/` — and nothing else.
+    ///
+    /// Not a discard: this touches no branch, no worktree, and no arc-log
+    /// record. It is the verb for the paperwork a discard deliberately keeps
+    /// ([P11]) and for a door abandoned before it cut a branch — the cases
+    /// `arc discard` refuses, because it is about an arc's git state and those
+    /// names have none.
+    ///
+    /// **The delete is permanent.** `.tug/` is excluded from git, so the brief
+    /// is in no commit and no reflog: nothing gives it back. An arc that still
+    /// has a branch or a worktree is refused by name.
+    DeleteDocuments {
+        /// Arc name.
+        name: String,
+    },
     /// Reverse the most recent join, replay, or discard.
     ///
     /// Every reversal is a compare-and-swap: it verifies the world still
