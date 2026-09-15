@@ -206,7 +206,7 @@ export interface ContextWindowStep {
  * skipped for that turn), and `perTurn(i) = window(i) - window(i-1)`. A
  * compaction turn commits before any post-compaction `cost_update` exists,
  * so its raw window would carry the stale pre-compaction peak forward; the
- * override supplies the honest resident total (`sessionInit + post_tokens`)
+ * override supplies the honest resident total (`post_tokens`)
  * so CONTEXT drops in place with no one-turn lag. The next real turn has no
  * override and self-corrects to its exact feed window.
  *

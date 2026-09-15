@@ -210,11 +210,11 @@ export interface TruncateTranscriptEffect {
  * collision-safe) and appends copy-on-write. A no-op on an empty transcript.
  *
  * `compactionPostTotal` (H1) carries the honest post-compaction window
- * (`sessionInit + post_tokens`) on the replay path, where there is no scratch
+ * (`post_tokens`) on the replay path, where there is no scratch
  * entry to stamp: the wrapper writes it onto the same last committed `TurnEntry`
  * it seats the note on, so `deriveContextWindows` reads the honest window even
- * with no post-compaction turn. Absent when the boundary carried no finite
- * `sessionInit`/`post_tokens`.
+ * with no post-compaction turn. Absent when the boundary carried no finite,
+ * positive `post_tokens`.
  */
 export interface AppendCompactNoteEffect {
   kind: "append-compact-note";

@@ -94,7 +94,7 @@ describe("CodeSessionStore — native compaction replay ([P04]/[P05])", () => {
 });
 
 describe("CodeSessionStore — post-compaction accounting (transcript intact)", () => {
-  it("leaves every turn in place; stamps the honest total on the last turn (H1); CONTEXT ≥ base", () => {
+  it("leaves every turn in place; stamps the honest total on the last turn (H1); CONTEXT may drop BELOW the latched base", () => {
     const { store, conn } = makeStore();
     emit(conn, { type: "replay_started" });
     // Establish the session base.
@@ -115,16 +115,22 @@ describe("CodeSessionStore — post-compaction accounting (transcript intact)", 
     // The compaction divider seats on the last committed turn.
     const last = tx[tx.length - 1];
     expect(last.messages.some((m) => m.kind === "system_note" && m.source === "compact")).toBe(true);
-    // Honest total = sessionInit (24_000) + post_tokens (1_442), stamped on it.
-    expect(last.compactionPostTotal).toBe(25_442);
+    // Honest total = post_tokens (1_442), stamped on it. The base is already
+    // inside that figure — `pre_tokens`/`post_tokens` are whole-window
+    // measures — so the latch below is not added to it.
+    expect(last.compactionPostTotal).toBe(1_442);
     expect(snap.sessionInitTokens).toBe(24_000);
-    // deriveContextWindows reports the honest window (≥ base, no stale peak).
+    // deriveContextWindows reports the honest window — no stale peak, and no
+    // floor at the latch: a latch captured from a RESUMED conversation is the
+    // whole resident transcript, and a compaction is entitled to land under
+    // it. Pinning CONTEXT at the base is what kept a 9_205-token session
+    // reading 231.8K.
     const windows = deriveContextWindows(
       tx.map((t) => t.cost),
       snap.sessionInitTokens ?? 0,
       tx.map((t) => t.compactionPostTotal ?? null),
     );
-    expect(windows[windows.length - 1]!.window).toBe(25_442);
-    expect(windows[windows.length - 1]!.window).toBeGreaterThanOrEqual(24_000);
+    expect(windows[windows.length - 1]!.window).toBe(1_442);
+    expect(windows[windows.length - 1]!.window).toBeLessThan(24_000);
   });
 });

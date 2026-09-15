@@ -302,8 +302,19 @@ const STATIC_BREAKDOWN_IDS: ReadonlySet<string> = new Set([
 export function computeRichContextBreakdown(
   input: RichContextBreakdownInput,
 ): ContextBreakdown | null {
-  const { staticBreakdown, sessionInitTokens, windowTokens, contextMax } =
+  const { staticBreakdown, sessionInitTokens, contextMax } =
     input;
+  // A window of 0 is NOT an empty context — it is an unmeasured one: a
+  // zero-usage turn (`turnWindowTokens` returns 0 for one), or an in-flight
+  // turn whose first `streaming_usage` has not landed. A `/compact` turn is
+  // both — it streams nothing for minutes — so the distinction is exactly
+  // what the compaction path needs. Normalized to `null` here, at the one
+  // door, so the latch fallback below cannot be pulled down to 0 by it and
+  // report an empty session (CONTEXT read `0` right after a compaction).
+  const windowTokens =
+    input.windowTokens !== null && input.windowTokens > 0
+      ? input.windowTokens
+      : null;
   if (staticBreakdown === null) {
     // No durable `context_breakdown_latest` row (fresh target / pure offline
     // replay, [P05]): the fine-grained static categories (system prompt,

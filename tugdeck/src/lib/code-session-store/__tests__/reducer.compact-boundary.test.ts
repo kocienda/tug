@@ -77,12 +77,19 @@ describe("reducer — handleCompactBoundary", () => {
     expect(entry!.messages[0]?.kind).toBe("user_message");
   });
 
-  it("stamps the HONEST post-compaction window (sessionInit + postTokens), not raw postTokens", () => {
+  it("stamps the HONEST post-compaction window — post_tokens itself", () => {
     // A compaction turn's own cost_update reports the pre-compaction context it
     // read (here: none), so without the stamp the committed window would carry
-    // the stale peak forward. Raw postTokens alone is a sub-base figure ([P02]);
-    // the honest window is `sessionInit + postTokens` and rides a dedicated
-    // field, never `cost` ([P01]).
+    // the stale peak forward. The honest window rides a dedicated field, never
+    // `cost` ([P01]).
+    //
+    // This used to assert `sessionInit + postTokens`, on the reading that
+    // `post_tokens` sat above the base. The feed disproves it: a session's
+    // `compact_metadata.pre_tokens` equals the pre-compaction turn's measured
+    // window to the token (468_833, `1d8cb92b-…`), so both halves of the pair
+    // are whole-window figures and adding the base double-counted it —
+    // 222_603 + 9_205 is how CONTEXT came to read 231.8K on a session that
+    // had just compacted to 9_205 ([P02]).
     let s = fresh();
     s = reduce(s, SEND).state;
     // Establish the session base via a token-bearing streaming_usage frame.
@@ -94,15 +101,16 @@ describe("reducer — handleCompactBoundary", () => {
     s = reduce(s, { type: "assistant_text", msg_id: "m1", block_index: 0, text: "Compacted", is_partial: false } as CodeSessionEvent).state;
     s = reduce(s, compactBoundary(42_396, 2_011)).state;
     const scratch = s.scratch.get("k1");
-    // Honest total = sessionInit (24_000) + post_tokens (2_011).
-    expect(scratch?.compactionPostTotal).toBe(26_011);
+    // Honest total = post_tokens (2_011) — the base is already inside it, and
+    // the 24_000 latch above is deliberately present to prove it is not added.
+    expect(scratch?.compactionPostTotal).toBe(2_011);
 
     const { effects } = reduce(s, { type: "turn_complete", msg_id: "m1", result: "success" } as CodeSessionEvent);
     const append = effects.find((e) => e.kind === "append-transcript");
     expect(append).toBeDefined();
     if (append && append.kind === "append-transcript") {
       // The committed entry carries the honest total in its dedicated field.
-      expect(append.entry.compactionPostTotal).toBe(26_011);
+      expect(append.entry.compactionPostTotal).toBe(2_011);
       // The cost stays real (zero-usage here) — postTokens never leaks into it.
       const c = append.entry.cost;
       const costWindow =
@@ -111,13 +119,21 @@ describe("reducer — handleCompactBoundary", () => {
     }
   });
 
-  it("leaves compactionPostTotal unset when sessionInit is unknown", () => {
-    // No streaming_usage frame ⇒ sessionInitTokens null ⇒ no honest total to
-    // stamp (raw postTokens must never stand in as the window).
+  it("stamps the window with no session base observed, and leaves it unset with no post_tokens", () => {
+    // `post_tokens` is the whole window, so it needs no base to stand on: a
+    // boundary arriving before any token-bearing frame still drops CONTEXT to
+    // the honest figure. What leaves the stamp off is the boundary carrying no
+    // `post_tokens` at all — then the window carries forward, as it does
+    // across any zero-usage turn.
     let s = fresh();
     s = reduce(s, SEND).state;
     s = reduce(s, compactBoundary(42_396, 2_011)).state;
-    expect(s.scratch.get("k1")?.compactionPostTotal).toBeUndefined();
+    expect(s.scratch.get("k1")?.compactionPostTotal).toBe(2_011);
+
+    let t = fresh();
+    t = reduce(t, SEND).state;
+    t = reduce(t, compactBoundary(42_396)).state;
+    expect(t.scratch.get("k1")?.compactionPostTotal).toBeUndefined();
   });
 
   it("leaves state unchanged and emits an append-compact-note effect when idle", () => {

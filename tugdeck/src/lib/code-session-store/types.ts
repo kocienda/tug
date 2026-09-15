@@ -636,8 +636,10 @@ export interface TurnEntry {
   /**
    * Honest post-compaction resident window ([P01], Spec S04) — present
    * only on a turn that carried a `compact_boundary`. Holds
-   * `sessionInitTokens + compact_boundary.post_tokens` (base + Claude's
-   * post-compaction conversation figure), NOT raw `post_tokens`. Consumed
+   * `compact_boundary.post_tokens` verbatim: that figure is the whole
+   * resident window, the same measure its partner `pre_tokens` is (which the
+   * feed shows equalling the pre-compaction turn's measured window to the
+   * token). Consumed
    * by `deriveContextWindows` as `window(N)` for this turn so CONTEXT drops
    * in place with no one-turn lag; it never enters {@link cost} (which
    * stays the real, zero-usage `TurnCost`) so it can't masquerade as usage.

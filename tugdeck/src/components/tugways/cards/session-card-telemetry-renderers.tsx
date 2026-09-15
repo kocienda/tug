@@ -1407,8 +1407,16 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const live = liveTurnUsage;
   // Resident window: the live in-flight frame, else the last committed
   // turn's window, else `null` (no turns yet — fresh session).
+  //
+  // A live frame reading 0 is not a reading at all — no `streaming_usage` has
+  // landed for this turn yet, and a `/compact` turn streams nothing for
+  // minutes — so the committed window stands until the live one says
+  // something. Without this the cell blanked to a fresh-session figure (and,
+  // with the breakdown's own latch fallback, to `0`) the moment a compaction
+  // opened its turn.
+  const liveWindow = live !== null ? turnWindowTokens(live) : 0;
   const windowTokens =
-    isInflight && live !== null ? turnWindowTokens(live) : lastCommittedWindow;
+    isInflight && liveWindow > 0 ? liveWindow : lastCommittedWindow;
   // One breakdown computation feeds BOTH the CONTEXT cell (its
   // `totalUsed`) and the Context popover (its `segments`) — the two
   // surfaces cannot disagree.

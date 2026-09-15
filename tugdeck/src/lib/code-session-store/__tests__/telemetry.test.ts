@@ -901,6 +901,33 @@ describe("computeRichContextBreakdown", () => {
     expect(r.segments.reduce((acc, s) => acc + s.value, 0)).toBe(CONTEXT_MAX);
   });
 
+  // A window of 0 is an UNMEASURED window, not an empty context: a zero-usage
+  // turn reads 0 from `turnWindowTokens`, and a `/compact` turn streams
+  // nothing for minutes so its in-flight frame reads 0 too. Read as a real
+  // window, it pulled the latch fallback above down with it — bootstrap
+  // `min(staticEstimate, 0)` — and CONTEXT showed a flat `0` on a session
+  // holding a full context, which is the other half of what a compaction
+  // looked like from the Z2 row.
+  it("treats a window of 0 as unmeasured, not as an empty context", () => {
+    const r = computeRichContextBreakdown({
+      staticBreakdown,
+      sessionInitTokens: 205_698,
+      windowTokens: 0,
+      contextMax: CONTEXT_MAX,
+    })!;
+    expect(r.totalUsed).toBe(205_698);
+    expect(r.totalUsed).not.toBe(0);
+    // And the same for a session with no latch at all: the static estimate
+    // stands, which is what a fresh session shows before its first turn.
+    const fresh = computeRichContextBreakdown({
+      staticBreakdown,
+      sessionInitTokens: null,
+      windowTokens: 0,
+      contextMax: CONTEXT_MAX,
+    })!;
+    expect(fresh.totalUsed).toBe(RAW_STATIC_TOTAL);
+  });
+
   it("clamps a negative contextMax to 0; remainder clamps to 0", () => {
     const r = computeRichContextBreakdown({
       staticBreakdown,

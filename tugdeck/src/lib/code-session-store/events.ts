@@ -739,9 +739,10 @@ export interface GoalFeedbackEvent {
  * (`source: "compact"`) to the active turn — or, on replay with no open turn,
  * to the last committed turn — rendered as a soft divider. `preTokens` /
  * `postTokens` are normalized from the wire's `pre_tokens` / `post_tokens`.
- * `postTokens` is Claude's post-compaction CONVERSATION figure (below the
- * session base); it is NEVER rendered raw — it feeds the honest window total
- * `sessionInitTokens + postTokens` ([P01], [P02]) as an addend only.
+ * Both are WHOLE resident-window figures in the same measure the per-turn
+ * usage walk produces — `pre_tokens` equals the pre-compaction turn's measured
+ * window to the token — so `postTokens` IS the honest post-compaction window
+ * ([P01], [P02]) and nothing is added to it.
  */
 export interface CompactBoundaryEvent {
   type: "compact_boundary";

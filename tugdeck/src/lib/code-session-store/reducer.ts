@@ -205,14 +205,15 @@ export interface ScratchEntry {
   systemNoteSeq: number;
   /**
    * Honest post-compaction resident window for this turn ([P01], Spec S04),
-   * when it compacted: `sessionInitTokens + compact_boundary.post_tokens`
-   * (base + Claude's post-compaction conversation figure), stamped in
-   * `handleCompactBoundary` only when both terms are finite. `buildTurnEntry`
+   * when it compacted: `compact_boundary.post_tokens`, which is the whole
+   * resident window and not a figure above the base (see
+   * `honestCompactionTotal`), stamped in
+   * `handleCompactBoundary` when it is finite and positive. `buildTurnEntry`
    * copies it onto the committed `TurnEntry.compactionPostTotal`, where
    * `deriveContextWindows` reads it as `window(N)` so the CONTEXT readout
    * drops in place immediately instead of carrying the pre-compaction peak
-   * forward until the next turn. NOT raw `post_tokens` (a sub-base figure);
-   * never written into `cost`. Absent for ordinary turns. Per-turn scoped:
+   * forward until the next turn. Never written into `cost`, so it cannot
+   * masquerade as usage. Absent for ordinary turns. Per-turn scoped:
    * discarded with the scratch entry at commit.
    */
   compactionPostTotal?: number;
@@ -3994,24 +3995,34 @@ function handleUnknownEvent(
  * last turn's `messages.length` (minted wrapper-side).
  */
 /**
- * The honest post-compaction resident window ([P01], [Q02]):
- * `sessionInitTokens + post_tokens` (base + Claude's post-compaction
- * conversation figure). `undefined` unless BOTH terms are finite numbers —
- * raw `post_tokens` alone is a sub-base figure and must never stand in as the
- * window. This is the single derivation point for both the live scratch stamp
- * and the replay-path `append-compact-note` stamp (Spec S03, H1).
+ * The honest post-compaction resident window ([P01], [Q02]): Claude's own
+ * `post_tokens`, verbatim.
+ *
+ * It used to be `sessionInitTokens + post_tokens`, on the reading that
+ * `post_tokens` was a sub-base conversation figure needing the base added
+ * back. The feed says otherwise, and says it exactly: in
+ * `1d8cb92b-…`, `compact_metadata.pre_tokens` was 468_833 and the
+ * pre-compaction turn's measured window was 468_833 — the same number, not a
+ * number above a base. `pre_tokens` IS the whole resident window, so its
+ * partner `post_tokens` is the whole one too (the pair's own arithmetic
+ * agrees: `pre − post === cumulative_dropped_tokens`). Adding the base to it
+ * double-counted the base.
+ *
+ * That is what put 231.8K on the CONTEXT cell of a session that had just
+ * compacted to 9_205: a resumed session's `sessionInitTokens` had latched at
+ * 222_603 — the whole resident transcript, not a baseline — and 222_603 +
+ * 9_205 is what the cell read (`d7bb9a1d-…`, 2026-09-15).
+ *
+ * `undefined` when `post_tokens` is absent or non-finite; the window then
+ * carries forward as it does across any zero-usage turn. This is the single
+ * derivation point for both the live scratch stamp and the replay-path
+ * `append-compact-note` stamp (Spec S03, H1).
  */
 function honestCompactionTotal(
-  sessionInitTokens: number | null,
   postTokens: number | undefined,
 ): number | undefined {
-  if (
-    typeof sessionInitTokens === "number" &&
-    Number.isFinite(sessionInitTokens) &&
-    typeof postTokens === "number" &&
-    Number.isFinite(postTokens)
-  ) {
-    return sessionInitTokens + postTokens;
+  if (typeof postTokens === "number" && Number.isFinite(postTokens) && postTokens > 0) {
+    return postTokens;
   }
   return undefined;
 }
@@ -4020,11 +4031,11 @@ function handleCompactBoundary(
   state: CodeSessionState,
   event: CompactBoundaryEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
-  // The honest post-compaction window (`sessionInit + post_tokens`) — the same
+  // The honest post-compaction window (Claude's own `post_tokens`) — the same
   // derivation on both paths ([P01]). The transcript is left intact (the
   // Compaction Summary renders inline right above the compaction divider at the
   // compaction point); only the CONTEXT accounting drops in place.
-  const honestTotal = honestCompactionTotal(state.sessionInitTokens, event.postTokens);
+  const honestTotal = honestCompactionTotal(event.postTokens);
   const turnKey = state.pendingTurn?.turnKey;
   if (turnKey === undefined) {
     // No open turn (replay path) — append the divider to the last committed
