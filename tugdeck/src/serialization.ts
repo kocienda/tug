@@ -1,19 +1,27 @@
 /**
- * Serialization, deserialization, and default layout for DeckState.
+ * Serialization, deserialization, and default layout for the deck.
  *
- * **Current wire format:** `version: 4` with on-disk keys
- * `{ version: 4, cards, panes, activePaneId?, imposition }`, with `panes[]`
- * carrying the additive-optional `slot?` and `imposition` carrying
- * `{ kind?, sidebars, … }`. `imposition` was a bare kind string in earlier v4 blobs
- * and both shapes parse — the widening is additive, so no version bump.
- * `focusedCardId` is persisted separately via `putFocusedCardId` and is not
- * part of the layout blob.
+ * **Current wire format:** `version: 5` — a list of named SPACES, each holding
+ * one deck, with on-disk keys `{ version: 5, activeSpaceId, spaces: [{ id,
+ * name, focusedCardId?, deck }] }`. Each `deck` is the v4 BODY verbatim:
+ * `{ cards, panes, activePaneId?, imposition }`, with `panes[]` carrying the
+ * additive-optional `slot?` and `imposition` carrying `{ kind?, sidebars, … }`.
+ * `imposition` was a bare kind string in earlier v4 blobs and both shapes
+ * parse — the widening is additive, so no version bump. `focusedCardId` now
+ * rides its space rather than the separate `dev.tugapp.deck.state` row, which
+ * is read once for a migrated deck and never written again.
+ *
+ * **The number 5 is shared.** A historical single-table blob also carries
+ * `version: 5` and no `spaces` array, so the v5 branch is selected by SHAPE —
+ * `version === 5 && Array.isArray(spaces)` — and anything else wearing the
+ * number takes the legacy path below, as it always did ([P02]).
  *
  * **Pre-v4 on-disk shape (migrated on load):** `version: 3` used `windows` and
  * `activeWindowId` instead of `panes` / `activePaneId`. Those blobs are normalized
  * by {@link migrateV3ToV4} before the same parsing and clamping as v4.
  *
- * **Load path:**
+ * **Load path** (every branch below yields one deck, which {@link deserialize}
+ * then wraps as one space named `Main` — Spec S02):
  * - `version === 4` — parsed by {@link parseV4}.
  * - `version === 3` — {@link migrateV3ToV4} (field rename only) then {@link parseV4}.
  * - `version === 2` — legacy two-table blob (`stacks`, `activeStackId`); {@link migrateV2ToV4}
@@ -33,6 +41,12 @@ import {
   type CardState,
   type TugPaneState,
 } from "./layout-tree";
+import {
+  type SpaceState,
+  type SpacesState,
+  nextSpaceName,
+  wrapAsMainSpace,
+} from "./spaces";
 import {
   clampSlot,
   isImpositionKind,
@@ -137,14 +151,14 @@ function fitPaneGeometry(
 // ---- Serialize ----
 
 /**
- * Serialize a DeckState to the v4 wire format for settings API persistence.
+ * Serialize one deck to the v4 BODY — every key the v4 blob carried except
+ * `version`, which the v5 envelope above it now owns.
  *
- * Returns a plain object. Caller should JSON.stringify before writing.
- *
- * `focusedCardId` is intentionally NOT included in the layout blob. It is
- * persisted separately via `putFocusedCardId` (single source of truth) and
- * read back on mount through `initialFocusedCardId`. Keeping two paths for
- * one field invites divergence.
+ * `focusedCardId` is intentionally NOT included. It lives on the space record
+ * that holds this deck (Spec S01), which is the single source of truth for it
+ * from v5 on; the standalone `dev.tugapp.deck.state` row is read once for a
+ * migrated deck and never written again. Keeping two paths for one field
+ * invites divergence.
  *
  * `bullseyePaneId` is likewise absent, and must stay absent. Bullseye is a
  * temporary reading posture; persisting it would strand a user who quit or
@@ -153,9 +167,8 @@ function fitPaneGeometry(
  * omission is the default here, and a refactor to a spread would quietly undo
  * it. A unit test pins the key set.
  */
-export function serialize(deckState: DeckState): object {
+function serializeDeckBody(deckState: DeckState): object {
   return {
-    version: 4,
     cards: deckState.cards,
     panes: deckState.panes,
     ...(deckState.activePaneId !== undefined
@@ -165,16 +178,43 @@ export function serialize(deckState: DeckState): object {
   };
 }
 
+/**
+ * Serialize every space to the v5 wire format for settings API persistence
+ * (Spec S01).
+ *
+ * Returns a plain object. Caller should JSON.stringify before writing.
+ *
+ * The envelope carries `version`, `spaces` and `activeSpaceId`; each space
+ * carries `id`, `name`, its deck body, and `focusedCardId` when it has one.
+ * A unit test pins all three key sets.
+ */
+export function serialize(spaces: SpacesState): object {
+  return {
+    version: 5,
+    activeSpaceId: spaces.activeSpaceId,
+    spaces: spaces.spaces.map((space) => ({
+      id: space.id,
+      name: space.name,
+      ...(space.focusedCardId !== undefined
+        ? { focusedCardId: space.focusedCardId }
+        : {}),
+      deck: serializeDeckBody(space.deck),
+    })),
+  };
+}
+
 // ---- Deserialize ----
 
 /**
- * Deserialize a JSON string to a DeckState.
+ * Deserialize a JSON string to a {@link SpacesState} — every space and which
+ * one is active (Spec S01, Spec S02).
  *
- * Accepts `version: 4` two-table blobs, migrates `version: 3` blobs (field
- * rename to v4 keys), migrates `version: 2` blobs (stacks → windows naming
- * then through the v3→v4 path), or migrates legacy single-table blobs
- * (`version: 5` or missing `version` with `cards[].tabs[]`) to the two-table
- * model. Any blob the parser cannot make sense of falls back to
+ * A SPACES-SHAPED `version: 5` blob — one carrying a `spaces` array — is read
+ * per Spec S01: each space's deck body goes through the same {@link parseV4}
+ * every pre-v5 blob ends at. Every older blob (`version` 4, 3, 2, the
+ * historical single-table 5, or legacy) parses to one deck exactly as before
+ * and is wrapped as one space named `Main` (Spec S02). Any blob the parser
+ * cannot make sense of falls back to one Main space around
  * {@link buildDefaultLayout}.
  *
  * Enforces 100px minimum sizes and fits panes to the canvas: a pane saved on
@@ -186,6 +226,31 @@ export function deserialize(
   json: string,
   canvasWidth: number,
   canvasHeight: number,
+): SpacesState {
+  try {
+    const raw = JSON.parse(json) as Record<string, unknown>;
+    // The number 5 is already spent: a historical single-table blob also wears
+    // it, and it carries no `spaces` array. So the v5 branch is discriminated
+    // by SHAPE, and a `version: 5` blob without spaces falls through to the
+    // legacy path exactly as it did before ([P02]).
+    if (raw["version"] === 5 && Array.isArray(raw["spaces"])) {
+      return parseSpaces(raw, canvasWidth, canvasHeight);
+    }
+  } catch {
+    // Unparseable JSON: fall through to the one-deck path, which answers the
+    // same way (a Main space around the default layout) via its own catch.
+  }
+  return wrapAsMainSpace(parseOneDeck(json, canvasWidth, canvasHeight));
+}
+
+/**
+ * The pre-v5 path: one blob to one deck, swept and fitted, exactly as
+ * `deserialize` did before spaces existed.
+ */
+function parseOneDeck(
+  json: string,
+  canvasWidth: number,
+  canvasHeight: number,
 ): DeckState {
   const state = parseDeckState(json, canvasWidth, canvasHeight);
   // A deck saved with a stranded column member has to come back usable, not on
@@ -194,6 +259,62 @@ export function deserialize(
   // forever. Sweeping on the way in is what makes the fix retroactive.
   const imposition = sweptColumnOrders(state.imposition, state.panes);
   return imposition === state.imposition ? state : { ...state, imposition };
+}
+
+/**
+ * Read a spaces-shaped v5 blob per Spec S01's rules: an entry missing an `id`
+ * or whose `deck` is not an object is dropped, a non-string `name` becomes
+ * `Workspace N`, a duplicate id keeps the first, an empty list after filtering
+ * yields one Main space around {@link buildDefaultLayout}, and an
+ * `activeSpaceId` naming no survivor resolves to the first space.
+ *
+ * Every rule here answers with a usable deck rather than an error: the record
+ * outlives the run that wrote it, and a person whose blob lost one entry is
+ * owed the rest of their workspaces rather than a default deck.
+ */
+function parseSpaces(
+  raw: Record<string, unknown>,
+  canvasWidth: number,
+  canvasHeight: number,
+): SpacesState {
+  const spaces: SpaceState[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw["spaces"] as unknown[]) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const id = record["id"];
+    const deckBody = record["deck"];
+    if (typeof id !== "string") continue;
+    if (!deckBody || typeof deckBody !== "object") continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const rawName = record["name"];
+    const name =
+      typeof rawName === "string"
+        ? rawName
+        : nextSpaceName(spaces.map((s) => s.name));
+    const rawFocused = record["focusedCardId"];
+    const deck = parseOneDeck(
+      JSON.stringify({ version: 4, ...(deckBody as Record<string, unknown>) }),
+      canvasWidth,
+      canvasHeight,
+    );
+    spaces.push({
+      id,
+      name,
+      deck,
+      ...(typeof rawFocused === "string" ? { focusedCardId: rawFocused } : {}),
+    });
+  }
+
+  if (spaces.length === 0) return wrapAsMainSpace(buildDefaultLayout());
+
+  const rawActive = raw["activeSpaceId"];
+  const activeSpaceId =
+    typeof rawActive === "string" && seen.has(rawActive)
+      ? rawActive
+      : spaces[0].id;
+  return { spaces, activeSpaceId };
 }
 
 function parseDeckState(

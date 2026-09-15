@@ -184,7 +184,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘R | `toggle-arcs` | Show Arcs | menu bar (swept) |
 | ⌃⌘S | `toggle-column-split` | Split or Stack Column | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
-| ⌃⌘W | `toggle-cards` | Show Cards | menu bar (swept) |
+| ⌃⌘W | `toggle-cards` | Show Workspaces | menu bar (swept) |
 | ⌃⌘Y | `toggle-session-fold` | Fold Session | menu bar (swept) |
 | ⌃⌘[ | `previous-turn` | Previous Turn | menu bar (swept) |
 | ⌃⌘] | `next-turn` | Next Turn | menu bar (swept) |

@@ -849,6 +849,42 @@ class CardServicesStore {
   }
 
   /**
+   * Send `close_session` for a card that holds NO binding, using a session id
+   * the caller supplies ([P07]).
+   *
+   * {@link _closeCardInternal} reads the binding to learn which session to
+   * close, and returns early when there is none. That is right for the path it
+   * serves — a card being removed from the rendered deck either holds a
+   * binding or has no session — and wrong for a workspace that is being
+   * deleted without ever having been activated. Such a workspace's session
+   * cards were never restored, so by [B04]'s own design they hold no bindings,
+   * while the bindings-ledger cache ([P08]) knows perfectly well that their
+   * sessions are alive. Deleting it through destruction alone would leave
+   * every one of those tugcode processes orphaned, with no card left that
+   * could ever reach them — and the confirm the user just answered counted
+   * them from that same cache, so the dialog would say "close 3 sessions" and
+   * close none.
+   *
+   * So the caller passes the id it counted with. `DeckManager.deleteSpace` is
+   * the one caller, and it calls this only for cards with no binding — cards
+   * that DO hold one keep closing through the destruction event, so the two
+   * paths are disjoint by construction and no card is closed twice.
+   */
+  closeUnboundCard = (cardId: string, tugSessionId: string): void => {
+    // The same housekeeping `_closeCardInternal` does, and for the same
+    // reasons: nothing queued, nothing opening, nothing retrying may outlive
+    // the card and resurface on a later session bound to a recycled id.
+    clearQueuedSends(cardId);
+    clearOpeningCommand(cardId);
+    cancelRestoreRetry(cardId);
+    const conn = getConnection();
+    // No connection means no wire frame to send, and no binding to clear
+    // either — this card never had one.
+    if (!conn) return;
+    sendCloseSession(conn, cardId, tugSessionId);
+  };
+
+  /**
    * Test seam — exposes `_closeCardInternal` so unit tests can
    * directly assert the close behavior without spinning up a
    * real `DeckManager`. NOT for production use; the deck-manager's

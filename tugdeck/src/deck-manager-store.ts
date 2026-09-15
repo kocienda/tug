@@ -12,6 +12,7 @@
  */
 
 import type { DeckState, CardStateBag } from "./layout-tree";
+import type { SpacesSnapshot } from "./spaces";
 import type {
   ColumnMoveTarget,
   ContentWidth,
@@ -533,6 +534,90 @@ export interface IDeckManagerStore {
    * ([D03])
    */
   initialFocusedCardId?: string;
+
+  // ---- The spaces store: the level above the deck ([P03], [L02]) ----
+
+  /**
+   * Subscribe to changes in the SPACE LIST — added, renamed, removed,
+   * reordered, activated. Not to changes inside a deck; those are
+   * {@link subscribe}'s. Arrow property, for {@link getSpacesSnapshot}'s
+   * reason.
+   */
+  subscribeSpaces: (callback: () => void) => () => void;
+
+  /**
+   * The space list's identities and order, and which one is active. Stable by
+   * identity until the list changes, as `useSyncExternalStore` requires.
+   */
+  getSpacesSnapshot: () => SpacesSnapshot;
+
+  /** Which space holds `cardId`, active or parked — `null` when none does. */
+  spaceOf: (cardId: string) => string | null;
+
+  /**
+   * That space's deck — the LIVE one for the active space, its parked record
+   * for any other — or `null` when no space has that id. The one read that
+   * lets a surface draw a workspace nobody is looking at.
+   */
+  getSpaceDeck: (spaceId: string) => DeckState | null;
+
+  /**
+   * Render that space's deck, parking the one on screen ([P04]). A no-op on
+   * the active space and on an id no space carries.
+   *
+   * Never a close: nothing in the switch fires card destruction, so every
+   * session in the outgoing workspace keeps its binding and its process
+   * ([B05]). The outgoing cards' state bags are captured on the way out and
+   * replayed when the workspace returns.
+   */
+  activateSpace: (spaceId: string) => void;
+
+  /**
+   * Add a workspace, activate it, and stand its factory rail ([P05]). The
+   * name is the caller's when given, and `Workspace N` otherwise. Returns the
+   * new space's id.
+   */
+  createSpace: (name?: string) => string;
+
+  /** Rename a workspace. Trims; a name empty after trimming is refused. */
+  renameSpace: (spaceId: string, name: string) => void;
+
+  /**
+   * Copy a workspace's layout and sidebars — never its content cards — into a
+   * new one named `<name> copy`, appended after the source and not activated
+   * ([P06]). Returns the new id, or `null` when no space has that id.
+   */
+  duplicateSpace: (spaceId: string) => string | null;
+
+  /**
+   * How many live sessions a workspace holds ([P07]): Session cards with a
+   * binding, or with a cached ledger row that is alive, has a transcript, or
+   * has taken a turn. The confirm's count and the close loop read this one
+   * definition.
+   */
+  spaceHoldsLiveSessions: (spaceId: string) => number;
+
+  /**
+   * Remove a workspace and close its sessions ([P07]). Refuses the last one.
+   * Deleting the active workspace activates its nearest neighbour first.
+   * Returns whether it was deleted.
+   */
+  deleteSpace: (spaceId: string) => boolean;
+
+  /**
+   * Put the workspaces in `order`. Unknown ids are ignored and unmentioned
+   * spaces keep their relative order at the end.
+   */
+  reorderSpaces: (order: readonly string[]) => void;
+
+  /**
+   * Move `cardId`, with the pane holding it, into another workspace ([B07]).
+   * The card's id does not change, so a Session card keeps its binding and
+   * everything else keyed by that id. A no-op when the card is already there,
+   * when no space has that id, or when the pane holds a sidebar card. Returns
+   * whether it moved.
+   */
+  moveCardToSpace: (cardId: string, spaceId: string) => boolean;
 
   // ---- Phase 5f3: Save callbacks for close-time state flush ([D01]) ----
 

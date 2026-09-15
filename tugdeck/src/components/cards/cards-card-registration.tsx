@@ -1,5 +1,11 @@
 /**
- * cards-card-registration.tsx — registers the Cards card ([L25]).
+ * cards-card-registration.tsx — registers the Workspaces card ([L25]).
+ *
+ * The card is named for the outermost level it shows ([P13], [B03]). Its
+ * component id stays `cards`, and so do its class names, its persistence keys
+ * and its ⌃⌘W: the rename is the title and the noun, nothing more. A persisted
+ * card record still reading `title: "Cards"` needs no migration — the masthead
+ * composes its title from this registration rather than from the record.
  *
  * An ordinary registered card hosted by the normal `CardHost` inside a sidebar
  * pane, on the Jots template: the pane/card machinery (FocusContext, responder
@@ -32,7 +38,7 @@ export const DEFAULT_CARDS_WIDTH_PX = 420;
  *  still read at. */
 export const MIN_CARDS_WIDTH_PX = 320;
 
-/** Register the Cards card. `hidden` keeps it out of the type-picker `[+]`
+/** Register the Workspaces card. `hidden` keeps it out of the type-picker `[+]`
  *  menu — it is reachable through its own menu row and the rail ladder. */
 export function registerCardsCard(): void {
   registerCard({
@@ -40,7 +46,7 @@ export function registerCardsCard(): void {
     family: "cards",
     acceptsFamilies: [],
     contentFactory: (cardId: string) => <CardsContent cardId={cardId} />,
-    defaultMeta: { title: "Cards", icon: "LayoutGrid", closable: true },
+    defaultMeta: { title: "Workspaces", icon: "LayoutGrid", closable: true },
     // Rows elide where prose cannot, so this gives width back before a reading
     // surface does. Rank 2, greediest of the finite cards ([B05]): this card
     // holds the sessions and files the user is working in, so a seed puts the

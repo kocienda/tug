@@ -75,6 +75,8 @@ import {
   cardSeatedSegment,
   type CardSessionMode,
 } from "./lib/card-session-binding-store";
+import { publishListCardBindingsOk } from "./lib/session-ledger-events";
+import type { CardBinding } from "./protocol";
 import { cardServicesStore } from "./lib/card-services-store";
 import { getConnection } from "./lib/connection-singleton";
 import { sendSpawnSession } from "./lib/session-lifecycle";
@@ -387,8 +389,13 @@ import {
  * door onto. Nothing else delivered that frame body, so no caller survives
  * the removal. Major stays `2` because the surface is the app's own
  * test seam and its only clients are in this repository.
+ *
+ * `2.21.0`: adds `publishCardBindings`, which puts a synthetic
+ * `list_card_bindings_ok` frame on the real ledger bus so a test can fill the
+ * bindings-ledger cache ([P08]) for cards in a workspace nobody has opened.
+ * Additive; minor bump.
  */
-export const SURFACE_VERSION = "2.20.0" as const;
+export const SURFACE_VERSION = "2.21.0" as const;
 
 /**
  * A {@link TugTestSurface.dictionaryLookupProbe} reading: the payload Look Up
@@ -1324,6 +1331,23 @@ export interface TugTestSurface {
       sessionMode?: CardSessionMode;
     },
   ): void;
+
+  /**
+   * Put a synthetic `list_card_bindings_ok` frame on the ledger bus — the
+   * same publish `action-dispatch` performs when the server answers
+   * `list_card_bindings` — so `spaceBindingsLedgerStore` fills with the rows
+   * given ([P08], Spec S03).
+   *
+   * The seam exists because the cache is the ONLY thing that can answer for a
+   * workspace nobody has activated: its cards hold no bindings by [B04]'s own
+   * design, and the ledger this harness runs against carries no card-binding
+   * rows of its own. A test that needs to prove what happens to such a
+   * workspace has to state the ledger's answer, and this is where it states
+   * it. The frame replaces the whole map, exactly as the server's does.
+   *
+   * Test-mode-only. Available when `window.__tugTestMode === true`.
+   */
+  publishCardBindings(bindings: CardBinding[]): void;
 
   // ---- Real cold-replay spawn (SURFACE_VERSION 1.13.0) ----
 
@@ -2631,6 +2655,10 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         projectDir: options?.projectDir ?? "/tmp/test-project",
         sessionMode: options?.sessionMode ?? "new",
       });
+    },
+
+    publishCardBindings(bindings: CardBinding[]): void {
+      publishListCardBindingsOk({ bindings });
     },
 
     spawnSessionResume(

@@ -28,6 +28,7 @@
  */
 
 import type { DeckState } from "../layout-tree";
+import type { SpacesSnapshot } from "../spaces";
 import { bullseyePaneIdOf, slotStackOf } from "../deck-store-selectors";
 import { paneTitleBarTextFor } from "./pane-title";
 import { cardTitleStore } from "./card-title-store";
@@ -403,6 +404,20 @@ export interface MenuStatePaneEntry {
   closable: boolean;
 }
 
+/**
+ * One workspace row for the Window menu's Workspaces section ([P12], [B10]).
+ *
+ * The decks are absent by design, exactly as `SpacesSnapshot` leaves them out:
+ * a menu row is a name and a mark, and carrying a parked deck here would make
+ * the payload — which is diffed whole on every flush — change on every
+ * mutation inside the active workspace.
+ */
+export interface MenuStateSpaceEntry {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
 /** The focused pane's active card; null when the deck has no panes. */
 export interface MenuStateActiveCard {
   component: string;
@@ -539,9 +554,23 @@ export function computeFileMenuGates(block: MenuStateFileBlock): FileMenuGates {
   };
 }
 
+/**
+ * What {@link projectDeckState} sees when no spaces store is handed to it —
+ * the shape a unit test of the pane projection wants, and the honest reading
+ * before the first spaces snapshot lands: no workspaces, so no section.
+ */
+const EMPTY_SPACES_SNAPSHOT: SpacesSnapshot = { spaces: [], activeSpaceId: "" };
+
 /** Deck-derived half of the payload (everything except the dev block). */
 export interface MenuStateDeckProjection {
   panes: MenuStatePaneEntry[];
+  /**
+   * Every workspace, in the user's order, with the rendered one marked —
+   * the Window menu's Workspaces section ([P12], [B10]). Projected from the
+   * spaces snapshot rather than from `DeckState`, which is one workspace's
+   * deck and knows nothing of the level above it.
+   */
+  spaces: MenuStateSpaceEntry[];
   activeCard: MenuStateActiveCard | null;
   /**
    * Whether a card is selected — `activePaneId` is set. A canvas-background
@@ -602,6 +631,8 @@ export interface MenuStateDeckProjection {
 /** The full wire payload posted to `webkit.messageHandlers.menuState`. */
 export interface MenuStatePayload {
   panes: MenuStatePaneEntry[];
+  /** Every workspace, active one marked (see {@link MenuStateDeckProjection.spaces}). */
+  spaces: MenuStateSpaceEntry[];
   activeCard: MenuStateActiveCard | null;
   /** Whether a card is selected (see {@link MenuStateDeckProjection.selectionActive}). */
   selectionActive: boolean;
@@ -662,6 +693,12 @@ export interface MenuStatePayload {
 /**
  * Project the deck store snapshot into the menu-relevant shape.
  *
+ * `spaces` is the second input because the level above the deck is not IN the
+ * deck: `DeckState` is one workspace's arrangement, and the Window menu's
+ * Workspaces section lists all of them. It defaults to a single unnamed
+ * workspace's worth of nothing, which is what a caller with no spaces store —
+ * every unit test of the pane projection — should see.
+ *
  * Exported for unit tests. The pane projection (focused = last pane in
  * z-order, reverse to topmost-first) carries the exact semantics the host's
  * close-item validation and pane-list menu were built against.
@@ -673,7 +710,10 @@ export interface MenuStatePayload {
  * publisher wiring below subscribes to that store as well as to the deck, so
  * a card that renames itself renames its menu entry.
  */
-export function projectDeckState(state: DeckState): MenuStateDeckProjection {
+export function projectDeckState(
+  state: DeckState,
+  spaces: SpacesSnapshot = EMPTY_SPACES_SNAPSHOT,
+): MenuStateDeckProjection {
   const stacks = state.panes;
   const cardsById = new Map(state.cards.map((c) => [c.id, c]));
   const focusedStack = stacks.length > 0 ? stacks[stacks.length - 1] : null;
@@ -783,6 +823,11 @@ export function projectDeckState(state: DeckState): MenuStateDeckProjection {
 
   return {
     panes,
+    spaces: spaces.spaces.map((space) => ({
+      id: space.id,
+      name: space.name,
+      active: space.id === spaces.activeSpaceId,
+    })),
     activeCard,
     selectionActive: state.activePaneId !== undefined,
     stackDepth,
@@ -807,6 +852,7 @@ export class HostMenuStatePublisher {
   private readonly post: (payload: MenuStatePayload) => void;
   private deckProjection: MenuStateDeckProjection = {
     panes: [],
+    spaces: [],
     activeCard: null,
     selectionActive: false,
     stackDepth: 0,
@@ -1022,6 +1068,7 @@ export class HostMenuStatePublisher {
   private flush(): void {
     const {
       panes,
+      spaces,
       activeCard,
       selectionActive,
       stackDepth,
@@ -1096,6 +1143,7 @@ export class HostMenuStatePublisher {
     this.lastGates = commands;
     const payload: MenuStatePayload = {
       panes,
+      spaces,
       activeCard,
       selectionActive,
       stackDepth,
@@ -1160,9 +1208,15 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
   const publisher = new HostMenuStatePublisher(postToHost);
   activePublisher = publisher;
   const push = (): void => {
-    publisher.setDeckProjection(projectDeckState(deck.getSnapshot()));
+    publisher.setDeckProjection(
+      projectDeckState(deck.getSnapshot(), deck.getSpacesSnapshot()),
+    );
   };
   deck.subscribe(push);
+  // The workspace list is the level above the deck, so it changes without any
+  // deck mutation — a rename, a new workspace, a reorder. Its own subscription
+  // re-projects; the publisher's diff swallows a push that changed nothing.
+  deck.subscribeSpaces(push);
   // The column verbs act on the layout selection, so the fact that gates their
   // menu items is asked at flush time rather than projected from deck state
   // ([P05]). Its two non-deck inputs push a flush themselves: the selection

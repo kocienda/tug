@@ -25,9 +25,12 @@
  * The lifecycle, all DOM/CSS with a single store write on drop:
  *
  *  - **engage** ghosts the dragged block
- *    (`data-dragging` → opacity/scale/raised-z/`pointer-events:none`, the CSS
- *    lives with the host card) and snapshots the visible order + each
- *    block's rect.
+ *    (`data-dragging` → opacity/scale/raised-z, the CSS lives with the host
+ *    card) and snapshots the visible order + each block's rect. The one piece
+ *    of the ghost the hook writes itself is `pointer-events: none`: what is
+ *    under the pointer has to be what the block is being carried OVER, and a
+ *    block that hit-tested as itself would answer every such question with
+ *    "itself". A host must not have to know that to get a correct drop.
  *  - **pointermove** translates the dragged band to follow the pointer
  *    (inline `transform`, no transition — instant), computes the target index
  *    from the snapshotted midpoints, shifts the non-dragged siblings by the
@@ -43,6 +46,19 @@
  *  - **Escape** aborts locally: the handler's own capture-phase keydown
  *    listener swallows the key (so the rail `CANCEL_DIALOG` responder never
  *    sees it) and eases the drag back without committing.
+ *
+ * **A drop TARGET is the other thing a carry can land on** ({@link
+ * UseBlockReorderOptions.dropTargets}). Some lists hold elements that are not
+ * part of the order being dragged but are still somewhere a block can be put
+ * down — the Cards card's workspace headers, which a pane row is dropped onto
+ * to move the card into that workspace ([P10]). While the pointer is over one,
+ * the reorder stands down whole: the siblings ease back to their resting
+ * places, the caret hides, and the target wears `data-drop-target="true"` so
+ * the host's CSS can mark it. A release there calls
+ * `dropTargets.onDrop(kind, targetKey)` and eases the block back instead of
+ * committing an order — the drop's outcome is the host's to write, and it is
+ * not a reorder. Leaving the target restores the ordinary reorder mid-gesture,
+ * and an Escape clears the mark like everything else.
  *
  * **The gesture ends before the settle plays.** Releasing the drag latch and
  * handing the keyboard back to what was set down (`landKeyboard` — a release
@@ -141,6 +157,28 @@ export interface UseBlockReorderOptions {
   /** Attribute on each child holding its stable key. */
   kindAttr: string;
   /**
+   * Elements inside the container that a carried block can be DROPPED ON,
+   * rather than ordered among ([P10]).
+   *
+   * `selector` matches them and `attr` holds each one's key. An element whose
+   * key is in the visible order is not a target — it is a block, and dragging
+   * onto it is a reorder. Everything else matching is somewhere else to put
+   * the block down, and `onDrop(kind, targetKey)` is called with the carried
+   * block's key and the target's when the release lands on one.
+   *
+   * The host writes the outcome; this hook commits no order for such a drop
+   * and eases the block back where it came from. Whether a particular target
+   * means anything for a particular block (dropping a row onto its own
+   * workspace's header) is the host's to decide in `onDrop` — the mark is
+   * shown for every match, because a target that highlights and then refuses
+   * is clearer than one that silently does not light up.
+   */
+  dropTargets?: {
+    readonly selector: string;
+    readonly attr: string;
+    readonly onDrop: (kind: string, targetKey: string) => void;
+  };
+  /**
    * The row's content is ALSO a native HTML5 drag source (a jot's incipit,
    * dragged into a session prompt). Canceling a pointerdown suppresses the
    * mousedown the browser starts that drag from, so an arm on such a row must
@@ -199,15 +237,18 @@ export function useBlockReorder({
   kindAttr,
   nativeDragSource = false,
   landKeyboard,
+  dropTargets,
 }: UseBlockReorderOptions): UseBlockReorder {
   // Latest-ref mirrors so the stable callback reads current inputs ([L07]).
   const getVisibleOrderRef = React.useRef(getVisibleOrder);
   const commitRef = React.useRef(commit);
   const landKeyboardRef = React.useRef(landKeyboard);
+  const dropTargetsRef = React.useRef(dropTargets);
   React.useLayoutEffect(() => {
     getVisibleOrderRef.current = getVisibleOrder;
     commitRef.current = commit;
     landKeyboardRef.current = landKeyboard;
+    dropTargetsRef.current = dropTargets;
   });
 
   const draggingRef = React.useRef(false);
@@ -216,7 +257,7 @@ export function useBlockReorder({
   // the ORIGINAL pointerdown position, so the row picks up where it was
   // pressed rather than jumping to where the threshold was crossed.
   const beginDrag = React.useCallback(
-    (kind: string, startY: number, currentY: number) => {
+    (kind: string, startY: number, currentX: number, currentY: number) => {
       if (draggingRef.current) return;
       const container = containerRef.current;
       if (container === null) return;
@@ -275,6 +316,7 @@ export function useBlockReorder({
       for (const el of dragged) {
         el.setAttribute("data-dragging", "true");
         el.style.transition = "none";
+        el.style.pointerEvents = "none";
       }
       // Declare the carry on the container: `data-tug-carrying` is what the
       // surfaces inside it read to stand their own marks down for the length
@@ -324,6 +366,33 @@ export function useBlockReorder({
         return n - 1;
       };
 
+      // The drop target under the pointer, if the host declared any and the
+      // pointer is over one. The dragged block carries `pointer-events: none`
+      // for the length of the gesture, so it never hit-tests as itself.
+      let dropTargetEl: HTMLElement | null = null;
+      let dropTargetKey: string | null = null;
+      const hitDropTarget = (
+        clientX: number,
+        clientY: number,
+      ): { el: HTMLElement; key: string } | null => {
+        const targets = dropTargetsRef.current;
+        if (targets === undefined) return null;
+        const under = document.elementFromPoint(clientX, clientY);
+        if (under === null) return null;
+        const el = under.closest<HTMLElement>(targets.selector);
+        if (el === null) return null;
+        const key = el.getAttribute(targets.attr);
+        // An element whose key is in the order being dragged is a BLOCK, not
+        // a target: dragging onto it is the ordinary reorder.
+        if (key === null || visible.includes(key)) return null;
+        return { el, key };
+      };
+      const leaveDropTarget = (): void => {
+        dropTargetEl?.removeAttribute("data-drop-target");
+        dropTargetEl = null;
+        dropTargetKey = null;
+      };
+
       // Keep the dragged element within the container's bounds — its top may
       // not rise above the container top, nor its bottom fall below the
       // container bottom. Without this the row/section follows the pointer out
@@ -336,18 +405,38 @@ export function useBlockReorder({
       const clampDy = (dy: number): number =>
         Math.max(minDy, Math.min(maxDy, dy));
 
-      const moveTo = (clientY: number): void => {
+      const moveTo = (clientX: number, clientY: number): void => {
         const dy = clampDy(clientY - startY);
         for (const el of dragged) {
           el.style.transform = `translateY(${dy}px) scale(0.99)`;
         }
+        // Over a drop target the reorder stands down whole: the siblings ease
+        // back to their resting places and the caret hides, so the only mark
+        // left is the target's own. `applyShift(dragIndex)` is exactly that —
+        // every shift computes to zero and the caret is removed.
+        const hit = hitDropTarget(clientX, clientY);
+        if (hit !== null) {
+          if (hit.el !== dropTargetEl) {
+            leaveDropTarget();
+            dropTargetEl = hit.el;
+            dropTargetKey = hit.key;
+            hit.el.setAttribute("data-drop-target", "true");
+          }
+          if (targetIndex !== dragIndex) {
+            targetIndex = dragIndex;
+            applyShift(dragIndex);
+          }
+          return;
+        }
+        leaveDropTarget();
         const t = computeTarget(clientY);
         if (t !== targetIndex) {
           targetIndex = t;
           applyShift(t);
         }
       };
-      const onMove = (ev: PointerEvent): void => moveTo(ev.clientY);
+      const onMove = (ev: PointerEvent): void =>
+        moveTo(ev.clientX, ev.clientY);
 
       const carried = blocks.flat();
 
@@ -355,6 +444,7 @@ export function useBlockReorder({
         for (const el of carried) {
           el.style.transition = "";
           el.style.transform = "";
+          el.style.pointerEvents = "";
         }
       };
 
@@ -368,6 +458,7 @@ export function useBlockReorder({
         for (const el of dragged) el.removeAttribute("data-dragging");
         container.removeAttribute(CARRYING_ATTR);
         caret?.removeAttribute("data-visible");
+        leaveDropTarget();
         draggingRef.current = false;
         if (landed) landKeyboardRef.current?.(kind);
       };
@@ -477,7 +568,15 @@ export function useBlockReorder({
       const onUp = (): void => {
         detach();
         armSwallowRelease();
-        if (targetIndex !== dragIndex) settleCommit();
+        // A release over a drop target is not a reorder: nothing commits an
+        // order, the block eases back to where it was carried from, and the
+        // host is told what was dropped where. Read the key BEFORE the settle,
+        // which clears it along with the mark.
+        const droppedOn = dropTargetKey;
+        if (droppedOn !== null) {
+          settleBack(true);
+          dropTargetsRef.current?.onDrop(kind, droppedOn);
+        } else if (targetIndex !== dragIndex) settleCommit();
         // A release that changed nothing is still a release: the block was
         // carried and set down, so the keyboard lands on it either way.
         else settleBack(true);
@@ -511,7 +610,7 @@ export function useBlockReorder({
       // this IS a drag — so replay it here. Without it a gesture whose whole
       // travel arrives in one move (a synthesized drag, a fast flick) would
       // engage and then never be told where the pointer went.
-      moveTo(currentY);
+      moveTo(currentX, currentY);
     },
     [containerRef, caretRef, selector, kindAttr],
   );
@@ -544,9 +643,9 @@ export function useBlockReorder({
         window.removeEventListener("pointerup", disarm);
         window.removeEventListener("dragstart", onDragStart, true);
       };
-      const engage = (currentY: number): void => {
+      const engage = (currentX: number, currentY: number): void => {
         disarm();
-        beginDrag(kind, startY, currentY);
+        beginDrag(kind, startY, currentX, currentY);
       };
 
       // Travel decides. On an ordinary row there is nothing else the press
@@ -559,11 +658,13 @@ export function useBlockReorder({
         dx = ev.clientX - startX;
         dy = ev.clientY - startY;
         if (!nativeDragSource) {
-          if (Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) engage(ev.clientY);
+          if (Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
+            engage(ev.clientX, ev.clientY);
+          }
           return;
         }
         if (Math.abs(dy) >= DRAG_THRESHOLD_PX && Math.abs(dy) > Math.abs(dx)) {
-          engage(ev.clientY);
+          engage(ev.clientX, ev.clientY);
         } else if (Math.abs(dx) >= DRAG_THRESHOLD_PX) {
           disarm();
         }

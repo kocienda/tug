@@ -1,10 +1,18 @@
 /**
- * cards-card.tsx — the **Cards** card: a pane-first mirror of the deck canvas.
- * Every card on the deck has a row here, grouped by kind (Sessions / Files /
- * Tools).
+ * cards-card.tsx — the **Workspaces** card: a pane-first mirror of the deck
+ * canvas, one level per workspace. Every card on every workspace's deck has a
+ * row here, grouped by kind (Sessions / Files / Tools) under the workspace
+ * that holds it.
  *
- * The list is two-level, and the second level is a fact of the deck's data
- * model rather than a folder the user opens:
+ * The list is three-level, and the outermost level is the workspace ([P09]).
+ * The active workspace is expanded and wears the mark; each other one is one
+ * row that says what it holds, opening to a READ-ONLY view of its rows — a
+ * glance across the wall before deciding to go. The card's name is the noun
+ * the whole suite uses; its component id, its class names and its ⌃⌘W are
+ * unchanged ([P13]).
+ *
+ * The two inner levels are facts of the deck's data model rather than folders
+ * the user opens:
  *
  *  - A **single-card pane** renders exactly the row its card has always had —
  *    the session monitor, the file row, a generic tool row. No chevron, no
@@ -15,7 +23,8 @@
  *    state and there is not going to be one; a heavy stack is handled by
  *    collapsing its *group*.
  *
- * Group headers are cursorable rows, not `TugListView`'s inert `"header"`
+ * Workspace and group headers alike are cursorable rows, not `TugListView`'s
+ * inert `"header"`
  * role: the arrow walk reaches them and Enter/Space toggles that group's
  * collapse. That choice is what makes the cursor-seed rule below necessary. To
  * the mouse the header is the group's drag handle and the chevron is the only
@@ -27,10 +36,14 @@
  * the row's card (`focus-session-card`), while SPACE only toggles it in the
  * layout selection — the set the deck's slot and width verbs act on. ⇧+arrow
  * extends that selection and ⌘+arrow walks past rows without disturbing it,
- * both seeding the row they start from. Two things carry,
- * both on the shared `useBlockReorder` FLIP: a pane row within its own group
- * (committing `cardsRowOrder`), and a whole GROUP by its header — the header
- * and every row under it move as one block (committing `cardsGroupOrder`).
+ * both seeding the row they start from. Three things carry,
+ * all on the shared `useBlockReorder` FLIP: a pane row within its own group
+ * (committing `cardsRowOrder`), a whole GROUP by its header — the header
+ * and every row under it move as one block (committing `cardsGroupOrder`) —
+ * and a whole WORKSPACE the same way one level out (committing the space
+ * order). A pane row has one destination that is not a reorder at all:
+ * dropped on another workspace's header it MOVES the card into that
+ * workspace, its id and its session binding intact ([P10], [B07]).
  *
  * Laws: [L02] the deck, the open registries, the bindings, and the persisted
  * arrangement all enter React through `useSyncExternalStore`; [L06] cursor,
@@ -82,6 +95,8 @@ import { useResponder } from "@/components/tugways/use-responder";
 import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
+import type { ActionEvent } from "@/components/tugways/responder-chain";
+import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
@@ -102,6 +117,7 @@ import { renderIcon } from "@/components/tugways/tug-tab-bar";
 import { getCardCloseGuard } from "@/lib/card-close-guard";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { useChangesetAll } from "@/lib/changeset-all-store";
+import { getDeckStore } from "@/lib/deck-store-registry";
 import { classifyFileKind } from "@/lib/file-kinds";
 import { cardsStore } from "@/components/cards/cards-store/cards-store";
 import { sessionNameStore } from "@/lib/session-name-store";
@@ -115,8 +131,21 @@ import {
   type CardsRow,
   type CardsDataSource,
 } from "./cards-data-source";
-import { GROUP_TITLES, type CardsGroup } from "./cards-groups";
+import { expandedSpacesStore } from "./cards-space-expansion";
+import {
+  GROUP_TITLES,
+  groupOfRunKey,
+  groupRunKey,
+  type CardsGroup,
+} from "./cards-groups";
 import { CardsSessionRow } from "./cards-session-cell";
+import {
+  CardsCellContext,
+  CARDS_RENAME_FOCUS_ORDER,
+  useCellContext,
+  type CardsCellContextValue,
+} from "./cards-cell-context";
+import { SpaceHeaderCell } from "./cards-space-header";
 
 /** The card's focus group — its chrome and its rows both live here, so the Tab
  *  walk runs the filter field and then the list. */
@@ -133,11 +162,26 @@ const ROW_SELECTOR = ".cards-row[data-cards-row-id]";
 const ROW_KIND_ATTR = "data-cards-row-id";
 
 // A group's run for the GROUP reorder: its header plus every row filed under
-// it, all carrying the same group name. `useBlockReorder` treats elements
-// sharing a key as one block, so matching the run here is the whole of what
-// makes a group carry its rows with it.
+// it, all carrying the same `<spaceId>:<group>` key. `useBlockReorder` treats
+// elements sharing a key as one block, so matching the run here is the whole
+// of what makes a group carry its rows with it — and the key is scoped to the
+// workspace because two expanded workspaces each render a Sessions run, and an
+// unscoped key would splice them into one block ([P09], [P10]).
 const GROUP_RUN_SELECTOR = "[data-cards-group-run]";
 const GROUP_RUN_ATTR = "data-cards-group-run";
+
+// A WORKSPACE's run for the workspace reorder: its header plus every row under
+// it, all wearing the same workspace id. Same machinery one level out — a
+// workspace travels with everything it holds, collapsed or open ([P10]).
+const SPACE_RUN_SELECTOR = "[data-cards-space-run]";
+const SPACE_RUN_ATTR = "data-cards-space-run";
+
+// A workspace HEADER as a drop target for a pane row: dragging a card's row
+// onto one moves the card into that workspace ([P10], [B07]). The header is
+// the one target that is unambiguous, works for a collapsed workspace, and
+// never interferes with the in-group FLIP.
+const SPACE_HEADER_SELECTOR = ".cards-space-header";
+const SPACE_HEADER_ATTR = "data-cards-space-id";
 
 /** Focus group for a row's close box. The rows render inside `TugListView`'s
  *  per-row `FocusModeContext`, so the button registers into its own row's
@@ -146,21 +190,30 @@ const GROUP_RUN_ATTR = "data-cards-group-run";
  *  the slot picker. */
 const ROW_ACTION_FOCUS_GROUP = "cards-row-actions";
 
+/**
+ * The two attributes every row under a workspace wears.
+ *
+ * `data-cards-space-run` is the workspace reorder's block key — the header and
+ * every row beneath it share it, so a workspace carries its contents ([P10]).
+ * `data-cards-space-inactive` is the read-only mark: the rows of a workspace
+ * that is not on screen name cards the rendered deck does not hold, so they
+ * are shown but never picked, dragged or selected ([P09]). Appearance follows
+ * from the attribute in CSS, never from React state ([L06]).
+ */
+function spaceRowAttrs(
+  spaceId: string,
+  active: boolean,
+): Record<string, string> {
+  return {
+    "data-cards-space-run": spaceId,
+    ...(active ? {} : { "data-cards-space-inactive": "true" }),
+  };
+}
+
 // The section's remembered selection — the last-touched row id, mapped to a
 // cursor seed on the next Cmd-L / Tab. Module-level so it outlives a collapse
 // toggle; valid while the Cards card is a singleton card.
 let lastSelectedRowId: string | null = null;
-
-/** Row verbs the section body hands the module-level cells. */
-interface CardsCellContextValue {
-  onRowPointerDown: (orderKey: string, event: React.PointerEvent) => void;
-  onClose: (cardId: string) => void;
-  onClosePane: (paneId: string, activeCardId: string) => void;
-  onGroupPointerDown: (group: CardsGroup, event: React.PointerEvent) => void;
-  onToggleGroup: (group: CardsGroup) => void;
-  filterQuery: string;
-}
-const CardsCellContext = React.createContext<CardsCellContextValue | null>(null);
 
 /**
  * Whether closing this card will stop and ask rather than just close — the
@@ -174,12 +227,6 @@ const CardsCellContext = React.createContext<CardsCellContextValue | null>(null)
  */
 function askedBeforeClosing(cardId: string): boolean {
   return getCardCloseGuard(cardId)?.needsDecision() === true;
-}
-
-function useCellContext(): CardsCellContextValue {
-  const ctx = React.useContext(CardsCellContext);
-  if (ctx === null) throw new Error("Cards cell rendered outside its section");
-  return ctx;
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +319,8 @@ function OneLineRow({
   closesPane,
   trailing,
   selected,
+  spaceId,
+  spaceActive,
 }: {
   identity: CardIdentity;
   glyph: React.ReactNode;
@@ -293,6 +342,9 @@ function OneLineRow({
   /** This row's card is in the layout selection — the list computed it and the
    *  row paints it with `TugListRow`'s own selection fill. */
   selected: boolean;
+  /** The workspace holding this row, and whether it is the one on screen. */
+  spaceId: string;
+  spaceActive: boolean;
 }): React.ReactElement {
   const ctx = useCellContext();
   const hoverPath = identity.path !== null ? displayPath(identity.path) : "";
@@ -308,7 +360,8 @@ function OneLineRow({
           ? "cards-oneline cards-subrow"
           : "cards-oneline cards-row"
       }
-      data-cards-group-run={group}
+      data-cards-group-run={groupRunKey(spaceId, group)}
+      {...spaceRowAttrs(spaceId, spaceActive)}
       {...(rowId !== null
         ? { "data-cards-row-id": rowId, "data-cards-row-group": group }
         : {})}
@@ -339,7 +392,9 @@ function OneLineRow({
       // it that is not the close box or the slot picker carries it. A subrow
       // has no handle: reordering tabs from the Cards card is not this section's job.
       onPointerDown={
-        rowId !== null ? (e) => ctx.onRowPointerDown(rowId, e) : undefined
+        rowId !== null && spaceActive
+          ? (e) => ctx.onRowPointerDown(rowId, e)
+          : undefined
       }
     >
       {/* The path is the row's hover, in the house file tip — a row shows a
@@ -415,12 +470,13 @@ const GroupHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
     <TugListRow
       className="cards-header"
       data-cards-group={row.group}
-      data-cards-group-run={row.group}
+      data-cards-group-run={groupRunKey(row.spaceId, row.group)}
       data-group-collapsed={row.collapsed ? "true" : "false"}
       data-testid="cards-header"
+      {...spaceRowAttrs(row.spaceId, row.spaceId === dataSource.activeSpaceId())}
       // The header IS the group's drag handle: a press arms the carry of the
       // whole run, and travel past the threshold engages it.
-      onPointerDown={(e) => ctx.onGroupPointerDown(row.group, e)}
+      onPointerDown={(e) => ctx.onGroupPointerDown(row.spaceId, row.group, e)}
       // Below the threshold the press is still a click, and on a header a
       // click is nothing — the fold cue is the only thing that folds. Swallowed
       // so the cell wrapper never reads it as a pick.
@@ -486,6 +542,8 @@ const SessionPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
         disambiguator={null}
         rowId={row.orderKey}
         group={row.group}
+        spaceId={row.spaceId}
+        spaceActive={row.spaceId === dataSource.activeSpaceId()}
         subrow={false}
         showSlots
         showClose={identity.closable}
@@ -501,6 +559,8 @@ const SessionPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
       orderKey={row.orderKey}
       filterQuery={ctx.filterQuery}
       onRowPointerDown={ctx.onRowPointerDown}
+      spaceId={row.spaceId}
+      spaceActive={row.spaceId === dataSource.activeSpaceId()}
     />
   );
 };
@@ -522,6 +582,8 @@ const FilePaneCell: TugListViewCellRenderer<CardsDataSource> = ({
       disambiguator={row.disambiguator}
       rowId={row.orderKey}
       group={row.group}
+      spaceId={row.spaceId}
+      spaceActive={row.spaceId === dataSource.activeSpaceId()}
       subrow={false}
       showSlots
       showClose={row.identity.closable}
@@ -547,6 +609,8 @@ const ToolPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
       disambiguator={null}
       rowId={row.orderKey}
       group={row.group}
+      spaceId={row.spaceId}
+      spaceActive={row.spaceId === dataSource.activeSpaceId()}
       subrow={false}
       showSlots
       showClose={row.identity.closable}
@@ -579,6 +643,8 @@ const StackPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
       disambiguator={null}
       rowId={row.orderKey}
       group={row.group}
+      spaceId={row.spaceId}
+      spaceActive={row.spaceId === dataSource.activeSpaceId()}
       subrow={false}
       showSlots
       showClose={row.closable}
@@ -615,6 +681,8 @@ const SubcardCell: TugListViewCellRenderer<CardsDataSource> = ({
       disambiguator={null}
       rowId={null}
       group={row.group}
+      spaceId={row.spaceId}
+      spaceActive={row.spaceId === dataSource.activeSpaceId()}
       subrow
       showSlots={false}
       showClose={row.identity.closable}
@@ -626,6 +694,7 @@ const CARDS_CELL_RENDERERS: Record<
   string,
   TugListViewCellRenderer<CardsDataSource>
 > = {
+  "space-header": SpaceHeaderCell,
   "group-header": GroupHeaderCell,
   "session-pane": SessionPaneCell,
   "file-pane": FilePaneCell,
@@ -712,8 +781,15 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   const count = dataSource.numberOfItems();
   const filtering = dataSource.isFiltering();
 
-  const hasContent = count > 0;
+  // Rows below the workspace level, not every row: a workspace header stands
+  // whether or not anything under it survived the filter, so `count` alone can
+  // never read zero once there is a workspace ([P09]). Group headers still
+  // count — a fully collapsed list is showing its headers and is not empty.
+  const hasContent = dataSource.innerRowCount() > 0;
   const hasItems = dataSource.unfilteredCount() > 0;
+  // Every workspace emits a header whatever the filter does, so the rendered
+  // header count IS the workspace count — what disables Delete on the last one.
+  const spaceCount = dataSource.visibleSpaceOrder().length;
 
   // The opening key view lands on a real row rather than on the chrome; an
   // empty list is not a focus stop, and `useSeedKeyView` re-arms while the key
@@ -780,7 +856,11 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     setCardsFilterBinding(filter);
     return () => setCardsFilterBinding(null);
   }, [filter]);
-  const dragGroupRef = useRef<CardsGroup | null>(null);
+  const dragGroupRef = useRef<{ group: CardsGroup; spaceId: string } | null>(
+    null,
+  );
+  /** The workspace whose group run a drag is carrying. */
+  const dragSpaceRef = useRef<string | null>(null);
 
   // Hand the keyboard back to the row (or group) that was just set down. The
   // press that started the carry would otherwise have placed it here itself —
@@ -808,18 +888,41 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     containerRef: listWrapRef,
     caretRef,
     getVisibleOrder: () => {
-      const group = dragGroupRef.current;
-      if (group === null) return [];
+      const from = dragGroupRef.current;
+      if (from === null) return [];
       const groups = dataSource.groupByOrderKey();
-      return dataSource.visibleOrder().filter((key) => groups.get(key) === group);
+      // Scoped to the group AND the workspace the drag started in: the
+      // persisted arrangement is per group with no space scoping ([B09]), so a
+      // visible order spanning two workspaces would commit one workspace's
+      // keys over the other's.
+      return dataSource.visibleOrder().filter((key) => {
+        const at = groups.get(key);
+        return at !== undefined && at.group === from.group && at.spaceId === from.spaceId;
+      });
     },
     commit: (order) => {
-      const group = dragGroupRef.current;
-      if (group === null) return;
-      cardsStore.setCardsRowOrder(group, [...order]);
+      const from = dragGroupRef.current;
+      if (from === null) return;
+      cardsStore.setCardsRowOrder(from.group, [...order]);
     },
     selector: ROW_SELECTOR,
     kindAttr: ROW_KIND_ATTR,
+    // Dropping the row on another workspace's header moves the card there
+    // ([P10]). The row's own workspace is a no-op rather than an unavailable
+    // target: a header that lights up and then declines to move a card that is
+    // already where it was dropped reads as nothing happening, which is what
+    // happened.
+    dropTargets: {
+      selector: SPACE_HEADER_SELECTOR,
+      attr: SPACE_HEADER_ATTR,
+      onDrop: (orderKey, spaceId) => {
+        const from = dataSource.groupByOrderKey().get(orderKey);
+        if (from === undefined || from.spaceId === spaceId) return;
+        const cardId = dataSource.cardIdForOrderKey(orderKey);
+        if (cardId === null) return;
+        getDeckStore()?.moveCardToSpace(cardId, spaceId);
+      },
+    },
     landKeyboard: (orderKey) =>
       landCursorOn(dataSource.indexForOrderKey(orderKey)),
   });
@@ -830,7 +933,10 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   const onRowPointerDown = useCallback(
     (orderKey: string, event: React.PointerEvent): void => {
       if (filtering) return;
-      dragGroupRef.current = dataSource.groupByOrderKey().get(orderKey) ?? null;
+      const at = dataSource.groupByOrderKey().get(orderKey) ?? null;
+      // A parked workspace's rows are a read-only view ([P09]).
+      if (at === null || at.spaceId !== dataSource.activeSpaceId()) return;
+      dragGroupRef.current = at;
       beginRowReorder(orderKey, event);
     },
     [filtering, beginRowReorder, dataSource],
@@ -844,23 +950,72 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   const { onRowPointerDown: beginGroupReorder } = useBlockReorder({
     containerRef: listWrapRef,
     caretRef,
-    getVisibleOrder: () => dataSource.visibleGroupOrder(),
-    commit: (order) => cardsStore.setCardsGroupOrder([...order]),
+    getVisibleOrder: () =>
+      dragSpaceRef.current === null
+        ? []
+        : dataSource
+            .visibleGroupOrder(dragSpaceRef.current)
+            .map((group) => groupRunKey(dragSpaceRef.current ?? "", group)),
+    // The order the hook hands back is of run keys; what persists is the group
+    // order, one arrangement shared by every deck ([B09]).
+    commit: (order) => cardsStore.setCardsGroupOrder(order.map(groupOfRunKey)),
     selector: GROUP_RUN_SELECTOR,
     kindAttr: GROUP_RUN_ATTR,
     // The keyboard lands on the group's header — the block's own handle, and
     // the row the user was pointing at when they let go.
-    landKeyboard: (group) => landCursorOn(dataSource.indexForGroup(group)),
+    landKeyboard: (runKey) =>
+      landCursorOn(
+        dragSpaceRef.current === null
+          ? -1
+          : dataSource.indexForGroup(
+              dragSpaceRef.current,
+              groupOfRunKey(runKey),
+            ),
+      ),
   });
   // Unarmed while filtering, for the row reorder's reason: a group with no
   // surviving row emits no header, so the visible order is a partial one and
   // committing it would drop the missing group's place.
   const onGroupPointerDown = useCallback(
-    (group: CardsGroup, event: React.PointerEvent): void => {
+    (spaceId: string, group: CardsGroup, event: React.PointerEvent): void => {
       if (filtering) return;
-      beginGroupReorder(group, event);
+      // A parked workspace's rows are a read-only view ([P09]), and the group
+      // order this would commit is one arrangement shared by every deck.
+      if (spaceId !== dataSource.activeSpaceId()) return;
+      // Which workspace's run is being carried — the group reorder's visible
+      // order and its keyboard landing are both scoped to it.
+      dragSpaceRef.current = spaceId;
+      beginGroupReorder(groupRunKey(spaceId, group), event);
     },
-    [filtering, beginGroupReorder],
+    [filtering, beginGroupReorder, dataSource],
+  );
+
+  // Reorder the WORKSPACES, by carrying a header. Same machinery one level
+  // out: the block is the header plus every row under it, all wearing the same
+  // `data-cards-space-run`, so a workspace travels with everything it holds
+  // whether it is open or collapsed ([P10]).
+  const { onRowPointerDown: beginSpaceReorder } = useBlockReorder({
+    containerRef: listWrapRef,
+    caretRef,
+    getVisibleOrder: () => dataSource.visibleSpaceOrder(),
+    commit: (order) => {
+      getDeckStore()?.reorderSpaces([...order]);
+    },
+    selector: SPACE_RUN_SELECTOR,
+    kindAttr: SPACE_RUN_ATTR,
+    // The keyboard lands on the workspace's own header — the block's handle,
+    // and the row the user was pointing at when they let go.
+    landKeyboard: (spaceId) => landCursorOn(dataSource.indexForSpace(spaceId)),
+  });
+  // Unarmed while filtering, for the two inner reorders' reason: the visible
+  // order under a filter is a partial one, and this commit persists the whole
+  // list's arrangement.
+  const onSpacePointerDown = useCallback(
+    (spaceId: string, event: React.PointerEvent): void => {
+      if (filtering) return;
+      beginSpaceReorder(spaceId, event);
+    },
+    [filtering, beginSpaceReorder],
   );
 
   // The close box names the card it closes — `close-tab` carrying the row's own
@@ -917,6 +1072,72 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     cardsStore.setCardGroupCollapsed(group, !collapsed.includes(group));
   }, []);
 
+  // The fold cue on an inactive workspace's header. The active one is expanded
+  // by the data source's own rule and its cue is drawn disabled, so nothing
+  // here has to special-case it.
+  const onToggleSpace = useCallback((spaceId: string): void => {
+    expandedSpacesStore.toggle(spaceId);
+  }, []);
+
+  // Which workspace's header is showing its rename field, and which delete is
+  // waiting on its confirm. Both are view scope ([L24]): a rename nobody
+  // committed and a confirm nobody answered are not worth remembering, and
+  // closing the card forgets them.
+  const [renamingSpaceId, setRenamingSpaceId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    spaceId: string;
+    name: string;
+    sessions: number;
+    anchor: HTMLElement | null;
+  } | null>(null);
+
+  const onCommitRename = useCallback(
+    (spaceId: string, name: string): void => {
+      setRenamingSpaceId(null);
+      // An empty or unchanged name is the store's refusal, not this card's:
+      // one definition of what a workspace may be called ([P05]).
+      getDeckStore()?.renameSpace(spaceId, name);
+    },
+    [],
+  );
+  const onCancelRename = useCallback((): void => setRenamingSpaceId(null), []);
+
+  // The keyboard follows the field that just opened ([L22]): placement, never
+  // a raw focus write, because in this card's keyboard-focus mode the route
+  // itself is what a placement changes — a field with DOM focus and no key
+  // view receives nothing.
+  const focusRenameField = useCallback((): void => {
+    focusManager?.place(
+      cardId,
+      {
+        kind: "focus-key",
+        focusKey: `${CARDS_FOCUS_GROUP}:${CARDS_RENAME_FOCUS_ORDER}`,
+      },
+      { modality: "keyboard" },
+    );
+  }, [focusManager, cardId]);
+
+  /** The header row's CELL, for a popover that must outlive the menu that
+   *  armed it — the anchor the Arcs card's confirm takes, for its reason. */
+  const anchorForSpace = useCallback((spaceId: string): HTMLElement | null => {
+    const root = listWrapRef.current;
+    if (root === null) return null;
+    const header = root.querySelector<HTMLElement>(
+      `.cards-space-header[data-cards-space-id="${CSS.escape(spaceId)}"]`,
+    );
+    if (header === null) return null;
+    return (header.closest(".tug-list-view-cell") as HTMLElement | null) ?? header;
+  }, []);
+
+  /** What a workspace is called, read off the projection the rows came from. */
+  const spaceNameOf = useCallback(
+    (spaceId: string): string => {
+      const row = dataSource.rowAt(dataSource.indexForSpace(spaceId));
+      return row !== undefined && row.type === "space-header" ? row.name : "";
+    },
+    [dataSource],
+  );
+
   const cellContext = useMemo<CardsCellContextValue>(
     () => ({
       onRowPointerDown,
@@ -924,6 +1145,14 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       onClosePane,
       onGroupPointerDown,
       onToggleGroup,
+      onSpacePointerDown,
+      onToggleSpace,
+      renamingSpaceId,
+      onCommitRename,
+      onCancelRename,
+      focusGroup: CARDS_FOCUS_GROUP,
+      focusRenameField,
+      spaceCount,
       filterQuery,
     }),
     [
@@ -932,6 +1161,13 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       onClosePane,
       onGroupPointerDown,
       onToggleGroup,
+      onSpacePointerDown,
+      onToggleSpace,
+      renamingSpaceId,
+      onCommitRename,
+      onCancelRename,
+      focusRenameField,
+      spaceCount,
       filterQuery,
     ],
   );
@@ -945,10 +1181,18 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   //
   // A group header is the exception at both doors: it has no card to front, so
   // either key toggles the group.
+  //
+  // A WORKSPACE header maps to no card either, and what it means instead is
+  // "go there" ([P09], Spec S05): the primitive routes the gesture to
+  // `onActivate` and the command is a no-op on the workspace already showing.
   const delegate = useMemo<TugListViewDelegate>(() => {
     const activate = (index: number): void => {
       const row: CardsRow | undefined = dataSource.rowAt(index);
       if (row === undefined) return;
+      if (row.type === "space-header") {
+        dispatchCommand("activate-space", { spaceId: row.spaceId });
+        return;
+      }
       if (row.type === "group-header") {
         onToggleGroup(row.group);
         return;
@@ -983,9 +1227,21 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     const byRowId = new Map<string, string>();
     const order: string[] = [];
     const seen = new Set<string>();
+    // Rows of a parked workspace name cards the rendered deck does not hold.
+    const activeSpaceId = dataSource.activeSpaceId();
     for (let i = 0; i < dataSource.numberOfItems(); i += 1) {
       const row = dataSource.rowAt(i);
-      if (row === undefined || row.type === "group-header") continue;
+      // Headers map to no card; and a row of an INACTIVE workspace maps to a
+      // card that is not in the rendered deck, so a layout chord aimed at it
+      // would act on nothing ([P09]).
+      if (
+        row === undefined ||
+        row.type === "space-header" ||
+        row.type === "group-header"
+      ) {
+        continue;
+      }
+      if (row.spaceId !== activeSpaceId) continue;
       const rowId = idOfRow(row);
       const cardId = row.identity.cardId;
       byRowId.set(rowId, cardId);
@@ -1097,6 +1353,56 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       [TUG_ACTIONS.CANCEL_DIALOG]: () => {
         shrinkCardsState();
       },
+      // The workspace header's four verbs ([P11]). They land here rather than
+      // on the cell that opened the menu because everything they need outlives
+      // a cell: the deck store, the rename in flight, and the card's one
+      // confirm. Each reads its workspace out of the item's own payload, so a
+      // verb acts on the row the right-click landed on rather than on wherever
+      // the list cursor happens to be.
+      [TUG_ACTIONS.NEW_SPACE]: () => {
+        getDeckStore()?.createSpace();
+      },
+      [TUG_ACTIONS.RENAME_SPACE]: (event: ActionEvent) => {
+        const payload = event.value as
+          | { spaceId?: unknown; name?: unknown }
+          | undefined;
+        if (typeof payload?.spaceId !== "string") return;
+        // With a name it commits; without one it opens the header's field.
+        // The menu item sends no name, so the item IS the second form — the
+        // first is there for anything that already knows what to call it.
+        if (typeof payload.name === "string") {
+          onCommitRename(payload.spaceId, payload.name);
+          return;
+        }
+        setRenamingSpaceId(payload.spaceId);
+      },
+      [TUG_ACTIONS.DUPLICATE_SPACE]: (event: ActionEvent) => {
+        const spaceId = (event.value as { spaceId?: unknown } | undefined)
+          ?.spaceId;
+        if (typeof spaceId !== "string") return;
+        getDeckStore()?.duplicateSpace(spaceId);
+      },
+      [TUG_ACTIONS.DELETE_SPACE]: (event: ActionEvent) => {
+        const spaceId = (event.value as { spaceId?: unknown } | undefined)
+          ?.spaceId;
+        if (typeof spaceId !== "string") return;
+        const store = getDeckStore();
+        if (store === null) return;
+        // The confirm and the close loop read one definition of "holds live
+        // sessions" ([P07]) — this call is that definition, asked here so the
+        // number in the sentence is the number that will be closed.
+        const sessions = store.spaceHoldsLiveSessions(spaceId);
+        if (sessions > 0) {
+          setPendingDelete({
+            spaceId,
+            name: spaceNameOf(spaceId),
+            sessions,
+            anchor: anchorForSpace(spaceId),
+          });
+          return;
+        }
+        store.deleteSpace(spaceId);
+      },
     },
   });
 
@@ -1124,7 +1430,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           key={hasItems ? "live" : "inert"}
           delegate={filterDelegate}
           attachment={filter}
-          placeholder="Filter Cards"
+          placeholder="Filter Workspaces"
           defaultValue={filterQuery}
           disabled={!hasItems}
           data-testid="cards-filter"
@@ -1132,7 +1438,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           focusOrder={CARDS_FILTER_FOCUS_ORDER}
         />
       </div>
-      {count === 0 ? (
+      {!hasContent ? (
         // Empty label instead of the list — an empty `flex: 1` list would grow
         // and open a gap under the toolbar. "No matches" is the distinct
         // filtered-to-zero face: there ARE cards, the filter is hiding them.
@@ -1175,6 +1481,32 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
         </div>
       )}
       </div>
+      {/* The card's one confirm, anchored to whichever workspace header armed
+          it. `confirmRole="danger"` puts default focus on Cancel, so a
+          reflexive Return can never take a workspace and its sessions. */}
+      <TugConfirmPopover
+        open={pendingDelete !== null}
+        anchorEl={pendingDelete?.anchor ?? null}
+        message={
+          pendingDelete === null
+            ? ""
+            : `Delete ${pendingDelete.name} and close ${
+                pendingDelete.sessions === 1
+                  ? "1 session"
+                  : `${pendingDelete.sessions} sessions`
+              }?`
+        }
+        confirmLabel="Delete"
+        confirmRole="danger"
+        side="top"
+        onConfirm={() => {
+          const armed = pendingDelete;
+          setPendingDelete(null);
+          if (armed === null) return;
+          getDeckStore()?.deleteSpace(armed.spaceId);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
     </ResponderScope>
   );

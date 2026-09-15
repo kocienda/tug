@@ -688,6 +688,12 @@ describe.skipIf(!SHOULD_RUN)(
           await focusCardsList(app);
           await app.nativeKey("Home");
           await wait(200);
+          // Row 0 is the WORKSPACE header now — the list's outermost level —
+          // so one step down is the first group header, which is the row this
+          // case needs the cursor on. What is being checked here is the
+          // Escape gate over a folded-away selection, not where Home lands.
+          await app.nativeKey("ArrowDown");
+          await wait(200);
           expect(
             await cursorTitle(app),
             "Home lands on the group header the fold is driven from",
@@ -699,7 +705,9 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             await rowCount(app),
             "the fold took the card rows off the list",
-          ).toBe(1);
+          // Two rows left: the workspace header, and the Tools header the
+          // fold is driven from.
+          ).toBe(2);
           expect(
             await getSelection(app),
             "and left the selection exactly where it was",

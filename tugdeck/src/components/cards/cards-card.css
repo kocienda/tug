@@ -371,6 +371,80 @@ body {
   display: none;
 }
 
+/* ── Workspace headers ────────────────────────────────────────────────────── */
+
+/* The outermost level, one surface step ABOVE the group header's wash — the
+   list has three levels now and the step between them is what says which is
+   which ([P09]). Same wash mechanism, a larger share of it. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
+.tug-list-view.cards-list[data-row-striping]
+  .tug-list-view-cell[data-tug-list-cell-kind="space-header"] {
+  background-color: color-mix(
+    in oklab,
+    var(--tug7-element-global-text-normal-default-rest)
+      var(--tugx-space-header-wash, 16%),
+    var(--tug7-surface-card-primary-normal-well-rest)
+  );
+  border-bottom-color: var(--tugx-group-header-rule) !important;
+  box-shadow: inset 0 1px 0 0 var(--tugx-group-header-rule);
+}
+
+/* A workspace's name is a NAME, not a label over rows — so it keeps its
+   sentence case and its weight where the group header trades both for the
+   tracked-out upper of a section label. The step in wash is what separates the
+   levels; making both of them shout would make neither read. */
+.cards-space-header .tug-list-row-title {
+  font-size: 0.9em;
+  font-weight: 650;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* The mark: the workspace on screen wears the accent, the parked ones the
+   label's own muted tone. One glyph, two tones, no second affordance ([L06]). */
+.cards-space-header[data-cards-space-active="true"] .cards-header-glyph {
+  color: var(--tug7-element-global-text-accent-default-rest);
+}
+.cards-space-header[data-cards-space-active="false"] .cards-header-glyph {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+/* A workspace's summary is ink whether or not it is folded — unlike a group's,
+   which is the sole report of what a closed fold hides. An expanded parked
+   workspace is still a place the reader is deciding about, and "3 cards · 1
+   live" is the fact they are deciding on. */
+
+/* The rows of a workspace that is not on screen: a read-only view. Quieted a
+   step so the reading says so before any gesture has to refuse ([P09]). */
+.cards-list [data-cards-space-inactive="true"] .tug-list-row-content {
+  opacity: 0.72;
+}
+/* The header itself is the way BACK, so it keeps full strength. */
+.cards-space-header[data-cards-space-inactive="true"] .tug-list-row-content {
+  opacity: 1;
+}
+
+/* The cross-workspace drop target ([P10], Step 9 wires the drag). Set as an
+   attribute mid-drag by `useBlockReorder`, so nothing re-renders ([L06]). */
+.cards-space-header[data-drop-target="true"] {
+  outline: 1px solid var(--tug7-element-global-border-accent-normal-rest);
+  outline-offset: -1px;
+}
+
+/* The inline rename field takes the label's type rather than the input's, so
+   the row does not change voice the moment it becomes editable ([P11]). */
+.cards-space-rename {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  font-size: 0.9em;
+  font-weight: 650;
+}
+
+/* The verbs menu is a portal with nothing to draw in the row itself; its host
+   span must not open a gap in the trailing cluster. */
+.cards-space-verbs {
+  display: contents;
+}
+
 /* ── Subrows ──────────────────────────────────────────────────────────────── */
 
 /* A card inside a multi-card pane. Indent is the ONLY thing that marks it as

@@ -34,7 +34,7 @@
  * @module components/cards/cards-data-source
  */
 
-import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { getRegistration } from "@/card-registry";
 import type {
@@ -42,6 +42,7 @@ import type {
   TugListViewDataSource,
 } from "@/components/tugways/tug-list-view";
 import type { CardState, DeckState, TugPaneState } from "@/layout-tree";
+import type { SpacesSnapshot } from "@/spaces";
 import { findSidebarPanes } from "@/deck-store-selectors";
 import type { CardSessionBinding } from "@/lib/card-session-binding-store";
 import type { WorkspacesChangesetSnapshot } from "@/lib/changeset-types";
@@ -50,6 +51,7 @@ import {
   type ArcSessionFact,
 } from "@/lib/arc-session-index";
 import { getDeckStore } from "@/lib/deck-store-registry";
+import { spaceBindingsLedgerStore } from "@/lib/space-bindings-ledger-store";
 import {
   countedFileType,
   fileTypeName,
@@ -71,6 +73,8 @@ import {
   subscribeOpenTextCards,
 } from "@/lib/text-card-open-registry";
 import { filterAndRank, filterQueryMatch } from "@/lib/text-match";
+
+import { expandedSpacesStore } from "./cards-space-expansion";
 
 import {
   GROUP_ORDER,
@@ -210,7 +214,34 @@ export type CardsPaneRowKind =
 
 export type CardsRow =
   | {
+      /**
+       * A WORKSPACE, the outermost level ([P09], [B08]). One row per space, in
+       * the user's order, whether or not anything under it survives a filter —
+       * a workspace that vanished because its cards did not match would read
+       * as a workspace that is gone.
+       */
+      readonly type: "space-header";
+      readonly spaceId: string;
+      readonly name: string;
+      /** The workspace being rendered. Always expanded, and marked. */
+      readonly active: boolean;
+      /** Whether this workspace's rows follow. The active one: always. */
+      readonly expanded: boolean;
+      /** Pane rows filed under this workspace, after filtering. */
+      readonly count: number;
+      /** What the header reports while collapsed — `"N cards"`. */
+      readonly summary: string;
+      /**
+       * Session cards here holding a live session — a binding, or a cached
+       * ledger row that is alive ([P08]). Shown as a muted `· N live` when
+       * non-zero, which is what makes a Delete over this workspace legible
+       * before it is reached for.
+       */
+      readonly sessionsLive: number;
+    }
+  | {
       readonly type: "group-header";
+      readonly spaceId: string;
       readonly group: CardsGroup;
       /** Pane rows in this group, after filtering. */
       readonly count: number;
@@ -221,6 +252,7 @@ export type CardsRow =
     }
   | {
       readonly type: "pane";
+      readonly spaceId: string;
       readonly group: CardsGroup;
       readonly paneId: string;
       /** The identity card — the pane's `activeCardId`. */
@@ -240,6 +272,7 @@ export type CardsRow =
     }
   | {
       readonly type: "card";
+      readonly spaceId: string;
       readonly group: CardsGroup;
       readonly paneId: string;
       readonly identity: CardIdentity;
@@ -249,6 +282,7 @@ export type CardsRow =
 
 /** The cell renderer key `TugListView` dispatches on. */
 export function kindOfRow(row: CardsRow): string {
+  if (row.type === "space-header") return "space-header";
   if (row.type === "group-header") return "group-header";
   if (row.type === "card") return "subcard";
   return row.rowKind;
@@ -257,8 +291,12 @@ export function kindOfRow(row: CardsRow): string {
 /** A row's stable, non-colliding list id. */
 export function idOfRow(row: CardsRow): string {
   switch (row.type) {
+    case "space-header":
+      return `space:${row.spaceId}`;
     case "group-header":
-      return `header:${row.group}`;
+      // Scoped by space: two workspaces both showing Sessions would otherwise
+      // mint the same list id twice.
+      return `header:${row.spaceId}:${row.group}`;
     case "pane":
       return `pane:${row.paneId}`;
     case "card":
@@ -291,6 +329,17 @@ export interface CardsResolvers {
   defaultTitle: (componentId: string) => string;
   /** The registration's lucide icon name, for the generic cells. */
   icon: (componentId: string) => string | null;
+  /**
+   * Whether the bindings-ledger cache ([P08]) holds a live row for this card:
+   * alive on the server, or with a transcript, or having taken a turn.
+   *
+   * A resolver rather than an input because it is the answer for a card the
+   * `bindings` map cannot answer for at all — a Session card in a workspace
+   * nobody has activated, which by [B04]'s design holds no binding. Without
+   * this the workspace header would read `0 live` over sessions that are
+   * running, and a Delete over it would look free.
+   */
+  cachedSessionLive: (cardId: string) => boolean;
 }
 
 export const DEFAULT_RESOLVERS: CardsResolvers = {
@@ -314,14 +363,42 @@ export const DEFAULT_RESOLVERS: CardsResolvers = {
     getRegistration(componentId)?.defaultMeta.title ?? "",
   icon: (componentId) =>
     getRegistration(componentId)?.defaultMeta.icon ?? null,
+  cachedSessionLive: (cardId) => {
+    const row = spaceBindingsLedgerStore.get(cardId);
+    if (row === undefined) return false;
+    return row.is_alive === true || row.has_jsonl === true || row.turn_count > 0;
+  },
 };
 
 // ---------------------------------------------------------------------------
 // Inputs
 // ---------------------------------------------------------------------------
 
+/** One workspace, as the row projection needs it ([P09]). */
+export interface SpaceRowsInput {
+  readonly id: string;
+  readonly name: string;
+  /** The workspace being rendered. Exactly one entry is active. */
+  readonly active: boolean;
+  /**
+   * Whether this workspace's rows are shown. The caller passes `true` for the
+   * active one — it is always expanded — and the `expandedSpacesStore`'s
+   * answer for the rest.
+   */
+  readonly expanded: boolean;
+  /** The active entry's LIVE deck; a parked record for the others. */
+  readonly deck: DeckState;
+}
+
 export interface LensCardsInputs {
-  readonly deck: DeckState | null;
+  /**
+   * Every workspace, in the user's order — the outer level of the list
+   * ([P09]). The active entry carries the LIVE deck; the others carry their
+   * parked records, which is why an inactive workspace can be read at all.
+   *
+   * Empty is a deck store that has not answered yet, and projects to no rows.
+   */
+  readonly spaces: readonly SpaceRowsInput[];
   /** The user's persisted per-group arrangement, by order key. */
   readonly cardsRowOrder: CardsRowOrder;
   /** The user's persisted group order; empty means the built-in one. */
@@ -366,6 +443,16 @@ export interface LensCardsInputs {
    * lookup per session row.
    */
   readonly changesets: WorkspacesChangesetSnapshot | null;
+  /**
+   * The bindings-ledger cache, by identity ([P08], Spec S03).
+   *
+   * Here as an input rather than read straight from the store inside the
+   * projection because a workspace header's `· N live` reads it: a frame
+   * landing after the list is drawn has to re-run the projection, and the map
+   * changing identity is how the section says "it changed". The projection
+   * itself reaches the rows through {@link CardsResolvers.cachedSessionLive}.
+   */
+  readonly bindingsCache: ReadonlyMap<string, unknown>;
 }
 
 /** Which cell renders a single-card pane of this group. */
@@ -522,7 +609,18 @@ function orderKeyFor(
 }
 
 /**
- * Project the deck into the Cards section's flat row list.
+ * Project every workspace into the Cards section's flat row list ([P09]).
+ *
+ * The list is three levels deep and this is the outermost: one `space-header`
+ * per workspace, in the user's order, each followed — only when expanded — by
+ * that workspace's group headers and pane rows, every row carrying the
+ * `spaceId` it belongs to.
+ *
+ * **A workspace's header is emitted whether or not anything under it
+ * survives the filter.** A group with no survivors emits nothing, because a
+ * group is a way of arranging one deck's cards and an empty one says nothing.
+ * A workspace is a place, and a place that disappeared while the user was
+ * typing would read as a place that is gone.
  *
  * A pane files under its **active card's** group, so a mixed-kind stack moves
  * groups when the user fronts a different-kind tab. Same-kind stacks — the
@@ -534,8 +632,64 @@ export function buildCardsRows(
   resolvers: Partial<CardsResolvers> = {},
 ): CardsRow[] {
   const r: CardsResolvers = { ...DEFAULT_RESOLVERS, ...resolvers };
-  const deck = inputs.deck;
-  if (deck === null) return [];
+  const rows: CardsRow[] = [];
+  for (const space of inputs.spaces) {
+    const { rows: inner, paneCount: count } = buildSpaceRows(space, inputs, r);
+    const expanded = space.active || space.expanded;
+    rows.push({
+      type: "space-header",
+      spaceId: space.id,
+      name: space.name,
+      active: space.active,
+      expanded,
+      count,
+      summary: count === 1 ? "1 card" : `${count} cards`,
+      sessionsLive: countLiveSessions(space.deck, inputs, r),
+    });
+    if (expanded) rows.push(...inner);
+  }
+  return rows;
+}
+
+/**
+ * How many of `deck`'s Session cards are holding a live session ([P07]).
+ *
+ * A binding answers for a workspace whose sessions were restored; the cache
+ * answers for one nobody has opened, whose cards hold no bindings at all. Both
+ * are read, because a header that counted only bindings would read `0 live`
+ * over every workspace the user has not visited this run.
+ */
+function countLiveSessions(
+  deck: DeckState,
+  inputs: LensCardsInputs,
+  r: CardsResolvers,
+): number {
+  let live = 0;
+  for (const card of deck.cards) {
+    if (r.group(card.componentId) !== "sessions") continue;
+    if (inputs.bindings.has(card.id) || r.cachedSessionLive(card.id)) live += 1;
+  }
+  return live;
+}
+
+/**
+ * One workspace's group headers and pane rows — the inner two levels — and how
+ * many pane rows it HOLDS.
+ *
+ * The two are not the same number, which is why the count is returned rather
+ * than read back off the rows. A collapsed GROUP emits its header and none of
+ * its pane rows, and the collapsed set is one arrangement shared by every
+ * workspace ([B09]) — so a reader who folded Sessions once would see every
+ * workspace in the list report `0 cards` while holding plenty. The count is
+ * taken from the filter's survivors, before the fold decides what to draw.
+ */
+function buildSpaceRows(
+  space: SpaceRowsInput,
+  inputs: LensCardsInputs,
+  r: CardsResolvers,
+): { rows: CardsRow[]; paneCount: number } {
+  const deck = space.deck;
+  const spaceId = space.id;
 
   // Session → arc, memoized on the snapshot, so every row's lookup is a map
   // hit rather than a walk of the aggregate.
@@ -551,6 +705,7 @@ export function buildCardsRows(
   const cardsById = new Map(deck.cards.map((c) => [c.id, c]));
   const cardSeq = new Map(deck.cards.map((c, i) => [c.id, i]));
   const railPaneIds = new Set(findSidebarPanes(deck).map(({ pane }) => pane.id));
+  let paneCount = 0;
 
   // 1. One entry per pane, filed by its active card's group.
   const entries: PaneEntry[] = [];
@@ -633,9 +788,11 @@ export function buildCardsRows(
       : ordered;
     if (survivors.length === 0) continue;
 
+    paneCount += survivors.length;
     const isCollapsed = collapsed.has(group);
     rows.push({
       type: "group-header",
+      spaceId,
       group,
       count: survivors.length,
       summary: summarizeGroup(
@@ -650,6 +807,7 @@ export function buildCardsRows(
       const multi = entry.pane.cardIds.length > 1;
       rows.push({
         type: "pane",
+        spaceId,
         group,
         paneId: entry.pane.id,
         identity: entry.identity,
@@ -674,6 +832,7 @@ export function buildCardsRows(
         }
         rows.push({
           type: "card",
+          spaceId,
           group,
           paneId: entry.pane.id,
           identity: card,
@@ -683,7 +842,7 @@ export function buildCardsRows(
     }
   }
 
-  return rows;
+  return { rows, paneCount };
 }
 
 /** A per-group census of pane rows, for the band's collapsed summary. */
@@ -759,11 +918,70 @@ export class CardsDataSource implements TugListViewDataSource {
     );
   }
 
-  /** Index of this group's header row, or -1 when the group renders none. */
-  indexForGroup(group: string): number {
-    return this.rows.findIndex(
-      (row) => row.type === "group-header" && row.group === group,
+  /**
+   * The identity card of the pane row carrying this order key, or `null` when
+   * no row does.
+   *
+   * A drag knows its row only by the order key, and an order key is NOT a card
+   * id — a stack keys by pane, a single-card session pane by session ([P08]).
+   * A cross-workspace drop names a card, so the two are resolved here rather
+   * than by a caller guessing they are the same string. The identity card is
+   * the right one for a stack too: a move takes the whole pane with it.
+   */
+  cardIdForOrderKey(orderKey: string): string | null {
+    const row = this.rows.find(
+      (r) => r.type === "pane" && r.orderKey === orderKey,
     );
+    return row !== undefined && row.type === "pane"
+      ? row.identity.cardId
+      : null;
+  }
+
+  /**
+   * Index of this group's header row inside `spaceId`, or -1 when that
+   * workspace renders none. Scoped by space because two workspaces both
+   * showing Sessions each have their own header row.
+   */
+  indexForGroup(spaceId: string, group: string): number {
+    return this.rows.findIndex(
+      (row) =>
+        row.type === "group-header" &&
+        row.spaceId === spaceId &&
+        row.group === group,
+    );
+  }
+
+  /** Index of this workspace's header row, or -1 when no space has that id. */
+  indexForSpace(spaceId: string): number {
+    return this.rows.findIndex(
+      (row) => row.type === "space-header" && row.spaceId === spaceId,
+    );
+  }
+
+  /** The workspace being rendered, or `""` before the deck store answers. */
+  activeSpaceId(): string {
+    return this.inputs.spaces.find((space) => space.active)?.id ?? "";
+  }
+
+  /**
+   * How many rows BELOW the workspace level the projection is showing — group
+   * headers and pane rows alike.
+   *
+   * This is what "the list has something to show" reads, and it is
+   * {@link numberOfItems} minus the workspace headers. A workspace's header is
+   * emitted whether or not anything under it survives a filter ([P09]), so the
+   * item count can never reach zero once there is a workspace — and a list of
+   * nothing but workspace names is the case the empty label is for.
+   *
+   * Group headers COUNT. A fully collapsed list is showing its headers and is
+   * not empty: the header is the way back.
+   */
+  innerRowCount(): number {
+    let n = 0;
+    for (const row of this.rows) {
+      if (row.type !== "space-header") n += 1;
+    }
+    return n;
   }
 
   /**
@@ -779,7 +997,7 @@ export class CardsDataSource implements TugListViewDataSource {
 
   setInputsWithoutNotify(next: LensCardsInputs): boolean {
     if (
-      this.inputs.deck === next.deck &&
+      this.inputs.spaces === next.spaces &&
       this.inputs.cardsRowOrder === next.cardsRowOrder &&
       this.inputs.groupOrder === next.groupOrder &&
       this.inputs.collapsedGroups === next.collapsedGroups &&
@@ -788,6 +1006,7 @@ export class CardsDataSource implements TugListViewDataSource {
       this.inputs.bindings === next.bindings &&
       this.inputs.tagVersion === next.tagVersion &&
       this.inputs.nameVersion === next.nameVersion &&
+      this.inputs.bindingsCache === next.bindingsCache &&
       this.inputs.changesets === next.changesets
     ) {
       return false;
@@ -824,26 +1043,47 @@ export class CardsDataSource implements TugListViewDataSource {
   }
 
   /**
-   * The groups as RENDERED, in emission order — the group reorder hook's
-   * `getVisibleOrder`. Same derived-from-the-projection discipline as
+   * The groups `spaceId` RENDERS, in emission order — the group reorder hook's
+   * `getVisibleOrder`.
+   *
+   * Scoped to one workspace because a group drag stays inside the workspace it
+   * started in: the persisted group order is one arrangement shared by every
+   * deck ([B09]), and a drag that read across workspaces would hand the commit
+   * an order with the same group named several times.
+   *
+   * Same derived-from-the-projection discipline as
    * {@link visibleOrder}: a group with no rows emits no header, so it must not
    * appear here either.
    */
-  visibleGroupOrder(): CardsGroup[] {
+  visibleGroupOrder(spaceId: string): CardsGroup[] {
     const out: CardsGroup[] = [];
     for (const row of this.rows) {
-      if (row.type === "group-header") out.push(row.group);
+      if (row.type === "group-header" && row.spaceId === spaceId) {
+        out.push(row.group);
+      }
     }
     return out;
   }
 
-  /** The group each order key currently belongs to — what a reorder commit
-   *  re-buckets against, so a row dropped across a boundary still orders
-   *  within its own group. */
-  groupByOrderKey(): Map<string, CardsGroup> {
-    const out = new Map<string, CardsGroup>();
+  /** The workspaces as RENDERED, in emission order — every one of them, since
+   *  a workspace's header is emitted whether or not its rows are. */
+  visibleSpaceOrder(): string[] {
+    const out: string[] = [];
     for (const row of this.rows) {
-      if (row.type === "pane") out.set(row.orderKey, row.group);
+      if (row.type === "space-header") out.push(row.spaceId);
+    }
+    return out;
+  }
+
+  /** The group and workspace each order key currently belongs to — what a
+   *  reorder commit re-buckets against, so a row dropped across a boundary
+   *  still orders within its own group, and inside its own workspace. */
+  groupByOrderKey(): Map<string, { group: CardsGroup; spaceId: string }> {
+    const out = new Map<string, { group: CardsGroup; spaceId: string }>();
+    for (const row of this.rows) {
+      if (row.type === "pane") {
+        out.set(row.orderKey, { group: row.group, spaceId: row.spaceId });
+      }
     }
     return out;
   }
@@ -851,7 +1091,18 @@ export class CardsDataSource implements TugListViewDataSource {
   /** Pane rows per group, filter or no filter — the band's summary reads this. */
   censusByGroup(): CardsCensus {
     const unfiltered = buildCardsRows(
-      { ...this.inputs, filterQuery: "", collapsedGroups: [] },
+      {
+        ...this.inputs,
+        filterQuery: "",
+        collapsedGroups: [],
+        // Every workspace, expanded — the census answers "how many cards does
+        // this instance hold", and a workspace the reader has not opened is
+        // still holding its cards ([P09]).
+        spaces: this.inputs.spaces.map((space) => ({
+          ...space,
+          expanded: true,
+        })),
+      },
       this.resolvers,
     );
     const out: Record<CardsGroup, number> = {
@@ -879,19 +1130,45 @@ export class CardsDataSource implements TugListViewDataSource {
 
 const NOOP_SUBSCRIBE = (): (() => void) => () => {};
 
+/** The snapshot a deck store with nothing to say answers with. */
+const EMPTY_SPACES: SpacesSnapshot = { spaces: [], activeSpaceId: "" };
+
 /**
- * Hook — read the deck snapshot and both open registries (all [L02] stores)
- * and feed a stable {@link CardsDataSource}, notifying from a layout
- * effect ([L03]).
+ * Hook — read the deck snapshot, the SPACES snapshot, the expansion set, the
+ * bindings cache and both open registries (all [L02] stores) and feed a stable
+ * {@link CardsDataSource}, notifying from a layout effect ([L03]).
+ *
+ * Two deck subscriptions, deliberately. `subscribe` fires on every mutation
+ * inside the active deck, and `subscribeSpaces` fires only when the LIST
+ * changes — added, renamed, removed, reordered, activated. A row projection
+ * needs both and they are cheap apart; folding them into one would make the
+ * spaces list re-read on every pane move.
  */
 export function useCardsDataSource(
-  inputs: Omit<LensCardsInputs, "deck" | "registryVersion">,
+  inputs: Omit<LensCardsInputs, "spaces" | "registryVersion" | "bindingsCache">,
 ): CardsDataSource {
   const deckStore = getDeckStore();
   const deck = useSyncExternalStore(
     deckStore?.subscribe ?? NOOP_SUBSCRIBE,
     deckStore !== null ? deckStore.getSnapshot : () => null,
     () => null,
+  );
+  const spacesSnapshot = useSyncExternalStore(
+    deckStore?.subscribeSpaces ?? NOOP_SUBSCRIBE,
+    deckStore !== null ? deckStore.getSpacesSnapshot : () => EMPTY_SPACES,
+    () => EMPTY_SPACES,
+  );
+  const expandedSpaces = useSyncExternalStore(
+    expandedSpacesStore.subscribe,
+    expandedSpacesStore.getSnapshot,
+    expandedSpacesStore.getSnapshot,
+  );
+  // The workspace headers' `· N live` reads the bindings cache, so a frame
+  // landing after the list is drawn has to re-run the projection.
+  const cacheRows = useSyncExternalStore(
+    spaceBindingsLedgerStore.subscribe,
+    spaceBindingsLedgerStore.getSnapshot,
+    spaceBindingsLedgerStore.getSnapshot,
   );
   // Recompute when a card binds / rebinds its path, so a just-opened file is
   // titled the instant its card resolves. Both families feed the list, so both
@@ -909,9 +1186,41 @@ export function useCardsDataSource(
   );
 
   const ref = useRef<CardsDataSource | null>(null);
+  // An id the list no longer holds would otherwise be inherited by a later
+  // workspace that reused it.
+  const liveSpaceIds = useMemo(
+    () => new Set(spacesSnapshot.spaces.map((s) => s.id)),
+    [spacesSnapshot],
+  );
+  useLayoutEffect(() => {
+    expandedSpacesStore.prune(liveSpaceIds);
+  }, [liveSpaceIds]);
+
+  const spaces = useMemo((): readonly SpaceRowsInput[] => {
+    if (deckStore === null) return [];
+    const out: SpaceRowsInput[] = [];
+    for (const entry of spacesSnapshot.spaces) {
+      const active = entry.id === spacesSnapshot.activeSpaceId;
+      // `getSpaceDeck` answers with the LIVE deck for the active space and the
+      // parked record for the others, so the active entry follows `deck`
+      // through this memo's dependency on it.
+      const spaceDeck = active ? deck : deckStore.getSpaceDeck(entry.id);
+      if (spaceDeck === null) continue;
+      out.push({
+        id: entry.id,
+        name: entry.name,
+        active,
+        expanded: active || expandedSpaces.has(entry.id),
+        deck: spaceDeck,
+      });
+    }
+    return out;
+  }, [deckStore, deck, spacesSnapshot, expandedSpaces]);
+
   const full: LensCardsInputs = {
     ...inputs,
-    deck,
+    spaces,
+    bindingsCache: cacheRows,
     registryVersion: textVersion + viewVersion,
   };
   if (ref.current === null) {

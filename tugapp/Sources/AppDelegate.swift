@@ -99,6 +99,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // AppKit's automatic window entries survive every open.
     private var windowMenu: NSMenu!
     private var windowPaneListAnchor: NSMenuItem?
+    /// Anchor for the Workspaces slice, managed exactly as the pane slice is
+    /// and inserted ahead of it: a workspace is the level above a pane, and
+    /// the menu reads outside-in.
+    private var windowSpaceListAnchor: NSMenuItem?
 
     /// The glyph AppKit draws for `.mixed`, shared by every row that can
     /// reach that state — the five sidebar parents and the five toggles inside
@@ -1402,10 +1406,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // sorting by id would put Cards before Arcs and look alphabetical.
         for (noun, componentId, toggleAction) in [
             ("Arcs", "dashes", #selector(showArcs(_:))),
-            ("Cards", "cards", #selector(showCards(_:))),
             ("Jots", "jots", #selector(showJots(_:))),
             ("Layout", "layout", #selector(showLayout(_:))),
             ("Overview", "overview", #selector(showOverview(_:))),
+            ("Workspaces", "cards", #selector(showCards(_:))),
         ] as [(String, String, Selector)] {
             let parent = NSMenuItem(title: noun, action: nil, keyEquivalent: "")
                 .identified("window.sidebar.\(componentId)")
@@ -1436,6 +1440,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // inserted directly after it (and removed by identifier prefix) on
         // every menu open. macOS hides the redundant separator pair when
         // the slice is empty.
+        //
+        // The Workspaces slice takes its own anchor ahead of it, for the same
+        // sectioned reason and in the order the levels nest: workspaces, then
+        // the panes of the one on screen.
+        let spaceAnchor = NSMenuItem.separator()
+        self.windowSpaceListAnchor = spaceAnchor
+        wMenu.addItem(spaceAnchor)
         let paneAnchor = NSMenuItem.separator()
         self.windowPaneListAnchor = paneAnchor
         wMenu.addItem(paneAnchor)
@@ -1691,6 +1702,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func focusPaneFromMenu(_ sender: NSMenuItem) {
         guard let paneId = sender.representedObject as? String else { return }
         sendControl("focus-pane", params: ["paneId": paneId])
+    }
+
+    @objc private func activateSpaceFromMenu(_ sender: NSMenuItem) {
+        guard let spaceId = sender.representedObject as? String else { return }
+        sendControl("activate-space", params: ["spaceId": spaceId])
     }
 
     @objc private func newComponentGalleryCard(_ sender: Any?) {
@@ -2626,6 +2642,7 @@ extension AppDelegate: NSMenuDelegate {
         }
         if menu === windowMenu {
             refreshSidebarParentMarks(menu)
+            rebuildWindowSpaceList(menu)
             rebuildWindowPaneList(menu)
             return
         }
@@ -2849,6 +2866,30 @@ extension AppDelegate: NSMenuDelegate {
             index += 1
         }
     }
+
+    /// The Window menu's Workspaces slice, managed in place exactly as the
+    /// pane slice above ([P12], [B10]): remove every `window.space.*` item,
+    /// then re-insert one row per workspace after the anchor, checkmarked on
+    /// the one on screen. Selecting a row sends `activate-space`, which the
+    /// deck canvas answers — the same shape `focus-pane` takes, and the reason
+    /// the menu can fire it while any card holds focus.
+    private func rebuildWindowSpaceList(_ menu: NSMenu) {
+        defer { applyCommandChords(in: menu) }
+        for item in menu.items where item.identifier?.rawValue.hasPrefix("window.space.") == true {
+            menu.removeItem(item)
+        }
+        guard let anchor = windowSpaceListAnchor, !menuState.spaces.isEmpty else { return }
+        var index = menu.index(of: anchor) + 1
+        for (n, space) in menuState.spaces.enumerated() {
+            // Positional identifiers, for the pane list's reason: a workspace
+            // id is a fresh UUID, and the harness addresses slots.
+            let item = NSMenuItem(title: space.name, action: #selector(activateSpaceFromMenu(_:)), keyEquivalent: "").identified("window.space.\(n)")
+            item.representedObject = space.id
+            item.state = space.active ? .on : .off
+            menu.insertItem(item, at: index)
+            index += 1
+        }
+    }
 }
 
 // Helper extension for menu items with modifier masks
@@ -2892,6 +2933,14 @@ struct MenuState {
         let id: String
         let title: String
         let focused: Bool
+    }
+
+    /// One workspace row for the Window menu's Workspaces section, in the
+    /// user's order, `active` on the one rendered ([P12]).
+    struct Space {
+        let id: String
+        let name: String
+        let active: Bool
     }
 
     /// Session-card session state; nil unless the active card is a session card.
@@ -3015,6 +3064,9 @@ struct MenuState {
     }
 
     var panes: [Pane] = []
+    /// Every workspace, in the user's order, for the Window menu's
+    /// Workspaces section.
+    var spaces: [Space] = []
     var session: Session?
     /// A frontmost surface that owns zoom for itself (the viewer card's PDF
     /// branch). Present means View ▸ Zoom In / Zoom Out / Actual Size scale
@@ -3050,6 +3102,16 @@ struct MenuState {
                     id: id,
                     title: entry["title"] as? String ?? "Untitled",
                     focused: entry["focused"] as? Bool ?? false
+                )
+            }
+        }
+        if let rawSpaces = payload["spaces"] as? [[String: Any]] {
+            spaces = rawSpaces.compactMap { entry in
+                guard let id = entry["id"] as? String else { return nil }
+                return Space(
+                    id: id,
+                    name: entry["name"] as? String ?? "Untitled",
+                    active: entry["active"] as? Bool ?? false
                 )
             }
         }

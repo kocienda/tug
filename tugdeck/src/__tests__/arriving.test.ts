@@ -25,7 +25,7 @@ import {
   deckColumnsOf,
   placeMembers,
 } from "../deck-store-selectors";
-import { serialize, deserialize } from "../serialization";
+import { serializeDeck, deserializeDeck } from "./deck-blob-helpers";
 import {
   sweptArriving,
   type CardState,
@@ -264,7 +264,7 @@ describe("a mark does not survive serialization", () => {
   };
 
   test("serialize emits no mark", () => {
-    const out = serialize(marked);
+    const out = serializeDeck(marked);
     expect(JSON.stringify(out)).not.toContain("arriving");
     // The ARRANGEMENT is serialized, and must be — only the mark against it
     // is session state.
@@ -272,7 +272,7 @@ describe("a mark does not survive serialization", () => {
   });
 
   test("a round trip comes back with the field absent", () => {
-    const back = deserialize(JSON.stringify(serialize(marked)), 1600, 1000);
+    const back = deserializeDeck(JSON.stringify(serializeDeck(marked)), 1600, 1000);
     expect(back.arriving).toBeUndefined();
   });
 });

@@ -947,9 +947,22 @@ export function initActionDispatch(
       console.warn("focus-session-card: missing or invalid cardId", payload);
       return;
     }
-    const pane = deckManager
+    let pane = deckManager
       .getSnapshot()
       .panes.find((p) => p.cardIds.includes(cardId));
+    if (!pane) {
+      // The card may be in a PARKED workspace — a row in an expanded inactive
+      // workspace is exactly such a click ([P09]). Go there first, and then
+      // front it: the pane exists in the rendered deck from the moment
+      // `activateSpace` commits, so the re-read below finds it.
+      const spaceId = deckManager.spaceOf(cardId);
+      if (spaceId !== null) {
+        deckManager.activateSpace(spaceId);
+        pane = deckManager
+          .getSnapshot()
+          .panes.find((p) => p.cardIds.includes(cardId));
+      }
+    }
     if (!pane) {
       console.warn(`focus-session-card: no pane holds card "${cardId}"`);
       return;

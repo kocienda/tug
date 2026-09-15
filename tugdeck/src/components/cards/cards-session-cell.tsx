@@ -42,6 +42,7 @@ import React from "react";
 
 import { SlotPicker } from "./slot-picker";
 import { CardsColumnBadge } from "./cards-column-badge";
+import { groupRunKey } from "./cards-groups";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { AnnotationScope } from "@/components/tugways/annotation-scope";
 import {
@@ -61,6 +62,10 @@ export interface CardsSessionRowProps {
   onRowPointerDown: (orderKey: string, event: React.PointerEvent) => void;
   /** This row's card is in the layout selection. */
   selected: boolean;
+  /** The workspace holding this row, and whether it is the one on screen —
+   *  the workspace run's block key and the read-only mark ([P09], [P10]). */
+  spaceId: string;
+  spaceActive: boolean;
 }
 
 /** One monitor row: the shared `SessionIdentityRow`, at the Cards card's settings.
@@ -78,6 +83,8 @@ export function CardsSessionRow({
   filterQuery,
   onRowPointerDown,
   selected,
+  spaceId,
+  spaceActive,
 }: CardsSessionRowProps): React.ReactElement {
   // The binding's workspace key — the row already holds the project directory,
   // and the key is what scopes the file index the annotator's path resolver
@@ -138,12 +145,17 @@ export function CardsSessionRow({
           </>
         }
         // The row is its own reorder handle — a vertical drag from anywhere on
-        // it that is not the slot picker carries it.
-        onPointerDown={(e) => onRowPointerDown(orderKey, e)}
+        // it that is not the slot picker carries it. A row of a workspace that
+        // is not on screen is a read-only view and carries nothing ([P09]).
+        onPointerDown={
+          spaceActive ? (e) => onRowPointerDown(orderKey, e) : undefined
+        }
         data-session-id={tugSessionId}
         data-cards-row-id={orderKey}
         data-cards-row-group="sessions"
-        data-cards-group-run="sessions"
+        data-cards-group-run={groupRunKey(spaceId, "sessions")}
+        data-cards-space-run={spaceId}
+        {...(spaceActive ? {} : { "data-cards-space-inactive": "true" })}
       />
     </AnnotationScope>
   );

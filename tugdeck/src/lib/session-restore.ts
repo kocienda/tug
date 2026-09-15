@@ -96,10 +96,21 @@
  * `mode=new`-with-same-project_dir so the card still opens to its
  * bound project without dropping the user back to the picker.
  *
+ * **Workspaces restore lazily, and reconnect does not change that.** Boot and
+ * reconnect both restore the ACTIVE workspace's cards only ([B04]): ten
+ * workspaces must not spawn ten sets of tugcode at launch. A parked
+ * workspace's cards are restored by {@link restoreSpaceSessions} at the moment
+ * it is activated, reading `spaceBindingsLedgerStore` so the expectation is
+ * registered before the cards mount. Reconnect clears every binding and
+ * re-runs this pass for the active deck; the parked workspaces had their
+ * bindings cleared too, so each re-restores at its next activation, which is
+ * the same path a first activation takes.
+ *
  * @module lib/session-restore
  */
 
 import type { DeckManager } from "../deck-manager";
+import type { DeckState } from "../layout-tree";
 import type { TugConnection } from "../connection";
 import {
   provisionSpawnLine,
@@ -112,6 +123,7 @@ import { cardSessionBindingStore } from "./card-session-binding-store";
 import { cardServicesStore } from "./card-services-store";
 import { pickerNoticeStore } from "./picker-notice-store";
 import { subscribeToListCardBindingsOk } from "./session-ledger-events";
+import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
 import { CONTROL_ACTION_LIST_CARD_BINDINGS, FeedId } from "../protocol";
 import type { CardBinding } from "../protocol";
 import type { CodeSessionState } from "./code-session-store/reducer";
@@ -703,6 +715,12 @@ function installRegistrySubscriptions(connection: TugConnection): void {
   if (_subscriptionsInstalled) return;
   _subscriptionsInstalled = true;
 
+  // The bindings cache reads the same `list_card_bindings_ok` frame this
+  // module already asks for, and holds every card id it names — including
+  // the parked workspaces' — so a switch can restore without a round trip
+  // ([P08], Spec S03).
+  spaceBindingsLedgerStore.installOnce();
+
   // When a binding arrives for a restoring card, the restore succeeded.
   // Also notify the card's CodeSessionStore that the wire is settled,
   // so its `transportState` can flip from `restoring` back to `online`
@@ -836,6 +854,13 @@ export type RestoreReason = "startup" | "reconnect";
 
 export interface RestoreOptions {
   readonly reason?: RestoreReason;
+  /**
+   * The cards this pass is for. Defaults to the ACTIVE deck's session cards,
+   * which is every caller but one: {@link restoreSpaceSessions} passes the
+   * subset of a just-activated workspace's cards the bindings cache could not
+   * answer for, so the round trip asks about those and nothing else.
+   */
+  readonly cardIds?: ReadonlySet<string>;
 }
 
 /**
@@ -860,15 +885,25 @@ export function restoreSessions(
 ): void {
   installRegistrySubscriptions(connection);
 
-  const sessionCardIds = new Set(
-    deck
-      .getSnapshot()
-      .cards.filter((c) => c.componentId === SESSION_COMPONENT_ID)
-      .map((c) => c.id),
-  );
+  const sessionCardIds =
+    opts?.cardIds ??
+    new Set(
+      deck
+        .getSnapshot()
+        .cards.filter((c) => c.componentId === SESSION_COMPONENT_ID)
+        .map((c) => c.id),
+    );
   if (sessionCardIds.size === 0) {
     // No dev cards to restore — the pass is trivially settled.
     restorePassGate._settle();
+    // Ask anyway, for the CACHE. `spaceBindingsLedgerStore` is filled by this
+    // frame and by nothing else, and the case where the active workspace has
+    // no session cards is exactly the case where a parked one's cards most
+    // need answering ([P08]): without the request the cache stays empty, and
+    // the first switch to a session-bearing workspace pays a round trip and
+    // the picker flash the cache exists to prevent (Risk R02). The frame is
+    // one control request at boot and the response is read by both.
+    connection.sendControlFrame(CONTROL_ACTION_LIST_CARD_BINDINGS, {});
     return;
   }
 
@@ -972,6 +1007,95 @@ export function restoreSessions(
   // publishes onto `listCardBindingsOkBus`, which the subscription
   // above consumes.
   connection.sendControlFrame(CONTROL_ACTION_LIST_CARD_BINDINGS, {});
+}
+
+/**
+ * Restore the session cards of a workspace that was just activated ([P08]).
+ *
+ * Called from `DeckManager.activateSpace` between the commit that swaps the
+ * deck in and the `activateCard` that follows it — which is BEFORE React mounts
+ * the incoming cards, and that timing is the whole point. `restorePassGate` is
+ * one-shot and settled long ago, so a session card that mounts unbound with no
+ * `sessionRestoreRegistry` expectation falls straight through to the project
+ * picker. Firing from the cache here registers the expectation synchronously,
+ * so the card's first paint is `SessionRestoring` rather than a picker that
+ * flashes and is replaced (Risk R02).
+ *
+ * The cache is why this can be synchronous at all: the boot
+ * `list_card_bindings_ok` lists every card id the ledger knows, not only the
+ * active deck's, so a workspace nobody has opened this run is already answered
+ * for. A card the cache CANNOT answer for is collected, and one round trip is
+ * sent for exactly that set — the slow path, for a card bound in another app
+ * run since this client's last frame.
+ *
+ * A card that is already bound, already restoring, or has no ledger row at all
+ * is left alone. The last of those is a genuinely fresh card, and the picker is
+ * the right answer for it.
+ */
+export function restoreSpaceSessions(
+  deck: DeckManager,
+  spaceDeck: DeckState,
+  connection: TugConnection,
+): void {
+  installRegistrySubscriptions(connection);
+
+  const unanswered = new Set<string>();
+  let resumedCount = 0;
+  let freshCount = 0;
+
+  for (const card of spaceDeck.cards) {
+    if (card.componentId !== SESSION_COMPONENT_ID) continue;
+    const cardId = card.id;
+    if (cardSessionBindingStore.getBinding(cardId) !== undefined) continue;
+    // `fireFreshSpawn` registers a hold too, so this one test covers both a
+    // restore and a fresh spawn already in flight.
+    if (sessionRestoreRegistry.has(cardId)) continue;
+
+    const row = spaceBindingsLedgerStore.get(cardId);
+    if (row === undefined) {
+      unanswered.add(cardId);
+      continue;
+    }
+    // The same truth table `restoreSessions` reads a wire row by, and
+    // deliberately the same: two answers to "resume or fresh-spawn?" would
+    // eventually disagree, and the disagreement would be a card crash-looping
+    // on a `--session-id` collision.
+    if (row.has_jsonl === true || row.turn_count > 0 || row.is_alive === true) {
+      fireRestore(cardId, row.session_id, row.project_dir, connection, {
+        title: null,
+        turnCount: row.turn_count,
+      });
+      resumedCount += 1;
+    } else {
+      fireFreshSpawn(cardId, row.session_id, row.project_dir, connection);
+      freshCount += 1;
+    }
+  }
+
+  // Logged unconditionally, unlike the boot pass's line. A switch that fired
+  // NOTHING is the interesting case here — it is what a card stranded on its
+  // picker looks like from this side — and a line that only appears on the
+  // happy path cannot tell "the pass decided to do nothing" from "the pass
+  // never ran".
+  logSessionLifecycle("restore.space_pass", {
+    space_card_count: spaceDeck.cards.filter(
+      (c) => c.componentId === SESSION_COMPONENT_ID,
+    ).length,
+    restore_count: resumedCount,
+    fresh_spawn_count: freshCount,
+    unanswered_count: unanswered.size,
+    cached_rows: spaceBindingsLedgerStore.getSnapshot().size,
+  });
+
+  // The slow path: one round trip for the cards the cache could not answer.
+  // `restoreSessions` settles the pass gate on the way through, which is
+  // already settled and idempotent.
+  if (unanswered.size > 0) {
+    restoreSessions(deck, connection, {
+      reason: "startup",
+      cardIds: unanswered,
+    });
+  }
 }
 
 function isCardBinding(value: unknown): value is CardBinding {

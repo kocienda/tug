@@ -923,10 +923,36 @@ export const TUG_ACTIONS = {
   // FOCUS_PANE:              payload — `{ paneId: string }`. Bring a pane
   //                          to front through the full activation
   //                          transition. The Window menu's pane list.
+  // ACTIVATE_SPACE:          payload — `{ spaceId: string }`. Render that
+  //                          workspace's deck, parking the one on screen.
+  //                          The Window menu's Workspaces list and the
+  //                          Workspaces card's rows.
   NEW_TEXT_CARD:          "new-text-card",
   OPEN_QUICKLY:           "open-quickly",
   CLEAR_RECENT_DOCUMENTS: "clear-recent-documents",
   FOCUS_PANE:             "focus-pane",
+  ACTIVATE_SPACE:         "activate-space",
+
+  // ---- Workspace verbs over the row the right-click landed on ----
+  //
+  // Each means "the workspace this header row is", which no chord and no
+  // menu-bar item has a way to name — so all four are declared in
+  // `ACTIONS_OUTSIDE_THE_TABLE` beside the arc row's verbs ([P11], [L30]).
+  // `ACTIVATE_SPACE` above is the opposite case and stays a command: a
+  // workspace CAN be named, by id, from the Window menu's list.
+  //
+  // NEW_SPACE:       payload — `{}`. Make a workspace and go to it.
+  // RENAME_SPACE:    payload — `{ spaceId: string }`, and optionally
+  //                  `{ name: string }`. Without a name it opens the
+  //                  header's inline field; with one it commits.
+  // DUPLICATE_SPACE: payload — `{ spaceId: string }`. Copy the layout and
+  //                  its sidebars, not its sessions.
+  // DELETE_SPACE:    payload — `{ spaceId: string }`. Confirms first when
+  //                  the workspace holds live sessions.
+  NEW_SPACE:              "new-space",
+  RENAME_SPACE:           "rename-space",
+  DUPLICATE_SPACE:        "duplicate-space",
+  DELETE_SPACE:           "delete-space",
 
   // ---- Commit mode ----
   //

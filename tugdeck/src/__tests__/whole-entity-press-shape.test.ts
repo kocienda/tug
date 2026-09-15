@@ -56,6 +56,10 @@ const EXEMPT: ReadonlyMap<string, string> = new Map([
     "opens from the row's ⋯ button, and from a right-click on a row that is a claim rather than an entity",
   ],
   [
+    "components/cards/cards-space-header.tsx",
+    "opens from a right-click on a list row naming a workspace — there is no run of text under the press to select whole",
+  ],
+  [
     "components/tugways/tug-editor-context-menu.tsx",
     "is the menu component itself, and opens nothing",
   ],

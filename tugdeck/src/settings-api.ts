@@ -789,19 +789,6 @@ export function putPendingContext(sessionId: string, state: unknown): void {
     });
 }
 
-/**
- * PUT the focused card ID to tugbank (fire-and-forget).
- */
-export function putFocusedCardId(focusedCardId: string): void {
-  fetch("/api/defaults/dev.tugapp.deck.state/focusedCardId", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind: "string", value: focusedCardId }),
-  }).catch((err) => {
-    console.warn("[settings] PUT focusedCardId failed:", err);
-  });
-}
-
 // ── Editor settings ─────────────────────────────────────────────────────────
 
 /** Editor settings shape stored in tugbank. */

@@ -28,11 +28,15 @@ import type { TugConnection } from "@/connection";
 
 // Stub `getConnection` so cardServicesStore._construct returns a real
 // services bag instead of warning + returning null. The connection is
-// only reached for `send` / `onFrame` — both are no-op stubs here.
+// reached for `send` / `onFrame` and for the `list_card_bindings` request
+// every restore pass now issues — the cache behind the lazy per-workspace
+// restore is filled by that frame and by nothing else, so the pass asks even
+// when it has no card of its own to restore. All three are no-op stubs here.
 const fakeConnection = {
   send: (_feedId: number, _payload: Uint8Array, _flags?: number) => {},
   trySend: (_feedId: number, _payload: Uint8Array, _flags?: number) => true,
   onFrame: (_feedId: number, _cb: (payload: Uint8Array) => void) => () => {},
+  sendControlFrame: (_action: string, _payload: unknown) => {},
 } as unknown as TugConnection;
 
 mock.module("@/lib/connection-singleton", () => ({

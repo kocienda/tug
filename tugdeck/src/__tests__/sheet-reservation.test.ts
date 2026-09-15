@@ -33,7 +33,7 @@ import {
 import { CARD_TITLE_BAR_HEIGHT } from "../components/chrome/tug-pane";
 import { IMPOSITION_GAP_PX } from "../lib/layout-imposer";
 import { registerCard, _resetForTest } from "../card-registry";
-import { serialize, deserialize } from "../serialization";
+import { serializeDeck, deserializeDeck } from "./deck-blob-helpers";
 import type { DeckState } from "../layout-tree";
 
 describe("memberFloorForSheetPanel does the chrome arithmetic once", () => {
@@ -145,7 +145,7 @@ describe("a reservation does not survive serialization", () => {
     // A restored claim would be a floor held for a surface nobody raised: the
     // sheet that justified it cannot be up, and the card would come back
     // taller than the division the hand set with the sash.
-    const out = serialize(reserving);
+    const out = serializeDeck(reserving);
     expect(JSON.stringify(out)).not.toContain("sheetReservations");
     // The ARRANGEMENT is serialized, and must be: the split and its order are
     // the user's own choice. Only the claim against it is session state.
@@ -153,7 +153,7 @@ describe("a reservation does not survive serialization", () => {
   });
 
   test("a round trip comes back with the field absent", () => {
-    const back = deserialize(JSON.stringify(serialize(reserving)), 1600, 1000);
+    const back = deserializeDeck(JSON.stringify(serializeDeck(reserving)), 1600, 1000);
     expect(back.sheetReservations).toBeUndefined();
   });
 });

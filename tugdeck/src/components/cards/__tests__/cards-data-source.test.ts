@@ -117,7 +117,13 @@ function inputs(
   over: Partial<LensCardsInputs> = {},
 ): LensCardsInputs {
   return {
-    deck: d,
+    // Every case here is about ONE workspace's rows, so the deck is wrapped as
+    // the active space — the shape that reproduces the pre-workspaces
+    // projection exactly, minus its leading `space-header` row.
+    spaces:
+      d === null
+        ? []
+        : [{ id: "s1", name: "Main", active: true, expanded: true, deck: d }],
     cardsRowOrder: { sessions: [], files: [], tools: [] },
     groupOrder: [],
     collapsedGroups: [],
@@ -127,13 +133,37 @@ function inputs(
     tagVersion: 0,
     nameVersion: 0,
     changesets: null,
+    bindingsCache: new Map(),
     ...over,
   };
+}
+
+/**
+ * The rows BELOW the workspace level.
+ *
+ * Every case in this file but the workspace block at the end describes ONE
+ * workspace's projection, and `inputs()` wraps its deck as the single active
+ * space — so each of them now emits a leading `space-header` row that says
+ * nothing about what the case is testing. Dropping it here is what lets those
+ * expectations read exactly as they did before workspaces existed, which is
+ * itself the claim: a one-space input reproduces the old projection whole. The
+ * workspace block asserts over `buildCardsRows` directly.
+ */
+function innerRows(
+  ins: LensCardsInputs,
+  over?: Parameters<typeof buildCardsRows>[1],
+): CardsRow[] {
+  return buildCardsRows(ins, over).filter(
+    (row) => row.type !== "space-header",
+  );
 }
 
 /** Compact projection shape for readable assertions. */
 function shape(rows: readonly CardsRow[]): string[] {
   return rows.map((row) => {
+    if (row.type === "space-header") {
+      return `space:${row.name}(${row.count})${row.expanded ? "" : "-collapsed"}`;
+    }
     if (row.type === "group-header") {
       return `header:${row.group}(${row.count})${row.collapsed ? "-collapsed" : ""}`;
     }
@@ -226,7 +256,7 @@ describe("single-card panes", () => {
       [card("c1", "text")],
       [pane("p1", ["c1"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, {}),
       resolvers({ groups: STANDARD_GROUPS, paths: { c1: "/x/a.txt" } }),
     );
@@ -239,7 +269,7 @@ describe("single-card panes", () => {
       [card("s1", "session"), card("t1", "text"), card("g1", "settings")],
       [pane("p1", ["s1"]), pane("p2", ["t1"]), pane("p3", ["g1"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { bindings: new Map([["s1", binding("sess-1")]]) }),
       resolvers({ groups: STANDARD_GROUPS, paths: { t1: "/x/a.txt" } }),
     );
@@ -249,7 +279,7 @@ describe("single-card panes", () => {
 
   it("a session pane's cardCount is 1, so no stack affordance can apply", () => {
     const d = deck([card("s1", "session")], [pane("p1", ["s1"])]);
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { bindings: new Map([["s1", binding("sess-1")]]) }),
       resolvers({ groups: STANDARD_GROUPS }),
     );
@@ -274,7 +304,7 @@ describe("multi-card panes", () => {
   );
 
   it("emit a stack row plus one subrow per card in cardIds order", () => {
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(galleryDeck),
       resolvers({ groups: STANDARD_GROUPS }),
     );
@@ -292,7 +322,7 @@ describe("multi-card panes", () => {
     // The projection takes collapsedGroups, a filter, and an order. None of
     // them is a per-pane fold, and no combination of them hides a subrow while
     // its pane row shows.
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(galleryDeck, { cardsRowOrder: { sessions: [], files: [], tools: ["p1"] } }),
       resolvers({ groups: STANDARD_GROUPS }),
     );
@@ -300,7 +330,7 @@ describe("multi-card panes", () => {
   });
 
   it("the pane row's identity is the ACTIVE card, not the first", () => {
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(galleryDeck),
       resolvers({ groups: STANDARD_GROUPS }),
     );
@@ -309,7 +339,7 @@ describe("multi-card panes", () => {
   });
 
   it("mark exactly one subrow active", () => {
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(galleryDeck),
       resolvers({ groups: STANDARD_GROUPS }),
     );
@@ -327,7 +357,7 @@ describe("a mixed-kind pane files under its active card's group", () => {
 
   it("files under files when the text card is fronted", () => {
     const d = deck(cards, [pane("p1", ["t1", "g1"], "t1")]);
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d),
       resolvers({ groups: STANDARD_GROUPS, paths: { t1: "/x/a.txt" } }),
     );
@@ -336,7 +366,7 @@ describe("a mixed-kind pane files under its active card's group", () => {
 
   it("moves to tools when the settings card is fronted", () => {
     const d = deck(cards, [pane("p1", ["t1", "g1"], "g1")]);
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d),
       resolvers({ groups: STANDARD_GROUPS, paths: { t1: "/x/a.txt" } }),
     );
@@ -354,7 +384,7 @@ describe("groups", () => {
       [card("g1", "settings"), card("t1", "text"), card("s1", "session")],
       [pane("p1", ["g1"]), pane("p2", ["t1"]), pane("p3", ["s1"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { bindings: new Map([["s1", binding("sess-1")]]) }),
       resolvers({ groups: STANDARD_GROUPS, paths: { t1: "/x/a.txt" } }),
     );
@@ -365,7 +395,7 @@ describe("groups", () => {
 
   it("an empty group emits nothing at all — not an empty header", () => {
     const d = deck([card("t1", "text")], [pane("p1", ["t1"])]);
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d),
       resolvers({ groups: STANDARD_GROUPS, paths: { t1: "/x/a.txt" } }),
     );
@@ -377,7 +407,7 @@ describe("groups", () => {
       [card("t1", "text"), card("t2", "text")],
       [pane("p1", ["t1"]), pane("p2", ["t2"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { collapsedGroups: ["files"] }),
       resolvers({
         groups: STANDARD_GROUPS,
@@ -392,7 +422,7 @@ describe("groups", () => {
       [card("g1", "settings", "Settings"), card("t1", "text"), card("s1", "session")],
       [pane("p1", ["g1"]), pane("p2", ["t1"]), pane("p3", ["s1"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, {
         groupOrder: ["tools", "files", "sessions"],
         bindings: new Map([["s1", binding("sess-1")]]),
@@ -409,7 +439,7 @@ describe("groups", () => {
       [card("g1", "settings", "Settings"), card("t1", "text")],
       [pane("p1", ["g1"]), pane("p2", ["t1"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { groupOrder: ["tools", "sessions", "files"] }),
       resolvers({ groups: STANDARD_GROUPS, paths: { t1: "/x/a.txt" } }),
     );
@@ -426,7 +456,7 @@ describe("groups", () => {
       [card("t1", "text"), card("g1", "settings", "Settings")],
       [pane("p1", ["t1"]), pane("p2", ["g1"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { collapsedGroups: ["files"] }),
       resolvers({ groups: STANDARD_GROUPS, paths: { t1: "/x/a.txt" } }),
     );
@@ -453,7 +483,7 @@ describe("ordering", () => {
   });
 
   it("no persisted order yields deck order", () => {
-    const rows = buildCardsRows(inputs(d), r);
+    const rows = innerRows(inputs(d), r);
     expect(shape(rows).slice(1)).toEqual([
       "pane:file-pane:a.txt",
       "pane:file-pane:b.txt",
@@ -462,7 +492,7 @@ describe("ordering", () => {
   });
 
   it("ranked keys lead, in rank order", () => {
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { cardsRowOrder: { sessions: [], files: ["t3", "t1"], tools: [] } }),
       r,
     );
@@ -474,7 +504,7 @@ describe("ordering", () => {
   });
 
   it("unranked entries trail in deck order", () => {
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { cardsRowOrder: { sessions: [], files: ["t3"], tools: [] } }),
       r,
     );
@@ -495,7 +525,7 @@ describe("ordering", () => {
       // Same three panes as `d`, raised into a different stacking order.
       [pane("p3", ["t3"]), pane("p1", ["t1"]), pane("p2", ["t2"])],
     );
-    const rows = buildCardsRows(inputs(restacked), r);
+    const rows = innerRows(inputs(restacked), r);
     expect(shape(rows).slice(1)).toEqual([
       "pane:file-pane:a.txt",
       "pane:file-pane:b.txt",
@@ -504,7 +534,7 @@ describe("ordering", () => {
   });
 
   it("stale keys are ignored", () => {
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, {
         cardsRowOrder: { sessions: [], files: ["gone", "t2"], tools: [] },
       }),
@@ -518,7 +548,7 @@ describe("ordering", () => {
       [card("t1", "text"), card("g1", "settings", "Settings")],
       [pane("p1", ["t1"]), pane("p2", ["g1"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(mixed, {
         cardsRowOrder: { sessions: [], files: ["g1"], tools: ["t1"] },
       }),
@@ -536,7 +566,7 @@ describe("ordering", () => {
 describe("order keys", () => {
   it("a single-card session pane keys by session, not by card", () => {
     const d = deck([card("s1", "session")], [pane("p1", ["s1"])]);
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { bindings: new Map([["s1", binding("sess-1")]]) }),
       resolvers({ groups: STANDARD_GROUPS }),
     );
@@ -546,14 +576,14 @@ describe("order keys", () => {
 
   it("an unbound session card falls back to its card id", () => {
     const d = deck([card("s1", "session")], [pane("p1", ["s1"])]);
-    const rows = buildCardsRows(inputs(d), resolvers({ groups: STANDARD_GROUPS }));
+    const rows = innerRows(inputs(d), resolvers({ groups: STANDARD_GROUPS }));
     const paneRow = rows.find((r) => r.type === "pane")!;
     expect(paneRow.type === "pane" && paneRow.orderKey).toBe("s1");
   });
 
   it("any other single-card pane keys by card id", () => {
     const d = deck([card("t1", "text")], [pane("p1", ["t1"])]);
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d),
       resolvers({ groups: STANDARD_GROUPS, paths: { t1: "/x/a.txt" } }),
     );
@@ -566,7 +596,7 @@ describe("order keys", () => {
       [card("s1", "session"), card("s2", "session")],
       [pane("p1", ["s1", "s2"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, {
         bindings: new Map([
           ["s1", binding("sess-1")],
@@ -590,7 +620,7 @@ describe("filtering", () => {
       [card("t1", "text"), card("g1", "settings", "Settings")],
       [pane("p1", ["t1"]), pane("p2", ["g1"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { filterQuery: "alpha" }),
       resolvers({ groups: STANDARD_GROUPS, paths: { t1: "/x/alpha.txt" } }),
     );
@@ -602,7 +632,7 @@ describe("filtering", () => {
       [card("t1", "text"), card("t2", "text")],
       [pane("p1", ["t1"]), pane("p2", ["t2"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { filterQuery: "alpha" }),
       resolvers({
         groups: STANDARD_GROUPS,
@@ -614,7 +644,7 @@ describe("filtering", () => {
 
   it("matches on the directory as DISPLAYED", () => {
     const d = deck([card("t1", "text")], [pane("p1", ["t1"])]);
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { filterQuery: "~/src" }),
       resolvers({
         groups: STANDARD_GROUPS,
@@ -633,7 +663,7 @@ describe("filtering", () => {
       ],
       [pane("p1", ["g1", "g2", "g3"], "g1")],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { filterQuery: "checkbox" }),
       resolvers({ groups: STANDARD_GROUPS }),
     );
@@ -652,7 +682,7 @@ describe("filtering", () => {
       ],
       [pane("p1", ["g1", "g2"], "g1")],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, { filterQuery: "buttons" }),
       resolvers({ groups: STANDARD_GROUPS }),
     );
@@ -678,7 +708,7 @@ describe("filtering", () => {
       labels: { "sess-1": "proj/refactor", "sess-2": "proj/docs" },
     });
     expect(
-      shape(buildCardsRows(inputs(d, { bindings, filterQuery: "refactor" }), r)),
+      shape(innerRows(inputs(d, { bindings, filterQuery: "refactor" }), r)),
     ).toEqual(["header:sessions(1)", "pane:session-pane:proj/refactor"]);
   });
 
@@ -705,12 +735,12 @@ describe("filtering", () => {
       },
     });
     expect(
-      shape(buildCardsRows(inputs(d, { bindings, filterQuery: "parser" }), r)),
+      shape(innerRows(inputs(d, { bindings, filterQuery: "parser" }), r)),
     ).toEqual(["header:sessions(1)", "pane:session-pane:parser rewrite"]);
     // The callsign is not on the row and still matches — and the row it
     // returns is titled with the name, never with what the query typed.
     expect(
-      shape(buildCardsRows(inputs(d, { bindings, filterQuery: "frothy" }), r)),
+      shape(innerRows(inputs(d, { bindings, filterQuery: "frothy" }), r)),
     ).toEqual(["header:sessions(1)", "pane:session-pane:parser rewrite"]);
   });
 
@@ -730,7 +760,7 @@ describe("filtering", () => {
       inputs(d, { bindings, filterQuery: "parser" }),
       r,
     );
-    expect(source.numberOfItems()).toBe(0);
+    expect(source.numberOfItems()).toBe(1); // the workspace header stands
     title = "parser rewrite";
     expect(
       source.setInputsWithoutNotify(
@@ -741,7 +771,7 @@ describe("filtering", () => {
       shape(
         Array.from({ length: source.numberOfItems() }, (_, i) =>
           source.rowAt(i),
-        ),
+        ).filter((row) => row.type !== "space-header"),
       ),
     ).toEqual(["header:sessions(1)", "pane:session-pane:parser rewrite"]);
   });
@@ -756,12 +786,12 @@ describe("filtering", () => {
       paths: { t1: "/x/alpha.txt", t2: "/x/beta.txt" },
     });
     const order = { sessions: [], files: ["t2", "t1"], tools: [] };
-    const filtered = buildCardsRows(
+    const filtered = innerRows(
       inputs(d, { cardsRowOrder: order, filterQuery: "a" }),
       r,
     );
     expect(filtered.length).toBeGreaterThan(1);
-    const cleared = buildCardsRows(inputs(d, { cardsRowOrder: order }), r);
+    const cleared = innerRows(inputs(d, { cardsRowOrder: order }), r);
     expect(shape(cleared).slice(1)).toEqual([
       "pane:file-pane:beta.txt",
       "pane:file-pane:alpha.txt",
@@ -779,7 +809,7 @@ describe("exclusions", () => {
       [card("dashes-card", "dashes"), card("t1", "text")],
       [pane("pl", ["dashes-card"]), pane("p1", ["t1"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d),
       resolvers({ groups: STANDARD_GROUPS, paths: { t1: "/x/a.txt" } }),
     );
@@ -788,7 +818,7 @@ describe("exclusions", () => {
 
   it("a pane whose active card resolves to none is skipped", () => {
     const d = deck([card("x1", "mystery")], [pane("p1", ["x1"])]);
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d),
       resolvers({ groups: { mystery: "none" } }),
     );
@@ -796,7 +826,7 @@ describe("exclusions", () => {
   });
 
   it("a null deck projects nothing", () => {
-    expect(buildCardsRows(inputs(null), resolvers())).toEqual([]);
+    expect(innerRows(inputs(null), resolvers())).toEqual([]);
   });
 
   it("two panes bound to ONE session render two rows — the canvas has two panes", () => {
@@ -804,7 +834,7 @@ describe("exclusions", () => {
       [card("s1", "session"), card("s2", "session")],
       [pane("p1", ["s1"]), pane("p2", ["s2"])],
     );
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(d, {
         bindings: new Map([
           ["s1", binding("sess-1")],
@@ -818,7 +848,7 @@ describe("exclusions", () => {
 
   it("a pane whose active card is missing from the card table is skipped", () => {
     const d = deck([card("t1", "text")], [pane("p1", ["ghost"], "ghost")]);
-    expect(buildCardsRows(inputs(d), resolvers({ groups: STANDARD_GROUPS }))).toEqual([]);
+    expect(innerRows(inputs(d), resolvers({ groups: STANDARD_GROUPS }))).toEqual([]);
   });
 });
 
@@ -828,9 +858,9 @@ describe("row ids", () => {
       [card("g1", "gallery-buttons", "Buttons"), card("g2", "gallery-buttons", "Input")],
       [pane("p1", ["g1", "g2"], "g1")],
     );
-    const rows = buildCardsRows(inputs(d), resolvers({ groups: STANDARD_GROUPS }));
+    const rows = innerRows(inputs(d), resolvers({ groups: STANDARD_GROUPS }));
     const ids = rows.map(idOfRow);
-    expect(ids).toEqual(["header:tools", "pane:p1", "card:g1", "card:g2"]);
+    expect(ids).toEqual(["header:s1:tools", "pane:p1", "card:g1", "card:g2"]);
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
@@ -872,7 +902,7 @@ describe("CardsDataSource", () => {
     const all = source().visibleOrder();
     expect(all.length).toBeGreaterThan(0);
     const groups = source().groupByOrderKey();
-    const collapsedGroup = groups.get(all[0])!;
+    const collapsedGroup = groups.get(all[0])!.group;
     const narrowed = source({ collapsedGroups: [collapsedGroup] }).visibleOrder();
     expect(narrowed).not.toContain(all[0]);
   });
@@ -896,7 +926,7 @@ describe("CardsDataSource", () => {
 
   it("unfilteredCount holds while a filter narrows the visible rows", () => {
     const ds = source({ filterQuery: "zzz-no-match" });
-    expect(ds.numberOfItems()).toBe(0);
+    expect(ds.numberOfItems()).toBe(1); // the workspace header stands
     expect(ds.unfilteredCount()).toBe(source().unfilteredCount());
   });
 
@@ -1061,7 +1091,7 @@ describe("a session's arc", () => {
     // The arc is a line inside the session's row, drawn from the row's own
     // leaf subscription. Nothing about it reaches the row model, which is what
     // makes the row count independent of what any arc is doing.
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(oneSession, {
         bindings: new Map([["s1", binding("sess-1")]]),
         changesets: snapshotWith("sess-1"),
@@ -1079,7 +1109,7 @@ describe("a session's arc", () => {
     // Anything that differed here would be the row model carrying the binding,
     // which it must not: a bind would then reflow the list.
     const project = (changesets: ReturnType<typeof snapshotWith> | null) =>
-      buildCardsRows(
+      innerRows(
         inputs(oneSession, {
           bindings: new Map([["s1", binding("sess-1")]]),
           changesets,
@@ -1095,7 +1125,7 @@ describe("a session's arc", () => {
   it("filtering by the arc name keeps the session", () => {
     // The session's own text says nothing about the arc, so this passes only
     // because the arc name joined the pane row's match fields.
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(oneSession, {
         bindings: new Map([["s1", binding("sess-1")]]),
         changesets: snapshotWith("sess-1", { name: "marmalade" }),
@@ -1110,7 +1140,7 @@ describe("a session's arc", () => {
   });
 
   it("an arc name matches nothing once the session is filtered out", () => {
-    const rows = buildCardsRows(
+    const rows = innerRows(
       inputs(oneSession, {
         bindings: new Map([["s1", binding("sess-1")]]),
         changesets: snapshotWith("sess-1"),
@@ -1130,5 +1160,238 @@ describe("a session's arc", () => {
       resolvers({ groups: SESSION_GROUPS }),
     );
     expect(source.visibleOrder()).toEqual(["sess-1"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The workspace level ([P09], Spec S04)
+// ---------------------------------------------------------------------------
+
+describe("workspaces as the outer level", () => {
+  const r = resolvers({
+    groups: STANDARD_GROUPS,
+    paths: { t1: "/x/alpha.txt", t2: "/x/beta.txt", t3: "/x/gamma.txt" },
+  });
+
+  /** The active workspace: one Text card. */
+  const activeDeck = deck([card("t1", "text")], [pane("p1", ["t1"])]);
+  /** A parked workspace: two Text cards. */
+  const parkedDeck = deck(
+    [card("t2", "text"), card("t3", "text")],
+    [pane("p2", ["t2"]), pane("p3", ["t3"])],
+  );
+
+  function twoSpaces(
+    over: Partial<LensCardsInputs> = {},
+    awayExpanded = false,
+  ): LensCardsInputs {
+    return inputs(activeDeck, {
+      spaces: [
+        {
+          id: "home",
+          name: "Home",
+          active: true,
+          expanded: true,
+          deck: activeDeck,
+        },
+        {
+          id: "away",
+          name: "Away",
+          active: false,
+          expanded: awayExpanded,
+          deck: parkedDeck,
+        },
+      ],
+      ...over,
+    });
+  }
+
+  it("emits one header per workspace, in order, with the inactive one collapsed", () => {
+    expect(shape(buildCardsRows(twoSpaces(), r))).toEqual([
+      "space:Home(1)",
+      "header:files(1)",
+      "pane:file-pane:alpha.txt",
+      "space:Away(2)-collapsed",
+    ]);
+  });
+
+  it("a collapsed workspace still reports what it holds", () => {
+    const away = buildCardsRows(twoSpaces(), r).find(
+      (row) => row.type === "space-header" && row.spaceId === "away",
+    )!;
+    expect(away.type === "space-header" && away.summary).toBe("2 cards");
+    expect(away.type === "space-header" && away.count).toBe(2);
+    expect(away.type === "space-header" && away.active).toBe(false);
+  });
+
+  it("one card reads as `1 card`", () => {
+    const home = buildCardsRows(twoSpaces(), r).find(
+      (row) => row.type === "space-header" && row.spaceId === "home",
+    )!;
+    expect(home.type === "space-header" && home.summary).toBe("1 card");
+  });
+
+  it("a collapsed GROUP does not empty a workspace's count", () => {
+    // The collapsed set is one arrangement shared by every workspace, so a
+    // count read back off the rendered rows would report `0 cards` for every
+    // workspace in the list the moment a reader folded Files once.
+    const rows = buildCardsRows(
+      twoSpaces({ collapsedGroups: ["files"] }, true),
+      r,
+    );
+    const headers = rows.filter((row) => row.type === "space-header");
+    expect(headers.map((row) => row.type === "space-header" && row.summary))
+      .toEqual(["1 card", "2 cards"]);
+    // …and the fold still does what it says: no pane row is drawn.
+    expect(rows.some((row) => row.type === "pane")).toBe(false);
+  });
+
+  it("expanding an inactive workspace emits its groups and rows", () => {
+    expect(shape(buildCardsRows(twoSpaces({}, true), r))).toEqual([
+      "space:Home(1)",
+      "header:files(1)",
+      "pane:file-pane:alpha.txt",
+      "space:Away(2)",
+      "header:files(2)",
+      "pane:file-pane:beta.txt",
+      "pane:file-pane:gamma.txt",
+    ]);
+  });
+
+  it("every row carries the workspace it belongs to", () => {
+    const rows = buildCardsRows(twoSpaces({}, true), r);
+    const homeRows = rows.filter((row) => row.spaceId === "home");
+    const awayRows = rows.filter((row) => row.spaceId === "away");
+    expect(homeRows.map((row) => row.type)).toEqual([
+      "space-header",
+      "group-header",
+      "pane",
+    ]);
+    expect(awayRows.map((row) => row.type)).toEqual([
+      "space-header",
+      "group-header",
+      "pane",
+      "pane",
+    ]);
+  });
+
+  it("the active workspace is expanded even when the caller says otherwise", () => {
+    const rows = buildCardsRows(
+      inputs(activeDeck, {
+        spaces: [
+          {
+            id: "home",
+            name: "Home",
+            active: true,
+            // The rule is the projection's, not the caller's: an entry for the
+            // active workspace could only ever disagree with it.
+            expanded: false,
+            deck: activeDeck,
+          },
+        ],
+      }),
+      r,
+    );
+    expect(shape(rows)).toEqual([
+      "space:Home(1)",
+      "header:files(1)",
+      "pane:file-pane:alpha.txt",
+    ]);
+  });
+
+  it("a filter matching only the other workspace keeps BOTH headers", () => {
+    // Home's groups go, because a group with no survivors says nothing. Home's
+    // HEADER stays, because a workspace is a place and a place that vanished
+    // while the user was typing would read as a place that is gone.
+    expect(shape(buildCardsRows(twoSpaces({ filterQuery: "beta" }, true), r))).toEqual([
+      "space:Home(0)",
+      "space:Away(1)",
+      "header:files(1)",
+      "pane:file-pane:beta.txt",
+    ]);
+  });
+
+  it("visibleOrder lists only the expanded workspaces' keys", () => {
+    const collapsed = new CardsDataSource(twoSpaces(), r);
+    expect(collapsed.visibleOrder()).toEqual(["t1"]);
+    const expanded = new CardsDataSource(twoSpaces({}, true), r);
+    expect(expanded.visibleOrder()).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("groupByOrderKey names each key's workspace as well as its group", () => {
+    const ds = new CardsDataSource(twoSpaces({}, true), r);
+    expect(ds.groupByOrderKey().get("t1")).toEqual({
+      group: "files",
+      spaceId: "home",
+    });
+    expect(ds.groupByOrderKey().get("t3")).toEqual({
+      group: "files",
+      spaceId: "away",
+    });
+  });
+
+  it("visibleGroupOrder answers for one workspace at a time", () => {
+    const ds = new CardsDataSource(twoSpaces({}, true), r);
+    expect(ds.visibleGroupOrder("home")).toEqual(["files"]);
+    expect(ds.visibleGroupOrder("away")).toEqual(["files"]);
+    expect(ds.visibleGroupOrder("nobody")).toEqual([]);
+  });
+
+  it("indexForSpace and indexForGroup address the right rows", () => {
+    const ds = new CardsDataSource(twoSpaces({}, true), r);
+    expect(ds.indexForSpace("home")).toBe(0);
+    expect(ds.indexForGroup("home", "files")).toBe(1);
+    expect(ds.indexForSpace("away")).toBe(3);
+    expect(ds.indexForGroup("away", "files")).toBe(4);
+    expect(ds.indexForSpace("nobody")).toBe(-1);
+  });
+
+  it("visibleSpaceOrder lists every workspace, expanded or not", () => {
+    expect(new CardsDataSource(twoSpaces(), r).visibleSpaceOrder()).toEqual([
+      "home",
+      "away",
+    ]);
+  });
+
+  it("the census counts a collapsed workspace's cards too", () => {
+    // A workspace the reader has not opened is still holding its cards, so the
+    // band's "N cards" must not drop as the list is folded up.
+    const ds = new CardsDataSource(twoSpaces(), r);
+    expect(ds.unfilteredCount()).toBe(3);
+    expect(ds.censusByGroup().files).toBe(3);
+  });
+
+  it("sessionsLive counts a bound card and a cached live one alike", () => {
+    // The bound card is the ordinary case. The UNBOUND one is the case that
+    // matters: a Session card in a workspace nobody has activated holds no
+    // binding at all by [B04]'s design, and only the cache can answer for it.
+    const sessionDeck = deck(
+      [card("s1", "session"), card("s2", "session"), card("s3", "session")],
+      [pane("ps1", ["s1"]), pane("ps2", ["s2"]), pane("ps3", ["s3"])],
+    );
+    const rows = buildCardsRows(
+      inputs(sessionDeck, {
+        bindings: new Map([["s1", binding("sess-1")]]),
+        spaces: [
+          {
+            id: "home",
+            name: "Home",
+            active: true,
+            expanded: true,
+            deck: sessionDeck,
+          },
+        ],
+      }),
+      {
+        ...resolvers({ groups: STANDARD_GROUPS }),
+        cachedSessionLive: (cardId) => cardId === "s2",
+      },
+    );
+    const header = rows[0];
+    expect(header.type === "space-header" && header.sessionsLive).toBe(2);
+  });
+
+  it("no workspaces projects nothing at all", () => {
+    expect(buildCardsRows(inputs(null), r)).toEqual([]);
   });
 });

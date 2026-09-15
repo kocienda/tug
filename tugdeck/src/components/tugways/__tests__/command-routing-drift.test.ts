@@ -237,6 +237,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "zoom-in": "command",
   "zoom-out": "command",
   "focus-pane": "command",
+  "activate-space": "command",
   "show-component-gallery": "command",
   "open-quickly": "command",
   "clear-recent-documents": "command",

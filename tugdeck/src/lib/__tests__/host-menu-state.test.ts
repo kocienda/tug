@@ -89,6 +89,24 @@ describe("projectDeckState", () => {
     expect(projection.panes[1].focused).toBe(false);
   });
 
+  test("no spaces snapshot projects an empty workspace list", () => {
+    expect(projectDeckState(deck([], [])).spaces).toEqual([]);
+  });
+
+  test("every workspace is projected in order, the rendered one marked", () => {
+    const projection = projectDeckState(deck([], []), {
+      spaces: [
+        { id: "s1", name: "Main" },
+        { id: "s2", name: "Second" },
+      ],
+      activeSpaceId: "s2",
+    });
+    expect(projection.spaces).toEqual([
+      { id: "s1", name: "Main", active: false },
+      { id: "s2", name: "Second", active: true },
+    ]);
+  });
+
   test("pane entries carry cardCount and the active card's closable", () => {
     const state = deck(
       [card("a", { closable: false }), card("b")],
@@ -378,6 +396,32 @@ describe("HostMenuStatePublisher", () => {
     await settle();
     expect(posted).toHaveLength(1);
     expect(posted[0].panes).toHaveLength(1);
+  });
+
+  test("a workspace rename re-publishes", async () => {
+    const posted: MenuStatePayload[] = [];
+    const publisher = new HostMenuStatePublisher((p) => posted.push(p));
+    const state = deck([card("a")], [pane("p1", ["a"])]);
+    publisher.setDeckProjection(
+      projectDeckState(state, {
+        spaces: [{ id: "s1", name: "Main" }],
+        activeSpaceId: "s1",
+      }),
+    );
+    await settle();
+    // Nothing about the deck moved — only the name one level up, which is
+    // exactly the change the menu's own subscription exists to carry.
+    publisher.setDeckProjection(
+      projectDeckState(state, {
+        spaces: [{ id: "s1", name: "Renamed" }],
+        activeSpaceId: "s1",
+      }),
+    );
+    await settle();
+    expect(posted).toHaveLength(2);
+    expect(posted[1].spaces).toEqual([
+      { id: "s1", name: "Renamed", active: true },
+    ]);
   });
 
   test("suppresses identical consecutive payloads", async () => {

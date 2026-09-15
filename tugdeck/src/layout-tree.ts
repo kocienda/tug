@@ -350,11 +350,14 @@ export interface TugPaneState {
  *   (never serialized) and read through `bullseyePaneIdOf` /
  *   `DeckManager.getBullseyePaneId()`, which derive rather than trust it.
  *
- * Reload-focus restoration is handled out-of-band: `putFocusedCardId`
- * writes a single-field row to tugbank, and `DeckManager` reads it back
- * via the `initialFocusedCardId` constructor parameter. That pointer is
- * deliberately not part of `DeckState` — it would duplicate persistence
- * paths.
+ * Reload-focus restoration is handled one level up: the focused card is a
+ * field on the SPACE record that holds this deck (`SpaceState.focusedCardId`
+ * in `spaces.ts`), written into the v5 layout blob beside its deck. That
+ * pointer is deliberately not part of `DeckState` — it would duplicate
+ * persistence paths. A pre-v5 blob's pointer came from a standalone tugbank
+ * row instead and still reaches `DeckManager` through the
+ * `initialFocusedCardId` constructor parameter, which fills the migrated
+ * space; the row is never written again.
  */
 export interface DeckState {
   cards: readonly CardState[];

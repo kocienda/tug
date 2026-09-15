@@ -24,7 +24,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { deserialize } from "../serialization";
+import { deserializeDeck } from "./deck-blob-helpers";
 import { filterDeckStateByRegistration } from "../deck-manager";
 import { registerCard, getRegistration, _resetForTest } from "../card-registry";
 import { OVERVIEW_CARD_ID } from "../lib/overview-card-id";
@@ -91,7 +91,7 @@ describe("a deck saved before the rename still finds its Session card", () => {
   });
 
   test("every place the old id appears is rewritten on load", () => {
-    const state = deserialize(preRenameBlob(), CANVAS_W, CANVAS_H);
+    const state = deserializeDeck(preRenameBlob(), CANVAS_W, CANVAS_H);
 
     // The card table.
     expect(state.cards.map((c) => c.componentId).sort()).toEqual([
@@ -113,7 +113,7 @@ describe("a deck saved before the rename still finds its Session card", () => {
     expect(getRegistration("dev")).toBeUndefined();
     expect(getRegistration("session")).toBeDefined();
 
-    const state = deserialize(preRenameBlob(), CANVAS_W, CANVAS_H);
+    const state = deserializeDeck(preRenameBlob(), CANVAS_W, CANVAS_H);
     const filtered = filterDeckStateByRegistration(
       state,
       (componentId) => getRegistration(componentId) !== undefined,
@@ -136,7 +136,7 @@ describe("a deck saved before the rename still finds its Session card", () => {
     // Same blob, same registry — but naming the card by an id no rename map
     // knows. This is the failure the entry above exists to prevent, and it
     // is what the first launch after an unmigrated rename would have done.
-    const orphaned = deserialize(
+    const orphaned = deserializeDeck(
       preRenameBlob().replace(/"dev"/g, '"devise"'),
       CANVAS_W,
       CANVAS_H,

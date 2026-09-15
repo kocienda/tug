@@ -20,7 +20,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { openingBidsWith } from "../deck-manager";
-import { serialize, deserialize } from "../serialization";
+import { serializeDeck, deserializeDeck } from "./deck-blob-helpers";
 import type { DeckState } from "../layout-tree";
 
 describe("openingBidsWith", () => {
@@ -102,7 +102,7 @@ describe("a pin does not survive serialization", () => {
   test("serialize emits no pins", () => {
     // A restored bid would hold a card's floor at a height nothing on screen
     // asked for: nothing is arriving across a restart.
-    const out = serialize(pinned);
+    const out = serializeDeck(pinned);
     expect(JSON.stringify(out)).not.toContain("openingBids");
     // The ARRANGEMENT is serialized, and must be — only the bid against it is
     // session state.
@@ -110,7 +110,7 @@ describe("a pin does not survive serialization", () => {
   });
 
   test("a round trip comes back with the field absent", () => {
-    const back = deserialize(JSON.stringify(serialize(pinned)), 1600, 1000);
+    const back = deserializeDeck(JSON.stringify(serializeDeck(pinned)), 1600, 1000);
     expect(back.openingBids).toBeUndefined();
   });
 });

@@ -115,6 +115,7 @@ export type SaveCallbackSource =
   | "beforeunload"
   | "window-blur"
   | "manual"
+  | "space-switch"
   | "termination"
   | "hmr"
   | "hmr-full-reload";

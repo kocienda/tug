@@ -1130,7 +1130,7 @@ const SIDEBAR_MENU_CARDS = [
   },
   {
     componentId: CARDS_CARD_ID,
-    noun: "Cards",
+    noun: "Workspaces",
     toggle: TUG_ACTIONS.TOGGLE_CARDS,
     key: "KeyW",
     label: "w",
@@ -1876,6 +1876,14 @@ export const COMMANDS: readonly CommandEntry[] = [
     // The pane list is rebuilt per open, so the payload set is runtime.
     id: TUG_ACTIONS.FOCUS_PANE,
     title: "Focus Pane",
+    routing: "first-responder",
+    parameterized: true,
+  },
+  {
+    // The workspace list is rebuilt per open, so the payload set is runtime —
+    // the same shape the pane list above takes, and for the same reason.
+    id: TUG_ACTIONS.ACTIVATE_SPACE,
+    title: "Activate Workspace",
     routing: "first-responder",
     parameterized: true,
   },
@@ -3009,6 +3017,14 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.UNBIND_ARC,
   TUG_ACTIONS.REQUEST_DISCARD_ARC,
   TUG_ACTIONS.REQUEST_REPLAY_ARC,
+  // The workspace header's four verbs. Each means "the workspace this row
+  // is" — the same sampled target that keeps every context-menu verb out of
+  // the table. Activating a workspace is NOT among them: that one names its
+  // target by id and is a parameterized command the Window menu fires ([P11]).
+  TUG_ACTIONS.NEW_SPACE,
+  TUG_ACTIONS.RENAME_SPACE,
+  TUG_ACTIONS.DUPLICATE_SPACE,
+  TUG_ACTIONS.DELETE_SPACE,
   // Sent card-to-card by a surface showing that card's arc, never typed:
   // the reader already has ⌃⌘C for their own card's shade, and a chord that
   // meant "reveal somebody else's" would have no way to name whose.

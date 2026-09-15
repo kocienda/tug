@@ -26,7 +26,7 @@ import { initRecentDocuments } from "./lib/recent-documents";
 import { installActivationClickBridge } from "./lib/activation-click-bridge";
 import { installUpdateBridge } from "./lib/update-bridge";
 import { cardServicesStore } from "./lib/card-services-store";
-import { restoreSessions } from "./lib/session-restore";
+import { restoreSessions, restoreSpaceSessions } from "./lib/session-restore";
 import { installDeckSeatingsReporter } from "./lib/deck-seatings-reporter";
 import { attachSessionLedgerStore } from "./lib/session-ledger-store";
 import { attachSessionStateChangesStore } from "./lib/session-state-changes-store";
@@ -134,6 +134,7 @@ declare global {
       diag: {
         listCardIds(): string[];
         getDeckState(): unknown;
+        getSpaces(): unknown;
         getCardState(cardId: string): unknown;
         captureCardState(cardId: string): unknown;
         registeredComponentKeys(cardId: string): string[];
@@ -147,6 +148,13 @@ declare global {
       lab: {
         dispatch(action: string, payload?: Record<string, unknown>): void;
         seedDeck(state: unknown, focusCardId?: string): void;
+        createSpace(name?: string): string;
+        renameSpace(spaceId: string, name: string): void;
+        duplicateSpace(spaceId: string): string | null;
+        deleteSpace(spaceId: string): boolean;
+        reorderSpaces(order: readonly string[]): void;
+        spaceHoldsLiveSessions(spaceId: string): number;
+        moveCardToSpace(cardId: string, spaceId: string): boolean;
       };
     };
     /**
@@ -407,7 +415,12 @@ if (!container) {
   if (layout !== null) {
     try {
       const parsed = deserialize(JSON.stringify(layout), 0, 0);
-      const cardIds = parsed.cards.map((c) => c.id);
+      // EVERY space's cards, not only the active one's ([P03]). A card in a
+      // parked workspace restores from this cache at the moment its workspace
+      // is activated — long after boot, and with no second read to fill it.
+      const cardIds = parsed.spaces.flatMap((s) =>
+        s.deck.cards.map((c) => c.id),
+      );
       if (cardIds.length > 0) {
         cardStates = readCardStates(tugbankClient, cardIds);
       }
@@ -562,7 +575,9 @@ if (!container) {
   if (!isTestMode) {
     pruneOrphanedCardDefaults(
       tugbankClient,
-      new Set(deck.getSnapshot().cards.map((c) => c.id)),
+      // Every space's cards ([P03], Table T01). The active deck alone would
+      // read every parked workspace's cards as orphaned and delete their bags.
+      deck.allSpaceCardIds(),
     );
   }
 
@@ -633,6 +648,16 @@ if (!container) {
   // picker to bound body before `cardDidActivate` fires for any of
   // them.
   restoreSessions(deck, connection);
+
+  // …and the same pass, per workspace, at the moment one is activated ([B04],
+  // [P08]). The boot pass above covers the ACTIVE workspace only; a parked
+  // one's cards are restored when the user switches to it, which is what keeps
+  // ten workspaces from spawning ten sets of tugcode at launch. The hook fires
+  // inside `activateSpace`, before React mounts the incoming cards, so a
+  // restoring card never flashes its picker first.
+  deck.setSpaceRestoreHook((spaceDeck) => {
+    restoreSpaceSessions(deck, spaceDeck, connection);
+  });
 
   // Reconnect path: every WebSocket recovery from a close re-runs the
   // restore loop so cards rebind without a page reload after a tugcast
@@ -745,6 +770,23 @@ if (!container) {
       listCardIds: () => deck.getSnapshot().cards.map((c) => c.id),
       /** Full active state — for ad-hoc inspection only. */
       getDeckState: () => deck.getSnapshot(),
+      /**
+       * Every space — its id, name, whether it is active, and its deck ([P03]).
+       * The active space's deck is the live one `getDeckState()` returns; the
+       * rest are parked. Read-only, which is what keeps it in `diag`.
+       */
+      getSpaces: () => {
+        const snapshot = deck.getSpacesSnapshot();
+        return {
+          activeSpaceId: snapshot.activeSpaceId,
+          spaces: snapshot.spaces.map((s) => ({
+            id: s.id,
+            name: s.name,
+            active: s.id === snapshot.activeSpaceId,
+            deck: deck.getSpaceDeck(s.id),
+          })),
+        };
+      },
       /** The bag currently in the cardStateCache for `cardId`. */
       getCardState: (cardId: string) => deck.getCardState(cardId),
       /**
@@ -811,6 +853,26 @@ if (!container) {
       seedDeck: (state: unknown, focusCardId?: string) => {
         deck.seedDeckState({ state: state as DeckState, focusCardId });
       },
+      /**
+       * The workspace record verbs ([P05]–[P07]), thin. They exist here for
+       * the same reason `dispatch` does: an app-test needs to drive New,
+       * Rename, Duplicate, Delete and reorder before the Workspaces card's
+       * surface exists to drive them with, and each of these is the one
+       * method that surface will itself call.
+       */
+      createSpace: (name?: string) => deck.createSpace(name),
+      renameSpace: (spaceId: string, name: string) => {
+        deck.renameSpace(spaceId, name);
+      },
+      duplicateSpace: (spaceId: string) => deck.duplicateSpace(spaceId),
+      deleteSpace: (spaceId: string) => deck.deleteSpace(spaceId),
+      reorderSpaces: (order: readonly string[]) => {
+        deck.reorderSpaces(order);
+      },
+      spaceHoldsLiveSessions: (spaceId: string) =>
+        deck.spaceHoldsLiveSessions(spaceId),
+      moveCardToSpace: (cardId: string, spaceId: string) =>
+        deck.moveCardToSpace(cardId, spaceId),
     },
   };
 

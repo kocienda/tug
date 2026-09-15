@@ -1264,6 +1264,7 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.OPEN_QUICKLY,
   TUG_ACTIONS.CLEAR_RECENT_DOCUMENTS,
   TUG_ACTIONS.FOCUS_PANE,
+  TUG_ACTIONS.ACTIVATE_SPACE,
 ]);
 
 /**
@@ -2097,6 +2098,26 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           store,
           commitMutation: () => store.activateCard(incomingCardId),
         });
+      },
+      // Answered HERE, at the chain root, for the reason `focus-pane` above
+      // is: the Window menu can fire it while a Session card holds focus and
+      // the Workspaces card is not even open, so a handler on that card would
+      // make the menu row work only when it happened to be focused ([P11]).
+      [TUG_ACTIONS.ACTIVATE_SPACE]: (event: ActionEvent) => {
+        const spaceId = (event.value as { spaceId?: unknown } | undefined)
+          ?.spaceId;
+        if (typeof spaceId !== "string") {
+          console.warn("activate-space: missing or invalid spaceId", event.value);
+          return;
+        }
+        const known = store
+          .getSpacesSnapshot()
+          .spaces.some((s) => s.id === spaceId);
+        if (!known) {
+          console.warn(`activate-space: no space with id "${spaceId}"`);
+          return;
+        }
+        store.activateSpace(spaceId);
       },
       [TUG_ACTIONS.REVEAL_IN_FINDER]: (event: ActionEvent) => {
         if (typeof event.value !== "string" || event.value === "") return;

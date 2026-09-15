@@ -7,7 +7,6 @@
  *   and synchronous-XHR branches
  * - readDeckState returns null when not cached
  * - readDeckState returns the string value from cache
- * - putFocusedCardId sends correct URL and body format (mock fetch)
  * - readCardStates returns populated Map for known card IDs
  * - readCardStates skips missing entries
  * - readDefaultProjectPath / resolveDefaultProjectPath explicit-vs-resolved
@@ -19,7 +18,6 @@ import {
   putCardState,
   putLayout,
   readDeckState,
-  putFocusedCardId,
   readCardStates,
   readSessionRecentProjects,
   insertSessionRecentProject,
@@ -194,36 +192,6 @@ describe("write acknowledgment", () => {
       throw new Error("connection refused");
     }) as unknown as typeof fetch;
     expect(await putLayout({})).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// putFocusedCardId
-// ---------------------------------------------------------------------------
-
-describe("putFocusedCardId", () => {
-  afterEach(() => {
-    mock.restore();
-  });
-
-  test("sends PUT to correct URL with string-tagged body", async () => {
-    const calls: { url: string; init: RequestInit }[] = [];
-
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: url as string, init: init ?? {} });
-      return makeResponse(200, {});
-    }) as unknown as typeof fetch;
-
-    putFocusedCardId("card-xyz");
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(calls.length).toBe(1);
-    expect(calls[0].url).toBe("/api/defaults/dev.tugapp.deck.state/focusedCardId");
-    expect(calls[0].init.method).toBe("PUT");
-
-    const body = JSON.parse(calls[0].init.body as string);
-    expect(body.kind).toBe("string");
-    expect(body.value).toBe("card-xyz");
   });
 });
 

@@ -81,3 +81,24 @@ export function resolveCardsGroup(
   if (reg.category?.label === "Files") return "files";
   return "tools";
 }
+
+/**
+ * The block key a group's run carries in the DOM, scoped to its workspace.
+ *
+ * **The group name alone will not do.** `useBlockReorder` gathers a block by
+ * querying the whole list for elements sharing a key, and two expanded
+ * workspaces each render a Sessions header and Sessions rows — so an unscoped
+ * key would hand a drag of one workspace's Sessions group the other
+ * workspace's rows as well, and carry them across the list.
+ *
+ * A space id is a UUID and a group name holds no colon, so the join is
+ * unambiguous and {@link groupOfRunKey} reads it back.
+ */
+export function groupRunKey(spaceId: string, group: CardsGroup): string {
+  return `${spaceId}:${group}`;
+}
+
+/** The group half of a {@link groupRunKey}. */
+export function groupOfRunKey(runKey: string): CardsGroup {
+  return runKey.slice(runKey.lastIndexOf(":") + 1) as CardsGroup;
+}

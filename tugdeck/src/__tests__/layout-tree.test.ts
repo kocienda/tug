@@ -7,7 +7,9 @@ import {
   validateDeckState,
   DeckStateInvariantError,
 } from "../layout-tree";
-import { serialize, deserialize, buildDefaultLayout } from "../serialization";
+import { buildDefaultLayout, serialize, deserialize } from "../serialization";
+import { serializeDeck, deserializeDeck } from "./deck-blob-helpers";
+import { MAIN_SPACE_NAME, wrapAsMainSpace } from "../spaces";
 import {
   DEFAULT_IMPOSITION_KIND,
   isSidebarPinned,
@@ -131,8 +133,8 @@ describe("TugPaneState.folded", () => {
   });
 
   test("the flag survives serialize / deserialize", () => {
-    const json = JSON.stringify(serialize(foldedState()));
-    const restored = deserialize(json, 1920, 1080);
+    const json = JSON.stringify(serializeDeck(foldedState()));
+    const restored = deserializeDeck(json, 1920, 1080);
     expect(restored.panes.length).toBe(1);
     expect(restored.panes[0].folded).toBe(true);
   });
@@ -140,8 +142,8 @@ describe("TugPaneState.folded", () => {
   test("a pane without the flag restores without the key, not with false", () => {
     const state = foldedState();
     const { folded: _dropped, ...bare } = state.panes[0];
-    const json = JSON.stringify(serialize({ ...state, panes: [bare] }));
-    const restored = deserialize(json, 1920, 1080);
+    const json = JSON.stringify(serializeDeck({ ...state, panes: [bare] }));
+    const restored = deserializeDeck(json, 1920, 1080);
     expect("folded" in restored.panes[0]).toBe(false);
   });
 
@@ -166,7 +168,7 @@ describe("TugPaneState.folded", () => {
       ],
       imposition: { sidebars: { dashes: { side: "right" } } },
     };
-    const restored = deserialize(JSON.stringify(legacy), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(legacy), 1920, 1080);
     expect(restored.panes[0].folded).toBeUndefined();
   });
 });
@@ -202,9 +204,9 @@ describe("serialize and deserialize (v4 wire)", () => {
     };
     const state: DeckState = { cards: [card], panes: [stack], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true };
 
-    const serialized = serialize(state);
+    const serialized = serializeDeck(state);
     const json = JSON.stringify(serialized);
-    const restored = deserialize(json, 1920, 1080);
+    const restored = deserializeDeck(json, 1920, 1080);
 
     expect(restored.cards.length).toBe(1);
     expect(restored.panes.length).toBe(1);
@@ -235,8 +237,8 @@ describe("serialize and deserialize (v4 wire)", () => {
     };
     const state: DeckState = { cards, panes: [stack], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true };
 
-    const json = JSON.stringify(serialize(state));
-    const restored = deserialize(json, 1920, 1080);
+    const json = JSON.stringify(serializeDeck(state));
+    const restored = deserializeDeck(json, 1920, 1080);
 
     expect(restored.panes.length).toBe(1);
     const r = restored.panes[0];
@@ -262,16 +264,23 @@ describe("serialize and deserialize (v4 wire)", () => {
         },
       ],
     };
-    const restored = deserialize(JSON.stringify(legacy), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(legacy), 1920, 1080);
     // The card is not dropped, and its kind is migrated to "session".
     expect(restored.cards.length).toBe(1);
     expect(restored.cards[0].componentId).toBe("session");
     expect(restored.panes[0].cardIds).toEqual(["c-dev"]);
   });
 
-  test("serialize emits version: 4", () => {
-    const out = serialize({ cards: [], panes: [], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }) as { version: number };
-    expect(out.version).toBe(4);
+  test("serialize emits version: 5", () => {
+    const out = serialize(
+      wrapAsMainSpace({
+        cards: [],
+        panes: [],
+        imposition: { sidebars: { dashes: { side: "right" } } },
+        hasFocus: true,
+      }),
+    ) as { version: number };
+    expect(out.version).toBe(5);
   });
 
   test("serialize emits no bullseye key, even with one set — bullseye is session state", () => {
@@ -290,7 +299,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       title: "",
       acceptsFamilies: ["standard"],
     };
-    const out = serialize({
+    const out = serializeDeck({
       cards: [card],
       panes: [pane],
       activePaneId: "w1",
@@ -319,9 +328,9 @@ describe("serialize and deserialize (v4 wire)", () => {
       panes: [],
       hasFocus: true,
     };
-    const withFlow = deserialize(
+    const withFlow = deserializeDeck(
       JSON.stringify(
-        serialize({
+        serializeDeck({
           ...base,
           imposition: {
             kind: "three-up" as const,
@@ -335,9 +344,9 @@ describe("serialize and deserialize (v4 wire)", () => {
     );
     expect(withFlow.imposition.layout).toBe("flow");
 
-    const absent = deserialize(
+    const absent = deserializeDeck(
       JSON.stringify(
-        serialize({
+        serializeDeck({
           ...base,
           imposition: { sidebars: { dashes: { side: "right" as const } } },
         }),
@@ -347,7 +356,7 @@ describe("serialize and deserialize (v4 wire)", () => {
     );
     expect(absent.imposition.layout).toBeUndefined();
 
-    const garbled = deserialize(
+    const garbled = deserializeDeck(
       JSON.stringify({
         version: 4,
         cards: [],
@@ -364,7 +373,7 @@ describe("serialize and deserialize (v4 wire)", () => {
     // Same rule bullseye follows above, and for the same reason: the offset
     // is derivable (activating any card re-reveals it), so a restored one
     // would be a viewport nobody asked for.
-    const out = serialize({
+    const out = serializeDeck({
       cards: [],
       panes: [],
       imposition: {
@@ -383,7 +392,7 @@ describe("serialize and deserialize (v4 wire)", () => {
     // better: the column it was measured against may have gained or lost
     // members while the deck was closed, so the number would point at a member
     // that is not there. Activating any member re-reveals it.
-    const out = serialize({
+    const out = serializeDeck({
       cards: [],
       panes: [],
       imposition: {
@@ -433,14 +442,14 @@ describe("serialize and deserialize (v4 wire)", () => {
       },
       hasFocus: true,
     };
-    const first = serialize(state);
-    const restored = deserialize(JSON.stringify(first), 1920, 1080);
-    const second = serialize(restored);
+    const first = serializeDeck(state);
+    const restored = deserializeDeck(JSON.stringify(first), 1920, 1080);
+    const second = serializeDeck(restored);
     expect(second).toEqual(first);
   });
 
   test("deserialize with corrupt JSON falls back to buildDefaultLayout", () => {
-    const result = deserialize("not-valid-json{{{", 1200, 800);
+    const result = deserializeDeck("not-valid-json{{{", 1200, 800);
     expect(result.cards.length).toBe(0);
     expect(result.panes.length).toBe(0);
   });
@@ -465,8 +474,8 @@ describe("serialize and deserialize (v4 wire)", () => {
       title: "",
       acceptsFamilies: ["standard"],
     };
-    const json = JSON.stringify(serialize({ cards: [card], panes: [pane], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }));
-    const restored = deserialize(json, 1280, 800);
+    const json = JSON.stringify(serializeDeck({ cards: [card], panes: [pane], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }));
+    const restored = deserializeDeck(json, 1280, 800);
     const r = restored.panes[0];
     // Width (900) already fits the 1280 canvas; height (1200) is capped to the
     // canvas less an 8px margin per side (800 − 16 = 784).
@@ -513,9 +522,9 @@ describe("serialize and deserialize (v4 wire)", () => {
   test("round-trips a sidebar card's side through the imposition record", () => {
     for (const side of ["left", "right"] as const) {
       const json = JSON.stringify(
-        serialize(dashesDeck(side, { width: 420, height: 1080 })),
+        serializeDeck(dashesDeck(side, { width: 420, height: 1080 })),
       );
-      const restored = deserialize(json, 1920, 1080);
+      const restored = deserializeDeck(json, 1920, 1080);
       expect(sidebarSide(restored.imposition, "dashes")).toBe(side);
       expect(restored.panes[0].acceptsFamilies).toEqual([]);
     }
@@ -527,13 +536,13 @@ describe("serialize and deserialize (v4 wire)", () => {
     // both; reading them back would reinstate a geometry this build cannot
     // paint, so they come back as what they now are — nothing.
     const deck = dashesDeck("right", { width: 420, height: 1080 });
-    const blob = serialize(deck) as Record<string, unknown>;
+    const blob = serializeDeck(deck) as Record<string, unknown>;
     const imposition = blob["imposition"] as Record<string, unknown>;
     imposition["sidebarSplit"] = { right: 0.72 };
     (imposition["sidebars"] as Record<string, Record<string, unknown>>)["dashes"][
       "order"
     ] = 1;
-    const restored = deserialize(JSON.stringify(blob), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(blob), 1920, 1080);
     expect(
       (restored.imposition as unknown as Record<string, unknown>)[
         "sidebarSplit"
@@ -553,14 +562,14 @@ describe("serialize and deserialize (v4 wire)", () => {
     // Every blob written before a sidebar could be dragged off its pin. Absent
     // must not mean floating, or an upgrade would scatter every deck's rail.
     const json = JSON.stringify(
-      serialize(dashesDeck("right", { width: 420, height: 1080 })),
+      serializeDeck(dashesDeck("right", { width: 420, height: 1080 })),
     );
     expect(JSON.parse(json).imposition.sidebars.dashes.pinned).toBeUndefined();
     expect(
-      deserialize(json, 1920, 1080).imposition.sidebars["dashes"]?.pinned,
+      deserializeDeck(json, 1920, 1080).imposition.sidebars["dashes"]?.pinned,
     ).toBeUndefined();
     expect(
-      isSidebarPinned(deserialize(json, 1920, 1080).imposition, "dashes"),
+      isSidebarPinned(deserializeDeck(json, 1920, 1080).imposition, "dashes"),
     ).toBe(true);
   });
 
@@ -570,7 +579,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       ...deck,
       imposition: withSidebarPinned(deck.imposition, "dashes", false),
     };
-    const restored = deserialize(JSON.stringify(serialize(floating)), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(serializeDeck(floating)), 1920, 1080);
     expect(restored.imposition.sidebars["dashes"]?.pinned).toBe(false);
     // The side survives the float, so re-pinning returns it to the same edge.
     expect(sidebarSide(restored.imposition, "dashes")).toBe("left");
@@ -585,7 +594,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       ...deck,
       imposition: withSidebarPinned(deck.imposition, "dashes", false),
     };
-    const r = deserialize(JSON.stringify(serialize(floating)), 1280, 800).panes[0];
+    const r = deserializeDeck(JSON.stringify(serializeDeck(floating)), 1280, 800).panes[0];
     expect(r.size.height).toBeLessThanOrEqual(800);
   });
 
@@ -607,8 +616,8 @@ describe("serialize and deserialize (v4 wire)", () => {
       title: "",
       acceptsFamilies: ["standard"],
     };
-    const json = JSON.stringify(serialize({ cards: [card], panes: [pane], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }));
-    const restored = deserialize(json, 1280, 800);
+    const json = JSON.stringify(serializeDeck({ cards: [card], panes: [pane], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }));
+    const restored = deserializeDeck(json, 1280, 800);
     const r = restored.panes[0];
     expect(r.size.width).toBe(400);
     expect(r.size.height).toBe(600);
@@ -657,8 +666,8 @@ describe("v2 → v4 migration", () => {
       ],
       activeWindowId: "s1",
     };
-    expect(deserialize(JSON.stringify(v2), 1920, 1080)).toEqual(
-      deserialize(JSON.stringify(v3), 1920, 1080),
+    expect(deserializeDeck(JSON.stringify(v2), 1920, 1080)).toEqual(
+      deserializeDeck(JSON.stringify(v3), 1920, 1080),
     );
   });
 
@@ -688,8 +697,8 @@ describe("v2 → v4 migration", () => {
       panes: v3.windows,
       activePaneId: "s1",
     };
-    expect(deserialize(JSON.stringify(v3), 1920, 1080)).toEqual(
-      deserialize(JSON.stringify(v4), 1920, 1080),
+    expect(deserializeDeck(JSON.stringify(v3), 1920, 1080)).toEqual(
+      deserializeDeck(JSON.stringify(v4), 1920, 1080),
     );
   });
 });
@@ -714,7 +723,7 @@ describe("v1 → two-table migration", () => {
         },
       ],
     };
-    const restored = deserialize(JSON.stringify(v1Blob), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(v1Blob), 1920, 1080);
     expect(restored.panes.length).toBe(1);
     expect(restored.cards.length).toBe(1);
     // Stack id preserved from legacy card id.
@@ -744,7 +753,7 @@ describe("v1 → two-table migration", () => {
         },
       ],
     };
-    const restored = deserialize(JSON.stringify(v1Blob), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(v1Blob), 1920, 1080);
     expect(restored.panes.length).toBe(1);
     expect(restored.cards.length).toBe(3);
     expect(restored.panes[0].cardIds).toEqual(["t1", "t2", "t3"]);
@@ -771,12 +780,12 @@ describe("v1 → two-table migration", () => {
       ],
       focusedCardId: "T1b",
     };
-    const loaded = deserialize(JSON.stringify(v1), 1920, 1080);
+    const loaded = deserializeDeck(JSON.stringify(v1), 1920, 1080);
     expect(loaded.panes.length).toBe(1);
-    // `focusedCardId` is persisted separately via putFocusedCardId — it
-    // does not round-trip through the layout blob.
+    // `focusedCardId` belongs to the SPACE, not to the deck — it does not
+    // round-trip through the deck body.
     expect((loaded as { focusedCardId?: string }).focusedCardId).toBeUndefined();
-    const saved = serialize(loaded) as {
+    const saved = serializeDeck(loaded) as {
       version: number;
       focusedCardId?: string;
     };
@@ -796,7 +805,7 @@ describe("v1 → two-table migration", () => {
         },
       ],
     };
-    const restored = deserialize(JSON.stringify(v1), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(v1), 1920, 1080);
     expect(restored.panes.length).toBe(1);
     expect(restored.cards[0].id).toBe("nv-tab");
   });
@@ -818,9 +827,9 @@ describe("TugPaneState widthPreset field", () => {
       widthPreset: "slim",
     };
     const json = JSON.stringify(
-      serialize({ cards: [card], panes: [stack], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }),
+      serializeDeck({ cards: [card], panes: [stack], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }),
     );
-    const restored = deserialize(json, 1920, 1080);
+    const restored = deserializeDeck(json, 1920, 1080);
     expect(restored.panes[0].widthPreset).toBe("slim");
   });
 
@@ -842,7 +851,7 @@ describe("TugPaneState widthPreset field", () => {
       ],
       imposition: { sidebars: { dashes: { side: "right" } } },
     };
-    const restored = deserialize(JSON.stringify(blob), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(blob), 1920, 1080);
     expect(restored.panes[0].widthPreset).toBeUndefined();
   });
 });
@@ -862,7 +871,7 @@ describe("CardStateBag type", () => {
 describe("DeckState focusedCardId persistence", () => {
   test("serialize does not emit focusedCardId in the layout blob", () => {
     const state: DeckState = { cards: [], panes: [], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true };
-    const blob = serialize(state) as Record<string, unknown>;
+    const blob = serializeDeck(state) as Record<string, unknown>;
     expect("focusedCardId" in blob).toBe(false);
   });
 
@@ -873,7 +882,7 @@ describe("DeckState focusedCardId persistence", () => {
       panes: [],
       focusedCardId: "card-abc",
     };
-    const restored = deserialize(JSON.stringify(withFocused), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(withFocused), 1920, 1080);
     expect((restored as { focusedCardId?: string }).focusedCardId).toBeUndefined();
   });
 
@@ -884,7 +893,7 @@ describe("DeckState focusedCardId persistence", () => {
       stacks: [],
       focusedCardId: "card-abc",
     };
-    const restored = deserialize(JSON.stringify(withFocused), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(withFocused), 1920, 1080);
     expect((restored as { focusedCardId?: string }).focusedCardId).toBeUndefined();
   });
 });
@@ -909,7 +918,7 @@ describe("deserialize edge cases", () => {
         },
       ],
     };
-    const restored = deserialize(JSON.stringify(v2), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(v2), 1920, 1080);
     expect(restored.panes[0].activeCardId).toBe("a");
   });
 
@@ -930,7 +939,7 @@ describe("deserialize edge cases", () => {
         },
       ],
     };
-    const restored = deserialize(JSON.stringify(v2), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(v2), 1920, 1080);
     expect(restored.panes[0].activeCardId).toBe("a");
   });
 
@@ -963,9 +972,9 @@ describe("deserialize edge cases", () => {
       },
     ];
     const json = JSON.stringify(
-      serialize({ cards, panes: paneList, imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }),
+      serializeDeck({ cards, panes: paneList, imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }),
     );
-    const restored = deserialize(json, 1920, 1080);
+    const restored = deserializeDeck(json, 1920, 1080);
     expect(restored.panes.length).toBe(2);
     expect(restored.panes[0].activeCardId).toBe("a2");
     expect(restored.panes[1].activeCardId).toBe("b3");
@@ -974,14 +983,14 @@ describe("deserialize edge cases", () => {
 
   test("deserialize with version:3 data falls back to buildDefaultLayout", () => {
     const json = JSON.stringify({ version: 3, root: {}, floating: [] });
-    const result = deserialize(json, 1200, 800);
+    const result = deserializeDeck(json, 1200, 800);
     expect(result.cards.length).toBe(0);
     expect(result.panes.length).toBe(0);
   });
 
   test("deserialize with version:4 data falls back to buildDefaultLayout", () => {
     const json = JSON.stringify({ version: 4, root: {}, floating: [] });
-    const result = deserialize(json, 1200, 800);
+    const result = deserializeDeck(json, 1200, 800);
     expect(result.cards.length).toBe(0);
     expect(result.panes.length).toBe(0);
   });
@@ -1000,7 +1009,7 @@ describe("deserialize edge cases", () => {
         },
       ],
     };
-    const restored = deserialize(JSON.stringify(v2), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(v2), 1920, 1080);
     expect(restored.panes.length).toBe(1);
     // Position is clamped so the whole pane (not just its title bar) fits,
     // keeping an 8px margin from the right and bottom edges.
@@ -1022,7 +1031,7 @@ describe("deserialize edge cases", () => {
         },
       ],
     };
-    const restored = deserialize(JSON.stringify(v2), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(v2), 1920, 1080);
     expect(restored.panes[0].size.width).toBe(100);
     expect(restored.panes[0].size.height).toBe(100);
   });
@@ -1048,7 +1057,7 @@ describe("a retired collapsed flag deserializes to an expanded pane", () => {
       cards: [{ id: "c1", componentId: "hello", title: "C", closable: true }],
       stacks: [collapsedPane],
     };
-    const restored = deserialize(JSON.stringify(v2), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(v2), 1920, 1080);
     expect(restored.panes.length).toBe(1);
     expect(restored.panes[0].size).toEqual({ width: 400, height: 300 });
     expect("collapsed" in restored.panes[0]).toBe(false);
@@ -1061,7 +1070,7 @@ describe("a retired collapsed flag deserializes to an expanded pane", () => {
       panes: [collapsedPane],
       imposition: { sidebars: { dashes: { side: "right" } } },
     };
-    const restored = deserialize(JSON.stringify(v4), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(v4), 1920, 1080);
     expect(restored.panes.length).toBe(1);
     expect(restored.panes[0].size).toEqual({ width: 400, height: 300 });
     expect("collapsed" in restored.panes[0]).toBe(false);
@@ -1197,7 +1206,7 @@ describe("Two-table invariants via the parser", () => {
         },
       ],
     };
-    const restored = deserialize(JSON.stringify(v2), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(v2), 1920, 1080);
     expect(restored.panes.length).toBe(1);
     expect(restored.panes[0].id).toBe("s1");
   });
@@ -1220,7 +1229,7 @@ describe("Two-table invariants via the parser", () => {
         },
       ],
     };
-    const restored = deserialize(JSON.stringify(v2), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(v2), 1920, 1080);
     expect(restored.cards.length).toBe(1);
     expect(restored.cards[0].id).toBe("a");
   });
@@ -1496,7 +1505,7 @@ describe("validateDeckState", () => {
     const stranded = columnState({ 0: { mode: "split", order: ["s1", "s2"] } }, [0, 1]);
     expect(() => validateDeckState(stranded)).toThrow(DeckStateInvariantError);
 
-    const restored = deserialize(JSON.stringify(serialize(stranded)), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(serializeDeck(stranded)), 1920, 1080);
     expect(() => validateDeckState(restored)).not.toThrow();
     expect(restored.imposition.columns?.[0]?.order).toEqual(["s1"]);
     // The slot keeps how it stands; only the lie about membership is removed.
@@ -1539,7 +1548,7 @@ describe("imposition wire format", () => {
       imposition: { kind: "three-up", sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
-    const restored = deserialize(JSON.stringify(serialize(state)), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(serializeDeck(state)), 1920, 1080);
     expect(restored.imposition).toEqual({
       kind: "three-up",
       contentWidth: "comfy",
@@ -1564,7 +1573,7 @@ describe("imposition wire format", () => {
       imposition: { kind: "three-up", sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
-    const r = deserialize(JSON.stringify(serialize(state)), 1280, 800).panes[0];
+    const r = deserializeDeck(JSON.stringify(serializeDeck(state)), 1280, 800).panes[0];
     expect(r.position).toEqual({ x: 900, y: 700 });
     expect(r.size).toEqual({ width: 800, height: 2000 });
   });
@@ -1576,11 +1585,11 @@ describe("imposition wire format", () => {
       imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
-    const blob = serialize(state) as Record<string, unknown>;
+    const blob = serializeDeck(state) as Record<string, unknown>;
     expect(blob["imposition"]).toEqual({
       sidebars: { dashes: { side: "right" } },
     });
-    const restored = deserialize(JSON.stringify(blob), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(blob), 1920, 1080);
     expect(restored.imposition.kind).toBe(DEFAULT_IMPOSITION_KIND);
     expect(restored.panes[0].slot).toBeUndefined();
   });
@@ -1592,7 +1601,7 @@ describe("imposition wire format", () => {
       cards: [impositionCard("c1")],
       panes: [impositionPane("p1", "c1", { slot: 1 })],
     };
-    const restored = deserialize(JSON.stringify(blob), 1920, 1080);
+    const restored = deserializeDeck(JSON.stringify(blob), 1920, 1080);
     expect(restored.imposition.kind).toBe(DEFAULT_IMPOSITION_KIND);
     // The stored slot clamps into the default arrangement's slot range rather
     // than being dropped: a deck always stands under an arrangement.
@@ -1608,7 +1617,7 @@ describe("imposition wire format", () => {
       cards: [impositionCard("c1")],
       panes: [impositionPane("p1", "c1", { slot: 7 })],
     };
-    expect(deserialize(JSON.stringify(blob), 1920, 1080).panes[0].slot).toBe(1);
+    expect(deserializeDeck(JSON.stringify(blob), 1920, 1080).panes[0].slot).toBe(1);
   });
 
   test("a malformed slot is dropped rather than coerced", () => {
@@ -1619,7 +1628,7 @@ describe("imposition wire format", () => {
         cards: [impositionCard("c1")],
         panes: [{ ...impositionPane("p1", "c1"), slot: bogus }],
       };
-      const restored = deserialize(JSON.stringify(blob), 1920, 1080);
+      const restored = deserializeDeck(JSON.stringify(blob), 1920, 1080);
       expect(restored.panes[0].slot).toBeUndefined();
     }
   });
@@ -1693,7 +1702,7 @@ describe("imposition record defaults", () => {
   test("an absent contentWidth reads as comfy", () => {
     // Comfy IS the width content cards have always opened at, so a blob written
     // before the presets existed migrates to exactly its own behavior.
-    const restored = deserialize(blobWith({ kind: "two-up" }), 1920, 1080);
+    const restored = deserializeDeck(blobWith({ kind: "two-up" }), 1920, 1080);
     expect(restored.imposition.contentWidth).toBe("comfy");
   });
 
@@ -1702,14 +1711,14 @@ describe("imposition record defaults", () => {
     // an entry here would record that default as though the user chose it.
     const json = blobWith({ sidebars: { jots: { side: "sideways" } } });
     expect(
-      deserialize(json, 1920, 1080).imposition.sidebars["jots"],
+      deserializeDeck(json, 1920, 1080).imposition.sidebars["jots"],
     ).toBeUndefined();
   });
 
   test("an unparseable blob comes back as the default layout", () => {
     // Nothing parsed, so nothing is placed: the default layout is what the
     // deck opens under, and it is what records the rail's frontmost card.
-    expect(deserialize("{{{", 1920, 1080)).toEqual(buildDefaultLayout());
+    expect(deserializeDeck("{{{", 1920, 1080)).toEqual(buildDefaultLayout());
     expect(sidebarSide(buildDefaultLayout().imposition, "cards")).toBe("right");
   });
 });
@@ -1739,7 +1748,7 @@ describe("imposition rails", () => {
   }
 
   const railsOf = (imposition: Record<string, unknown>) =>
-    deserialize(railBlob(imposition), 1920, 1080).imposition.rails;
+    deserializeDeck(railBlob(imposition), 1920, 1080).imposition.rails;
 
   const sidebars = { dashes: { side: "right" }, jots: { side: "right" } };
 
@@ -1757,7 +1766,7 @@ describe("imposition rails", () => {
         },
       },
     };
-    const restored = deserialize(railBlob(imposition), 1920, 1080);
+    const restored = deserializeDeck(railBlob(imposition), 1920, 1080);
     expect(restored.imposition.rails).toEqual({
       right: {
         order: ["jots", "dashes"],
@@ -1765,12 +1774,12 @@ describe("imposition rails", () => {
       },
     });
     // serialize() emits the imposition whole, so the record survives a save.
-    const saved = serialize(restored) as { imposition: { rails?: unknown } };
+    const saved = serializeDeck(restored) as { imposition: { rails?: unknown } };
     expect(saved.imposition.rails).toEqual(restored.imposition.rails);
     // And the saved blob restores to the same arrangement, so a split survives
     // relaunch rather than only surviving the session that made it.
     expect(
-      deserialize(JSON.stringify(saved), 1920, 1080).imposition,
+      deserializeDeck(JSON.stringify(saved), 1920, 1080).imposition,
     ).toEqual(restored.imposition);
   });
 
@@ -1857,7 +1866,7 @@ describe("imposition rails", () => {
     // The rejected automatic split wrote `order` inside each SidebarEntry.
     // That field has been dropped on read since the stack shipped, and the new
     // record is a sibling of `sidebars` — it is not built from that fossil.
-    const restored = deserialize(
+    const restored = deserializeDeck(
       railBlob({
         kind: "three-up",
         sidebars: {
@@ -1900,7 +1909,7 @@ describe("imposition columns", () => {
   }
 
   const columnsOf = (imposition: Record<string, unknown>) =>
-    deserialize(columnBlob(imposition), 1920, 1080).imposition.columns;
+    deserializeDeck(columnBlob(imposition), 1920, 1080).imposition.columns;
 
   const sidebars = { dashes: { side: "right" } };
 
@@ -1917,7 +1926,7 @@ describe("imposition columns", () => {
         },
       },
     };
-    const restored = deserialize(columnBlob(imposition), 1920, 1080);
+    const restored = deserializeDeck(columnBlob(imposition), 1920, 1080);
     expect(restored.imposition.columns).toEqual({
       0: {
         mode: "split",
@@ -1928,9 +1937,9 @@ describe("imposition columns", () => {
     // serialize() emits the imposition whole, so the record survives a save,
     // and the saved blob restores to the same arrangement — a split column
     // survives relaunch rather than only the session that made it.
-    const saved = serialize(restored) as { imposition: { columns?: unknown } };
+    const saved = serializeDeck(restored) as { imposition: { columns?: unknown } };
     expect(saved.imposition.columns).toEqual(restored.imposition.columns);
-    expect(deserialize(JSON.stringify(saved), 1920, 1080).imposition).toEqual(
+    expect(deserializeDeck(JSON.stringify(saved), 1920, 1080).imposition).toEqual(
       restored.imposition,
     );
   });
@@ -2041,5 +2050,279 @@ describe("imposition columns", () => {
     expect(columnsOf({ sidebars, columns: {} })).toBeUndefined();
     expect(columnsOf({ sidebars, columns: "split" })).toBeUndefined();
     expect(columnsOf({ sidebars, columns: null })).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The v5 envelope: a list of named spaces above the deck ([P02], Spec S01/S02).
+//
+// Everything above this line is about ONE deck and reads it through the
+// deck-level shims in `deck-blob-helpers.ts`. What follows is about the
+// envelope itself — what `serialize` writes around a deck, and what
+// `deserialize` makes of a blob at every version the format has worn.
+// ---------------------------------------------------------------------------
+
+describe("the v5 layout blob", () => {
+  const deckWith = (cardId: string): DeckState => ({
+    cards: [{ id: cardId, componentId: "terminal", title: "T", closable: true }],
+    panes: [
+      {
+        id: `p-${cardId}`,
+        position: { x: 10, y: 20 },
+        size: { width: 400, height: 300 },
+        cardIds: [cardId],
+        activeCardId: cardId,
+        title: "",
+        acceptsFamilies: ["standard"],
+      },
+    ],
+    activePaneId: `p-${cardId}`,
+    imposition: { sidebars: { dashes: { side: "right" } } },
+    hasFocus: true,
+  });
+
+  test("the top-level key set is version, activeSpaceId and spaces — nothing else", () => {
+    const out = serialize(wrapAsMainSpace(deckWith("c1")));
+    expect(Object.keys(out).sort()).toEqual([
+      "activeSpaceId",
+      "spaces",
+      "version",
+    ]);
+  });
+
+  test("a space carries id, name and deck — and focusedCardId only when it has one", () => {
+    const bare = serialize(wrapAsMainSpace(deckWith("c1"))) as {
+      spaces: Record<string, unknown>[];
+    };
+    expect(Object.keys(bare.spaces[0]).sort()).toEqual(["deck", "id", "name"]);
+
+    const focused = serialize({
+      spaces: [
+        { id: "s1", name: "Main", deck: deckWith("c1"), focusedCardId: "c1" },
+      ],
+      activeSpaceId: "s1",
+    }) as { spaces: Record<string, unknown>[] };
+    expect(Object.keys(focused.spaces[0]).sort()).toEqual([
+      "deck",
+      "focusedCardId",
+      "id",
+      "name",
+    ]);
+    expect(focused.spaces[0]["focusedCardId"]).toBe("c1");
+  });
+
+  test("the deck body carries no version key of its own — the envelope owns it", () => {
+    const out = serialize(wrapAsMainSpace(deckWith("c1"))) as {
+      spaces: { deck: Record<string, unknown> }[];
+    };
+    expect(Object.keys(out.spaces[0].deck).sort()).toEqual([
+      "activePaneId",
+      "cards",
+      "imposition",
+      "panes",
+    ]);
+  });
+
+  test("two spaces round-trip whole, with the second one active", () => {
+    const state = {
+      spaces: [
+        { id: "s1", name: "Main", deck: deckWith("a") },
+        { id: "s2", name: "Side", deck: deckWith("b"), focusedCardId: "b" },
+      ],
+      activeSpaceId: "s2",
+    };
+    const restored = deserialize(JSON.stringify(serialize(state)), 1920, 1080);
+    expect(restored.activeSpaceId).toBe("s2");
+    expect(restored.spaces.map((s) => [s.id, s.name])).toEqual([
+      ["s1", "Main"],
+      ["s2", "Side"],
+    ]);
+    expect(restored.spaces[1].focusedCardId).toBe("b");
+    // Each deck came back through the same v4 parse the pre-v5 path uses —
+    // including its defaults for an absent imposition kind — so the pin is
+    // against that path's own answer rather than against the input.
+    expect(restored.spaces[0].deck).toEqual(
+      deserializeDeck(JSON.stringify(serializeDeck(deckWith("a"))), 1920, 1080),
+    );
+    expect(restored.spaces[1].deck).toEqual(
+      deserializeDeck(JSON.stringify(serializeDeck(deckWith("b"))), 1920, 1080),
+    );
+  });
+
+  test("a v5 blob with no spaces array is the HISTORICAL single-table shape, not this one", () => {
+    // The number 5 was spent before workspaces existed. A blob wearing it with
+    // a `cards[].tabs` structure must still take the legacy migration — reading
+    // it by Spec S01's rules would hit the empty-spaces fallback and replace a
+    // person's whole deck with a default one, silently.
+    const historical = {
+      version: 5,
+      cards: [
+        {
+          id: "legacy-pane",
+          position: { x: 0, y: 0 },
+          size: { width: 800, height: 600 },
+          tabs: [
+            {
+              id: "legacy-card",
+              componentId: "terminal",
+              title: "T",
+              closable: true,
+            },
+          ],
+          activeTabId: "legacy-card",
+          title: "",
+          acceptsFamilies: ["standard"],
+        },
+      ],
+    };
+    const restored = deserialize(JSON.stringify(historical), 1920, 1080);
+    expect(restored.spaces.length).toBe(1);
+    expect(restored.spaces[0].deck.cards.map((c) => c.id)).toEqual([
+      "legacy-card",
+    ]);
+  });
+});
+
+describe("migrating a pre-v5 blob to one space named Main (Spec S02)", () => {
+  const v4Blob = {
+    version: 4,
+    cards: [{ id: "c1", componentId: "terminal", title: "T", closable: true }],
+    panes: [
+      {
+        id: "p1",
+        position: { x: 10, y: 20 },
+        size: { width: 400, height: 300 },
+        cardIds: ["c1"],
+        activeCardId: "c1",
+        title: "",
+        acceptsFamilies: ["standard"],
+      },
+    ],
+    activePaneId: "p1",
+    imposition: { sidebars: { dashes: { side: "right" } } },
+  };
+
+  test("a v4 blob becomes one Main space with a UUID id and today's deck", () => {
+    const restored = deserialize(JSON.stringify(v4Blob), 1920, 1080);
+    expect(restored.spaces.length).toBe(1);
+    expect(restored.spaces[0].name).toBe(MAIN_SPACE_NAME);
+    expect(restored.spaces[0].id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(restored.activeSpaceId).toBe(restored.spaces[0].id);
+    // The deck is exactly what the deck-level path returns for the same blob.
+    expect(restored.spaces[0].deck).toEqual(
+      deserializeDeck(JSON.stringify(v4Blob), 1920, 1080),
+    );
+    // And the migrated space carries no focused card: that pointer arrives
+    // through `DeckManager`'s legacy `initialFocusedCardId` argument.
+    expect(restored.spaces[0].focusedCardId).toBeUndefined();
+  });
+
+  test("v3, v2 and an unreadable blob wrap the same way", () => {
+    const v3 = { ...v4Blob, version: 3, windows: v4Blob.panes, activeWindowId: "p1" };
+    const v2 = { version: 2, stacks: v4Blob.panes, activeStackId: "p1", cards: v4Blob.cards };
+    for (const blob of [JSON.stringify(v3), JSON.stringify(v2), "not-json{{{"]) {
+      const restored = deserialize(blob, 1920, 1080);
+      expect(restored.spaces.length).toBe(1);
+      expect(restored.spaces[0].name).toBe(MAIN_SPACE_NAME);
+      expect(restored.activeSpaceId).toBe(restored.spaces[0].id);
+    }
+  });
+
+  test("an unreadable blob's Main space holds the default layout", () => {
+    const restored = deserialize("not-json{{{", 1200, 800);
+    expect(restored.spaces[0].deck).toEqual(buildDefaultLayout());
+  });
+});
+
+describe("a v5 blob's read rules keep what can be read (Spec S01)", () => {
+  const deck = { cards: [], panes: [], imposition: { sidebars: {} } };
+  const blob = (over: Record<string, unknown>) =>
+    JSON.stringify({ version: 5, activeSpaceId: "s1", spaces: [], ...over });
+
+  test("a space with no id, or with a deck that is not an object, is dropped", () => {
+    const restored = deserialize(
+      blob({
+        spaces: [
+          { name: "No id", deck },
+          { id: "s2", name: "No deck", deck: "nonsense" },
+          { id: "s3", name: "Good", deck },
+        ],
+        activeSpaceId: "s3",
+      }),
+      1920,
+      1080,
+    );
+    expect(restored.spaces.map((s) => s.id)).toEqual(["s3"]);
+  });
+
+  test("a name that is not a string becomes Workspace N", () => {
+    const restored = deserialize(
+      blob({
+        spaces: [
+          { id: "s1", name: "Main", deck },
+          { id: "s2", name: 7, deck },
+          { id: "s3", deck },
+        ],
+      }),
+      1920,
+      1080,
+    );
+    expect(restored.spaces.map((s) => s.name)).toEqual([
+      "Main",
+      "Workspace 1",
+      "Workspace 2",
+    ]);
+  });
+
+  test("a duplicate id keeps the first entry", () => {
+    const restored = deserialize(
+      blob({
+        spaces: [
+          { id: "s1", name: "First", deck },
+          { id: "s1", name: "Second", deck },
+        ],
+      }),
+      1920,
+      1080,
+    );
+    expect(restored.spaces.map((s) => s.name)).toEqual(["First"]);
+  });
+
+  test("an empty spaces array yields one Main space around the default layout", () => {
+    // Not an error and not an empty list: the record outlives the run that
+    // wrote it, and a person owed a deck gets one.
+    const restored = deserialize(blob({ spaces: [] }), 1200, 800);
+    expect(restored.spaces.length).toBe(1);
+    expect(restored.spaces[0].name).toBe(MAIN_SPACE_NAME);
+    expect(restored.spaces[0].deck).toEqual(buildDefaultLayout());
+  });
+
+  test("an activeSpaceId naming no surviving space resolves to the first", () => {
+    const restored = deserialize(
+      blob({
+        spaces: [
+          { id: "s1", name: "First", deck },
+          { id: "s2", name: "Second", deck },
+        ],
+        activeSpaceId: "gone",
+      }),
+      1920,
+      1080,
+    );
+    expect(restored.activeSpaceId).toBe("s1");
+  });
+
+  test("a missing activeSpaceId resolves to the first space too", () => {
+    const restored = deserialize(
+      JSON.stringify({
+        version: 5,
+        spaces: [{ id: "s1", name: "First", deck }],
+      }),
+      1920,
+      1080,
+    );
+    expect(restored.activeSpaceId).toBe("s1");
   });
 });
