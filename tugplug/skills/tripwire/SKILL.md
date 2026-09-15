@@ -1,6 +1,6 @@
 ---
 name: tripwire
-description: Lay, revise, and shake down a tripwire — a standing condition on sessions that fires when a fact of the kind it names is recorded, runs your brief in a disposable checkout at HEAD, and raises its hand only when it has something a person should see. Never joins anything.
+description: Lay, revise, and shake down a tripwire — a standing condition on sessions that fires when a fact of the kind it names is recorded, runs your brief as one bounded session on the tripwire's own arc, and reports what it found. Never joins anything.
 argument-hint: "[what to watch for, in a sentence]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion
@@ -9,7 +9,7 @@ disallowed-tools: Task
 
 ## What this is
 
-A **tripwire** is a standing condition on what sessions do. It sits on the machine doing nothing until a session records a **fact** of the kind it names — a shell command that failed, a refused edit, a test run that went red, a commit, a prompt. Then it fires: a **trip**. The trip runs the tripwire's probe if it has one, asks an AI only about what the probe could not settle, and either goes quiet or raises its hand with one line the user should read.
+A **tripwire** is a standing condition on what sessions do. It sits on the machine doing nothing until a session records a **fact** of the kind it names — a shell command that failed, a refused edit, a test run that went red, a commit, a prompt. Then it fires: a **trip**. The trip runs the tripwire's probe if it has one, asks an AI only about what the probe could not settle, and ends with a **report** — the last words of the session's turn, kept on the row.
 
 **Only facts the ledger records fire a tripwire — a `git commit` typed in a terminal records none.** The session ledger is the one place that knows what happened, which session it happened in, and which checkout that session was working in, so it is the one place a firing can be built from without guessing. Work done outside a Tug session is invisible to the whole facility, and that is the design rather than an oversight.
 
@@ -17,7 +17,7 @@ Your job here is to turn a sentence into a tripwire that will still be right in 
 
 **Two things a tripwire never does, and they are not preferences.**
 
-- **A tripwire never joins.** It may author work on an arc and it may say so. Joining that work onto the base is the user's act, always. `arc join --resolve` is never a tripwire's to run, and never yours on a tripwire's behalf.
+- **A tripwire never joins.** It may commit work on its own arc and it may say so in its report. Joining that work onto the base is the user's act, always. `arc join --resolve` is never a tripwire's to run, and never yours on a tripwire's behalf.
 - **A tripwire never widens its own scope.** Where a tripwire watches is a decision somebody made, and quietly extending it is how a tripwire starts firing on work nobody meant it to see.
 
 ## The shape of a tripwire
@@ -27,6 +27,7 @@ tugtool tripwire lay <name> --on <trigger> --brief <text|@file>
                  --description <one sentence>
                  [--where <clause>]... [--scope <path>] [--probe <cmd>]
                  [--model <m>] [--permission-mode <mode>] [--preview]
+                 [--max-seconds <n>] [--max-tool-calls <n>]
 ```
 
 **`--on`** is the fact condition: `fact:<kind>`, where the kind is anything the session ledger records. The tripwire fires the moment a matching fact is written. **No kind is privileged.** A refused edit is one fact among many; the same door watches a red test run, a shell command that failed, a prompt that mentioned a subject, a commit, or a session that compacted.
@@ -49,9 +50,9 @@ Pick the kind by asking what a session would have *recorded* when the thing happ
 
 **`--where`** narrows a fact by its payload, and repeats. `field=value` is exact, `field~=substr` is contains, `field^=prefix` is a prefix. A field the payload does not carry never matches — a clause you cannot spell is a tripwire that never fires, not a tripwire that fires on everything.
 
-**`--brief`** is the whole of what the tripwire will be asked when it fires. **Write it as a question, not an instruction**, because the session that answers it cannot act: it runs read-only, and the only thing it can do with "fix the retry logic" is describe having wanted to. "Say whether this failure is the tool's fault or the program's, and name the file" earns a useful headline; "look at edit failures" earns a paraphrase of the event; "fix the parser" earns a session explaining that it could not.
+**`--brief`** is the whole of what the tripwire will be asked when it fires, and it is the only thing that tells the trip what to do. The session has hands from its first turn — it stands in the tripwire's own arc worktree and can write and commit there — so a brief may ask for a diagnosis, or for a change, or for both. What it must do is *say which*. "Say whether this failure is the tool's fault or the program's, and name the file. Do not fix anything" earns a report worth reading; "look at edit failures" earns a paraphrase of the event.
 
-If the change is worth making, the brief can say so — the session has a verb for asking that work be authored, and a second session with hands is spawned for it. What the brief must not do is assume the first one has them.
+**Nothing the engine appends will tell the trip what to decide.** One rule is added after your brief and it is about where the answer goes, not what the answer is: *end your turn with a short report of what you found and what you did.* The brief is the whole of the instruction.
 
 **A brief that says nothing is refused, at the lay and at the `--preview`.** A tripwire with no probe summons a model on every firing, so a placeholder brief is not merely useless — it is a model run per fact, answered by a paraphrase of the fact and nothing else. If the refusal fires, the repair is to write the question, never to pad the words.
 
@@ -59,42 +60,33 @@ If the change is worth making, the brief can say so — the session has a verb f
 
 **`--scope`** confines the tripwire to facts recorded by sessions working in one checkout. Unscoped, it watches the whole machine — and `trip`, the shake-down gesture, **refuses an unscoped tripwire**, because a hand-fired trip has no checkout to stand in. A tripwire you intend to shake down wants a scope.
 
-**`--probe`** is a command run before any model is summoned. **Exit 0 settles the trip for free** — no tokens, no session, nothing said. This is the single most valuable field on a tripwire: a probe turns "ask an AI every time" into "ask an AI about the residue", and an armed tripwire with a good probe is cheap enough to leave armed forever. It runs in the trip's **disposable checkout at `HEAD`**, never in the user's working checkout and never in an arc worktree, so it can touch nothing that outlives the trip.
+**`--probe`** is a command run before any model is summoned. **Exit 0 settles the trip for free** — no tokens, no session, nothing said. This is the single most valuable field on a tripwire: a probe turns "ask an AI every time" into "ask an AI about the residue", and an armed tripwire with a good probe is cheap enough to leave armed forever. It runs in the tripwire's own arc worktree, which is where the trip's session will stand, and never in the user's working checkout.
 
-**`--model`** is the model a trip runs on; absent, the session default. **`--permission-mode`** is the mode for the *authoring* session only — the diagnosing one is read-only whatever you pass, enforced by the runtime rather than asked for in prose.
+**`--model`** is the model a trip runs on; absent, the session default. **`--permission-mode`** is the mode the trip's one session runs under.
+
+**`--max-seconds` and `--max-tool-calls` are what a trip costs at worst**, and both have defaults — 120 seconds and 30 tool calls — so a tripwire laid without thinking about them is still bounded. Past either, the engine interrupts the session, gives it a few seconds to end its turn, closes it, and fails the trip saying which cap it met. Raise them for a brief that asks for real work; lower them for one that asks a question a sentence answers. A trip with no ceiling was the first thing this facility got wrong: an unbounded session ground for ten minutes, committed nothing, and left no row explaining itself.
 
 ## How a trip runs
 
 Worth knowing, because a brief is written against it:
 
-1. **The probe**, in a disposable checkout of the fact's repository at `HEAD` — the last commit the user made when the fact arrived. Green settles the trip and nothing else happens.
-2. **Diagnosis** — one session in that same disposable checkout, read-only, handed everything it needs: the fact itself, the tree it is standing in, a file holding whatever was uncommitted in the user's checkout at that moment, the probe's output when the probe failed, and the transcript of the session that recorded the fact. It answers the brief and ends by resolving.
-3. **Authoring**, only if the diagnosis asked for it — a second session on an arc worktree of its own, with the tripwire's permission mode, which can write and commit. The user joins that arc or discards it; the tripwire never does.
+**Every tripwire owns one arc**, named `tripwire-<name>`, made when the tripwire is laid and kept for as long as the tripwire stands. Before each trip the engine replays that arc onto its checkout's `HEAD`, so a trip always starts from the base as it is now and from whatever earlier trips of the same tripwire committed.
 
-The tree is cut at `HEAD` and the uncommitted work travels **beside** it as a diff file rather than in it, so the checkout the trip stands in is always a commit that exists, and the half the user had not committed is still there to read.
+1. **The probe**, in that arc worktree, when the tripwire has one. Green settles the trip and nothing else happens.
+2. **The session** — *one* session, in the same worktree, under the tripwire's permission mode, with hands from its first turn. It is handed the fact itself, the arc it is standing in, the probe's output when the probe failed, and the transcript of the session that recorded the fact. It answers the brief, commits on the arc if the brief asked for a change, and ends its turn.
 
-Two of a trip's three endings are verbs:
+**A trip ends by ending, not by running a verb.** There is no `resolve` and no `dismiss`. The report is the last words of the session's turn, read off the transcript by the engine; the rounds count is how many commits *this* trip added to the arc. Both sit on the row, and neither is a word the model chose to describe itself with.
 
-```
-tugtool tripwire resolve <name> --quiet
-tugtool tripwire resolve <name> --awaiting --headline "<one line>" [--author "<what to change>"]
-tugtool tripwire dismiss <name>
-```
+**The four words a trip can stand in, and no others:** `running` while it works, `done` when it finished, `failed` when it could not, and `skipped` with a reason when it never ran. A trip that found nothing and a trip that found something are both `done` — what separates them is the report, which is the thing worth reading.
 
-`--quiet` is "nothing here anybody needs to see" and is the ordinary outcome — a tripwire fires on a pattern, and the pattern occurring is usually not news. `--awaiting` is the tripwire raising its hand: the headline is the one line the Tripwires row shows, and the trip **holds** — it keeps the tripwire's one-run slot and stays on the surface — until the user has seen it. `dismiss` settles an awaiting trip by hand and discards the arc it was holding.
-
-**The third ending is not a verb: adoption.** Open a running trip's session from the card and the deck takes it over — the engine stops watching, the trip reads `adopted`, and the session is still alive and may still run the resolution verb, which settles the trip from there. An adopted trip deliberately does **not** hold the tripwire's one-run slot, so the tripwire may fire again while the user works in the session it handed over.
-
-**An awaiting trip is held until it is answered, and nothing on a clock answers it.** A trip that authored an arc is released by that arc's fate: joining or discarding it answers the question the tripwire asked, and the engine notices on its own. A trip that authored none is released by a **Seen** act on the card, which runs `dismiss` with nothing to discard. Those are the two releases, and a question a timeout retired would be a question nobody was asked.
-
-**Raising a hand posts once, and quiet posts nothing.** An awaiting resolution drops a single pointer post in the Overview naming the tripwire and its headline; a quiet one says nothing anywhere except in the trip log. There is no knob for this and no "post everything while I shake it down" mode — the log is where a tripwire under test is read.
+**A trip is bounded.** Past `max_seconds` or `max_tool_calls` the engine interrupts the session, waits a few seconds for the turn to end, closes it, and the trip is `failed` naming the cap it met. The transcript is kept either way, so a capped trip is still a trip you can open and read.
 
 ## The guards
 
 Three, and they are the whole of what keeps a tripwire from firing on itself or on everything:
 
 - **One live trip per tripwire.** A second matching fact while a trip is running is a `skipped` row whose reason says `busy`, written into the log so it is visible rather than mysterious.
-- **A tripwire never fires on a fact its own trip's session recorded.** The diagnosis and authoring sessions run shell commands and write files like any other session, and every one of those is a fact; a tripwire that read its own session's facts would fire forever. The skip is silent, because a trip's own noise is not news.
+- **A tripwire never fires on a fact its own trip's session recorded.** A trip's session runs shell commands and writes files like any other session, and every one of those is a fact; a tripwire that read its own session's facts would fire forever. The skip is silent, because a trip's own noise is not news.
 - **Scope and `--where` decide which facts it sees at all.** Scope is a decision about coverage rather than a defense: it says which checkout's sessions this tripwire watches. Say what a scope covers and what it does not, and let the user choose it. Never widen one to make something fire.
 
 ## The flow
@@ -125,13 +117,13 @@ Report what came back — the name, the normalized trigger, the description, the
 tugtool tripwire trip <name>
 ```
 
-`trip` fires the tripwire by hand, in a disposable checkout at the scope's `HEAD`. It goes past the guards by construction, because a bench test that could be skipped as `busy` would test nothing. It needs **a running Tug** — the engine that runs trips lives in the app, and the verb posts to it rather than writing a row nothing would pick up — and **a `--scope`**, because a trip has to stand somewhere. It refuses by naming whichever is missing. It is the only way to find out what the tripwire actually does, since `--preview` only ever read the syntax. Run it, then read the log:
+`trip` fires the tripwire by hand, in the tripwire's own arc worktree replayed onto the scope's `HEAD`. It goes past the guards by construction, because a bench test that could be skipped as `busy` would test nothing. It needs **a running Tug** — the engine that runs trips lives in the app, and the verb posts to it rather than writing a row nothing would pick up — and **a `--scope`**, because a trip has to stand somewhere. It refuses by naming whichever is missing. It is the only way to find out what the tripwire actually does, since `--preview` only ever read the syntax. Run it, then read the log:
 
 ```
 tugtool tripwire log <name>
 ```
 
-The log carries every firing, including the ones that said nothing. Six words, and no others: `running` while it works, `quiet` when it found nothing to report, `awaiting` when it is holding a headline for the user, `adopted` when somebody took its session over, `failed` when it could not finish, and `skipped` with a reason when it never ran. That is the whole value of the log: a tripwire that fires ten times and raises its hand once is working correctly, and this is the only place the other nine are visible. Read the headline the tripwire produced and judge it as the user will: does it name the thing, or does it describe the tripwire?
+The log carries every firing, including the ones that found nothing, and a `done` row prints its report and its rounds count beside it. That is the whole value of the log: a tripwire that fires ten times and says something worth reading once is working correctly, and this is the only place the other nine are visible. **Read the report and judge it as the user will**: does it name the thing, or does it describe the tripwire? A report that paraphrases the fact is a brief that needs rewriting, and that is one `edit` and one `trip` away.
 
 **5. Revise in place.**
 
@@ -153,7 +145,7 @@ tugtool tripwire rm <name>            gone, with its log; refused while a trip r
 
 `pause` rather than `rm` for a tripwire that is misbehaving: the log is the evidence for the repair, and removing the tripwire throws it away.
 
-The **Tripwires card** shows the same roster — each tripwire, a fixed-width mark for what it is doing, and its definition and trip log behind a fold that opens in place over the row. The fold leads with the description and never shows the brief. Its collapsed band carries the counts — armed, trips, running, awaiting, paused — so the standing watches read at a glance without opening anything. The card carries the verbs as well as the knobs: Pause and Resume, Trip now, **Open session**, which opens the session of the newest trip that had one — quiet trips included, so a finished trip's work stays reachable — Release for one that is awaiting, and Delete behind a confirm on the row's `⋯` menu, alongside the model knob. Deleting there is the same guarded removal `rm` performs, refused the same way while a trip runs. Authoring stays here, because those are the fields where a wrong value makes a tripwire silently useless rather than visibly wrong.
+The **Tripwires card** shows the same roster — each tripwire, a fixed-width mark for what it is doing, and its definition and trip log behind a fold that opens in place over the row. The fold leads with the description and never shows the brief. Its collapsed band carries the counts — armed, trips, running, paused — so the standing watches read at a glance without opening anything. **A trip that is running opens its own Session card**, bound to the trip's session, without taking the view from whatever the user is working in; the row's **Open session** raises that card rather than opening a second one. The card carries the rest of the verbs and the knobs too: Pause and Resume, Trip now, and Delete behind a confirm on the row's `⋯` menu, alongside the model knob. Deleting there is the same guarded removal `rm` performs, refused the same way while a trip runs.
 
 ## Judgement
 
@@ -167,4 +159,4 @@ The **Tripwires card** shows the same roster — each tripwire, a fixed-width ma
 
 ## What this skill does not do
 
-It does not join, land, merge, or resolve anything — a tripwire's authored work is the user's to accept or discard through the ordinary arc gestures. It does not author project configuration. It does not decide that a tripwire ought to exist: the user asked for one, or they did not.
+It does not join, land, or merge anything — what a tripwire committed on its arc is the user's to accept or discard through the ordinary arc gestures. It does not author project configuration. It does not decide that a tripwire ought to exist: the user asked for one, or they did not.

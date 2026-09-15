@@ -21,6 +21,7 @@ import React from "react";
 import { Zap } from "lucide-react";
 import { registerCard } from "@/card-registry";
 import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
+import { TripCardController } from "./trip-card-controller";
 import { TripwiresContent } from "./tripwires-card";
 
 export { TRIPWIRES_CARD_ID };
@@ -41,7 +42,15 @@ export function registerTripwiresCard(): void {
     componentId: TRIPWIRES_CARD_ID,
     family: "tripwires",
     acceptsFamilies: [],
-    contentFactory: (cardId: string) => <TripwiresContent cardId={cardId} />,
+    // The trip-card controller rides inside the content, so it lives exactly
+    // as long as the tripwires surface does ([P08]) — the same lifetime the
+    // roster subscription behind it has.
+    contentFactory: (cardId: string) => (
+      <>
+        <TripCardController />
+        <TripwiresContent cardId={cardId} />
+      </>
+    ),
     defaultMeta: { title: "Tripwires", icon: "Zap", closable: true },
     // Rows elide where prose cannot, so this gives width back before a reading
     // surface does. Rank 5: the slowest-growing of the four lists — a tripwire

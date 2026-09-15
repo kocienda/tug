@@ -47,9 +47,9 @@ function trip(over: Partial<TripRow> = {}): TripRow {
     headline: null,
     refs: null,
     settled_at_ms: 1_700_000_001_000,
-    author_ask: null,
     repo_root: "/Users/me/src/tugtool",
-    head_sha: "abc1234",
+    report: null,
+    rounds: null,
     ...over,
   };
 }
@@ -65,12 +65,11 @@ function tripwire(over: Partial<TripwireRow> = {}): TripwireRow {
     model: null,
     permission_mode: "acceptEdits",
     paused: false,
+    max_seconds: 120,
+    max_tool_calls: 30,
     running: false,
-    adopted: false,
     open_session: null,
-    awaiting: false,
-    awaiting_arc: null,
-    adopted_arc: null,
+    open_session_dir: null,
     last_trip: null,
     trip_count: 0,
     trip_log_revision: 0,
@@ -79,15 +78,11 @@ function tripwire(over: Partial<TripwireRow> = {}): TripwireRow {
 }
 
 describe("a trip's state", () => {
-  test("the six ledger statuses collapse to the six a reader tells apart", () => {
+  test("the four ledger statuses read as the words a reader tells apart", () => {
     expect(tripState(trip({ status: "skipped" }))).toBe("skipped");
     expect(tripState(trip({ status: "running" }))).toBe("running");
-    expect(tripState(trip({ status: "awaiting" }))).toBe("awaiting");
-    expect(tripState(trip({ status: "quiet" }))).toBe("finished");
+    expect(tripState(trip({ status: "done" }))).toBe("finished");
     expect(tripState(trip({ status: "failed" }))).toBe("failed");
-    // Never "waiting": the `default:` arm below would print "Starting…" over
-    // a session the reader is sitting inside.
-    expect(tripState(trip({ status: "adopted" }))).toBe("adopted");
   });
 
   test("a status this build has never heard of is treated as not yet started", () => {
@@ -123,27 +118,16 @@ describe("the sentence a trip says when the agent left no headline", () => {
     expect(tripSentence(trip({ status: "failed" }))).toBe("Stopped before it finished.");
   });
 
-  test("a trip somebody took over says so, and never says Starting", () => {
-    const sentence = tripSentence(trip({ status: "adopted", session_id: "sess-11" }));
-    expect(sentence).toBe("You took this one over.");
-    expect(sentence).not.toContain("Starting");
-  });
-
   test("a reason this build has not learned is passed through, not dropped", () => {
     expect(tripSentence(trip({ status: "skipped", reason: "rate limit" }))).toBe(
       "Didn't run — rate limit.",
     );
   });
 
-  test("a quiet trip with nothing to say still says something", () => {
-    expect(tripSentence(trip())).toBe("Finished with nothing to report.");
-  });
-
-  test("an awaiting trip says it is waiting on the reader", () => {
-    // The fallback, not the ordinary case: the resolution verb refuses
-    // `--awaiting` without a headline, so a real awaiting row shows the
-    // agent's line. This is what the row says if one ever arrives without.
-    expect(tripSentence(trip({ status: "awaiting" }))).toBe("Waiting for you to look.");
+  test("a finished trip with nothing to say still says something", () => {
+    // The fallback, not the ordinary case: a finished row shows the trip's
+    // own report. This is what it says if one ever arrives without.
+    expect(tripSentence(trip({ status: "done" }))).toBe("Finished.");
   });
 });
 
@@ -153,13 +137,9 @@ describe("the state word beside a trip's time", () => {
     // state in the body, so the meta line beside them is the clock alone.
     expect(tripStateLabel(trip({ status: "skipped", reason: "cooldown" }))).toBeNull();
     expect(tripStateLabel(trip({ status: "quarantined" }))).toBeNull();
-    expect(tripStateLabel(trip({ status: "quiet" }))).toBe("finished");
+    expect(tripStateLabel(trip({ status: "done" }))).toBe("finished");
     expect(tripStateLabel(trip({ status: "running" }))).toBe("running");
-    expect(tripStateLabel(trip({ status: "awaiting" }))).toBe("awaiting");
     expect(tripStateLabel(trip({ status: "failed" }))).toBe("stopped");
-    // And an adopted trip: the sentence says the reader took it over, so the
-    // label beside it would be the same fact twice.
-    expect(tripStateLabel(trip({ status: "adopted" }))).toBeNull();
   });
 });
 
@@ -203,38 +183,16 @@ describe("the dot a row earns", () => {
     expect(tripDot(trip({ status: "running" }))).toEqual({ kind: "working" });
   });
 
-  test("awaiting is its own dot, never the session's", () => {
-    // By the time a trip is awaiting its session has ended, and the phase hook
-    // answers `idle` for a session it cannot reach — so the held state cannot
-    // be read off a session and is driven by the trip status instead.
-    expect(tripwireDot(tripwire({ awaiting: true }))).toEqual({ kind: "awaiting" });
-    expect(tripDot(trip({ status: "awaiting" }))).toEqual({ kind: "awaiting" });
-  });
-
-  test("a run in flight outranks a question already asked", () => {
-    // Both can be true of one wire — an awaiting trip holds the slot, and a
-    // later landing can still be working — and the row has one dot. The live
-    // one wins, because it is the one that is changing.
-    expect(
-      tripwireDot(tripwire({ running: true, open_session: "sess-9", awaiting: true })),
-    ).toEqual({ kind: "session", sessionId: "sess-9" });
-  });
-
-  test("an adopted trip keeps the live dot, keyed on the session somebody is in", () => {
-    // The row must not go dark at the moment the session is taken over: the
-    // dot is what the user reaches it through. The projection folds the
-    // adopted session into `open_session`, so no new dot kind is needed
-    // ([P07]).
-    expect(tripwireDot(tripwire({ adopted: true, open_session: "sess-11" }))).toEqual({
+  test("a finished trip keeps the dot its session earned", () => {
+    // The row must not go dark the moment a trip ends: the dot is what the
+    // reader reaches the session through, and a finished trip is exactly the
+    // row they reach for it from ([B04]).
+    expect(tripDot(trip({ status: "done", session_id: "sess-11" }))).toEqual({
       kind: "session",
       sessionId: "sess-11",
     });
-    // And not the held `awaiting` glyph, which means a question nobody has
-    // answered — this is a conversation somebody is having.
-    expect(tripDot(trip({ status: "adopted", session_id: "sess-11" }))).toEqual({
-      kind: "session",
-      sessionId: "sess-11",
-    });
+    // And a tripwire at rest says so with silence ([P05]).
+    expect(tripwireDot(tripwire({ open_session: "sess-11" }))).toBeNull();
   });
 });
 
@@ -365,48 +323,16 @@ describe("what Delete says before it is pressed", () => {
     expect(deleteMenuLabel(running)).toBe("Delete — a trip is running");
   });
 
-  test("an awaiting trip is not a refusal", () => {
-    // The removal dismisses it first and discards the arc it holds, which is
-    // what the confirm below says out loud — so the verb stays available.
-    const awaiting = tripwire({ awaiting: true, awaiting_arc: "tripwire-ci-abcd1234" });
-    expect(deleteDisabledReason(awaiting)).toBeNull();
-    expect(deleteMenuLabel(awaiting)).toBe("Delete");
+  test("a finished trip is not a refusal", () => {
+    // Nothing is holding anything, so the verb stays available.
+    const finished = tripwire({ last_trip: { at_ms: 1, status: "done", headline: null, session_id: "s", report: "looked", rounds: 0 } });
+    expect(deleteDisabledReason(finished)).toBeNull();
+    expect(deleteMenuLabel(finished)).toBe("Delete");
   });
 
-  test("the confirm names the tripwire and the log that goes with it", () => {
+  test("the confirm names the tripwire, its log, and the arc it owns", () => {
     expect(deleteConfirmMessage(tripwire())).toBe(
-      "Delete ci-confidence? Its trip log goes with it.",
-    );
-  });
-
-  test("an arc being held is the second thing the confirm says", () => {
-    expect(
-      deleteConfirmMessage(
-        tripwire({ awaiting: true, awaiting_arc: "tripwire-ci-abcd1234" }),
-      ),
-    ).toBe(
-      "Delete ci-confidence? Its trip log goes with it, and the arc it is holding is discarded.",
-    );
-    // Awaiting with no arc authored has nothing to discard, and the sentence
-    // must not promise otherwise.
-    expect(deleteConfirmMessage(tripwire({ awaiting: true, awaiting_arc: null }))).toBe(
-      "Delete ci-confidence? Its trip log goes with it.",
-    );
-  });
-
-  test("an adopted trip's arc is named too, because the removal discards that one as well", () => {
-    // The removal runs one dismiss, and it takes an adopted trip when there is
-    // no awaiting one — so the worktree the user took over goes with the
-    // tripwire, and the confirm has to say so before they press Delete.
-    expect(
-      deleteConfirmMessage(
-        tripwire({ adopted: true, adopted_arc: "tripwire-ci-abcd1234" }),
-      ),
-    ).toBe(
-      "Delete ci-confidence? Its trip log goes with it, and the arc it is holding is discarded.",
-    );
-    expect(deleteConfirmMessage(tripwire({ adopted: true, adopted_arc: null }))).toBe(
-      "Delete ci-confidence? Its trip log goes with it.",
+      "Delete ci-confidence? Its trip log goes with it, and its arc tripwire-ci-confidence is discarded.",
     );
   });
 });

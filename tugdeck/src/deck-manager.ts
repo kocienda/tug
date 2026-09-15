@@ -1731,6 +1731,32 @@ export class DeckManager implements IDeckManagerStore {
        * this call at its ordinary policy.
        */
       opening?: "bound";
+      /**
+       * `false` when the card arrives without taking the user's view — a
+       * tripwire's trip opening its own Session card while somebody is
+       * working ([P08]). Default `true`, which is every other opener.
+       *
+       * **Three things are suppressed, not one**, and the third is the one
+       * that matters most:
+       *
+       * 1. The commit runs directly rather than through
+       *    `_flipFirstResponder`, so `activePaneId` is left exactly as it is
+       *    — one commit and no deactivate pair. Flipping and flipping back
+       *    would fire two of them ([L23]).
+       * 2. `putFocusedCardIdGuarded(firstCardId)` inside that commit is
+       *    skipped: the focused card is still the user's.
+       * 3. `_revealAfterArrival(firstCardId)` — the second move, which
+       *    scrolls the band to the new card — is not made at all. A card
+       *    that takes no first responder but travels the deck to itself has
+       *    still taken the user's view, and `opening: "bound"` never arrives
+       *    hidden, so without this suppression the trip's card would make
+       *    that move every time while `activePaneId` still read correct.
+       *
+       * The card is flashed rather than raised, and with no `slot` named it
+       * takes whichever slot the band is showing — the arriving-from-nowhere
+       * rule above.
+       */
+      activate?: boolean;
     },
   ): string | null {
     const registration = getRegistration(componentId);
@@ -1877,65 +1903,73 @@ export class DeckManager implements IDeckManagerStore {
     // correct deactivate pair even though the commit puts
     // `activePaneId = paneId` (which would make a post-commit
     // state-derived read return `firstCardId`).
-    this._flipFirstResponder(
-      firstCardId,
-      () => {
-        const arrived = [...this.deckState.panes, win];
-        this.deckState = {
-          ...this.deckState,
-          cards: [...this.deckState.cards, ...seededCards],
-          panes: arrived,
-          activePaneId: paneId,
-          // A new card opening into a split column is seated at its BOTTOM,
-          // in this same commit ([D194]): the column's order names it from
-          // the pane's first frame, so where a new card appears is a rule
-          // rather than the fallback's reading of two uuids. A card arriving
-          // VISIBLE is weighted here too, so what it takes of the run is a
-          // rule as well ([B05]); a card arriving hidden is not yet a member
-          // of the division, and its weight is written at the reveal.
-          imposition:
-            win.slot === undefined
-              ? this.deckState.imposition
-              : this._impositionSeating(
-                  this.deckState.imposition,
-                  arrived,
-                  paneId,
-                  win.slot,
-                  undefined,
-                  { arriving },
-                ),
-          ...(arriving !== undefined ? { arriving } : {}),
-        };
-        this.notify("addCard");
-        if (arrivesHidden) {
-          tugDevLogStore.debug("arrival", "hidden commit", {
-            paneId,
-            cardId: firstCardId,
-            slot: win.slot ?? null,
-            kind: this.deckState.imposition.kind ?? null,
-          });
-        }
-        this.scheduleSave();
-        // The card is on the deck but its frame has not finished arriving,
-        // and anything that wants to act on a card that has stopped moving
-        // — the reveal below, the picker a Session card raises — waits on
-        // this mark. A card arriving HIDDEN is not arriving in the settle's
-        // sense until its reveal commit, which makes the mark then.
-        //
-        // Guarded on a window because the clearing half lives in the
-        // canvas's settle: a manager driven with no DOM has no canvas, so a
-        // mark made here would stand forever and every `onceCardDidArrive`
-        // for the card would defer rather than answering at once.
-        if (!arrivesHidden && typeof window !== "undefined") {
-          this.cardLifecycle.notifyCardWillArrive(firstCardId);
-        }
-        for (const c of seededCards) {
-          this.cardLifecycle.notifyCardDidFinishConstruction(c.id);
-        }
+    //
+    // `activate: false` runs the same commit with no flip around it, which is
+    // the first of the three suppressions documented on the option.
+    const activate = options?.activate !== false;
+    const commit = () => {
+      const arrived = [...this.deckState.panes, win];
+      this.deckState = {
+        ...this.deckState,
+        cards: [...this.deckState.cards, ...seededCards],
+        panes: arrived,
+        ...(activate ? { activePaneId: paneId } : {}),
+        // A new card opening into a split column is seated at its BOTTOM,
+        // in this same commit ([D194]): the column's order names it from
+        // the pane's first frame, so where a new card appears is a rule
+        // rather than the fallback's reading of two uuids. A card arriving
+        // VISIBLE is weighted here too, so what it takes of the run is a
+        // rule as well ([B05]); a card arriving hidden is not yet a member
+        // of the division, and its weight is written at the reveal.
+        imposition:
+          win.slot === undefined
+            ? this.deckState.imposition
+            : this._impositionSeating(
+                this.deckState.imposition,
+                arrived,
+                paneId,
+                win.slot,
+                undefined,
+                { arriving },
+              ),
+        ...(arriving !== undefined ? { arriving } : {}),
+      };
+      this.notify("addCard");
+      if (arrivesHidden) {
+        tugDevLogStore.debug("arrival", "hidden commit", {
+          paneId,
+          cardId: firstCardId,
+          slot: win.slot ?? null,
+          kind: this.deckState.imposition.kind ?? null,
+        });
+      }
+      this.scheduleSave();
+      // The card is on the deck but its frame has not finished arriving,
+      // and anything that wants to act on a card that has stopped moving
+      // — the reveal below, the picker a Session card raises — waits on
+      // this mark. A card arriving HIDDEN is not arriving in the settle's
+      // sense until its reveal commit, which makes the mark then.
+      //
+      // Guarded on a window because the clearing half lives in the
+      // canvas's settle: a manager driven with no DOM has no canvas, so a
+      // mark made here would stand forever and every `onceCardDidArrive`
+      // for the card would defer rather than answering at once.
+      if (!arrivesHidden && typeof window !== "undefined") {
+        this.cardLifecycle.notifyCardWillArrive(firstCardId);
+      }
+      for (const c of seededCards) {
+        this.cardLifecycle.notifyCardDidFinishConstruction(c.id);
+      }
+      // The second suppression: the focused card stays the user's.
+      if (activate) {
         this.putFocusedCardIdGuarded(firstCardId);
-      },
-      "addCard",
-    );
+      }
+    };
+    if (activate) {
+      this._flipFirstResponder(firstCardId, commit, "addCard");
+    } else {
+      commit();
+    }
 
     // The card has landed; now the deck goes to it. An opener that names a
     // slot — a file link naming the one beside the card that cited it — can
@@ -1957,7 +1991,10 @@ export class DeckManager implements IDeckManagerStore {
         registration.arrivalQuiet?.(firstCardId) ?? null,
       );
     } else {
-      this._revealAfterArrival(firstCardId);
+      // The third suppression, and the one that matters most: a card that
+      // does not take first responder but scrolls the band to itself has
+      // still taken the user's view ([P08]).
+      if (activate) this._revealAfterArrival(firstCardId);
     }
 
     return firstCardId;

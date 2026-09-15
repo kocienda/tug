@@ -1,32 +1,49 @@
-//! A tripwire's session — a real `claude`, on a real worktree, with no card.
+//! A tripwire's session — a real `claude`, on a real worktree, that the deck
+//! opens a card on while it runs ([P08]).
 //!
 //! A tripwire that fires needs hands: a checkout it may work in, permission
 //! to write there when the phase allows it, and the whole tool surface a
 //! session carries. That is an ordinary Tug session in every respect except
 //! who asked for it, which is what [`AgentSupervisor::spawn_headless_session`]
-//! exists to open ([P11]). The diagnosis phase runs one in the trip's
-//! inspection tree; the authoring phase runs one in the tripwire's own arc
-//! worktree. Each phase's session says what it decided by running the
-//! resolution verb, which writes the trip row — nothing here reads a
-//! decision out of what the session said.
+//! exists to open ([P11]). There is one session and it stands in the
+//! tripwire's own arc worktree ([P01], [P02]), so it has hands from its first
+//! turn. It says nothing by running a verb: what it found is read off the last
+//! words of its turn, as the report ([P04]).
 //!
 //! The runner is a trait for the same reason the agent spawner is: the engine
 //! must be testable without a `claude` on the machine, and a test that scripts
 //! what the session says exercises the settle path — the half where the
 //! decisions are — against the same code the real one runs.
 //!
-//! **No clock ends a run while its session is alive.** The run ends when the
-//! supervisor's own ledger entry says the session is finished — its turn over
-//! and nothing it backgrounded still running, held for the project's idle
-//! settle so the gap between a turn and its wake is not spent — or when the
-//! entry says the session is gone. Those are the facts the arc runner reads
-//! for every seated stage, read here for the same reason: the supervisor
-//! already knows, and a scrape of the output stream can only guess.
+//! **No constant in this engine ends a run while its session is alive.** The
+//! run ends when the supervisor's own ledger entry says the session is
+//! finished — its turn over and nothing it backgrounded still running, held
+//! for the project's idle settle so the gap between a turn and its wake is
+//! not spent — or when the entry says the session is gone. Those are the
+//! facts the arc runner reads for every seated stage, read here for the same
+//! reason: the supervisor already knows, and a scrape of the output stream
+//! can only guess.
+//!
+//! The one thing that *does* end a live session is the tripwire's own two
+//! caps ([P06]), and they are not this engine's numbers: they come off the
+//! row somebody laid, which is what makes the cost of laying a tripwire
+//! knowable in advance. A cap is an interrupt and then a close, never a kill
+//! — the session may be one the user is watching, and a turn that ends is
+//! something they can see and understand where a torn-down process is not.
 //!
 //! What the runner hands back besides how the session ended is the session's
 //! transcript file, read off disk after the wait. The engine reads the
 //! session's last words out of it for the next phase's prompt, and that is
 //! the whole of what the transcript is for.
+//!
+//! **Nothing here reads a `card_id` any more except the close** ([P10]). A
+//! trip's session is carded from the moment it is seated, so a wait that
+//! ended when somebody else held the card would end every trip on its first
+//! tick; a trip is over when its session is done, not when somebody is
+//! watching it. What that leaves is `close_headless_session`'s own guard,
+//! which refuses to close a session a deck card holds — and it is now the
+//! only thing in this engine that consults the id, which is the whole of how
+//! a trip's card outlives the trip.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -63,6 +80,12 @@ pub struct TripwireSessionRequest {
     pub model: Option<String>,
     /// The whole prompt: brief, evidence, probe result, and the S04 contract.
     pub prompt: String,
+    /// How long this trip's session may run before the engine interrupts it
+    /// and closes it, and how many tool calls it may spend ([P06]). Both come
+    /// off the tripwire's row, so the cost of laying a tripwire is knowable
+    /// before it is laid rather than discovered afterwards.
+    pub max_seconds: u64,
+    pub max_tool_calls: u32,
     /// Sent once, right after the supervisor seats the session and before its
     /// prompt is rotated in.
     ///
@@ -76,11 +99,10 @@ pub struct TripwireSessionRequest {
 
 /// How a session's run ended.
 ///
-/// Two of the three are the engine's own: the session finished, or it died.
-/// The third is the one the engine most wants a reader to know about — the
-/// session is still alive and a card has taken it over, so the run is over
-/// for the engine and not over at all for the user now sitting in it. Nothing
-/// else ends a run.
+/// Three, and a card holding the session is not one of them. A trip is not
+/// over because somebody is watching it ([P10]): it is over when its session
+/// is done, when its session is gone, or when it crossed the tripwire's own
+/// ceiling and the engine stopped it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionEnd {
     /// The session ended its turn with no open jobs and stayed that way for
@@ -89,11 +111,24 @@ pub enum SessionEnd {
     /// The session's child is gone, its entry errored or closed, or its entry
     /// is no longer in the ledger at all.
     Died,
-    /// Alive, and somebody else's now: a deck card resumed the session and
-    /// re-pointed its `card_id`. The engine stops watching and, crucially,
-    /// stops owning it — the session is not closed, and the trip settles
-    /// `adopted` rather than by anything the engine reads off a transcript.
-    Adopted,
+    /// Alive, over one of the tripwire's two caps, and stopped for it
+    /// ([P06]): interrupted, given [`CAP_GRACE`] to go quiet, then closed.
+    /// The trip is `failed` and the row says which cap it was.
+    Capped(CapKind),
+}
+
+/// Which ceiling a capped session crossed ([P06]).
+///
+/// Two, because they answer different questions about the same session and a
+/// reader of the trip log has to be able to tell them apart: one says the work
+/// took too long, the other says it spent too much doing it. The evidence for
+/// [Q01] is the tally of these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapKind {
+    /// Past the tripwire's `max_seconds`.
+    Seconds,
+    /// Past the tripwire's `max_tool_calls`.
+    ToolCalls,
 }
 
 /// What came back.
@@ -107,9 +142,7 @@ pub struct TripwireSessionOutcome {
     /// by finding nothing.
     pub transcript: String,
     /// How the run ended. A dead session still returns what it left on disk,
-    /// which the engine settles `failed`. An adopted one returns what was on
-    /// disk when the card took it over, and settles neither way — the trip is
-    /// the adopting card's to finish.
+    /// which the engine settles `failed`.
     pub end: SessionEnd,
 }
 
@@ -175,6 +208,41 @@ pub struct SupervisorTripwireSessions {
 impl SupervisorTripwireSessions {
     pub fn new(supervisor: Arc<AgentSupervisor>, ledger: Arc<SessionLedger>) -> Self {
         SupervisorTripwireSessions { supervisor, ledger }
+    }
+
+    /// Ask a session that has run past its cap to end its turn, and wait
+    /// briefly for it to do so ([P06]).
+    ///
+    /// The frame is the one `stop_arc_now` sends to halt a running turn, and
+    /// that is deliberate: a cap is the same gesture the user's own stop is,
+    /// made by the engine. Nothing here closes the session — the caller's
+    /// ordinary close does, and it refuses a session another card is holding,
+    /// which is the behaviour wanted.
+    ///
+    /// The grace is a bound on the wait, not on the session: a session that
+    /// ignores the interrupt is closed anyway, because a wedged bridge is
+    /// exactly the case the close is the backstop for.
+    async fn interrupt_and_settle(&self, session: &TugSessionId) {
+        self.supervisor
+            .dispatch_one(crate::feeds::agent_supervisor::code_input_frame(
+                &serde_json::json!({
+                    "type": "interrupt",
+                    "tug_session_id": session.as_str(),
+                }),
+            ))
+            .await;
+        let until = Instant::now() + crate::feeds::tripwire::CAP_GRACE;
+        let mut ticker = tokio::time::interval(SESSION_READ_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        while Instant::now() < until {
+            ticker.tick().await;
+            if !matches!(
+                read_session(&self.supervisor, session).await.0,
+                SessionRead::Busy
+            ) {
+                return;
+            }
+        }
     }
 
     /// The session's transcript file, or empty when there is none to read.
@@ -274,12 +342,25 @@ impl TripwireSessionRunner for SupervisorTripwireSessions {
             &self.supervisor,
             &session,
             settle,
-            &crate::background_session::background_card_id(&request.tripwire),
+            Some(request.max_seconds),
+            Some(request.max_tool_calls),
         )
         .await;
+        // The cap's own act, before the transcript is read: interrupt, give
+        // the session [`CAP_GRACE`] to end its turn, and let the close below
+        // do the rest ([P06]). An interrupt rather than a kill because the
+        // session may be one a card is showing.
+        if let SessionEnd::Capped(kind) = end {
+            warn!(
+                tripwire = %request.tripwire,
+                session = %session,
+                cap = ?kind,
+                "tripwire session hit its cap; interrupting",
+            );
+            self.interrupt_and_settle(&session).await;
+        }
         // Before the close, always: the close removes the entry that carries
-        // the claude session id the transcript file is named by. An adopted
-        // session keeps its entry, so this resolves either way.
+        // the claude session id the transcript file is named by.
         let transcript = self.transcript_of(&session, &request.worktree).await;
         match end {
             SessionEnd::Finished => {
@@ -288,19 +369,18 @@ impl TripwireSessionRunner for SupervisorTripwireSessions {
             SessionEnd::Died => {
                 warn!(tripwire = %request.tripwire, session = %session, "tripwire session died");
             }
-            SessionEnd::Adopted => {
-                info!(tripwire = %request.tripwire, session = %session, "tripwire session adopted by a card");
+            SessionEnd::Capped(kind) => {
+                warn!(tripwire = %request.tripwire, session = %session, cap = ?kind, "tripwire session was capped");
             }
         }
-        // The handover: an adopted session is not the engine's to close. The
-        // guard in `close_headless_session` refuses it too, and both are
-        // wanted — this one says why in the engine's own voice, that one holds
-        // for every other caller.
-        if end != SessionEnd::Adopted {
-            self.supervisor
-                .close_headless_session(&request.tripwire, &session)
-                .await;
-        }
+        // Unconditionally, and the guard inside it is what makes that safe:
+        // `close_headless_session` refuses a session whose entry a deck card
+        // holds ([P10]). That refusal is now the only thing in this engine
+        // that reads a `card_id`, and it is the whole of how a trip's card
+        // survives the trip ending.
+        self.supervisor
+            .close_headless_session(&request.tripwire, &session)
+            .await;
         Ok(TripwireSessionOutcome {
             session_id: session.as_str().to_string(),
             transcript,
@@ -321,36 +401,26 @@ enum SessionRead {
     Quiet { turns_ended: u32 },
     /// Not coming back.
     Gone,
-    /// Alive, and held by a card id that is not the engine's: a deck card
-    /// resumed the session. Read before liveness, because an adopted session
-    /// may be anything from busy to briefly `Idle` and the answer is the same.
-    Adopted,
 }
 
 /// Read the entry the way the arc runner's `session_snapshot` does, so the two
 /// agree about what a live session is.
 ///
-/// `mine` is the card id the engine minted for this session; an entry carrying
-/// any other one has been taken over, which is a reading of its own.
-async fn read_session(
-    supervisor: &AgentSupervisor,
-    session: &TugSessionId,
-    mine: &str,
-) -> SessionRead {
+/// The entry's `card_id` is not consulted, and that is [P10]: a trip's session
+/// is carded from the moment it is seated ([P08]), so a comparison reading
+/// "somebody else holds this" would be true on every trip's first tick and
+/// would end every trip instantly.
+///
+/// The entry's tool-call count rides back beside the reading ([P07]), because
+/// it is read under the same lock and a second lock to fetch it could only
+/// ever answer about a slightly different instant.
+async fn read_session(supervisor: &AgentSupervisor, session: &TugSessionId) -> (SessionRead, u32) {
     let entry_arc = supervisor.ledger.lock().await.get(session).cloned();
     let Some(entry_arc) = entry_arc else {
-        return SessionRead::Gone;
+        return (SessionRead::Gone, 0);
     };
     let entry = entry_arc.lock().await;
-    // Before liveness, deliberately: a session a card has taken over is the
-    // card's whatever the supervisor's spawn state says about it this instant.
-    if entry
-        .card_id
-        .as_deref()
-        .is_some_and(|held_by| held_by != mine)
-    {
-        return SessionRead::Adopted;
-    }
+    let tool_calls = entry.tool_calls;
     let live = match entry.spawn_state {
         // An entry this process watched go `Live` and found back at `Idle`
         // has lost its child. One that never reached `Live` is still coming
@@ -365,20 +435,22 @@ async fn read_session(
         SpawnState::Errored | SpawnState::Closed => false,
     };
     if !live {
-        return SessionRead::Gone;
+        return (SessionRead::Gone, tool_calls);
     }
     // A session that has ended no turn has not yet started the one it was
     // asked for: quiet before the first turn is the spawn, not an answer.
-    if entry.turns_ended > 0 && entry.is_quiet() {
+    let read = if entry.turns_ended > 0 && entry.is_quiet() {
         SessionRead::Quiet {
             turns_ended: entry.turns_ended,
         }
     } else {
         SessionRead::Busy
-    }
+    };
+    (read, tool_calls)
 }
 
-/// Wait until the supervisor says the session is finished or gone.
+/// Wait until the supervisor says the session is finished or gone, or until
+/// the tripwire's own ceiling says it has had enough.
 ///
 /// A quiet reading is held for `settle` before it is spent, over the reading's
 /// own facts rather than wall time alone: a turn ending inside the window
@@ -386,28 +458,32 @@ async fn read_session(
 /// again over it. `None` is the settle turned off, which spends the first
 /// quiet reading.
 ///
-/// There is no deadline here on purpose. A session that is alive is doing the
-/// tripwire's work, and the user who can see the trip on the card is the one
-/// who decides how long that may take.
+/// `max_seconds` and `max_tool_calls` are the tripwire's, off the row somebody
+/// laid ([P06]); `None` for either is that ceiling turned off. There is still
+/// no deadline of this engine's own, and that distinction is the whole of
+/// [F04]: a session that is alive is doing the tripwire's work, and how long
+/// that may take is a number the person who laid the tripwire set rather than
+/// one a constant here decided for them.
 ///
-/// `card_id` is the id the engine minted for this session. A reading that
-/// finds another one ends the wait at once, whatever quiet window was
-/// accumulating: the session is a card's now, and how long it had been quiet
-/// under the engine is no longer a fact about anything.
+/// Both caps are consulted *after* the reading is spent, so a session that
+/// finished on the same tick it crossed a ceiling is `Finished`. A cap it
+/// crossed on its way to finishing is not a failure of anything.
 pub(crate) async fn wait_for_session_end(
     supervisor: &AgentSupervisor,
     session: &TugSessionId,
     settle: Option<Duration>,
-    card_id: &str,
+    max_seconds: Option<u64>,
+    max_tool_calls: Option<u32>,
 ) -> SessionEnd {
     let mut ticker = tokio::time::interval(SESSION_READ_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut quiet: Option<(u32, Instant)> = None;
+    let deadline = max_seconds.map(|s| Instant::now() + Duration::from_secs(s));
     loop {
         ticker.tick().await;
-        match read_session(supervisor, session, card_id).await {
+        let (read, tool_calls) = read_session(supervisor, session).await;
+        match read {
             SessionRead::Gone => return SessionEnd::Died,
-            SessionRead::Adopted => return SessionEnd::Adopted,
             SessionRead::Busy => quiet = None,
             SessionRead::Quiet { turns_ended } => {
                 let Some(settle) = settle else {
@@ -422,6 +498,16 @@ pub(crate) async fn wait_for_session_end(
                     _ => quiet = Some((turns_ended, Instant::now())),
                 }
             }
+        }
+        // The budget before the clock, because it is the more specific
+        // answer: a session that spent thirty tool calls in ten seconds is
+        // one whose *shape* is wrong, and saying so is worth more to a reader
+        // than "it ran long".
+        if max_tool_calls.is_some_and(|ceiling| tool_calls >= ceiling) {
+            return SessionEnd::Capped(CapKind::ToolCalls);
+        }
+        if deadline.is_some_and(|at| Instant::now() >= at) {
+            return SessionEnd::Capped(CapKind::Seconds);
         }
     }
 }
@@ -484,7 +570,7 @@ mod tests {
         });
         let started = Instant::now();
         let end =
-            wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5)), &mine()).await;
+            wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5)), None, None).await;
         assert_eq!(end, SessionEnd::Finished);
         assert!(
             started.elapsed() >= Duration::from_secs(61 * 60 + 5),
@@ -506,7 +592,7 @@ mod tests {
                 Some(std::time::Instant::now() - CHILD_GONE_GRACE - Duration::from_secs(1));
         });
         let end =
-            wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5)), &mine()).await;
+            wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5)), None, None).await;
         assert_eq!(end, SessionEnd::Died);
     }
 
@@ -520,13 +606,13 @@ mod tests {
             e.spawn_state = SpawnState::Idle;
         }
         assert_eq!(
-            wait_for_session_end(&supervisor, &id, None, &mine()).await,
+            wait_for_session_end(&supervisor, &id, None, None, None).await,
             SessionEnd::Died
         );
 
         supervisor.ledger.lock().await.remove(&id);
         assert_eq!(
-            wait_for_session_end(&supervisor, &id, None, &mine()).await,
+            wait_for_session_end(&supervisor, &id, None, None, None).await,
             SessionEnd::Died
         );
     }
@@ -553,7 +639,7 @@ mod tests {
             e.turns_ended = 1;
         });
         let started = Instant::now();
-        let end = wait_for_session_end(&supervisor, &id, None, &mine()).await;
+        let end = wait_for_session_end(&supervisor, &id, None, None, None).await;
         assert_eq!(end, SessionEnd::Finished);
         assert!(
             started.elapsed() >= Duration::from_secs(60),
@@ -584,7 +670,7 @@ mod tests {
         });
         let started = Instant::now();
         let end =
-            wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5)), &mine()).await;
+            wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5)), None, None).await;
         assert_eq!(end, SessionEnd::Finished);
         assert!(
             started.elapsed() >= Duration::from_secs(8),
@@ -610,35 +696,98 @@ mod tests {
             mover.lock().await.open_jobs.clear();
         });
         let started = Instant::now();
-        let end = wait_for_session_end(&supervisor, &id, None, &mine()).await;
+        let end = wait_for_session_end(&supervisor, &id, None, None, None).await;
         assert_eq!(end, SessionEnd::Finished);
         assert!(started.elapsed() >= Duration::from_secs(15 * 60));
     }
 
-    /// A card resuming the session re-points the entry's `card_id`, and the
-    /// engine's very next reading says so — mid-turn, with the session as busy
-    /// as it ever was. Liveness is not consulted, because it would answer
-    /// `Busy` and the wait would go on watching a session that is no longer
-    /// its own.
+    /// A session that stays inside both ceilings is not touched by either:
+    /// the caps end a run that will not end itself, and nothing else ([P06]).
     #[tokio::test(start_paused = true)]
-    async fn a_repointed_card_id_ends_the_wait_adopted() {
+    async fn a_session_inside_both_caps_still_finishes_on_its_own() {
         let (supervisor, id, entry) = live_session().await;
         let mover = Arc::clone(&entry);
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(30)).await;
-            mover.lock().await.card_id = Some("card-7".to_string());
+            tokio::time::sleep(Duration::from_secs(20)).await;
+            let mut e = mover.lock().await;
+            e.tool_calls = 4;
+            e.turn_active = false;
+            e.turns_ended = 1;
         });
+        let end = wait_for_session_end(
+            &supervisor,
+            &id,
+            Some(Duration::from_secs(5)),
+            Some(120),
+            Some(30),
+        )
+        .await;
+        assert_eq!(end, SessionEnd::Finished);
+    }
+
+    /// A session still working when its seconds run out is capped, and says
+    /// which ceiling it was.
+    #[tokio::test(start_paused = true)]
+    async fn a_session_past_its_second_cap_is_capped() {
+        let (supervisor, id, _entry) = live_session().await;
         let started = Instant::now();
-        let end =
-            wait_for_session_end(&supervisor, &id, Some(Duration::from_secs(5)), &mine()).await;
-        assert_eq!(end, SessionEnd::Adopted);
-        // Inside one read interval of the hand-over, not after the settle:
-        // there is nothing to settle about a session somebody else holds.
+        let end = wait_for_session_end(
+            &supervisor,
+            &id,
+            Some(Duration::from_secs(5)),
+            Some(30),
+            None,
+        )
+        .await;
+        assert_eq!(end, SessionEnd::Capped(CapKind::Seconds));
         assert!(
-            started.elapsed() < Duration::from_secs(30) + SESSION_READ_INTERVAL * 2,
-            "the wait ended on the reading, not on a window: {:?}",
+            started.elapsed() >= Duration::from_secs(30),
+            "the deadline was spent before it was read: {:?}",
             started.elapsed()
         );
+    }
+
+    /// And a session that spends its whole tool-call budget is capped for
+    /// that instead, however long it has been at it ([P07]).
+    #[tokio::test(start_paused = true)]
+    async fn a_session_past_its_tool_call_cap_is_capped() {
+        let (supervisor, id, entry) = live_session().await;
+        let mover = Arc::clone(&entry);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            mover.lock().await.tool_calls = 30;
+        });
+        let started = Instant::now();
+        let end = wait_for_session_end(
+            &supervisor,
+            &id,
+            Some(Duration::from_secs(5)),
+            Some(60 * 60),
+            Some(30),
+        )
+        .await;
+        assert_eq!(end, SessionEnd::Capped(CapKind::ToolCalls));
+        assert!(
+            started.elapsed() < Duration::from_secs(60),
+            "the budget answered long before the clock would have: {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// A session that finished on the same reading that crossed a ceiling is
+    /// `Finished`. A cap crossed on the way to an ending is not a failure of
+    /// anything, and the order the wait consults them in is what says so.
+    #[tokio::test(start_paused = true)]
+    async fn a_cap_crossed_by_a_session_that_finished_does_not_fail_it() {
+        let (supervisor, id, entry) = live_session().await;
+        {
+            let mut e = entry.lock().await;
+            e.tool_calls = 99;
+            e.turn_active = false;
+            e.turns_ended = 1;
+        }
+        let end = wait_for_session_end(&supervisor, &id, None, Some(120), Some(30)).await;
+        assert_eq!(end, SessionEnd::Finished);
     }
 
     /// The refusal is the whole handover: a session a card took over survives

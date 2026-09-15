@@ -21,6 +21,7 @@ fn tripwire(db: &Path, args: &[&str]) -> Output {
         .arg("tripwire")
         .args(args)
         .env("TUG_TRIPWIRES_DB", db)
+        .current_dir(repo_of(db))
         .output()
         .unwrap()
 }
@@ -31,6 +32,7 @@ fn tripwire_json(db: &Path, args: &[&str]) -> serde_json::Value {
     let out = tugtool()
         .args(with_json)
         .env("TUG_TRIPWIRES_DB", db)
+        .current_dir(repo_of(db))
         .output()
         .unwrap();
     assert!(
@@ -53,7 +55,44 @@ fn stderr(out: &Output) -> String {
 fn db() -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("tripwires.db");
+    // `lay` creates the tripwire's arc ([P02]), so it needs a checkout to
+    // create it in. Every verb runs with its cwd here rather than in the
+    // suite's own working directory, which would put scratch arcs in the
+    // developer's repository.
+    init_scratch_repo(&repo_of(&path));
     (dir, path)
+}
+
+/// The checkout beside a test's ledger — one git repository per `db()`.
+fn repo_of(db: &Path) -> std::path::PathBuf {
+    db.parent()
+        .expect("the ledger sits in a temp dir")
+        .join("repo")
+}
+
+/// A git repository with one commit, and the state directory redirected beside
+/// it so nothing an arc writes reaches the developer's own.
+fn init_scratch_repo(repo: &Path) {
+    if repo.join(".git").exists() {
+        return;
+    }
+    std::fs::create_dir_all(repo).unwrap();
+    std::fs::write(repo.join("README.md"), "scratch\n").unwrap();
+    for args in [
+        vec!["init", "-b", "main"],
+        vec!["config", "user.name", "Test User"],
+        vec!["config", "user.email", "test@example.com"],
+        vec!["add", "-A"],
+        vec!["commit", "-m", "first"],
+    ] {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    }
 }
 
 /// Every verb speaks the shared envelope, so a reader parses one shape.
@@ -411,6 +450,111 @@ fn an_edit_moves_only_what_it_names_and_clear_empties_a_column() {
     assert!(stderr(&bad).contains("brief"), "{}", stderr(&bad));
 }
 
+/// The cost of laying a tripwire is knowable before it is laid, which means
+/// the caps have to be readable wherever a tripwire is: at the lay, at the
+/// edit, and on the roster row every surface shares.
+#[test]
+fn the_caps_round_trip_through_lay_edit_and_list() {
+    let (_dir, db) = db();
+    let defaulted = tripwire_json(
+        &db,
+        &[
+            "tripwire",
+            "lay",
+            "w",
+            "--on",
+            "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
+    );
+    assert_eq!(
+        (
+            defaulted["data"]["max_seconds"].as_i64(),
+            defaulted["data"]["max_tool_calls"].as_i64()
+        ),
+        (Some(120), Some(30)),
+        "a tripwire laid without naming a cap is still capped"
+    );
+
+    let edited = tripwire_json(&db, &["tripwire", "edit", "w", "--max-seconds", "300"]);
+    assert_eq!(edited["data"]["max_seconds"], 300);
+    assert_eq!(
+        edited["data"]["max_tool_calls"], 30,
+        "an edit moves only what it names"
+    );
+
+    let listed = tripwire_json(&db, &["tripwire", "list"]);
+    assert_eq!(
+        (
+            listed["data"][0]["max_seconds"].as_i64(),
+            listed["data"][0]["max_tool_calls"].as_i64()
+        ),
+        (Some(300), Some(30)),
+        "the roster the card and the CLI share carries both: {listed}"
+    );
+
+    let laid_with_caps = tripwire_json(
+        &db,
+        &[
+            "tripwire",
+            "lay",
+            "x",
+            "--on",
+            "fact:edit_failed",
+            "--description",
+            "Says what broke on the last landing",
+            "--brief",
+            "diagnose the failure and propose a fix",
+            "--max-seconds",
+            "60",
+            "--max-tool-calls",
+            "8",
+        ],
+    );
+    assert_eq!(laid_with_caps["data"]["max_seconds"], 60);
+    assert_eq!(laid_with_caps["data"]["max_tool_calls"], 8);
+}
+
+/// A cap is a ceiling a trip runs up against, so zero is not a spelling for
+/// "no ceiling" — it is a tripwire whose every trip would fail on the instant.
+#[test]
+fn a_cap_of_zero_or_below_is_refused() {
+    let (_dir, db) = db();
+    // `--flag=value`, so a negative number is the flag's value rather than
+    // something clap reads as another flag and refuses before `check_cap`
+    // ever sees it.
+    for (flag, arg) in [
+        ("--max-seconds", "--max-seconds=0"),
+        ("--max-tool-calls", "--max-tool-calls=-1"),
+    ] {
+        let out = tripwire(
+            &db,
+            &[
+                "lay",
+                "w",
+                "--on",
+                "fact:edit_failed",
+                "--description",
+                "Says what broke on the last landing",
+                "--brief",
+                "diagnose the failure and propose a fix",
+                arg,
+            ],
+        );
+        assert_eq!(code(&out), 1, "{arg} was accepted");
+        assert!(stderr(&out).contains(flag), "{}", stderr(&out));
+    }
+
+    let listed = tripwire_json(&db, &["tripwire", "list"]);
+    assert!(
+        listed["data"].as_array().unwrap().is_empty(),
+        "a refused cap laid a tripwire anyway: {listed}"
+    );
+}
+
 /// A half-replaced predicate is the one shape nobody could reason about
 /// later, so a trigger is edited whole.
 #[test]
@@ -537,72 +681,21 @@ fn a_tripwire_that_never_fired_has_an_empty_log_rather_than_a_refusal() {
     );
 }
 
-/// A dismissal discards the arc the awaiting trip was holding, and it finds
-/// that arc in the **landing's** repository rather than in the wire's scope
-/// ([P07], [P09]).
+/// **The log prints the report on a `done` row, and the rounds when there are
+/// any** ([P04]).
 ///
-/// The wire here is unscoped, which is the ordinary shape for a watch on the
-/// machine and the case a scope-addressed discard cannot serve at all: the
-/// engine cuts the arc where the commit landed, and a dismissal that looked
-/// somewhere else would settle the row and leave the worktree standing —
-/// exactly the leak the no-hand-back rebuild exists to close.
+/// The report is what a trip amounted to, so the text rendering is where a
+/// reader meets it — `--json` carrying it and the terminal not would make the
+/// verb's plain output the one surface that cannot answer the question the
+/// trip log exists for.
 #[test]
-fn a_dismissal_discards_the_arc_in_the_repository_the_landing_named() {
+fn the_log_prints_the_report_on_a_done_row() {
     use tugtool_core::tripwire_ledger as ledger;
 
     let (_dir, db) = db();
-    let repo = tempfile::tempdir().unwrap();
-    let data = tempfile::tempdir().unwrap();
-    let root = repo.path().canonicalize().unwrap();
-    for args in [
-        vec!["init", "-q", "-b", "main", "."],
-        vec!["config", "user.email", "t@example.com"],
-        vec!["config", "user.name", "T"],
-    ] {
-        assert!(
-            Command::new("git")
-                .args(&args)
-                .current_dir(&root)
-                .status()
-                .unwrap()
-                .success()
-        );
-    }
-    std::fs::write(root.join("a.txt"), "one\n").unwrap();
-    for args in [vec!["add", "-A"], vec!["commit", "-qm", "one"]] {
-        assert!(
-            Command::new("git")
-                .args(&args)
-                .current_dir(&root)
-                .status()
-                .unwrap()
-                .success()
-        );
-    }
-
-    let arc = "tripwire-w-abcd1234";
-    // No ambient session, and no ambient instance registry. A `arc create`
-    // claims the arc for its calling session, and this fixture runs from
-    // inside a Session card as often as not — an unscrubbed run reaches the
-    // developer's own live instance and posts a bind naming a scratch arc in
-    // a temp repo. That is the hazard `arc_api::bind`'s same-project guard
-    // was added for, met here from the other side.
-    let created = tugtool()
-        .args(["arc", "create", arc, "--json"])
-        .current_dir(&root)
-        .env("TUG_DATA_DIR", data.path())
-        .env("TMPDIR", data.path())
-        .env_remove("TUG_SESSION_ID")
-        .env_remove("TUG_INSTANCE_ID")
-        .output()
-        .unwrap();
-    assert!(created.status.success(), "{}", stderr(&created));
-    let worktree = root.join(".tug/worktrees").join(arc);
-    assert!(worktree.exists(), "the arc's worktree is standing");
-
-    // An unscoped wire: nothing on the row says which checkout the arc is in.
-    let out = tugtool()
-        .args([
+    tripwire_json(
+        &db,
+        &[
             "tripwire",
             "lay",
             "w",
@@ -612,182 +705,41 @@ fn a_dismissal_discards_the_arc_in_the_repository_the_landing_named() {
             "Says what broke on the last landing",
             "--brief",
             "diagnose the failure and propose a fix",
-        ])
-        .env("TUG_TRIPWIRES_DB", &db)
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "{}", stderr(&out));
-
-    // The trip the engine would have written: fired on a fact, holding the
-    // arc, awaiting the user.
-    {
-        let conn = ledger::open_ledger(&db).unwrap();
-        let wire = ledger::get(&conn, "w").unwrap().unwrap();
-        let trip_id = fire(&conn, wire.id, Some(&root.display().to_string()));
-        ledger::record_run(&conn, trip_id, Some("sess-a"), Some(arc)).unwrap();
-        ledger::settle(
-            &conn,
-            trip_id,
-            ledger::TripStatus::Awaiting,
-            &ledger::Settlement {
-                headline: Some("the migration drops a column nothing backfills".to_string()),
-                ..ledger::Settlement::default()
-            },
-            20,
-        )
-        .unwrap();
-    }
-
-    let out = tugtool()
-        .args(["--json", "tripwire", "dismiss", "w"])
-        .env("TUG_TRIPWIRES_DB", &db)
-        .env("TUG_DATA_DIR", data.path())
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "{}", stderr(&out));
-    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_envelope(&value, "tripwire dismiss");
-    assert_eq!(value["data"]["arc"], arc);
-    assert_eq!(
-        value["data"]["discarded"], true,
-        "the arc was found and removed: {value}"
-    );
-    assert!(
-        value["data"]["discard_error"].is_null(),
-        "and nothing had to be reported: {value}"
-    );
-    assert!(!worktree.exists(), "the worktree is gone");
-}
-
-/// Lay a tripwire and leave it holding one `adopted` trip — the row the engine
-/// writes when a card takes the session over. Answers the trip's id.
-fn adopted_trip(db: &Path, name: &str) -> i64 {
-    use tugtool_core::tripwire_ledger as ledger;
-
-    let out = tripwire(
-        db,
-        &[
-            "lay",
-            name,
-            "--on",
-            "fact:edit_failed",
-            "--description",
-            "Says what broke on the last landing",
-            "--brief",
-            "diagnose the failure and propose a fix",
         ],
     );
-    assert!(out.status.success(), "{}", stderr(&out));
-
-    let conn = ledger::open_ledger(db).unwrap();
-    let wire = ledger::get(&conn, name).unwrap().unwrap();
-    let trip_id = fire(&conn, wire.id, None);
-    ledger::record_run(&conn, trip_id, Some("sess-a"), None).unwrap();
-    ledger::adopt_if_running(&conn, trip_id, "a card took the session over", 20).unwrap();
-    trip_id
-}
-
-/// A session a user took over can still run the resolution verb: `resolve`
-/// finds no running trip, falls through to the adopted one, and settles it.
-#[test]
-fn resolve_settles_an_adopted_trip() {
-    use tugtool_core::tripwire_ledger as ledger;
-
-    let (_dir, db) = db();
-    let trip_id = adopted_trip(&db, "w");
-
-    let out = tripwire(&db, &["resolve", "w", "--quiet"]);
-    assert!(out.status.success(), "{}", stderr(&out));
-
-    let conn = ledger::open_ledger(&db).unwrap();
-    let settled = ledger::trip(&conn, trip_id).unwrap().unwrap();
-    assert_eq!(settled.status, "quiet");
-    assert!(settled.settled_at_ms.is_some());
-}
-
-/// And dismissing one is the user's door out of a hold they no longer want.
-#[test]
-fn dismiss_settles_an_adopted_trip() {
-    use tugtool_core::tripwire_ledger as ledger;
-
-    let (_dir, db) = db();
-    let trip_id = adopted_trip(&db, "w");
-
-    let out = tripwire(&db, &["dismiss", "w"]);
-    assert!(out.status.success(), "{}", stderr(&out));
-
-    let conn = ledger::open_ledger(&db).unwrap();
-    let settled = ledger::trip(&conn, trip_id).unwrap().unwrap();
-    assert_eq!(settled.status, "quiet");
-    assert_eq!(settled.headline.as_deref(), Some("dismissed"));
-}
-
-/// With nothing live and nothing adopted, each verb refuses naming both of the
-/// states it looked for — a reader told only "refused" cannot tell which.
-#[test]
-fn each_verb_names_both_states_it_looked_for() {
-    let (_dir, db) = db();
-    let laid = tripwire(
-        &db,
-        &[
-            "lay",
-            "w",
-            "--on",
-            "fact:edit_failed",
-            "--description",
-            "Says what broke on the last landing",
-            "--brief",
-            "diagnose the failure and propose a fix",
-        ],
-    );
-    assert!(laid.status.success(), "{}", stderr(&laid));
-
-    // Never fired: there is no state to name, so neither verb invents one.
-    let resolved = tripwire(&db, &["resolve", "w", "--quiet"]);
-    assert_eq!(code(&resolved), 1);
-    assert!(
-        stderr(&resolved).contains("has never fired"),
-        "{}",
-        stderr(&resolved)
-    );
-
-    // Fired and settled: the refusal names both states it looked for and the
-    // one it found instead.
-    {
-        use tugtool_core::tripwire_ledger as ledger;
+    let trip_id = {
         let conn = ledger::open_ledger(&db).unwrap();
         let wire = ledger::get(&conn, "w").unwrap().unwrap();
         let trip_id = fire(&conn, wire.id, None);
-        ledger::record_run(&conn, trip_id, Some("sess-a"), None).unwrap();
+        ledger::record_run(&conn, trip_id, Some("sess-a"), Some("tripwire-w")).unwrap();
+        ledger::record_report(&conn, trip_id, "The assertion was never updated.", 2).unwrap();
         ledger::settle(
             &conn,
             trip_id,
-            ledger::TripStatus::Quiet,
+            ledger::TripStatus::Done,
             &ledger::Settlement::default(),
             20,
         )
         .unwrap();
-    }
+        trip_id
+    };
 
-    let resolved = tripwire(&db, &["resolve", "w", "--quiet"]);
-    assert_eq!(code(&resolved), 1);
+    let plain = String::from_utf8_lossy(&tripwire(&db, &["log", "w"]).stdout).into_owned();
     assert!(
-        stderr(&resolved).contains("no running or adopted trip to resolve"),
-        "{}",
-        stderr(&resolved)
+        plain.contains("done") && plain.contains("The assertion was never updated."),
+        "the row carries its status and its report: {plain}"
+    );
+    assert!(
+        plain.contains("(2 rounds)"),
+        "and says what it committed: {plain}"
     );
 
-    let dismissed = tripwire(&db, &["dismiss", "w"]);
-    assert_eq!(code(&dismissed), 1);
-    assert!(
-        stderr(&dismissed).contains("no awaiting or adopted trip to dismiss"),
-        "{}",
-        stderr(&dismissed)
-    );
+    let log = tripwire_json(&db, &["tripwire", "log", "w"]);
+    let row = &log["data"][0];
+    assert_eq!(row["id"], trip_id);
+    assert_eq!(row["report"], "The assertion was never updated.");
+    assert_eq!(row["rounds"], 2);
 }
-
 /// **The description is stored, echoed, and carried to every reader.**
 ///
 /// `lay --description` is required alongside `--brief` because the card leads
@@ -1044,7 +996,7 @@ fn rm_is_refused_while_a_trip_is_running() {
         ledger::settle(
             &conn,
             trip_id,
-            ledger::TripStatus::Quiet,
+            ledger::TripStatus::Done,
             &ledger::Settlement::default(),
             20,
         )
@@ -1055,4 +1007,95 @@ fn rm_is_refused_while_a_trip_is_running() {
     assert_eq!(removed["data"]["removed"], true);
     let conn = ledger::open_ledger(&db).unwrap();
     assert!(ledger::get(&conn, "w").unwrap().is_none());
+}
+
+/// **Laying a tripwire creates its arc and stamps who laid it** ([P02]).
+///
+/// The arc is cut at `lay` rather than at the first trip, so the hydration a
+/// project declares is paid once at a gesture the user is watching — and so a
+/// trip has somewhere to stand from the moment the tripwire exists.
+#[test]
+fn laying_a_tripwire_creates_its_arc_and_stamps_who_laid_it() {
+    let (_dir, db) = db();
+    let repo = repo_of(&db);
+    let laid = tripwire_json(
+        &db,
+        &[
+            "tripwire",
+            "lay",
+            "probe-me",
+            "--on",
+            "fact:shell",
+            "--description",
+            "Says what broke on the last landing",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ],
+    );
+    assert_eq!(
+        laid["data"]["repo_root"],
+        std::fs::canonicalize(&repo).unwrap().display().to_string(),
+        "the row records the checkout its arc lives in"
+    );
+    assert!(
+        tugarc_core::ops::arc_exists_in(&repo, "tripwire-probe-me"),
+        "the arc is cut at lay"
+    );
+    assert_eq!(
+        tugarc_core::ops::laid_by(&repo, "tripwire-probe-me").as_deref(),
+        Some("tripwire/probe-me"),
+        "and stamped with who laid it, which is what tells it from a person's arc"
+    );
+
+    // And the removal takes it back off the machine.
+    let removed = tripwire_json(&db, &["tripwire", "rm", "probe-me"]);
+    assert_eq!(removed["data"]["arc"], "tripwire-probe-me");
+    assert_eq!(removed["data"]["discarded"], true);
+    assert!(
+        !tugarc_core::ops::arc_exists_in(&repo, "tripwire-probe-me"),
+        "removing the tripwire removes the worktree it owned"
+    );
+}
+
+/// **A tripwire laid nowhere in particular refuses, and names what it tried.**
+///
+/// An arc needs a repository. A refusal that only said "no checkout" would
+/// leave the user guessing which of the two answers — the scope or the shell's
+/// directory — was the one that failed.
+#[test]
+fn laying_outside_a_repository_refuses_and_names_what_it_tried() {
+    let (_dir, db) = db();
+    let nowhere = db.parent().unwrap().join("nowhere");
+    std::fs::create_dir_all(&nowhere).unwrap();
+
+    let out = tugtool()
+        .args([
+            "tripwire",
+            "lay",
+            "homeless",
+            "--on",
+            "fact:shell",
+            "--description",
+            "Says what broke on the last landing",
+            "--brief",
+            "diagnose the failure and propose a fix",
+        ])
+        .env("TUG_TRIPWIRES_DB", &db)
+        .current_dir(&nowhere)
+        .output()
+        .unwrap();
+    assert_eq!(code(&out), 1);
+    let said = stderr(&out);
+    assert!(
+        said.contains("checkout to live in") && said.contains("--scope"),
+        "the refusal names both attempts: {said}"
+    );
+
+    let conn = tugtool_core::tripwire_ledger::open_ledger(&db).unwrap();
+    assert!(
+        tugtool_core::tripwire_ledger::get(&conn, "homeless")
+            .unwrap()
+            .is_none(),
+        "and a lay that could not resolve a checkout wrote no row"
+    );
 }

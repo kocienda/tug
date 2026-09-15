@@ -148,7 +148,7 @@ impl SnapshotFeed for TripwiresFeed {
         let mut last_data_version = data_version(&conn);
 
         loop {
-            match tripwire_roster::roster(&conn) {
+            match tripwire_roster::roster(&conn, tugarc_core::ops::worktree_path) {
                 Ok(rows) => {
                     if previous.as_ref() != Some(&rows) {
                         debug!(tripwires = rows.len(), "tripwire roster updated");
@@ -402,24 +402,21 @@ mod tests {
         .unwrap()
         .expect("this tripwire has no row for that key yet");
         ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
-        ledger::settle(
+        ledger::record_report(
             &conn,
             trip_id,
-            TripStatus::Awaiting,
-            &Settlement {
-                headline: Some("the migration drops a column nothing backfills".to_string()),
-                ..Settlement::default()
-            },
-            20,
+            "the migration drops a column nothing backfills",
+            0,
         )
         .unwrap();
+        ledger::settle(&conn, trip_id, TripStatus::Done, &Settlement::default(), 20).unwrap();
         assert!(bump());
 
         let after = next_frame(&mut rx, 5).await;
         let row = &after["tripwires"][0];
-        assert_eq!(row["awaiting"], true);
+        assert_eq!(row["last_trip"]["status"], "done");
         assert_eq!(
-            row["last_trip"]["headline"],
+            row["last_trip"]["report"],
             "the migration drops a column nothing backfills"
         );
         assert_ne!(row["trip_log_revision"], quiet_revision);

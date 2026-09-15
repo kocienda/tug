@@ -36,14 +36,14 @@
  *
  * ## What the real app cannot reach, and where it is pinned instead
  *
- * The live states — a running trip's session dot, an awaiting trip's register
- * band and its Seen act, an arc atom in a trip's meta line, a populated log
- * with a rolled-up run and an older-trips cue — all need a **trip row**, and
- * there is no CLI door that records one without running a tripwire for real:
- * `tugtool tripwire trip` goes past the guards by construction (`serve_manual`
- * feeds a synthetic landing to a real inspection tree and a real `claude`), and
- * the house rule against opening a live ledger with a foreign sqlite rules out
- * the other way in. at0568 states the same boundary for the same reason.
+ * The live states — a running trip's session dot and register band, an arc
+ * atom in a trip's meta line, a populated log with a rolled-up run and an
+ * older-trips cue — all need a **trip row**, and there is no CLI door that
+ * records one without running a tripwire for real: `tugtool tripwire trip`
+ * goes past the guards by construction (a real arc worktree and a real
+ * `claude`), and the house rule against opening a live ledger with a foreign
+ * sqlite rules out the other way in. at0568 and at0576 state the same
+ * boundary for the same reason.
  *
  * So the log's rules are proved over rows, deterministically, in
  * `tugdeck/src/components/tripwires/__tests__/trip-log.test.ts` — which trips
@@ -56,7 +56,7 @@
  * Delete's one refusal is on the same side of that line. `Delete — a trip is
  * running` needs a running trip, which is the row no CLI door records, so the
  * refusal is pinned as a decision in `tripwire-presentation`'s unit tests and
- * what this file drives is the verb on a quiet tripwire.
+ * what this file drives is the verb on a tripwire with no trip in flight.
  *
  * @covers tugdeck/src/components/tripwires/tripwires-card.tsx
  * @covers tugdeck/src/components/tripwires/tripwires-card-registration.tsx
@@ -261,18 +261,17 @@ describe.skipIf(!SHOULD_RUN)(
             );
             expect(band).toContain("2 armed");
             expect(band).toContain("1 paused");
-            // Nothing is running and nothing is awaiting, so the band says
-            // nothing about either: a zero count is a row the reader has to
-            // read to learn there is nothing to read.
+            // Nothing is running, so the band says nothing about it: a zero
+            // count is a row the reader has to read to learn there is nothing
+            // to read.
             expect(band).not.toContain("running");
-            expect(band).not.toContain("awaiting");
             // And no trip count: none of the three has ever fired, and a
             // "0 trips" on the band would be a number saying nothing.
             expect(band).not.toContain("trip");
 
-            // Nothing is running and nothing is awaiting, so nothing moves.
-            // The dot is the interest signal, and silence is what it says
-            // about a wire with nothing to report ([P08]).
+            // Nothing is running, so nothing moves. The dot is the interest
+            // signal, and silence is what it says about a tripwire with
+            // nothing in flight ([P08]).
             expect(
               await app.evalJS<number>(
                 `document.querySelectorAll(".tripwires-dot-button, [data-slot='tripwire-register']").length`,
@@ -280,7 +279,7 @@ describe.skipIf(!SHOULD_RUN)(
             ).toBe(0);
             expect(
               await app.evalJS<string | null>(
-                `document.querySelector("[data-tripwire='alpha']").getAttribute("data-tripwire-awaiting")`,
+                `document.querySelector("[data-tripwire='alpha']").getAttribute("data-tripwire-running")`,
               ),
             ).toBe("false");
 
@@ -515,7 +514,9 @@ describe.skipIf(!SHOULD_RUN)(
               await app.evalJS<string>(
                 `document.querySelector(${JSON.stringify(CONFIRM)}).textContent`,
               ),
-            ).toContain("Delete beta? Its trip log goes with it.");
+            ).toContain(
+              "Delete beta? Its trip log goes with it, and its arc tripwire-beta is discarded.",
+            );
 
             // ---- Cancel leaves the tripwire exactly where it was, in the
             // ledger as well as on the card: an armed confirm that half-acted

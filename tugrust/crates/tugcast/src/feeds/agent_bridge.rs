@@ -1011,6 +1011,12 @@ fn record_shell_facts(
     is_error: bool,
 ) {
     use crate::feeds::facts_library;
+    // Inside the function, and never at its two call sites: both have already
+    // run `pending_shell_facts.take(…)`, so a guard placed above the take
+    // would leak the pending entry and grow the map forever.
+    if !facts_library::shell_call_ran(output) {
+        return;
+    }
     let session = tug_session_id.as_str();
     let key = facts_library::shell_key(session, tool_use_id);
     record_fact_best_effort(
@@ -2533,9 +2539,17 @@ pub async fn relay_session_io(
                                 match InspectedReplayBatch::from_slice(line.as_bytes()) {
                                     Some(batch) => {
                                         let mut recorded_any = false;
+                                        // Every tool call in the batch, counted
+                                        // for the tripwire ceiling ([P07]).
+                                        // Tallied here and added under the
+                                        // entry lock once below, rather than
+                                        // taking the lock up to 256 times for
+                                        // one replayed turn.
+                                        let mut tool_calls = 0u32;
                                         for inner in &batch.frames {
                                             let bytes = inner.get().as_bytes();
                                             if let Some(tu) = InspectedToolUse::from_slice(bytes) {
+                                                tool_calls += 1;
                                                 // Every Bash call, before any
                                                 // attribution filter sees it
                                                 // ([P06]). Replayed history
@@ -2681,6 +2695,10 @@ pub async fn relay_session_io(
                                         if recorded_any {
                                             changeset_bumper.bump(Path::new(project_dir));
                                         }
+                                        if tool_calls > 0 {
+                                            ledger_entry.lock().await.tool_calls +=
+                                                tool_calls;
+                                        }
                                     }
                                     None => {
                                         warn!(
@@ -2700,6 +2718,12 @@ pub async fn relay_session_io(
                                 // but fails both parses is shape drift that
                                 // must be loud, not silent.
                                 if let Some(tu) = InspectedToolUse::from_slice(line.as_bytes()) {
+                                    // The session's own count, which a
+                                    // tripwire's ceiling is a ceiling on
+                                    // ([P07]). Before every filter below: a
+                                    // `Read` is not attribution's business and
+                                    // is very much the budget's.
+                                    ledger_entry.lock().await.tool_calls += 1;
                                     // Every Bash call, ahead of every filter
                                     // ([P06]) — the attribution maps below
                                     // admit only file-operation commands in a
@@ -4457,6 +4481,23 @@ mod tests {
         assert_eq!(facts.len(), 1);
         assert_eq!(facts[0].0, "shell");
         assert_eq!(facts[0].2, "$ cargo build → err", "is_error reached `ok`");
+    }
+
+    /// A call the gate refused never ran, so there is nothing about the shell
+    /// to record — and an `InputValidationError` is the same fact for a second
+    /// reason. `is_error` is true here exactly as it is for `cargo build`
+    /// above, which is why the wrapper and not the flag is the discriminator
+    /// ([P09]).
+    #[tokio::test]
+    async fn an_input_validation_error_records_no_shell_fact() {
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        let tool_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-1","input":{"command":"cargo nextest run"},"timestamp":1700000000000}"#;
+        let tool_result = r#"{"type":"tool_result","tool_use_id":"tu-1","output":"<tool_use_error>InputValidationError: Bash failed due to the following issue:\nThe required parameter `command` is missing</tool_use_error>","is_error":true}"#;
+
+        drive_relay(ledger.clone(), "tug-1", "/proj", &[tool_use, tool_result]).await;
+
+        let facts = relay_facts(&ledger);
+        assert!(facts.is_empty(), "nothing ran: {facts:?}");
     }
 
     /// A `just app-test` run is read off the recipe's `VERDICT:` line.

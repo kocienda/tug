@@ -618,6 +618,27 @@ pub struct ShellFact<'a> {
     pub cwd: Option<&'a str>,
 }
 
+/// Whether a Bash `tool_result` is telling us about a command that ran.
+///
+/// Claude Code wraps the result of a tool call that never ran in
+/// `<tool_use_error>…</tool_use_error>` — a PreToolUse gate's refusal, an
+/// `InputValidationError` — and opens the result of a command that ran and
+/// exited non-zero with a bare `Exit code N`. A scan of the whole transcript
+/// corpus under `~/.claude/projects` split cleanly on that prefix: 15 wrapped
+/// results, none of which ran, and some 250 `Exit code N` results, every one
+/// of which did. There is no overlap and no third shape.
+///
+/// It is a **Claude Code output convention, not a published contract**, which
+/// is exactly why it is one named function with one test naming both shapes
+/// rather than a `starts_with` spelled inline at each recorder. If the
+/// convention ever moves, it moves here.
+///
+/// `is_error` cannot answer this: it is true for a refusal and for a non-zero
+/// exit alike, and `exit_code` is always `None` on the Claude route.
+pub fn shell_call_ran(output: &str) -> bool {
+    !output.trim_start().starts_with("<tool_use_error>")
+}
+
 /// One shell command and how it went. Never its output — `shell_exchanges.db`
 /// and the transcript own that, and a fact is about the work, not its bytes.
 pub fn shell_fact(
@@ -991,6 +1012,12 @@ pub fn synthesize_facts_from_frames(frames: &[SynthFrame<'_>]) -> SynthesizedFac
                     .get("output")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
+                // After `pending.remove(index)` above, never before it: a
+                // guard that returned early with the call still pending
+                // would leave the map holding a settled call forever.
+                if !shell_call_ran(output) {
+                    continue;
+                }
                 let key = shell_key(session_id, id);
                 facts.push(shell_fact(
                     at_ms,
@@ -1608,6 +1635,52 @@ VERDICT: PASS  (20/20 files green; 137/137 tests passed)";
         ]);
         assert!(out.facts.is_empty());
         assert!(out.kinds.is_empty());
+    }
+
+    /// Both shapes, verbatim from the corpus the discriminator was read off.
+    #[test]
+    fn a_wrapped_tool_use_error_did_not_run_and_an_exit_code_did() {
+        assert!(!shell_call_ran(
+            "<tool_use_error>Blocked: sleep 45 followed by: read the log</tool_use_error>"
+        ));
+        assert!(!shell_call_ran(
+            "<tool_use_error>InputValidationError: Bash failed due to the following issue:\nThe required parameter `command` is missing</tool_use_error>"
+        ));
+        // Leading whitespace is the wire's, not a different shape.
+        assert!(!shell_call_ran(
+            "\n  <tool_use_error>Blocked</tool_use_error>"
+        ));
+        assert!(shell_call_ran(
+            "Exit code 1\n(eval):cd:1: no such file or directory: /nope"
+        ));
+        assert!(shell_call_ran(""));
+        // The words appearing in a command's own output are not the wrapper:
+        // only the prefix is the discriminator.
+        assert!(shell_call_ran(
+            "Exit code 1\ngrep: no match for <tool_use_error>"
+        ));
+    }
+
+    /// A batch carrying one refused call and one that genuinely failed leaves
+    /// exactly the second one behind. `is_error` is true for both, which is
+    /// why it could never have answered this.
+    #[test]
+    fn a_denied_call_beside_a_failing_one_synthesizes_one_shell_fact() {
+        let denied_use = r#"{"tug_session_id":"s1","type":"tool_use","tool_name":"Bash","tool_use_id":"toolu_01","input":{"command":"sleep 45"}}"#;
+        let denied = r#"{"tug_session_id":"s1","type":"tool_result","tool_use_id":"toolu_01","output":"<tool_use_error>Blocked: sleep 45 followed by: read the log</tool_use_error>","is_error":true}"#;
+        let ran_use = r#"{"tug_session_id":"s1","type":"tool_use","tool_name":"Bash","tool_use_id":"toolu_02","input":{"command":"cd /nope"}}"#;
+        let ran = r#"{"tug_session_id":"s1","type":"tool_result","tool_use_id":"toolu_02","output":"Exit code 1\n(eval):cd:1: no such file or directory: /nope","is_error":true}"#;
+
+        let out = synthesize_facts_from_frames(&[
+            frame(1_000, "tool_use", denied_use),
+            frame(1_100, "tool_result", denied),
+            frame(1_200, "tool_use", ran_use),
+            frame(1_300, "tool_result", ran),
+        ]);
+
+        assert_eq!(out.kinds, vec!["shell"]);
+        assert_eq!(out.facts.len(), 1);
+        assert_eq!(out.facts[0].text, "$ cd /nope → err");
     }
 
     #[test]

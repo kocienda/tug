@@ -1,5 +1,5 @@
 /**
- * at0568-tripwire-session-adoption.test.ts — a **background** session's row
+ * at0568-background-session-resume.test.ts — a **background** session's row
  * stops refusing the gesture that would seat it on a card.
  *
  * ## What this gates
@@ -9,7 +9,7 @@
  * its own id in. Nothing read that string, so the deck could not tell a live
  * session held by another card from one held by nobody a user could be sent
  * to, and `session-identity-menu.tsx`'s `heldElsewhere = state === "live"`
- * guard refused the adoption gesture it already implemented. The row now says
+ * guard refused the resume gesture it already implemented. The row now says
  * `background`, and the guard reads it.
  *
  * Driven through the menu on a **Overview atom** — a citation in foreign
@@ -25,9 +25,9 @@
  *      held it a moment ago — and that card opens onto the session's own
  *      transcript, replayed from the JSONL the background session left on
  *      disk. That is the Exit's "a settled trip opens onto its full
- *      transcript": adoption is the resume that already ships ([B01]), so what
- *      is proved here is that the resume finds a background session's history
- *      exactly as it finds a card's.
+ *      transcript": the gesture is the resume that already ships ([B01]), so
+ *      what is proved here is that the resume finds a background session's
+ *      history exactly as it finds a card's.
  *   3. With that card holding it, the same row now reads `Show Session`: the
  *      binding store answers a card, the gesture takes the raise branch, and
  *      the deck never opens a rival card on a session it already holds
@@ -35,21 +35,15 @@
  *
  * ## What is deliberately not here
  *
- * The Tripwires row's live dot is not the vehicle, and that is [P08]'s split
- * rather than an omission. Rendering it needs a tripwire row whose projection
- * carries a running or adopted trip, and there is **no CLI door that records a
- * trip against an arbitrary session id** — `tugtool tripwire trip` fires for
- * real, which would put a real landing, a real inspection tree and a real
- * `claude` behind every run of this file, and the house rule against opening
- * sqlite from an app-test rules out the other way in. So the dot's *decision*
- * — that `adopted` earns the same live dot `running` does, keyed on the same
- * session — is pinned in `tripwire-presentation`'s unit tests, exactly as
- * at0492 pins the dot's three meanings for the same reason. What the real app
- * proves here is the gesture behind the dot, which is the half a unit test
- * cannot reach, and the dot calls it through the same registry handler this
- * menu item does.
+ * The Tripwires row's live dot is not the vehicle, and that is a split rather
+ * than an omission: the dot, and the card a *running* trip opens on its own,
+ * are `at0576-trip-session-card.test.ts`. What this file drives is the menu on
+ * a citation in foreign context — the surface the go-to item exists for — and
+ * the dot reaches the same registry handler this menu item does.
  *
- * The mid-turn handover is Rust, and is proved as Rust in
+ * The engine's half — that a trip's session survives being carded, because
+ * `close_headless_session` refuses to close one a deck card holds — is Rust,
+ * and is proved as Rust in
  * `tugrust/crates/tugcast/src/feeds/tripwire_session.rs`.
  *
  * @covers tugdeck/src/components/tugways/session-identity-menu.tsx
@@ -223,7 +217,7 @@ describe.skipIf(!SHOULD_RUN)(
       "the row offers Resume, the gesture seats a card, and the row then offers Show",
       async () => {
         const app = await launchTugApp({
-          testName: "at0568-tripwire-session-adoption",
+          testName: "at0568-background-session-resume",
         });
         try {
           await app.waitForCondition<boolean>(`typeof window.__tug !== "undefined"`, {

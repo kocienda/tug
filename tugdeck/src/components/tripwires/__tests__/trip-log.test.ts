@@ -44,9 +44,9 @@ function trip(over: Partial<TripRow> & { status: string }): TripRow {
     headline: null,
     refs: null,
     settled_at_ms: null,
-    author_ask: null,
     repo_root: "/Users/me/src/tug",
-    head_sha: "abc1234",
+    report: null,
+    rounds: null,
     ...over,
   };
 }
@@ -54,30 +54,28 @@ function trip(over: Partial<TripRow> & { status: string }): TripRow {
 const skipped = (reason: string): TripRow =>
   trip({ status: "skipped", reason });
 const quiet = (exit: number | null = 0): TripRow =>
-  trip({ status: "quiet", probe_exit: exit });
+  trip({ status: "done", probe_exit: exit });
 
 describe("which trips fold", () => {
   test("a trip that never ran folds, and so does one that finished silently", () => {
     expect(rollupKind(skipped("busy"))).toBe("skipped");
-    expect(rollupKind(quiet())).toBe("quiet");
+    expect(rollupKind(quiet())).toBe("unreported");
   });
 
   test("a finish that found something never folds — it is the row the log is for", () => {
-    const found = trip({ status: "quiet", probe_exit: 1, headline: "One unused import." });
+    const found = trip({ status: "done", probe_exit: 1, headline: "One unused import." });
     expect(rollupKind(found)).toBeNull();
   });
 
   test("a quiet trip whose session is still openable never folds", () => {
     // [B04]: the fold would take the dot the reader opens the work through,
     // so what folds is the probe-settled trip that never seated a session.
-    expect(rollupKind(trip({ status: "quiet", session_id: "sess-3" }))).toBeNull();
+    expect(rollupKind(trip({ status: "done", session_id: "sess-3" }))).toBeNull();
   });
 
-  test("a failure, a question and a run in flight each stand as their own row", () => {
+  test("a failure, an unknown word and a run in flight each stand as their own row", () => {
     expect(rollupKind(trip({ status: "failed" }))).toBeNull();
-    expect(rollupKind(trip({ status: "awaiting", headline: "Look at this." }))).toBeNull();
     expect(rollupKind(trip({ status: "running", session_id: "s1" }))).toBeNull();
-    expect(rollupKind(trip({ status: "adopted", session_id: "s1" }))).toBeNull();
     expect(rollupKind(trip({ status: "quarantined" }))).toBeNull();
   });
 });
@@ -106,14 +104,14 @@ describe("the roll-up", () => {
     expect(entries.length).toBe(2);
     expect(entries.map((e) => (e.kind === "rollup" ? e.roll : e.kind))).toEqual([
       "skipped",
-      "quiet",
+      "unreported",
     ]);
   });
 
   test("a row worth reading breaks the run it lands in", () => {
     // Chronological, never gathered: a roll-up that collected every skipped
     // trip in the file would put one row's time span across the whole history.
-    const found = trip({ status: "quiet", headline: "Found it." });
+    const found = trip({ status: "done", headline: "Found it." });
     const entries = rollUp([skipped("busy"), skipped("busy"), found, skipped("busy"), skipped("busy")]);
     expect(entries.map((e) => e.kind)).toEqual(["rollup", "trip", "rollup"]);
   });
@@ -131,8 +129,8 @@ describe("what a folded run says", () => {
     );
   });
 
-  test("the quiet say how the probe went, which is the only thing left to tell them apart", () => {
-    expect(rollupSentence("quiet", [quiet(0), quiet(0), quiet(null)])).toBe(
+  test("the unreported say how the probe went, which is all that is left to tell them apart", () => {
+    expect(rollupSentence("unreported", [quiet(0), quiet(0), quiet(null)])).toBe(
       "Finished with nothing to report ×3 — probe 0 ×2, no probe ×1",
     );
   });

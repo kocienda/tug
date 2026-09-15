@@ -442,6 +442,20 @@ pub struct LedgerEntry {
     /// from the ledger row on rebind. Zero is the state between a spawn and
     /// its first `turn_complete`: seated, idle, and never yet run.
     pub turns_ended: u32,
+    /// How many tool calls this session has made — counted at the two places
+    /// the bridge parses a tool-use frame off the stream, live and replayed
+    /// ([P07]).
+    ///
+    /// The bridge is the only place that sees every one of them: facts see
+    /// Bash calls and edits, so a fact-derived count would miss `Read`,
+    /// `Grep` and `Agent` — exactly the calls a session that will not stop
+    /// spends its life on. It counts calls rather than *completed* calls, so
+    /// a call the gate denied counts too, which is correct: a session burning
+    /// its budget on refused calls is precisely one to stop.
+    ///
+    /// Never reset. It is the session's whole life, which is what the
+    /// tripwire's ceiling is a ceiling on.
+    pub tool_calls: u32,
     /// What opened the turn now in flight, or `None` between turns and for a
     /// turn whose opener was never recorded ([P02]).
     ///
@@ -652,6 +666,7 @@ impl LedgerEntry {
             child_start_time: None,
             turn_active: false,
             turns_ended: 0,
+            tool_calls: 0,
             turn_opener: None,
             prompt_turns_ended: 0,
             wake_turns_ended: 0,
@@ -7681,8 +7696,7 @@ impl AgentSupervisor {
                         // list above is `--stat` shaped, and under any strategy
                         // but `squash` it is empty for the reason given there.
                         if let Some(sessions) = self.session_ledger.as_ref() {
-                            let paths: Vec<String> =
-                                files.iter().map(|f| f.path.clone()).collect();
+                            let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
                             let fact = crate::feeds::facts_library::commit_fact(
                                 crate::session_ledger::now_millis(),
                                 request.session_id.as_deref().filter(|s| !s.is_empty()),
@@ -16443,7 +16457,10 @@ mod tests {
             .unwrap();
         assert_eq!(facts.len(), 1, "one landing, one commit fact: {facts:?}");
         let payload: serde_json::Value = serde_json::from_str(&facts[0].payload).unwrap();
-        assert_eq!(payload["sha"], landed, "the fact names the commit the join landed");
+        assert_eq!(
+            payload["sha"], landed,
+            "the fact names the commit the join landed"
+        );
         assert_eq!(payload["branch"], "main", "and the base it landed on");
         assert_eq!(
             payload["files"],

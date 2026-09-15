@@ -1189,12 +1189,6 @@ export const TUG_ACTIONS = {
   //                        same queued row `tugtool tripwire trip` writes.
   //                        Disabled, with the reason in its label, while a
   //                        trip is already running.
-  // RELEASE_TRIPWIRE:      payload — none. Settle what the tripwire is holding
-  //                        ([P07]) and discard the arc it was holding it with.
-  //                        The keyboard's name for the fold's Seen act, which
-  //                        is the same `dismiss`; an awaiting trip that
-  //                        authored an arc is released by that arc's fate
-  //                        instead, so the band under it carries no control.
   // OPEN_TRIPWIRE_SESSION: payload — none. Open the session the tripwire's
   //                        newest trip that had one is in, on a card — the
   //                        gesture the row's live dot performs, under the
@@ -1218,7 +1212,6 @@ export const TUG_ACTIONS = {
   PAUSE_TRIPWIRE:        "pause-tripwire",
   RESUME_TRIPWIRE:       "resume-tripwire",
   TRIP_TRIPWIRE:         "trip-tripwire",
-  RELEASE_TRIPWIRE:      "release-tripwire",
   OPEN_TRIPWIRE_SESSION: "open-tripwire-session",
   SET_TRIPWIRE_MODEL:    "set-tripwire-model",
   DELETE_TRIPWIRE:       "delete-tripwire",

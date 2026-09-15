@@ -1692,6 +1692,16 @@ pub fn list() -> Result<Vec<ArcListItem>, String> {
     Ok(items)
 }
 
+/// The branch an arc was cut from, against an explicit repo root ([P03]).
+///
+/// The crate-private [`arc_base`] is what every verb in here reads; this is
+/// the same answer for a caller outside the crate — tugcast's tripwire engine,
+/// which has to put an arc with no rounds onto the base's tip itself, because
+/// a replay with nothing to move defers rather than fast-forwards.
+pub fn arc_base_in(repo_root: &Path, name: &str) -> Result<String, String> {
+    arc_base(&main_repo_root(repo_root), name)
+}
+
 /// Whether an arc's branch is still there, against an explicit repo root.
 ///
 /// The branch is the arc ([P02]): a worktree can be pruned and an arc still

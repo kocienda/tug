@@ -48,9 +48,6 @@ pub mod surfaces;
 /// against the joined tree, recorded as a fact anchored to two commits.
 pub mod verify;
 
-/// The shared tripwire dismiss — the CLI verb and the HTTP one, one spelling.
-pub mod tripwire_dismiss;
-
 /// The shared tripwire removal — the guard, the arc discard, and the delete.
 pub mod tripwire_remove;
 

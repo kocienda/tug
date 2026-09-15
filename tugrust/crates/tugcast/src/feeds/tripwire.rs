@@ -1,7 +1,7 @@
 //! The tripwire engine — what turns a standing tripwire into a firing.
 //!
 //! The feature's doctrine is `tuglaws/tripwires.md` — the lifecycle, the guards
-//! and the release rule are argued there and only implemented here.
+//! and the caps are argued there and only implemented here.
 //!
 //! One engine per tugcast. Every firing it decides on becomes a row in
 //! `tripwires.db`, including the ones it refuses.
@@ -30,12 +30,20 @@
 //! ceiling, or a host with no room each write a `skipped` row naming which
 //! ([P04]), because those are refusals a reader needs to see.
 //!
-//! **A trip never stands in a live checkout.** The tree is cut at the fact's
-//! checkout's `HEAD` into a disposable worktree ([B02]). The session sees the
-//! state the fact happened in and cannot touch it.
+//! **A trip stands in the tripwire's own arc worktree.** Every tripwire owns
+//! one permanent arc, `tripwire-<name>`, replayed onto the base checkout's
+//! `HEAD` before each trip ([P02], [P03]). The session has hands from its
+//! first turn and can commit there, and nothing it does reaches the user's
+//! working checkout.
 //!
-//! **Six words are the whole of a trip's state:** `skipped`, `running`,
-//! `quiet`, `awaiting`, `adopted`, `failed` ([B07]).
+//! **Four words are the whole of a trip's state:** `skipped`, `running`,
+//! `done`, `failed` ([P05]). What a finished trip found is its report, and
+//! whether it committed is its rounds count — neither of them a word the
+//! model chose ([P04]).
+//!
+//! **A trip is bounded.** Its own `max_seconds` and `max_tool_calls` are read
+//! off its row; past either the session is interrupted, given [`CAP_GRACE`] to
+//! go quiet, and failed saying which cap it met ([P06]).
 //!
 //! **The guard half is synchronous, the run half is not — and that split is
 //! load-bearing.** `evaluate` decides against an open `rusqlite::Connection`
@@ -44,30 +52,30 @@
 //! the ledger's no-transaction-across-await rule is enforced by the compiler
 //! rather than by care.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use rusqlite::Connection;
-use sha2::{Digest, Sha256};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+use tugarc_core::ops::round_count_in;
 use tugcast_core::types::{OverviewAuthor, OverviewPost, OverviewRef, OverviewRefKind};
 use tugcast_core::{FeedId, Frame};
-use tugtool_core::tripwire_ledger::{self as ledger, NewTrip, TripStatus, Tripwire};
+use tugtool_core::tripwire_ledger::{self as ledger, NewTrip, TripStatus, Tripwire, tripwire_arc};
 use tugtool_core::tripwire_predicate::{self, FactEvent};
 
 use crate::feeds::tripwire_prompt as prompt;
 use crate::feeds::tripwire_session::{
-    RunRefusal, SessionEnd, TripwireSessionOutcome, TripwireSessionRequest, TripwireSessionRunner,
+    CapKind, RunRefusal, SessionEnd, TripwireSessionOutcome, TripwireSessionRequest,
+    TripwireSessionRunner,
 };
-use crate::feeds::tripwire_tree::InspectionTrees;
 use crate::session_ledger::SessionLedger;
 
-/// How often the engine sweeps: trees whose trips are over, and awaiting trips
-/// whose arcs are gone. Nothing waits on it — a fact wakes the engine directly.
+/// How often the engine sweeps for runs another instance left behind. Nothing
+/// waits on it — a fact wakes the engine directly.
 const SWEEP_TICK: Duration = Duration::from_secs(5);
 
 /// How long a probe may run before the engine stops waiting on it.
@@ -99,22 +107,14 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// as the work takes.
 const ORPHANED_RUN_AGE: Duration = Duration::from_secs(90 * 60);
 
-/// How often a phase re-reads its trip row looking for the resolution verb.
+/// How long a capped session is given to end its turn on the interrupt before
+/// the engine closes it anyway ([P06]).
 ///
-/// Polling rather than a notification because the writer is a `tugtool` in
-/// another process addressing the machine's one ledger (Spec S02) — there is
-/// no channel between them, and the row is the whole of the contract. Two
-/// seconds is far below anything a person perceives and far above anything
-/// SQLite notices.
-const SETTLE_POLL: Duration = Duration::from_secs(2);
-
-/// The permission mode the diagnosis phase is spawned under ([P04]).
-///
-/// A mode the runtime enforces rather than a posture the prompt asks for: it
-/// is fixed at spawn, so the diagnosis session is *unable* to write for the
-/// whole of its life. The tripwire's own `permission_mode` belongs to the
-/// authoring phase alone.
-const DIAGNOSIS_PERMISSION_MODE: &str = "plan";
+/// A bound on the wait rather than on the session: the session is already over
+/// as far as the engine is concerned, and this is only how long it is worth
+/// waiting for a polite ending before taking the impolite one. Short, because
+/// the case it exists for is a bridge that is not going to answer.
+pub(crate) const CAP_GRACE: Duration = Duration::from_secs(10);
 
 /// The channel a hand-fired `tripwire trip` reaches the engine on.
 ///
@@ -159,23 +159,6 @@ pub fn kick(tripwire: &Tripwire) -> Kick {
     }
 }
 
-/// The channel a settled trip's `tripwire_tell` reaches the engine on.
-static SETTLE_TELL: OnceLock<mpsc::Sender<String>> = OnceLock::new();
-
-/// Tell the engine a trip was settled by a verb in another process, so the
-/// Tripwires card sees it now rather than on the next tick (Spec S02).
-///
-/// Distinct from [`kick`] because it is: `kick` is process-local and answers
-/// `false` from a CLI, which is exactly why the verb needs a door of its own.
-/// A `false` here means no instance was listening, which is the ordinary case
-/// for a machine with the app closed — the settle is written either way.
-pub fn tell(tripwire_name: &str) -> bool {
-    match SETTLE_TELL.get() {
-        Some(tx) => tx.try_send(tripwire_name.to_string()).is_ok(),
-        None => false,
-    }
-}
-
 /// The channel a recorded fact reaches the engine on ([P01]).
 ///
 /// Process-global for the same reason [`MANUAL_KICK`] is: the fifteen
@@ -205,10 +188,6 @@ pub struct TripwireEngineConfig {
     /// Where `tripwires.db` lives. Injected rather than resolved here so a
     /// test drives a real ledger at a temp path.
     pub db_path: PathBuf,
-    /// Where the trips' inspection trees live ([P10]). Injected for the
-    /// same reason the ledger path is — a test cuts real worktrees under a
-    /// temp root rather than in the user's data directory.
-    pub trees_root: PathBuf,
     /// Which instance owns the trips this engine claims. The boot sweep reads
     /// it to tell its own orphans from another instance's live runs.
     pub instance: String,
@@ -242,14 +221,8 @@ type Db = Mutex<Connection>;
 fn work_fact(
     config: &Arc<TripwireEngineConfig>,
     db: &Arc<Db>,
-    trees: &Arc<InspectionTrees>,
     fact: &crate::session_ledger::FactRow,
 ) {
-    // Before the guards read it, because the guard this frees is `busy`: a
-    // fact recorded by the very act of joining an awaiting tripwire's arc has
-    // answered that tripwire's question, and the same fact should be free to
-    // fire it again ([P07]).
-    sweep_awaiting(config, db);
     let pending = {
         let conn = db.lock().expect("tripwire ledger mutex");
         evaluate(config, &conn, fact).1
@@ -257,15 +230,16 @@ fn work_fact(
     // The `skipped` and `running` rows `evaluate` inserted beneath this.
     crate::feeds::tripwires::bump();
     for run in pending {
-        spawn_run(config, db, trees, run);
+        spawn_run(config, db, run);
     }
 }
 
 /// Work one claimed firing on a task of its own.
 ///
 /// Off the engine's task, because a run is not a fast thing: a probe may take
-/// fifteen minutes and a session as long as its work, and awaiting that inline meant the
-/// `select!` loop stopped reading for the whole of it. Facts survived that —
+/// fifteen minutes and a session as long as its work, and waiting on that
+/// inline meant the `select!` loop stopped reading for the whole of it. Facts
+/// survived that —
 /// the tail is a rowid and catches up — but `GIT_HEAD` is a broadcast, so
 /// commits past the channel's depth were lost outright, and every one of them
 /// was a firing that never happened and left no row saying so.
@@ -275,17 +249,11 @@ fn work_fact(
 /// count, so the number alive at once is exactly what the ceiling permits —
 /// and the ceiling only becomes true *within* one instance now that runs are
 /// concurrent at all.
-fn spawn_run(
-    config: &Arc<TripwireEngineConfig>,
-    db: &Arc<Db>,
-    trees: &Arc<InspectionTrees>,
-    mut run: PendingRun,
-) {
+fn spawn_run(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>, mut run: PendingRun) {
     let config = Arc::clone(config);
     let db = Arc::clone(db);
-    let trees = Arc::clone(trees);
     tokio::spawn(async move {
-        let settled = run_pending(&config, &db, &trees, &mut run).await;
+        let settled = run_pending(&config, &db, &mut run).await;
         {
             let conn = db.lock().expect("tripwire ledger mutex");
             settle(&config, &conn, &run, &settled);
@@ -293,114 +261,27 @@ fn spawn_run(
     });
 }
 
-/// Remove every inspection tree whose trips are over (Risk R04).
-///
-/// No roster nudge here, and deliberately: this sweeps inspection worktrees
-/// and only *reads* trips to decide which are live. It writes no trip row, so
-/// there is nothing for the roster to have learned.
-///
-/// The ledger answers both halves: which commits are still live, and which
-/// repository a dead one was cut from. A tree this engine currently holds is
-/// never swept — [`InspectionTrees::sweep`] checks its own open set — so a
-/// tick arriving mid-probe cannot pull the ground out from under it.
-async fn sweep_trees(db: &Arc<Db>, trees: &Arc<InspectionTrees>) {
-    let (live, live_trips, repos) = {
-        let conn = db.lock().expect("tripwire ledger mutex");
-        let live: std::collections::HashSet<String> = ledger::live_head_shas(&conn)
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-        // And the trips themselves, which is what the diff files are named
-        // for: a diff belongs to one trip while a tree belongs to one sha.
-        let live_trips = ledger::live_trip_ids(&conn).unwrap_or_default();
-        // The repository a sha's tree was cut from, read off the newest trip
-        // that named it. Gathered under the lock so the sweep itself holds
-        // none. Directory entries only: the trees root also holds the per-trip
-        // `.diff` files ([P06]), and handing one of those to the sha loop
-        // would cost a query per tick and log an orphan sweep about a trip
-        // that is running perfectly.
-        let repos: std::collections::HashMap<String, PathBuf> = std::fs::read_dir(trees.root())
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
-            .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
-            .filter_map(|sha| {
-                let repo = ledger::repo_root_of_head_sha(&conn, &sha).ok().flatten()?;
-                (!repo.is_empty()).then(|| (sha, PathBuf::from(repo)))
-            })
-            .collect();
-        (live, live_trips, repos)
-    };
-    trees
-        .sweep(&live, &live_trips, |sha| repos.get(sha).cloned())
-        .await;
-}
-
-/// Fail this instance's `running` trips at boot, and judge their arcs by the
-/// same rule a failure at run time uses ([B03]).
+/// Fail this instance's `running` trips at boot.
 ///
 /// The sessions those trips ran were children of the process that restarted
-/// and are gone, so the rows are honest. What the old sweep lost was any arc
-/// the authoring session had already committed to: it failed the row and never
-/// looked. Now the rows are read first, the sweep fails them, and every arc
-/// they name is kept when it holds rounds — named on the headline so the user
-/// finds it in the Arcs card — and discarded when it holds nothing.
+/// and are gone, so the rows are honest.
 ///
-/// `&mut` on the connection so the future stays `Send` across the blocking
-/// git reads, which is what lets the engine be spawned at all.
+/// **It touches no arc, and that is the decision.** A tripwire owns one
+/// permanent arc ([P02]), so the old pass — discard any arc the failed trips
+/// name that holds no rounds — would destroy the tripwire's own worktree on any
+/// restart that caught a trip with nothing committed yet.
 ///
-/// No roster nudge here either, and for a different reason than
-/// [`sweep_trees`]: this runs once at engine boot, before the roster feed has
+/// `&mut` on the connection so the future stays `Send` across the caller's
+/// blocking reads, which is what lets the engine be spawned at all.
+///
+/// No roster nudge: this runs once at engine boot, before the roster feed has
 /// composed anything or has a client to tell. Its writes are in the first
 /// roster the feed publishes.
-async fn sweep_restarted_runs(config: &TripwireEngineConfig, conn: &mut Connection) {
-    let orphans = ledger::running_trips_of(conn, &config.instance).unwrap_or_default();
+fn sweep_restarted_runs(config: &TripwireEngineConfig, conn: &mut Connection) {
     match ledger::sweep_stale_running(conn, &config.instance, (config.now_ms)()) {
         Ok(0) => {}
         Ok(n) => info!(count = n, "tripwire engine: swept stale running trips"),
         Err(e) => warn!(error = %e, "tripwire engine: boot sweep failed"),
-    }
-    let arcs: Vec<(i64, String, PathBuf)> = orphans
-        .into_iter()
-        .filter_map(|trip| {
-            let arc = trip.arc?;
-            let root = trip.repo_root.unwrap_or_default();
-            (!root.is_empty()).then(|| (trip.id, arc, PathBuf::from(root)))
-        })
-        .collect();
-    if arcs.is_empty() {
-        return;
-    }
-    let kept = tokio::task::spawn_blocking(move || {
-        arcs.into_iter()
-            .filter_map(|(trip_id, arc, root)| {
-                let rounds = tugarc_core::ops::round_count_in(&root, &arc);
-                if rounds > 0 {
-                    return Some((trip_id, arc, rounds));
-                }
-                if let Err(e) =
-                    tugarc_core::ops::discard_agent_arc_in(&root, &arc, Some("tripwire"))
-                {
-                    warn!(arc, error = %e, "tripwire: the tripwire's arc could not be removed");
-                }
-                None
-            })
-            .collect::<Vec<_>>()
-    })
-    .await
-    .unwrap_or_default();
-    for (trip_id, arc, rounds) in kept {
-        let headline = arc_kept_headline(
-            "tugcast restarted under the tripwire's session",
-            &arc,
-            rounds,
-        );
-        let _ = ledger::amend_failed_headline(conn, trip_id, &headline);
-        info!(
-            trip = trip_id,
-            arc, rounds, "tripwire: a restarted trip's arc was kept"
-        );
     }
 }
 
@@ -428,71 +309,24 @@ fn sweep_orphans(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>) {
     }
 }
 
-/// Settle every `awaiting` trip whose arc is gone ([P07], [Q01]).
-///
-/// An awaiting trip is a question put to the user, and the thing the user does
-/// about one — join the arc or discard it — is itself the answer. So no
-/// timeout: the trip holds indefinitely and this is what notices that it has
-/// been answered. Run on the tick and ahead of every fact's guards, because
-/// what it releases is the tripwire's one-live-run slot.
-///
-/// The compare-and-set is not decoration. `tripwire dismiss` settles the same
-/// row from another process and discards the same arc, so a sweep arriving
-/// mid-dismissal must lose rather than overwrite the dismissal's words.
-fn sweep_awaiting(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>) {
-    let conn = db.lock().expect("tripwire ledger mutex");
-    let Ok(trips) = ledger::awaiting_trips_with_arcs(&conn) else {
-        return;
-    };
-    for trip in trips {
-        let Some(arc) = trip.arc.as_deref() else {
-            continue;
-        };
-        let repo_root = trip.repo_root.clone().unwrap_or_default();
-        if repo_root.is_empty() {
-            continue;
-        }
-        if tugarc_core::ops::arc_exists_in(std::path::Path::new(&repo_root), arc) {
-            continue;
-        }
-        let settled = ledger::settle_if_awaiting(
-            &conn,
-            trip.id,
-            &ledger::Settlement {
-                headline: Some(format!(
-                    "the arc `{arc}` is gone, so the question is answered"
-                )),
-                ..ledger::Settlement::default()
-            },
-            (config.now_ms)(),
-        );
-        if matches!(settled, Ok(true)) {
-            crate::feeds::tripwires::bump();
-            info!(
-                trip = trip.id,
-                arc, "tripwire: an awaiting trip's arc resolved it"
-            );
-        }
-    }
-}
-
 /// A trip that passed every guard, carried out of the synchronous
 /// decision so its turn can run with no ledger connection in reach.
 #[derive(Debug, Clone)]
 pub struct PendingRun {
     pub trip_id: i64,
     pub tripwire: String,
-    /// `fact:<instance>:<rowid>` — the arc's name is derived from it, so one
-    /// fact's arc is one arc however often the engine restarts.
-    pub event_key: String,
     pub model: Option<String>,
     pub brief: String,
     /// The command that decides whether an AI is needed at all ([P10]).
     pub probe: Option<String>,
-    /// What the *authoring* session is allowed to do without asking [B09].
-    /// The diagnosis session runs under [`DIAGNOSIS_PERMISSION_MODE`] and
-    /// never this ([P04]).
+    /// What the trip's session is allowed to do without asking [B09].
     pub permission_mode: String,
+    /// The two ceilings this trip's session runs under, off the tripwire's
+    /// own row ([P06]). Carried here rather than re-read at the wait, for the
+    /// reason everything else in this struct is: the run is an `await` and the
+    /// connection cannot come along.
+    pub max_seconds: u64,
+    pub max_tool_calls: u32,
     /// The event as the trip row holds it — what the model is shown.
     pub evidence: String,
     /// The refs the engine composed from the event itself — the commit's sha,
@@ -502,19 +336,21 @@ pub struct PendingRun {
     /// The project the event happened in, so the post lands on the right
     /// Overview.
     pub project_dir: Option<String>,
-    /// The checkout the fact was recorded in — where the disposable tree is
-    /// cut from ([P05]). Empty is a failure rather than a fallback: a trip
-    /// with no checkout has nowhere to stand.
+    /// The checkout the fact was recorded in ([foreign checkout]). Evidence
+    /// the prompt carries, never where the trip stands.
     pub repo_root: String,
-    /// The commit the tree stands at, once `git rev-parse HEAD` has answered.
-    /// What the tree is released by ([P06]).
-    pub head_sha: Option<String>,
+    /// The checkout the tripwire's arc lives in, off its own row ([P02]).
+    /// Empty is a failure rather than a fallback: a tripwire laid before the
+    /// arc existed has nowhere to stand.
+    pub home_root: String,
     /// The session that recorded the fact, when it had one. A hand-fired trip
     /// has none.
     pub fact_session: Option<String>,
     /// The session the event came from, when it came from one.
     pub session_id: Option<String>,
-    /// The arc this run staged, once it has one and is keeping it.
+    /// The arc this trip committed on, when it committed anything ([P02],
+    /// Spec S02). Always `tripwire-<name>` or `None`: the arc is the
+    /// tripwire's, and what varies is whether this trip put a round on it.
     pub arc: Option<String>,
 }
 
@@ -542,7 +378,7 @@ pub async fn run_tripwire_engine(config: TripwireEngineConfig) {
     // nothing will ever free, so this instance's orphans are failed before the
     // first event is considered. Another instance's `running` rows are its
     // own and are left alone.
-    sweep_restarted_runs(&config, &mut conn).await;
+    sweep_restarted_runs(&config, &mut conn);
     // Shared rather than owned by the loop, because a run now happens on a task
     // of its own and has to carry the ledger and the pools with it.
     let config = Arc::new(config);
@@ -550,8 +386,6 @@ pub async fn run_tripwire_engine(config: TripwireEngineConfig) {
 
     let (kick_tx, mut kick_rx) = mpsc::channel::<String>(16);
     let _ = MANUAL_KICK.set(kick_tx);
-    let (tell_tx, mut tell_rx) = mpsc::channel::<String>(16);
-    let _ = SETTLE_TELL.set(tell_tx);
     // Unbounded, so a fact is never dropped for want of room ([P01]); the
     // sender is `record_fact_tx` and it waits for nothing.
     let (fact_tx, mut fact_rx) = mpsc::unbounded_channel::<crate::session_ledger::FactRow>();
@@ -559,10 +393,6 @@ pub async fn run_tripwire_engine(config: TripwireEngineConfig) {
 
     let mut ticker = tokio::time::interval(SWEEP_TICK);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let trees = Arc::new(InspectionTrees::new(config.trees_root.clone()));
-    // Whatever an unclean exit left behind, before the first trip adds to
-    // it (Risk R04).
-    sweep_trees(&db, &trees).await;
 
     info!(instance = %config.instance, "tripwire engine: watching facts");
 
@@ -577,28 +407,13 @@ pub async fn run_tripwire_engine(config: TripwireEngineConfig) {
                 // everybody, and boot only ever reaches this instance's own
                 // rows — so the tick is the one thing that frees them.
                 sweep_orphans(&config, &db);
-                // And the same tick reaches a tree whose trips are over but
-                // whose run never got to release it — the shape
-                // `sweep_orphaned_running` already uses, applied to disk.
-                sweep_trees(&db, &trees).await;
-                // And the same tick answers an awaiting trip whose arc the
-                // user has since joined or discarded ([P07]).
-                sweep_awaiting(&config, &db);
             }
             kicked = kick_rx.recv() => match kicked {
-                Some(name) => serve_manual(&config, &db, &trees, name.as_str()),
-                None => return,
-            },
-            told = tell_rx.recv() => match told {
-                // A verb in another process settled this tripwire's trip. The row
-                // is already right; what is missing is that anybody was told,
-                // so the settle is re-read and republished from here (Spec
-                // S02).
-                Some(name) => republish_settled(&config, &db, name.as_str()),
+                Some(name) => serve_manual(&config, &db, name.as_str()),
                 None => return,
             },
             fact = fact_rx.recv() => match fact {
-                Some(fact) => work_fact(&config, &db, &trees, &fact),
+                Some(fact) => work_fact(&config, &db, &fact),
                 None => return,
             },
         }
@@ -614,17 +429,12 @@ pub async fn run_tripwire_engine(config: TripwireEngineConfig) {
 /// be refused as not-matching would test nothing.
 ///
 /// **An unscoped tripwire is refused here and writes no row.** A hand-fired
-/// trip has no fact to take a checkout from and only the scope to stand in, and
-/// an empty one reaches `trees.acquire("")` and settles `failed` — a red row on
-/// the card for what is really "lay it with a scope". [`kick`] answers
+/// trip has no fact to take a checkout from and only the scope to name one
+/// with, so an unscoped one is "lay it with a scope" rather than a red row on
+/// the card. [`kick`] answers
 /// [`Kick::NoScope`] before this is ever reached; this is the same refusal on
 /// the engine's side of the door.
-fn serve_manual(
-    config: &Arc<TripwireEngineConfig>,
-    db: &Arc<Db>,
-    trees: &Arc<InspectionTrees>,
-    tripwire_name: &str,
-) {
+fn serve_manual(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>, tripwire_name: &str) {
     let run = {
         let conn = db.lock().expect("tripwire ledger mutex");
         let Ok(Some(tripwire)) = ledger::get(&conn, tripwire_name) else {
@@ -662,13 +472,12 @@ fn serve_manual(
         start_run(
             &tripwire,
             trip_id,
-            &key,
             payload,
             repo_root,
             fact.session_id.clone(),
         )
     };
-    spawn_run(config, db, trees, run);
+    spawn_run(config, db, run);
 }
 
 /// The fact a hand-fired trip stands in for ([P08]).
@@ -856,8 +665,8 @@ fn consider(
         );
     };
 
-    // One live run per tripwire. An `awaiting` trip counts — it holds a
-    // question the user has not answered yet.
+    // One live run per tripwire: a trip that is still `running` holds the
+    // slot, and nothing else does — a finished trip is finished.
     if matches!(ledger::live_trip(conn, tripwire.id), Ok(Some(_))) {
         skip(ledger::SKIP_BUSY);
         return (Decision::Skipped(ledger::SKIP_BUSY), None);
@@ -906,7 +715,6 @@ fn consider(
                 Some(start_run(
                     tripwire,
                     trip_id,
-                    &key,
                     payload,
                     repo_root.to_string(),
                     fact.session_id.clone(),
@@ -930,7 +738,6 @@ fn consider(
 fn start_run(
     tripwire: &Tripwire,
     trip_id: i64,
-    event_key: &str,
     payload: Option<String>,
     repo_root: String,
     fact_session: Option<String>,
@@ -939,11 +746,19 @@ fn start_run(
     PendingRun {
         trip_id,
         tripwire: tripwire.name.clone(),
-        event_key: event_key.to_string(),
         model: tripwire.model.clone(),
         brief: tripwire.brief.clone(),
         probe: tripwire.probe.clone(),
         permission_mode: tripwire.permission_mode.clone(),
+        // Clamped at zero rather than trusted: the column is `NOT NULL` with a
+        // positive default and the CLI refuses a non-positive cap, so a
+        // negative here is a row somebody wrote by hand — and the honest
+        // reading of one is the smallest ceiling there is.
+        max_seconds: tripwire.max_seconds.max(0) as u64,
+        max_tool_calls: tripwire.max_tool_calls.clamp(0, u32::MAX as i64) as u32,
+        // Written when the run ends, and only if it committed something
+        // ([P02], Spec S02).
+        arc: None,
         // The fact's own session, attached directly: it is something the
         // engine recorded rather than text a model produced, so the
         // hallucination validator has nothing to say about it.
@@ -957,10 +772,9 @@ fn start_run(
             .collect(),
         project_dir: Some(repo_root.clone()),
         repo_root,
-        head_sha: None,
+        home_root: tripwire.repo_root.clone(),
         fact_session,
         session_id: None,
-        arc: None,
         evidence,
     }
 }
@@ -972,136 +786,138 @@ fn start_run(
 /// it up again at the settle — which is the no-transaction-across-await rule
 /// standing on the type system rather than on anybody remembering it.
 ///
-/// One shape of run, and only one ([P04]): a disposable tree cut at the fact's
-/// checkout's `HEAD`, a probe inside it, a diagnosis session that cannot write,
-/// and — only if that session asks for one — an arc and an authoring session
-/// that can.
-pub async fn run_pending(
-    config: &TripwireEngineConfig,
-    db: &Db,
-    trees: &InspectionTrees,
-    run: &mut PendingRun,
-) -> Settled {
+/// One shape of run, and only one ([P01], [P03]): the tripwire's own arc
+/// worktree, reset and replayed onto the base's `HEAD`, a probe inside it, and
+/// one session with hands.
+pub async fn run_pending(config: &TripwireEngineConfig, db: &Db, run: &mut PendingRun) -> Settled {
     let Some(sessions) = config.sessions.clone() else {
         // No runner, so nothing can be asked. The firing is a recorded fact
         // about the tripwire and no more; it is not a failure, because the
         // tripwire matched, the guards passed, and nothing claims work was
         // done.
-        return Settled::quiet(format!(
+        return Settled::done(Some(format!(
             "{} fired, and this instance has no session runner to ask",
             run.tripwire
+        )));
+    };
+    if run.home_root.is_empty() {
+        return Settled::failed(format!(
+            "tripwire {} names no home checkout, so its arc has nowhere to live",
+            run.tripwire
         ));
-    };
-    if run.repo_root.is_empty() {
-        return Settled::failed(
-            "the trip's session named no checkout, so there is nowhere to cut its inspection \
-             tree from"
-                .to_string(),
-        );
     }
-    // The fact's own checkout, not the tripwire's scope: the scope is the
-    // filter that decided this tripwire cares, and an unscoped tripwire watches
-    // the machine. What a tree is cut from is where the fact actually happened.
-    let repo_root = PathBuf::from(&run.repo_root);
+    let home_root = PathBuf::from(&run.home_root);
+    let arc = tripwire_arc(&run.tripwire);
 
-    // `HEAD` now, because "now" is when the fact happened: the tree stands at
-    // the last commit the user made, and what they had not committed yet
-    // travels beside it ([B02], [P06]).
-    let head = tokio::process::Command::new("git")
-        .args(["-C", &run.repo_root, "rev-parse", "HEAD"])
-        .output()
-        .await;
-    let head_sha = match head {
-        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
-        Ok(out) => {
-            return Settled::failed(format!(
-                "the trip's checkout has no HEAD to stand at: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
-        }
-        Err(e) => {
-            return Settled::failed(format!("the trip's checkout could not be read: {e}"));
-        }
+    // The tripwire's own worktree, standing on the base as it is now ([P03]).
+    // A trip on a stale base diagnoses a repository that no longer exists, and
+    // a replay that cannot be made clean is a trip whose findings would be
+    // about the wrong tree — so it fails rather than proceeds.
+    let worktree = match prepare_arc_worktree(&home_root, &arc).await {
+        Ok(worktree) => worktree,
+        Err(e) => return Settled::failed(e),
     };
-    if head_sha.is_empty() {
-        return Settled::failed(
-            "the trip's checkout named no HEAD, so there is no commit to stand at".to_string(),
-        );
-    }
-    run.head_sha = Some(head_sha.clone());
-    {
-        let conn = db.lock().expect("tripwire ledger mutex");
-        let _ = ledger::record_head_sha(&conn, run.trip_id, &head_sha);
-    }
 
-    // The tree at that sha, shared with every other tripwire standing there.
-    // Held for the whole run and given back on every exit below, including the
-    // failing ones — with one exception, and it is deliberate: an **adopted**
-    // run keeps its reference, because a user is working inside that very
-    // directory and releasing it could take the tree out from under them.
-    //
-    // What collects it is the sweep, and not promptly: `sweep` skips a sha
-    // this process still holds open as well as one `live_head_shas` names,
-    // and the reference above is never given back. So the tree survives for
-    // as long as the trip is held — which is the point — and then for the
-    // rest of this tugcast's life, until the boot sweep of the next one
-    // collects it against a fresh, empty set of open references. `adopted`
-    // counts in `live_head_shas` for the first half of that ([B10]); the
-    // second half is Risk R02's accepted residual, and it costs one worktree.
-    let tree = match trees.acquire(&repo_root, &head_sha).await {
-        Ok(tree) => tree,
-        Err(e) => {
-            return Settled::failed(format!(
-                "the trip's inspection tree could not be made, so nothing could be run \
-                 without standing on the user's checkout: {e}"
-            ));
-        }
-    };
-    // What the user had not committed when the fact arrived, written beside
-    // the tree rather than into it ([B02], [P06]). A clean checkout writes no
-    // file and the prompt says so.
-    let diff_path = trees.diff_path(run.trip_id);
-    let diff_stat = prompt::working_diff(&repo_root, &diff_path).await;
-    let diff = diff_stat.is_some().then(|| diff_path.clone());
-
-    let trip_id = run.trip_id;
-    let cut = TreeCut {
-        tree,
-        head_sha: head_sha.clone(),
-        diff,
-        diff_stat,
-    };
-    let settled = run_in_tree(config, db, sessions, run, &cut).await;
-    if settled.status != TripStatus::Adopted {
-        trees.release(trip_id, &head_sha).await;
-    }
-    settled
+    run_in_tree(config, db, sessions, run, &worktree, &arc).await
 }
 
-/// The disposable checkout a trip runs in, and what came with it.
+/// Put the tripwire's worktree back on the base's tip, and hand back the path
+/// a trip runs in ([P03]).
 ///
-/// One value rather than four parameters because the four are one fact — a
-/// tree cut at a sha, and the working changes that were not in it — and a
-/// reader of `run_in_tree`'s signature should meet them that way.
-struct TreeCut {
-    tree: PathBuf,
-    head_sha: String,
-    /// The file holding what was uncommitted, or `None` on a clean checkout.
-    diff: Option<PathBuf>,
-    diff_stat: Option<String>,
+/// The reset is a precondition of the replay rather than a policy of its own:
+/// `replay_onto` refuses a dirty worktree, and residue here is by construction
+/// work a previous trip declined to commit — every trip leaves a report, so
+/// nothing a reader wanted is in those bytes.
+///
+/// `Conflicted` and `Deferred` come back as the outcome's own sentence, because
+/// the trip row is where a person reads why nothing ran and "replay failed"
+/// answers nothing.
+async fn prepare_arc_worktree(repo_root: &Path, arc: &str) -> Result<PathBuf, String> {
+    let repo_root = repo_root.to_path_buf();
+    let arc = arc.to_string();
+    tokio::task::spawn_blocking(move || {
+        let worktree = tugarc_core::ops::worktree_path(&repo_root, &arc);
+        if !worktree.is_dir() {
+            return Err(format!(
+                "arc `{arc}` has no worktree in {}, so the trip has nowhere to stand",
+                repo_root.display()
+            ));
+        }
+        for args in [["reset", "--hard"].as_slice(), ["clean", "-fd"].as_slice()] {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&worktree)
+                .args(args)
+                .output()
+                .map_err(|e| format!("arc `{arc}`'s worktree could not be cleared: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "arc `{arc}`'s worktree could not be cleared: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+        }
+        match tugarc_core::replay::replay_onto(&repo_root, &arc)? {
+            tugarc_core::replay::ReplayOutcome::Replayed { .. }
+            | tugarc_core::replay::ReplayOutcome::Recorded { .. }
+            | tugarc_core::replay::ReplayOutcome::Current => Ok(worktree),
+            tugarc_core::replay::ReplayOutcome::Conflicted {
+                round,
+                round_subject,
+                ..
+            } => Err(format!(
+                "arc `{arc}` could not be replayed onto the base: round {round} \
+                 (`{round_subject}`) conflicts"
+            )),
+            // An arc with nothing on it is the ordinary state of a tripwire
+            // that has not committed yet, and a replay with no rounds to move
+            // defers rather than fast-forwarding. The worktree still has to
+            // stand on the base's tip, so it is moved there directly — the
+            // arc is an ancestor of the base by construction, which is what
+            // makes `--ff-only` the honest spelling.
+            tugarc_core::replay::ReplayOutcome::Deferred { reason, .. }
+                if reason == "no-rounds" =>
+            {
+                let base = tugarc_core::ops::arc_base_in(&repo_root, &arc)?;
+                let out = std::process::Command::new("git")
+                    .arg("-C")
+                    .arg(&worktree)
+                    .args(["merge", "--ff-only", &base])
+                    .output()
+                    .map_err(|e| format!("arc `{arc}` could not be moved onto `{base}`: {e}"))?;
+                if !out.status.success() {
+                    return Err(format!(
+                        "arc `{arc}` could not be moved onto `{base}`: {}",
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    ));
+                }
+                Ok(worktree)
+            }
+            tugarc_core::replay::ReplayOutcome::Deferred { reason, detail } => Err(format!(
+                "arc `{arc}` could not be replayed onto the base: {reason} — {detail}"
+            )),
+        }
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("the replay task could not be run: {e}")))
 }
 
-/// The run itself, with the tree already in hand — split out so the release
-/// above happens on every path this can leave by.
+/// The run itself, in the tripwire's own worktree.
 async fn run_in_tree(
     config: &TripwireEngineConfig,
     db: &Db,
     sessions: Arc<dyn TripwireSessionRunner>,
     run: &mut PendingRun,
-    cut: &TreeCut,
+    worktree: &Path,
+    arc: &str,
 ) -> Settled {
-    let tree = cut.tree.as_path();
+    let tree = worktree;
     let mut probe_report = None;
+    // Read before anything runs, because "how many rounds did *this trip*
+    // commit" is a difference rather than a count: the arc is permanent and
+    // carries every earlier trip's rounds ([P02]).
+    let home_root = PathBuf::from(&run.home_root);
+    let rounds_before = round_count_in(&home_root, arc);
 
     // The probe, when the tripwire has one, in the trip's tree. Its exit is
     // the whole decision procedure: green means the thing the tripwire watches for
@@ -1114,7 +930,7 @@ async fn run_in_tree(
         }
         crate::feeds::tripwires::bump();
         if probe.exit == 0 {
-            return Settled::quiet(format!("`{command}` exited 0; nothing to report"));
+            return Settled::done(Some(format!("`{command}` exited 0; nothing to report")));
         }
         probe_report = Some(prompt::ProbeReport {
             command,
@@ -1127,9 +943,6 @@ async fn run_in_tree(
     // by it (Spec S02). The fact is read back off the row rather than out of
     // memory: after a restart the row's payload is the only record there is.
     let sessions_named: Vec<String> = run.fact_session.clone().into_iter().collect();
-    // The checkout the arc below is cut in — the fact's own, never the tree's:
-    // the tree is disposable and an arc made in one would go with it.
-    let repo_root = PathBuf::from(&run.repo_root);
     let trip_prompt = prompt::TripPrompt {
         fact: prompt::fact_from_evidence(&run.evidence).unwrap_or_else(|| {
             crate::session_ledger::FactRow {
@@ -1143,147 +956,89 @@ async fn run_in_tree(
             }
         }),
         repo_root: run.repo_root.clone(),
-        head_sha: cut.head_sha.clone(),
+        arc: arc.to_string(),
         tree: tree.to_path_buf(),
-        diff: cut.diff.clone(),
-        diff_stat: cut.diff_stat.clone(),
         session: prompt::session_transcripts(&config.ledger, &sessions_named),
         probe: probe_report,
     };
 
-    // Phase one: diagnosis, in the disposable tree at the landed sha and under
-    // a permission mode the runtime enforces ([P04]). Two independent guards,
-    // and the design leans on both — a write that somehow escaped the mode
-    // still lands somewhere nobody keeps.
-    let diagnosis = run_phase(
+    // The trip's one session, in the tripwire's arc worktree and under the
+    // tripwire's own permission mode: a trip is one session with hands from
+    // its first turn ([P01]).
+    let trip = run_phase(
         config,
         db,
         sessions.as_ref(),
         TripwireSessionRequest {
             tripwire: run.tripwire.clone(),
             worktree: tree.to_path_buf(),
-            permission_mode: DIAGNOSIS_PERMISSION_MODE.to_string(),
+            permission_mode: run.permission_mode.clone(),
             model: run.model.clone(),
-            prompt: trip_prompt.prompt(&run.brief, &diagnosis_contract(&run.tripwire)),
+            prompt: trip_prompt.prompt(&run.brief, &closing_rule()),
+            max_seconds: run.max_seconds,
+            max_tool_calls: run.max_tool_calls,
             seated: None,
         },
         run.trip_id,
-        None,
     )
     .await;
-    if let Some(session_id) = diagnosis.session_id.clone() {
+    if let Some(session_id) = trip.session_id.clone() {
         run.session_id = Some(session_id.clone());
     }
     // The row already names the session: the phase wrote it at seat time,
     // which is what the row's session dot reads. All that is left here is to
     // carry the id into the run for `settle` and `post_settled`.
-    crate::feeds::tripwires::bump();
-    let Some(ask) = diagnosis.settled.author_ask.clone() else {
-        // Every end but an awaiting one leaves here, including an adopted
-        // diagnosis: a session a card took over carries no author ask, so the
-        // engine stops rather than opening an authoring phase against a
-        // session that is now somebody's conversation.
-        return diagnosis.settled;
-    };
 
-    // Phase two: authoring. The session creates nothing itself except commits
-    // — the arc is cut here, because a name derived from the event key is
-    // what makes a re-evaluated fact adopt its own arc rather than a
-    // second one.
-    let arc = tripwire_arc_name(&run.tripwire, &run.event_key);
-    let created = match tokio::task::spawn_blocking({
-        let repo_root = repo_root.clone();
-        let arc = arc.clone();
-        let tripwire = run.tripwire.clone();
-        move || {
-            let outcome = tugarc_core::ops::create_in(
-                &repo_root,
-                &arc,
-                Some(format!("tripwire {tripwire}")),
-                false,
-                None,
-            )?;
-            tugarc_core::ops::set_laid_by(&repo_root, &arc, &format!("tripwire/{tripwire}"));
-            Ok::<_, String>(outcome)
-        }
-    })
-    .await
+    // What the trip amounted to, in the two facts nobody had to be asked for
+    // ([P04]): the session's last words, and whether it committed anything on
+    // the arc it was standing in. The report is written whatever the settle
+    // does with the row, because the words are never the casualty of a race.
+    let rounds = (round_count_in(&home_root, arc).saturating_sub(rounds_before)) as i64;
+    let mut settled = trip.settled;
+    settled.report = Some(trip.closing.clone());
     {
-        Ok(Ok(outcome)) => outcome,
-        Ok(Err(e)) => {
-            return Settled::failed(format!("the tripwire's arc could not be created: {e}"));
-        }
-        Err(e) => return Settled::failed(format!("the tripwire's arc could not be created: {e}")),
-    };
-    let worktree = PathBuf::from(&created.worktree);
-    {
-        // Back to `running`, which is what re-arms the compare-and-set the
-        // authoring session's own resolution will win. The diagnosis settle is
-        // spent; this trip is not finished until the second phase says so.
         let conn = db.lock().expect("tripwire ledger mutex");
-        let _ = ledger::record_run(
-            &conn,
-            run.trip_id,
-            run.session_id.as_deref(),
-            Some(arc.as_str()),
-        );
+        let _ = ledger::record_report(&conn, run.trip_id, &trip.closing, rounds);
+        // A trip that committed names its arc, and a trip that did not leaves
+        // the column NULL — which is Spec S02's "always `tripwire-<name>` for a
+        // trip that committed", and the one thing that writes it. `record_run`
+        // puts the row back to `running` as it writes, which is where it still
+        // is: the settle is the caller's next act.
+        if rounds > 0 {
+            run.arc = Some(arc.to_string());
+            let _ = ledger::record_run(&conn, run.trip_id, run.session_id.as_deref(), Some(arc));
+        }
+    }
+    if rounds > 0 {
+        run.engine_refs.push(OverviewRef {
+            kind: OverviewRefKind::Arc,
+            target: arc.to_string(),
+        });
     }
     crate::feeds::tripwires::bump();
-
-    let authoring = run_phase(
-        config,
-        db,
-        sessions.as_ref(),
-        TripwireSessionRequest {
-            tripwire: run.tripwire.clone(),
-            worktree: worktree.clone(),
-            permission_mode: run.permission_mode.clone(),
-            model: run.model.clone(),
-            prompt: trip_prompt.authoring_prompt(
-                &run.brief,
-                &ask,
-                &diagnosis.closing,
-                &authoring_contract(&run.tripwire, &arc, &worktree),
-            ),
-            seated: None,
-        },
-        run.trip_id,
-        Some(arc.as_str()),
-    )
-    .await;
-    if let Some(session_id) = authoring.session_id.clone() {
-        // The trip row names the session a reader would want to open, and once
-        // there is an authoring session that is the one ([P04]).
-        run.session_id = Some(session_id.clone());
-    }
-    crate::feeds::tripwires::bump();
-    keep_or_discard(run, &repo_root, &arc, authoring.settled).await
+    settled
 }
 
 /// What one phase of a run amounted to.
 struct Phase {
     session_id: Option<String>,
-    /// The session's last words, for the phase that follows it. Empty when
-    /// there was no turn to read.
+    /// The session's last words, read off its transcript — the trip's report
+    /// ([P04]). The caller writes it to the row.
     closing: String,
-    /// What the trip row says now: the resolution the verb wrote, or the
-    /// engine's own failure when the session ended without running it.
+    /// What the run amounted to: done, failed, or skipped for a full host.
     settled: Settled,
 }
 
-/// Spawn one session and wait for whichever comes first: the resolution verb's
-/// row, or the session's end — finished or dead, as the supervisor reports it.
-/// Nothing else ends the wait: a session that is alive is doing the
-/// tripwire's work, however long that takes.
+/// Spawn one session and wait for it to end — finished, dead, or refused by a
+/// host with no room. Nothing else ends the wait: a session that is alive is
+/// doing the tripwire's work, however long that takes.
 ///
-/// The verb is watched for rather than awaited, because the writer is a
-/// `tugtool` in another process (Spec S02) and the trip row is the only thing
-/// the two share. A session that resolves and then wedges is therefore
-/// released at its settle rather than at its end, which is the whole reason
-/// the poll runs beside the turn instead of after it.
-///
-/// Whatever ends the wait, the phase leaves the row settled — by the verb or
-/// by the compare-and-set below, never by both (Risk R03).
+/// There is no second thing to watch for any more. The wait used to poll the
+/// trip row beside the turn, because the row was the only channel between this
+/// engine and a `tugtool resolve` running in another process; with the verbs
+/// gone the session's own ending is the whole of the signal, and what the
+/// session *found* is read off its transcript rather than out of a column it
+/// wrote ([P04]).
 ///
 /// The first thing the phase writes is the seat: the runner sends the session
 /// id the moment the supervisor has one, and this loop puts it on the row
@@ -1295,27 +1050,23 @@ async fn run_phase(
     sessions: &dyn TripwireSessionRunner,
     mut request: TripwireSessionRequest,
     trip_id: i64,
-    arc: Option<&str>,
 ) -> Phase {
     let (seated_tx, mut seated_rx) = tokio::sync::oneshot::channel();
     request.seated = Some(seated_tx);
     let running = sessions.run(request);
     tokio::pin!(running);
-    let mut ticker = tokio::time::interval(SETTLE_POLL);
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    let mut answered: Option<Result<TripwireSessionOutcome, RunRefusal>> = None;
     // The seat's own guard, and deliberately not `seated_id.is_none()`: a
     // `oneshot::Receiver` completes on `Err(RecvError)` as well as on a value,
     // and that is every path where the runner drops the sender without sending
     // — both spawn-failure arms, and any fake that ignores `seated`. There the
     // id stays `None`, a guard reading it would leave the arm enabled, and the
-    // next tick would poll a completed receiver and panic inside the engine's
-    // run task. This flag is set in both outcomes, so the arm disables itself
+    // select would poll a completed receiver and panic inside the engine's run
+    // task. This flag is set in both outcomes, so the arm disables itself
     // either way.
     let mut seat_read = false;
     let mut seated_id: Option<String> = None;
-    let resolved = loop {
+    let answered: Result<TripwireSessionOutcome, RunRefusal> = loop {
         tokio::select! {
             biased;
             seated = &mut seated_rx, if !seat_read => {
@@ -1325,57 +1076,32 @@ async fn run_phase(
                         let conn = db.lock().expect("tripwire ledger mutex");
                         let _ = ledger::record_session_if_running(&conn, trip_id, &id);
                     }
-                    info!(trip = trip_id, session = %id, arc = ?arc, "tripwire session seated");
+                    info!(trip = trip_id, session = %id, "tripwire session seated");
                     seated_id = Some(id);
                     crate::feeds::tripwires::bump();
                 }
             }
-            ended = &mut running, if answered.is_none() => answered = Some(ended),
-            _ = ticker.tick() => {}
-        }
-        let resolved = settled_row(db, trip_id);
-        if resolved.is_some() || answered.is_some() {
-            break resolved;
+            ended = &mut running => break ended,
         }
     };
 
-    let outcome = answered.as_ref().and_then(|a| a.as_ref().ok());
+    let outcome = answered.as_ref().ok();
     let phase = |settled| Phase {
-        // The seat's id first: it is the one that survives a phase whose
-        // resolution arrived before the runner returned, which is the path
-        // that used to lose a session id for good ([F06]).
+        // The seat's id first: it is the one that survives a run whose session
+        // id the runner never returned, which is the path that used to lose a
+        // session id for good ([F06]).
         session_id: seated_id
             .clone()
             .or_else(|| outcome.map(|o| o.session_id.clone())),
         closing: outcome.map(closing_prose).unwrap_or_default(),
         settled,
     };
-    if let Some(settled) = resolved {
-        return phase(settled);
-    }
 
-    // The session is over and nobody resolved, so the engine does — through
-    // the same compare-and-set the verb uses, so a settle that landed in the
-    // gap between the read above and this write is not overwritten by it.
     let ended = match &answered {
-        Some(Ok(o)) => Ok(o.end),
-        Some(Err(e)) => Err(e),
-        // The wait ends on a settled row or on the runner, and the row
-        // returned above.
-        None => unreachable!("run_phase's wait ends on a row or on the runner"),
+        Ok(o) => Ok(o.end),
+        Err(e) => Err(e),
     };
     let headline = unresolved_headline(ended);
-
-    // A card took the session over, so this run is over for the engine and
-    // not over at all for the user. The trip is handed to them rather than
-    // settled, and the write is `settle`'s rather than this function's: the
-    // caller records the session id on the row first, and `record_run` puts a
-    // status back to `running` as it does so. So the outcome is carried out
-    // of here and written once, at the end, by the one function that writes a
-    // trip's outcome. Neither this nor the `HostFull` arm below is a failure.
-    if matches!(ended, Ok(SessionEnd::Adopted)) {
-        return phase(Settled::adopted(headline));
-    }
 
     // A full host is not a trip that failed. The engine asked before it
     // committed to this run, so getting here means a card took the last slot in
@@ -1383,6 +1109,10 @@ async fn run_phase(
     // The same row the consider-time gate writes for the same condition, so
     // the two spellings of one event read alike on the card. There is no queue
     // to go back to: the next matching fact is along in seconds.
+    //
+    // It is also the one outcome this function writes, because it is the one
+    // the caller must not overwrite: `settle` reads a `Skipped` and leaves the
+    // row alone.
     if matches!(ended, Err(RunRefusal::HostFull(_))) {
         let skipped = Settled::skipped(ledger::SKIP_NO_ROOM, headline);
         {
@@ -1396,33 +1126,32 @@ async fn run_phase(
             );
         }
         crate::feeds::tripwires::bump();
-        return phase(settled_row(db, trip_id).unwrap_or(skipped));
+        return phase(skipped);
     }
 
-    let unresolved = Settled::failed(headline);
-    {
-        let conn = db.lock().expect("tripwire ledger mutex");
-        let _ = ledger::settle_if_running(
-            &conn,
-            trip_id,
-            unresolved.status,
-            &unresolved.settlement,
-            (config.now_ms)(),
-        );
+    // A session that ran to the end is done, whatever it said — the words are
+    // the report and this is only the row's word for "it finished" ([P05]).
+    // Everything else ended without producing one.
+    if matches!(ended, Ok(SessionEnd::Finished)) {
+        return phase(Settled::done(None));
     }
-    crate::feeds::tripwires::bump();
-    phase(settled_row(db, trip_id).unwrap_or(unresolved))
+    // A session the engine stopped is a failure that says which ceiling it
+    // crossed, which is [Q01]'s whole evidence ([P06]).
+    if let Ok(SessionEnd::Capped(kind)) = ended {
+        return phase(Settled::capped(kind, headline));
+    }
+    phase(Settled::failed(headline))
 }
 
-/// The headline for a phase that produced no resolution. The three faults are
-/// different and a reader of the trip log has to be able to tell them apart:
-/// the session never ran, it died, or it finished without running the verb.
+/// The headline for a run that produced no report. The faults are different
+/// and a reader of the trip log has to be able to tell them apart: the session
+/// never ran, or it died partway.
 ///
-/// The fourth case is not a fault at all, and says so: a host at its spawn
+/// The third case is not a fault at all, and says so: a host at its spawn
 /// budget is busy rather than broken, and the row it writes is a skipped one.
 ///
-/// Nor is the fifth: a session a card took over ran perfectly well and simply
-/// stopped being the engine's, which is a headline rather than a failure.
+/// A session that simply *finished* never reaches here: it is `done`, and what
+/// it found is its report rather than a sentence written for it ([P04]).
 fn unresolved_headline(ended: Result<SessionEnd, &RunRefusal>) -> String {
     match ended {
         Err(RunRefusal::HostFull(_)) => {
@@ -1433,53 +1162,24 @@ fn unresolved_headline(ended: Result<SessionEnd, &RunRefusal>) -> String {
             "the host had no room for the tripwire's session, so the trip did not run".to_string()
         }
         Err(refusal) => format!("the tripwire's session did not run: {}", refusal.message()),
-        Ok(SessionEnd::Died) => {
-            "the tripwire's session died before running the resolution verb".to_string()
+        Ok(SessionEnd::Died) => "the tripwire's session died before it could report".to_string(),
+        Ok(SessionEnd::Finished) => "the tripwire's session finished".to_string(),
+        Ok(SessionEnd::Capped(CapKind::Seconds)) => {
+            "the tripwire's session ran past the seconds it is allowed, and was stopped".to_string()
         }
-        Ok(SessionEnd::Finished) => {
-            "the tripwire's session ended its turn without running the resolution verb".to_string()
-        }
-        Ok(SessionEnd::Adopted) => {
-            "a card took the tripwire's session over before the resolution verb ran".to_string()
+        Ok(SessionEnd::Capped(CapKind::ToolCalls)) => {
+            "the tripwire's session spent every tool call it is allowed, and was stopped"
+                .to_string()
         }
     }
 }
 
-/// The trip row's settle, if the verb has written one.
+/// The session's last words, read off its own JSONL transcript.
 ///
-/// Read as a whole rather than as a status, because what the next phase needs
-/// — the author ask — arrives on the same row and in the same write.
-fn settled_row(db: &Db, trip_id: i64) -> Option<Settled> {
-    let conn = db.lock().expect("tripwire ledger mutex");
-    let trip = ledger::trip(&conn, trip_id).ok().flatten()?;
-    let status = TripStatus::parse(&trip.status)?;
-    if !matches!(
-        status,
-        TripStatus::Quiet
-            | TripStatus::Awaiting
-            | TripStatus::Failed
-            | TripStatus::Adopted
-            | TripStatus::Skipped
-    ) {
-        return None;
-    }
-    Some(Settled {
-        status,
-        settlement: ledger::Settlement {
-            headline: trip.headline,
-            refs: trip.refs,
-            reason: trip.reason,
-        },
-        author_ask: trip.author_ask,
-    })
-}
-
-/// The session's last words — what the authoring phase is handed ([P04]).
-///
-/// The transcript is the session's own JSONL file, so the prose is read out of
-/// its assistant lines by the same shape the rest of this build reads. This is a
-/// convenience for the next prompt and never a decision procedure: what the
-/// session *decided* came off the trip row, written by a verb.
+/// This is the trip's report ([P04]): what a trip amounted to is what its
+/// session said at the end of its turn, and nothing else. It is read rather
+/// than asked for, so a session that forgets to say anything leaves an empty
+/// report rather than an unsettled trip.
 fn closing_prose(outcome: &TripwireSessionOutcome) -> String {
     let mut last = String::new();
     for line in outcome.transcript.lines() {
@@ -1501,90 +1201,18 @@ fn closing_prose(outcome: &TripwireSessionOutcome) -> String {
     last
 }
 
-/// The diagnosis phase's closing contract (Spec S03).
+/// The one rule the engine appends to the brief ([B08]).
 ///
-/// It names the verb and nothing else, because the verb is the whole of what
-/// the engine reads. A session that instead describes its conclusion in prose
-/// has said nothing the settle path can hear — which was the bug this
-/// contract replaced.
-fn diagnosis_contract(tripwire: &str) -> String {
-    format!(
-        "You are standing in a disposable checkout of the repository at HEAD, cut for this \
-         trip. It is not the user's working copy, nothing you write in it is kept, and you \
-         cannot write anyway — this \
-         session runs in plan mode. Diagnose, and do nothing else.\n\n\
-         Close your turn by running exactly one of:\n\
-         `tugtool tripwire resolve {tripwire} --quiet` — nothing here is worth the user's \
-         attention.\n\
-         `tugtool tripwire resolve {tripwire} --awaiting --headline \"<one line>\"` — there is \
-         something the user should see. The headline is the one line they will read.\n\n\
-         Add `--author \"<one line saying what to change>\"` to either when a change is worth \
-         authoring; a session with hands will then be opened on an arc to make it. Say in your \
-         last words what you found and what you would change, because that prose is what that \
-         session is handed."
-    )
-}
-
-/// The authoring phase's closing contract (Spec S03).
-///
-/// It opens by telling the session to run `arc create` on an arc the engine
-/// has already made. That is not busywork: `create` is idempotent, and what
-/// the second call does is `claim_arc` — binding the arc to the session that
-/// ran the verb ([Q02]). An arc the engine created in-process has no calling
-/// session and is bound to nothing, which is exactly why the first real
-/// tripwire run produced an arc nobody could join. The engine cuts the
-/// worktree because there has to be somewhere to spawn into; the session
-/// claims it because binding is a fact about who asked.
-///
-/// The absolute path is stated because the prompt is the only place it can be:
-/// the session is spawned in the worktree, so its own working directory is
-/// right, but a session that reasons its way onto a relative path is a session
-/// writing into whatever directory it landed in — and the base checkout is one
-/// `..` away.
-fn authoring_contract(tripwire: &str, arc: &str, worktree: &std::path::Path) -> String {
-    format!(
-        "You are working on the arc `{arc}`, whose worktree is at `{path}`. Work only under \
-         that path, and give every command an absolute path — a shell's working directory does \
-         not survive between commands.\n\n\
-         First run `tugtool arc create {arc}` — the arc already exists, so this claims it for \
-         this session and nothing else.\n\n\
-         Commit with `tugtool arc commit {arc} --message \"<subject>\"`; that is the only path \
-         that commits here, and joining the work back is the user's act, never yours. If there \
-         is nothing worth changing, change nothing and say so.\n\n\
-         Close your turn by running \
-         `tugtool tripwire resolve {tripwire} --awaiting --headline \"<one line>\"` when you left \
-         something for the user to look at, or \
-         `tugtool tripwire resolve {tripwire} --quiet` when you did not.",
-        path = worktree.display(),
-    )
-}
-
-/// The arc a firing stages on: `tripwire-<tripwire>-<key8>`.
-///
-/// Derived from the event key rather than minted, so the same firing named
-/// twice — a queued trip drained after a restart — is the same arc and not a
-/// second one, and *different* firings are never the same arc.
-///
-/// A key that is already legal arc-name material keeps its own first eight
-/// characters; every other key is digested rather than sanitized. Sanitizing
-/// drops the punctuation a key carries its discriminator behind, so eight
-/// surviving characters of `fact:<instance>:<rowid>` would be eight characters
-/// of the instance's name — identical for every firing of one tripwire. Two firings
-/// sharing a name is not a cosmetic collision: `create_in` is idempotent, so
-/// the second adopts the first's arc, counts its rounds as its own, and a
-/// green probe on the second discards the work the first staged.
-fn tripwire_arc_name(tripwire: &str, event_key: &str) -> String {
-    let key8 = if event_key.len() >= 8 && event_key.chars().all(|c| c.is_ascii_alphanumeric()) {
-        event_key.chars().take(8).collect()
-    } else {
-        let digest = <Sha256 as Digest>::digest(event_key.as_bytes());
-        digest.iter().take(4).fold(String::new(), |mut acc, b| {
-            use std::fmt::Write;
-            let _ = write!(acc, "{b:02x}");
-            acc
-        })
-    };
-    format!("tripwire-{tripwire}-{key8}")
+/// One rule, and it offers no choices. The menu that stood here — resolve
+/// with one word or another — asked the model to decide whether its own
+/// findings deserved the user's attention, which is a judgment the brief is
+/// what should be making. So the appended text tells it nothing about *what*
+/// to do, only where to put what it found: the last words of the turn are the
+/// report, and the engine reads them off the transcript itself ([P04]).
+fn closing_rule() -> String {
+    "End your turn with a short report of what you found and what you did. Your last \
+     message is what the user reads; nothing else you say is kept."
+        .to_string()
 }
 
 /// What a probe said.
@@ -1667,135 +1295,42 @@ fn tail(text: &str, cap: usize) -> String {
     text[start..].to_string()
 }
 
-/// Keep the arc if the run is waiting on the user, or if it failed with rounds
-/// on the arc; discard it otherwise ([P07], [P09], [B03]).
-///
-/// The rule is the trip's status rather than a round count, and the two differ
-/// in exactly the case the count gets wrong: a session that staged commits and
-/// then resolved `--quiet` decided its own work was not worth showing anybody.
-/// Keeping that arc leaves a worktree on the machine that nothing will ever
-/// point at, because a quiet trip posts nothing ([P08]) — an arc nobody is
-/// told about is an arc nobody joins.
-///
-/// Awaiting is the one status that holds an arc, and it holds it for as long as
-/// the question is open: the user joining or discarding it *is* the resolution
-/// ([P07]).
-///
-/// A failure is the other case, and the count matters there: a session that
-/// died or ended without the verb, having committed, left real work that
-/// nobody decided to throw away. The arc is kept and named on the headline so
-/// the user finds it in the Arcs card; a failure with nothing on the arc is
-/// discarded as before.
-///
-/// Hands the settlement back rather than writing it, because the caller's
-/// `settle` is the one write of a finished trip's outcome, and a row amended
-/// here would only be overwritten by it.
-async fn keep_or_discard(
-    run: &mut PendingRun,
-    repo_root: &std::path::Path,
-    arc: &str,
-    settled: Settled,
-) -> Settled {
-    // An adopted trip is kept for the same reason an awaiting one is, and
-    // more plainly: a user is working in that arc right now.
-    if settled.status == TripStatus::Awaiting || settled.status == TripStatus::Adopted {
-        run.arc = Some(arc.to_string());
-        run.engine_refs.push(OverviewRef {
-            kind: OverviewRefKind::Arc,
-            target: arc.to_string(),
-        });
-        return settled;
-    }
-    if settled.status == TripStatus::Failed {
-        let rounds = {
-            let root = repo_root.to_path_buf();
-            let name = arc.to_string();
-            tokio::task::spawn_blocking(move || tugarc_core::ops::round_count_in(&root, &name))
-                .await
-                .unwrap_or(0)
-        };
-        if rounds > 0 {
-            run.arc = Some(arc.to_string());
-            run.engine_refs.push(OverviewRef {
-                kind: OverviewRefKind::Arc,
-                target: arc.to_string(),
-            });
-            let headline = arc_kept_headline(
-                settled
-                    .settlement
-                    .headline
-                    .as_deref()
-                    .unwrap_or("the tripwire's session failed"),
-                arc,
-                rounds,
-            );
-            info!(
-                trip = run.trip_id,
-                arc, rounds, "tripwire: a failed trip's arc was kept"
-            );
-            return Settled {
-                settlement: ledger::Settlement {
-                    headline: Some(headline),
-                    ..settled.settlement
-                },
-                ..settled
-            };
-        }
-    }
-    discard_agent_arc(repo_root, arc).await;
-    settled
-}
-
-/// The headline of a failure whose arc was kept: the failure's own words, then
-/// where the work is and how much of it there is.
-fn arc_kept_headline(failure: &str, arc: &str, rounds: usize) -> String {
-    let plural = if rounds == 1 { "" } else { "s" };
-    format!("{failure}; its arc `{arc}` holds {rounds} round{plural}")
-}
-
-/// Remove a tripwire's arc without handing a byte of it back ([P09]).
-async fn discard_agent_arc(repo_root: &std::path::Path, arc: &str) {
-    let repo_root = repo_root.to_path_buf();
-    let arc_name = arc.to_string();
-    let removed = tokio::task::spawn_blocking(move || {
-        tugarc_core::ops::discard_agent_arc_in(&repo_root, &arc_name, Some("tripwire"))
-    })
-    .await;
-    if let Ok(Err(e)) = removed {
-        warn!(arc, error = %e, "tripwire: the tripwire's arc could not be removed");
-    }
-}
-
 /// How a trip finished, ready for the ledger.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settled {
     pub status: TripStatus,
     pub settlement: ledger::Settlement,
-    /// What a resolution asked to have authored ([P04]). Present only on the
-    /// diagnosis phase's settle, and the whole of what decides whether a
-    /// second session runs.
-    pub author_ask: Option<String>,
+    /// The session's last words, when the trip ran a session ([P04]).
+    ///
+    /// Beside the settlement rather than inside it, because the ledger writes
+    /// the two with different statements and for different reasons: the report
+    /// is what the session produced, and the settlement is the engine's
+    /// judgment about the run that produced it.
+    pub report: Option<String>,
 }
 
 impl Settled {
-    /// A firing that came to nothing anybody needs to see — the green probe,
-    /// and the floor a firing settles at when this instance has nothing to ask.
+    /// A trip that ran to its end ([P05]). The headline is the engine's own
+    /// sentence for the two endings that ran no session at all — a green probe,
+    /// and an instance with nothing to ask — and `None` for a session that
+    /// finished, whose words are the report rather than a line written for it.
     ///
-    /// It still carries a headline. The trip log is where a reader goes to ask
-    /// why a tripwire did nothing, and a settled row with no words is the one
-    /// answer that surface cannot give.
-    fn quiet(headline: String) -> Self {
+    /// The two cases keep one constructor because they are one status, and a
+    /// row that carries neither a headline nor a report has not happened: the
+    /// trip log is where a reader goes to ask why a tripwire did nothing, and
+    /// a settled row with no words is the one answer that surface cannot give.
+    fn done(headline: Option<String>) -> Self {
         Settled {
-            status: TripStatus::Quiet,
+            status: TripStatus::Done,
             settlement: ledger::Settlement {
-                headline: Some(headline),
+                headline,
                 ..ledger::Settlement::default()
             },
-            author_ask: None,
+            report: None,
         }
     }
 
-    /// A run that produced no resolution, and says why in the headline a reader
+    /// A run that produced no report, and says why in the headline a reader
     /// of the trip log will actually see.
     fn failed(headline: String) -> Self {
         Settled {
@@ -1804,7 +1339,31 @@ impl Settled {
                 headline: Some(headline),
                 ..ledger::Settlement::default()
             },
-            author_ask: None,
+            report: None,
+        }
+    }
+
+    /// A session the engine stopped at one of the tripwire's two ceilings
+    /// ([P06]).
+    ///
+    /// A `failed` row like any other, and the reason is what makes it useful:
+    /// one word a surface can render, and the thing [Q01] is settled by
+    /// counting. The report is written by the caller whatever this says — a
+    /// capped session still said something, and its words are not the
+    /// casualty of the cap.
+    fn capped(kind: CapKind, headline: String) -> Self {
+        let reason = match kind {
+            CapKind::Seconds => ledger::FAIL_CAP_SECONDS,
+            CapKind::ToolCalls => ledger::FAIL_CAP_TOOL_CALLS,
+        };
+        Settled {
+            status: TripStatus::Failed,
+            settlement: ledger::Settlement {
+                headline: Some(headline),
+                reason: Some(reason.to_string()),
+                ..ledger::Settlement::default()
+            },
+            report: None,
         }
     }
 
@@ -1820,22 +1379,7 @@ impl Settled {
                 reason: Some(reason.to_string()),
                 ..ledger::Settlement::default()
             },
-            author_ask: None,
-        }
-    }
-
-    /// Not a settle either: a card took the session over, and the trip is
-    /// held for the user rather than finished. It carries a headline for the
-    /// same reason the two above do — a reader who opens a held trip should
-    /// find out who is holding it and why.
-    fn adopted(headline: String) -> Self {
-        Settled {
-            status: TripStatus::Adopted,
-            settlement: ledger::Settlement {
-                headline: Some(headline),
-                ..ledger::Settlement::default()
-            },
-            author_ask: None,
+            report: None,
         }
     }
 }
@@ -1864,42 +1408,31 @@ fn settle(config: &TripwireEngineConfig, conn: &Connection, run: &PendingRun, se
         );
         return;
     }
-    // Nor is a trip a card took over, and it gets its own write. A settle
-    // would stamp a finish time on a trip nobody finished and take the row
-    // out of the two verbs' reach; `adopt_if_running` leaves `settled_at_ms`
-    // unwritten, because the session is alive in a user's card and may yet
-    // run the verb, which settles the row from `adopted`. The compare-and-set
-    // is the same race guard the settle below relies on: a resolution the
-    // verb landed in the gap is not dragged back out of its outcome. Nothing
-    // is posted either — the user is already inside the session, so there is
-    // no hand to raise at them.
-    if settled.status == TripStatus::Adopted {
-        if let Err(e) = ledger::adopt_if_running(
-            conn,
-            run.trip_id,
-            settled.settlement.headline.as_deref().unwrap_or_default(),
-            (config.now_ms)(),
-        ) {
-            warn!(error = %e, tripwire = %run.tripwire, "tripwire engine: adopt failed");
-            return;
-        }
-        crate::feeds::tripwires::bump();
-        info!(
-            tripwire = %run.tripwire,
-            trip = run.trip_id,
-            "tripwire adopted: a card took the session over"
-        );
-        return;
-    }
-    if let Err(e) = ledger::settle(
+    // The compare-and-set rather than a bare write, because this engine is no
+    // longer the only thing that can move a `running` row: another instance's
+    // orphan sweep reaches for the same rows, and a trip it already failed
+    // must not be dragged back out of that outcome (Risk R03). A row that has
+    // moved is one somebody else settled, and its words are theirs.
+    match ledger::settle_if_running(
         conn,
         run.trip_id,
         settled.status,
         &settled.settlement,
         (config.now_ms)(),
     ) {
-        warn!(error = %e, tripwire = %run.tripwire, "tripwire engine: settle failed");
-        return;
+        Err(e) => {
+            warn!(error = %e, tripwire = %run.tripwire, "tripwire engine: settle failed");
+            return;
+        }
+        Ok(false) => {
+            info!(
+                tripwire = %run.tripwire,
+                trip = run.trip_id,
+                "tripwire settle: the row had already moved"
+            );
+            return;
+        }
+        Ok(true) => {}
     }
     crate::feeds::tripwires::bump();
     info!(
@@ -1914,11 +1447,12 @@ fn settle(config: &TripwireEngineConfig, conn: &Connection, run: &PendingRun, se
 /// Post a settled trip to the Overview — the pointer post, and the only one
 /// this facility makes ([P08]).
 ///
-/// **Awaiting and nothing else.** The post-policy knob and the routine /
-/// interesting split existed to ration a reporter that spoke on every firing;
-/// a reporter that only ever raises its hand when it has a question for the
-/// user does not need rationing, so the raised hand *is* the post. A quiet
-/// settle and a failure are both rows in the trip log, which is where a reader
+/// **A trip that ran a session and said something, and nothing else.** The
+/// report *is* the raised hand ([P04]): a trip that answered its brief has
+/// words for the user, and this is what puts them where the user reads them.
+/// The two endings that run no session — a green probe, an instance with
+/// nothing to ask — have only the engine's own sentence, and a failure has
+/// only a fault; all three are rows in the trip log, which is where a reader
 /// asking after a tripwire already goes.
 ///
 /// The tripwire's name rides `wake_reason` as `tripwire:<name>`, which is what
@@ -1929,13 +1463,16 @@ fn post_settled(config: &TripwireEngineConfig, run: &PendingRun, settled: &Settl
     let Some(overview_tx) = config.overview_tx.as_ref() else {
         return;
     };
-    if settled.status != TripStatus::Awaiting {
+    if settled.status != TripStatus::Done {
         return;
     }
-    let Some(body) = settled.settlement.headline.clone() else {
-        // A post with an empty body is worse than no post. The verb refuses an
-        // awaiting resolution with no headline, so this is the belt to that
-        // brace rather than an outcome anybody can reach.
+    let Some(body) = settled
+        .report
+        .clone()
+        .filter(|report| !report.trim().is_empty())
+    else {
+        // A post with an empty body is worse than no post, and an empty report
+        // is reachable: a session may end its turn having said nothing at all.
         return;
     };
 
@@ -1968,93 +1505,13 @@ fn post_settled(config: &TripwireEngineConfig, run: &PendingRun, settled: &Settl
     }
 }
 
-/// Re-read a tripwire's newest settled trip and post it, because a verb in another
-/// process wrote the settle this engine never saw (Spec S02).
-///
-/// The row is already right; what the tell buys is that anybody is told now
-/// rather than never — a settle written by a `tugtool` reaches no Overview on
-/// its own. Nothing here writes to the ledger, so a tell that arrives twice
-/// costs a duplicate post at worst and can never disturb the settle itself.
-fn republish_settled(config: &Arc<TripwireEngineConfig>, db: &Arc<Db>, tripwire_name: &str) {
-    let conn = db.lock().expect("tripwire ledger mutex");
-    let Ok(Some(tripwire)) = ledger::get(&conn, tripwire_name) else {
-        warn!(tripwire = %tripwire_name, "tripwire engine: told about a tripwire that is not there");
-        return;
-    };
-    let Ok(trips) = ledger::trips_for_tripwire(&conn, tripwire.id, 1) else {
-        return;
-    };
-    let Some(trip) = trips.into_iter().next() else {
-        return;
-    };
-    let Some(status) = TripStatus::parse(&trip.status) else {
-        return;
-    };
-    let settled = Settled {
-        status,
-        settlement: ledger::Settlement {
-            headline: trip.headline.clone(),
-            refs: trip.refs.clone(),
-            reason: trip.reason.clone(),
-        },
-        author_ask: trip.author_ask.clone(),
-    };
-    // The fact's own session, the way `start_run` composed it: a ref the
-    // engine wrote down rather than text a model produced.
-    let fact_session = fact_session_of(trip.event_payload.as_deref().unwrap_or("{}"));
-    let mut refs: Vec<OverviewRef> = fact_session
-        .clone()
-        .map(|target| OverviewRef {
-            kind: OverviewRefKind::Session,
-            target,
-        })
-        .into_iter()
-        .collect();
-    if let Some(arc) = trip.arc.clone() {
-        refs.push(OverviewRef {
-            kind: OverviewRefKind::Arc,
-            target: arc,
-        });
-    }
-    let run = PendingRun {
-        trip_id: trip.id,
-        tripwire: tripwire.name.clone(),
-        event_key: trip.event_key.clone(),
-        model: tripwire.model.clone(),
-        brief: tripwire.brief.clone(),
-        probe: tripwire.probe.clone(),
-        permission_mode: tripwire.permission_mode.clone(),
-        evidence: trip.event_payload.unwrap_or_else(|| "{}".to_string()),
-        engine_refs: refs,
-        project_dir: trip.repo_root.clone(),
-        repo_root: trip.repo_root.unwrap_or_default(),
-        head_sha: trip.head_sha,
-        fact_session,
-        session_id: trip.session_id,
-        arc: trip.arc,
-    };
-    post_settled(config, &run, &settled);
-}
-
-/// The session a trip's fact was recorded in, read back off the row's payload.
-fn fact_session_of(payload: &str) -> Option<String> {
-    serde_json::from_str::<serde_json::Value>(payload)
-        .ok()?
-        .get("fact")?
-        .get("session_id")?
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-}
-
 /// Whether a fact's repository falls under a tripwire's scope.
 ///
 /// Raw prefix, compared as canonical paths, and deliberately **not** folded to
-/// a base checkout: a tripwire's authoring session commits on its own arc
-/// worktree, and
-/// folding worktrees into the checkout they forked from would make those
-/// commits re-trip the tripwire that made them. An unscoped tripwire watches the
-/// machine.
+/// a base checkout: a trip's session commits on the tripwire's own arc
+/// worktree, and folding worktrees into the checkout they forked from would
+/// make those commits re-trip the tripwire that made them. An unscoped
+/// tripwire watches the machine.
 fn in_scope(scope: Option<&str>, path: &str) -> bool {
     let Some(scope) = scope else {
         return true;
@@ -2066,9 +1523,9 @@ fn in_scope(scope: Option<&str>, path: &str) -> bool {
 /// The key a fact's trip is written under: `fact:<instance>:<rowid>`.
 ///
 /// Qualified by instance because a rowid is only unique within one instance's
-/// session ledger, and two instances on one machine share `tripwires.db`. It is
-/// also the seed `tripwire_arc_name` derives from, so a trip re-read after a
-/// restart names the arc it already made rather than cutting a second one.
+/// session ledger, and two instances on one machine share `tripwires.db`. A
+/// trip re-read after a restart therefore lands on the row it already has
+/// rather than minting a second one for the same fact.
 fn event_key(instance: &str, fact_id: i64) -> String {
     format!("fact:{instance}:{fact_id}")
 }
@@ -2110,6 +1567,12 @@ mod tests {
         Orphan,
         /// How often a record is re-read; never a deadline on anything.
         Poll,
+        /// A live session, and the only one that may be: the wait a capped
+        /// session is given to end its turn politely before the engine
+        /// closes it ([P06]). It bounds the *wait*, not the work — the work
+        /// is bounded by the tripwire's own row, which is a number somebody
+        /// set rather than a constant here.
+        CappedSessionGrace,
     }
 
     /// What a concurrency count in this facility rations ([B03]).
@@ -2251,18 +1714,26 @@ mod tests {
         }
     }
 
-    /// No constant in the engine settles a trip while its session is alive
+    /// No constant in the engine decides how long a trip's session may work
     /// ([B06]). Every `Duration` the two engine files declare is enumerated
     /// here with what it bounds, and the source is scanned so a constant
     /// added later has to be named — the ceiling cannot come back on the
     /// strength of a doc comment's argument.
+    ///
+    /// A trip *is* bounded now, and by two numbers rather than none: the
+    /// tripwire's own `max_seconds` and `max_tool_calls` ([P06]). Neither is
+    /// in this list and neither could be, because neither is a constant —
+    /// they are columns, per tripwire, set by whoever laid it. The one
+    /// duration here that touches a live session at all is the grace a capped
+    /// one gets to end its turn before the close, and it is called out as
+    /// such below rather than filed under a poll.
     #[test]
-    fn every_remaining_duration_bounds_a_probe_an_orphan_or_a_poll() {
+    fn every_remaining_duration_bounds_a_probe_an_orphan_a_poll_or_a_capped_sessions_grace() {
         let declared: &[(&str, Duration, Bounds)] = &[
             ("SWEEP_TICK", SWEEP_TICK, Bounds::Poll),
             ("PROBE_TIMEOUT", PROBE_TIMEOUT, Bounds::Probe),
             ("ORPHANED_RUN_AGE", ORPHANED_RUN_AGE, Bounds::Orphan),
-            ("SETTLE_POLL", SETTLE_POLL, Bounds::Poll),
+            ("CAP_GRACE", CAP_GRACE, Bounds::CappedSessionGrace),
             (
                 "SESSION_READ_INTERVAL",
                 crate::feeds::tripwire_session::SESSION_READ_INTERVAL,
@@ -2336,6 +1807,21 @@ mod tests {
                 .count()
                 == 1
         );
+        // And exactly one duration touches a live session: the grace. It is
+        // a wait for a turn to end, so it is short — anything long enough to
+        // be mistaken for a working budget is the ceiling coming back under
+        // another name.
+        let graces: Vec<_> = declared
+            .iter()
+            .filter(|(_, _, b)| *b == Bounds::CappedSessionGrace)
+            .collect();
+        assert_eq!(graces.len(), 1);
+        assert!(
+            graces[0].1 <= Duration::from_secs(30),
+            "{} is {:?}, long enough to read as a budget rather than a grace",
+            graces[0].0,
+            graces[0].1
+        );
     }
     /// The retired words stay out of the tripwire surface ([B05][B06], [P09]).
     /// Every file the feature owns is read here and each line is checked for
@@ -2355,7 +1841,7 @@ mod tests {
     /// spelling or a named `Exempt` region ([P09]).
     #[test]
     fn the_retired_words_stay_out_of_the_tripwire_surface() {
-        const RETIRED: [&str; 12] = [
+        const RETIRED: [&str; 20] = [
             "wire",
             "dash",
             "envelope",
@@ -2372,6 +1858,27 @@ mod tests {
             "high-water",
             "fact_mark",
             "claim_trip",
+            // What one session with hands retired ([P01]): the second spawn
+            // and the column that carried the ask which opened it.
+            "author_ask",
+            "authoring",
+            // What the tripwire's own permanent arc retired ([P02], [P03]):
+            // the tree cut at a sha and thrown away after.
+            "disposable",
+            "inspection tree",
+            // What the report and the four statuses retired ([P04], [P05]):
+            // two finished statuses that said what the model chose to say.
+            "awaiting",
+            "adopted",
+            // And the third, by the spellings the *status* wore rather than
+            // bare. `quiet` is an ordinary English word this surface still
+            // needs — a session goes quiet, `CAP_GRACE` waits for it to — and
+            // the scan reads whole lines with `contains`, so a bare entry
+            // would fail the build on correct code. `SessionRead::Quiet` is
+            // live for the same reason, which is why `::Quiet` is not here
+            // either.
+            "'quiet'",
+            "\"quiet\"",
         ];
         let surface: &[(&str, &str)] = &[
             (
@@ -2390,10 +1897,6 @@ mod tests {
             (
                 "tugcast/src/feeds/tripwire_session.rs",
                 include_str!("tripwire_session.rs"),
-            ),
-            (
-                "tugcast/src/feeds/tripwire_tree.rs",
-                include_str!("tripwire_tree.rs"),
             ),
             (
                 "tugcast/src/feeds/tripwire_prompt.rs",
@@ -2548,6 +2051,89 @@ mod tests {
                 opens: "fn migrate_trips_reason_column(",
                 closes: "}",
             },
+            // The migrations that carry the retired vocabulary across: each
+            // names a shape that is on disk, or was, and a migration that
+            // could not say `author_ask` could not drop the column.
+            Exempt {
+                file: ledger,
+                name: "the v2 → v3 migration",
+                opens: "/// v2 → v3: a resolution may ask for a change to be authored",
+                closes: "\";",
+            },
+            Exempt {
+                file: ledger,
+                name: "the v8 → v9 migration",
+                opens: "/// v8 → v9: a trip is one session with hands",
+                closes: "\";",
+            },
+            Exempt {
+                file: ledger,
+                name: "the author-ask drop",
+                opens: "fn migrate_trips_author_ask(",
+                closes: "}",
+            },
+            Exempt {
+                file: ledger,
+                name: "the author-ask drop's call",
+                opens: "    migrate_trips_author_ask(conn)?;",
+                closes: "    migrate_trips_author_ask(conn)?;",
+            },
+            Exempt {
+                file: ledger,
+                name: "the v9 → v10 migration",
+                opens: "/// v9 → v10: a tripwire owns one arc",
+                closes: "\";",
+            },
+            Exempt {
+                file: ledger,
+                name: "the v10 → v11 status collapse",
+                opens: "/// v10 → v11: a trip ends with a report",
+                closes: "\";",
+            },
+            // And the fixtures those migrations are run against, each laying
+            // an old ledger down in the words it was written in.
+            Exempt {
+                file: ledger,
+                name: "the v8 DDL fixture",
+                opens: "/// A ledger as v8 left it",
+                closes: "    \";",
+            },
+            Exempt {
+                file: ledger,
+                name: "the v8 ledger fixture",
+                opens: "fn v8_ledger(",
+                closes: "    }",
+            },
+            Exempt {
+                file: ledger,
+                name: "the v9 DDL fixture",
+                opens: "/// A ledger as v9 left it",
+                closes: "    \";",
+            },
+            Exempt {
+                file: ledger,
+                name: "the v9 ledger fixture",
+                opens: "fn v9_ledger(",
+                closes: "    }",
+            },
+            Exempt {
+                file: ledger,
+                name: "the v9 → v10 migration test",
+                opens: "/// **The tripwire gains its home checkout",
+                closes: "    }",
+            },
+            Exempt {
+                file: ledger,
+                name: "the v10 ledger fixture",
+                opens: "fn v10_ledger(",
+                closes: "    }",
+            },
+            Exempt {
+                file: ledger,
+                name: "the v8 → v9 migration test",
+                opens: "fn a_v8_ledger_drops_the_author_ask_column_and_keeps_its_rows(",
+                closes: "    }",
+            },
             // `tier` is also a `TugSessionIdentity` prop — the size a session
             // chip is drawn at — and the card passes it to render the worker
             // beside a running tripwire. The scan reads whole lines, so a
@@ -2649,7 +2235,6 @@ mod tests {
         let config = TripwireEngineConfig {
             ledger: Arc::new(SessionLedger::open_in_memory().unwrap()),
             db_path,
-            trees_root: dir.path().join("trees"),
             instance: "inst-a".to_string(),
             now_ms: clock.as_now(),
             sessions: None,
@@ -2797,12 +2382,8 @@ mod tests {
         // compile error; the bare connection here is the assertion half's, and
         // the two are separate for the same reason the engine's are.
         let db: Db = Mutex::new(ledger::open_ledger(&config.db_path).unwrap());
-        // The engine owns one of these for its whole life; a test's is per
-        // call, under the harness's own scratch root, so a run cuts real
-        // worktrees and cleans them up without reaching the user's data dir.
-        let trees = InspectionTrees::new(config.trees_root.clone());
         for run in &mut pending {
-            let settled = run_pending(config, &db, &trees, run).await;
+            let settled = run_pending(config, &db, run).await;
             settle(config, conn, run, &settled);
         }
         decisions
@@ -2905,7 +2486,7 @@ mod tests {
                 event_key: "fact:inst-a:0".to_string(),
                 at_ms: 1,
                 instance: "inst-a".to_string(),
-                status: TripStatus::Quiet,
+                status: TripStatus::Done,
                 reason: None,
                 event_payload: None,
                 repo_root: Some("/proj".to_string()),
@@ -2933,7 +2514,7 @@ mod tests {
         );
         assert_eq!(
             statuses(&h.conn, tripwire.id),
-            vec!["quiet"],
+            vec!["done"],
             "no second row: the tripwire's own session is not an event in its life"
         );
     }
@@ -2953,7 +2534,7 @@ mod tests {
                 event_key: "fact:inst-a:0".to_string(),
                 at_ms: 1,
                 instance: "inst-a".to_string(),
-                status: TripStatus::Quiet,
+                status: TripStatus::Done,
                 reason: None,
                 event_payload: None,
                 repo_root: Some("/proj".to_string()),
@@ -2989,47 +2570,49 @@ mod tests {
     fn a_second_matching_fact_while_a_trip_runs_is_skipped_as_busy() {
         let h = harness();
         let tripwire = lay(&h.conn, "w", r#"{"fact":{"kind":"edit_failed"}}"#);
-        for status in [TripStatus::Running, TripStatus::Awaiting] {
-            let trip_id = ledger::insert_trip(
-                &h.conn,
-                &ledger::NewTrip {
-                    tripwire_id: tripwire.id,
-                    event_key: format!("live:{}", status.as_str()),
-                    at_ms: 1,
-                    instance: "inst-a".to_string(),
-                    status,
-                    reason: None,
-                    event_payload: None,
-                    repo_root: Some("/proj".to_string()),
-                },
-            )
-            .unwrap()
-            .expect("written");
+        // `running` is the whole of the live set now ([P05]): the two statuses
+        // that used to share this guard were finished trips holding on for a
+        // person, and a trip that always leaves a report holds nothing.
+        let trip_id = ledger::insert_trip(
+            &h.conn,
+            &ledger::NewTrip {
+                tripwire_id: tripwire.id,
+                event_key: "live:running".to_string(),
+                at_ms: 1,
+                instance: "inst-a".to_string(),
+                status: TripStatus::Running,
+                reason: None,
+                event_payload: None,
+                repo_root: Some("/proj".to_string()),
+            },
+        )
+        .unwrap()
+        .expect("written");
 
-            let out = decisions(
-                &h.config,
-                &h.conn,
-                &firing(&h.config, "/proj", "edit_failed"),
-            );
-            assert_eq!(
-                decision(&out, "w"),
-                Decision::Skipped(ledger::SKIP_BUSY),
-                "a {} trip holds the tripwire's one slot",
-                status.as_str()
-            );
-            let newest = trips(&h.conn, tripwire.id).remove(0);
-            assert_eq!(newest.status, "skipped");
-            assert_eq!(newest.reason.as_deref(), Some(ledger::SKIP_BUSY));
+        let out = decisions(
+            &h.config,
+            &h.conn,
+            &firing(&h.config, "/proj", "edit_failed"),
+        );
+        assert_eq!(
+            decision(&out, "w"),
+            Decision::Skipped(ledger::SKIP_BUSY),
+            "a running trip holds the tripwire's one slot"
+        );
+        let newest = trips(&h.conn, tripwire.id).remove(0);
+        assert_eq!(newest.status, "skipped");
+        assert_eq!(newest.reason.as_deref(), Some(ledger::SKIP_BUSY));
 
-            ledger::settle(
-                &h.conn,
-                trip_id,
-                TripStatus::Quiet,
-                &ledger::Settlement::default(),
-                9,
-            )
-            .unwrap();
-        }
+        // And the slot comes back when it finishes.
+        ledger::settle(
+            &h.conn,
+            trip_id,
+            TripStatus::Done,
+            &ledger::Settlement::default(),
+            9,
+        )
+        .unwrap();
+        assert!(ledger::live_trip(&h.conn, tripwire.id).unwrap().is_none());
     }
 
     /// The machine ceiling skips rather than queues ([P03]): with the trigger
@@ -3330,7 +2913,7 @@ mod tests {
         let engine = tokio::spawn(run_tripwire_engine(TripwireEngineConfig {
             ledger: Arc::clone(&session_ledger),
             db_path,
-            trees_root: h.config.trees_root.clone(),
+
             instance: "inst-a".to_string(),
             now_ms: h.clock.as_now(),
             sessions: None,
@@ -3358,7 +2941,7 @@ mod tests {
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         loop {
             let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
-            if trips.first().is_some_and(|t| t.status == "quiet") {
+            if trips.first().is_some_and(|t| t.status == "done") {
                 assert_eq!(trips.len(), 1, "one fact is one trip: {trips:?}");
                 assert!(
                     trips[0]
@@ -3410,6 +2993,8 @@ mod tests {
                 permission_mode: "plan".to_string(),
                 model: None,
                 prompt: prompt.to_string(),
+                max_seconds: 120,
+                max_tool_calls: 30,
                 seated: None,
             }
         }
@@ -3417,26 +3002,22 @@ mod tests {
         /// What one spawn does when it runs.
         #[derive(Debug, Clone)]
         enum Reply {
-            /// Run the resolution verb against the real ledger, exactly as
-            /// `tugtool tripwire resolve` would — same function, same
-            /// compare-and-set. Optionally leaving a commit behind first,
-            /// because the keep-or-remove decision reads git rather than the
-            /// script.
-            Resolve {
-                status: TripStatus,
-                headline: &'static str,
-                author: Option<&'static str>,
+            /// End the turn with these last words — which the engine reads off
+            /// the transcript as the trip's report ([P04]). Optionally leaving
+            /// a commit behind first, because the rounds count reads git
+            /// rather than the script.
+            Says {
                 closing: &'static str,
                 commits: bool,
             },
-            /// End the turn having resolved nothing.
+            /// End the turn with the fake's own stock words.
             Silent,
-            /// Commit a round, then end the turn having resolved nothing — a
-            /// session that did real work and then died or forgot the verb.
-            Abandon,
-            /// A deck card took the session over mid-turn: the run ends
-            /// `Adopted` and the engine never closes the session.
-            Adopted,
+            /// The session ran past one of the tripwire's caps and the engine
+            /// stopped it ([P06]). For the wall-clock cap the fake first
+            /// spends the seconds it was handed, so a request that carried no
+            /// cap is a test that hangs rather than one that passes on a
+            /// scripted answer.
+            Capped(CapKind),
         }
 
         /// What the host says about room for one more session — the second
@@ -3454,11 +3035,9 @@ mod tests {
         }
 
         /// A session runner that answers from a script of [`Reply`]s, one per
-        /// spawn. Two entries is a run that authored; one is a run that
-        /// diagnosed and stopped.
+        /// spawn. A trip spawns once, so the second entry is only ever read
+        /// by a test that fires twice.
         struct FakeSessions {
-            db_path: PathBuf,
-            tripwire_id: i64,
             script: Mutex<std::collections::VecDeque<Reply>>,
             seen: Mutex<Vec<SeenRun>>,
             /// How long each spawn works before it answers. Zero unless a
@@ -3468,23 +3047,12 @@ mod tests {
         }
 
         impl FakeSessions {
-            fn new(
-                db_path: &std::path::Path,
-                tripwire_id: i64,
-                script: Vec<Reply>,
-            ) -> Arc<FakeSessions> {
-                FakeSessions::delayed(db_path, tripwire_id, script, Duration::ZERO)
+            fn new(script: Vec<Reply>) -> Arc<FakeSessions> {
+                FakeSessions::delayed(script, Duration::ZERO)
             }
 
-            fn delayed(
-                db_path: &std::path::Path,
-                tripwire_id: i64,
-                script: Vec<Reply>,
-                delay: Duration,
-            ) -> Arc<FakeSessions> {
+            fn delayed(script: Vec<Reply>, delay: Duration) -> Arc<FakeSessions> {
                 Arc::new(FakeSessions {
-                    db_path: db_path.to_path_buf(),
-                    tripwire_id,
                     script: Mutex::new(script.into_iter().collect()),
                     seen: Mutex::new(Vec::new()),
                     delay,
@@ -3563,44 +3131,20 @@ mod tests {
                 };
                 let closing = match reply {
                     Reply::Silent => "I had a look around.",
-                    Reply::Adopted => {
+                    Reply::Capped(kind) => {
+                        if kind == CapKind::Seconds {
+                            tokio::time::sleep(Duration::from_secs(request.max_seconds)).await;
+                        }
                         return Ok(TripwireSessionOutcome {
                             session_id,
-                            transcript: transcript("I was partway through when the user arrived."),
-                            end: SessionEnd::Adopted,
+                            transcript: transcript("I was still going when it was stopped."),
+                            end: SessionEnd::Capped(kind),
                         });
                     }
-                    Reply::Abandon => {
-                        commit_a_round(&request.worktree);
-                        "I made the change and then lost my way."
-                    }
-                    Reply::Resolve {
-                        status,
-                        headline,
-                        author,
-                        closing,
-                        commits,
-                    } => {
+                    Reply::Says { closing, commits } => {
                         if commits {
                             commit_a_round(&request.worktree);
                         }
-                        let conn = ledger::open_ledger(&self.db_path).unwrap();
-                        let resolution = ledger::resolve_running(
-                            &conn,
-                            self.tripwire_id,
-                            status,
-                            &ledger::Settlement {
-                                headline: Some(headline.to_string()),
-                                ..ledger::Settlement::default()
-                            },
-                            author,
-                            9_000,
-                        )
-                        .unwrap();
-                        assert!(
-                            matches!(resolution, ledger::Resolution::Resolved { .. }),
-                            "the scripted session's verb was refused: {resolution:?}"
-                        );
                         closing
                     }
                 };
@@ -3685,7 +3229,19 @@ mod tests {
             new.scope = Some(root.to_string_lossy().into_owned());
             new.permission_mode = "acceptEdits".to_string();
             new.model = Some("claude-opus-5".to_string());
-            ledger::lay(conn, &new, 1).unwrap()
+            new.repo_root = root.to_string_lossy().into_owned();
+            let laid = ledger::lay(conn, &new, 1).unwrap();
+            // The arc `lay` makes, made here too: every trip stands in it
+            // ([P02]), so a harness without one tests nothing that runs.
+            tugarc_core::ops::create_in(
+                root,
+                &tripwire_arc(&laid.name),
+                Some(format!("tripwire {}", laid.name)),
+                false,
+                None,
+            )
+            .unwrap();
+            laid
         }
 
         /// A matching fact from a session working in the scratch repo.
@@ -3699,17 +3255,6 @@ mod tests {
             root: &std::path::Path,
         ) -> crate::session_ledger::FactRow {
             firing(config, root.to_string_lossy().as_ref(), "edit_failed")
-        }
-
-        /// The commit the scratch repo's `HEAD` names — the sha the run's
-        /// tree is cut at ([P06]), and so the directory the sweep is about.
-        fn head_of(root: &std::path::Path) -> String {
-            let out = std::process::Command::new("git")
-                .args(["rev-parse", "HEAD"])
-                .current_dir(root)
-                .output()
-                .unwrap();
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
         }
 
         fn arcs_in(root: &std::path::Path) -> Vec<String> {
@@ -3729,16 +3274,140 @@ mod tests {
                 .collect()
         }
 
-        /// The green-probe floor, which is the whole economic argument for the
-        /// design: the probe answered, so no model was summoned and no arc was
-        /// ever cut.
+        /// **A trip stands on the base as it is now, not as it was.**
+        ///
+        /// The tripwire's worktree is permanent, so without a replay the second
+        /// trip would diagnose the repository as it stood when the arc was cut —
+        /// a tree no commit describes any more ([P03]).
         #[serial_test::serial]
         #[tokio::test]
-        async fn a_green_probe_settles_the_trip_and_leaves_nothing_behind() {
+        async fn a_trip_replays_its_arc_onto_the_moved_base_before_it_runs() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            probing_tripwire(&h.conn, &root, "exit 3");
+            let sessions = FakeSessions::new(vec![Reply::Silent]);
+            let mut config = h.config;
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            // The base moves after the arc was cut.
+            std::fs::write(root.join("landed.txt"), "after the arc\n").unwrap();
+            for args in [
+                vec!["add", "-A"],
+                vec!["commit", "-m", "a commit the arc has not seen"],
+            ] {
+                let out = std::process::Command::new("git")
+                    .args(&args)
+                    .current_dir(&root)
+                    .output()
+                    .unwrap();
+                assert!(out.status.success(), "{args:?}");
+            }
+
+            let worktree = tugarc_core::ops::worktree_path(&root, &tripwire_arc("ci"));
+            assert!(
+                !worktree.join("landed.txt").exists(),
+                "the fixture is only meaningful if the arc starts out behind"
+            );
+
+            work(&config, &h.conn, &scoped_fact(&config, &root)).await;
+
+            assert_eq!(sessions.seen().len(), 1, "the trip ran");
+            assert!(
+                worktree.join("landed.txt").exists(),
+                "the trip stood on a base that had moved out from under it"
+            );
+        }
+
+        /// **A replay that cannot be made clean fails the trip and says which
+        /// round conflicts.**
+        ///
+        /// Proceeding would mean a session diagnosing the wrong tree, so nothing
+        /// is spawned at all ([P03]).
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn a_conflicted_replay_fails_the_trip_and_names_the_round() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
+            let sessions = FakeSessions::new(vec![Reply::Silent]);
+            let mut config = h.config;
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            // One round on the arc and one commit on the base, both rewriting
+            // the same line — which is what `merge-tree` cannot resolve.
+            let worktree = tugarc_core::ops::worktree_path(&root, &tripwire_arc("ci"));
+            let commit = |dir: &std::path::Path, body: &str, subject: &str| {
+                std::fs::write(dir.join("README.md"), body).unwrap();
+                for args in [vec!["add", "-A"], vec!["commit", "-m", subject]] {
+                    let out = std::process::Command::new("git")
+                        .args(&args)
+                        .current_dir(dir)
+                        .output()
+                        .unwrap();
+                    assert!(out.status.success(), "{args:?}");
+                }
+            };
+            commit(&worktree, "the arc's line\n", "the tripwire's round");
+            commit(&root, "the base's line\n", "the user's commit");
+
+            work(&config, &h.conn, &scoped_fact(&config, &root)).await;
+
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
+            assert_eq!(trips[0].status, "failed");
+            let headline = trips[0].headline.clone().expect("a failure says why");
+            assert!(
+                headline.contains("the tripwire's round"),
+                "the failure names the round that conflicts: {headline}"
+            );
+            assert!(
+                sessions.seen().is_empty(),
+                "nothing was spawned against a tree that could not be made right"
+            );
+        }
+
+        /// **Residue a previous trip declined to commit is discarded before the
+        /// replay.**
+        ///
+        /// `replay_onto` refuses a dirty worktree, so the reset is a
+        /// precondition rather than a policy of its own — and nothing a reader
+        /// wanted is in those bytes, because every trip leaves a report ([P03]).
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn residue_in_the_worktree_is_discarded_before_the_replay() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            probing_tripwire(&h.conn, &root, "exit 3");
+            let sessions = FakeSessions::new(vec![Reply::Silent]);
+            let mut config = h.config;
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            let worktree = tugarc_core::ops::worktree_path(&root, &tripwire_arc("ci"));
+            std::fs::write(worktree.join("README.md"), "a previous trip's half-edit\n").unwrap();
+            std::fs::write(worktree.join("scratch.txt"), "and something untracked\n").unwrap();
+
+            work(&config, &h.conn, &scoped_fact(&config, &root)).await;
+
+            assert_eq!(sessions.seen().len(), 1, "the trip ran rather than failing");
+            assert_eq!(
+                std::fs::read_to_string(worktree.join("README.md")).unwrap(),
+                "scratch\n",
+                "the tracked edit was reset"
+            );
+            assert!(
+                !worktree.join("scratch.txt").exists(),
+                "and the untracked file was cleaned"
+            );
+        }
+        /// The green-probe floor, which is the whole economic argument for the
+        /// design: the probe answered, so no model was summoned. The arc is
+        /// the tripwire's rather than the trip's, so it stays ([P02]).
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn a_green_probe_settles_the_trip_and_leaves_the_arc_alone() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
             let tripwire = probing_tripwire(&h.conn, &root, "true");
-            let sessions = FakeSessions::new(&h.config.db_path, tripwire.id, vec![]);
+            let sessions = FakeSessions::new(vec![]);
             let mut config = h.config;
             config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
@@ -3746,20 +3415,16 @@ mod tests {
             work(&config, &h.conn, &event).await;
 
             let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
-            assert_eq!(trips[0].status, "quiet");
+            assert_eq!(trips[0].status, "done");
             assert_eq!(trips[0].probe_exit, Some(0));
             assert!(
                 sessions.seen().is_empty(),
                 "a green probe spends no tokens at all"
             );
             assert!(
-                arcs_in(&root).is_empty(),
-                "no arc was ever created — the probe ran in the trip's tree ([P10]): {:?}",
+                arcs_in(&root) == vec!["tugarc/tripwire-ci".to_string()],
+                "the tripwire's own arc survives a trip that found nothing: {:?}",
                 arcs_in(&root)
-            );
-            assert!(
-                !config.trees_root.join(head_of(&root)).exists(),
-                "and the tree went with the last trip standing in it"
             );
             assert!(
                 posts(&config.ledger).is_empty(),
@@ -3776,17 +3441,10 @@ mod tests {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
             let tripwire = probing_tripwire(&h.conn, &root, "exec /nonexistent/probe");
-            let sessions = FakeSessions::new(
-                &h.config.db_path,
-                tripwire.id,
-                vec![Reply::Resolve {
-                    status: TripStatus::Quiet,
-                    headline: "looked",
-                    author: None,
-                    closing: "nothing here",
-                    commits: false,
-                }],
-            );
+            let sessions = FakeSessions::new(vec![Reply::Says {
+                closing: "nothing here",
+                commits: false,
+            }]);
             let mut config = h.config;
             config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
@@ -3817,17 +3475,10 @@ mod tests {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
             let tripwire = probing_tripwire(&h.conn, &root, "false");
-            let sessions = FakeSessions::new(
-                &h.config.db_path,
-                tripwire.id,
-                vec![Reply::Resolve {
-                    status: TripStatus::Quiet,
-                    headline: "looked",
-                    author: None,
-                    closing: "nothing here",
-                    commits: false,
-                }],
-            );
+            let sessions = FakeSessions::new(vec![Reply::Says {
+                closing: "nothing here",
+                commits: false,
+            }]);
             let mut config = h.config;
             config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
@@ -3847,10 +3498,10 @@ mod tests {
                 "the skip is decided before any work is spent on the firing"
             );
             assert!(sessions.seen().is_empty(), "and no session was asked for");
-            assert!(
-                arcs_in(&root).is_empty(),
-                "and nothing was staged: {:?}",
-                arcs_in(&root)
+            assert_eq!(
+                arcs_in(&root),
+                vec!["tugarc/tripwire-ci".to_string()],
+                "and nothing was staged on the tripwire's arc"
             );
         }
 
@@ -3867,17 +3518,10 @@ mod tests {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
             let tripwire = probing_tripwire(&h.conn, &root, "false");
-            let sessions = FakeSessions::new(
-                &h.config.db_path,
-                tripwire.id,
-                vec![Reply::Resolve {
-                    status: TripStatus::Quiet,
-                    headline: "looked",
-                    author: None,
-                    closing: "nothing here",
-                    commits: false,
-                }],
-            );
+            let sessions = FakeSessions::new(vec![Reply::Says {
+                closing: "nothing here",
+                commits: false,
+            }]);
             let mut config = h.config;
             config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
@@ -3899,18 +3543,18 @@ mod tests {
                 "{:?}",
                 trips[0].headline
             );
-            assert!(
-                arcs_in(&root).is_empty(),
-                "and the authoring phase was never reached: {:?}",
-                arcs_in(&root)
+            assert_eq!(
+                arcs_in(&root),
+                vec!["tugarc/tripwire-ci".to_string()],
+                "and the tripwire's own arc is the only one there is"
             );
         }
 
-        /// Two tripwires matching one fact share one checkout, and it is removed
-        /// once, after the second settles — the whole economy of [P10].
+        /// Two tripwires matching one fact each work their own arc ([P02]):
+        /// two worktrees, neither of them the base checkout.
         #[serial_test::serial]
         #[tokio::test]
-        async fn two_tripwires_on_one_fact_share_one_tree() {
+        async fn two_tripwires_on_one_fact_each_work_their_own_arc() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
             for name in ["ci", "ci-two"] {
@@ -3920,58 +3564,63 @@ mod tests {
                     "diagnose the failure and propose a fix",
                     "Says what broke and proposes a fix",
                 );
-                // A probe that records the tree it ran in, so the test reads
-                // where each tripwire stood rather than inferring it.
-                new.probe = Some("pwd >> ../seen.txt; true".to_string());
+                // A probe that records the worktree it ran in, so the test
+                // reads where each tripwire stood rather than inferring it.
+                new.probe = Some(format!(
+                    "pwd >> {}/seen.txt; true",
+                    root.parent().unwrap().display()
+                ));
                 new.scope = Some(root.to_string_lossy().to_string());
-                ledger::lay(&h.conn, &new, 1).unwrap();
+                new.repo_root = root.to_string_lossy().into_owned();
+                let laid = ledger::lay(&h.conn, &new, 1).unwrap();
+                tugarc_core::ops::create_in(&root, &tripwire_arc(&laid.name), None, false, None)
+                    .unwrap();
             }
             let mut config = h.config;
             ledger::set_setting(&h.conn, ledger::SETTING_MAX_CONCURRENT_TRIPS, "4").unwrap();
-            config.sessions = Some(
-                FakeSessions::new(&config.db_path, 0, vec![]) as Arc<dyn TripwireSessionRunner>
-            );
+            config.sessions = Some(FakeSessions::new(vec![]) as Arc<dyn TripwireSessionRunner>);
 
             let event = scoped_fact(&config, &root);
             let out = work(&config, &h.conn, &event).await;
             assert_eq!(decision(&out, "ci"), Decision::Fired);
             assert_eq!(decision(&out, "ci-two"), Decision::Fired);
 
-            let seen = std::fs::read_to_string(config.trees_root.join("seen.txt"))
+            let seen = std::fs::read_to_string(root.parent().unwrap().join("seen.txt"))
                 .expect("both probes ran and wrote where they stood");
             let dirs: Vec<&str> = seen.lines().filter(|l| !l.is_empty()).collect();
             assert_eq!(dirs.len(), 2, "{seen}");
-            assert_eq!(dirs[0], dirs[1], "one tree, not two: {seen}");
-            assert!(
-                dirs[0].ends_with(&head_of(&root)),
-                "named for the sha it stands at: {seen}"
-            );
-            assert!(
-                !config.trees_root.join(head_of(&root)).exists(),
-                "and removed exactly once, after the second settled"
+            assert_ne!(dirs[0], dirs[1], "two arcs, not one: {seen}");
+            for dir in &dirs {
+                assert!(
+                    !std::path::Path::new(dir).starts_with(&root)
+                        || std::path::Path::new(dir) != root,
+                    "a probe stood in the user's own checkout: {seen}"
+                );
+            }
+            assert_eq!(
+                arcs_in(&root),
+                vec![
+                    "tugarc/tripwire-ci".to_string(),
+                    "tugarc/tripwire-ci-two".to_string()
+                ],
+                "and both arcs are still there — they are the tripwires', not the trips'"
             );
         }
 
-        /// The one-session path: a diagnosis that resolves without asking for
-        /// anything to be authored costs one spawn, cuts no arc, and settles
-        /// exactly as the verb said ([P04], [P07]).
+        /// The spawn's own arguments, which is where the trip's session is
+        /// actually constrained ([P01]): one spawn, the tripwire's own
+        /// permission mode and model, its own arc worktree, and a prompt
+        /// carrying the brief, the probe's failure and the closing rule.
         #[serial_test::serial]
         #[tokio::test]
-        async fn a_diagnosis_that_asks_for_nothing_spawns_once_and_cuts_no_arc() {
+        async fn a_trips_one_session_is_told_where_it_stands_and_what_to_do() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
             let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
-            let sessions = FakeSessions::new(
-                &h.config.db_path,
-                tripwire.id,
-                vec![Reply::Resolve {
-                    status: TripStatus::Quiet,
-                    headline: "the failure is a flake, not a break",
-                    author: None,
-                    closing: "I read the diff and the test is order-dependent.",
-                    commits: false,
-                }],
-            );
+            let sessions = FakeSessions::new(vec![Reply::Says {
+                closing: "I read the diff and the test is order-dependent.",
+                commits: false,
+            }]);
             let mut config = h.config;
             config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
@@ -3979,276 +3628,393 @@ mod tests {
             work(&config, &h.conn, &event).await;
 
             let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
-            assert_eq!(trips[0].status, "quiet");
-            assert_eq!(
-                trips[0].headline.as_deref(),
-                Some("the failure is a flake, not a break")
-            );
+            assert_eq!(trips[0].status, "done");
             assert_eq!(trips[0].session_id.as_deref(), Some("sess-tripwire-1"));
-            assert!(trips[0].arc.is_none());
+            assert!(
+                trips[0].arc.is_none(),
+                "a trip that committed nothing names no arc"
+            );
             assert_eq!(sessions.seen().len(), 1, "one spawn, not two");
-            assert!(arcs_in(&root).is_empty(), "{:?}", arcs_in(&root));
+            assert_eq!(
+                arcs_in(&root),
+                vec!["tugarc/tripwire-ci".to_string()],
+                "the tripwire's arc, and no second one cut for the trip"
+            );
 
-            // The diagnosis phase's two guards, asserted where they actually
-            // live — on the spawn's arguments ([P04]).
             let run = &sessions.seen()[0];
             assert_eq!(run.tripwire, "ci");
-            assert_eq!(run.permission_mode, "plan");
+            assert_eq!(
+                run.permission_mode, "acceptEdits",
+                "the trip's one session runs under the tripwire's own mode"
+            );
             assert_eq!(run.model.as_deref(), Some("claude-opus-5"));
             assert!(
-                run.worktree.ends_with(head_of(&root)),
-                "the diagnosis stands in the trip's disposable tree: {run:?}"
+                run.worktree.ends_with("tripwire-ci"),
+                "and stands in the tripwire's own arc worktree: {run:?}"
             );
             assert!(
                 run.prompt.contains("put the suite back to green")
                     && run.prompt.contains("exit 3")
-                    && run.prompt.contains("tugtool tripwire resolve ci"),
-                "the prompt carries the brief, the probe's failure, and the verb: {}",
+                    && run.prompt.contains("End your turn with a short report"),
+                "the prompt carries the brief, the probe's failure, and the closing rule: {}",
                 run.prompt
             );
         }
 
-        /// The two-session path: a diagnosis that asks to author causes exactly
-        /// one arc and one second spawn, under the tripwire's own permission mode
-        /// and in the arc's worktree ([P04]).
+        /// A trip is one session with hands from its first turn: it costs one
+        /// spawn, cuts no arc, and ends `done` carrying the session's own last
+        /// words as its report ([P01], [P04]).
         #[serial_test::serial]
         #[tokio::test]
-        async fn a_diagnosis_that_asks_to_author_cuts_one_arc_and_spawns_once_more() {
+        async fn a_trips_report_is_its_sessions_last_words() {
             let (_temp, root) = scratch_repo();
             let (h, mut rx) = posting_harness();
             let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
-            let sessions = FakeSessions::new(
-                &h.config.db_path,
-                tripwire.id,
-                vec![
-                    Reply::Resolve {
-                        status: TripStatus::Quiet,
-                        headline: "the assertion is stale",
-                        author: Some("update the expected string in a_test.rs"),
-                        closing: "The expected string was never updated when the format changed.",
-                        commits: false,
-                    },
-                    Reply::Resolve {
-                        status: TripStatus::Awaiting,
-                        headline: "put the suite back to green",
-                        author: None,
-                        closing: "Done, one round on the arc.",
-                        commits: true,
-                    },
-                ],
-            );
+            let sessions = FakeSessions::new(vec![Reply::Says {
+                closing: "The expected string was never updated when the format changed.",
+                commits: false,
+            }]);
             let mut config = h.config;
             config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
             let event = scoped_fact(&config, &root);
-            let arc = tripwire_arc_name("ci", &event_key(&config.instance, event.id));
             work(&config, &h.conn, &event).await;
 
             let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
             let trip = &trips[0];
-            assert_eq!(trip.status, "awaiting");
+            assert_eq!(trip.status, "done");
             assert_eq!(
-                trip.headline.as_deref(),
-                Some("put the suite back to green")
+                trip.report.as_deref(),
+                Some("The expected string was never updated when the format changed."),
+                "the report is read off the transcript, with no verb having run"
             );
-            assert_eq!(trip.arc.as_deref(), Some(arc.as_str()));
+            assert_eq!(trip.rounds, Some(0), "and it committed nothing");
             assert_eq!(
                 trip.session_id.as_deref(),
-                Some("sess-tripwire-2"),
-                "the row names the session a reader would want to open — the authoring one"
-            );
-
-            assert_eq!(arcs_in(&root), vec![format!("tugarc/{arc}")]);
-            assert_eq!(
-                tugarc_core::ops::laid_by(&root, &arc).as_deref(),
-                Some("tripwire/ci")
+                Some("sess-tripwire-1"),
+                "the row names the one session there is"
             );
 
             let seen = sessions.seen();
-            assert_eq!(seen.len(), 2, "one diagnosis, one authoring");
-            assert_eq!(seen[0].permission_mode, "plan");
+            assert_eq!(seen.len(), 1, "one session, whatever it found");
             assert_eq!(
-                seen[1].permission_mode, "acceptEdits",
-                "the authoring spawn takes the tripwire's own mode, and only it"
+                seen[0].permission_mode, "acceptEdits",
+                "and it takes the tripwire's own mode from its first turn"
             );
-            assert!(seen[1].worktree.ends_with(&arc), "{:?}", seen[1]);
-            assert!(
-                seen[1]
-                    .prompt
-                    .contains(&format!("tugtool arc create {arc}"))
-                    && seen[1]
-                        .prompt
-                        .contains("update the expected string in a_test.rs")
-                    && seen[1]
-                        .prompt
-                        .contains("The expected string was never updated")
-                    && seen[1]
-                        .prompt
-                        .contains(&format!("tugtool arc commit {arc}"))
-                    && seen[1]
-                        .prompt
-                        .contains(&seen[1].worktree.display().to_string()),
-                "the authoring prompt carries the claim, the ask, the findings, the commit path \
-                 and the absolute worktree: {}",
-                seen[1].prompt
+            assert_eq!(
+                arcs_in(&root),
+                vec!["tugarc/tripwire-ci".to_string()],
+                "no second arc is cut for the trip"
             );
 
-            // Awaiting is the one outcome that posts ([P08]), and it names the
-            // arc the user would join.
+            // The report is the raised hand, so it is the post's body ([P04]).
             let post = posts(&config.ledger)
                 .into_iter()
                 .next_back()
-                .expect("an awaiting trip posts");
+                .expect("a trip that reported posts");
             assert_eq!(post.author, OverviewAuthor::Tripwire);
             assert_eq!(post.wake_reason.as_deref(), Some("tripwire:ci"));
-            assert_eq!(post.body, "put the suite back to green");
-            assert!(
-                post.refs
-                    .iter()
-                    .any(|r| r.kind == OverviewRefKind::Arc && r.target == arc),
-                "the post names the arc to join: {:?}",
-                post.refs
+            assert_eq!(
+                post.body,
+                "The expected string was never updated when the format changed."
             );
             assert!(rx.try_recv().is_ok(), "and it went out live too");
         }
 
-        /// A session that ended its turn having run no verb has said nothing
-        /// the settle path can hear. The trip fails, the failure says which
-        /// fault it was, and the empty arc is not left standing ([P07]).
+        /// **A trip that committed says how many rounds, and names the arc.**
+        ///
+        /// The count is a difference rather than a total: the arc is permanent
+        /// and carries every earlier trip's rounds ([P02]), so the only honest
+        /// answer to "what did *this* trip commit" is what it added. The arc
+        /// column and the post's `arc` ref are written on the same condition,
+        /// which is Spec S02's "always `tripwire-<name>` for a trip that
+        /// committed".
         #[serial_test::serial]
         #[tokio::test]
-        async fn a_session_that_never_resolves_fails_the_trip_and_says_which_fault() {
+        async fn a_trip_that_committed_a_round_says_how_many() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
-            let tripwire = probing_tripwire(&h.conn, &root, "exit 1");
-            let sessions = FakeSessions::new(&h.config.db_path, tripwire.id, vec![Reply::Silent]);
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
+            let sessions = FakeSessions::new(vec![Reply::Says {
+                closing: "I put the expected string back and committed it.",
+                commits: true,
+            }]);
             let mut config = h.config;
             config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            work(&config, &h.conn, &scoped_fact(&config, &root)).await;
+
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
+            assert_eq!(trips[0].status, "done");
+            assert_eq!(trips[0].rounds, Some(1), "one round, not the arc's total");
+            assert_eq!(
+                trips[0].arc.as_deref(),
+                Some("tripwire-ci"),
+                "a trip that committed names the arc it committed on"
+            );
+
+            let post = posts(&config.ledger)
+                .into_iter()
+                .next_back()
+                .expect("a trip that reported posts");
+            assert!(
+                post.refs
+                    .iter()
+                    .any(|r| r.kind == OverviewRefKind::Arc && r.target == "tripwire-ci"),
+                "and the post points at it: {:?}",
+                post.refs
+            );
+        }
+
+        /// **A session that dies is `failed` and still reports what it said.**
+        ///
+        /// The report is read off the transcript rather than written by the
+        /// session, so a session that stopped partway has still left its words
+        /// behind ([P04]) — which is the whole reason the report is not a verb.
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn a_session_that_dies_is_failed_and_still_reports_what_it_said() {
+            /// Says one thing, then dies.
+            struct DiesMidTurn;
+
+            #[async_trait::async_trait]
+            impl TripwireSessionRunner for DiesMidTurn {
+                async fn run(
+                    &self,
+                    mut request: TripwireSessionRequest,
+                ) -> Result<TripwireSessionOutcome, RunRefusal> {
+                    if let Some(tx) = request.seated.take() {
+                        let _ = tx.send("sess-doomed".to_string());
+                    }
+                    Ok(TripwireSessionOutcome {
+                        session_id: "sess-doomed".to_string(),
+                        transcript: transcript("I got as far as the migration."),
+                        end: SessionEnd::Died,
+                    })
+                }
+            }
+
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
+            let mut config = h.config;
+            config.sessions = Some(Arc::new(DiesMidTurn) as Arc<dyn TripwireSessionRunner>);
 
             work(&config, &h.conn, &scoped_fact(&config, &root)).await;
 
             let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
             assert_eq!(trips[0].status, "failed");
+            assert_eq!(
+                trips[0].report.as_deref(),
+                Some("I got as far as the migration."),
+                "the words survive the session that stopped saying them"
+            );
             assert!(
                 trips[0]
                     .headline
                     .as_deref()
-                    .is_some_and(|h| h.contains("without running the resolution verb")),
-                "the failure says what went wrong: {:?}",
+                    .is_some_and(|h| h.contains("died")),
+                "and the headline says which fault it was: {:?}",
                 trips[0].headline
             );
-            assert!(arcs_in(&root).is_empty());
             assert!(
                 posts(&config.ledger).is_empty(),
-                "a failure is a trip-log row and never a post ([P08])"
+                "a failure is a trip-log row and never a post"
             );
         }
 
-        /// A card taking the session over is not a failure and is not a
-        /// settle. The trip is held `adopted` with a headline saying what
-        /// happened, no settled time is stamped on a run nobody finished, and
-        /// the trip log says nothing about a fault.
+        /// A session that ran to the end is `done`, whatever it said. There is
+        /// no verb left to forget and so no fault to find in a session that
+        /// simply finished: what it reported is the report, even when the
+        /// report is the fake's stock sentence ([P04], [P05]).
         #[serial_test::serial]
         #[tokio::test]
-        async fn a_taken_over_session_holds_its_trip_adopted() {
+        async fn a_session_that_finishes_is_done_whatever_it_said() {
             let (_temp, root) = scratch_repo();
             let (h, _rx) = posting_harness();
             let tripwire = probing_tripwire(&h.conn, &root, "exit 1");
-            let sessions = FakeSessions::new(&h.config.db_path, tripwire.id, vec![Reply::Adopted]);
-            let mut config = h.config;
-            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
-
-            let event = scoped_fact(&config, &root);
-            work(&config, &h.conn, &event).await;
-
-            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
-            assert_eq!(trips[0].status, "adopted", "{:?}", trips[0].headline);
-            assert_eq!(
-                trips[0].settled_at_ms, None,
-                "a trip somebody is still working has not settled"
-            );
-            let headline = trips[0].headline.clone().expect("a held trip says why");
-            assert!(
-                headline.contains("took the tripwire's session over"),
-                "the headline names what happened: {headline}"
-            );
-            assert!(
-                !headline.contains("fail") && !headline.contains("died"),
-                "and does not read as a fault: {headline}"
-            );
-            assert!(
-                posts(&config.ledger).is_empty(),
-                "the user is already inside the session; there is no hand to raise"
-            );
-
-            // The tree is the directory the user is working in, so the run
-            // keeps its reference rather than releasing it (Risk R02). The
-            // sweep collects it once the trip settles, because
-            // `live_event_keys` counts `adopted`.
-            assert!(
-                config.trees_root.join(head_of(&root)).exists(),
-                "the tree was taken out from under the adopting card"
-            );
-        }
-
-        /// And the ordinary end still gives the tree back: the release is
-        /// conditional on the adoption, not removed.
-        #[serial_test::serial]
-        #[tokio::test]
-        async fn a_session_that_finishes_still_gives_its_tree_back() {
-            let (_temp, root) = scratch_repo();
-            let (h, _rx) = posting_harness();
-            let tripwire = probing_tripwire(&h.conn, &root, "exit 1");
-            let sessions = FakeSessions::new(&h.config.db_path, tripwire.id, vec![Reply::Silent]);
-            let mut config = h.config;
-            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
-
-            let event = scoped_fact(&config, &root);
-            work(&config, &h.conn, &event).await;
-
-            assert!(
-                !config.trees_root.join(head_of(&root)).exists(),
-                "a finished run's tree is collected at the release"
-            );
-        }
-
-        /// An adopted **authoring** phase keeps its arc, for the plainest of
-        /// reasons: a user is working in it. The diagnosis asks for something
-        /// to be authored, and a card takes the authoring session over.
-        #[serial_test::serial]
-        #[tokio::test]
-        async fn an_adopted_authoring_phase_keeps_its_arc() {
-            let (_temp, root) = scratch_repo();
-            let (h, _rx) = posting_harness();
-            let tripwire = probing_tripwire(&h.conn, &root, "exit 1");
-            let sessions = FakeSessions::new(
-                &h.config.db_path,
-                tripwire.id,
-                vec![
-                    Reply::Resolve {
-                        status: TripStatus::Awaiting,
-                        headline: "the migration drops a column nothing backfills",
-                        author: Some("write the backfill"),
-                        closing: "here is what I found.",
-                        commits: false,
-                    },
-                    Reply::Adopted,
-                ],
-            );
+            let sessions = FakeSessions::new(vec![Reply::Silent]);
             let mut config = h.config;
             config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
 
             work(&config, &h.conn, &scoped_fact(&config, &root)).await;
 
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
+            assert_eq!(trips[0].status, "done");
             assert_eq!(
-                sessions.seen().len(),
-                2,
-                "the diagnosis asked, so the authoring phase opened"
+                trips[0].report.as_deref(),
+                Some("I had a look around."),
+                "the last words are the report, whatever they amount to"
+            );
+            assert_eq!(
+                trips[0].headline, None,
+                "a done row's words are its report, not a sentence written for it"
+            );
+            assert_eq!(arcs_in(&root), vec!["tugarc/tripwire-ci".to_string()]);
+        }
+
+        /// Set one of a tripwire's caps after it was laid, the way `tripwire
+        /// edit` does — which is how a test injects a ceiling small enough to
+        /// run up against.
+        fn cap(conn: &Connection, edit: ledger::TripwireEdit) {
+            ledger::update(conn, "ci", &edit).unwrap();
+        }
+
+        /// A session that will not stop is stopped, and the row says which of
+        /// the two ceilings it crossed — which is the whole of what [Q01] is
+        /// settled by reading ([P06]).
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn a_trip_over_its_second_cap_is_failed_and_says_which_cap() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 1");
+            cap(
+                &h.conn,
+                ledger::TripwireEdit {
+                    max_seconds: Some(1),
+                    ..Default::default()
+                },
+            );
+            let sessions = FakeSessions::new(vec![Reply::Capped(CapKind::Seconds)]);
+            let mut config = h.config;
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            work(&config, &h.conn, &scoped_fact(&config, &root)).await;
+
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
+            assert_eq!(trips[0].status, "failed", "{:?}", trips[0].headline);
+            assert_eq!(
+                trips[0].reason.as_deref(),
+                Some(ledger::FAIL_CAP_SECONDS),
+                "one word a surface can render, and the one a query groups by"
+            );
+            let headline = trips[0].headline.clone().expect("a failed trip says why");
+            assert!(
+                headline.contains("seconds it is allowed"),
+                "and a sentence a reader of the log understands: {headline}"
             );
             assert!(
-                !arcs_in(&root).is_empty(),
-                "the arc the user is working in was discarded: {:?}",
-                arcs_in(&root)
+                posts(&config.ledger).is_empty(),
+                "a trip the engine stopped is a trip-log row and never a post"
+            );
+        }
+
+        /// The tool-call ceiling is the other question about the same session
+        /// — it spent too much rather than took too long — and it earns its
+        /// own word on the row ([P06], [P07]).
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn a_trip_over_its_tool_call_cap_is_failed_and_says_which_cap() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 1");
+            cap(
+                &h.conn,
+                ledger::TripwireEdit {
+                    max_tool_calls: Some(2),
+                    ..Default::default()
+                },
+            );
+            let sessions = FakeSessions::new(vec![Reply::Capped(CapKind::ToolCalls)]);
+            let mut config = h.config;
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            work(&config, &h.conn, &scoped_fact(&config, &root)).await;
+
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
+            assert_eq!(trips[0].status, "failed", "{:?}", trips[0].headline);
+            assert_eq!(
+                trips[0].reason.as_deref(),
+                Some(ledger::FAIL_CAP_TOOL_CALLS),
+                "the two caps are told apart on the row, not only in the prose"
+            );
+            let headline = trips[0].headline.clone().expect("a failed trip says why");
+            assert!(
+                headline.contains("tool call"),
+                "and the sentence says which ceiling: {headline}"
+            );
+        }
+
+        /// A capped session still said things, and the words are not the
+        /// casualty of the cap: the report is written whatever the settle does
+        /// with the row ([P04]).
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn a_capped_trip_keeps_its_transcript() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            let tripwire = probing_tripwire(&h.conn, &root, "exit 1");
+            cap(
+                &h.conn,
+                ledger::TripwireEdit {
+                    max_tool_calls: Some(2),
+                    ..Default::default()
+                },
+            );
+            let sessions = FakeSessions::new(vec![Reply::Capped(CapKind::ToolCalls)]);
+            let mut config = h.config;
+            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
+
+            work(&config, &h.conn, &scoped_fact(&config, &root)).await;
+
+            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
+            assert_eq!(
+                trips[0].report.as_deref(),
+                Some("I was still going when it was stopped."),
+                "the words the session got out before it was stopped are still the report"
+            );
+        }
+
+        /// The caps reach the runner off the row rather than out of a constant
+        /// here, which is what makes them settable at all ([P06]).
+        #[serial_test::serial]
+        #[tokio::test]
+        async fn the_tripwires_own_caps_are_what_the_run_is_handed() {
+            let (_temp, root) = scratch_repo();
+            let (h, _rx) = posting_harness();
+            probing_tripwire(&h.conn, &root, "exit 1");
+            cap(
+                &h.conn,
+                ledger::TripwireEdit {
+                    max_seconds: Some(7),
+                    max_tool_calls: Some(9),
+                    ..Default::default()
+                },
+            );
+            let handed: Arc<Mutex<Option<(u64, u32)>>> = Arc::new(Mutex::new(None));
+
+            /// Records the ceilings it was handed and finishes at once.
+            struct RecordsCaps(Arc<Mutex<Option<(u64, u32)>>>);
+
+            #[async_trait::async_trait]
+            impl TripwireSessionRunner for RecordsCaps {
+                async fn run(
+                    &self,
+                    mut request: TripwireSessionRequest,
+                ) -> Result<TripwireSessionOutcome, RunRefusal> {
+                    *self.0.lock().unwrap() = Some((request.max_seconds, request.max_tool_calls));
+                    if let Some(tx) = request.seated.take() {
+                        let _ = tx.send("sess-capped".to_string());
+                    }
+                    Ok(TripwireSessionOutcome {
+                        session_id: "sess-capped".to_string(),
+                        transcript: transcript("nothing to report"),
+                        end: SessionEnd::Finished,
+                    })
+                }
+            }
+
+            let mut config = h.config;
+            config.sessions =
+                Some(Arc::new(RecordsCaps(Arc::clone(&handed))) as Arc<dyn TripwireSessionRunner>);
+
+            work(&config, &h.conn, &scoped_fact(&config, &root)).await;
+
+            assert_eq!(
+                *handed.lock().unwrap(),
+                Some((7, 9)),
+                "the row's numbers, not the defaults and not a constant"
             );
         }
 
@@ -4289,13 +4055,14 @@ mod tests {
             let held = Arc::new(tokio::sync::Notify::new());
             let db: Db = Mutex::new(ledger::open_ledger(&h.config.db_path).unwrap());
             let runner = Seats { held: held.clone() };
-            let phase = run_phase(&h.config, &db, &runner, request("diagnose"), trip_id, None);
+            let phase = run_phase(&h.config, &db, &runner, request("diagnose"), trip_id);
             tokio::pin!(phase);
 
-            // Long enough for several settle polls, and the session is still
-            // in its first turn: the id is on the row all the same.
+            // Long enough for a wait that watched anything else to have ended,
+            // and the session is still in its first turn: the id is on the row
+            // all the same.
             assert!(
-                tokio::time::timeout(SETTLE_POLL * 4, &mut phase)
+                tokio::time::timeout(Duration::from_secs(8), &mut phase)
                     .await
                     .is_err(),
                 "the phase ended while the session was still working",
@@ -4309,22 +4076,19 @@ mod tests {
             assert_eq!(phase.session_id.as_deref(), Some("sess-seated"));
         }
 
-        /// The session's own verb wins the settle poll and the row still names
-        /// the session — the path that used to lose a session id for good
-        /// ([F06]). The runner hands back a *different* id afterwards, so the
-        /// assertion can only pass on the seat's.
+        /// The seat's id is the one that reaches the row, even when the
+        /// runner's own outcome names another — the path that used to lose a
+        /// session id for good ([F06]). The runner hands back a *different*
+        /// id, so the assertion can only pass on the seat's.
         #[tokio::test(start_paused = true)]
-        async fn a_verb_that_wins_the_poll_still_leaves_the_session_on_the_row() {
-            /// Seats, resolves through the verb's own compare-and-set, and
-            /// only then returns — naming another session, the way an outcome
-            /// composed after a handover would.
-            struct SeatsThenResolves {
-                db_path: PathBuf,
-                tripwire_id: i64,
-            }
+        async fn a_run_whose_outcome_names_another_session_keeps_the_seats_id() {
+            /// Seats, works for a while, and only then returns — naming
+            /// another session, the way an outcome composed after a handover
+            /// would.
+            struct SeatsThenWanders;
 
             #[async_trait::async_trait]
-            impl TripwireSessionRunner for SeatsThenResolves {
+            impl TripwireSessionRunner for SeatsThenWanders {
                 async fn run(
                     &self,
                     mut request: TripwireSessionRequest,
@@ -4334,23 +4098,9 @@ mod tests {
                         .take()
                         .unwrap()
                         .send("sess-seated".to_string());
-                    // The engine's loop has to see the seat before the settle,
-                    // which is the ordering the race is about.
-                    tokio::time::sleep(SETTLE_POLL * 2).await;
-                    let conn = ledger::open_ledger(&self.db_path).unwrap();
-                    ledger::resolve_running(
-                        &conn,
-                        self.tripwire_id,
-                        TripStatus::Quiet,
-                        &ledger::Settlement {
-                            headline: Some("nothing to report".to_string()),
-                            ..ledger::Settlement::default()
-                        },
-                        None,
-                        7,
-                    )
-                    .unwrap();
-                    tokio::time::sleep(SETTLE_POLL * 2).await;
+                    // The engine's loop has to see the seat before the run
+                    // ends, which is the ordering this is about.
+                    tokio::time::sleep(Duration::from_secs(4)).await;
                     Ok(TripwireSessionOutcome {
                         session_id: "sess-someone-else".to_string(),
                         transcript: String::new(),
@@ -4364,25 +4114,26 @@ mod tests {
             let trip_id = seed_trip(&h.conn, tripwire.id, "fact:inst-a:1", TripStatus::Running);
 
             let db: Db = Mutex::new(ledger::open_ledger(&h.config.db_path).unwrap());
-            let runner = SeatsThenResolves {
-                db_path: h.config.db_path.clone(),
-                tripwire_id: tripwire.id,
-            };
-            let phase =
-                run_phase(&h.config, &db, &runner, request("diagnose"), trip_id, None).await;
+            let phase = run_phase(
+                &h.config,
+                &db,
+                &SeatsThenWanders,
+                request("diagnose"),
+                trip_id,
+            )
+            .await;
 
-            assert_eq!(phase.settled.status, TripStatus::Quiet);
+            assert_eq!(phase.settled.status, TripStatus::Done);
             assert_eq!(
                 phase.session_id.as_deref(),
                 Some("sess-seated"),
                 "the phase named the session it was seated in",
             );
             let trip = ledger::trip(&h.conn, trip_id).unwrap().unwrap();
-            assert_eq!(trip.status, "quiet");
             assert_eq!(
                 trip.session_id.as_deref(),
                 Some("sess-seated"),
-                "the verb's settle kept the seat rather than clearing it",
+                "and the row kept the seat rather than the outcome's id",
             );
         }
 
@@ -4405,9 +4156,9 @@ mod tests {
                     request: TripwireSessionRequest,
                 ) -> Result<TripwireSessionOutcome, RunRefusal> {
                     drop(request);
-                    // Several settle polls with a completed receiver in the
-                    // select: this is the window the panic lived in.
-                    tokio::time::sleep(SETTLE_POLL * 4).await;
+                    // A long stretch with a completed receiver in the select:
+                    // this is the window the panic lived in.
+                    tokio::time::sleep(Duration::from_secs(8)).await;
                     Ok(TripwireSessionOutcome {
                         session_id: "sess-unseated".to_string(),
                         transcript: String::new(),
@@ -4421,24 +4172,19 @@ mod tests {
             let trip_id = seed_trip(&h.conn, tripwire.id, "fact:inst-a:1", TripStatus::Running);
 
             let db: Db = Mutex::new(ledger::open_ledger(&h.config.db_path).unwrap());
-            let phase = run_phase(
-                &h.config,
-                &db,
-                &NeverSeats,
-                request("diagnose"),
-                trip_id,
-                None,
-            )
-            .await;
+            let phase = run_phase(&h.config, &db, &NeverSeats, request("diagnose"), trip_id).await;
 
             assert_eq!(
                 phase.session_id.as_deref(),
                 Some("sess-unseated"),
                 "with no seat, the outcome's id is the fallback",
             );
-            assert_eq!(phase.settled.status, TripStatus::Failed);
+            assert_eq!(phase.settled.status, TripStatus::Done);
             let trip = ledger::trip(&h.conn, trip_id).unwrap().unwrap();
-            assert_eq!(trip.status, "failed", "a session that said nothing");
+            assert_eq!(
+                trip.status, "running",
+                "the phase leaves the settle to its caller"
+            );
         }
 
         /// No clock settles a trip whose session is alive, with time under the
@@ -4481,10 +4227,11 @@ mod tests {
                         permission_mode: "plan".to_string(),
                         model: None,
                         prompt: "diagnose".to_string(),
+                        max_seconds: 120,
+                        max_tool_calls: 30,
                         seated: None,
                     },
                     trip_id,
-                    None,
                 ),
             )
             .await;
@@ -4497,20 +4244,16 @@ mod tests {
             assert_eq!(trip.status, "running", "and the row, not only the return");
         }
 
-        /// A session that resolves long after the old ceilings would have
-        /// fired settles by its verb, with the resolution it wrote.
+        /// A session that works long after the old ceilings would have fired
+        /// is still `done` at the end of it, with its own last words for a
+        /// report.
         #[tokio::test(start_paused = true)]
-        async fn a_session_that_resolves_after_hours_settles_by_its_verb() {
+        async fn a_session_that_works_for_hours_is_done_when_it_ends() {
             let h = harness();
             let tripwire = lay(&h.conn, "ci", r#"{"fact":{"kind":"edit_failed"}}"#);
             let trip_id = seed_trip(&h.conn, tripwire.id, "fact:inst-a:1", TripStatus::Running);
             let sessions = FakeSessions::delayed(
-                &h.config.db_path,
-                tripwire.id,
-                vec![Reply::Resolve {
-                    status: TripStatus::Awaiting,
-                    headline: "worth a look, hours later",
-                    author: None,
+                vec![Reply::Says {
                     closing: "done at last",
                     commits: false,
                 }],
@@ -4529,33 +4272,27 @@ mod tests {
                     permission_mode: "plan".to_string(),
                     model: None,
                     prompt: "diagnose".to_string(),
+                    max_seconds: 120,
+                    max_tool_calls: 30,
                     seated: None,
                 },
                 trip_id,
-                None,
             )
             .await;
 
             assert!(started.elapsed() >= Duration::from_secs(2 * 60 * 60));
-            assert_eq!(phase.settled.status, TripStatus::Awaiting);
+            assert_eq!(phase.settled.status, TripStatus::Done);
             assert_eq!(phase.closing, "done at last");
-            let trip = ledger::trip(&h.conn, trip_id).unwrap().unwrap();
-            assert_eq!(trip.status, "awaiting");
-            assert_eq!(
-                trip.headline.as_deref(),
-                Some("worth a look, hours later"),
-                "the verb's resolution, not the engine's"
-            );
         }
 
-        /// The settle race, and the whole of why the engine's settle goes through a
-        /// compare-and-set (Risk R03).
+        /// The settle race, and the whole of why the engine's settle goes
+        /// through a compare-and-set (Risk R03).
         ///
-        /// A session that resolves in the gap between the engine's last read
-        /// and its write must keep its resolution: the engine's `failed` is a
-        /// statement about a session that said nothing, and one that spoke has
-        /// falsified it. Driven here by settling the row first and asking the
-        /// engine's verb to overwrite it, which is the losing side of the race
+        /// The verbs are gone, but the second writer is not: another
+        /// instance's orphan sweep reaches for the same `running` rows, and a
+        /// trip it already failed must not be dragged back out of that
+        /// outcome. Driven here by settling the row first and asking a second
+        /// settle to overwrite it, which is the losing side of the race
         /// arriving second.
         #[test]
         fn the_settle_race_admits_exactly_one_writer() {
@@ -4563,22 +4300,22 @@ mod tests {
             let tripwire = lay(&h.conn, "ci", r#"{"fact":{"kind":"edit_failed"}}"#);
             let trip_id = seed_trip(&h.conn, tripwire.id, "fact:inst-a:1", TripStatus::Running);
 
-            // The verb gets there first.
-            let resolution = ledger::resolve_running(
-                &h.conn,
-                tripwire.id,
-                TripStatus::Awaiting,
-                &ledger::Settlement {
-                    headline: Some("the user should see this".to_string()),
-                    ..ledger::Settlement::default()
-                },
-                None,
-                2,
-            )
-            .unwrap();
-            assert!(matches!(resolution, ledger::Resolution::Resolved { .. }));
+            // One writer gets there first.
+            assert!(
+                ledger::settle_if_running(
+                    &h.conn,
+                    trip_id,
+                    TripStatus::Done,
+                    &ledger::Settlement {
+                        headline: Some("the user should see this".to_string()),
+                        ..ledger::Settlement::default()
+                    },
+                    2,
+                )
+                .unwrap()
+            );
 
-            // The engine's settle arrives after it, and is refused.
+            // The other arrives after it, and is refused.
             assert!(
                 !ledger::settle_if_running(
                     &h.conn,
@@ -4591,360 +4328,60 @@ mod tests {
                     3,
                 )
                 .unwrap(),
-                "the engine must not overwrite a resolution that already landed"
+                "a settle that already landed is not overwritten"
             );
             let trip = ledger::trip(&h.conn, trip_id).unwrap().unwrap();
-            assert_eq!(trip.status, "awaiting");
+            assert_eq!(trip.status, "done");
             assert_eq!(trip.headline.as_deref(), Some("the user should see this"));
-
-            // And a second verb on the settled row is refused too, naming what
-            // it found instead — which is what a session told only "refused"
-            // could not have worked out.
-            let second = ledger::resolve_running(
-                &h.conn,
-                tripwire.id,
-                TripStatus::Quiet,
-                &ledger::Settlement::default(),
-                None,
-                4,
-            )
-            .unwrap();
-            assert_eq!(
-                second,
-                ledger::Resolution::NoLiveTrip {
-                    state: Some("awaiting".to_string())
-                }
-            );
         }
 
-        /// A session that staged rounds and then resolved `--quiet` decided its
-        /// own work was not worth showing anybody, so the arc goes ([P07]).
+        /// **A restart fails the rows and leaves the tripwire's arc standing.**
         ///
-        /// The round count would keep this arc and the status does not, which
-        /// is the whole reason the rule reads the status. A quiet trip posts
-        /// nothing ([P08]), so an arc kept here is a worktree on the machine
-        /// that nothing will ever point at.
+        /// The old sweep discarded any arc a failed trip named that held no
+        /// rounds, which was right when an arc belonged to one trip. Under
+        /// [P02] it belongs to the tripwire, so that pass would destroy the
+        /// tripwire's own worktree on any restart that caught a trip with
+        /// nothing committed yet — and the next trip would have nowhere to
+        /// stand. The empty arc is the case that would have gone.
         #[serial_test::serial]
         #[tokio::test]
-        async fn a_quiet_resolution_discards_its_arc_even_with_rounds_on_it() {
-            let (_temp, root) = scratch_repo();
-            let (h, _rx) = posting_harness();
-            let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
-            let sessions = FakeSessions::new(
-                &h.config.db_path,
-                tripwire.id,
-                vec![
-                    Reply::Resolve {
-                        status: TripStatus::Quiet,
-                        headline: "worth a try",
-                        author: Some("try the obvious fix"),
-                        closing: "The obvious fix is a one-liner.",
-                        commits: false,
-                    },
-                    Reply::Resolve {
-                        status: TripStatus::Quiet,
-                        headline: "the fix did not hold; nothing to show",
-                        author: None,
-                        closing: "I tried it and it made things worse.",
-                        commits: true,
-                    },
-                ],
-            );
-            let mut config = h.config;
-            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
-
-            let event = scoped_fact(&config, &root);
-            let before = base_fingerprint(&root);
-            work(&config, &h.conn, &event).await;
-
-            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
-            assert_eq!(trips[0].status, "quiet");
-            assert_eq!(sessions.seen().len(), 2, "the authoring session did run");
-            assert!(
-                arcs_in(&root).is_empty(),
-                "and its arc did not survive the quiet: {:?}",
-                arcs_in(&root)
-            );
-            assert_eq!(
-                base_fingerprint(&root),
-                before,
-                "a quiet trip leaves the base checkout byte-identical"
-            );
-            assert!(
-                posts(&config.ledger).is_empty(),
-                "a quiet settle posts nothing, which is why keeping the arc would strand it"
-            );
-        }
-
-        /// A session that committed and then ended without the verb left real
-        /// work that nobody decided to throw away, so the failure keeps the
-        /// arc and names it ([B03]). The base checkout is untouched either
-        /// way.
-        #[serial_test::serial]
-        #[tokio::test]
-        async fn a_failed_trip_with_rounds_keeps_its_arc_and_the_base_untouched() {
-            let (_temp, root) = scratch_repo();
-            let (h, _rx) = posting_harness();
-            let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
-            let sessions = FakeSessions::new(
-                &h.config.db_path,
-                tripwire.id,
-                vec![
-                    Reply::Resolve {
-                        status: TripStatus::Quiet,
-                        headline: "worth a try",
-                        author: Some("try the obvious fix"),
-                        closing: "The obvious fix is a one-liner.",
-                        commits: false,
-                    },
-                    Reply::Abandon,
-                ],
-            );
-            let mut config = h.config;
-            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
-
-            let event = scoped_fact(&config, &root);
-            let arc = tripwire_arc_name("ci", &event_key(&config.instance, event.id));
-            let before = base_fingerprint(&root);
-            work(&config, &h.conn, &event).await;
-
-            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
-            assert_eq!(trips[0].status, "failed");
-            assert_eq!(trips[0].arc.as_deref(), Some(arc.as_str()));
-            assert!(
-                trips[0]
-                    .headline
-                    .as_deref()
-                    .is_some_and(|h| h.contains(&arc) && h.contains("1 round")),
-                "the headline names the kept arc: {:?}",
-                trips[0].headline
-            );
-            assert!(
-                tugarc_core::ops::arc_exists_in(&root, &arc),
-                "the arc survived the failure: {:?}",
-                arcs_in(&root)
-            );
-            assert_eq!(
-                base_fingerprint(&root),
-                before,
-                "a failed trip leaves the base checkout byte-identical"
-            );
-            assert!(
-                posts(&config.ledger).is_empty(),
-                "a failure is a trip-log row and never a post ([P08])"
-            );
-        }
-
-        /// A failure with nothing on its arc has nothing to keep.
-        #[serial_test::serial]
-        #[tokio::test]
-        async fn a_failed_trip_with_an_empty_arc_discards_it() {
-            let (_temp, root) = scratch_repo();
-            let (h, _rx) = posting_harness();
-            let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
-            let sessions = FakeSessions::new(
-                &h.config.db_path,
-                tripwire.id,
-                vec![
-                    Reply::Resolve {
-                        status: TripStatus::Quiet,
-                        headline: "worth a try",
-                        author: Some("try the obvious fix"),
-                        closing: "The obvious fix is a one-liner.",
-                        commits: false,
-                    },
-                    Reply::Silent,
-                ],
-            );
-            let mut config = h.config;
-            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
-
-            let event = scoped_fact(&config, &root);
-            let before = base_fingerprint(&root);
-            work(&config, &h.conn, &event).await;
-
-            let trips = ledger::trips_for_tripwire(&h.conn, tripwire.id, 10).unwrap();
-            assert_eq!(trips[0].status, "failed");
-            assert!(
-                arcs_in(&root).is_empty(),
-                "an empty arc is not kept: {:?}",
-                arcs_in(&root)
-            );
-            assert_eq!(base_fingerprint(&root), before);
-        }
-
-        /// The restart sweep follows the same rule: an arc with rounds on it
-        /// survives the failure and is named; an empty one goes ([B03], [F05]).
-        #[serial_test::serial]
-        #[tokio::test]
-        async fn the_boot_sweep_keeps_a_restarted_trips_arc_when_it_holds_rounds() {
+        async fn a_restart_leaves_the_tripwires_arc_alone() {
             let (_temp, root) = scratch_repo();
             let h = harness();
             let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
-            let sha = {
-                let out = std::process::Command::new("git")
-                    .args(["rev-parse", "HEAD"])
-                    .current_dir(&root)
-                    .output()
-                    .unwrap();
-                String::from_utf8_lossy(&out.stdout).trim().to_string()
-            };
-            let mut trips = Vec::new();
-            for (key, with_round) in [("fact:inst-a:1", true), ("fact:inst-a:2", false)] {
-                let trip_id = ledger::insert_trip(
-                    &h.conn,
-                    &ledger::NewTrip {
-                        tripwire_id: tripwire.id,
-                        event_key: key.to_string(),
-                        at_ms: 1,
-                        instance: h.config.instance.clone(),
-                        status: TripStatus::Running,
-                        reason: None,
-                        event_payload: None,
-                        repo_root: Some(root.to_string_lossy().into_owned()),
-                    },
-                )
-                .unwrap()
-                .expect("written");
-                ledger::record_head_sha(&h.conn, trip_id, &sha).unwrap();
-                let arc = tripwire_arc_name("ci", key);
-                let created = tugarc_core::ops::create_in(&root, &arc, None, false, None).unwrap();
-                if with_round {
-                    commit_a_round(std::path::Path::new(&created.worktree));
-                }
-                ledger::record_run(&h.conn, trip_id, None, Some(&arc)).unwrap();
-                trips.push((trip_id, arc));
-            }
+            let arc = tripwire_arc(&tripwire.name);
+            let trip_id = ledger::insert_trip(
+                &h.conn,
+                &ledger::NewTrip {
+                    tripwire_id: tripwire.id,
+                    event_key: "fact:inst-a:1".to_string(),
+                    at_ms: 1,
+                    instance: h.config.instance.clone(),
+                    status: TripStatus::Running,
+                    reason: None,
+                    event_payload: None,
+                    repo_root: Some(root.to_string_lossy().into_owned()),
+                },
+            )
+            .unwrap()
+            .expect("written");
+            ledger::record_run(&h.conn, trip_id, None, Some(&arc)).unwrap();
             let before = base_fingerprint(&root);
 
             let mut conn = ledger::open_ledger(&h.config.db_path).unwrap();
-            sweep_restarted_runs(&h.config, &mut conn).await;
+            sweep_restarted_runs(&h.config, &mut conn);
 
-            let (kept_id, kept_arc) = &trips[0];
-            let kept = ledger::trip(&h.conn, *kept_id).unwrap().unwrap();
-            assert_eq!(kept.status, "failed");
-            assert!(
-                kept.headline
-                    .as_deref()
-                    .is_some_and(|h| h.contains(kept_arc.as_str())),
-                "{:?}",
-                kept.headline
+            let swept = ledger::trip(&h.conn, trip_id).unwrap().unwrap();
+            assert_eq!(
+                swept.status, "failed",
+                "the session the row named died with the process"
             );
-            assert!(tugarc_core::ops::arc_exists_in(&root, kept_arc));
-
-            let (empty_id, empty_arc) = &trips[1];
-            let empty = ledger::trip(&h.conn, *empty_id).unwrap().unwrap();
-            assert_eq!(empty.status, "failed");
             assert!(
-                !tugarc_core::ops::arc_exists_in(&root, empty_arc),
-                "an empty arc is discarded at boot as at run time"
+                tugarc_core::ops::arc_exists_in(&root, &arc),
+                "the tripwire's arc holds no rounds and is still its own: {:?}",
+                arcs_in(&root)
             );
             assert_eq!(base_fingerprint(&root), before);
-        }
-
-        /// An awaiting trip holds until its arc stops existing, and then the
-        /// sweep answers it ([P07], [Q01]).
-        ///
-        /// Joining the arc and discarding it are the same event from here —
-        /// both remove the branch — so removing it is the whole simulation. No
-        /// timeout is involved and none is wanted: a question put to the user
-        /// does not expire on a clock.
-        #[serial_test::serial]
-        #[tokio::test]
-        async fn an_awaiting_trip_settles_when_its_arc_stops_existing() {
-            let (_temp, root) = scratch_repo();
-            let (h, _rx) = posting_harness();
-            let tripwire = probing_tripwire(&h.conn, &root, "exit 3");
-            let sessions = FakeSessions::new(
-                &h.config.db_path,
-                tripwire.id,
-                vec![
-                    Reply::Resolve {
-                        status: TripStatus::Quiet,
-                        headline: "the assertion is stale",
-                        author: Some("update the expected string"),
-                        closing: "It was never updated.",
-                        commits: false,
-                    },
-                    Reply::Resolve {
-                        status: TripStatus::Awaiting,
-                        headline: "a fix is waiting on the arc",
-                        author: None,
-                        closing: "One round, ready to look at.",
-                        commits: true,
-                    },
-                ],
-            );
-            let mut config = h.config;
-            config.sessions = Some(Arc::clone(&sessions) as Arc<dyn TripwireSessionRunner>);
-
-            let event = scoped_fact(&config, &root);
-            let arc = tripwire_arc_name("ci", &event_key(&config.instance, event.id));
-            work(&config, &h.conn, &event).await;
-
-            let config = Arc::new(config);
-            let db: Arc<Db> = Arc::new(Mutex::new(ledger::open_ledger(&config.db_path).unwrap()));
-
-            // The arc is still there, so the question is still open and the
-            // tripwire's live-run slot is still held.
-            sweep_awaiting(&config, &db);
-            let trip = ledger::trips_for_tripwire(&h.conn, tripwire.id, 1).unwrap();
-            assert_eq!(trip[0].status, "awaiting", "nothing has answered it yet");
-            assert!(
-                ledger::live_trip(&h.conn, tripwire.id).unwrap().is_some(),
-                "and it is still holding the tripwire"
-            );
-
-            // The user joins or discards it — from here the two are one event.
-            tugarc_core::ops::discard_agent_arc_in(&root, &arc, Some("test")).unwrap();
-            sweep_awaiting(&config, &db);
-
-            let trip = ledger::trips_for_tripwire(&h.conn, tripwire.id, 1).unwrap();
-            assert_eq!(trip[0].status, "quiet");
-            assert!(
-                trip[0]
-                    .headline
-                    .as_deref()
-                    .is_some_and(|h| h.contains(&arc)),
-                "the settle names what answered it: {:?}",
-                trip[0].headline
-            );
-            assert_eq!(
-                ledger::live_trip(&h.conn, tripwire.id).unwrap(),
-                None,
-                "and the tripwire's live-run slot came back"
-            );
-        }
-        /// One firing is one arc, whatever the event was, and the name survives
-        /// a key that is not itself a legal arc name.
-        #[test]
-        fn a_arc_is_named_for_its_tripwire_and_its_firing() {
-            assert_eq!(
-                tripwire_arc_name("ci", "abc1234def5678"),
-                "tripwire-ci-abc1234d",
-                "a commit key is already eight legal characters"
-            );
-            // The property, not the spelling: two firings of one tripwire must
-            // never name one arc. Sanitizing a fact key to eight characters
-            // used to yield `tripwire-tugedit-factedit` for every firing there
-            // would ever be, and `create_in` is idempotent — so the second
-            // firing adopted the first's arc, counted its rounds as its own,
-            // and a green probe on the second discarded what the first staged.
-            let first = tripwire_arc_name("tugedit", "fact:inst-a:41");
-            let second = tripwire_arc_name("tugedit", "fact:inst-a:42");
-            let elsewhere = tripwire_arc_name("tugedit", "fact:inst-b:41");
-            assert_ne!(first, second, "two facts are two arcs");
-            assert_ne!(first, elsewhere, "two instances are two arcs");
-            assert_eq!(
-                first,
-                tripwire_arc_name("tugedit", "fact:inst-a:41"),
-                "one firing named twice is one arc, however often the engine restarts"
-            );
-            assert!(
-                first.starts_with("tripwire-tugedit-")
-                    && first.len() == "tripwire-tugedit-".len() + 8,
-                "a digested key is still eight characters: {first}"
-            );
         }
     }
 }

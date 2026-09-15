@@ -59,27 +59,29 @@ export interface TripwireRow {
   readonly model: string | null;
   readonly permission_mode: string;
   readonly paused: boolean;
+  /** How long a trip of this tripwire may run, and how many tool calls it may
+   *  spend, before the engine interrupts its session and closes it ([P06]).
+   *  On the row because the cost of laying a tripwire has to be readable from
+   *  the same projection every other fact about it is. */
+  readonly max_seconds: number;
+  readonly max_tool_calls: number;
   /** A trip is running for this tripwire right now. */
   readonly running: boolean;
-  /** A trip's session has been taken over by a Session card, and the user is
-   *  working in it. Not a hold on the tripwire — it may fire again while they
-   *  work — but the session is alive and the row's live dot reaches it. */
-  readonly adopted: boolean;
-  /** The session Open session opens: the running trip's, else the adopted
-   *  trip's, else the newest trip that had one ([P10]). A trip still inside
-   *  its probe is running with no session yet, and the two dots differ. A
-   *  quiet trip's session stays openable, so a row whose work is done is not
-   *  a row whose session is gone. */
+  /** The session Open session opens: the running trip's, else the newest trip
+   *  that had one ([P10]). A trip still inside its probe is running with no
+   *  session yet, and the two dots differ. A finished trip's session stays
+   *  openable, so a row whose work is done is not a row whose session is
+   *  gone. */
   readonly open_session: string | null;
-  /** A run finished with something the user should see and is holding until
-   *  they see it ([P07]) — the state the row's yellow dot reads. */
-  readonly awaiting: boolean;
-  /** The arc that awaiting trip is holding, when it authored one. */
-  readonly awaiting_arc: string | null;
-  /** The arc an *adopted* trip is holding, when it authored one. A removal
-   *  dismisses an adopted trip exactly as it dismisses an awaiting one, so
-   *  this is the other half of what a Delete confirm has to name. */
-  readonly adopted_arc: string | null;
+  /** The worktree the session named by `open_session` is standing in — the
+   *  tripwire's own arc worktree ([P02], [P08]). Computed by the projection
+   *  rather than stored, and `null` when the tripwire has no home checkout.
+   *
+   *  It rides the row because the trip-card controller needs a project dir to
+   *  resume with, and an effect walking a frame of rows cannot ask the
+   *  citation store: that store is a one-id React hook with no imperative
+   *  read. */
+  readonly open_session_dir: string | null;
   readonly last_trip: TripwireLastTrip | null;
   /** How many trips this tripwire has that actually ran — the number the
    *  band sums ([P10]). `skipped` rows are excluded. */
@@ -94,9 +96,14 @@ export interface TripwireLastTrip {
   readonly at_ms: number;
   readonly status: string;
   readonly headline: string | null;
-  /** The session that trip ran in, when it had one — including a quiet one,
+  /** The session that trip ran in, when it had one — including a finished one,
    *  which is what keeps Open session reachable from a finished row. */
   readonly session_id: string | null;
+  /** The session's last assistant message ([P04]) — what the trip amounted
+   *  to, and what the fold shows. `null` on a trip that ran no session. */
+  readonly report: string | null;
+  /** How many rounds that trip committed on the tripwire's arc. */
+  readonly rounds: number | null;
 }
 
 /** One firing, as `GET /api/tripwires/<name>/trips` serializes the row. */
@@ -116,14 +123,14 @@ export interface TripRow {
   readonly headline: string | null;
   readonly refs: string | null;
   readonly settled_at_ms: number | null;
-  /** What a resolution asked to have authored, when it asked for anything.
-   *  `null` on a resolution that settled the firing outright. */
-  readonly author_ask: string | null;
-  /** The checkout the fact came from — the repository the trip's disposable
-   *  worktree was cut from. */
+  /** The session's last assistant message — the trip's report ([P04]), and
+   *  what the log row shows. `null` on a trip that ran no session. */
+  readonly report: string | null;
+  /** How many rounds the trip committed on the tripwire's arc. */
+  readonly rounds: number | null;
+  /** The checkout the **fact** was recorded in, which is not necessarily where
+   *  the tripwire's arc lives ([P02]). */
   readonly repo_root: string | null;
-  /** The commit that worktree stands at. */
-  readonly head_sha: string | null;
 }
 
 export interface TripwiresSnapshot {
@@ -192,6 +199,14 @@ export class TripwiresStore {
   };
 
   getSnapshot = (): TripwiresSnapshot => this.snapshot;
+
+  /**
+   * Test-only: hand the store a frame's bytes directly. Internal — production
+   * code reaches `onFrame` through the feed subscription and nothing else.
+   */
+  ingestFrameForTest(payload: Uint8Array): void {
+    this.onFrame(payload);
+  }
 
   /**
    * A `TRIPWIRES` frame: the whole roster, plus the reason the server could
@@ -307,20 +322,7 @@ export class TripwiresStore {
   }
 
   /**
-   * Settle what a tripwire is holding and discard the arc it was holding it
-   * with.
-   *
-   * Two doors on the card press this, and they are one verb under two names:
-   * the fold's Seen act on an awaiting trip that authored no arc, and the row
-   * menu's Release ([B03]). A trip that authored one is released by that arc's
-   * fate instead, which the engine already sweeps.
-   */
-  async dismiss(name: string): Promise<void> {
-    await this.post(`/api/tripwires/${encodeURIComponent(name)}/dismiss`);
-  }
-
-  /**
-   * Remove a tripwire, its trip log, and the arc a finished run was holding.
+   * Remove a tripwire, its trip log, and the arc it owns.
    *
    * Nothing is committed on success, and no local row is dropped: the ledger
    * write moves the `TRIPWIRES` feed's `data_version`, and the frame behind it
@@ -380,4 +382,24 @@ export function getTripwiresStore(): TripwiresStore {
 export function resetTripwiresStoreForTests(): void {
   singleton?.dispose();
   singleton = null;
+}
+
+/**
+ * Test seam — deliver a `TRIPWIRES` frame body as if the feed had carried it.
+ *
+ * The one door onto a roster row an app-test can drive. A trip is recorded
+ * against a session the engine seated, and nothing in the CLI records one
+ * against an arbitrary session id: `tugtool tripwire trip` fires for real,
+ * which would put a real worktree and a real `claude` behind every run of a
+ * test, and opening the ledger with a foreign sqlite is a corruption vector
+ * the house rules out. So the frame is what a test writes.
+ *
+ * It goes through the store's own frame handler rather than around it, so a
+ * published roster reaches every reader — the card, and the controller that
+ * opens a card on a running trip — by exactly the path a real frame takes.
+ */
+export function _ingestTripwiresFrameForTest(body: unknown): void {
+  getTripwiresStore().ingestFrameForTest(
+    new TextEncoder().encode(JSON.stringify(body)),
+  );
 }

@@ -20,12 +20,10 @@
 //! statement, so a held connection would buy nothing and would outlive the
 //! request it was opened for.
 //!
-//! Authoring stays on the CLI [B15]. What this surface writes is the two knobs
-//! a reader of the card would reach for without leaving it — paused and model
-//! — plus the two verbs the product has a caller for: fire it by hand, and
-//! dismiss what it is holding. Nothing here can make a tripwire unrunnable,
-//! and `resolve` stays the CLI's because its one caller is a diagnosis session
-//! with a shell ([B08]).
+//! Writing a tripwire's definition stays on the CLI [B15]. What this surface
+//! writes is the two knobs a reader of the card would reach for without
+//! leaving it — paused and model — plus the one verb the product has a caller
+//! for: fire it by hand. Nothing here can make a tripwire unrunnable.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -37,7 +35,6 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::warn;
-use tugarc_core::tripwire_dismiss::DismissRefusal;
 use tugarc_core::tripwire_remove::RemoveRefusal;
 use tugtool_core::tripwire_ledger::{self as ledger, TripwireEdit, TripwireLedgerError};
 use tugtool_core::tripwire_roster;
@@ -87,7 +84,7 @@ fn list_tripwires(db_path: &std::path::Path) -> (StatusCode, Value) {
         Ok(tripwires) => {
             let projected: Result<Vec<_>, _> = tripwires
                 .iter()
-                .map(|w| tripwire_roster::row_for(&conn, w))
+                .map(|w| tripwire_roster::row_for(&conn, w, tugarc_core::ops::worktree_path))
                 .collect();
             match projected {
                 Ok(rows) => (StatusCode::OK, json!({ "tripwires": rows })),
@@ -156,10 +153,12 @@ fn set_knobs(db_path: &std::path::Path, name: &str, body: KnobsBody) -> (StatusC
     // next probe. Latency only — the probe is the mechanism.
     crate::feeds::tripwires::bump();
     match ledger::get(&conn, name) {
-        Ok(Some(tripwire)) => match tripwire_roster::row_for(&conn, &tripwire) {
-            Ok(row) => (StatusCode::OK, json!({ "tripwire": row })),
-            Err(e) => ledger_error("knobs", e),
-        },
+        Ok(Some(tripwire)) => {
+            match tripwire_roster::row_for(&conn, &tripwire, tugarc_core::ops::worktree_path) {
+                Ok(row) => (StatusCode::OK, json!({ "tripwire": row })),
+                Err(e) => ledger_error("knobs", e),
+            }
+        }
         Ok(None) => (
             StatusCode::NOT_FOUND,
             json!({ "error": "no_such_tripwire" }),
@@ -223,62 +222,14 @@ fn trip_tripwire(db_path: &std::path::Path, name: &str) -> (StatusCode, Value) {
     }
 }
 
-/// Spec S04. The shared dismiss of `tugarc_core::tripwire_dismiss`, which the
-/// CLI verb runs too — the settle and the arc discard are one act, and two
-/// spellings of it is how the two answers drift.
-fn dismiss_tripwire(db_path: &std::path::Path, name: &str) -> (StatusCode, Value) {
-    let conn = match ledger::open_ledger(db_path) {
-        Ok(conn) => conn,
-        Err(e) => return ledger_error("dismiss", e),
-    };
-    let tripwire = match ledger::get(&conn, name) {
-        Ok(Some(tripwire)) => tripwire,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                json!({ "error": "no_such_tripwire" }),
-            );
-        }
-        Err(e) => return ledger_error("dismiss", e),
-    };
-    let now_ms = crate::session_ledger::now_millis();
-    match tugarc_core::tripwire_dismiss::dismiss(&conn, &tripwire, now_ms) {
-        // A discard that failed is a 200 carrying its reason, never a 500: the
-        // settle is written whatever happened next, and an arc left standing is
-        // the leak the verb exists to close.
-        Ok(dismissed) => {
-            crate::feeds::tripwires::bump();
-            (
-                StatusCode::OK,
-                json!({
-                    "tripwire": tripwire.name,
-                    "trip_id": dismissed.trip_id,
-                    "arc": dismissed.arc,
-                    "discarded": dismissed.discarded,
-                    "discard_error": dismissed.discard_error,
-                }),
-            )
-        }
-        // `state` is what lets a caller tell a tripwire that already settled
-        // from one that never fired — the same two cases the CLI's refusal
-        // prose distinguishes.
-        Err(DismissRefusal::NoLiveTrip { state }) => (
-            StatusCode::CONFLICT,
-            json!({ "error": "no_live_trip", "state": state }),
-        ),
-        Err(DismissRefusal::Ledger(e)) => ledger_error("dismiss", e),
-    }
-}
-
 /// Spec S04. The shared removal of `tugarc_core::tripwire_remove`, which
 /// `tugtool tripwire rm` runs too ([B07]).
 ///
 /// One operation rather than a `DELETE` here and a `DELETE` there, because the
 /// rule it carries is not a matter of taste: a tripwire whose trip is running
-/// cannot be removed, and one holding a finished run's arc has that arc
-/// discarded on the way out rather than orphaned by the cascade. Two spellings
-/// of that is how the card and the terminal come to disagree about what
-/// removing a tripwire means.
+/// cannot be removed, and the arc it owns is discarded on the way out rather
+/// than orphaned by the cascade. Two spellings of that is how the card and the
+/// terminal come to disagree about what removing a tripwire means.
 fn remove_tripwire(db_path: &std::path::Path, name: &str) -> (StatusCode, Value) {
     let conn = match ledger::open_ledger(db_path) {
         Ok(conn) => conn,
@@ -294,10 +245,9 @@ fn remove_tripwire(db_path: &std::path::Path, name: &str) -> (StatusCode, Value)
         }
         Err(e) => return ledger_error("remove", e),
     };
-    let now_ms = crate::session_ledger::now_millis();
-    match tugarc_core::tripwire_remove::remove(&conn, &tripwire, now_ms) {
+    match tugarc_core::tripwire_remove::remove(&conn, &tripwire) {
         // A discard that failed is a 200 carrying its reason, for the same
-        // reason a dismissal's is: the tripwire is gone whatever happened
+        // reason the removal happens at all: the tripwire is gone whatever
         // next, and an arc left standing is a fact somebody has to be told.
         Ok(removed) => {
             crate::feeds::tripwires::bump();
@@ -413,17 +363,6 @@ pub(crate) async fn post_tripwire_trip(
     finish(tokio::task::spawn_blocking(move || trip_tripwire(&db_path(), &name)).await)
 }
 
-/// `POST /api/tripwires/{name}/dismiss`. Restricted to loopback. Empty body.
-pub(crate) async fn post_tripwire_dismiss(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    Path(name): Path<String>,
-) -> Response {
-    if let Some(denied) = deny_non_loopback(&addr, "post_tripwire_dismiss") {
-        return denied;
-    }
-    finish(tokio::task::spawn_blocking(move || dismiss_tripwire(&db_path(), &name)).await)
-}
-
 /// `DELETE /api/tripwires/{name}`. Restricted to loopback. Empty body.
 pub(crate) async fn delete_tripwire(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -466,6 +405,19 @@ mod tests {
         .unwrap();
     }
 
+    /// The same, naming the checkout the tripwire's arc lives in ([P02]).
+    fn lay_in(path: &std::path::Path, name: &str, repo_root: &str) {
+        let conn = ledger::open_ledger(path).unwrap();
+        let mut new = NewTripwire::new(
+            name,
+            r#"{"fact":{"kind":"edit_failed"}}"#,
+            "report anything that looks wrong",
+            "Reports anything that looks wrong on main",
+        );
+        new.repo_root = repo_root.to_string();
+        ledger::lay(&conn, &new, 1).unwrap();
+    }
+
     #[test]
     fn the_list_carries_the_row_and_the_facts_that_are_not_in_it() {
         let (_dir, path) = scratch();
@@ -476,9 +428,7 @@ mod tests {
         assert_eq!(tripwire["name"], "ci");
         assert_eq!(tripwire["paused"], false);
         assert_eq!(tripwire["running"], false);
-        assert_eq!(tripwire["awaiting"], false);
         assert!(tripwire["open_session"].is_null());
-        assert!(tripwire["awaiting_arc"].is_null());
         assert!(
             tripwire["last_trip"].is_null(),
             "a tripwire that never fired has no last trip rather than an empty one"
@@ -523,10 +473,10 @@ mod tests {
         assert_eq!(tripwires[1]["running"], false, "and only that tripwire");
     }
 
-    /// The awaiting state and the arc it holds, which together are the whole
-    /// of what the section's yellow dot and its detail row read ([P07], [P08]).
+    /// A finished trip's report and the arc it committed on, which together
+    /// are what the row's fold reads ([P04], [P05]).
     #[test]
-    fn an_awaiting_trip_shows_with_the_arc_it_is_holding() {
+    fn a_done_trip_shows_its_report_and_the_arc_it_committed_on() {
         let (_dir, path) = scratch();
         lay(&path, "ci");
         let conn = ledger::open_ledger(&path).unwrap();
@@ -547,30 +497,33 @@ mod tests {
         .unwrap()
         .expect("this tripwire has no row for that key yet");
         ledger::record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-ci-abcd1234")).unwrap();
+        ledger::record_report(
+            &conn,
+            trip_id,
+            "the migration drops a column nothing backfills",
+            1,
+        )
+        .unwrap();
         ledger::settle(
             &conn,
             trip_id,
-            TripStatus::Awaiting,
-            &ledger::Settlement {
-                headline: Some("the migration drops a column nothing backfills".to_string()),
-                ..ledger::Settlement::default()
-            },
+            TripStatus::Done,
+            &ledger::Settlement::default(),
             20,
         )
         .unwrap();
 
         let (_, body) = list_tripwires(&path);
         let tripwire = &body["tripwires"][0];
-        assert_eq!(tripwire["awaiting"], true);
-        assert_eq!(tripwire["awaiting_arc"], "tripwire-ci-abcd1234");
         assert_eq!(
             tripwire["running"], false,
-            "an awaiting run has finished — it holds the tripwire's slot, it is not working"
+            "a done run has finished — it is not working"
         );
         assert_eq!(
-            tripwire["last_trip"]["headline"],
+            tripwire["last_trip"]["report"],
             "the migration drops a column nothing backfills"
         );
+        assert_eq!(tripwire["last_trip"]["rounds"], 1);
     }
 
     #[test]
@@ -656,73 +609,6 @@ mod tests {
         let (status, body) = trip_tripwire(&path, "nobody");
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"], "no_such_tripwire");
-    }
-
-    /// The dismiss endpoint's two answers: the awaiting trip it settles, and
-    /// the `409` whose `state` tells an already-settled tripwire from one that
-    /// never fired.
-    #[test]
-    fn the_dismiss_endpoint_settles_the_live_trip_and_says_which_refusal_it_is() {
-        let (_dir, path) = scratch();
-        lay(&path, "ci");
-
-        let (status, body) = dismiss_tripwire(&path, "ci");
-        assert_eq!(status, StatusCode::CONFLICT);
-        assert_eq!(body["error"], "no_live_trip");
-        assert!(
-            body["state"].is_null(),
-            "a tripwire that never fired has no state to name"
-        );
-
-        let conn = ledger::open_ledger(&path).unwrap();
-        let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
-        let trip_id = ledger::insert_trip(
-            &conn,
-            &ledger::NewTrip {
-                tripwire_id: tripwire.id,
-                event_key: "fact:inst:1".to_string(),
-                at_ms: 10,
-                instance: "inst".to_string(),
-                status: ledger::TripStatus::Running,
-                reason: None,
-                event_payload: None,
-                repo_root: None,
-            },
-        )
-        .unwrap()
-        .expect("this tripwire has no row for that key yet");
-        ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
-        ledger::settle(
-            &conn,
-            trip_id,
-            TripStatus::Awaiting,
-            &ledger::Settlement {
-                headline: Some("something to look at".to_string()),
-                ..ledger::Settlement::default()
-            },
-            20,
-        )
-        .unwrap();
-
-        let (status, body) = dismiss_tripwire(&path, "ci");
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["trip_id"], trip_id);
-        assert!(body["arc"].is_null());
-        assert_eq!(body["discarded"], false);
-        assert_eq!(
-            ledger::trip(&conn, trip_id).unwrap().unwrap().status,
-            "quiet"
-        );
-
-        let (status, body) = dismiss_tripwire(&path, "ci");
-        assert_eq!(status, StatusCode::CONFLICT);
-        assert_eq!(
-            body["state"], "quiet",
-            "a caller told only `refused` could not tell this from a tripwire that never fired"
-        );
-
-        let (status, _) = dismiss_tripwire(&path, "nobody");
-        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     /// The knobs answer with the tripwire as the ledger now holds it, which is
@@ -833,13 +719,14 @@ mod tests {
 
     /// **An arc that could not be discarded is a 200 carrying its reason.**
     ///
-    /// The same rule a dismissal runs under: the tripwire is gone whatever
-    /// happened next, so raising a 500 would take the successful removal away
-    /// from the caller in order to report the arc. It is reported instead.
+    /// The tripwire is gone whatever happened next, so raising a 500 would
+    /// take the successful removal away from the caller in order to report the
+    /// arc. It is reported instead.
     #[test]
     fn an_arc_that_could_not_be_discarded_is_reported_rather_than_raised() {
         let (_dir, path) = scratch();
-        lay(&path, "ci");
+        // A checkout that is not one, so the discard is attempted and fails.
+        lay_in(&path, "ci", "/nonexistent/checkout");
         {
             let conn = ledger::open_ledger(&path).unwrap();
             let tripwire = ledger::get(&conn, "ci").unwrap().unwrap();
@@ -858,23 +745,22 @@ mod tests {
             )
             .unwrap()
             .expect("this tripwire has no row for that key yet");
-            ledger::record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-ci-abcd1234"))
-                .unwrap();
+            ledger::record_run(&conn, trip_id, Some("sess-1"), Some("tripwire-ci")).unwrap();
             ledger::settle(
                 &conn,
                 trip_id,
-                TripStatus::Awaiting,
+                TripStatus::Done,
                 &ledger::Settlement::default(),
                 20,
             )
             .unwrap();
         }
 
-        // The trip names no repository and the tripwire has no scope, so there
-        // is no checkout the arc could be removed from.
+        // The checkout the row names is not one, so the arc cannot be removed
+        // from it.
         let (status, body) = remove_tripwire(&path, "ci");
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["arc"], "tripwire-ci-abcd1234");
+        assert_eq!(body["arc"], "tripwire-ci");
         assert_eq!(body["discarded"], false);
         assert!(
             body["discard_error"].is_string(),

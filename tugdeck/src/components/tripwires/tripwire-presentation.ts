@@ -20,33 +20,19 @@ import type { TripRow, TripwireRow } from "@/lib/tripwires-store";
 /**
  * What a trip is doing, in the five states a reader actually distinguishes.
  *
- * The ledger's six statuses collapse to the six a reader tells apart: every
- * way a trip can fail to run is one `skipped` row whose reason says which,
- * and `quiet` — a trip that ran and found nothing — reads as finished. The
+ * The ledger's four statuses ([P05]) map almost one to one: every way a trip
+ * can fail to run is one `skipped` row whose reason says which, and `done` —
+ * a trip that ran to the end, whatever it found — reads as finished. The
  * differences the engine keeps live in the reason sentence below, which is
  * where a word like `busy` earns its clause instead of a glyph.
  *
  * `waiting` survives the collapse with no status of its own. It is the
  * `default:` arm's answer — a status this build has not learned — and a
  * newer engine's row reads as "Starting…" rather than as nothing.
- *
- * `awaiting` is the one status that does not collapse into anything. A run
- * that resolved awaiting has finished and is holding the tripwire's live-run slot
- * until somebody sees what it found ([P07]) — the only state on this list that
- * is waiting on a person rather than on a machine.
- *
- * Nor does `adopted`: a Session card took the run's session over and somebody
- * is working in it. It is the one state that is neither the machine's nor a
- * question — it is a conversation. It has its own member because the
- * `default:` arm below reads every unknown status as `waiting`, and printing
- * "Starting…" over a session the reader is sitting inside is the worst
- * sentence this surface could say.
  */
 export type TripState =
   | "waiting"
   | "running"
-  | "awaiting"
-  | "adopted"
   | "finished"
   | "failed"
   | "skipped";
@@ -55,11 +41,7 @@ export function tripState(trip: TripRow): TripState {
   switch (trip.status) {
     case "running":
       return "running";
-    case "awaiting":
-      return "awaiting";
-    case "adopted":
-      return "adopted";
-    case "quiet":
+    case "done":
       return "finished";
     case "failed":
       return "failed";
@@ -109,10 +91,6 @@ export function tripSentence(trip: TripRow): string {
   switch (tripState(trip)) {
     case "running":
       return "Running now…";
-    case "awaiting":
-      return "Waiting for you to look.";
-    case "adopted":
-      return "You took this one over.";
     case "waiting":
       return "Starting…";
     case "skipped":
@@ -122,7 +100,7 @@ export function tripSentence(trip: TripRow): string {
         ? "Stopped before it finished."
         : `Stopped — ${reasonClause(reason)}.`;
     case "finished":
-      return "Finished with nothing to report.";
+      return "Finished.";
   }
 }
 
@@ -138,23 +116,17 @@ export function tripStateLabel(trip: TripRow): string | null {
   switch (tripState(trip)) {
     case "running":
       return "running";
-    case "awaiting":
-      return "awaiting";
     case "finished":
       return "finished";
     case "failed":
       return "stopped";
-    // Nothing: `tripSentence` already says the reader took this one over, and
-    // a label beside it would say it twice.
-    case "adopted":
-      return null;
     default:
       return null;
   }
 }
 
 /**
- * The dot a row earns, as the three things a dot can mean here and nothing
+ * The dot a row earns, as the two things a dot can mean here and nothing
  * else ([P08]).
  *
  * A decision rather than a component because it is made twice — once for a
@@ -167,35 +139,28 @@ export function tripStateLabel(trip: TripRow): string | null {
  * what `SessionPhaseDot` reads. `working` is the same liveness with no session
  * to key on: a trip inside its probe is running before any session exists, and
  * a session dot keyed on nothing would answer `idle` and rest — a still dot on
- * a tripwire that is working. `awaiting` is the held state, and it is deliberately
- * not a session dot: by the time a trip is awaiting its session has ended, and
- * `useSessionPhase` answers `idle` for a session it cannot reach.
+ * a tripwire that is working. There is no third kind: a finished trip is not
+ * holding anything, so a row at rest says so with silence ([P05]).
  */
 export type TripwireDot =
   | { readonly kind: "session"; readonly sessionId: string }
   | { readonly kind: "working" }
-  | { readonly kind: "awaiting" }
   | null;
 
-/** The roster row's dot. Nothing at rest — a tripwire with no run in flight and no
- *  question outstanding has nothing to say, and says it with silence.
- *
- *  An adopted trip earns the same live dot a running one does, and reaches it
- *  by the same field: the projection folds the adopted session into
- *  `open_session` when nothing is running, so the row keeps the dot the
- *  user takes the session over through. No new dot kind ([P07]). */
+/** The roster row's dot. Nothing at rest — a tripwire with no run in flight has
+ *  nothing to say, and says it with silence. */
 export function tripwireDot(tripwire: TripwireRow): TripwireDot {
-  if (tripwire.running || tripwire.adopted) {
+  if (tripwire.running) {
     return tripwire.open_session === null
       ? { kind: "working" }
       : { kind: "session", sessionId: tripwire.open_session };
   }
-  return tripwire.awaiting ? { kind: "awaiting" } : null;
+  return null;
 }
 
 /** One trip's dot in the log — the same three meanings, read off the row.
  *
- *  Any trip that had a session keeps its dot, quiet and failed included
+ *  Any trip that had a session keeps its dot, done and failed included
  *  ([B04]): the session is what the reader opens to see what the trip did,
  *  and a finished trip is exactly the row they reach for it from. The dot
  *  rests when the session is over, which is what a session dot is for. */
@@ -207,8 +172,6 @@ export function tripDot(trip: TripRow): TripwireDot {
     // Running with no session yet: still inside its probe.
     case "running":
       return { kind: "working" };
-    case "awaiting":
-      return { kind: "awaiting" };
     default:
       return null;
   }
@@ -370,11 +333,11 @@ export function tripwireDefinition(
  * Why Delete is unavailable on this tripwire, or null when it is available.
  *
  * One rule, and it is the ledger's: a tripwire with a **running** trip cannot
- * be removed, because a headless session is working in an inspection tree
+ * be removed, because a session is working in the tripwire's arc worktree
  * against it and the row going away would leave that work with nothing to
- * answer to ([B07]). An **awaiting** trip is not a refusal — the removal
- * dismisses it first, discarding the arc it is holding through the path that
- * already knows how, which is what the confirm below says out loud.
+ * answer to ([B07]). A finished trip is not a refusal — nothing is holding
+ * anything, and the arc the removal discards is the tripwire's own, which is
+ * what the confirm below says out loud.
  */
 export function deleteDisabledReason(tripwire: TripwireRow): string | null {
   return tripwire.running ? "a trip is running" : null;
@@ -395,21 +358,16 @@ export function deleteMenuLabel(tripwire: TripwireRow): string {
 /**
  * What the confirm asks, naming the tripwire and everything that goes with it.
  *
- * The trip log always goes: the trips hang off the row and cascade with it. An
- * arc a live trip is holding is the second sentence's worth of consequence,
- * and it is stated because a reader who is about to lose a worktree is
- * entitled to read that before pressing Delete rather than after ([B06]).
- *
- * **Awaiting or adopted, either holds one.** The removal runs the same dismiss
- * for both — an adopted trip's arc is discarded exactly as an awaiting one's
- * is — so a sentence that named only the awaiting case would destroy a
- * worktree it never mentioned, on the row where the user is most likely to
- * have one open.
+ * The trip log always goes: the trips hang off the row and cascade with it.
+ * So does the tripwire's own arc ([P02]) — `tripwire-<name>` and the worktree
+ * under it — and that is stated because a reader who is about to lose a
+ * worktree is entitled to read it before pressing Delete rather than after
+ * ([B06]). It is named unconditionally now: every tripwire owns one from the
+ * moment it is laid, so there is no case where the sentence would be a guess.
  */
 export function deleteConfirmMessage(tripwire: TripwireRow): string {
-  const arc =
-    (tripwire.awaiting ? tripwire.awaiting_arc : null) ??
-    (tripwire.adopted ? tripwire.adopted_arc : null);
-  const held = arc === null ? "" : ", and the arc it is holding is discarded";
-  return `Delete ${tripwire.name}? Its trip log goes with it${held}.`;
+  return (
+    `Delete ${tripwire.name}? Its trip log goes with it, and its arc ` +
+    `tripwire-${tripwire.name} is discarded.`
+  );
 }

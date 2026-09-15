@@ -297,7 +297,7 @@ describe("the tripwire door on a project with nothing of ours", () => {
     expect(JSON.parse(laid.out).data).toMatchObject({ name, brief, description, paused: false });
 
     // 3. Read the roster back — the same projection the card and the feed read.
-    expect(roster().find((w) => w.name === name)).toMatchObject({ paused: false, running: false, awaiting: false });
+    expect(roster().find((w) => w.name === name)).toMatchObject({ paused: false, running: false, open_session: null });
 
     // 4. Fire it by hand — and meet the refusal, because the engine that mints
     //    a trip row lives in the app and there is no app here. Naming the

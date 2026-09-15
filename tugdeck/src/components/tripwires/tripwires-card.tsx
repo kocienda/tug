@@ -2,13 +2,14 @@
  * tripwires-card.tsx — the **Tripwires** card: the standing tripwires on this
  * machine, and what each of them has done.
  *
- * Doctrine: `tuglaws/tripwires.md` — the lifecycle the marks paint, the release
- * rule the register band states, and why authoring is not a form on this card.
+ * Doctrine: `tuglaws/tripwires.md` — the lifecycle the marks paint, the caps
+ * a trip runs under, and why a tripwire's definition is not a form on this
+ * card.
  *
  * One level, and a fold. Each tripwire is a two-line block — line one the name,
  * a hairline, the session working its trip when one is running, and the row's
  * controls; line two a fixed-width mark and the lifecycle sentence. A row with
- * a trip in flight or a question outstanding carries a register band beneath.
+ * a trip in flight carries a register band beneath.
  * The fold opens in place over the tripwire's definition
  * and its trip log, which is the Arcs card's own gesture and replaces the
  * second level this card used to push to ([B02]).
@@ -21,9 +22,10 @@
  * trigger, scope, probe, model, permissions, each stated in English rather than
  * in the JSON and the enums the ledger holds — and only then shows what it has
  * done. Those rows are
- * read-only but for the model knob: authoring a tripwire stays on the CLI and
- * the `/tripwire` skill [B15], because those are the parts where a wrong value
- * makes a tripwire silently useless rather than visibly wrong. The two knobs
+ * read-only but for the model knob: writing a tripwire's definition stays on
+ * the CLI and the `/tripwire` skill [B15], because those are the parts where a
+ * wrong value makes a tripwire silently useless rather than visibly wrong. The
+ * two knobs
  * that are writable here, pause and model, are the ones a reader of the log
  * reaches for without leaving it.
  *
@@ -45,9 +47,9 @@
  * and almost never pressed does not stand on the row as a peer of pause
  * ([D142]). Choosing it arms the card's one `TugConfirmPopover` over the row's
  * list cell, which names the tripwire and what goes with it: the trip log
- * always, and the arc an awaiting trip is holding when there is one. While a
- * trip is running the item is disabled and carries the refusal in its own
- * label, because that refusal is the ledger's and the CLI states the same one.
+ * always, and the tripwire's own arc. While a trip is running the item is
+ * disabled and carries the refusal in its own label, because that refusal is
+ * the ledger's and the CLI states the same one.
  *
  * Laws: [L02] the store enters through `useSyncExternalStore`; the open folds
  * are view-scope local data in `useState`; [L06] every mark's colour is CSS on
@@ -211,11 +213,10 @@ const TripwireRowHostContext = React.createContext<TripwireRowHost>({
 // Per-row readings — the line beneath the eyebrow, and its mark
 // ---------------------------------------------------------------------------
 
-type RowState = "running" | "awaiting" | "paused" | "armed";
+type RowState = "running" | "paused" | "armed";
 
 function rowState(tripwire: TripwireRow): RowState {
   if (tripwire.running) return "running";
-  if (tripwire.awaiting) return "awaiting";
   if (tripwire.paused) return "paused";
   return "armed";
 }
@@ -227,14 +228,12 @@ function lifecycleSentence(tripwire: TripwireRow): string {
   switch (rowState(tripwire)) {
     case "running":
       return `Running — started ${ago ?? "just now"}`;
-    case "awaiting":
-      return "Found something — waiting for you to look";
     case "paused":
       return last === null ? "Paused" : `Paused — last trip ${ago}`;
     case "armed":
       return last === null
         ? "Armed — never tripped"
-        : `Armed — last trip ${ago}, ${last.status === "quiet" ? "quiet" : last.status}`;
+        : `Armed — last trip ${ago}, ${last.status}`;
   }
 }
 
@@ -311,7 +310,7 @@ function TripwireSessionDot({ sessionId }: { sessionId: string }): React.ReactEl
       type="button"
       className="tripwires-dot-button"
       onClick={open}
-      data-tripwire-adopt={sessionId}
+      data-tripwire-open-session={sessionId}
       aria-label={
         !heldByCard
           ? "Open this tripwire's session in a card"
@@ -340,11 +339,11 @@ function StateDot({ dot }: { dot: Exclude<TripwireDot, null> }): React.ReactElem
     <TugProgressIndicator
       variant="pulsing-dot"
       size={MARK_SIZE}
-      // Awaiting is held, not happening: a still dot in the caution tone the
-      // Overview already uses for the same idea. Working is the action tone,
-      // breathing, which is the pose every other in-flight indicator takes.
-      state={dot.kind === "working" ? "running" : "stopped"}
-      role={dot.kind === "working" ? "action" : "caution"}
+      // The one dot that is not a session's: a trip working before its session
+      // has been seated. The action tone, breathing, which is the pose every
+      // other in-flight indicator takes.
+      state="running"
+      role="action"
       aria-hidden
     />
   );
@@ -425,9 +424,9 @@ function useTripwireRowVerbs(tripwire: TripwireRow): {
   const host = React.useContext(TripwireRowHostContext);
   const name = tripwire.name;
   // The one field the dot and this item both read ([P10]): the running trip's
-  // session, else the adopted trip's, else the newest trip that had one. A
-  // quiet trip's session is still the session that did the work, so a finished
-  // row opens onto it rather than going dead.
+  // session, else the newest trip that had one. A finished trip's session is
+  // still the session that did the work, so a finished row opens onto it
+  // rather than going dead.
   const session = tripwire.open_session;
   // The dot's own gesture, not a second reading of it: the menu item is the
   // keyboard's name for the press, and `focus-session-card` raises a card by
@@ -462,10 +461,6 @@ function useTripwireRowVerbs(tripwire: TripwireRow): {
       [TUG_ACTIONS.PAUSE_TRIPWIRE]: () => void store.setKnobs(name, { paused: true }),
       [TUG_ACTIONS.RESUME_TRIPWIRE]: () => void store.setKnobs(name, { paused: false }),
       [TUG_ACTIONS.TRIP_TRIPWIRE]: () => void store.trip(name),
-      // Release and the fold's Seen act are one verb under two names: the
-      // engine settles an awaiting trip and discards the arc it authored as
-      // one act, and this is the door for the trip that authored none ([B03]).
-      [TUG_ACTIONS.RELEASE_TRIPWIRE]: () => void store.dismiss(name),
       [TUG_ACTIONS.OPEN_TRIPWIRE_SESSION]: () => openSession.open(),
       [TUG_ACTIONS.SET_TRIPWIRE_MODEL]: (event: ActionEvent) => {
         if (typeof event.value !== "string") return;
@@ -506,11 +501,6 @@ function useTripwireRowVerbs(tripwire: TripwireRow): {
               ? "Show session"
               : "Open session",
         disabled: session === null,
-      },
-      {
-        action: TUG_ACTIONS.RELEASE_TRIPWIRE,
-        label: tripwire.awaiting ? "Release" : "Release — nothing is awaiting",
-        disabled: !tripwire.awaiting,
       },
       { type: "separator" },
       // Last, behind its own separator: the one item here that destroys
@@ -758,14 +748,10 @@ function Fold({ tripwire }: { tripwire: TripwireRow }): React.ReactElement {
 // ---------------------------------------------------------------------------
 
 /**
- * What releases an awaiting trip ([B03]), settled: the arc's own fate when the
- * trip authored one — the band names the arc and says it holds until that arc
- * is joined or discarded — and a "Seen" act on the band when it authored
- * nothing, because then nothing else can end the hold.
- *
- * The engine already settles an awaiting trip whose arc has gone, so a band
- * over an arc-bearing trip states a rule that holds rather than offering a
- * button that duplicates the Join sheet.
+ * The band a running trip carries: who is working it, and the one word for
+ * what it is doing. A finished trip has no band — what it amounted to is its
+ * report, and the report belongs in the log behind the fold rather than in the
+ * row's chrome ([P04]).
  */
 function RegisterBand({ tripwire }: { tripwire: TripwireRow }): React.ReactElement | null {
   const worker = useSessionIdentity(tripwire.open_session);
@@ -780,46 +766,6 @@ function RegisterBand({ tripwire }: { tripwire: TripwireRow }): React.ReactEleme
           target={worker?.description ?? tripwire.last_trip?.headline ?? "Working"}
           summary={{ kind: "text", text: "running" }}
           altitude="row"
-        />
-      </span>
-    );
-  }
-
-  if (state === "awaiting") {
-    const arc = tripwire.awaiting_arc;
-    return (
-      <span className="tripwires-register" data-slot="tripwire-register" data-word="awaiting">
-        <BlockHeader
-          ariaName="trip"
-          phase="awaiting"
-          target={
-            arc !== null ? (
-              <span className="tripwires-register-target">
-                <span>Holding until</span>
-                <TugAtomRef entity={{ kind: "arc", name: arc }} />
-                <span>is joined or discarded</span>
-              </span>
-            ) : (
-              (tripwire.last_trip?.headline ?? "Found something")
-            )
-          }
-          summary={{ kind: "text", text: "awaiting" }}
-          altitude="row"
-          {...(arc === null
-            ? {
-                actionsTrailing: (
-                  <TugPushButton
-                    size="2xs"
-                    emphasis="ghost"
-                    label="Seen"
-                    aria-label="Release this trip"
-                    action={TUG_ACTIONS.RELEASE_TRIPWIRE}
-                    focusGroup={TRIPWIRES_FOCUS_GROUP}
-                    data-tripwires-seen={tripwire.name}
-                  />
-                ),
-              }
-            : {})}
         />
       </span>
     );
@@ -859,7 +805,6 @@ function TripwireCell({
       data-state={state}
       data-tripwire-paused={tripwire.paused ? "true" : "false"}
       data-tripwire-running={tripwire.running ? "true" : "false"}
-      data-tripwire-awaiting={tripwire.awaiting ? "true" : "false"}
       onContextMenu={verbs.onContextMenu}
     >
       {/* The row's own responder, so the menu's items and the model popup
@@ -970,7 +915,6 @@ const TRIPWIRE_CELLS = { tripwire: TripwireCell };
  */
 function CollapsedBand({ rows }: { rows: readonly TripwireRow[] }): React.ReactElement {
   const running = rows.filter((r) => r.running).length;
-  const awaiting = rows.filter((r) => r.awaiting).length;
   const paused = rows.filter((r) => r.paused).length;
   const armed = rows.length - paused;
   // Every trip that ran, quiet ones included ([B04]): the count is what says
@@ -996,18 +940,6 @@ function CollapsedBand({ rows }: { rows: readonly TripwireRow[] }): React.ReactE
             aria-hidden
           />
           <TugLabel size="xs">{`${running} running`}</TugLabel>
-        </span>
-      ) : null}
-      {awaiting > 0 ? (
-        <span className="tripwires-band-count" data-state="awaiting">
-          <TugProgressIndicator
-            variant="pulsing-dot"
-            size={9}
-            state="stopped"
-            role="caution"
-            aria-hidden
-          />
-          <TugLabel size="xs">{`${awaiting} awaiting`}</TugLabel>
         </span>
       ) : null}
       {paused > 0 ? (

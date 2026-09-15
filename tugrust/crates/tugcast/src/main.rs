@@ -1855,7 +1855,6 @@ async fn main() {
         feeds::tripwire::TripwireEngineConfig {
             ledger: Arc::clone(&ledger),
             db_path: tugcore::instance::tripwires_db_path(),
-            trees_root: tugcore::instance::tripwire_trees_dir(),
             instance: tugcore::instance::instance_id().unwrap_or_else(|| "default".to_string()),
             now_ms: Arc::new(crate::session_ledger::now_millis),
             // A firing borrows the supervisor to open its cardless sessions

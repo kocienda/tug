@@ -15,12 +15,10 @@ use std::process::ExitCode;
 
 use serde::Serialize;
 
-use tugarc_core::tripwire_dismiss::DismissRefusal;
 use tugarc_core::tripwire_remove::RemoveRefusal;
 use tugcore::facts::FactKind;
 use tugtool_core::tripwire_ledger::{
-    self as ledger, NewTripwire, Resolution, Settlement, TripStatus, Tripwire, TripwireEdit,
-    TripwireLedgerError,
+    self as ledger, NewTripwire, Tripwire, TripwireEdit, TripwireLedgerError, tripwire_arc,
 };
 use tugtool_core::tripwire_predicate::{FactTrigger, Matcher, Predicate};
 use tugtool_core::tripwire_roster;
@@ -42,6 +40,8 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
             description,
             model,
             permission_mode,
+            max_seconds,
+            max_tool_calls,
             preview,
         } => run_lay(
             LayArgs {
@@ -54,6 +54,8 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
                 description,
                 model,
                 permission_mode,
+                max_seconds,
+                max_tool_calls,
             },
             preview,
             json,
@@ -70,6 +72,8 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
             description,
             model,
             permission_mode,
+            max_seconds,
+            max_tool_calls,
             clear,
             preview,
         } => run_edit(
@@ -83,6 +87,8 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
                 description,
                 model,
                 permission_mode,
+                max_seconds,
+                max_tool_calls,
                 clear,
             },
             preview,
@@ -94,22 +100,6 @@ pub fn dispatch(cmd: TripwireCommands, json: bool, quiet: bool) -> ExitCode {
         TripwireCommands::Resume { name } => run_paused(&name, false, json, quiet),
         TripwireCommands::Log { name, limit } => run_log(&name, limit, json, quiet),
         TripwireCommands::Trip { name } => run_trip(&name, json, quiet),
-        TripwireCommands::Resolve {
-            name,
-            quiet: is_quiet,
-            awaiting,
-            headline,
-            author,
-        } => run_resolve(
-            &name,
-            is_quiet,
-            awaiting,
-            headline.as_deref(),
-            author.as_deref(),
-            json,
-            quiet,
-        ),
-        TripwireCommands::Dismiss { name } => run_dismiss(&name, json, quiet),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -216,7 +206,7 @@ fn read_brief(brief: &str) -> Result<String, String> {
 /// compared against it. A bare `canonicalize` would store the
 /// `/System/Volumes/Data/…` spelling and the prefix guard would put every
 /// fact out of scope. Deliberately **not** folded to its base checkout —
-/// an authoring trip commits on its own arc worktree, and folding worktrees
+/// a trip commits on the tripwire's own arc worktree, and folding worktrees
 /// into their base would make those commits re-trip the tripwire that made
 /// them. A path that does not exist keeps its literal form rather than failing
 /// the lay.
@@ -224,6 +214,59 @@ fn canonical_scope(scope: &str) -> String {
     tugcore::pathform::resolve_to_claude_form(std::path::Path::new(scope))
         .display()
         .to_string()
+}
+
+/// The checkout a tripwire's arc lives in ([P02]).
+///
+/// `--scope` first, because a scoped tripwire has already said which part of
+/// which project it watches, and the arc belongs beside the work rather than
+/// beside whichever shell laid it. The scope may name a directory anywhere
+/// inside a checkout, so the walk goes upward until a repository answers.
+/// Unscoped, the `lay` process's own cwd is the only thing that knows which
+/// project the user means.
+///
+/// The refusal names both attempts, because a tripwire laid from the wrong
+/// directory and one laid with an unusable scope are different mistakes and
+/// only the sentence can tell them apart.
+fn home_checkout(scope: Option<&str>) -> Result<std::path::PathBuf, String> {
+    if let Some(scope) = scope {
+        if let Some(root) = repo_root_at_or_above(std::path::Path::new(scope)) {
+            return Ok(root);
+        }
+    }
+    let cwd = std::env::current_dir()
+        .map_err(|e| format!("this shell's directory could not be read: {e}"))?;
+    if let Some(root) = repo_root_at_or_above(&cwd) {
+        return Ok(root);
+    }
+    Err(match scope {
+        Some(scope) => format!(
+            "a tripwire's arc needs a checkout to live in, and neither answered: \
+             --scope `{scope}` is in no repository, and `{}` is not in one either",
+            cwd.display()
+        ),
+        None => format!(
+            "a tripwire's arc needs a checkout to live in: `{}` is not in one, \
+             and no --scope named another",
+            cwd.display()
+        ),
+    })
+}
+
+/// The repository `start` is in, walking upward until one answers.
+///
+/// `find_repo_root_from` asks about one directory, and both the scope and the
+/// shell's cwd are ordinarily somewhere *inside* a checkout rather than at its
+/// root.
+fn repo_root_at_or_above(start: &std::path::Path) -> Option<std::path::PathBuf> {
+    let start = std::fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
+    let mut at = start.as_path();
+    loop {
+        if let Ok(root) = tugtool_core::worktree::find_repo_root_from(at) {
+            return Some(root);
+        }
+        at = at.parent()?;
+    }
 }
 
 fn open() -> Result<rusqlite::Connection, String> {
@@ -242,6 +285,23 @@ struct LayArgs {
     description: String,
     model: Option<String>,
     permission_mode: Option<String>,
+    max_seconds: Option<i64>,
+    max_tool_calls: Option<i64>,
+}
+
+/// A cap is a ceiling, so it has to be a number a session can run up against.
+///
+/// Zero and below are refused rather than stored: a tripwire capped at zero
+/// seconds is one whose every trip fails the instant it starts, which reads on
+/// the card as a broken facility rather than as the setting somebody typed.
+/// There is no spelling here for "no ceiling" on purpose ([P06]).
+fn check_cap(flag: &str, value: i64) -> Result<i64, String> {
+    if value <= 0 {
+        return Err(format!(
+            "{flag} is {value}; a cap is a ceiling a trip runs up against, so it has to be above zero"
+        ));
+    }
+    Ok(value)
 }
 
 fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), String> {
@@ -260,6 +320,12 @@ fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), 
     tripwire.model = args.model;
     if let Some(mode) = args.permission_mode {
         tripwire.permission_mode = mode;
+    }
+    if let Some(seconds) = args.max_seconds {
+        tripwire.max_seconds = check_cap("--max-seconds", seconds)?;
+    }
+    if let Some(calls) = args.max_tool_calls {
+        tripwire.max_tool_calls = check_cap("--max-tool-calls", calls)?;
     }
 
     // A preview is syntax and nothing else ([P13]): it parses, normalizes, and
@@ -283,13 +349,41 @@ fn run_lay(args: LayArgs, preview: bool, json: bool, quiet: bool) -> Result<(), 
     }
 
     let conn = open()?;
+    // The arc needs git, and this is where `lay` acquires that dependency.
+    // The one implementation, never a bare `git --version` ([D171]).
+    if let Some(refusal) = tugcore::host_tools::refusal(&tugcore::host_tools::probe()) {
+        return Err(refusal);
+    }
+    let repo_root = home_checkout(tripwire.scope.as_deref())?;
+    tripwire.repo_root = repo_root.display().to_string();
+
     let laid = ledger::lay(&conn, &tripwire, now_ms()).map_err(|e| e.to_string())?;
+
+    // After the row, so a tripwire that could not be laid leaves no worktree
+    // behind — and before the report, so what it says is true.
+    let arc = tripwire_arc(&laid.name);
+    tugarc_core::ops::create_in(
+        &repo_root,
+        &arc,
+        Some(format!("tripwire {}", laid.name)),
+        false,
+        None,
+    )?;
+    tugarc_core::ops::set_laid_by(&repo_root, &arc, &format!("tripwire/{}", laid.name));
+
     let payload = TripwirePayload::of(&laid);
     bump_live_instance();
     if json {
         print_ok("tripwire lay", &payload);
     } else if !quiet {
         payload.print("laid");
+        // The hydration a project declares in `[tugtool.arc].post_create` runs
+        // inside `create_in`, and in this project that is three `bun install`s.
+        // A user watching `lay` sit there for half a minute is owed the reason.
+        println!(
+            "arc {arc} created in {} (post_create ran)",
+            repo_root.display()
+        );
     }
     Ok(())
 }
@@ -302,7 +396,8 @@ fn run_list(json: bool, quiet: bool) -> Result<(), String> {
     // the card and the `TRIPWIRES` feed read, so "is it running" has one
     // answer wherever it is asked — and this verb has to work with the app
     // closed, which is why the projection is a library function.
-    let payload = tripwire_roster::roster(&conn).map_err(|e| e.to_string())?;
+    let payload = tripwire_roster::roster(&conn, tugarc_core::ops::worktree_path)
+        .map_err(|e| e.to_string())?;
     if json {
         print_ok("tripwire list", &payload);
     } else if !quiet {
@@ -311,7 +406,7 @@ fn run_list(json: bool, quiet: bool) -> Result<(), String> {
         }
         for tripwire in &payload {
             println!(
-                "{}{}  {}{}{}{}{}",
+                "{}{}  {}{}{}",
                 tripwire.name,
                 if tripwire.paused { " (paused)" } else { "" },
                 tripwire.trigger,
@@ -321,8 +416,6 @@ fn run_list(json: bool, quiet: bool) -> Result<(), String> {
                     .map(|s| format!("  scope={s}"))
                     .unwrap_or_default(),
                 if tripwire.running { " running" } else { "" },
-                if tripwire.awaiting { " awaiting" } else { "" },
-                if tripwire.adopted { " adopted" } else { "" },
             );
         }
     }
@@ -339,6 +432,8 @@ struct EditArgs {
     description: Option<String>,
     model: Option<String>,
     permission_mode: Option<String>,
+    max_seconds: Option<i64>,
+    max_tool_calls: Option<i64>,
     clear: Vec<String>,
 }
 
@@ -380,6 +475,12 @@ fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<()
     if let Some(mode) = args.permission_mode {
         edit.permission_mode = Some(mode);
     }
+    if let Some(seconds) = args.max_seconds {
+        edit.max_seconds = Some(check_cap("--max-seconds", seconds)?);
+    }
+    if let Some(calls) = args.max_tool_calls {
+        edit.max_tool_calls = Some(check_cap("--max-tool-calls", calls)?);
+    }
     for column in &args.clear {
         match column.as_str() {
             "scope" => edit.scope = Some(None),
@@ -420,19 +521,19 @@ fn run_edit(args: EditArgs, preview: bool, json: bool, quiet: bool) -> Result<()
 /// Remove a tripwire through the operation the card removes through ([B07]).
 ///
 /// Not `ledger::remove` directly: the rule that a running trip refuses the
-/// removal, and that an awaiting or adopted trip's arc is discarded rather
-/// than orphaned by the cascade, has to be the same rule at both doors, and
+/// removal, and that the tripwire's own arc is discarded rather than orphaned
+/// by the cascade, has to be the same rule at both doors, and
 /// `tugarc_core::tripwire_remove` is where it lives once.
 fn run_rm(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     let conn = open()?;
     let tripwire = ledger::get(&conn, name)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()).to_string())?;
-    let removed = match tugarc_core::tripwire_remove::remove(&conn, &tripwire, now_ms()) {
+    let removed = match tugarc_core::tripwire_remove::remove(&conn, &tripwire) {
         Ok(removed) => removed,
         Err(RemoveRefusal::TripRunning) => {
             return Err(format!(
-                "tripwire {name} has a trip running, so it cannot be removed — a headless session is working in an inspection tree. Open it or wait for it to settle, then remove the tripwire."
+                "tripwire {name} has a trip running, so it cannot be removed — a session is working in the tripwire's arc worktree. Open it or wait for it to settle, then remove the tripwire."
             ));
         }
         Err(RemoveRefusal::Ledger(e)) => return Err(e.to_string()),
@@ -499,7 +600,7 @@ fn run_log(name: &str, limit: i64, json: bool, quiet: bool) -> Result<(), String
             // and a tripwire that never saw one look identical from outside, and
             // only one of them is working.
             println!(
-                "{}  {}  {}{}{}",
+                "{}  {}  {}{}{}{}{}",
                 trip.at_ms,
                 trip.status,
                 trip.event_key,
@@ -510,6 +611,17 @@ fn run_log(name: &str, limit: i64, json: bool, quiet: bool) -> Result<(), String
                 trip.headline
                     .as_deref()
                     .map(|h| format!("  {h}"))
+                    .unwrap_or_default(),
+                // The report is what the trip amounted to ([P04]), so it
+                // prints beside the row rather than only in `--json`.
+                trip.report
+                    .as_deref()
+                    .filter(|r| !r.trim().is_empty())
+                    .map(|r| format!("  {r}"))
+                    .unwrap_or_default(),
+                trip.rounds
+                    .filter(|r| *r > 0)
+                    .map(|r| format!("  ({r} round{})", if r == 1 { "" } else { "s" }))
                     .unwrap_or_default(),
             );
         }
@@ -584,167 +696,13 @@ fn fire_on_live_instance(tripwire: &str) -> Result<bool, String> {
         .unwrap_or_else(|| format!("tripwire {tripwire} could not be fired (status {status})")))
 }
 
-/// Settle the tripwire's running trip (Spec S02) — the only settle a live session
-/// has, and the whole of what replaced the prose scraper.
-///
-/// The ledger write is the resolution and the tell is a nudge, in that order
-/// for the same reason `trip` orders them that way: the row is what the Tripwires
-/// card eventually reads, and no instance running is the ordinary case for a
-/// machine with the app closed. What the tell buys is the card repainting now
-/// rather than on the engine's next tick.
-fn run_resolve(
-    name: &str,
-    quiet_resolution: bool,
-    awaiting: bool,
-    headline: Option<&str>,
-    author: Option<&str>,
-    json: bool,
-    quiet: bool,
-) -> Result<(), String> {
-    if quiet_resolution == awaiting {
-        return Err(
-            "say which resolution this is: --quiet when nothing is actionable, or --awaiting \
-             --headline \"<one line>\" when there is something the user should see"
-                .to_string(),
-        );
-    }
-    let headline = match (awaiting, headline) {
-        (true, None) | (true, Some("")) => {
-            return Err(
-                "--awaiting needs --headline: the headline is the one line the Tripwires row shows, \
-                 and an awaiting trip with none says nothing to the person it is waiting for"
-                    .to_string(),
-            );
-        }
-        (_, headline) => headline,
-    };
-    let conn = open()?;
-    let tripwire = ledger::get(&conn, name)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()).to_string())?;
-
-    let status = if awaiting {
-        TripStatus::Awaiting
-    } else {
-        TripStatus::Quiet
-    };
-    let settlement = Settlement {
-        headline: headline.map(str::to_owned),
-        ..Settlement::default()
-    };
-    // The running trip first, so a genuinely running one wins over an older
-    // adopted one; a session a card took over can still run this verb, and
-    // resolving from `adopted` is how its trip settles.
-    let mut resolution =
-        ledger::resolve_running(&conn, tripwire.id, status, &settlement, author, now_ms())
-            .map_err(|e| e.to_string())?;
-    if matches!(resolution, Resolution::NoLiveTrip { .. }) {
-        resolution =
-            ledger::resolve_adopted(&conn, tripwire.id, status, &settlement, author, now_ms())
-                .map_err(|e| e.to_string())?;
-    }
-    let Resolution::Resolved { trip_id, .. } = resolution else {
-        let Resolution::NoLiveTrip { state } = resolution else {
-            unreachable!("a resolution is one of two things")
-        };
-        return Err(match state {
-            Some(state) => format!(
-                "tripwire {name} has no running or adopted trip to resolve — its newest trip is {state}"
-            ),
-            None => format!("tripwire {name} has never fired, so there is nothing to resolve"),
-        });
-    };
-
-    let payload = ResolvedPayload {
-        tripwire: name.to_string(),
-        trip_id,
-        status: status.as_str().to_string(),
-        headline: headline.map(str::to_owned),
-        author: author.map(str::to_owned),
-        told: tell_live_instance(name),
-    };
-    // A settle changes the roster, and `tripwire_tell` reaches the engine's
-    // republish rather than the roster feed.
-    bump_live_instance();
-    if json {
-        print_ok("tripwire resolve", &payload);
-    } else if !quiet {
-        println!(
-            "tripwire {name} resolved trip {trip_id} as {}",
-            status.as_str()
-        );
-    }
-    Ok(())
-}
-
-/// Settle an awaiting trip by hand and discard the arc it was holding
-/// ([P07], [P09]).
-///
-/// The discard is the dismissal's other half rather than a courtesy: an
-/// awaiting trip holds an arc the user is being asked about, and settling the
-/// row while leaving the worktree standing is exactly the leak this rebuild
-/// exists to close.
-fn run_dismiss(name: &str, json: bool, quiet: bool) -> Result<(), String> {
-    let conn = open()?;
-    let tripwire = ledger::get(&conn, name)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| TripwireLedgerError::NoSuchTripwire(name.to_string()).to_string())?;
-    // The refusal's two shapes are what the CLI turns into its two sentences:
-    // a tripwire that already settled and one that never fired want different
-    // words, and a caller told only "refused" could not tell them apart.
-    let dismissed = match tugarc_core::tripwire_dismiss::dismiss(&conn, &tripwire, now_ms()) {
-        Ok(dismissed) => dismissed,
-        Err(DismissRefusal::Ledger(e)) => return Err(e.to_string()),
-        Err(DismissRefusal::NoLiveTrip { state }) => {
-            return Err(match state {
-                Some(state) => format!(
-                    "tripwire {name} has no awaiting or adopted trip to dismiss — its newest trip is {state}"
-                ),
-                None => format!("tripwire {name} has never fired, so there is nothing to dismiss"),
-            });
-        }
-    };
-    let trip_id = dismissed.trip_id;
-    let discard_error = dismissed.discard_error.clone();
-    let payload = DismissedPayload {
-        tripwire: name.to_string(),
-        trip_id,
-        arc: dismissed.arc,
-        discarded: dismissed.discarded,
-        discard_error: discard_error.clone(),
-        told: tell_live_instance(name),
-    };
-    bump_live_instance();
-    if json {
-        print_ok("tripwire dismiss", &payload);
-    } else if !quiet {
-        println!("tripwire {name} dismissed trip {trip_id}");
-    }
-    // The settle is written whatever happened next, so a discard that could
-    // not run is reported rather than hidden: an arc left standing is the
-    // leak this verb exists to close, and silence about it is how nobody
-    // finds out.
-    if let Some(e) = discard_error {
-        eprintln!("tripwire {name}: the arc it was holding was not discarded — {e}");
-    }
-    Ok(())
-}
-
-/// Nudge a live instance to re-read a settled trip and republish it. A failure
-/// is not the verb's failure: the settle is written either way.
-fn tell_live_instance(tripwire: &str) -> bool {
-    crate::commands::tell::tell_quietly("tripwire_tell", &[format!("tripwire={tripwire}")]).is_ok()
-}
-
 /// Nudge a live instance that the roster moved, so the Tripwires card
 /// recomposes now rather than on its next ledger probe.
 ///
 /// Carries no payload on purpose: it says the roster moved, not which
-/// tripwire moved. Distinct from [`tell_live_instance`], which reaches the
-/// engine's republish of one settled trip rather than the roster feed. The
-/// result is ignored everywhere it is called — the ledger write is the act,
-/// this is latency, and no instance running is the ordinary case for a
-/// machine with the app closed.
+/// tripwire moved. The result is ignored everywhere it is called — the ledger
+/// write is the act, this is latency, and no instance running is the ordinary
+/// case for a machine with the app closed.
 fn bump_live_instance() {
     let _ = crate::commands::tell::tell_quietly("tripwire_bump", &[]);
 }
@@ -764,6 +722,12 @@ struct TripwirePayload {
     model: Option<String>,
     permission_mode: String,
     paused: bool,
+    /// The checkout the tripwire's arc lives in ([P02]). Empty on a preview,
+    /// which resolves nothing and creates nothing.
+    repo_root: String,
+    /// The two caps a trip of it runs under ([P06]).
+    max_seconds: i64,
+    max_tool_calls: i64,
 }
 
 impl TripwirePayload {
@@ -778,6 +742,9 @@ impl TripwirePayload {
             model: tripwire.model.clone(),
             permission_mode: tripwire.permission_mode.clone(),
             paused: tripwire.paused,
+            repo_root: tripwire.repo_root.clone(),
+            max_seconds: tripwire.max_seconds,
+            max_tool_calls: tripwire.max_tool_calls,
         }
     }
 
@@ -794,6 +761,9 @@ impl TripwirePayload {
             model: tripwire.model.clone(),
             permission_mode: tripwire.permission_mode.clone(),
             paused: false,
+            repo_root: tripwire.repo_root.clone(),
+            max_seconds: tripwire.max_seconds,
+            max_tool_calls: tripwire.max_tool_calls,
         }
     }
 
@@ -806,6 +776,10 @@ impl TripwirePayload {
             self.scope.as_deref().unwrap_or("(machine-wide)")
         );
         println!("  probe:    {}", self.probe.as_deref().unwrap_or("(none)"));
+        println!(
+            "  caps:     {}s, {} tool calls",
+            self.max_seconds, self.max_tool_calls
+        );
     }
 }
 
@@ -844,6 +818,12 @@ impl EditPreview {
         if let Some(v) = &edit.permission_mode {
             set("permission_mode", Some(v.clone()));
         }
+        if let Some(v) = edit.max_seconds {
+            set("max_seconds", Some(v.to_string()));
+        }
+        if let Some(v) = edit.max_tool_calls {
+            set("max_tool_calls", Some(v.to_string()));
+        }
         EditPreview {
             tripwire: name.to_string(),
             changes,
@@ -881,35 +861,6 @@ struct TripFiredPayload {
     served: bool,
 }
 
-/// A resolution as `--json` reports it — what was written and whether anybody
-/// was told, which are two different facts and only the first is durable.
-#[derive(Debug, Serialize)]
-struct ResolvedPayload {
-    tripwire: String,
-    trip_id: i64,
-    status: String,
-    headline: Option<String>,
-    author: Option<String>,
-    told: bool,
-}
-
-/// A dismissal as `--json` reports it. `discarded` is separate from `arc`
-/// because an arc that could not be removed is a fact worth reading.
-#[derive(Debug, Serialize)]
-struct DismissedPayload {
-    tripwire: String,
-    trip_id: i64,
-    #[serde(rename = "arc")]
-    arc: Option<String>,
-    discarded: bool,
-    /// Why the arc it was holding is still standing, when it is. The settle
-    /// happens either way, so the failure has to be reportable rather than
-    /// inferred from `discarded: false`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    discard_error: Option<String>,
-    told: bool,
-}
-
 /// One trip as `tripwire log --json` reports it — the full workings, because the
 /// log is the record and a reader asking why a tripwire did nothing is asking
 /// about a row it would otherwise have to guess at.
@@ -922,12 +873,15 @@ struct TripPayload {
     status: String,
     reason: Option<String>,
     repo_root: Option<String>,
-    head_sha: Option<String>,
     probe_exit: Option<i64>,
     session_id: Option<String>,
     arc: Option<String>,
     headline: Option<String>,
     settled_at_ms: Option<i64>,
+    /// The session's last words ([P04]) and what it committed. Both `None` on
+    /// a trip that ran no session, and on any trip taken before v11.
+    report: Option<String>,
+    rounds: Option<i64>,
 }
 
 impl TripPayload {
@@ -940,12 +894,13 @@ impl TripPayload {
             status: trip.status.clone(),
             reason: trip.reason.clone(),
             repo_root: trip.repo_root.clone(),
-            head_sha: trip.head_sha.clone(),
             probe_exit: trip.probe_exit,
             session_id: trip.session_id.clone(),
             arc: trip.arc.clone(),
             headline: trip.headline.clone(),
             settled_at_ms: trip.settled_at_ms,
+            report: trip.report.clone(),
+            rounds: trip.rounds,
         }
     }
 }
@@ -979,81 +934,6 @@ mod tests {
             ),
             r#"{"fact":{"kind":"shell","where":{"command":{"contains":"file edit"},"cwd":{"prefix":"/proj"},"route":"claude"}}}"#
         );
-    }
-
-    /// `dismiss` moved its body into `tugarc_core::tripwire_dismiss`, so what
-    /// this pins is that the verb still does what it did: settles the awaiting
-    /// row, and refuses with prose that tells an already-settled tripwire from
-    /// one that never fired.
-    #[serial_test::serial]
-    #[test]
-    fn dismiss_settles_the_awaiting_row_and_keeps_its_two_refusals_apart() {
-        let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("tripwires.db");
-        // SAFETY: serial test; nothing else reads the variable concurrently.
-        unsafe { std::env::set_var("TUG_TRIPWIRES_DB", &db) };
-
-        let conn = ledger::open_ledger(&db).unwrap();
-        let tripwire = ledger::lay(
-            &conn,
-            &NewTripwire::new(
-                "ci",
-                r#"{"fact":{"kind":"edit_failed"}}"#,
-                "report anything that looks wrong",
-                "Reports anything that looks wrong on main",
-            ),
-            1,
-        )
-        .unwrap();
-
-        let refusal = run_dismiss("ci", true, true).unwrap_err();
-        assert!(
-            refusal.contains("never fired"),
-            "a tripwire that never fired says so: {refusal}"
-        );
-
-        let trip_id = ledger::insert_trip(
-            &conn,
-            &ledger::NewTrip {
-                tripwire_id: tripwire.id,
-                event_key: "fact:inst:1".to_string(),
-                at_ms: 10,
-                instance: "inst".to_string(),
-                status: TripStatus::Running,
-                reason: None,
-                event_payload: None,
-                repo_root: None,
-            },
-        )
-        .unwrap()
-        .expect("this tripwire has no row for that key yet");
-        ledger::record_run(&conn, trip_id, Some("sess-1"), None).unwrap();
-        ledger::settle(
-            &conn,
-            trip_id,
-            TripStatus::Awaiting,
-            &Settlement {
-                headline: Some("something to look at".to_string()),
-                ..Settlement::default()
-            },
-            20,
-        )
-        .unwrap();
-
-        run_dismiss("ci", true, true).expect("the awaiting trip is dismissed");
-        assert_eq!(
-            ledger::trip(&conn, trip_id).unwrap().unwrap().status,
-            "quiet"
-        );
-
-        let refusal = run_dismiss("ci", true, true).unwrap_err();
-        assert!(
-            refusal.contains("its newest trip is quiet"),
-            "an already-settled tripwire names the state it is in: {refusal}"
-        );
-
-        // SAFETY: serial test.
-        unsafe { std::env::remove_var("TUG_TRIPWIRES_DB") };
     }
 
     /// The first `=` is the operator, and the character before it says which
@@ -1147,32 +1027,5 @@ mod tests {
             !stored.starts_with("/System/Volumes/Data/"),
             "stored {stored}, which is the spelling no fact ever carries"
         );
-    }
-
-    /// The resolution verb's grammar, refused before the ledger is ever opened
-    /// (Spec S02).
-    ///
-    /// Both refusals matter to a session rather than to a person: the session
-    /// reads the message and tries again, so each one has to say which of the
-    /// two resolutions was missing rather than that something was wrong.
-    #[test]
-    fn a_resolution_names_which_one_it_is_and_an_awaiting_one_carries_a_headline() {
-        let neither = run_resolve("ci", false, false, None, None, false, true).unwrap_err();
-        assert!(
-            neither.contains("--quiet") && neither.contains("--awaiting"),
-            "{neither}"
-        );
-
-        let both = run_resolve("ci", true, true, Some("h"), None, false, true).unwrap_err();
-        assert!(
-            both.contains("--quiet") && both.contains("--awaiting"),
-            "{both}"
-        );
-
-        let headless = run_resolve("ci", false, true, None, None, false, true).unwrap_err();
-        assert!(headless.contains("--headline"), "{headless}");
-
-        let blank = run_resolve("ci", false, true, Some(""), None, false, true).unwrap_err();
-        assert!(blank.contains("--headline"), "{blank}");
     }
 }

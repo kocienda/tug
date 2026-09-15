@@ -55,7 +55,6 @@ pub mod text_ref;
 pub mod tripwire;
 pub mod tripwire_prompt;
 pub mod tripwire_session;
-pub mod tripwire_tree;
 pub mod tripwires;
 pub mod walk;
 pub mod workspace_registry;

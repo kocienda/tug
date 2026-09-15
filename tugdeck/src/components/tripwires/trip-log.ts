@@ -27,7 +27,7 @@ export const LOG_WINDOW = 5;
 export const LOG_PAGE = 25;
 
 /** The two runs that fold. Everything else stands as its own row. */
-export type RollupKind = "skipped" | "quiet";
+export type RollupKind = "skipped" | "unreported";
 
 export type LogEntry =
   | { readonly kind: "trip"; readonly row: TripRow }
@@ -36,20 +36,27 @@ export type LogEntry =
 /**
  * Which run this trip can join, or null when it joins none.
  *
- * A finished trip folds only when it left no headline: a run that found
- * something and said so is the whole point of the log, and folding it into a
- * count would hide the one row a reader came for.
+ * A finished trip folds only when it left no **report** and no headline: a run
+ * that found something and said so is the whole point of the log ([P04]), and
+ * folding it into a count would hide the one row a reader came for.
  *
- * It folds only when it also left no **session** ([B04]). A quiet trip whose
- * session is still openable is a row the reader can reach the work from, and
- * a fold takes its dot with it. What is left to fold is the probe-settled
- * trip — one that never seated a session and found nothing — which is the
- * row this fold was written for.
+ * It folds only when it also left no **session** ([B04]). A trip that reported
+ * nothing but whose session is still openable is a row the reader can reach
+ * the work from, and a fold takes its dot with it. What is left to fold is the
+ * probe-settled trip — one that never seated a session and found nothing —
+ * which is the row this fold was written for.
  */
 export function rollupKind(row: TripRow): RollupKind | null {
   const state = tripState(row);
   if (state === "skipped") return "skipped";
-  if (state === "finished" && row.headline === null && row.session_id === null) return "quiet";
+  if (
+    state === "finished" &&
+    row.headline === null &&
+    row.report === null &&
+    row.session_id === null
+  ) {
+    return "unreported";
+  }
   return null;
 }
 
@@ -84,7 +91,8 @@ export function rollUp(trips: readonly TripRow[]): LogEntry[] {
 
 /**
  * What a folded run says: how many, and the one thing the rows still have to
- * tell apart — why, for the skipped, and how the probe went, for the quiet.
+ * tell apart — why, for the skipped, and how the probe went, for the ones that
+ * reported nothing.
  */
 export function rollupSentence(roll: RollupKind, rows: readonly TripRow[]): string {
   const counts = new Map<string, number>();

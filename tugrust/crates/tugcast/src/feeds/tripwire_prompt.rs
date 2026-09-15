@@ -19,14 +19,9 @@
 //! any session that rotated mid-work.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::session_ledger::{FactRow, SessionLedger};
-
-/// How much of the working diff's stat output rides in the prompt. A stat is
-/// one line per file, so this is generous for an ordinary checkout and a bound
-/// on the one that touched a thousand.
-const DIFF_STAT_CAP: usize = 8_000;
 
 /// One session segment, resolved as far as this instance's ledger can.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,16 +40,10 @@ pub struct TripPrompt {
     pub fact: FactRow,
     /// The checkout the fact was recorded in.
     pub repo_root: String,
-    /// The commit the inspection tree stands at.
-    pub head_sha: String,
-    /// Where that tree is, so the session knows which directory it is in.
+    /// The tripwire's arc, whose worktree the trip stands in ([P02]).
+    pub arc: String,
+    /// Where that worktree is, so the session knows which directory it is in.
     pub tree: PathBuf,
-    /// The file holding what was uncommitted when the fact arrived, or `None`
-    /// on a checkout that was clean ([B02]).
-    pub diff: Option<PathBuf>,
-    /// That diff's `--stat`, inlined so the prompt says what moved without the
-    /// session having to open the file first.
-    pub diff_stat: Option<String>,
     pub session: Vec<SessionTranscript>,
     /// The probe's exit and output tail, when the tripwire has one and it failed
     /// ([P10]). A green probe never reaches a prompt, because it settles the
@@ -82,7 +71,10 @@ pub fn fact_from_evidence(payload: &str) -> Option<FactRow> {
     let row = value.get("fact")?;
     let text = |name: &str| row.get(name).and_then(|v| v.as_str()).map(str::to_owned);
     Some(FactRow {
-        id: row.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0),
+        id: row
+            .get("id")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0),
         at_ms: row
             .get("at_ms")
             .and_then(serde_json::Value::as_i64)
@@ -105,7 +97,10 @@ pub fn fact_from_evidence(payload: &str) -> Option<FactRow> {
 /// recorded it, and the ledger's line records name the segments that session
 /// was before. A fact recorded by a rotated tip and nothing else would otherwise
 /// hand the diagnosis the last few turns of the work and call it the history.
-pub fn session_transcripts(ledger: &SessionLedger, session_ids: &[String]) -> Vec<SessionTranscript> {
+pub fn session_transcripts(
+    ledger: &SessionLedger,
+    session_ids: &[String],
+) -> Vec<SessionTranscript> {
     session_segments(ledger, session_ids)
         .into_iter()
         .map(|session_id| SessionTranscript {
@@ -146,88 +141,13 @@ fn transcript_path(ledger: &SessionLedger, session_id: &str) -> Option<PathBuf> 
     path.exists().then_some(path)
 }
 
-/// Write what the checkout had not committed when the fact arrived, beside the
-/// tree rather than in it ([B02], [P06]).
-///
-/// The tree stands at `HEAD`, so everything the user was in the middle of is
-/// invisible from inside it — and that is usually the half a diagnosis needs.
-/// Copying it *into* the tree would make the trip's checkout something no
-/// commit describes; writing it beside the tree as one file keeps the tree
-/// honest and still hands over the bytes.
-///
-/// Returns the `--stat` for the prompt to inline, or `None` on a clean
-/// checkout, which writes no file at all: an empty diff file a session might
-/// open and read as "nothing is happening here" is worse than no file and a
-/// sentence saying the tree was clean.
-pub async fn working_diff(repo_root: &Path, out: &Path) -> Option<String> {
-    let git = |args: &[&str]| {
-        let mut cmd = tokio::process::Command::new("git");
-        cmd.arg("-C").arg(repo_root).args(args);
-        cmd
-    };
-    let status = git(&["status", "--porcelain", "--untracked-files=all"])
-        .output()
-        .await
-        .ok()?;
-    let diff = git(&["diff", "HEAD", "--no-color", "--no-ext-diff"])
-        .output()
-        .await
-        .ok()?;
-    if !status.status.success() || !diff.status.success() {
-        return None;
-    }
-    let status_text = String::from_utf8_lossy(&status.stdout).trim_end().to_string();
-    let diff_text = String::from_utf8_lossy(&diff.stdout).trim_end().to_string();
-    if status_text.is_empty() && diff_text.is_empty() {
-        return None;
-    }
-
-    if let Some(parent) = out.parent() {
-        tokio::fs::create_dir_all(parent).await.ok()?;
-    }
-    let body = format!(
-        "# git status --porcelain --untracked-files=all\n{status_text}\n\n\
-         # git diff HEAD\n{diff_text}\n"
-    );
-    tokio::fs::write(out, body).await.ok()?;
-
-    let stat = git(&["diff", "HEAD", "--stat", "--no-color"]).output().await;
-    let stat = match stat {
-        Ok(out) if out.status.success() => {
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
-        }
-        _ => String::new(),
-    };
-    Some(if stat.is_empty() {
-        // Untracked files only: `--stat` says nothing about a file git is not
-        // tracking, and a blank summary under a heading reads as a failure.
-        "No tracked file has changed; the status header above names what is untracked."
-            .to_string()
-    } else {
-        cap(&stat, DIFF_STAT_CAP)
-    })
-}
-
-fn cap(text: &str, cap: usize) -> String {
-    if text.len() <= cap {
-        return text.to_string();
-    }
-    let mut end = cap;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}\n… (truncated)", &text[..end])
-}
-
 impl TripPrompt {
     /// The prompt a fired tripwire's session is handed, in the section order
-    /// Spec S02 fixes: brief, fact, tree, working changes, probe, session,
-    /// contract.
+    /// Spec S02 fixes: brief, fact, tree, probe, session, contract.
     ///
     /// Everything but the closing contract is the same whatever the session
     /// is for, because it is the same trip being described. The contract is
-    /// what changes between phases, so it is the caller's to supply — and this
-    /// is the one place the order lives.
+    /// the caller's to supply, and this is the one place the order lives.
     pub fn prompt(&self, brief: &str, contract: &str) -> String {
         let mut out = String::new();
         out.push_str("BRIEF\n");
@@ -236,8 +156,6 @@ impl TripPrompt {
         out.push_str(&self.fact_section());
         out.push_str("\n\nTREE\n");
         out.push_str(&self.tree_section());
-        out.push_str("\n\nWORKING CHANGES\n");
-        out.push_str(&self.working_changes_section());
         if let Some(probe) = &self.probe {
             out.push_str("\n\nPROBE\n");
             out.push_str(&format!(
@@ -249,45 +167,6 @@ impl TripPrompt {
         }
         out.push_str("\n\nSESSION\n");
         out.push_str(&self.session_section());
-        out.push_str("\n\nCONTRACT\n");
-        out.push_str(contract.trim());
-        out
-    }
-
-    /// The prompt the *authoring* session is handed — composed only when the
-    /// diagnosis session asked for one.
-    ///
-    /// Shorter than the diagnosis prompt on purpose. The evidence has already
-    /// been read by a session that stood in the tree and said what it found, so
-    /// re-showing the raw fact here would invite a second diagnosis instead of
-    /// the change that was asked for. What survives is the brief, the fact, the
-    /// tree, the ask, and the first session's own words.
-    pub fn authoring_prompt(
-        &self,
-        brief: &str,
-        ask: &str,
-        findings: &str,
-        contract: &str,
-    ) -> String {
-        let mut out = String::new();
-        out.push_str("BRIEF\n");
-        out.push_str(brief.trim());
-        out.push_str("\n\nFACT\n");
-        out.push_str(&self.fact_section());
-        out.push_str("\n\nTREE\n");
-        out.push_str(&self.tree_section());
-        out.push_str("\n\nASK\n");
-        out.push_str(ask.trim());
-        out.push_str("\n\nFINDINGS\n");
-        let findings = findings.trim();
-        if findings.is_empty() {
-            out.push_str(
-                "The session that diagnosed this left no closing words. The ask above is the \
-                 whole of what it passed on.",
-            );
-        } else {
-            out.push_str(findings);
-        }
         out.push_str("\n\nCONTRACT\n");
         out.push_str(contract.trim());
         out
@@ -320,39 +199,23 @@ impl TripPrompt {
 
     fn tree_section(&self) -> String {
         format!(
-            "You are standing in a disposable checkout of `{}` at `{}` (`{}`). It is not the \
-             user's working copy; nothing written here is kept.",
-            self.repo_root,
-            short_sha(&self.head_sha),
-            self.tree.display()
+            "You are standing in the worktree of the arc `{arc}`, at `{path}`. It is this \
+             tripwire's own checkout, replayed onto its base's HEAD for this trip — not the \
+             user's working copy. Work only under that path, and give every command an \
+             absolute path; a shell's working directory does not survive between commands.\n\
+             `tugtool arc commit {arc} --message \"<subject>\"` is the only thing that commits \
+             here, and joining the work back is the user's act, never yours.",
+            arc = self.arc,
+            path = self.tree.display(),
         )
-    }
-
-    fn working_changes_section(&self) -> String {
-        match (&self.diff, &self.diff_stat) {
-            (Some(path), stat) => {
-                let mut out = format!(
-                    "The uncommitted changes at that moment are in `{}` (`git diff HEAD` with a \
-                     `git status --porcelain` header). Summary:",
-                    path.display()
-                );
-                if let Some(stat) = stat {
-                    out.push('\n');
-                    out.push_str(stat);
-                }
-                out
-            }
-            (None, _) => "The checkout was clean when the fact was recorded.".to_string(),
-        }
     }
 
     fn session_section(&self) -> String {
         if self.session.is_empty() {
             return "No session: this trip was fired by hand.".to_string();
         }
-        let mut out = String::from(
-            "These transcripts are the history behind the fact, and may be read:\n",
-        );
+        let mut out =
+            String::from("These transcripts are the history behind the fact, and may be read:\n");
         for entry in &self.session {
             match &entry.transcript {
                 Some(path) => out.push_str(&format!("{} — {}\n", entry.session_id, path.display())),
@@ -364,10 +227,6 @@ impl TripPrompt {
         }
         out.trim_end().to_string()
     }
-}
-
-fn short_sha(sha: &str) -> &str {
-    if sha.len() >= 9 { &sha[..9] } else { sha }
 }
 
 #[cfg(test)]
@@ -394,10 +253,8 @@ mod tests {
         TripPrompt {
             fact: fact_from_evidence(&payload()).expect("the fixture parses"),
             repo_root: "/proj".to_string(),
-            head_sha: "abc123def456".to_string(),
-            tree: PathBuf::from("/trees/abc123def456"),
-            diff: Some(PathBuf::from("/trees/41.diff")),
-            diff_stat: Some(" a.rs | 2 +-".to_string()),
+            arc: "tripwire-ci".to_string(),
+            tree: PathBuf::from("/arcs/tripwire-ci"),
             session,
             probe: None,
         }
@@ -433,14 +290,7 @@ mod tests {
         }]);
         let prompt = p.prompt("diagnose the failure", CONTRACT);
 
-        let order = [
-            "BRIEF",
-            "FACT",
-            "TREE",
-            "WORKING CHANGES",
-            "SESSION",
-            "CONTRACT",
-        ];
+        let order = ["BRIEF", "FACT", "TREE", "SESSION", "CONTRACT"];
         let mut at = 0;
         for section in order {
             let found = prompt[at..]
@@ -449,7 +299,11 @@ mod tests {
             at += found + section.len();
         }
         assert!(prompt.contains("edit 0 went stale"), "{prompt}");
-        assert!(prompt.contains("/trees/abc123def456"), "{prompt}");
+        assert!(prompt.contains("/arcs/tripwire-ci"), "{prompt}");
+        assert!(
+            prompt.contains("tugtool arc commit tripwire-ci"),
+            "the tree section says what committing here means: {prompt}"
+        );
         assert!(prompt.contains("/t/sess-a.jsonl"), "{prompt}");
         assert!(
             prompt.contains("`tripwire-ci-abcd1234`"),
@@ -459,31 +313,6 @@ mod tests {
             !prompt.contains("PROBE"),
             "no probe on this tripwire: {prompt}"
         );
-    }
-
-    /// A clean checkout says so and names no file: an empty diff file is worse
-    /// than no file, because a session that opened one would read it as the
-    /// answer.
-    #[test]
-    fn a_clean_checkout_says_so_and_names_no_file() {
-        let mut p = trip_prompt(Vec::new());
-        p.diff = None;
-        p.diff_stat = None;
-        let prompt = p.prompt("b", CONTRACT);
-        assert!(
-            prompt.contains("The checkout was clean when the fact was recorded."),
-            "{prompt}"
-        );
-        assert!(!prompt.contains(".diff"), "{prompt}");
-    }
-
-    /// A dirty checkout names the file the bytes are in and inlines the stat,
-    /// so the session knows what moved before it opens anything.
-    #[test]
-    fn a_dirty_checkout_names_the_diff_file_and_inlines_the_stat() {
-        let prompt = trip_prompt(Vec::new()).prompt("b", CONTRACT);
-        assert!(prompt.contains("/trees/41.diff"), "{prompt}");
-        assert!(prompt.contains("a.rs | 2 +-"), "{prompt}");
     }
 
     /// A failed probe's tail rides in the prompt, not only in the trip row.
@@ -498,10 +327,10 @@ mod tests {
         let prompt = p.prompt("diagnose the failure", CONTRACT);
         assert!(prompt.contains("`just ci` exited 3"), "{prompt}");
         assert!(prompt.contains("error[E0425]"), "{prompt}");
-        let changes_at = prompt.find("WORKING CHANGES").unwrap();
+        let tree_at = prompt.find("TREE").unwrap();
         let probe_at = prompt.find("PROBE").unwrap();
         let session_at = prompt.find("SESSION").unwrap();
-        assert!(changes_at < probe_at && probe_at < session_at, "{prompt}");
+        assert!(tree_at < probe_at && probe_at < session_at, "{prompt}");
     }
 
     /// A transcript the ledger cannot name is said out loud, and assembly
@@ -599,43 +428,5 @@ mod tests {
         let unknown = session_transcripts(&ledger, &["sess-foreign".to_string()]);
         assert_eq!(unknown.len(), 1);
         assert!(unknown[0].transcript.is_none());
-    }
-
-    /// The diff file carries both halves: what git is not tracking (the
-    /// porcelain header) and what has changed in what it is (the body).
-    #[tokio::test]
-    async fn the_working_diff_names_the_untracked_and_holds_the_tracked_change() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("repo");
-        std::fs::create_dir_all(&root).unwrap();
-        let git = |args: &[&str]| {
-            let out = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&root)
-                .output()
-                .unwrap();
-            assert!(out.status.success(), "git {args:?}: {out:?}");
-        };
-        git(&["init", "-q", "-b", "main"]);
-        git(&["config", "user.email", "t@example.com"]);
-        git(&["config", "user.name", "T"]);
-        std::fs::write(root.join("a.txt"), "one\n").unwrap();
-        git(&["add", "-A"]);
-        git(&["commit", "-q", "-m", "one"]);
-
-        // A clean checkout writes nothing at all.
-        let out = dir.path().join("trees").join("41.diff");
-        assert!(working_diff(&root, &out).await.is_none());
-        assert!(!out.exists(), "a clean tree leaves no file to misread");
-
-        std::fs::write(root.join("a.txt"), "two\n").unwrap();
-        std::fs::write(root.join("b.txt"), "new\n").unwrap();
-        let stat = working_diff(&root, &out).await.expect("a dirty tree");
-        assert!(stat.contains("a.txt"), "{stat}");
-
-        let written = std::fs::read_to_string(&out).unwrap();
-        assert!(written.contains("?? b.txt"), "the untracked half: {written}");
-        assert!(written.contains("-one"), "the tracked half: {written}");
-        assert!(written.contains("+two"), "the tracked half: {written}");
     }
 }

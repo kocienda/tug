@@ -528,9 +528,17 @@ pub enum TripwireCommands {
         /// Model to run the trip on. Absent uses the default.
         #[arg(long)]
         model: Option<String>,
-        /// Permission mode for the session an authoring trip spawns.
+        /// Permission mode for the trip's one session.
         #[arg(long = "permission-mode")]
         permission_mode: Option<String>,
+        /// How long a trip of this tripwire may run before the engine
+        /// interrupts its session and closes it. Defaults to 120.
+        #[arg(long = "max-seconds")]
+        max_seconds: Option<i64>,
+        /// How many tool calls a trip of this tripwire may spend before the
+        /// same thing happens. Defaults to 30.
+        #[arg(long = "max-tool-calls")]
+        max_tool_calls: Option<i64>,
         /// Parse and echo the normalized tripwire, writing nothing.
         #[arg(long)]
         preview: bool,
@@ -559,6 +567,12 @@ pub enum TripwireCommands {
         model: Option<String>,
         #[arg(long = "permission-mode")]
         permission_mode: Option<String>,
+        /// Rewrite the wall-clock cap a trip of this tripwire runs under.
+        #[arg(long = "max-seconds")]
+        max_seconds: Option<i64>,
+        /// Rewrite the tool-call cap a trip of this tripwire runs under.
+        #[arg(long = "max-tool-calls")]
+        max_tool_calls: Option<i64>,
         /// Clear a column rather than set it, repeatable:
         /// `scope`, `probe`, or `model`.
         #[arg(long)]
@@ -592,30 +606,6 @@ pub enum TripwireCommands {
     },
     /// Fire a tripwire by hand, whatever it is watching for.
     Trip {
-        /// Tripwire name.
-        name: String,
-    },
-    /// Settle a tripwire's running trip — the only settle a live session has
-    /// (Spec S02).
-    Resolve {
-        /// Tripwire name.
-        name: String,
-        /// Nothing here is worth the user's attention.
-        #[arg(long)]
-        quiet: bool,
-        /// Something the user should see. Requires --headline.
-        #[arg(long)]
-        awaiting: bool,
-        /// The one line the Tripwires row shows for an awaiting trip.
-        #[arg(long)]
-        headline: Option<String>,
-        /// Ask for a change to be authored on an arc, saying in one line what
-        /// it would be. The engine spawns the authoring session.
-        #[arg(long)]
-        author: Option<String>,
-    },
-    /// Settle an awaiting tripwire by hand, discarding the arc it held.
-    Dismiss {
         /// Tripwire name.
         name: String,
     },
