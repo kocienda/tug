@@ -384,8 +384,9 @@ body {
  * spanning the whole rail run (`rail-shadow.css`), because a strip drawn per
  * member breaks at every seam of a split rail, which is the one boundary the
  * panel's own law says must read as continuous. The activation flash still
- * lands: it is an animation on `box-shadow`, and an animation outranks every
- * static declaration below.
+ * lands, and no longer has to outrank anything here to do it: it is an inset
+ * ring on a layer of its own above the chrome, so `box-shadow: none` below and
+ * the ring are about different boxes.
  */
 [data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side] {
   --tugx-rail-tint: 0;
@@ -728,39 +729,68 @@ body {
 /* One-shot activation flash ([P04]): a Cards card session row click fronts the
    bound card and pulses an accent ring around its border. The class is added
    on dispatch (on the pane root) and removed on `animationend` (see
-   `flashPaneBorder` in action-dispatch.ts). The ring is an OUTSET box-shadow
-   hugging the bordered `.tug-pane-chrome` — an inset ring would paint under the
-   chrome's own children (title bar + body fill the box edge-to-edge and cover
-   it), so it must sit outside the box where nothing paints over it. The base
-   active shadow rides alongside so the pane keeps its drop shadow through the
-   flash. The accent holds for most of the animation, then fades, so it reads
-   clearly. Appearance only ([L06]).
+   `flashPaneBorder` in action-dispatch.ts). The accent holds for most of the
+   animation, then fades, so it reads clearly. Appearance only ([L06]).
+
+   The ring is an INSET box-shadow on a LAYER OF ITS OWN — `::before` on the
+   pane frame, inset 0 over the chrome's whole box and above every child of it.
+   It was once an outset shadow on `.tug-pane-chrome`, which had to sit outside
+   the box because an inset one paints under the chrome's own children (title
+   bar + body fill the box edge-to-edge and cover it). But outside the box is
+   exactly where the deck does not paint: `deck-canvas.tsx` clips its root
+   (`overflow: clip`, that surface's "the page is not a scroller" law), so
+   every edge a frame shares with the deck's own dropped its 2px of ring. A
+   pinned rail is flush to three of them (`RAIL_EDGE_INSET_PX` is 0), so the
+   panel that most needs an answer got one stripe of ring on its inner edge and
+   nothing else. A layer above the children can be inset, and an inset ring is
+   inside the frame, where nothing clips it.
+
+   The layer is `::before` because `::after` on the frame is the unfocused dim
+   (`chrome.css`) and both pseudos on `.tug-pane-chrome` are the dim's two
+   blend layers. `z-index: 3` puts it over the dim's `2`, so a flash on an
+   UNFOCUSED pane — an absolute assign landing a card that is not the one being
+   typed into — still reads. It is over the sheet clip's `2` as well, which is
+   right: the ring traces the FRAME, and a sheet standing in the frame has not
+   changed where the frame is. `pointer-events: none`: it is a drawing.
+
+   Nothing here touches the chrome's own `box-shadow` any more, so the pane
+   keeps whatever drop shadow its state says it has — including the rail's
+   `box-shadow: none` — for the whole of the flash, instead of the keyframes
+   carrying a copy of the active shadow to avoid stomping it.
 
    `--tugx-card-flash-duration` is THE knob for how long a card flash lasts —
    the one place to tune it. Its default lives in the `var()` fallback below
    rather than in a declaration, so a caller can override it from any ancestor.
    Nothing else hard-codes this length: `flashPaneBorder` reads the animation's
-   computed duration off the element for its backstop timer, so the timer
+   computed duration off the layer for its backstop timer, so the timer
    follows the token instead of shadowing it. */
 @keyframes tug-pane-border-flash {
   0% {
-    box-shadow:
-      0 0 0 2px var(--tug7-element-global-border-normal-accent-rest),
-      var(--tugx-pane-shadow-active);
+    box-shadow: inset 0 0 0 2px var(--tug7-element-global-border-normal-accent-rest);
   }
   70% {
-    box-shadow:
-      0 0 0 2px var(--tug7-element-global-border-normal-accent-rest),
-      var(--tugx-pane-shadow-active);
+    box-shadow: inset 0 0 0 2px var(--tug7-element-global-border-normal-accent-rest);
   }
   100% {
-    box-shadow:
-      0 0 0 2px transparent,
-      var(--tugx-pane-shadow-active);
+    box-shadow: inset 0 0 0 2px transparent;
   }
 }
-.tug-pane-flash .tug-pane-chrome {
+.tug-pane-flash::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--tugx-pane-flash-radius, var(--tug-radius-md));
+  pointer-events: none;
+  z-index: 3;
   animation: tug-pane-border-flash var(--tugx-card-flash-duration, 1750ms) ease-out;
+}
+
+/* The ring traces the chrome, so it takes the chrome's corners wherever those
+   are not a card's: a pinned rail is a panel with square ones, and a member of
+   a set squares off for the same reason (`chrome.css`). */
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side],
+.tug-pane[data-in-set="true"] {
+  --tugx-pane-flash-radius: 0px;
 }
 
 /* ============================================================================

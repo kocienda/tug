@@ -43,18 +43,24 @@ let cancelActiveFlash: (() => void) | null = null;
 
 /** Slack over the flash's own duration before the backstop fires. */
 const FLASH_BACKSTOP_SLACK_MS = 500;
-/** Used only when the computed duration can't be read (no chrome element yet). */
+/** Used only when the computed duration can't be read (nothing animated to ask). */
 const FLASH_BACKSTOP_FALLBACK_MS = 2000;
 
 /**
- * How long the flash runs, read from the element the keyframes are on — so the
+ * How long the flash runs, read from the box the keyframes are on — so the
  * backstop follows `--tugx-card-flash-duration` (`tug-pane.css`) instead of
  * carrying a second copy of the number that can drift out of step with it.
+ *
+ * `pseudo` is for the subject whose animated box is a pseudo-element rather
+ * than an element: the pane's ring is `::before` on the frame, which no
+ * `querySelector` can reach and only `getComputedStyle`'s second argument can
+ * be asked about. Read AFTER the class is on, or the box has no animation to
+ * report and every flash falls back to the fixed default.
  */
-function flashBackstopMs(host: HTMLElement, animatedSelector: string): number {
-  const animated = host.querySelector(animatedSelector);
-  if (!(animated instanceof HTMLElement)) return FLASH_BACKSTOP_FALLBACK_MS;
-  const declared = getComputedStyle(animated).animationDuration.split(",")[0]?.trim() ?? "";
+function flashBackstopMs(animated: Element | null, pseudo?: string): number {
+  if (animated === null) return FLASH_BACKSTOP_FALLBACK_MS;
+  const declared =
+    getComputedStyle(animated, pseudo ?? null).animationDuration.split(",")[0]?.trim() ?? "";
   const seconds = declared.endsWith("ms")
     ? Number.parseFloat(declared) / 1000
     : Number.parseFloat(declared);
@@ -102,7 +108,7 @@ export function flashPaneBorder(paneId: string, allowRetry = true): void {
   // A window whose rendering is suspended never ticks the keyframes, so
   // `animationend` never arrives and the ring would rest on the pane forever.
   // The timer is the only thing that guarantees the flash is one-shot.
-  const backstop = window.setTimeout(clear, flashBackstopMs(paneEl, ".tug-pane-chrome"));
+  const backstop = window.setTimeout(clear, flashBackstopMs(paneEl, "::before"));
   cancelActiveFlash = clear;
 }
 
@@ -161,7 +167,7 @@ export function flashVacantSlot(slot: number): void {
   el.addEventListener("animationend", onEnd);
   // Same reason as the pane's: a window whose rendering is suspended never
   // ticks the keyframes, so the timer is what makes the flash one-shot.
-  const backstop = window.setTimeout(clear, flashBackstopMs(el, ".tug-slot"));
+  const backstop = window.setTimeout(clear, flashBackstopMs(el.querySelector(".tug-slot")));
   cancelActiveFlash = clear;
 }
 
