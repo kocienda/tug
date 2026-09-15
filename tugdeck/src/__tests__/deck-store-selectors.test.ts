@@ -16,6 +16,7 @@ import {
   deckColumnsOf,
   deckFlowStrip,
   isFocusDestination,
+  isUnboundMember,
   paneFoldedOf,
   cardFoldedOf,
   placeMembers,
@@ -1058,5 +1059,190 @@ describe("a reserving member's place divides around the claim", () => {
       SEAM,
     ).standing;
     expect(standing).toBe("overflow");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isUnboundMember — the unbound form, derived from deck state ([B03])
+// ---------------------------------------------------------------------------
+
+describe("isUnboundMember derives the unbound form from deck state", () => {
+  const RESERVED = 524;
+
+  /** A card type shaped like the Session card: it declares an opening form,
+   *  so a standing reservation on its member means its opening sheet is up. */
+  function registerOpener(): void {
+    _resetForTest();
+    registerCard({
+      componentId: "opener",
+      contentFactory: () => null,
+      defaultMeta: { title: "Opener", closable: true },
+      sizePolicy: {
+        min: { width: 400, height: 600 },
+        preferred: { width: 600, height: 1200 },
+      },
+      openingForm: () => null,
+    });
+    registerCard({
+      componentId: "plain",
+      contentFactory: () => null,
+      defaultMeta: { title: "Plain", closable: true },
+      sizePolicy: {
+        min: { width: 400, height: 600 },
+        preferred: { width: 600, height: 1200 },
+      },
+    });
+  }
+
+  function openerState(
+    opts: {
+      reserved?: boolean;
+      componentId?: string;
+      secondCard?: boolean;
+    } = {},
+  ): DeckState {
+    const cardIds = opts.secondCard === true ? ["card-a", "card-b"] : ["card-a"];
+    return {
+      cards: [
+        makeCard("card-a", opts.componentId ?? "opener"),
+        makeCard("card-b", "plain"),
+      ],
+      panes: [makePane("pane-a", cardIds, "card-a")],
+      imposition: { sidebars: {} },
+      hasFocus: true,
+      ...(opts.reserved === false
+        ? {}
+        : { sheetReservations: { "pane-a": RESERVED } }),
+    };
+  }
+
+  test("true with a standing reservation on a lone card that declares an opening form", () => {
+    registerOpener();
+    expect(isUnboundMember(openerState(), "pane-a")).toBe(true);
+  });
+
+  test("false once the reservation is cleared", () => {
+    // The span [B02] asks for ends where the reservation does: at binding or
+    // teardown, `reserveSheetHeightForCard(cardId, null)` drops it and the
+    // member goes back to its ordinary floor.
+    registerOpener();
+    expect(isUnboundMember(openerState({ reserved: false }), "pane-a")).toBe(
+      false,
+    );
+  });
+
+  test("false when a second card stands in the pane", () => {
+    // The unbound height is the one card's own sheet; a pane holding two cards
+    // is a box that has to fit them both, the same reading the opening bid's
+    // guard already takes.
+    registerOpener();
+    expect(isUnboundMember(openerState({ secondCard: true }), "pane-a")).toBe(
+      false,
+    );
+  });
+
+  test("false for a card type that declares no opening form", () => {
+    // A card type with no unbound form reads as its ordinary self, whatever a
+    // sheet standing on it happens to have reserved.
+    registerOpener();
+    expect(
+      isUnboundMember(openerState({ componentId: "plain" }), "pane-a"),
+    ).toBe(false);
+  });
+
+  test("false for a member that is no pane — a pinned sidebar member", () => {
+    registerOpener();
+    const state: DeckState = {
+      ...openerState(),
+      sheetReservations: { railcard: RESERVED },
+    };
+    expect(isUnboundMember(state, "railcard")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// placeMembers reads the unbound policy for an unbound member ([B01], [D195])
+// ---------------------------------------------------------------------------
+
+describe("placeMembers floors an unbound member at its own sheet's height", () => {
+  /** The Session card's ordinary floor: the transcript's, which an unbound
+   *  card has none of. */
+  const FLOOR = 600;
+  /** The picker's own measured height, from the arrival log this arc reads. */
+  const RESERVED = 524;
+
+  /** A card type shaped like the Session card: a tall ordinary floor, an
+   *  opening form, and an unbound WIDTH declaration — which is what
+   *  `getUnboundSizePolicy` composes a zero height floor from. */
+  function registerOpener(): void {
+    _resetForTest();
+    registerCard({
+      componentId: "opener",
+      contentFactory: () => null,
+      defaultMeta: { title: "Opener", closable: true },
+      sizePolicy: {
+        min: { width: 400, height: FLOOR },
+        preferred: { width: 600, height: 1200 },
+      },
+      unboundWidthPolicy: { min: 400, preferred: 600 },
+      openingForm: () => null,
+    });
+  }
+
+  function state(opts: { reserved?: boolean; bid?: number } = {}): DeckState {
+    return {
+      cards: [makeCard("card-a", "opener")],
+      panes: [makePane("pane-a", ["card-a"], "card-a")],
+      imposition: { sidebars: {} },
+      hasFocus: true,
+      ...(opts.reserved === false
+        ? {}
+        : { sheetReservations: { "pane-a": RESERVED } }),
+      ...(opts.bid === undefined ? {} : { openingBids: { "pane-a": opts.bid } }),
+    };
+  }
+
+  test("a 524 reservation stands at 524 while the card is unbound", () => {
+    // The defect this arc is about: the picker measured 524 and the column
+    // floored it at 600, so the panel carried 76 px of dead air and the column
+    // overflowed further than it needed to ([F03]).
+    registerOpener();
+    const members = placeMembers(state(), "column", ["pane-a"], undefined);
+    expect(members[0].floor).toBe(RESERVED);
+  });
+
+  test("the member is back at its ordinary floor when the reservation clears", () => {
+    // Binding or teardown drops the reservation, the derivation stops
+    // answering, and the card reads as its ordinary self again.
+    registerOpener();
+    const members = placeMembers(
+      state({ reserved: false }),
+      "column",
+      ["pane-a"],
+      undefined,
+    );
+    expect(members[0].floor).toBe(FLOOR);
+  });
+
+  test("an opening bid above the reservation still wins the ladder", () => {
+    // The unbound policy removes the ordinary floor from the Math.max; it does
+    // not make the other two terms read differently.
+    registerOpener();
+    const members = placeMembers(
+      state({ bid: 560 }),
+      "column",
+      ["pane-a"],
+      undefined,
+    );
+    expect(members[0].floor).toBe(560);
+  });
+
+  test("the member keeps its weight — an unbound floor is not a band", () => {
+    registerOpener();
+    const members = placeMembers(state(), "column", ["pane-a"], {
+      "pane-a": 0.4,
+    });
+    expect(members[0].weight).toBe(0.4);
+    expect(members[0].ceiling).toBeUndefined();
   });
 });

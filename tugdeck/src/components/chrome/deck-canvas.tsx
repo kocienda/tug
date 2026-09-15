@@ -76,6 +76,7 @@ import {
   deckVacancyExtent,
   type DeckColumn,
   findSidebarPanes,
+  isUnboundMember,
   paneRenderWidthOf,
   placeMembers,
   placeSeamFractions,
@@ -5202,7 +5203,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               // the open card's 600px floor is what its transcript and
               // composer need, and a wall cannot pack while every member
               // still claims it.
-              { folded: stackState.folded === true },
+              //
+              // And an UNBOUND pane is sized by the unbound policy ([B04],
+              // [D195]), on the same fact `placeMembers` reads, so the frame's
+              // resize floor and the column's member floor are one answer
+              // rather than two. The unbound policy's height floor is zero, and
+              // `TugPane` floors its chrome-measured `minSize` to
+              // `sizePolicy.min` — so what stands is the chrome's own
+              // measurement rather than a collapsed frame. The hidden arriving
+              // seat is untouched by this: it comes from the `arriving` prop,
+              // resolved from `DeckState.arriving`, not from `minSize`.
+              {
+                folded: stackState.folded === true,
+                unbound: isUnboundMember(deckState, stackState.id),
+              },
             )}
             zIndex={zIndexMap.get(stackState.id) ?? CARD_ZINDEX_BASE}
             placement={placementFor(stackState)}

@@ -28,6 +28,7 @@
 import type { DeckState, TugPaneState } from "./layout-tree";
 import {
   getAllRegistrations,
+  getRegistration,
   getStackSizePolicy,
   isSidebarCard,
 } from "./card-registry";
@@ -512,6 +513,50 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
 }
 
 /**
+ * `isUnboundMember(state, memberId)` — true when the member is a card standing
+ * in its UNBOUND form, and its height floor is therefore its own sheet's rather
+ * than the ordinary floor its card type declares ([D195], [B01]).
+ *
+ * The form is DERIVED from what the deck already holds, not stored ([B03]): a
+ * pane holding exactly ONE card, whose card type declares
+ * {@link CardRegistration.openingForm}, with a sheet reservation STANDING on
+ * the member. No binding store is read — binding lives in
+ * `cardSessionBindingStore`, which notifies separately, and a column that
+ * re-divides one notify after the card bound is a motion ([F05], [B03]).
+ *
+ * The invariant it rests on, and the reason the derivation is sound rather
+ * than lucky: on the Session card, `session-card.tsx` enrols
+ * `reportNaturalHeight` on the PICKER sheet and no other — "No other sheet on
+ * this card is enrolled: a blanket reservation would couple the deck's
+ * division to the height of content nobody bounded" — so on a card type that
+ * declares an opening form, a standing reservation means the opening sheet is
+ * up, by that card's own declared rule. A SECOND enrolment on such a card type
+ * would break this reading, and this comment is where it collides with the
+ * fact that it does.
+ *
+ * It stands from the hidden sheet's first report until
+ * `reserveSheetHeightForCard(cardId, null)` clears it at binding or teardown,
+ * which is the span [B02] asks for: the floor is the picker's from its first
+ * frame to its last, and the card never grows back to its ordinary floor while
+ * the picker is up. The opening BID cannot carry the fact — `sheetClaimWith`
+ * clears it on the first report at least as high, which is the picker's own
+ * first live report ([F04]).
+ *
+ * Resolves the member through `state.panes`, so a pinned sidebar member — keyed
+ * by componentId rather than by pane id — finds no pane and answers false. No
+ * sidebar card type declares an opening form, so that is the right answer
+ * rather than a gap.
+ */
+export function isUnboundMember(state: DeckState, memberId: string): boolean {
+  if (state.sheetReservations?.[memberId] === undefined) return false;
+  const pane = state.panes.find((p) => p.id === memberId);
+  if (pane === undefined || pane.cardIds.length !== 1) return false;
+  const card = state.cards.find((c) => c.id === pane.cardIds[0]);
+  if (card === undefined) return false;
+  return getRegistration(card.componentId)?.openingForm !== undefined;
+}
+
+/**
  * Each member of a place, as the allocator reads it: its floor from the stack
  * size policy, and the weight the user's own seam drags stored.
  *
@@ -540,6 +585,14 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
  * thing standing on the member wins, the member keeps its weight, and the
  * measurement that arrives a commit later supersedes the declaration by being
  * larger or by making it moot.
+ *
+ * And an unbound member reads its stack policy in the UNBOUND form
+ * ({@link isUnboundMember}, [D195]), which is the term that used to defeat all
+ * of this: the ordinary floor is the TRANSCRIPT's, an unbound card has no
+ * transcript, and a 600 read for one held every new Session card above the
+ * height its own picker measured. With the unbound policy's zero height floor
+ * the ladder is the reservation and the bid, which is to say the picker's own
+ * height and nothing else.
  *
  * The one member that reads differently is a FOLDED column member ([P05]).
  * Its floor is its stack's folded policy, its ceiling is the same number —
@@ -612,10 +665,22 @@ export function placeMembers(
       kind === "column" && pane?.cardIds.length === 1
         ? state.openingBids?.[id]
         : undefined;
+    // An UNBOUND member reads its card type's unbound policy rather than its
+    // ordinary one ([B01], [F01]). `getUnboundSizePolicy` answers a ZERO height
+    // floor for a card type declaring `unboundWidthPolicy`, so the ladder below
+    // collapses to `max(reservation, bid)` — the picker's own height, which is
+    // what [D195] decided. The 600 that used to win here is the TRANSCRIPT's
+    // floor, and an unbound card has no transcript.
+    //
+    // Read after the folded branch and on the same one-card guard the declared
+    // bid takes, for the same two reasons: folding is the stronger statement,
+    // and an unbound height is the one card's own sheet rather than a box that
+    // has to fit two.
+    const unbound = kind === "column" && isUnboundMember(state, id);
     return {
       id,
       floor: Math.max(
-        getStackSizePolicy(componentIds).min.height,
+        getStackSizePolicy(componentIds, { unbound }).min.height,
         state.sheetReservations?.[id] ?? 0,
         declared ?? 0,
       ),
