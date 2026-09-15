@@ -262,10 +262,6 @@ pub enum Commands {
     #[command(subcommand)]
     Arc(ArcCommands),
 
-    /// Standing tripwires — what watches, what it says, and what it did.
-    #[command(subcommand)]
-    Tripwire(TripwireCommands),
-
     /// Plan documents — mechanical conformance against the devise skeleton.
     #[command(subcommand)]
     Plan(PlanCommands),
@@ -494,120 +490,6 @@ pub enum DraftCommands {
         /// registered port via $TMPDIR/tug-instances.json).
         #[arg(long)]
         instance: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum TripwireCommands {
-    /// Lay a tripwire: what to watch for, and what to say about it when it fires.
-    Lay {
-        /// Tripwire name (its address; must be unique on this machine).
-        name: String,
-        /// What trips it: `fact:<kind>`.
-        #[arg(long)]
-        on: String,
-        /// Narrow a fact trigger by its payload, repeatable:
-        /// `field=value` (exact), `field~=substr`, `field^=prefix`.
-        #[arg(long = "where")]
-        clauses: Vec<String>,
-        /// Only fire on events under this path. Unscoped fires machine-wide.
-        #[arg(long)]
-        scope: Option<String>,
-        /// A command run before any model is summoned. Exit 0 settles the trip
-        /// for free, with no session spawned at all.
-        #[arg(long)]
-        probe: Option<String>,
-        /// What the tripwire asks for when it fires. `@path` reads a file.
-        #[arg(long)]
-        brief: String,
-        /// One sentence saying what this tripwire does and when it will
-        /// speak. This is the line the Tripwires card shows; the brief is
-        /// the model's prompt and never appears there.
-        #[arg(long)]
-        description: String,
-        /// Model to run the trip on. Absent uses the default.
-        #[arg(long)]
-        model: Option<String>,
-        /// Permission mode for the trip's one session.
-        #[arg(long = "permission-mode")]
-        permission_mode: Option<String>,
-        /// How long a trip of this tripwire may run before the engine
-        /// interrupts its session and closes it. Defaults to 120.
-        #[arg(long = "max-seconds")]
-        max_seconds: Option<i64>,
-        /// How many tool calls a trip of this tripwire may spend before the
-        /// same thing happens. Defaults to 30.
-        #[arg(long = "max-tool-calls")]
-        max_tool_calls: Option<i64>,
-        /// Parse and echo the normalized tripwire, writing nothing.
-        #[arg(long)]
-        preview: bool,
-    },
-    /// Every tripwire laid on this machine.
-    List,
-    /// Change a tripwire. Every flag is optional; what is not named is left alone.
-    Edit {
-        /// Tripwire name.
-        name: String,
-        #[arg(long)]
-        on: Option<String>,
-        #[arg(long = "where")]
-        clauses: Vec<String>,
-        #[arg(long)]
-        scope: Option<String>,
-        #[arg(long)]
-        probe: Option<String>,
-        #[arg(long)]
-        brief: Option<String>,
-        /// Rewrite the one sentence the Tripwires card shows. Not clearable:
-        /// the card leads with it.
-        #[arg(long)]
-        description: Option<String>,
-        #[arg(long)]
-        model: Option<String>,
-        #[arg(long = "permission-mode")]
-        permission_mode: Option<String>,
-        /// Rewrite the wall-clock cap a trip of this tripwire runs under.
-        #[arg(long = "max-seconds")]
-        max_seconds: Option<i64>,
-        /// Rewrite the tool-call cap a trip of this tripwire runs under.
-        #[arg(long = "max-tool-calls")]
-        max_tool_calls: Option<i64>,
-        /// Clear a column rather than set it, repeatable:
-        /// `scope`, `probe`, or `model`.
-        #[arg(long)]
-        clear: Vec<String>,
-        /// Parse and echo the change, writing nothing.
-        #[arg(long)]
-        preview: bool,
-    },
-    /// Remove a tripwire and its trip log. Refused while a trip is running.
-    Rm {
-        /// Tripwire name.
-        name: String,
-    },
-    /// Take a tripwire out of service, keeping it and its log.
-    Pause {
-        /// Tripwire name.
-        name: String,
-    },
-    /// Put a paused tripwire back into service.
-    Resume {
-        /// Tripwire name.
-        name: String,
-    },
-    /// A tripwire's trip log — every firing, including the swallowed ones.
-    Log {
-        /// Tripwire name.
-        name: String,
-        /// How many trips to show, newest first.
-        #[arg(long, default_value_t = 20)]
-        limit: i64,
-    },
-    /// Fire a tripwire by hand, whatever it is watching for.
-    Trip {
-        /// Tripwire name.
-        name: String,
     },
 }
 

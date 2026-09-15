@@ -48,7 +48,6 @@ mod session_tag_lexicon;
 mod shared_agent;
 mod shell_ledger;
 mod terminal_registry;
-mod tripwires_api;
 mod turn_engine;
 mod wheel;
 mod workspace_api;
@@ -1844,34 +1843,6 @@ async fn main() {
         turn_complete_rx,
     ));
 
-    // TRIPWIRE — standing tripwires that watch the facts this instance
-    // records, and decide whether one is worth acting on ([B01]). A sibling of
-    // the Overview rather than a part of it: it reads the same facts and will
-    // post to the same feed, but it is its own task with its own
-    // machine-global ledger, so nothing here is reachable from an Observer
-    // wake. Its one trigger arrives on the process-global fact channel
-    // `record_fact_tx` sends on, so there is nothing to subscribe here.
-    tokio::spawn(feeds::tripwire::run_tripwire_engine(
-        feeds::tripwire::TripwireEngineConfig {
-            ledger: Arc::clone(&ledger),
-            db_path: tugcore::instance::tripwires_db_path(),
-            instance: tugcore::instance::instance_id().unwrap_or_else(|| "default".to_string()),
-            now_ms: Arc::new(crate::session_ledger::now_millis),
-            // A firing borrows the supervisor to open its cardless sessions
-            // ([P04], [P11]) — the same supervisor the cards use, because a
-            // tripwire's session is an ordinary one in every respect but who
-            // asked for it.
-            sessions: Some(Arc::new(
-                feeds::tripwire_session::SupervisorTripwireSessions::new(
-                    Arc::clone(&supervisor),
-                    Arc::clone(&ledger),
-                ),
-            )),
-            overview_tx: Some(overview_tx.clone()),
-            cancel: cancel.clone(),
-        },
-    ));
-
     // The arc runner: rotate a server-driven arc's next stage onto the
     // card it is bound to. Its primary wake is the same idle transition
     // base-motion takes, on a sibling channel because an mpsc has one consumer
@@ -1945,22 +1916,6 @@ async fn main() {
     let (jots_rx, jots_nudge) = feeds::jots::jots_feed(jots_file_path.clone());
     let jots_state = Some(jots::JotsState::new(jots_file_path, jots_nudge));
 
-    // TRIPWIRES feed — the whole tripwire roster, pushed to every client and
-    // republished when the ledger moves ([P01]). Deliberately **not** gated on
-    // `app_test_gated()` the way the tripwire engine is: the gate keeps a test
-    // from spawning real AI sessions, and this feed spawns nothing — it reads
-    // one ledger. The card's liveness is what the app-tests assert, so gating
-    // it out would gate out the thing under test.
-    let (tripwires_tx, tripwires_rx) =
-        tokio::sync::watch::channel(Frame::new(FeedId::TRIPWIRES, vec![]));
-    tugcast_core::spawn_snapshot_feed(
-        Box::new(feeds::tripwires::TripwiresFeed::new(
-            tugcore::instance::tripwires_db_path(),
-        )),
-        tripwires_tx,
-        cancel.clone(),
-    );
-
     let mut snapshot_watches = vec![
         bootstrap.fs_watch_rx.clone(),
         bootstrap.ft_watch_rx.clone(),
@@ -1970,7 +1925,6 @@ async fn main() {
         snapshot_watches.push(rx);
     }
     snapshot_watches.push(jots_rx);
-    snapshot_watches.push(tripwires_rx);
     // SESSION_SIDEBAND and session_init snapshots moved to supervisor (Step 8).
     feed_router.add_snapshot_watches(snapshot_watches);
     // Multi-workspace FILETREE response stream — registered once. Every

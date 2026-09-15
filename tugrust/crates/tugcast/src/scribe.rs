@@ -870,7 +870,7 @@ mod tests {
                        Session restore now renders every live turn exactly once — abandoned\n\
                        branches suppressed, compaction re-appends deduplicated.\n\
                        \n\
-                       - Pin the committed re-append fixture with a tripwire that reimplements the\n  \
+                       - Pin the committed re-append fixture with a guard that reimplements the\n  \
                        pre-fix last-wins walk and holds its 980-entry dead set.\n\
                        - State dead-set validity as three properties.\n";
         assert_eq!(
@@ -879,7 +879,7 @@ mod tests {
              \n\
              Session restore now renders every live turn exactly once — abandoned branches suppressed, compaction re-appends deduplicated.\n\
              \n\
-             - Pin the committed re-append fixture with a tripwire that reimplements the pre-fix last-wins walk and holds its 980-entry dead set.\n\
+             - Pin the committed re-append fixture with a guard that reimplements the pre-fix last-wins walk and holds its 980-entry dead set.\n\
              - State dead-set validity as three properties."
         );
     }

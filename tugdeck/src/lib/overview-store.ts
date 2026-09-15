@@ -169,8 +169,8 @@ export const PENDING_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
  * than a wire change: `OverviewPostEntry.sessionId` has always been there.
  *
  * The author filter is the whole of it. The channel also carries the user's
- * own questions, the Operator's answers and the tripwire's notices, and none
- * of those is an account of what the session is doing — a masthead that showed
+ * own questions and the Operator's answers, and neither of those is an account
+ * of what the session is doing — a masthead that showed
  * the reader their own question back would be saying less than the blank it
  * replaced. An app-wide post (`sessionId` null) is never returned either: this
  * line is about ONE session, and ambience is not.

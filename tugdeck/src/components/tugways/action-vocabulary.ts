@@ -782,8 +782,6 @@ export const TUG_ACTIONS = {
   // TOGGLE_JOTS:            payload — none. Show/hide the Jots rail. A menu
   //                         row, chord-less by default: the keyboard addresses
   //                         the RAIL (TOGGLE_RAIL), not the cards on it.
-  // TOGGLE_TRIPWIRES:       payload — none. Show/hide the Tripwires rail. As
-  //                         above.
   // TOGGLE_ARCS:            payload — none. Show/hide the Arcs rail. As
   //                         above.
   // TOGGLE_CARDS:           payload — none. Show/hide the Cards rail. As
@@ -966,7 +964,6 @@ export const TUG_ACTIONS = {
   SHOW_KEYBOARD_SHORTCUTS: "show-keyboard-shortcuts",
   SHOW_DEVTOOLS:          "show-devtools",
   TOGGLE_JOTS:            "toggle-jots",
-  TOGGLE_TRIPWIRES:       "toggle-tripwires",
   TOGGLE_ARCS:            "toggle-arcs",
   TOGGLE_CARDS:           "toggle-cards",
   TOGGLE_LAYOUT:          "toggle-layout",
@@ -1166,55 +1163,6 @@ export const TUG_ACTIONS = {
   UNBIND_ARC:            "unbind-arc",
   REQUEST_DISCARD_ARC:   "request-discard-arc",
   REQUEST_REPLAY_ARC:     "request-replay-arc",
-
-  // ---- The tripwire row's verbs ----
-  //
-  // Chain actions, both: each is a menu row over a sampled target — "the
-  // tripwire this row is" — and PAUSE/RESUME and SET_TRIPWIRE_MODEL are also
-  // control frames, emitted by the row's pause control and its model popup.
-  // None is a chord: a tripwire is addressed by pointing at the row it is.
-  // Every one lands on a `tripwiresStore` call the store already has, so
-  // minting them fetches nothing new.
-  //
-  // PAUSE_TRIPWIRE:        payload — none. Stop this tripwire firing, via
-  //                        `setKnobs({ paused: true })`. Split from its
-  //                        complement rather than one toggle, because both
-  //                        doors — the row's control and the menu item — say
-  //                        which way they go, and a toggle would make each ask
-  //                        the reader to remember the row's state.
-  // RESUME_TRIPWIRE:       payload — none. The complement, `setKnobs({ paused:
-  //                        false })`. The two never appear together; the row
-  //                        carries whichever it is.
-  // TRIP_TRIPWIRE:         payload — none. Fire this tripwire by hand — the
-  //                        same queued row `tugtool tripwire trip` writes.
-  //                        Disabled, with the reason in its label, while a
-  //                        trip is already running.
-  // OPEN_TRIPWIRE_SESSION: payload — none. Open the session the tripwire's
-  //                        newest trip that had one is in, on a card — the
-  //                        gesture the row's live dot performs, under the
-  //                        keyboard's name. Disabled, with the reason in its
-  //                        label, when no trip has ever run.
-  // SET_TRIPWIRE_MODEL:    payload — `value: string`. The model this tripwire's
-  //                        trips run under, by name, written with
-  //                        `setKnobs({ model })`. The session default is its
-  //                        own item on the popup and writes `null`.
-  // DELETE_TRIPWIRE:       payload — none. Arms the card's one confirm popover
-  //                        rather than deleting: the item names the tripwire
-  //                        the row is, and the popover names what goes with it
-  //                        — the trip log, and the arc an awaiting trip is
-  //                        holding. Spelled without the `REQUEST_` the arc
-  //                        row's discard carries because the doctrine and the
-  //                        card both call the verb Delete, and the arming is
-  //                        what the item does rather than what it is.
-  //                        Disabled, with the reason in its label, while a
-  //                        trip is running: that refusal is the ledger's, and
-  //                        the CLI states the same one.
-  PAUSE_TRIPWIRE:        "pause-tripwire",
-  RESUME_TRIPWIRE:       "resume-tripwire",
-  TRIP_TRIPWIRE:         "trip-tripwire",
-  OPEN_TRIPWIRE_SESSION: "open-tripwire-session",
-  SET_TRIPWIRE_MODEL:    "set-tripwire-model",
-  DELETE_TRIPWIRE:       "delete-tripwire",
 
   // ---- Meta ----
   //

@@ -228,7 +228,6 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "set-theme": "command",
   reload: "command",
   "toggle-jots": "command",
-  "toggle-tripwires": "command",
   "toggle-arcs": "command",
   "toggle-cards": "command",
   "toggle-layout": "command",
@@ -425,8 +424,8 @@ const SHIPPED_CHORDS: ReadonlyArray<readonly [chord: string, commandId: string]>
  */
 const MOVED_SINCE_THE_MAP: ReadonlyMap<string, string> = new Map([
   [TUG_ACTIONS.INSERT_FILE, "⇧⌘I"],
-  // ⌃⌘T is the Tripwires sidebar row's; a theme has no ⌘T base to be a
-  // variant of, so it is the one of the two free to sit anywhere.
+  // A theme has no ⌘T base to be a variant of, so next-theme is free to sit
+  // anywhere — which is how it came to hold ⇧⌘T rather than ⌃⌘T.
   ["next-theme", "⇧⌘T"],
   // The turn family moved off the arrows and onto the brackets ([D184]): a
   // bracket steps a series and a transcript is one, so directional card focus
@@ -447,8 +446,8 @@ const MOVED_SINCE_THE_MAP: ReadonlyMap<string, string> = new Map([
  */
 const RETIRED_SINCE_THE_MAP: ReadonlySet<string> = new Set([
   "cycle-card",
-  // The Lens card was dissolved into Cards, Arcs, Layout and Tripwires, and
-  // its two commands went with it. ⌘L and ⌥⌘L returned to their pools; nothing
+  // The Lens card was dissolved into the sidebar cards, and its two commands
+  // went with it. ⌘L and ⌥⌘L returned to their pools; nothing
   // answers either wire, so a keymap entry naming one is dropped on load.
   "focus-lens",
   "toggle-lens",
@@ -456,7 +455,7 @@ const RETIRED_SINCE_THE_MAP: ReadonlySet<string> = new Set([
 
 /**
  * Chords added after the map, which by construction it cannot record: their
- * commands did not exist when it was written — plus the six sidebar-toggle
+ * commands did not exist when it was written — plus the five sidebar-toggle
  * chords ([D172]), which are here rather than in the transcription because
  * two of them sit on letters the map never gave them: Cards on W, against its
  * coming rename to Workspaces, and Layout on L.
@@ -468,7 +467,6 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   ["⌃⌘J", TUG_ACTIONS.TOGGLE_JOTS],
   ["⌃⌘L", TUG_ACTIONS.TOGGLE_LAYOUT],
   ["⌃⌘O", TUG_ACTIONS.TOGGLE_OVERVIEW],
-  ["⌃⌘T", TUG_ACTIONS.TOGGLE_TRIPWIRES],
   ["⌥⌘[", TUG_ACTIONS.PREVIOUS_STACK_CARD],
   ["⌥⌘]", TUG_ACTIONS.NEXT_STACK_CARD],
   // The card's fold, in the Tug tier beside the Session menu's own ⌃⌘C and

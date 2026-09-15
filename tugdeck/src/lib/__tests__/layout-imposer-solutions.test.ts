@@ -743,7 +743,7 @@ describe("the allocator's solution space", () => {
 
     // The solver runs on every settled resize, and the sweep that chooses its
     // total is the one part of it that could get expensive. This is an
-    // order-of-magnitude tripwire, not a benchmark — it sits far enough above
+    // order-of-magnitude guard, not a benchmark — it sits far enough above
     // the ~13s this takes to be immune to a busy machine and still catch a
     // search that grew a factor of ten. One allocate is 0.1ms at its worst,
     // which is what buys the exhaustive sweep; what this guards is that the

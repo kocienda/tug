@@ -102,11 +102,11 @@ describe("the wheel's prompts on a reload", () => {
     // args. Every prompt the arc sends is a slash command, so this is the
     // ordinary case, not an edge one.
     const sent =
-      "/tugplug:arc-implement tripwire Steps 4-13 — close one step and end your turn";
+      "/tugplug:arc-implement lens-breakout Steps 4-13 — close one step and end your turn";
     const jsonl = [
       commandUser(
         "/tugplug:arc-implement",
-        "tripwire Steps 4-13 — close one step and end your turn",
+        "lens-breakout Steps 4-13 — close one step and end your turn",
       ),
       assistant("m1", "on it"),
     ].join("\n");

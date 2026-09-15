@@ -47,7 +47,6 @@ import {
   isSidebarSide,
 } from "@/lib/layout-imposer";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
-import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
 import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
@@ -552,10 +551,6 @@ export function initActionDispatch(
     toggleSidebarCard(deckManager, JOTS_CARD_ID);
   });
 
-  registerAction("toggle-tripwires", () => {
-    toggleSidebarCard(deckManager, TRIPWIRES_CARD_ID);
-  });
-
   registerAction("toggle-arcs", () => {
     toggleSidebarCard(deckManager, ARCS_CARD_ID);
   });
@@ -980,14 +975,6 @@ export function initActionDispatch(
   // host card, which is the card the reader is pointing at even when the
   // right-click has not moved first responder; the first responder is the
   // fallback for a dispatch that names no origin.
-  //
-  // `activate: false` is the one variation, and it comes with a second: a
-  // caller that does not activate names **no slot either**. A trip's card is
-  // opened by a controller with no origin and no business taking the slot
-  // beside whatever the user happens to be focused on — the neighbour rule
-  // would do exactly that and split the column [P08] says a trip's card never
-  // splits. With no slot, `addCard`'s own opening bid gives it whichever slot
-  // the band is showing, which is the arriving-from-nowhere rule.
   registerAction(TUG_ACTIONS.RESUME_SESSION, (payload) => {
     const sessionId = payload.sessionId;
     const projectDir = payload.projectDir;
@@ -995,7 +982,6 @@ export function initActionDispatch(
       console.warn("resume-session: missing sessionId or projectDir", payload);
       return;
     }
-    const activate = payload.activate !== false;
     const outgoing = deckManager.getFirstResponderCardId();
     const origin =
       typeof payload.originCardId === "string" ? payload.originCardId : null;
@@ -1003,20 +989,16 @@ export function initActionDispatch(
     // rail — the Overview, the Cards card — names a card that holds no slot of its
     // own and so has no neighbour to offer, and the reader's focused card is
     // the better answer than the head of the arrangement.
-    const slot = activate
-      ? (neighborSlot(deckManager, origin) ??
-        neighborSlot(deckManager, outgoing))
-      : undefined;
+    const slot =
+      neighborSlot(deckManager, origin) ??
+      neighborSlot(deckManager, outgoing);
     // Save-before-activation ([L23]): `addCard` activates the fresh card
     // directly, so the surface that dispatched this — the identity row's
     // menu, mounted in some other card — must bank its focus bag first.
-    // Nothing is leaving when the card arrives without activating, so there
-    // is no outgoing bag to bank.
-    if (activate && outgoing !== null) deckManager.invokeSaveCallback(outgoing);
+    if (outgoing !== null) deckManager.invokeSaveCallback(outgoing);
     const cardId = deckManager.addCard("session", undefined, {
       slot,
       opening: "bound",
-      activate,
     });
     if (cardId === null) {
       console.warn("resume-session: no session card registration");

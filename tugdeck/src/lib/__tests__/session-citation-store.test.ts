@@ -79,7 +79,7 @@ describe("what the ledger said", () => {
       found: [
         {
           queried: FULL,
-          session: row({ state: "live", card_id: "tripwire:w", background: true }),
+          session: row({ state: "live", card_id: "background:w", background: true }),
         },
       ],
       unknown: [],

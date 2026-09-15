@@ -2539,17 +2539,9 @@ pub async fn relay_session_io(
                                 match InspectedReplayBatch::from_slice(line.as_bytes()) {
                                     Some(batch) => {
                                         let mut recorded_any = false;
-                                        // Every tool call in the batch, counted
-                                        // for the tripwire ceiling ([P07]).
-                                        // Tallied here and added under the
-                                        // entry lock once below, rather than
-                                        // taking the lock up to 256 times for
-                                        // one replayed turn.
-                                        let mut tool_calls = 0u32;
                                         for inner in &batch.frames {
                                             let bytes = inner.get().as_bytes();
                                             if let Some(tu) = InspectedToolUse::from_slice(bytes) {
-                                                tool_calls += 1;
                                                 // Every Bash call, before any
                                                 // attribution filter sees it
                                                 // ([P06]). Replayed history
@@ -2695,10 +2687,6 @@ pub async fn relay_session_io(
                                         if recorded_any {
                                             changeset_bumper.bump(Path::new(project_dir));
                                         }
-                                        if tool_calls > 0 {
-                                            ledger_entry.lock().await.tool_calls +=
-                                                tool_calls;
-                                        }
                                     }
                                     None => {
                                         warn!(
@@ -2718,12 +2706,6 @@ pub async fn relay_session_io(
                                 // but fails both parses is shape drift that
                                 // must be loud, not silent.
                                 if let Some(tu) = InspectedToolUse::from_slice(line.as_bytes()) {
-                                    // The session's own count, which a
-                                    // tripwire's ceiling is a ceiling on
-                                    // ([P07]). Before every filter below: a
-                                    // `Read` is not attribution's business and
-                                    // is very much the budget's.
-                                    ledger_entry.lock().await.tool_calls += 1;
                                     // Every Bash call, ahead of every filter
                                     // ([P06]) — the attribution maps below
                                     // admit only file-operation commands in a

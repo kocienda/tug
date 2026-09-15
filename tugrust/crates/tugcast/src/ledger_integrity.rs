@@ -24,7 +24,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::Connection;
 use rusqlite::types::Value;
 
-/// Process-global ledger health — the runtime corruption tripwire.
+/// Process-global ledger health — the runtime corruption guard.
 ///
 /// Any statement that fails with a corruption-class SQLite error
 /// (`SQLITE_CORRUPT` / `SQLITE_NOTADB`) latches the process into a

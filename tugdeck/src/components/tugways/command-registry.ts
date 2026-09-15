@@ -41,7 +41,6 @@ import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
 import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
-import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
 
 /* ---------------------------------------------------------------------------
  * Chords and bindings (Spec S02)
@@ -1060,7 +1059,7 @@ const FOCUS_CARD_COMMANDS: readonly CommandEntry[] = (
  * also carries its own ⌃⌘⟨letter⟩ toggle, and the two families are different
  * questions rather than rivals: this pair addresses a SIDE of the deck, which
  * is geometry, while a letter addresses a CARD. The pair is also the set that
- * does not grow at all — six sidebar cards need the same two keys three do.
+ * does not grow at all — five sidebar cards need the same two keys three do.
  *
  * **The tier, derived** (tuglaws/chord-tiers.md): a rail is layout vocabulary,
  * which is what ⌃⌘ carries, alongside ⌃⌘↑/↓ `move-in-column` — whose vertical
@@ -1100,7 +1099,7 @@ const RAIL_TOGGLE_COMMANDS: readonly CommandEntry[] = (
 }));
 
 /**
- * The six sidebar cards, in the order the Window menu lists them: the
+ * The five sidebar cards, in the order the Window menu lists them: the
  * component id the deck knows them by, the noun the rows name them with, the
  * toggle command each row sends, and the chord that runs it.
  *
@@ -1114,8 +1113,8 @@ const RAIL_TOGGLE_COMMANDS: readonly CommandEntry[] = (
  * alphabetical while being wrong. The menu shows nouns, so the nouns order it.
  *
  * **⌃⌘⟨letter⟩ names a sidebar card, one letter per card** ([D172]). The set is
- * closed at six — registration is a boot step — so the grammar is complete
- * rather than open-ended. Four letters are initials; two are not. Cards takes W
+ * closed at five — registration is a boot step — so the grammar is complete
+ * rather than open-ended. Three letters are initials; two are not. Cards takes W
  * against its coming rename to Workspaces, because C is the Changes shade, and
  * Arcs takes R — a letter of its own noun — because A goes back to Claim All
  * ([D175]). Jots reads as a pair with ⌘J New Jot: plain-⌘ captures, ⌃⌘ shows
@@ -1156,13 +1155,6 @@ const SIDEBAR_MENU_CARDS = [
     toggle: TUG_ACTIONS.TOGGLE_OVERVIEW,
     key: "KeyO",
     label: "o",
-  },
-  {
-    componentId: TRIPWIRES_CARD_ID,
-    noun: "Tripwires",
-    toggle: TUG_ACTIONS.TOGGLE_TRIPWIRES,
-    key: "KeyT",
-    label: "t",
   },
 ] as const;
 
@@ -1812,9 +1804,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     parameterized: true,
   },
   {
-    // ⇧⌘T. The Tripwires card holds ⌃⌘T, and a theme is the weaker claim on
-    // that letter: the sidebar cards are a closed set with a mnemonic each,
-    // while Next Theme has no ⌘T base to be a variant of and so is free to sit
+    // ⇧⌘T. Next Theme has no ⌘T base to be a variant of, so it is free to sit
     // anywhere (chord-tiers.md). ⇧⌘T is free of AppKit's Show Tab Bar only
     // because Tug sets `allowsAutomaticWindowTabbing = false`.
     //
@@ -3019,17 +3009,6 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.UNBIND_ARC,
   TUG_ACTIONS.REQUEST_DISCARD_ARC,
   TUG_ACTIONS.REQUEST_REPLAY_ARC,
-  // The tripwire row's verbs, for the reason the arc row's are: each means
-  // "the tripwire this row is", which no chord and no menu-bar item can name.
-  // Pause/resume and the model popup are control frames as well — a row
-  // control reporting its own value — which is the other half of what this
-  // set collects.
-  TUG_ACTIONS.PAUSE_TRIPWIRE,
-  TUG_ACTIONS.RESUME_TRIPWIRE,
-  TUG_ACTIONS.TRIP_TRIPWIRE,
-  TUG_ACTIONS.OPEN_TRIPWIRE_SESSION,
-  TUG_ACTIONS.SET_TRIPWIRE_MODEL,
-  TUG_ACTIONS.DELETE_TRIPWIRE,
   // Sent card-to-card by a surface showing that card's arc, never typed:
   // the reader already has ⌃⌘C for their own card's shade, and a chord that
   // meant "reveal somebody else's" would have no way to name whose.

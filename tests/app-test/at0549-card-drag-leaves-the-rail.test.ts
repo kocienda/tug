@@ -59,13 +59,13 @@ const PANE_WIDTH = 420;
 /** Five sidebar cards, for at0537's reason: the standing is decided by the
  *  members' 240px floors against a run this harness opens a little over 1000px
  *  tall, so three share it comfortably and it takes five to overflow. */
-const RAIL_COMPONENTS = ["layout", "jots", "overview", "cards", "tripwires"];
+const RAIL_COMPONENTS = ["layout", "jots", "overview", "cards", "dashes"];
 const RAIL_PANES: Record<string, string> = {
   layout: "pLayout",
   jots: "pJots",
   overview: "pOverview",
   cards: "pCards",
-  tripwires: "pTripwires",
+  dashes: "pDashes",
 };
 const CONTENT_PANE = "p1";
 
@@ -102,7 +102,7 @@ function deckShape() {
     jots: "Jots",
     overview: "Overview",
     cards: "Cards",
-    tripwires: "Tripwires",
+    dashes: "Arcs",
   };
   const sidebars: Record<string, { side: "right" }> = {};
   for (const component of RAIL_COMPONENTS) sidebars[component] = { side: "right" };

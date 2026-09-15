@@ -62,7 +62,7 @@ function preRenameBlob(): string {
     ],
     activePaneId: "paneB",
     imposition: {
-      sidebars: { dev: { side: "left" }, tripwires: { side: "right" } },
+      sidebars: { dev: { side: "left" }, dashes: { side: "right" } },
       rails: {
         left: { mode: "split", order: ["dev"], shares: { dev: 1.25 } },
       },

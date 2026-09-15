@@ -337,7 +337,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
 
         // ── One press, one stop, and no second one behind it ──────────────
         //
-        // The tripwire for the whole arc's worth of work: an arc stopped for
+        // The guard for the whole arc's worth of work: an arc stopped for
         // silence used to be re-stopped within 160 ms of the press, because
         // the stall clock outranked the resume and the runner's memory
         // outlived the stop. Nothing about that was visible in the record's

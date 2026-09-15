@@ -32,7 +32,6 @@ import { registerKeyboardCard } from "@/components/tugways/cards/keyboard-card";
 import { registerDevtoolsCard } from "@/components/devtools/devtools-card";
 import { registerJotsCard } from "@/components/jots/jots-card-registration";
 import { registerOverviewCard } from "@/components/overview/overview-card-registration";
-import { registerTripwiresCard } from "@/components/tripwires/tripwires-card-registration";
 import { registerArcsCard } from "@/components/arcs/arcs-card-registration";
 import { registerCardsCard } from "@/components/cards/cards-card-registration";
 import { registerLayoutCard } from "@/components/layout/layout-card-registration";
@@ -61,7 +60,6 @@ beforeAll(() => {
   registerDevtoolsCard();
   registerJotsCard();
   registerOverviewCard();
-  registerTripwiresCard();
   registerArcsCard();
   registerCardsCard();
   registerLayoutCard();
@@ -90,7 +88,6 @@ const PINS: ReadonlyArray<{
   { componentId: "hello", group: "tools", via: "fallback" },
   { componentId: "jots", group: "none", via: "explicit cardsGroup" },
   { componentId: "overview", group: "none", via: "explicit cardsGroup" },
-  { componentId: "tripwires", group: "none", via: "explicit cardsGroup" },
   { componentId: "dashes", group: "none", via: "explicit cardsGroup" },
   { componentId: "cards", group: "none", via: "explicit cardsGroup" },
   { componentId: "layout", group: "none", via: "explicit cardsGroup" },
@@ -151,7 +148,6 @@ describe("resolveCardsGroup — totality", () => {
       "jots",
       "layout",
       "overview",
-      "tripwires",
     ]);
   });
 });

@@ -183,7 +183,6 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘P | `select-composer-route:prompt` | Prompt Route | JS, global |
 | ⌃⌘R | `toggle-arcs` | Show Arcs | menu bar (swept) |
 | ⌃⌘S | `toggle-column-split` | Split or Stack Column | menu bar (swept) |
-| ⌃⌘T | `toggle-tripwires` | Show Tripwires | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
 | ⌃⌘W | `toggle-cards` | Show Cards | menu bar (swept) |
 | ⌃⌘Y | `toggle-session-fold` | Fold Session | menu bar (swept) |
@@ -393,9 +392,6 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `window.sidebar.overview.left` | `set-sidebar-side:overview:left` | registered handler | registry gate |
 | `window.sidebar.overview.right` | `set-sidebar-side:overview:right` | registered handler | registry gate |
 | `window.sidebar.overview.show` | `toggle-overview` | registered handler | registry gate |
-| `window.sidebar.tripwires.left` | `set-sidebar-side:tripwires:left` | registered handler | registry gate |
-| `window.sidebar.tripwires.right` | `set-sidebar-side:tripwires:right` | registered handler | registry gate |
-| `window.sidebar.tripwires.show` | `toggle-tripwires` | registered handler | registry gate |
 | `window.zoom` | `zoom-window` | AppKit performs it | host tier |
 <!-- /generated:catalog -->
 

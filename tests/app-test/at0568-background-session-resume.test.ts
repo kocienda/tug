@@ -4,8 +4,8 @@
  *
  * ## What this gates
  *
- * A session spawned by something that is not a deck — a tripwire's work tier —
- * carries `tripwire:<owner>` in the `card_id` field a Session card would put
+ * A session spawned by something that is not a deck — a background spawner —
+ * carries an owner-prefixed id in the `card_id` field a Session card would put
  * its own id in. Nothing read that string, so the deck could not tell a live
  * session held by another card from one held by nobody a user could be sent
  * to, and `session-identity-menu.tsx`'s `heldElsewhere = state === "live"`
@@ -35,16 +35,9 @@
  *
  * ## What is deliberately not here
  *
- * The Tripwires row's live dot is not the vehicle, and that is a split rather
- * than an omission: the dot, and the card a *running* trip opens on its own,
- * are `at0576-trip-session-card.test.ts`. What this file drives is the menu on
- * a citation in foreign context — the surface the go-to item exists for — and
- * the dot reaches the same registry handler this menu item does.
- *
- * The engine's half — that a trip's session survives being carded, because
- * `close_headless_session` refuses to close one a deck card holds — is Rust,
- * and is proved as Rust in
- * `tugrust/crates/tugcast/src/feeds/tripwire_session.rs`.
+ * What this file drives is the menu on a citation in foreign context — the
+ * surface the go-to item exists for. Any other door onto the same gesture
+ * reaches the same registry handler this menu item does.
  *
  * @covers tugdeck/src/components/tugways/session-identity-menu.tsx
  * @covers tugdeck/src/action-dispatch.ts
@@ -66,14 +59,14 @@ import { launchTugApp, note } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-/** The tripwire's own session: spawned by the work tier, held by no card. */
+/** A background spawner's own session: held by no card. */
 const SESSION_ID = "c7d8e9f0-1a2b-4c3d-8e4f-5a6b7c8d9e68";
 /** What `background_card_id("at0568")` mints — the string under test. */
-const BACKGROUND_CARD_ID = "tripwire:at0568";
+const BACKGROUND_CARD_ID = "background:at0568";
 
 /** The one turn the background session left on disk, so the seated card has a
  *  transcript to open onto rather than an empty one. */
-const FIXTURE_PROMPT = "at0568 the tripwire session asked this";
+const FIXTURE_PROMPT = "at0568 the background session asked this";
 
 /** The project the background session ran in — a scratch tree of its own, so
  *  the fixture JSONL below is the only transcript under it. */
@@ -238,7 +231,7 @@ describe.skipIf(!SHOULD_RUN)(
                 // so the projection computes `background` from it rather than
                 // being told.
                 card_id: BACKGROUND_CARD_ID,
-                name: "at0568 tripwire session",
+                name: "at0568 background session",
               },
             ],
           });
@@ -257,8 +250,8 @@ describe.skipIf(!SHOULD_RUN)(
                 JSON.stringify({
                   id: 1,
                   at_ms: 1_754_600_000_000,
-                  author: "tripwire",
-                  body: "The tripwire's session is still open, if you want it.",
+                  author: "observer",
+                  body: "The background session is still open, if you want it.",
                   refs: [{ kind: "session", target: SESSION_ID }],
                 }),
               )})`,

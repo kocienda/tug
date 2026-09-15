@@ -3165,7 +3165,7 @@ export class FocusManager {
     return result;
   }
 
-  // ---- Enforcement + report (tripwire-as-enforcement, Spec S03) ----
+  // ---- Enforcement + report (guard-as-enforcement, Spec S03) ----
   //
   // `violations` is reserved for genuine incoherence the watchdog cannot fix
   // (a dom-granted route whose granted surface is gone — corrected by

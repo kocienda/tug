@@ -112,7 +112,7 @@ const SEND = '[data-testid="overview-composer-send"]';
 interface WirePost {
   id: number;
   at_ms: number;
-  author: "observer" | "operator" | "user" | "tripwire";
+  author: "observer" | "operator" | "user";
   body: string;
   refs: { kind: string; target: string }[];
   session_id?: string;
@@ -313,17 +313,17 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
           wake_reason: "turn-end",
           project_dir: REPO_ROOT,
         };
-        // The fourth voice. A wire speaks because an event it was watching
-        // for happened — nobody asked it a question — and the row has to say
-        // so: the author names the voice, `wake_reason` names which wire, and
-        // the arc chip is the one ref kind no path lookup could ever resolve.
-        const tripwirePost: WirePost = {
+        // The arc chip — the one ref kind no path lookup could ever resolve.
+        // A post that arrived unbidden says so with a `wake_reason`, and an
+        // `arc` ref names the arc whole; a path resolver handed either would
+        // have rendered the chip inert.
+        const arcRefPost: WirePost = {
           id: 9010,
           at_ms: AT_MS + 240_000,
-          author: "tripwire",
+          author: "observer",
           body: "The edit program went stale against a tree that had moved on.",
-          refs: [{ kind: "arc", target: "wire-tugedit-abc12345" }],
-          wake_reason: "wire:tugedit",
+          refs: [{ kind: "arc", target: "tugedit-stale-abc12345" }],
+          wake_reason: "turn-end",
           project_dir: REPO_ROOT,
         };
 
@@ -333,10 +333,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         ).toBe(true);
         expect(await publish(app, operatorPost)).toBe(true);
         expect(await publish(app, commitPost)).toBe(true);
-        expect(
-          await publish(app, tripwirePost),
-          "the tripwire author survives the parse edge",
-        ).toBe(true);
+        expect(await publish(app, arcRefPost)).toBe(true);
 
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(POST)}).length >= 4`,
@@ -356,15 +353,13 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         expect(rows[2]!.author).toBe("observer");
         expect(rows[2]!.body).toContain("landed the sticky-header fixes");
 
-        // The tripwire row: its own author, its own label, and an arc chip
-        // that a path resolver would have rendered inert.
-        expect(rows[3]!.author).toBe("tripwire");
-        expect(rows[3]!.identifier).toBe("Tripwire");
-        expect(rows[3]!.body).toBe(tripwirePost.body);
+        // The arc-chip row: an arc ref rides the trailing strip named whole.
+        expect(rows[3]!.author).toBe("observer");
+        expect(rows[3]!.body).toBe(arcRefPost.body);
         expect(
           rows[3]!.chips,
           "an arc chip names the arc, not a basename of it",
-        ).toContain("wire-tugedit-abc12345");
+        ).toContain("tugedit-stale-abc12345");
 
         // Every row leads with its author's glyph — the only thing on the row
         // that says who is speaking.

@@ -59,7 +59,7 @@ function pane(id: string, cardIds: string[], activeCardId?: string): TugPaneStat
 }
 
 function deck(cards: CardState[], panes: TugPaneState[]): DeckState {
-  return { cards, panes, imposition: { sidebars: { tripwires: { side: "left" } } }, hasFocus: true };
+  return { cards, panes, imposition: { sidebars: { dashes: { side: "left" } } }, hasFocus: true };
 }
 
 function binding(
@@ -109,7 +109,7 @@ const STANDARD_GROUPS = {
   diff: "files" as const,
   settings: "tools" as const,
   "gallery-buttons": "tools" as const,
-  tripwires: "none" as const,
+  dashes: "none" as const,
 };
 
 function inputs(
@@ -776,8 +776,8 @@ describe("filtering", () => {
 describe("exclusions", () => {
   it("the Cards card pane is not in its own mirror", () => {
     const d = deck(
-      [card("tripwires-card", "tripwires"), card("t1", "text")],
-      [pane("pl", ["tripwires-card"]), pane("p1", ["t1"])],
+      [card("dashes-card", "dashes"), card("t1", "text")],
+      [pane("pl", ["dashes-card"]), pane("p1", ["t1"])],
     );
     const rows = buildCardsRows(
       inputs(d),
@@ -1003,7 +1003,7 @@ describe("summarizeGroup", () => {
 // ---------------------------------------------------------------------------
 
 describe("a session's arc", () => {
-  const SESSION_GROUPS = { session: "sessions" as const, tripwires: "none" as const };
+  const SESSION_GROUPS = { session: "sessions" as const, dashes: "none" as const };
 
   /** A snapshot whose one arc binds `session`. */
   function snapshotWith(

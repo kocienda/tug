@@ -201,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(await count(app, HEADLINE)).toBe(0);
           // `PULSE` is a retired word ([D186]) and never was ink ([D132]);
-          // this is the tripwire against it coming back as a stand-in.
+          // this is the guard against it coming back as a stand-in.
           expect(await mastheadText(app)).not.toContain("PULSE");
 
           // 2. Two lines that open with a real PATH executable — the exact

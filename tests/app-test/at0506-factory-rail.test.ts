@@ -6,16 +6,16 @@
  * the setup wizard over a bare canvas is no place to stage a rail of empty
  * cards, so the first content card is the cue. What stands up at that cue used
  * to be the Cards card alone. It is the whole rail now — Cards, Arcs,
- * Layout, Tripwires — and this pins the three facts that makes true, none of
+ * Layout — and this pins the three facts that makes true, none of
  * which any unit test can reach, because each is about the deck actually
  * standing the cards up:
  *
- *   1. **Four panes, on the right.** The rail's membership is the four
+ *   1. **Three panes, on the right.** The rail's membership is the three
  *      sidebar cards the deck ships with, each pinned to the default side.
  *   2. **The arrangement is the factory's, not registration's.**
  *      `imposition.rails.right` reads `stack` in exactly
- *      `["cards","dashes","layout","tripwires"]`. Registration order is jots,
- *      overview, tripwires, dashes, cards, layout, so a rail that fell back to
+ *      `["cards","dashes","layout"]`. Registration order is jots,
+ *      overview, dashes, cards, layout, so a rail that fell back to
  *      it would stand in a different sequence and still look arranged.
  *   3. **Cards is the one you see.** A stack draws one member, and the one it
  *      draws is the z-frontmost — the LAST of the rail's panes in
@@ -48,7 +48,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
 /** The rail the factory stands, top to bottom (`FACTORY_RAIL_ORDER`). */
-const FACTORY_RAIL = ["cards", "dashes", "layout", "tripwires"];
+const FACTORY_RAIL = ["cards", "dashes", "layout"];
 
 /** The componentIds of the panes pinned to the right, in `state.panes` order —
  *  the deck's z-order, which is what settles the stack's frontmost member. */
@@ -68,7 +68,7 @@ const RAIL_COMPONENTS_IN_Z_ORDER = `
 
 describe.skipIf(!SHOULD_RUN)("at0506 — the factory rail", () => {
   test(
-    "the first card stands all four cards on the right, Cards frontmost",
+    "the first card stands all three cards on the right, Cards frontmost",
     async () => {
       const app = await launchTugApp({
         testName: "at0506-factory-rail",
@@ -91,11 +91,11 @@ describe.skipIf(!SHOULD_RUN)("at0506 — the factory rail", () => {
           `(window.__tug.dispatchControlAction("show-card", { component: "settings" }), null)`,
         );
         await app.waitForCondition<boolean>(
-          `${RAIL_COMPONENTS_IN_Z_ORDER}.length === 4`,
+          `${RAIL_COMPONENTS_IN_Z_ORDER}.length === ${FACTORY_RAIL.length}`,
           { timeoutMs: 8_000 },
         );
 
-        // ---- 1 & 3. Four panes, and Cards is the last of them in z-order.
+        // ---- 1 & 3. Three panes, and Cards is the last of them in z-order.
         const zOrder = await app.evalJS<string[]>(RAIL_COMPONENTS_IN_Z_ORDER);
         expect([...zOrder].sort()).toEqual([...FACTORY_RAIL].sort());
         expect(zOrder[zOrder.length - 1]).toBe("cards");

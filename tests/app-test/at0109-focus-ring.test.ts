@@ -22,7 +22,7 @@
  *     paints.
  *
  * The click half asserts "the keyboard is not on the control" plus a clean
- * tripwire, not "`activeElement` is the sink". The sink is one legal register
+ * guard, not "`activeElement` is the sink". The sink is one legal register
  * among several: a bare `<body>` left behind by the browser's own mousedown
  * default is equally legal and is what actually settles here, so pinning the
  * sink specifically was asserting a mechanism the engine never promised.
@@ -132,7 +132,7 @@ describe.skipIf(!SHOULD_RUN)("AT0109: single focus ring on the keyboard-active c
         // invariant rather than as a specific register: an engine-routed
         // placement parks the sink, but a bare `<body>` left behind by the
         // browser's own mousedown default is equally legal (a standing legality
-        // class — see focus-language.md), and the tripwire is what says so.
+        // class — see focus-language.md), and the guard is what says so.
         expect(clicked?.activeInControl).toBe(false);
         expect(clicked?.violations).toBe(0);
 

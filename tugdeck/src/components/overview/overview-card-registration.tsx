@@ -50,7 +50,7 @@ export function registerOverviewCard(): void {
     defaultMeta: { title: "Overview", icon: "Newspaper", closable: true },
     // The greediest rail on the deck: a post is prose, and prose is what a
     // narrow rail costs the most. Fed first in surplus, drained last in
-    // deficit. Rank 1 of the six sidebar cards. The rank is read by the WIDTH
+    // deficit. Rank 1 of the sidebar cards. The rank is read by the WIDTH
     // allocator alone; a rail's vertical division is the hand's.
     greedRank: 1,
     // The 56-character measure: the narrowest a post still reads as prose. The

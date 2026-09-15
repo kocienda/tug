@@ -119,8 +119,8 @@ pub struct ArcListItem {
     /// means the log never said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arc_kind: Option<String>,
-    /// Who laid this arc, when it was not a person — `tripwire/<name>` for a
-    /// tripwire's staged work ([P15]). `None` on every hand-made arc.
+    /// Who laid this arc, when it was not a person — `<kind>/<name>` for an
+    /// agent's staged work ([P15]). `None` on every hand-made arc.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub laid_by: Option<String>,
 }
@@ -1236,8 +1236,8 @@ pub(crate) fn description_config_key(name: &str) -> String {
     format!("branch.{}.description", branch_name(name))
 }
 
-/// Who laid this arc down, when it was not a person: `tripwire/<name>` for a
-/// tripwire's work tier ([P15]). Absent on every arc a person created, which
+/// Who laid this arc down, when it was not a person: `<kind>/<name>` for an
+/// agent's work tier ([P15]). Absent on every arc a person created, which
 /// is what makes its presence mean something.
 pub(crate) fn laid_by_config_key(name: &str) -> String {
     format!("branch.{}.laidby", branch_name(name))
@@ -1690,16 +1690,6 @@ pub fn list() -> Result<Vec<ArcListItem>, String> {
     }
 
     Ok(items)
-}
-
-/// The branch an arc was cut from, against an explicit repo root ([P03]).
-///
-/// The crate-private [`arc_base`] is what every verb in here reads; this is
-/// the same answer for a caller outside the crate — tugcast's tripwire engine,
-/// which has to put an arc with no rounds onto the base's tip itself, because
-/// a replay with nothing to move defers rather than fast-forwards.
-pub fn arc_base_in(repo_root: &Path, name: &str) -> Result<String, String> {
-    arc_base(&main_repo_root(repo_root), name)
 }
 
 /// Whether an arc's branch is still there, against an explicit repo root.
@@ -8252,21 +8242,21 @@ Some context.
         // from the cwd behind the explicit one.
         std::env::set_current_dir(std::env::temp_dir()).unwrap();
 
-        let created = create_in(&root, "tripwire-ci-abc12345", None, false, None).unwrap();
+        let created = create_in(&root, "agent-ci-abc12345", None, false, None).unwrap();
         assert!(created.created);
-        set_laid_by(&root, "tripwire-ci-abc12345", "tripwire/ci");
+        set_laid_by(&root, "agent-ci-abc12345", "agent/ci");
 
         assert_eq!(
-            laid_by(&root, "tripwire-ci-abc12345").as_deref(),
-            Some("tripwire/ci")
+            laid_by(&root, "agent-ci-abc12345").as_deref(),
+            Some("agent/ci")
         );
         std::env::set_current_dir(&root).unwrap();
         let listed = list().unwrap();
         let row = listed
             .iter()
-            .find(|d| d.name == "tripwire-ci-abc12345")
+            .find(|d| d.name == "agent-ci-abc12345")
             .expect("the staged arc is listed");
-        assert_eq!(row.laid_by.as_deref(), Some("tripwire/ci"));
+        assert_eq!(row.laid_by.as_deref(), Some("agent/ci"));
         assert!(
             listed.iter().all(|d| d.name != "hand-made"),
             "no other arc exists to confuse the reading"
@@ -8723,19 +8713,19 @@ Some context.
     #[test]
     fn an_agent_arc_is_discarded_without_handing_a_byte_back() {
         let (_temp, root) = repo_for_create();
-        create("tripwire-ci-abc12345", None, false, None).unwrap();
-        let worktree = worktree_path(&root, "tripwire-ci-abc12345");
+        create("agent-ci-abc12345", None, false, None).unwrap();
+        let worktree = worktree_path(&root, "agent-ci-abc12345");
         fs::write(worktree.join("agent.txt"), "the agent's leftovers\n").unwrap();
         fs::write(worktree.join("README.md"), "# the agent's words\n").unwrap();
 
         let before = base_fingerprint(&root);
-        let out = discard_agent_arc_in(&root, "tripwire-ci-abc12345", Some("tripwire")).unwrap();
+        let out = discard_agent_arc_in(&root, "agent-ci-abc12345", Some("agent")).unwrap();
 
         assert!(out.work_restored.is_empty(), "{:?}", out.work_restored);
         assert_eq!(base_fingerprint(&root), before, "the base did not move");
         assert!(!root.join("agent.txt").exists());
         assert!(!worktree.exists());
-        assert!(!branch_present(&root, "tugarc/tripwire-ci-abc12345"));
+        assert!(!branch_present(&root, "tugarc/agent-ci-abc12345"));
     }
 
     /// The case that a mode skipping only `apply_hand_back` would still fail,
@@ -8750,13 +8740,13 @@ Some context.
     #[test]
     fn an_agent_arc_is_discarded_even_when_the_base_holds_a_conflicting_edit() {
         let (_temp, root) = repo_for_create();
-        create("tripwire-ci-clash", None, false, None).unwrap();
-        let worktree = worktree_path(&root, "tripwire-ci-clash");
+        create("agent-ci-clash", None, false, None).unwrap();
+        let worktree = worktree_path(&root, "agent-ci-clash");
         fs::write(worktree.join("README.md"), "# the agent's words\n").unwrap();
         fs::write(root.join("README.md"), "# the user's words\n").unwrap();
 
         let before = base_fingerprint(&root);
-        discard_agent_arc_in(&root, "tripwire-ci-clash", Some("tripwire")).unwrap();
+        discard_agent_arc_in(&root, "agent-ci-clash", Some("agent")).unwrap();
 
         assert_eq!(
             fs::read_to_string(root.join("README.md")).unwrap(),
@@ -8774,13 +8764,13 @@ Some context.
     #[test]
     fn an_agent_arc_that_deleted_a_file_does_not_delete_it_from_the_base() {
         let (_temp, root) = repo_for_create();
-        create("tripwire-ci-deleter", None, false, None).unwrap();
-        let worktree = worktree_path(&root, "tripwire-ci-deleter");
+        create("agent-ci-deleter", None, false, None).unwrap();
+        let worktree = worktree_path(&root, "agent-ci-deleter");
         assert!(worktree.join("README.md").exists());
         fs::remove_file(worktree.join("README.md")).unwrap();
 
         let before = base_fingerprint(&root);
-        discard_agent_arc_in(&root, "tripwire-ci-deleter", Some("tripwire")).unwrap();
+        discard_agent_arc_in(&root, "agent-ci-deleter", Some("agent")).unwrap();
 
         assert!(
             root.join("README.md").exists(),
@@ -8796,23 +8786,23 @@ Some context.
     #[test]
     fn an_agent_arc_with_rounds_is_discarded_and_the_base_does_not_move() {
         let (_temp, root) = repo_for_create();
-        create("tripwire-ci-rounds", None, false, None).unwrap();
-        let worktree = worktree_path(&root, "tripwire-ci-rounds");
+        create("agent-ci-rounds", None, false, None).unwrap();
+        let worktree = worktree_path(&root, "agent-ci-rounds");
         fs::write(worktree.join("fixed.rs"), "the agent's fix\n").unwrap();
         for args in [
             vec!["add", "-A"],
-            vec!["commit", "-m", "tugarc(tripwire-ci-rounds): the round"],
+            vec!["commit", "-m", "tugarc(agent-ci-rounds): the round"],
         ] {
             git_output(&worktree, &args).unwrap();
         }
-        assert_eq!(round_count_in(&root, "tripwire-ci-rounds"), 1);
+        assert_eq!(round_count_in(&root, "agent-ci-rounds"), 1);
 
         let before = base_fingerprint(&root);
-        discard_agent_arc_in(&root, "tripwire-ci-rounds", Some("tripwire")).unwrap();
+        discard_agent_arc_in(&root, "agent-ci-rounds", Some("agent")).unwrap();
 
         assert!(!root.join("fixed.rs").exists());
         assert_eq!(base_fingerprint(&root), before);
-        assert!(!branch_present(&root, "tugarc/tripwire-ci-rounds"));
+        assert!(!branch_present(&root, "tugarc/agent-ci-rounds"));
     }
 
     /// The "I was editing the base and half-way through realised this should be
@@ -12879,7 +12869,7 @@ Some context.
             for (key, value) in [
                 ("tugbase", "main"),
                 ("description", "the description"),
-                ("laidby", "tripwire/ci"),
+                ("laidby", "agent/ci"),
                 ("tugid", "1723500000000-a1b2c3"),
             ] {
                 run_git(repo, &["config", &format!("branch.{legacy}.{key}"), value]);
@@ -12939,7 +12929,7 @@ Some context.
             for (key, want) in [
                 ("tugbase", "main"),
                 ("description", "the description"),
-                ("laidby", "tripwire/ci"),
+                ("laidby", "agent/ci"),
                 ("tugid", "1723500000000-a1b2c3"),
             ] {
                 assert_eq!(

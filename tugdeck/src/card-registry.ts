@@ -343,10 +343,10 @@ export interface CardRegistration {
    * while a member is still short of its own natural: that run is divided
    * evenly ([B03]).
    *
-   * The six sidebar cards are ranked as a single order rather than left tied,
+   * The five sidebar cards are ranked as a single order rather than left tied,
    * because a tie leaves the slack rule with nobody to give to: Overview 1 (the
-   * only stream), then the lists by how fast their content grows — Jots 2,
-   * Cards 3, Arcs 4, Tripwires 5 — and fixed-content Layout 6. Anything else
+   * only stream), then the lists by how fast their content grows — Cards 2,
+   * Jots 3, Arcs 4 — and fixed-content Layout 6. Anything else
    * takes {@link DEFAULT_GREED_RANK}. A rail carrying several cards is as
    * greedy as its greediest member (`deck-manager.ts` folds the members with
    * `Math.min`), so a prose reader stacked with a modest card keeps the prose

@@ -59,10 +59,6 @@ const EXEMPT: ReadonlyMap<string, string> = new Map([
     "components/tugways/tug-editor-context-menu.tsx",
     "is the menu component itself, and opens nothing",
   ],
-  [
-    "components/tripwires/tripwires-card.tsx",
-    "opens from the row's ⋯ button, and from a right-click on a list row rather than on an entity",
-  ],
 ]);
 
 interface Module {

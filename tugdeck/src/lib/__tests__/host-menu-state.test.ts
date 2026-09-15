@@ -46,7 +46,7 @@ function pane(
 }
 
 function deck(cards: CardState[], panes: TugPaneState[]): DeckState {
-  return { cards, panes, imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true };
+  return { cards, panes, imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true };
 }
 
 // Pane names resolve through the card registry now, so the projection tests
@@ -197,7 +197,7 @@ describe("projectDeckState", () => {
   });
 
   test("stackDepth is 0 when nothing is selected, even with a stack present", () => {
-    // The tripwire for the invariant the formula rests on: `focusedStack` is
+    // The guard for the invariant the formula rests on: `focusedStack` is
     // the array's last element while the chord dispatches to `activePaneId`'s
     // pane. A deselected deck is the one state where those part.
     const state = deck(

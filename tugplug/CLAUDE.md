@@ -24,7 +24,6 @@ The door opens either kind of thing. Both shapes ride the same `tugtool arc` ver
 
 - **`draft`** — analyze the working changes, decide per-file dispositions, and author the session's landing draft via `tugtool draft set`. **Never commits** — the user lands the draft with `/commit` in the Session card.
 - **`brief`** — write the conversation's settled findings and decisions as a brief, against the skeleton beside it, to the Briefs Directory (`tugtool brief dir`) or an explicit path. The plugin's one model-invocable skill, so the model reaches it when the user says *brief* in prose. Sharpens nothing, opens nothing, and asks once — only when the directory does not exist.
-- **`tripwire`** — lay, revise, and shake down a **tripwire**: a standing watch that fires when a landing gesture commits onto the branch it names, answers a brief through a read-only diagnosing session, and raises its hand only when it has something a person should see. Rides `tugtool tripwire` and authors nothing else. **Never joins** — a tripwire may author work on an arc and say so, and landing it is the user's act.
 `spike-card` — scaffold a design spike onto the deck — is **not** a plugin skill: it is about `tugdeck/src/spikes/` and nothing else, so it lives with this repository at `.claude/skills/spike-card/` and never ships.
 
 ## The standalone contract

@@ -316,7 +316,7 @@ To claim instead of falling back, listen for `tug-scroll-preserve-begin` on the 
 - [`tugdeck/src/lib/resize-episode.ts`](../tugdeck/src/lib/resize-episode.ts) — the episode, the generic anchor, the anchor arithmetic as pure functions, and `trackElementAnchor` for claimants that want the element anchor as a fallback.
 - [`tugdeck/src/lib/cm6-scroll-anchor.ts`](../tugdeck/src/lib/cm6-scroll-anchor.ts) — the CodeMirror plugin: publishes `data-tug-scroll-state` for the save path in line coordinates, and claims the episode on the document *position* under the top edge. A line is right for a reload and too coarse for a re-wrap, since soft wrapping makes a long line's block taller.
 - [`tugdeck/src/lib/pdf-layout.ts`](../tugdeck/src/lib/pdf-layout.ts) — `pageAnchorAt` / `scrollTopForPageAnchor`, the page-and-fraction anchor.
-- [`tests/app-test/at0430-resize-scroll-preservation.test.ts`](../tests/app-test/at0430-resize-scroll-preservation.test.ts) — the invariant end to end: every raise site, the follow-bottom case, the generic fallback, the document substrate, the PDF, and the `data-scroll-displacements` tripwire.
+- [`tests/app-test/at0430-resize-scroll-preservation.test.ts`](../tests/app-test/at0430-resize-scroll-preservation.test.ts) — the invariant end to end: every raise site, the follow-bottom case, the generic fallback, the document substrate, the PDF, and the `data-scroll-displacements` guard.
 
 ---
 

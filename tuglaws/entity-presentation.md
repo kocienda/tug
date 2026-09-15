@@ -50,7 +50,7 @@ The code tone **stays** on a confirmed path. Stripping it would be us overriding
 
 The four combinations are legible, but a paragraph that uses two of them for the *same file* is not saying anything by the difference — and that is what produced most of the variance a reader sees. The fix is not at the renderer, which must show what was written; it is at the writer.
 
-**Anything authoring prose for these surfaces backticks every file path it writes, every time** — this assistant in a transcript, the Overview's Observer and Operator, the tripwire's headline, the arc skills. Not the first mention and then bare afterwards: one reference, one face. This is the same move the commit sha already makes, for the same reason and one step further along — there the app supplies a *word* the writer omits, here the writer supplies a *tone* only they can, because backticks are authorship and the renderer may not invent them.
+**Anything authoring prose for these surfaces backticks every file path it writes, every time** — this assistant in a transcript, the Overview's Observer and Operator, the arc skills. Not the first mention and then bare afterwards: one reference, one face. This is the same move the commit sha already makes, for the same reason and one step further along — there the app supplies a *word* the writer omits, here the writer supplies a *tone* only they can, because backticks are authorship and the renderer may not invent them.
 
 A **user's** prose is untouched by this. Their spelling is theirs, backticked or not, and the resolver confirms it either way; the rule binds the voices we write, which are the ones that were inconsistent.
 

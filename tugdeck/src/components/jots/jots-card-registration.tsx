@@ -41,8 +41,8 @@ export function registerJotsCard(): void {
     acceptsFamilies: [],
     contentFactory: (cardId: string) => <JotsContent cardId={cardId} />,
     defaultMeta: { title: "Jots", icon: "NotebookPen", closable: true },
-    // Rank 3, behind the Cards card ([B05]): jots arrive faster than arcs or
-    // tripwires do, but the card the user is working in outranks the one they
+    // Rank 3, behind the Cards card ([B05]): jots arrive faster than arcs
+    // do, but the card the user is working in outranks the one they
     // are writing beside it. Read at seed time only.
     greedRank: 3,
     hidden: true,

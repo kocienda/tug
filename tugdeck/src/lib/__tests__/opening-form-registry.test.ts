@@ -32,7 +32,6 @@ import { registerOverviewCard } from "@/components/overview/overview-card-regist
 import { registerCardsCard } from "@/components/cards/cards-card-registration";
 import { registerLayoutCard } from "@/components/layout/layout-card-registration";
 import { registerArcsCard } from "@/components/arcs/arcs-card-registration";
-import { registerTripwiresCard } from "@/components/tripwires/tripwires-card-registration";
 import { registerTextCard } from "@/components/tugways/cards/text-card-registration";
 import { registerFileViewCard } from "@/components/tugways/cards/file-view-card-registration";
 import { registerDiffCard } from "@/components/tugways/cards/diff-card";
@@ -49,7 +48,6 @@ describe("the opening form and the unbound width are declared together", () => {
     registerCardsCard();
     registerLayoutCard();
     registerArcsCard();
-    registerTripwiresCard();
     registerTextCard();
     registerFileViewCard();
     registerDiffCard();

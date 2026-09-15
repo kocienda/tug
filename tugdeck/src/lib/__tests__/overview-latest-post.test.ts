@@ -59,15 +59,14 @@ describe("latestPostForSession", () => {
   });
 
   it("never answers with a post the Observer did not write", () => {
-    // The channel carries the user's own questions, the Operator's answers and
-    // the tripwire's notices. None of those is an account of what the session
-    // is doing, and a masthead showing the reader their own question back says
-    // less than the blank it replaced.
+    // The channel carries the user's own questions and the Operator's answers.
+    // Neither is an account of what the session is doing, and a masthead
+    // showing the reader their own question back says less than the blank it
+    // replaced.
     const posts = [
       post("1", "observer", "s1", "Writing the digester."),
       post("2", "user", "s1", "What is it doing?"),
       post("3", "operator", "s1", "It is writing the digester."),
-      post("4", "tripwire", "s1", "A tripwire fired."),
     ];
     expect(latestPostForSession(posts, "s1")?.body).toBe(
       "Writing the digester.",

@@ -67,7 +67,7 @@ function pane(
 }
 
 /** The shipped default: the rail pinned to the right rail. */
-const RAIL_RIGHT: DeckImposition = { sidebars: { tripwires: { side: "right" } } };
+const RAIL_RIGHT: DeckImposition = { sidebars: { dashes: { side: "right" } } };
 
 function deck(
   cards: CardState[],

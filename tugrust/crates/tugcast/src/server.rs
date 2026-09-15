@@ -1846,24 +1846,6 @@ pub(crate) fn build_app(
             .layer(Extension(state));
     }
 
-    // The tripwires surface (Spec S06) needs nothing injected: `tripwires.db` is
-    // machine-global and each handler opens it for the length of one request,
-    // so there is no optional dependency here that could be absent.
-    base = base
-        .route("/api/tripwires", get(crate::tripwires_api::get_tripwires))
-        .route(
-            "/api/tripwires/{name}",
-            post(crate::tripwires_api::post_tripwire).delete(crate::tripwires_api::delete_tripwire),
-        )
-        .route(
-            "/api/tripwires/{name}/trips",
-            get(crate::tripwires_api::get_tripwire_trips),
-        )
-        .route(
-            "/api/tripwires/{name}/trip",
-            post(crate::tripwires_api::post_tripwire_trip),
-        );
-
     // Wire the prompt-history routes when the ledger opened.
     if let Some(deps) = prompt_history {
         base = base

@@ -219,29 +219,6 @@ pub(crate) fn resolve_port_any(
     resolve_port_with(explicit_port, explicit_instance, Ambiguity::PickAny)
 }
 
-/// Post a tell and report the outcome without writing to any output surface.
-///
-/// [`run_tell`] is the verb, and a verb owns stdout. A tell sent from *inside*
-/// another verb — the `wire trip` nudge — does not: its caller has an envelope
-/// to print, and a stray `ok` line ahead of that envelope is not a message, it
-/// is a parse error for whoever reads the verb's JSON.
-pub(crate) fn tell_quietly(action: &str, params: &[String]) -> Result<(), String> {
-    let port = resolve_port(None, None).map_err(|e| e.describe(Remedy::Flags))?;
-    let mut body = serde_json::json!({ "action": action });
-    for (key, value) in parse_params(params)? {
-        body[key] = value;
-    }
-    let response = ureq::post(&format!("http://127.0.0.1:{port}/api/tell"))
-        .send_json(body)
-        .map_err(|e| format!("connection failed: {e}"))?;
-    let status_code = response.status().as_u16();
-    if status_code == 200 {
-        Ok(())
-    } else {
-        Err(format!("server returned status {status_code}"))
-    }
-}
-
 /// Run the tell command
 pub fn run_tell(
     action: String,

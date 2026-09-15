@@ -114,7 +114,7 @@ describe("computeDeadEntryIndices over compaction re-appends", () => {
   });
 
   test("the fixture discriminates: last-wins resolution strands the session", () => {
-    // The tripwire. Without it the tests above could pass vacuously on a
+    // The guard. Without it the tests above could pass vacuously on a
     // fixture that had lost the topology making occurrence-aware
     // resolution load-bearing. 980 is the whole loss the live session
     // suffered — every entry the forward-resolving walk discarded there

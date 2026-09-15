@@ -69,8 +69,6 @@ export const FeedId = {
   USAGE_QUERY: 0x91,
   // Jots (reusable prompt fragments: whole-document push)
   JOTS: 0xa0,
-  // Tripwires (the whole roster, republished on change)
-  TRIPWIRES: 0xb0,
   // Router-internal
   CONTROL: 0xc0,
   HEARTBEAT: 0xff,
@@ -143,7 +141,7 @@ export interface SessionRow {
   card_id: string | null;
   /**
    * Whether `card_id` names a **background owner** rather than a deck card —
-   * a tripwire's work tier, or whatever background spawner comes after it.
+   * whatever background spawner holds it.
    * Computed server-side at projection from `card_id`; never stored.
    *
    * It is the distinction adoption turns on: a live session held by a
@@ -980,13 +978,12 @@ export interface ListSessionStateChangesOk {
  * Who wrote a Overview post. An unrecognized spelling is a parse failure at
  * the edge rather than a row rendered in the wrong voice.
  */
-export type OverviewAuthor = "observer" | "operator" | "user" | "tripwire";
+export type OverviewAuthor = "observer" | "operator" | "user";
 
 const OVERVIEW_AUTHORS: readonly string[] = [
   "observer",
   "operator",
   "user",
-  "tripwire",
 ];
 
 /**

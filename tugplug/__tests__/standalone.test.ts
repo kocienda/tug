@@ -257,88 +257,6 @@ describe("the arc verbs on a project that declares nothing", () => {
   });
 });
 
-/**
- * The `/tripwire` door, driven from the bundle alone.
- *
- * The skill's whole flow is `tugtool tripwire` and nothing else, so a scratch
- * project under a bare PATH and a fresh HOME can drive the door end to end:
- * validate, lay, read the roster back, fire by hand, read the log, revise,
- * take out of service and back, and remove. That is the whole of what the
- * bundle owes a user whose machine has none of our files on it.
- *
- * **What this does not prove, and why.** There is no `Tug.app` here and
- * therefore no engine, and the engine is what mints a trip row — so `trip`
- * refuses outright and says there is no instance to fire it in, rather than
- * writing a row nothing would ever pick up. That refusal is what this asserts.
- * No probe runs, no session is spawned, and nothing settles. The firing is
- * proved by the app-tests against a real `Tug.app`; asserting it here would be
- * claiming more than the lab runs.
- */
-describe("the tripwire door on a project with nothing of ours", () => {
-  const name = "standalone-smoke";
-  const brief = "Say whether this failure is the tool's fault or the program's, and name the file.";
-  const description = "Says whether a refused edit was the tool's fault or the caller's";
-  const roster = () => JSON.parse(tugtool(["--json", "tripwire", "list"]).out).data as { name: string; paused: boolean; probe: string | null }[];
-
-  test("lay --preview → lay → list → trip → edit → pause → resume → rm", () => {
-    // 1. Validate. `--preview` parses everything and writes nothing, which is
-    //    what the second half of this assertion is for: a preview that laid a
-    //    tripwire would be a syntax check with a side effect.
-    const preview = tugtool(["--json", "tripwire", "lay", name, "--on", "fact:edit_failed", "--brief", brief, "--description", description, "--scope", project, "--preview"]);
-    expect(preview.code, preview.err).toBe(0);
-    const previewed = JSON.parse(preview.out).data;
-    expect(previewed.trigger).toBe(JSON.stringify({ fact: { kind: "edit_failed" } }));
-    expect(previewed.scope).toBe(realpathSync(project));
-    expect(roster().find((w) => w.name === name)).toBeUndefined();
-
-    // 2. Lay it. The receipt is the tripwire.
-    const laid = tugtool(["--json", "tripwire", "lay", name, "--on", "fact:edit_failed", "--brief", brief, "--description", description, "--scope", project]);
-    expect(laid.code, laid.err).toBe(0);
-    expect(JSON.parse(laid.out).data).toMatchObject({ name, brief, description, paused: false });
-
-    // 3. Read the roster back — the same projection the card and the feed read.
-    expect(roster().find((w) => w.name === name)).toMatchObject({ paused: false, running: false, open_session: null });
-
-    // 4. Fire it by hand — and meet the refusal, because the engine that mints
-    //    a trip row lives in the app and there is no app here. Naming the
-    //    reason rather than merely failing is the point: the user is sent to
-    //    start Tug rather than left to guess at the tripwire.
-    const fired = tugtool(["--json", "tripwire", "trip", name]);
-    expect(fired.code).not.toBe(0);
-    expect(fired.err).toContain("no Tug instance is running to fire it in");
-    // And nothing was written: a refusal that left a row behind would be a row
-    // some later engine picked up for a bench test nobody is watching.
-    expect(JSON.parse(tugtool(["--json", "tripwire", "log", name]).out).data).toHaveLength(0);
-
-    // 5. Revise in place. What is not named is left alone.
-    const edited = tugtool(["--json", "tripwire", "edit", name, "--probe", "true"]);
-    expect(edited.code, edited.err).toBe(0);
-    expect(JSON.parse(edited.out).data).toMatchObject({ probe: "true", brief });
-
-    // 6. Out of service and back, keeping the tripwire and its log.
-    expect(JSON.parse(tugtool(["--json", "tripwire", "pause", name]).out).data.paused).toBe(true);
-    expect(roster().find((w) => w.name === name)?.paused).toBe(true);
-    expect(JSON.parse(tugtool(["--json", "tripwire", "resume", name]).out).data.paused).toBe(false);
-
-    // 7. Gone, with its log.
-    const removed = tugtool(["--json", "tripwire", "rm", name]);
-    expect(removed.code, removed.err).toBe(0);
-    expect(JSON.parse(removed.out).data).toMatchObject({ tripwire: name, removed: true });
-    expect(roster().find((w) => w.name === name)).toBeUndefined();
-  });
-
-  test("a brief that says nothing is refused, at the lay and at the preview", () => {
-    for (const tail of [[], ["--preview"]]) {
-      const r = tugtool(["--json", "tripwire", "lay", "standalone-empty", "--on", "fact:edit_failed", "--brief", "look at it", "--description", description, "--scope", project, ...tail]);
-      expect(r.code, `${r.out}${r.err}`).not.toBe(0);
-      // Named rather than merely non-zero: an exit code alone would pass on a
-      // refusal about anything else, which is the whole of what this asserts.
-      expect(r.err).toContain("says nothing for the AI to do");
-    }
-    expect(roster().find((w) => w.name === "standalone-empty")).toBeUndefined();
-  });
-});
-
 describe("brief is the one skill a model may reach for", () => {
   test("only skills/brief carries no disable-model-invocation", () => {
     const skills = join(pluginRoot, "skills");
@@ -362,10 +280,9 @@ describe("brief is the one skill a model may reach for", () => {
  * The scanner used to be one pattern requiring a literal backtick immediately
  * before `tugtool`, which meant it never reached a fenced code block — and a
  * fenced block is where a skill writes the usage lines a reader will type. It
- * was blind to every skill's fenced usage, not only the one that exposed it:
- * the tripwire skill carries fourteen fenced `tugtool tripwire …` lines and a
- * single inline mention that names no verb, so the guard resolved none of its
- * ten verbs.
+ * was blind to every skill's fenced usage. The skill that exposed it carried
+ * a dozen fenced `tugtool <ns> <verb>` lines and a single inline mention that
+ * named no verb, so the guard resolved none of its verbs.
  *
  * So two passes over the same text. The inline pass keeps the backtick, which
  * is what makes it safe in prose: an unbackticked "tugtool executes it" would
@@ -386,7 +303,7 @@ describe("every verb a skill names is one the shipped binary has", () => {
   // checked, which is the quieter half of the blindness the scanner had: the
   // mention matches, `help.has(ns)` is false, and nothing is resolved. So the
   // list carries every namespace a skill names a verb under.
-  const namespaces = ["arc", "plan", "brief", "draft", "file", "host", "hook", "changes", "session", "tripwire", "apptest"] as const;
+  const namespaces = ["arc", "plan", "brief", "draft", "file", "host", "hook", "changes", "session", "apptest"] as const;
 
   test("tugtool <namespace> <verb> mentions resolve against --help", () => {
     const help = new Map<string, string>();
@@ -421,25 +338,29 @@ describe("every verb a skill names is one the shipped binary has", () => {
    * above for the same reason a scan that matched everything would, which is
    * how the fenced blindness survived so long unnoticed.
    *
-   * The tripwire skill is the whole door for its namespace — the card carries
-   * knobs and the CLI carries everything else — so every verb the binary lists
-   * is one the skill names, and the binary's own `--help` is the list rather
-   * than a count written down here. It fails loudly if the skill stops naming
-   * a verb, and it fails loudly if the scanner goes blind again.
+   * So the claim is the scan's own reach rather than any one namespace's
+   * completeness: at least one `tugtool <ns> <verb>` in the shipped skills is
+   * reachable ONLY through the fenced pass. The inline pass is re-derived here
+   * rather than factored out of {@link usages}, because a shared helper would
+   * go blind with it and this test would go quiet at the same moment.
    */
-  test("the scan reaches a fenced block: the tripwire door names every verb", () => {
-    const shipped = tugtool(["tripwire", "--help"]).out
-      .split("\n")
-      .map((l) => l.match(/^ {2}([a-z-]+) {2,}\S/)?.[1])
-      .filter((v): v is string => v !== undefined && v !== "help");
-    const text = readFileSync(join(pluginRoot, "skills", "tripwire", "SKILL.md"), "utf8");
-    const named = new Set(
-      usages(text)
-        .filter((m) => m[1] === "tripwire" && m[2])
-        .map((m) => m[2]),
-    );
-    expect(shipped.length).toBeGreaterThan(0);
-    expect(shipped.filter((v) => !named.has(v))).toEqual([]);
+  test("the scan reaches a fenced block, not only inline prose", () => {
+    const skills = join(pluginRoot, "skills");
+    const fencedOnly: string[] = [];
+    for (const skill of readdirSync(skills).filter((s) => statSync(join(skills, s)).isDirectory())) {
+      const skillMd = join(skills, skill, "SKILL.md");
+      if (!existsSync(skillMd)) continue;
+      const text = readFileSync(skillMd, "utf8");
+      const inline = new Set(
+        [...text.matchAll(/`tugtool ([a-z-]+)(?: ([a-z-]+))?/g)]
+          .filter((m) => m[2])
+          .map((m) => `${m[1]} ${m[2]}`),
+      );
+      for (const m of usages(text)) {
+        if (m[2] && !inline.has(`${m[1]} ${m[2]}`)) fencedOnly.push(`${skill}: ${m[1]} ${m[2]}`);
+      }
+    }
+    expect(fencedOnly.length, "the fenced pass reaches a verb the inline pass cannot").toBeGreaterThan(0);
   });
 
   /**

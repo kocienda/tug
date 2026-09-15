@@ -50,7 +50,6 @@ const ALLOWED_READS: &[(&str, usize, &str)] = &[
 const ALLOWED_EXPORTERS: &[&str] = &[
     "tugcast/src/feeds/agent_bridge.rs",
     "tugcast/src/feeds/shell.rs",
-    "tugcast/src/feeds/tripwire.rs",
 ];
 
 #[cfg(test)]

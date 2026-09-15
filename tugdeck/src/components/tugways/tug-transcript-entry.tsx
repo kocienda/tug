@@ -76,7 +76,6 @@ import {
   Shell,
   ShipWheel,
   User,
-  Zap,
 } from "lucide-react";
 
 import { Operator } from "@/components/tugways/tug-icons";
@@ -100,8 +99,7 @@ export type Participant =
   | "git"
   | "observer"
   | "operator"
-  | "wheel"
-  | "tripwire";
+  | "wheel";
 
 /**
  * Icon rendered in the gutter for each participant. Lucide glyphs picked
@@ -147,10 +145,6 @@ const PARTICIPANT_ICONS: Record<Participant, React.ReactNode> = {
   // arc's stage prompt. The row lays out as a user row; the glyph says who
   // actually spoke.
   wheel: <ShipWheel size={ICON_PIXEL_SIZE} />,
-  // A standing tripwire, reporting what one of its firings amounted to. The
-  // bolt is the glyph for a thing that fires on its own — the one voice in
-  // the channel nobody asked a question of.
-  tripwire: <Zap size={ICON_PIXEL_SIZE} />,
 };
 
 // ---------------------------------------------------------------------------

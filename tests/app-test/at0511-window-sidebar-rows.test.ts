@@ -53,12 +53,12 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
-/** The Jots card's rows. One card is enough: the six are one generated group. */
+/** The Jots card's rows. One card is enough: the five are one generated group. */
 const PARENT = "window.sidebar.jots";
 const TOGGLE = "window.sidebar.jots.show";
 const LEFT = "window.sidebar.jots.left";
 const RIGHT = "window.sidebar.jots.right";
-/** The one verb that resizes the rails, above the six card rows ([B11]). */
+/** The one verb that resizes the rails, above the five card rows ([B11]). */
 const RESIZE = "window.resizeSidebarsToFit";
 
 /** `NSEvent.ModifierFlags` as the snapshot reports them. */

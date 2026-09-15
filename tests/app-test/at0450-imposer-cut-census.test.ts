@@ -219,7 +219,7 @@ const RAIL_PANES: Record<string, string> = {
   jots: "pJots",
   overview: "pOverview",
   cards: "pCards",
-  tripwires: "pTripwires",
+  dashes: "pDashes",
 };
 
 function railDeckShape(): Record<string, unknown> {
@@ -245,7 +245,7 @@ function railDeckShape(): Record<string, unknown> {
       railCard("jots"),
       railCard("overview"),
       railCard("cards"),
-      railCard("tripwires"),
+      railCard("dashes"),
     ],
     panes: [
       {
@@ -262,7 +262,7 @@ function railDeckShape(): Record<string, unknown> {
       railPane("jots"),
       railPane("overview"),
       railPane("cards"),
-      railPane("tripwires"),
+      railPane("dashes"),
     ],
     activePaneId: "p1",
     imposition: {
@@ -272,12 +272,12 @@ function railDeckShape(): Record<string, unknown> {
         jots: { side: "right" },
         overview: { side: "right" },
         cards: { side: "right" },
-        tripwires: { side: "right" },
+        dashes: { side: "right" },
       },
       rails: {
         right: {
           mode: "split",
-          order: ["layout", "jots", "overview", "cards", "tripwires"],
+          order: ["layout", "jots", "overview", "cards", "dashes"],
         },
       },
     },
@@ -963,7 +963,7 @@ describe.skipIf(!SHOULD_RUN)(
           // rail's run stops being divided and starts being scrolled, so no
           // handle is drawn. Sending the surplus to the other side drops it
           // back to two.
-          for (const componentId of ["overview", "cards", "tripwires"]) {
+          for (const componentId of ["overview", "cards", "dashes"]) {
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("set-sidebar-side", { componentId: ${JSON.stringify(componentId)}, side: "left" }), null)`,
             );

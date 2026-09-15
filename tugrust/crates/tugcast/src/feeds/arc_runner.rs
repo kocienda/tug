@@ -6305,7 +6305,7 @@ Some context.
         );
     }
 
-    /// **The tripwire** ([P11]). The incident's morning undid two Resume
+    /// **The guard** ([P11]). The incident's morning undid two Resume
     /// presses within 160 ms each, because the stall clock outranked the resume
     /// and the runner's memory outlived the stop. A resume followed by a clock
     /// long since run out must produce no second stop — and the settle is what

@@ -69,7 +69,6 @@ import { registerOverviewCard } from "./components/overview/overview-card-regist
 import { registerCardsCard } from "./components/cards/cards-card-registration";
 import { registerLayoutCard } from "./components/layout/layout-card-registration";
 import { registerArcsCard } from "./components/arcs/arcs-card-registration";
-import { registerTripwiresCard } from "./components/tripwires/tripwires-card-registration";
 import { registerTextCard } from "./components/tugways/cards/text-card-registration";
 import { registerFileViewCard } from "./components/tugways/cards/file-view-card-registration";
 import { registerDiffCard } from "./components/tugways/cards/diff-card";
@@ -348,7 +347,6 @@ if (!container) {
   // drops panes whose only card's componentId is unregistered at load.
   registerJotsCard();
   registerOverviewCard();
-  registerTripwiresCard();
   registerArcsCard();
   registerCardsCard();
   // Registration order is the order the Layout card lists its rows in.

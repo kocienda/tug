@@ -81,8 +81,8 @@ const EDIT_MESSAGE_DETAIL_CAP: usize = 500;
 
 // MARK: - Kinds
 
-/// The kinds the ledger records live in `tugcore` so the tripwire verbs can
-/// refuse a kind nothing writes; this is the same enum under its old address.
+/// The kinds the ledger records live in `tugcore` so a reader can refuse a
+/// kind nothing writes; this is the same enum under its old address.
 pub use tugcore::facts::FactKind;
 
 // MARK: - Rendering
@@ -561,11 +561,10 @@ pub fn compact_fact(
 /// A commit landed through a Tug gesture, from the receipt that knows its sha,
 /// message, and file list all at once.
 ///
-/// The branch is a payload field rather than a column on the tripwire ([P02]):
-/// a tripwire that wants to watch one branch writes
-/// `--on fact:commit --where branch=main`, which is the same grammar every
-/// other narrowing uses, and a `shell` fact has no branch for a column to gate
-/// on at all.
+/// The branch is a payload field rather than a column of its own ([P02]): a
+/// reader that wants to narrow to one branch reads it out of the payload like
+/// every other narrowing, and a `shell` fact has no branch for a column to
+/// gate on at all.
 pub fn commit_fact(
     at_ms: i64,
     session_id: Option<&str>,

@@ -14,7 +14,6 @@ mod plan;
 mod session;
 mod session_identity;
 mod splash;
-mod tripwire;
 
 use std::process::ExitCode;
 
@@ -114,7 +113,6 @@ fn main() -> ExitCode {
 
         // Arcs (tugarc_core) and host plumbing (command modules).
         Some(Commands::Arc(cmd)) => arc::dispatch(cmd, json, quiet),
-        Some(Commands::Tripwire(cmd)) => tripwire::dispatch(cmd, json, quiet),
         Some(Commands::Plan(cmd)) => plan::dispatch(cmd, json),
         Some(Commands::Brief(cmd)) => brief::dispatch(cmd, json),
         Some(Commands::Host(cmd)) => host::dispatch(cmd, json, quiet),

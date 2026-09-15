@@ -15,7 +15,7 @@
  * derived from settled DOM focus, and every engine claim gated on key-card
  * authority, the boot must end with the ring and the keyboard on the same
  * element — `document.activeElement` inside (or containing) the
- * `[data-key-view-kbd]` element — with ZERO tripwire violations, and
+ * `[data-key-view-kbd]` element — with ZERO guard violations, and
  * ArrowDown must move the Jots card cursor (`data-key-cursor`), proving the
  * keydown path reaches the ringed list.
  *

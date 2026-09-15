@@ -290,41 +290,6 @@ pub fn apptest_results_db_path() -> PathBuf {
     guard_isolated(base_data_dir().join("apptest_results.db"))
 }
 
-/// Environment variable overriding the shared tripwires ledger path. Set by
-/// test harnesses so an isolated run never lays a tripwire on the real machine.
-pub const ENV_TRIPWIRES_DB: &str = "TUG_TRIPWIRES_DB";
-
-/// The **machine-global** tripwires ledger path: one `tripwires.db` holding
-/// every standing tripwire and every trip any instance has claimed. Deliberately
-/// independent of `TUG_INSTANCE_ID`, and for a stronger reason than the other
-/// shared ledgers: the `UNIQUE(tripwire_id, event_key)` claim two instances race
-/// for is only an arbitration if both are racing in the same table. Partition
-/// it per instance and every instance fires the same tripwire on the same event.
-/// Honors the [`ENV_TRIPWIRES_DB`] override for isolated test runs.
-pub fn tripwires_db_path() -> PathBuf {
-    if let Some(p) = env::var_os(ENV_TRIPWIRES_DB).filter(|v| !v.is_empty()) {
-        return guard_isolated(PathBuf::from(p));
-    }
-    guard_isolated(base_data_dir().join("tripwires.db"))
-}
-
-/// The **machine-global** scratch root every tripwire inspection tree lives
-/// under: one directory per `HEAD` sha, each a detached `git worktree` at
-/// that commit ([P06]).
-///
-/// Machine-global for the same reason `tripwires.db` is — the trips that
-/// refcount a tree are written into one ledger by whichever instance recorded
-/// the fact, so partitioning the trees per instance would let two instances cut
-/// two checkouts of one commit and each sweep the other's.
-///
-/// The layout is load-bearing rather than tidy: naming a tree by its sha is
-/// what makes the orphan sweep a directory listing (Risk R04). Unlike an arc,
-/// nothing lists a detached worktree, so a crash would otherwise leave trees
-/// accumulating invisibly.
-pub fn tripwire_trees_dir() -> PathBuf {
-    guard_isolated(base_data_dir().join("tripwire-trees"))
-}
-
 /// Environment variable overriding the shared jots-file path.
 /// Set by test harnesses so isolated runs never touch the user's real
 /// jots file.
@@ -455,7 +420,7 @@ pub fn base_data_dir() -> PathBuf {
     }
 }
 
-/// The user's real data root, ignoring [`ENV_DATA_DIR`]. The tripwire
+/// The user's real data root, ignoring [`ENV_DATA_DIR`]. The isolation guard
 /// measures against this; nothing else should call it.
 fn platform_data_root() -> PathBuf {
     dirs::data_dir().unwrap_or_else(env::temp_dir).join("Tug")
@@ -720,18 +685,18 @@ mod tests {
     #[test]
     #[serial]
     #[should_panic(expected = "resolved inside the live data root")]
-    fn tripwire_fires_when_isolation_is_asserted_but_unconfigured() {
+    fn the_guard_fires_when_isolation_is_asserted_but_unconfigured() {
         let _e = EnvGuard::snapshot();
         let _d = VarGuard::set(ENV_DATA_DIR, None);
         let _i = VarGuard::set(ENV_TEST_ISOLATION, Some(std::path::Path::new("1")));
-        set_instance(Some("debug-tripwire"));
+        set_instance(Some("debug-guard"));
         // No ENV_DATA_DIR, so this resolves the user's real ledger directory.
         let _ = data_dir();
     }
 
     #[test]
     #[serial]
-    fn tripwire_is_silent_when_the_path_is_redirected() {
+    fn the_guard_is_silent_when_the_path_is_redirected() {
         let _e = EnvGuard::snapshot();
         let tmp = tempfile::tempdir().unwrap();
         let _d = VarGuard::set(ENV_DATA_DIR, Some(tmp.path()));
@@ -877,41 +842,6 @@ mod tests {
     fn apptest_results_db_path_ignores_empty_env() {
         let _s = VarGuard::set(ENV_APPTEST_RESULTS_DB, Some(std::path::Path::new("")));
         assert!(apptest_results_db_path().ends_with("Tug/apptest_results.db"));
-    }
-
-    /// The claim two instances race for is only arbitration if both are
-    /// racing in one table, so this path must not move with the instance id.
-    #[test]
-    #[serial]
-    fn tripwires_db_path_default_is_machine_global_and_instance_independent() {
-        let _g = EnvGuard::snapshot();
-        let _s = VarGuard::set(ENV_TRIPWIRES_DB, None);
-        set_instance(None);
-        let unset = tripwires_db_path();
-        set_instance(Some("debug-foo"));
-        let set = tripwires_db_path();
-        assert_eq!(unset, set);
-        assert!(set.ends_with("Tug/tripwires.db"));
-    }
-
-    #[test]
-    #[serial]
-    fn tripwires_db_path_env_override_wins() {
-        let _s = VarGuard::set(
-            ENV_TRIPWIRES_DB,
-            Some(std::path::Path::new("/tmp/custom-tripwires.db")),
-        );
-        assert_eq!(
-            tripwires_db_path(),
-            PathBuf::from("/tmp/custom-tripwires.db")
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn tripwires_db_path_ignores_empty_env() {
-        let _s = VarGuard::set(ENV_TRIPWIRES_DB, Some(std::path::Path::new("")));
-        assert!(tripwires_db_path().ends_with("Tug/tripwires.db"));
     }
 
     #[test]

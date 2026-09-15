@@ -2,7 +2,7 @@
  * layout-card-registration.tsx — registers the Layout card ([L25]).
  *
  * Layout is an ordinary registered card hosted by the normal `CardHost` inside
- * a sidebar pane, on the same template Tripwires and Arcs took: the
+ * a sidebar pane, on the same template Arcs took: the
  * pane/card machinery (FocusContext, responder scope, title-bar chrome) is
  * what makes focus restore and the pane's own affordances nearly free.
  *
@@ -51,7 +51,8 @@ export function registerLayoutCard(): void {
     acceptsFamilies: [],
     contentFactory: (cardId: string) => <LayoutContent cardId={cardId} />,
     defaultMeta: { title: "Layout", icon: "Columns3", closable: true },
-    // Last of the six, rank 6: the only card whose content is fixed. Its
+    // Last of the sidebar cards, rank 6: the only card whose content is
+    // fixed. Its
     // drawing and its control rows are the same size tomorrow, so space handed
     // to it is space nothing will ever grow into.
     greedRank: 6,

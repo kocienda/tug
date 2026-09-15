@@ -1250,10 +1250,6 @@ pub enum OverviewAuthor {
     Operator,
     /// The human, asking through the card's composer.
     User,
-    /// A standing tripwire, reporting what one of its firings amounted to.
-    /// The only author nobody asked for a post from — a wire speaks because
-    /// an event it was watching for happened.
-    Tripwire,
 }
 
 impl OverviewAuthor {
@@ -1263,7 +1259,6 @@ impl OverviewAuthor {
             Self::Observer => "observer",
             Self::Operator => "operator",
             Self::User => "user",
-            Self::Tripwire => "tripwire",
         }
     }
 
@@ -1275,7 +1270,6 @@ impl OverviewAuthor {
             "observer" => Some(Self::Observer),
             "operator" => Some(Self::Operator),
             "user" => Some(Self::User),
-            "tripwire" => Some(Self::Tripwire),
             _ => None,
         }
     }
@@ -1488,15 +1482,10 @@ mod tests {
             OverviewAuthor::Observer,
             OverviewAuthor::Operator,
             OverviewAuthor::User,
-            OverviewAuthor::Tripwire,
         ] {
             assert_eq!(OverviewAuthor::parse(author.as_str()), Some(author));
         }
-        assert_eq!(
-            OverviewAuthor::parse("tripwire"),
-            Some(OverviewAuthor::Tripwire)
-        );
-        assert_eq!(OverviewAuthor::parse("Tripwire"), None);
+        assert_eq!(OverviewAuthor::parse("User"), None);
         assert_eq!(OverviewAuthor::parse("wire"), None);
 
         for kind in [

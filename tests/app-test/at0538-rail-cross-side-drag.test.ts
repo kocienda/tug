@@ -56,7 +56,7 @@ const SETTLE_TAIL_MS = 900;
 const RAIL_WIDTH = 420;
 const PANES: Record<string, string> = {
   overview: "pOverview",
-  tripwires: "pTripwires",
+  dashes: "pDashes",
   layout: "pLayout",
   jots: "pJots",
 };
@@ -75,7 +75,7 @@ interface Rect {
   height: number;
 }
 
-/** Two split rails: overview over tripwires on the left, layout over jots on
+/** Two split rails: overview over dashes on the left, layout over jots on
  *  the right. */
 function deckShape() {
   const pane = (id: string, cardId: string, title: string) => ({
@@ -90,13 +90,13 @@ function deckShape() {
   return {
     cards: [
       { id: "O", componentId: "overview", title: "Overview", closable: true },
-      { id: "T", componentId: "tripwires", title: "Tripwires", closable: true },
+      { id: "T", componentId: "dashes", title: "Arcs", closable: true },
       { id: "L", componentId: "layout", title: "Layout", closable: true },
       { id: "J", componentId: "jots", title: "Jots", closable: true },
     ],
     panes: [
       pane(PANES.overview, "O", "Overview"),
-      pane(PANES.tripwires, "T", "Tripwires"),
+      pane(PANES.dashes, "T", "Arcs"),
       pane(PANES.layout, "L", "Layout"),
       pane(PANES.jots, "J", "Jots"),
     ],
@@ -105,12 +105,12 @@ function deckShape() {
       kind: "three-up",
       sidebars: {
         overview: { side: "left" },
-        tripwires: { side: "left" },
+        dashes: { side: "left" },
         layout: { side: "right" },
         jots: { side: "right" },
       },
       rails: {
-        left: { mode: "split", order: ["overview", "tripwires"] },
+        left: { mode: "split", order: ["overview", "dashes"] },
         right: { mode: "split", order: ["layout", "jots"] },
       },
     },
@@ -199,7 +199,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await settled(app);
 
-          expect(await railOrderOnScreen(app, "left")).toEqual(["overview", "tripwires"]);
+          expect(await railOrderOnScreen(app, "left")).toEqual(["overview", "dashes"]);
           expect(await railOrderOnScreen(app, "right")).toEqual(["layout", "jots"]);
           const before = await railRects(app);
           const rightRail = {
@@ -253,21 +253,21 @@ describe.skipIf(!SHOULD_RUN)(
             "jots",
           ]);
           expect(right.mode, "the destination stayed split").toBe("split");
-          expect(left.order, "and the origin's order no longer names it").toEqual(["tripwires"]);
+          expect(left.order, "and the origin's order no longer names it").toEqual(["dashes"]);
           expect(await railOrderOnScreen(app, "right"), "the frames agree").toEqual([
             "layout",
             "overview",
             "jots",
           ]);
           // A lone member is not a split frame, so the left side is read by
-          // its pinned frames: exactly tripwires, standing alone.
+          // its pinned frames: exactly dashes, standing alone.
           expect(
             await app.evalJS<string[]>(
               `Array.from(document.querySelectorAll('.tug-pane[data-rail-side="left"]'))
                 .map(function (el) { return el.getAttribute("data-pane-id"); })`,
             ),
-            "the left rail holds tripwires alone",
-          ).toEqual([PANES.tripwires]);
+            "the left rail holds dashes alone",
+          ).toEqual([PANES.dashes]);
         } finally {
           await app.close();
         }

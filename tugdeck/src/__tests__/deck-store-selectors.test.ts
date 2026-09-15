@@ -57,7 +57,7 @@ function baseState(): DeckState {
       makePane("pane-2", ["card-c"], "card-c"),
     ],
     activePaneId: "pane-1",
-    imposition: { sidebars: { tripwires: { side: "right" } } },
+    imposition: { sidebars: { dashes: { side: "right" } } },
     hasFocus: true,
   };
 }
@@ -285,7 +285,7 @@ describe("deckColumnsOf", () => {
       })),
       imposition: {
         kind: "three-up",
-        sidebars: { tripwires: { side: "right" } },
+        sidebars: { dashes: { side: "right" } },
         ...imposition,
       },
       hasFocus: true,
@@ -418,7 +418,7 @@ describe("a split column in flow", () => {
       imposition: {
         kind: "three-up",
         layout: "flow",
-        sidebars: { tripwires: { side: "right" } },
+        sidebars: { dashes: { side: "right" } },
         columns: { 0: { mode: "split", order: ["pane-a", "pane-b"] } },
       },
       hasFocus: true,
@@ -452,7 +452,7 @@ describe("a split column in flow", () => {
       imposition: {
         kind: "three-up",
         layout: "flow",
-        sidebars: { tripwires: { side: "right" } },
+        sidebars: { dashes: { side: "right" } },
       },
       hasFocus: true,
     };
@@ -480,7 +480,7 @@ describe("columnBadgeFactsOf", () => {
       })),
       imposition: {
         kind: "three-up",
-        sidebars: { tripwires: { side: "right" } },
+        sidebars: { dashes: { side: "right" } },
         ...(columns === undefined ? {} : { columns }),
       },
       hasFocus: true,

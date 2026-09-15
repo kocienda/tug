@@ -442,20 +442,6 @@ pub struct LedgerEntry {
     /// from the ledger row on rebind. Zero is the state between a spawn and
     /// its first `turn_complete`: seated, idle, and never yet run.
     pub turns_ended: u32,
-    /// How many tool calls this session has made — counted at the two places
-    /// the bridge parses a tool-use frame off the stream, live and replayed
-    /// ([P07]).
-    ///
-    /// The bridge is the only place that sees every one of them: facts see
-    /// Bash calls and edits, so a fact-derived count would miss `Read`,
-    /// `Grep` and `Agent` — exactly the calls a session that will not stop
-    /// spends its life on. It counts calls rather than *completed* calls, so
-    /// a call the gate denied counts too, which is correct: a session burning
-    /// its budget on refused calls is precisely one to stop.
-    ///
-    /// Never reset. It is the session's whole life, which is what the
-    /// tripwire's ceiling is a ceiling on.
-    pub tool_calls: u32,
     /// What opened the turn now in flight, or `None` between turns and for a
     /// turn whose opener was never recorded ([P02]).
     ///
@@ -666,7 +652,6 @@ impl LedgerEntry {
             child_start_time: None,
             turn_active: false,
             turns_ended: 0,
-            tool_calls: 0,
             turn_opener: None,
             prompt_turns_ended: 0,
             wake_turns_ended: 0,
@@ -3851,12 +3836,10 @@ fn cap_check_reason(
 /// a spawn be admitted right now?" for a caller that is not about to perform
 /// one.
 ///
-/// Split out of [`cap_check_reason`] so the tripwire engine can ask before it
-/// claims a firing rather than discovering the answer inside a failed spawn:
-/// a host at its cap is a busy condition, and a trip that meets one belongs in
-/// the queue rather than in the failure log. Reading it must not consume a
-/// rate-limit slot, which is the whole of why the append lives in the caller
-/// above rather than here.
+/// Split out of [`cap_check_reason`] so a caller can ask before it commits to
+/// a spawn rather than discovering the answer inside a failed one. Reading it
+/// must not consume a rate-limit slot, which is the whole of why the append
+/// lives in the caller above rather than here.
 ///
 /// Concurrent cap counts `Spawning` + `Live` entries only — `Idle` (intent
 /// without subprocess) and `Errored` (crashed, awaiting reset) do not
@@ -5454,34 +5437,6 @@ impl AgentSupervisor {
         Ok(())
     }
 
-    /// Whether a fresh headless spawn would be admitted right now, asked
-    /// without performing one.
-    ///
-    /// The tripwire engine's door onto this process's budget. Its own ceiling
-    /// rations worktrees machine-wide; this one rations memory per process,
-    /// and a firing that cannot clear both belongs in the queue the engine
-    /// already has rather than in its failure log. The two compose — neither
-    /// replaces the other — and this read is what lets the engine see the
-    /// second one before it commits to a run.
-    ///
-    /// A snapshot rather than a reservation, deliberately: a card may take the
-    /// last slot between this answer and the spawn, and the loser of that race
-    /// settles `queued` and is drained, which is the same outcome by a slower
-    /// road. A contended ledger reads as admitting, so uncertainty costs the
-    /// old behaviour rather than a spurious deferral.
-    pub(crate) fn would_admit_spawn(&self) -> bool {
-        let Ok(ledger) = self.ledger.try_lock() else {
-            return true;
-        };
-        spawn_budget_reason(
-            &ledger,
-            self.config.max_concurrent_sessions,
-            &self.spawn_timestamps,
-            self.config.max_spawns_per_minute,
-        )
-        .is_none()
-    }
-
     /// Spawn a session no card owns ([P11]).
     ///
     /// The pipeline is `do_spawn_session`'s minus everything that belongs to a
@@ -5494,20 +5449,20 @@ impl AgentSupervisor {
     /// transcript, a ledger row, a citation identity, and an id a deck client
     /// can later resume.
     ///
-    /// The card id is `tripwire:<name>`. It names the tripwire that asked
+    /// The card id is `background:<owner>`. It names the owner that asked
     /// rather than addressing a card, because no card by that id exists.
     /// `background_session` owns both the minting and the recognising, so a
     /// reader downstream can tell a session held by a background owner from
     /// one held by a card a user could be sent to.
-    #[cfg_attr(not(test), allow(dead_code))] // the work tier is the caller
+    #[cfg_attr(not(test), allow(dead_code))] // no background spawner ships yet
     pub(crate) async fn spawn_headless_session(
         &self,
-        tripwire_name: &str,
+        owner: &str,
         project_dir: &Path,
         permission_mode: Option<String>,
         tag: Option<String>,
     ) -> Result<TugSessionId, ControlError> {
-        let card_id = background_card_id(tripwire_name);
+        let card_id = background_card_id(owner);
         let tug_session_id = TugSessionId::new(uuid::Uuid::new_v4().to_string());
         // A headless session is the only session on its line, and it mints the
         // line itself because no drop preceded it ([P03]).
@@ -5539,7 +5494,7 @@ impl AgentSupervisor {
         // Phase 1: the budget check and the insert, atomic under the ledger
         // lock. The id is fresh, so this is always an insert and the
         // reconnect arithmetic `do_spawn_session` carries has nothing to
-        // decide here. The budget is not waived: a tripwire's session is a real
+        // decide here. The budget is not waived: a headless session is a real
         // subprocess and counts like every other.
         let entry_arc = {
             let mut ledger = self.ledger.lock().await;
@@ -5626,13 +5581,9 @@ impl AgentSupervisor {
     /// The guard is here rather than in `do_close_session` on purpose: the
     /// user's own close of the adopted card goes through that path and must
     /// still work.
-    #[cfg_attr(not(test), allow(dead_code))] // the work tier is the caller
-    pub(crate) async fn close_headless_session(
-        &self,
-        tripwire_name: &str,
-        tug_session_id: &TugSessionId,
-    ) {
-        let card_id = background_card_id(tripwire_name);
+    #[cfg_attr(not(test), allow(dead_code))] // no background spawner ships yet
+    pub(crate) async fn close_headless_session(&self, owner: &str, tug_session_id: &TugSessionId) {
+        let card_id = background_card_id(owner);
         let held_by = {
             let entry_arc = self.ledger.lock().await.get(tug_session_id).cloned();
             match entry_arc {
@@ -7119,15 +7070,15 @@ impl AgentSupervisor {
                     project_dir,
                 );
                 // The landing's file list, projected once: the fact write and
-                // the tripwire send below both want it, and the receipt is
+                // the fact send below both want it, and the receipt is
                 // thrown away after the broadcast ([P03]).
                 let files: Vec<String> = receipt.files.iter().map(|f| f.path.clone()).collect();
                 // The commit as a fact ([P08]). This is the one durable moment
                 // that knows the sha, the message, and the file list together
                 // without re-running git — today the receipt is built here and
                 // thrown away after the broadcast. It is also the whole of
-                // what reaches the tripwire engine: recording the fact is the
-                // trigger ([B01]), so there is no second send.
+                // what any fact reader sees: recording the fact is the
+                // whole of it, so there is no second send.
                 if let Some(sessions) = self.session_ledger.as_ref() {
                     let fact = crate::feeds::facts_library::commit_fact(
                         crate::session_ledger::now_millis(),
@@ -7686,12 +7637,10 @@ impl AgentSupervisor {
                         };
                         // The join's commit as a fact, exactly as the commit
                         // path records its own: a join is a commit made through
-                        // Tug, and recording the fact is the whole of what
-                        // reaches the tripwire engine ([B01]) — a tripwire on
-                        // `fact:commit` that saw `/commit` and not `/arc-join`
-                        // would be watching half the landings. The initiating
-                        // session is the fact's session, which is also what
-                        // the engine resolves the checkout from; the branch is
+                        // Tug, and recording the fact is the whole of what a
+                        // fact reader sees — one that saw `/commit` and not
+                        // `/arc-join` would be watching half the landings. The
+                        // initiating session is the fact's session; the branch is
                         // the base the join landed on. No numstat here — the
                         // list above is `--stat` shaped, and under any strategy
                         // but `squash` it is empty for the reason given there.
@@ -12269,14 +12218,11 @@ mod tests {
 
     /// **The commit fact carries the branch it landed on** ([P02]).
     ///
-    /// The branch stopped being a column on the tripwire and became a payload
-    /// field, so `--on fact:commit --where branch=main` is what expresses the
-    /// gate `--branch main` used to — and the commit path is the one place
-    /// that has the branch in hand without a second `git` read.
+    /// The branch is a payload field rather than a column anywhere else, and
+    /// the commit path is the one place that has it in hand without a second
+    /// `git` read.
     #[test]
     fn a_commit_fact_carries_its_branch() {
-        use tugtool_core::tripwire_predicate::{FactEvent, Predicate, matches};
-
         let fact = crate::feeds::facts_library::commit_fact(
             0,
             Some("sess-a"),
@@ -12288,23 +12234,6 @@ mod tests {
         );
         let payload: serde_json::Value = serde_json::from_str(&fact.payload).unwrap();
         assert_eq!(payload["branch"], "main");
-
-        let event = FactEvent {
-            kind: fact.kind.clone(),
-            payload: payload.clone(),
-        };
-        let watching_main: Predicate =
-            serde_json::from_str(r#"{"fact":{"kind":"commit","where":{"branch":"main"}}}"#)
-                .expect("a branch-narrowed commit predicate");
-        assert!(matches(&watching_main, &event));
-
-        let watching_release: Predicate =
-            serde_json::from_str(r#"{"fact":{"kind":"commit","where":{"branch":"release"}}}"#)
-                .expect("a branch-narrowed commit predicate");
-        assert!(
-            !matches(&watching_release, &event),
-            "a tripwire watching another branch is not this landing's business"
-        );
     }
 
     /// The frame the deck correlates by `arc` carries one, and every other key
@@ -16391,9 +16320,9 @@ mod tests {
 
     /// A join is a commit made through Tug, so it records a `commit` fact
     /// exactly as `/commit` does — under the initiating session, carrying the
-    /// landed sha and the base branch. That fact is the whole of what reaches
-    /// the tripwire engine, so a `fact:commit` tripwire that saw one landing
-    /// gesture and not the other would be watching half of them.
+    /// landed sha and the base branch. That fact is the whole of what a fact
+    /// reader sees, so one that saw one landing gesture and not the other
+    /// would be watching half of them.
     #[tokio::test]
     async fn joining_an_arc_records_the_landed_commit_as_a_fact() {
         let dir = tempfile::tempdir().unwrap();
@@ -16553,10 +16482,10 @@ mod tests {
     }
 
     /// A headless spawn is a whole session — ledger entry, workspace
-    /// refcount, spawn claim — carrying the tripwire's card id, and no client
+    /// refcount, spawn claim — carrying the owner's card id, and no client
     /// holds it, because no client asked.
     #[tokio::test]
-    async fn a_headless_spawn_is_held_by_a_tripwire_and_by_no_client() {
+    async fn a_headless_spawn_is_held_by_its_owner_and_by_no_client() {
         let (sup, mut state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
 
         let session = sup
@@ -16564,7 +16493,7 @@ mod tests {
                 "tugedit",
                 Path::new(test_project_dir()),
                 Some("acceptEdits".to_string()),
-                Some("tripwire".to_string()),
+                Some("background".to_string()),
             )
             .await
             .expect("headless spawn succeeds");
@@ -16577,10 +16506,10 @@ mod tests {
                 .expect("ledger holds the entry")
         };
         let entry = entry_arc.lock().await;
-        assert_eq!(entry.card_id.as_deref(), Some("tripwire:tugedit"));
+        assert_eq!(entry.card_id.as_deref(), Some("background:tugedit"));
         assert_eq!(entry.session_mode, SessionMode::New);
         assert_eq!(entry.permission_mode.as_deref(), Some("acceptEdits"));
-        assert_eq!(entry.tag.as_deref(), Some("tripwire"));
+        assert_eq!(entry.tag.as_deref(), Some("background"));
         assert!(entry.line_id.is_some(), "a headless session mints its line");
         assert!(entry.holds_workspace_refcount);
         drop(entry);
@@ -16588,7 +16517,7 @@ mod tests {
         let cs = sup.client_sessions.lock().await;
         assert!(
             cs.values().all(|set| !set.contains(&session)),
-            "no client connection may hold a tripwire's session"
+            "no client connection may hold a headless session"
         );
         drop(cs);
 
@@ -16624,7 +16553,7 @@ mod tests {
         );
     }
 
-    /// The id a tripwire's session ran under is an ordinary session id
+    /// The id a headless session ran under is an ordinary session id
     /// afterwards: a card can resume it, and the supervisor arbitrates that
     /// resume against nothing, because a headless session was never in any
     /// client's set to begin with.
@@ -16653,7 +16582,7 @@ mod tests {
         assert_eq!(
             entry_arc.lock().await.card_id.as_deref(),
             Some("card-1"),
-            "the card now holds the session the tripwire opened"
+            "the card now holds the session the background owner opened"
         );
         let cs = sup.client_sessions.lock().await;
         assert!(cs.get(&10).expect("client 10's set").contains(&session));
@@ -20974,7 +20903,7 @@ mod tests {
                 Some("stocky-pixie"),
             )
             .unwrap();
-        // And one a tripwire's work tier holds — a live session with no card
+        // And one a background owner holds — a live session with no card
         // a user could be raised to.
         let held = "0c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
         ledger

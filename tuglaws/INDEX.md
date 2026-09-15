@@ -60,10 +60,6 @@
 - [wheel.md](wheel.md) — The layer that seats a claude session under a card. What a rotation is, the three kinds of carried thing (invariants, parameters, always-dropped) and why the invariants are expressed as absence, the turn-end rule and why there is no perform-at-request-time path, how an arc ends and hands the card back, what survives a relaunch, and the three faces (`POST /api/session`, `tugtool session rotate`, this doc). Read before changing how a session is seated or retired.
 - [arc-work-doctrine.md](arc-work-doctrine.md) — How the model works on an arc's worktree: the one-and-only-working-root rule, the verification bar, test discipline including the banned shapes, law discipline, round mechanics, the stop-before-join obligation and its join draft, no plan numbers in durable artifacts. Cited by the arc stages so the discipline lives in exactly one file.
 
-## Tripwires
-
-- [tripwires.md](tripwires.md) — The standing-watch facility: the fact-time trigger and what is deliberately invisible to it, the trip lifecycle over its six statuses, the disposable tree cut at `HEAD` and the uncommitted diff beside it, the one-live-run slot and why `adopted` does not hold it, the two ways an awaiting trip is released and why neither is a clock, the own-session guard and the `laid_by` stamp, the session-not-arc rule, the slash-command door and why the card carries no lay form, the one projection with three callers, and the observation model whose correctness rests on the ledger's own `data_version`. Read before changing the engine, the ledger, the roster feed, or the Tripwires card.
-
 ## Templates
 
 - [devise-skeleton.md](devise-skeleton.md) — Template for plan documents (the format `/tugplug:arc-devise` authors and `/tugplug:arc-implement` walks). Kept here per user decision; it is a template, not a tuglaws law or architecture doc.

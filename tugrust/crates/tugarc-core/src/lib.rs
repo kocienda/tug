@@ -48,9 +48,6 @@ pub mod surfaces;
 /// against the joined tree, recorded as a fact anchored to two commits.
 pub mod verify;
 
-/// The shared tripwire removal — the guard, the arc discard, and the delete.
-pub mod tripwire_remove;
-
 pub use arc::{
     ArcKind, ArcRecord, ArcStage, ArcStageLine, append_arc_done, append_arc_kind, append_arc_note,
     append_arc_plan, append_arc_resume, append_arc_stage, append_arc_start, append_arc_stop,

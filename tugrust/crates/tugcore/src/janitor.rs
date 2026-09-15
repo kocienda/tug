@@ -144,7 +144,7 @@ const fn numbered_dir(prefix: &'static str) -> TmpPrefix {
 
 /// The registered temp-artifact manifest. Every Tug component that
 /// mints a path under `$TMPDIR` declares its prefix here; the sweep and
-/// the `no_unregistered_tmp_prefixes` tripwire both read this list, so a
+/// the `no_unregistered_tmp_prefixes` guard both read this list, so a
 /// new debris class cannot be invented unswept.
 ///
 /// Matching is longest-prefix-first, which is what keeps

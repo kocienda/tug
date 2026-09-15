@@ -1,7 +1,7 @@
 //! The one place a CLI test spawns the `tugtool` binary.
 //!
 //! A test that spawns a real binary with the ambient environment intact runs
-//! **as the developer's session**. `tripwire_cli.rs` did exactly that: it ran
+//! **as the developer's session**. One CLI test file did exactly that: it ran
 //! `tugtool arc create` in a temp repo with neither `TUG_SESSION_ID` nor the
 //! instance registry scrubbed, so on a machine where the suite runs from
 //! inside a Session card — which is most of them — the spawned binary reached

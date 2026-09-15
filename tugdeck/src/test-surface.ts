@@ -56,7 +56,6 @@ import {
 } from "./lib/overview-store";
 import { _ingestDigestFrameForTest, getDigestStore } from "./lib/digest-store";
 import { _ingestDraftFrameForTest } from "./lib/changeset-draft-store";
-import { _ingestTripwiresFrameForTest } from "./lib/tripwires-store";
 import {
   ACTIVITY_DESCRIPTORS,
   getSessionActivityStore,
@@ -384,14 +383,12 @@ import {
  * Renaming, not adding; major stays `2` because the surface is the app's own
  * test seam and its only clients are in this repository.
  *
- * `2.19.0`: adds {@link TugTestSurface.publishTripwiresFrame} — delivers a
- * `TRIPWIRES` roster body through the store's own frame handler. It is the
- * only door onto a running trip an app-test has: no CLI records a trip
- * against an arbitrary session id, `tugtool tripwire trip` fires for real,
- * and opening the ledger with a foreign sqlite is ruled out. Additive; major
- * stays `2`.
+ * `2.20.0`: drops the roster-frame publisher with the feature it was the only
+ * door onto. Nothing else delivered that frame body, so no caller survives
+ * the removal. Major stays `2` because the surface is the app's own
+ * test seam and its only clients are in this repository.
  */
-export const SURFACE_VERSION = "2.19.0" as const;
+export const SURFACE_VERSION = "2.20.0" as const;
 
 /**
  * A {@link TugTestSurface.dictionaryLookupProbe} reading: the payload Look Up
@@ -1059,24 +1056,6 @@ export interface TugTestSurface {
   publishSessionUpdated(payloadJson: string): boolean;
 
   /**
-   * Deliver a `TRIPWIRES` roster body as if the feed had carried it
-   * (SURFACE_VERSION 2.19.0).
-   *
-   * `payloadJson` is the frame body — `{"tripwires":[…],"error":null}` — and
-   * it goes through the store's own frame handler, so the card and the
-   * trip-card controller both see it by exactly the path a real frame takes.
-   *
-   * It exists because a *running trip* has no other door. No CLI verb records
-   * a trip against an arbitrary session id; `tugtool tripwire trip` fires for
-   * real, which would put a real worktree and a real `claude` behind the test;
-   * and opening the ledger with a foreign sqlite is a corruption vector the
-   * house rules out.
-   *
-   * Returns `false` only when the JSON does not parse.
-   */
-  publishTripwiresFrame(payloadJson: string): boolean;
-
-  /**
    * Write the session atom for `sessionId` to the system pasteboard
    * (SURFACE_VERSION 2.5.0).
    *
@@ -1683,7 +1662,7 @@ function makeEmptyDeckState(): DeckState {
   return {
     cards: [],
     panes: [],
-    imposition: { sidebars: { tripwires: { side: DEFAULT_SIDEBAR_SIDE } } },
+    imposition: { sidebars: { dashes: { side: DEFAULT_SIDEBAR_SIDE } } },
     hasFocus: typeof document !== "undefined" ? document.hasFocus() : false,
   };
 }
@@ -2413,17 +2392,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         ...(body as Record<string, unknown>),
         action: "session_updated",
       });
-      return true;
-    },
-
-    publishTripwiresFrame(payloadJson: string): boolean {
-      let body: unknown;
-      try {
-        body = JSON.parse(payloadJson);
-      } catch {
-        return false;
-      }
-      _ingestTripwiresFrameForTest(body);
       return true;
     },
 

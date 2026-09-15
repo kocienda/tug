@@ -44,7 +44,7 @@ const PANES: Record<string, string> = {
   jots: "pJots",
   overview: "pOverview",
   cards: "pCards",
-  tripwires: "pTripwires",
+  dashes: "pDashes",
 };
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
 
@@ -65,7 +65,7 @@ function deckShape(): Record<string, unknown> {
       { id: "JOTS", componentId: "jots", title: "Jots", closable: true },
       { id: "OVERVIEW", componentId: "overview", title: "Overview", closable: true },
       { id: "CARDS", componentId: "cards", title: "Cards", closable: true },
-      { id: "TRIPWIRES", componentId: "tripwires", title: "Tripwires", closable: true },
+      { id: "DASHES", componentId: "dashes", title: "Arcs", closable: true },
     ],
     panes: [
       {
@@ -82,7 +82,7 @@ function deckShape(): Record<string, unknown> {
       rail("jots"),
       rail("overview"),
       rail("cards"),
-      rail("tripwires"),
+      rail("dashes"),
     ],
     activePaneId: "p1",
     imposition: {
@@ -92,12 +92,12 @@ function deckShape(): Record<string, unknown> {
         jots: { side: "right" },
         overview: { side: "right" },
         cards: { side: "right" },
-        tripwires: { side: "right" },
+        dashes: { side: "right" },
       },
       rails: {
         right: {
           mode: "split",
-          order: ["layout", "jots", "overview", "cards", "tripwires"],
+          order: ["layout", "jots", "overview", "cards", "dashes"],
         },
       },
     },

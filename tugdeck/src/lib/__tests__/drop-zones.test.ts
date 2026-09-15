@@ -284,20 +284,20 @@ describe("a card only ever sees the places its own kind can stand in", () => {
   });
 
   it("a sidebar card sees its rail's positions and no content slot", () => {
-    const state = deck([pane("p1", 0), pane("tripwires")]);
+    const state = deck([pane("p1", 0), pane("dashes")]);
     const railRects = splitRects(0, [280, 300]);
     const set = enumerateDropZones(
       state,
-      "tripwires",
+      "dashes",
       measured({
         slots: new Map([[0, slotRect(0)]]),
         panes: new Map([
           ["p1", slotRect(0)],
-          ["tripwires", railRects[0]],
+          ["dashes", railRects[0]],
           ["notes", railRects[1]],
         ]),
         tabBars: new Map([["p1", { x: 0, y: RUN_TOP, width: SLOT_WIDTH, height: 30 }]]),
-        rails: [{ side: "right", members: ["tripwires", "notes"] }],
+        rails: [{ side: "right", members: ["dashes", "notes"] }],
       }),
     );
     expect(keys(set.zones)).toEqual(["rail:right:0", "rail:right:1"]);
@@ -305,14 +305,14 @@ describe("a card only ever sees the places its own kind can stand in", () => {
   });
 
   it("tab bars are zones for a content card and never for a sidebar card", () => {
-    const state = deck([pane("p1", 0), pane("p2", 1), pane("tripwires")]);
+    const state = deck([pane("p1", 0), pane("p2", 1), pane("dashes")]);
     const tabBars = new Map([
       ["p2", { x: SLOT_X[1], y: RUN_TOP, width: SLOT_WIDTH, height: 30 }],
     ]);
     const panes = new Map([
       ["p1", slotRect(0)],
       ["p2", slotRect(1)],
-      ["tripwires", slotRect(2)],
+      ["dashes", slotRect(2)],
     ]);
     const content = enumerateDropZones(
       state,
@@ -323,12 +323,12 @@ describe("a card only ever sees the places its own kind can stand in", () => {
 
     const sidebar = enumerateDropZones(
       state,
-      "tripwires",
+      "dashes",
       measured({
         slots: new Map([[1, slotRect(1)]]),
         panes,
         tabBars,
-        rails: [{ side: "right", members: ["tripwires"] }],
+        rails: [{ side: "right", members: ["dashes"] }],
         draggedAtStart: slotRect(2),
       }),
     );
@@ -336,30 +336,30 @@ describe("a card only ever sees the places its own kind can stand in", () => {
   });
 
   it("a rail card sees both rails: N positions on its own, N+1 on the other", () => {
-    // tripwires stands on a two-member right rail; the left rail holds two
+    // dashes stands on a two-member right rail; the left rail holds two
     // more. Its own rail offers the two places it could stand (it is already
     // one of them); the left rail offers three, because there it would be an
     // arrival. The origin is still its own current position.
-    const state = deck([pane("tripwires"), pane("notes"), pane("cards"), pane("jots")]);
+    const state = deck([pane("dashes"), pane("notes"), pane("cards"), pane("jots")]);
     const right = splitRects(2, [RUN_HEIGHT / 2, RUN_HEIGHT / 2], RAIL_SEAM_PX);
     const left = splitRects(0, [RUN_HEIGHT / 2, RUN_HEIGHT / 2], RAIL_SEAM_PX);
     const set = enumerateDropZones(
       state,
-      "tripwires",
+      "dashes",
       measured({
         members: overflowFloors(
-          ["tripwires", "notes", "cards", "jots"],
+          ["dashes", "notes", "cards", "jots"],
           RUN_HEIGHT,
         ),
         panes: new Map([
-          ["tripwires", right[0]],
+          ["dashes", right[0]],
           ["notes", right[1]],
           ["cards", left[0]],
           ["jots", left[1]],
         ]),
         rails: [
           { side: "left", members: ["cards", "jots"] },
-          { side: "right", members: ["tripwires", "notes"] },
+          { side: "right", members: ["dashes", "notes"] },
         ],
       }),
     );
@@ -386,18 +386,18 @@ describe("a card only ever sees the places its own kind can stand in", () => {
   it("a side with no rail advertises its vacancy tile as index 0", () => {
     // The empty side holds open a landing strip while a rail card is in the
     // air ([B10]); the tile's box is the zone, and the card arrives alone.
-    const state = deck([pane("tripwires"), pane("notes")]);
+    const state = deck([pane("dashes"), pane("notes")]);
     const right = splitRects(2, [RUN_HEIGHT / 2, RUN_HEIGHT / 2], RAIL_SEAM_PX);
     const vacancy = { x: 0, y: 0, width: 320, height: RUN_HEIGHT };
     const set = enumerateDropZones(
       state,
-      "tripwires",
+      "dashes",
       measured({
         panes: new Map([
-          ["tripwires", right[0]],
+          ["dashes", right[0]],
           ["notes", right[1]],
         ]),
-        rails: [{ side: "right", members: ["tripwires", "notes"] }],
+        rails: [{ side: "right", members: ["dashes", "notes"] }],
         railVacancies: { left: vacancy },
       }),
     );
@@ -406,17 +406,17 @@ describe("a card only ever sees the places its own kind can stand in", () => {
   });
 
   it("a side with neither a rail nor a tile advertises nothing", () => {
-    const state = deck([pane("tripwires"), pane("notes")]);
+    const state = deck([pane("dashes"), pane("notes")]);
     const right = splitRects(2, [RUN_HEIGHT / 2, RUN_HEIGHT / 2], RAIL_SEAM_PX);
     const set = enumerateDropZones(
       state,
-      "tripwires",
+      "dashes",
       measured({
         panes: new Map([
-          ["tripwires", right[0]],
+          ["dashes", right[0]],
           ["notes", right[1]],
         ]),
-        rails: [{ side: "right", members: ["tripwires", "notes"] }],
+        rails: [{ side: "right", members: ["dashes", "notes"] }],
       }),
     );
     expect(keys(set.zones)).toEqual(["rail:right:0", "rail:right:1"]);

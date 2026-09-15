@@ -142,7 +142,7 @@ pub(crate) async fn compose_snapshot(
     // backfill converts them.
     // A read error must never masquerade as "no events" — that renders as
     // "no session claims these" while the truth is "the ledger is
-    // damaged". Note the error (latches the degraded tripwire on
+    // damaged". Note the error (latches the degraded guard on
     // corruption) and log it at warn.
     let read_events = |ledger: &crate::session_ledger::SessionLedger, project: &str| {
         ledger.file_events_for_project(project).unwrap_or_else(|err| {

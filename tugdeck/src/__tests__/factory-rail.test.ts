@@ -7,12 +7,12 @@
  * it, and neither can be read off the card registry.
  *
  * The **order is explicit** because absent means *registration* order to
- * `effectiveRailOrder`, and `main.tsx` registers jots, overview, tripwires,
- * arcs, cards, layout — a different vertical order from the one the factory
+ * `effectiveRailOrder`, and `main.tsx` registers jots, overview, arcs,
+ * cards, layout — a different vertical order from the one the factory
  * rail asks for. Leaving `order` off would look right at the type level and
  * stand the rail in the wrong sequence.
  *
- * And the four cards are **pinned**, which is what puts them on
+ * And the three cards are **pinned**, which is what puts them on
  * `DEFAULT_SIDEBAR_SIDE` on a deck that has never placed them.
  *
  * Pure over the imposition — no registry, no DOM — which is why the plan the
@@ -36,7 +36,6 @@ describe("factoryRailImposition", () => {
       "cards",
       "dashes",
       "layout",
-      "tripwires",
     ]);
   });
 
@@ -50,7 +49,7 @@ describe("factoryRailImposition", () => {
     expect(imposition.rails?.right?.order).not.toBe(FACTORY_RAIL_ORDER);
   });
 
-  test("pins all four cards, which puts them on the default side", () => {
+  test("pins all three cards, which puts them on the default side", () => {
     const imposition = factoryRailImposition(FRESH);
 
     for (const componentId of FACTORY_RAIL_ORDER) {

@@ -30,7 +30,7 @@
  *     captured a top-edge anchor unconditionally would freeze it mid-document
  *     and quietly break the live-tail case, which is the state most transcripts
  *     spend most of their life in.
- *  4. **The displacement tripwire.** `data-scroll-displacements` counts
+ *  4. **The displacement guard.** `data-scroll-displacements` counts
  *     `scrollTop` moves the list view could not account for. The episode writes
  *     `scrollTop` deliberately and repeatedly; if those writes are not
  *     attributed through SmartScroll the counter climbs, follow-bottom starts
@@ -454,7 +454,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await episodeCount(app)).toBeGreaterThan(episodesBeforeTail);
           expect(await isAtBottom(app, SCROLLER)).toBe(true);
 
-          // ── The tripwire. ────────────────────────────────────────────────
+          // ── The guard. ───────────────────────────────────────────────────
           // Every `scrollTop` the episode wrote was attributed; nothing in
           // this run looked to the list view like an unexplained move.
           const displacementsAfter = await displacements(app, SCROLLER);

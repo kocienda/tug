@@ -255,7 +255,7 @@ describe.skipIf(!SHOULD_RUN)("AT0268: focus marks are a projection of engine sta
         expect((await snapshot(app)).keyViewCount).toBe(0);
 
         // Wake the reconciler with a settled focus change — the provider's
-        // focusin/focusout capture listeners are its tripwire. A blur to body
+        // focusin/focusout capture listeners are its guard. A blur to body
         // is the realistic shape: it is the routine transient middle of the
         // browser's own teardown sequences.
         //

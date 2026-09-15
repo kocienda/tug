@@ -41,7 +41,7 @@ import React from "react";
  * The four altitudes of the Block header family.
  *
  * `row` is the newest and the smallest: a band mounted INSIDE a rail list
- * row — under a tripwire's two-line block, say — where the row's own type is
+ * row — under a rail row's two-line block, say — where the row's own type is
  * the 12px rail measure and a child reading a step larger than its parent is
  * the wart. It keeps the section's roomier padding and sans detail face,
  * and takes its sizes from the `xs` scale.

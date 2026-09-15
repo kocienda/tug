@@ -861,7 +861,7 @@ describe("JoinModeController", () => {
   });
 
   it("the join's receipt takes the live sentence down with it", () => {
-    // The 2026-08-29 report: two identical "Joined tripwire-rename into main"
+    // The 2026-08-29 report: two identical "Joined lens-rename into main"
     // rows at the moment a join went through. One is the durable receipt's own
     // settled register, the other the live narration resting out its timer —
     // and for that window the transcript said the same thing twice. The

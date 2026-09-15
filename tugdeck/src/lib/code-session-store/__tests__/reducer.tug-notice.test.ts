@@ -30,7 +30,7 @@ const TUG = FIXTURE_IDS.TUG_SESSION_ID;
 const BODY =
   "The base branch main moved to abcdef012 under arc \"demo\".";
 const WHEEL_PROMPT =
-  "/tugplug:arc-implement tripwire Steps 4-13 — under this arc, close one step and end your turn; the arc prompts you with the next";
+  "/tugplug:arc-implement lens-breakout Steps 4-13 — under this arc, close one step and end your turn; the arc prompts you with the next";
 
 function makeStore(): { store: CodeSessionStore; conn: TestFrameChannel } {
   const conn = new TestFrameChannel();

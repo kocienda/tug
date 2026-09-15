@@ -1,18 +1,16 @@
 //! The kinds of fact the session ledger records — the one list every crate
 //! that names a kind reads.
 //!
-//! The recorder in `tugcast` writes these strings into `facts.kind`; the
-//! tripwire verbs in `tugtool` refuse a `--on fact:<kind>` that is not one of
-//! them. Both sit on this enum so a kind cannot be recorded under one spelling
-//! and watched under another, and so the set of things a tripwire can watch is
-//! exactly the set of things the ledger writes — never wider, never a guess.
-//! A new kind is added here first, and the recorder and the lay verb learn it
-//! together.
+//! The recorder in `tugcast` writes these strings into `facts.kind`, and every
+//! projection that dispatches on a kind reads them back. Both sit on this enum
+//! so a kind cannot be recorded under one spelling and read under another, and
+//! so the set of kinds a reader can name is exactly the set the ledger writes
+//! — never wider, never a guess. A new kind is added here first, and the
+//! recorder and its readers learn it together.
 
 /// Every kind of fact the ledger records. The `as_str` spelling is what lands
-/// in `facts.kind`, what the Operator's `kind=` filter matches, and what a
-/// tripwire's trigger names, so it is wire-stable — rename a variant freely,
-/// never its string.
+/// in `facts.kind` and what the Operator's `kind=` filter matches, so it is
+/// wire-stable — rename a variant freely, never its string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FactKind {
     Prompt,
@@ -30,8 +28,8 @@ pub enum FactKind {
 }
 
 impl FactKind {
-    /// Every kind, in the order a reader sees them listed. This is the list a
-    /// refusal prints, so it is the whole vocabulary and nothing is held back.
+    /// Every kind, in the order a reader sees them listed. This is the whole
+    /// vocabulary and nothing is held back.
     pub const ALL: [FactKind; 12] = [
         FactKind::Prompt,
         FactKind::Shell,
@@ -70,15 +68,6 @@ impl FactKind {
             FactKind::TestRun => "test_run",
             FactKind::EditFailed => "edit_failed",
         }
-    }
-
-    /// The vocabulary as a refusal says it: every kind, comma-separated.
-    pub fn all_spelled() -> String {
-        FactKind::ALL
-            .iter()
-            .map(|kind| kind.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
     }
 }
 

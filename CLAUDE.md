@@ -34,7 +34,7 @@ Tug is distributed as `Tug.app` to people whose projects have nothing to do with
 | `tugcode/` | Claude Code bridge (stream-json IPC); bun-compiled binary |
 | `tugdeck/` | Web frontend (the Session card lives here) |
 | `tugapp/` | Swift macOS app (Tug.app host) |
-| `tugplug/` | Claude Code plugin (agentless skills: arc/arc-devise/arc-review/arc-implement/arc-audit/draft/tripwire). An arc's documents live at `.tug/arcs/<name>/` and are never tracked. |
+| `tugplug/` | Claude Code plugin (agentless skills: arc/arc-devise/arc-review/arc-implement/arc-audit/draft). An arc's documents live at `.tug/arcs/<name>/` and are never tracked. |
 | `tuglaws/` | Architecture laws + design decisions — the curated durable doc surface |
 | `briefs/` | Working papers — briefs, audits, sketches that became files. Its address is the Briefs Directory setting; the vocabulary (idea → sketch → brief → plan) is [tuglaws/work-grammar.md](tuglaws/work-grammar.md). |
 | `tests/` | App-test harness that drives the real Tug.app |

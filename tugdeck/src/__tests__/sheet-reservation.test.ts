@@ -78,9 +78,9 @@ describe("sheetReservationsWith", () => {
 
   test("writes a second member's claim beside the first", () => {
     const standing = { "pane-1": 340 };
-    expect(sheetReservationsWith(standing, "tripwires", 280)).toEqual({
+    expect(sheetReservationsWith(standing, "dashes", 280)).toEqual({
       "pane-1": 340,
-      tripwires: 280,
+      dashes: 280,
     });
   });
 
@@ -92,11 +92,11 @@ describe("sheetReservationsWith", () => {
 
   test("clearing one of several leaves the others standing", () => {
     const next = sheetReservationsWith(
-      { "pane-1": 340, tripwires: 280 },
+      { "pane-1": 340, dashes: 280 },
       "pane-1",
       null,
     );
-    expect(next).toEqual({ tripwires: 280 });
+    expect(next).toEqual({ dashes: 280 });
   });
 
   test("clearing the LAST entry gives undefined, never an empty record", () => {
@@ -201,16 +201,16 @@ describe("sheetReservationMemberIdOf names the member the allocator looks up", (
     // under the pane's id there would be looked up by a name that is not in
     // the record and would never bind ([B04]).
     _resetForTest();
-    register("tripwires", true);
+    register("dashes", true);
     const state: DeckState = {
       cards: [
-        { id: "card-t", componentId: "tripwires", title: "T", closable: true },
+        { id: "card-t", componentId: "dashes", title: "T", closable: true },
       ],
       panes: [makePane("pane-t", ["card-t"])],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
-    expect(sheetReservationMemberIdOf(state, "card-t")).toBe("tripwires");
+    expect(sheetReservationMemberIdOf(state, "card-t")).toBe("dashes");
   });
 
   test("an UNPINNED sidebar card is an ordinary slot member again", () => {
@@ -219,14 +219,14 @@ describe("sheetReservationMemberIdOf names the member the allocator looks up", (
     // PINNED (`isSidebarPinned`), so unpinning has to be said explicitly —
     // which is the same reading `railMembersOf` takes of its own membership.
     _resetForTest();
-    register("tripwires", true);
+    register("dashes", true);
     const state: DeckState = {
       cards: [
-        { id: "card-t", componentId: "tripwires", title: "T", closable: true },
+        { id: "card-t", componentId: "dashes", title: "T", closable: true },
       ],
       panes: [makePane("pane-t", ["card-t"])],
       imposition: {
-        sidebars: { tripwires: { side: "right", pinned: false } },
+        sidebars: { dashes: { side: "right", pinned: false } },
       },
       hasFocus: true,
     };

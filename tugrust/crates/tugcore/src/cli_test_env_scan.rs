@@ -6,7 +6,7 @@
 //! past a chokepoint. This one stops a *test* handing a real binary the
 //! developer's live environment.
 //!
-//! The incident: `tripwire_cli.rs` ran `tugtool arc create` in a temp repo
+//! The incident: a CLI test file ran `tugtool arc create` in a temp repo
 //! with neither `TUG_SESSION_ID` nor the instance registry scrubbed. On a
 //! machine where the suite runs from inside a Session card — which is most of
 //! them — the spawned binary reached the *real* registry and posted a bind

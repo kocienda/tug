@@ -317,7 +317,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
     const onFocusChange = (): void => {
       queueMicrotask(publishMenuCaps);
       // Every settled focus change is a chance for the keyboard ring to have
-      // drifted from the real keyboard sink; the tripwire verifies agreement
+      // drifted from the real keyboard sink; the guard verifies agreement
       // (microtask-coalesced inside the manager).
       focusManager.scheduleFocusInvariantCheck("focus-change");
     };
@@ -481,8 +481,9 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
       // (3) Nothing to move to. The engine consumes the Tab anyway rather than
       // yielding to WebKit ([P07] never-fall-through): a native Tab would land
       // DOM focus somewhere the engine does not know about, which is the state
-      // the whole model exists to prevent. An empty walk is a tripwire, not a
-      // user-facing event — some subtree was never authored as engine stops.
+      // the whole model exists to prevent. An empty walk is a guard tripping,
+      // not a user-facing event — some subtree was never authored as engine
+      // stops.
       tugDevLogStore.warn(
         "responder-chain-provider",
         "Tab consumed with an empty focus walk; a subtree here registers no engine stops",
@@ -962,7 +963,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
           //      (2)), which consumes the Escape, so the cycle's mode is only ever
           //      top — and this branch only ever reached — with no surface open;
           //  (3) a trapped surface with no callback and no `escapeExits`: dev-warn
-          //      tripwire and yield (today's Stage-1 `CANCEL_DIALOG` + Radix
+          //      guard and yield (today's Stage-1 `CANCEL_DIALOG` + Radix
           //      fallthrough still closes it during migration);
           //  base mode: nothing — falls through to the cancel ladder ([R04]).
           if (focusManager.currentFocusMode() !== BASE_FOCUS_MODE) {
@@ -1033,7 +1034,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
             } else {
               // A trapped surface that did not register a dismiss callback. During
               // migration its Escape still rides Stage-1's CANCEL_DIALOG dispatch;
-              // this is a tripwire for a future surface that forgets to register.
+              // this is a guard for a future surface that forgets to register.
               tugDevLogStore.warn(
                 "responder-chain-provider",
                 "Escape reached a trapped focus mode with no onEscapeDismiss; yielding to the surface's own close path",

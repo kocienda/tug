@@ -62,7 +62,6 @@ import {
   isSidebarCard,
 } from "@/card-registry";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
-import { TRIPWIRES_CARD_ID } from "@/lib/tripwires-card-id";
 import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
@@ -2176,9 +2175,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // performer, so the row and any rebinding cannot drift apart.
       [TUG_ACTIONS.TOGGLE_JOTS]: (_event: ActionEvent) => {
         toggleSidebarCard(store, JOTS_CARD_ID);
-      },
-      [TUG_ACTIONS.TOGGLE_TRIPWIRES]: (_event: ActionEvent) => {
-        toggleSidebarCard(store, TRIPWIRES_CARD_ID);
       },
       [TUG_ACTIONS.TOGGLE_ARCS]: (_event: ActionEvent) => {
         toggleSidebarCard(store, ARCS_CARD_ID);

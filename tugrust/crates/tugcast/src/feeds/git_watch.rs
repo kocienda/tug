@@ -238,10 +238,10 @@ mod tests {
         let _ = handle.await;
     }
 
-    /// The channel is a broadcast, and the tripwire engine will be a second
-    /// subscriber on it beside the base-motion engine. One HEAD move has to
-    /// reach both — a `Sender::send` that fanned out to only the first
-    /// receiver would leave whichever engine happened to subscribe later
+    /// The channel is a broadcast, and a second subscriber may stand on it
+    /// beside the base-motion engine. One HEAD move has to reach both — a
+    /// `Sender::send` that fanned out to only the first receiver would leave
+    /// whichever engine happened to subscribe later
     /// blind, with nothing in either engine's own code to show for it.
     #[tokio::test]
     async fn every_subscriber_on_the_shared_channel_sees_one_head_move() {

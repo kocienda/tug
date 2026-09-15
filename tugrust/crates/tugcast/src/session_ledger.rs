@@ -2517,7 +2517,7 @@ impl SessionLedger {
         // Fresh (0) or current: idempotent creation of the current shape.
         // A pre-versioning database with a *drifted* shape is left intact —
         // never dropped — and its insert failures surface through the
-        // corruption/write tripwires for a human-reviewed migration.
+        // corruption/write guards for a human-reviewed migration.
         conn.execute_batch(
             "
             -- Authoritative per-session file attribution — one row per
@@ -7891,20 +7891,6 @@ impl SessionLedger {
             return Ok(None);
         }
         let id = conn.last_insert_rowid();
-        // The one funnel every fact passes through, and so the one place the
-        // tripwire engine's trigger can live ([P01], [B01]). Fifteen callers
-        // inherit it from here. A build with no engine has no receiver and the
-        // send is skipped silently; a private session returned above, so a
-        // private session's facts never reach the engine at all.
-        crate::feeds::tripwire::fact_recorded(FactRow {
-            id,
-            at_ms: fact.at_ms,
-            kind: fact.kind.clone(),
-            session_id: fact.session_id.clone(),
-            subject: fact.subject.clone(),
-            text: fact.text.clone(),
-            payload: fact.payload.clone(),
-        });
         Ok(Some(id))
     }
 

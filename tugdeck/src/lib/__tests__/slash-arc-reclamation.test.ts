@@ -44,7 +44,6 @@ const PLUGIN_CATALOG = [
   "tugplug:arc-devise",
   "tugplug:arc-review",
   "tugplug:arc-audit",
-  "tugplug:tripwire",
 ] as const;
 
 /** The catalog as a card sees it: claude's own commands plus the plugin's. */

@@ -218,7 +218,6 @@ const AUTHOR_LABEL: Record<OverviewAuthor, string> = {
   observer: "Observer",
   operator: "Operator",
   user: "You",
-  tripwire: "Tripwire",
 };
 
 /** The transcript participant each Overview voice renders as. */
@@ -226,7 +225,6 @@ const AUTHOR_PARTICIPANT: Record<OverviewAuthor, Participant> = {
   observer: "observer",
   operator: "operator",
   user: "user",
-  tripwire: "tripwire",
 };
 
 /**

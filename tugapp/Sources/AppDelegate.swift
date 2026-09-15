@@ -101,7 +101,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var windowPaneListAnchor: NSMenuItem?
 
     /// The glyph AppKit draws for `.mixed`, shared by every row that can
-    /// reach that state — the six sidebar parents and the six toggles inside
+    /// reach that state — the five sidebar parents and the five toggles inside
     /// them.
     ///
     /// AppKit's own mixed mark is a dash, which reads as "some of these" and
@@ -1406,7 +1406,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             ("Jots", "jots", #selector(showJots(_:))),
             ("Layout", "layout", #selector(showLayout(_:))),
             ("Overview", "overview", #selector(showOverview(_:))),
-            ("Tripwires", "tripwires", #selector(showTripwires(_:))),
         ] as [(String, String, Selector)] {
             let parent = NSMenuItem(title: noun, action: nil, keyEquivalent: "")
                 .identified("window.sidebar.\(componentId)")
@@ -1614,11 +1613,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// menu-driven RPCs do.
     @objc private func showJots(_ sender: Any) {
         sendControl("toggle-jots")
-    }
-
-    /// Show or hide the Tripwires rail — another of the sidebar toggles.
-    @objc private func showTripwires(_ sender: Any) {
-        sendControl("toggle-tripwires")
     }
 
     /// Show or hide the Arcs rail — another of the sidebar toggles.
@@ -2711,10 +2705,9 @@ extension AppDelegate: NSMenuDelegate {
 
         // Separator + Next Theme
         menu.addItem(NSMenuItem.separator())
-        // ⇧⌘T — moved off ⌃⌘T, which the Window menu's Tripwires row holds
-        // now. A pre-first-push default only, but this constructor re-runs on
-        // every View menu open, so a stale literal here would put the old
-        // chord back on the item until the next sweep.
+        // ⇧⌘T — a pre-first-push default only, but this constructor re-runs on
+        // every View menu open, so a stale literal here would put an old chord
+        // back on the item until the next sweep.
         let nextItem = NSMenuItem(title: "Next Theme", action: #selector(nextTheme(_:)), keyEquivalent: "t", modifierMask: [.command, .shift]).identified("view.nextTheme")
         menu.addItem(nextItem)
 

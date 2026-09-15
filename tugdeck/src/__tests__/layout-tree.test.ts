@@ -19,11 +19,11 @@ import { registerCard } from "../card-registry";
 
 // The deck invariants read `layoutRole` off the registry, so a sidebar card has
 // to be registered for its pane to be a SIDEBAR pane rather than an ordinary
-// one. Tripwires stands in for any of them here.
+// one. Arcs stands in for any of them here.
 registerCard({
-  componentId: "tripwires",
+  componentId: "dashes",
   contentFactory: () => null,
-  defaultMeta: { title: "Tripwires", closable: true },
+  defaultMeta: { title: "Arcs", closable: true },
   layoutRole: "sidebar",
 });
 
@@ -31,7 +31,7 @@ registerCard({
 
 describe("DeckState", () => {
   test("DeckState with empty cards and panes is valid", () => {
-    const state: DeckState = { cards: [], panes: [], imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true };
+    const state: DeckState = { cards: [], panes: [], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true };
     expect(state.cards.length).toBe(0);
     expect(state.panes.length).toBe(0);
   });
@@ -121,7 +121,7 @@ describe("TugPaneState.folded", () => {
     return {
       cards: [card],
       panes: [foldedPane()],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
   }
@@ -164,7 +164,7 @@ describe("TugPaneState.folded", () => {
           acceptsFamilies: ["standard"],
         },
       ],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
     };
     const restored = deserialize(JSON.stringify(legacy), 1920, 1080);
     expect(restored.panes[0].folded).toBeUndefined();
@@ -200,7 +200,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       title: "",
       acceptsFamilies: ["standard"],
     };
-    const state: DeckState = { cards: [card], panes: [stack], imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true };
+    const state: DeckState = { cards: [card], panes: [stack], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true };
 
     const serialized = serialize(state);
     const json = JSON.stringify(serialized);
@@ -233,7 +233,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       title: "",
       acceptsFamilies: ["standard"],
     };
-    const state: DeckState = { cards, panes: [stack], imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true };
+    const state: DeckState = { cards, panes: [stack], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true };
 
     const json = JSON.stringify(serialize(state));
     const restored = deserialize(json, 1920, 1080);
@@ -270,7 +270,7 @@ describe("serialize and deserialize (v4 wire)", () => {
   });
 
   test("serialize emits version: 4", () => {
-    const out = serialize({ cards: [], panes: [], imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true }) as { version: number };
+    const out = serialize({ cards: [], panes: [], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }) as { version: number };
     expect(out.version).toBe(4);
   });
 
@@ -295,7 +295,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       panes: [pane],
       activePaneId: "w1",
       bullseyePaneId: "w1",
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     });
     expect(Object.keys(out).sort()).toEqual([
@@ -325,7 +325,7 @@ describe("serialize and deserialize (v4 wire)", () => {
           ...base,
           imposition: {
             kind: "three-up" as const,
-            sidebars: { tripwires: { side: "right" as const } },
+            sidebars: { dashes: { side: "right" as const } },
             layout: "flow" as const,
           },
         }),
@@ -339,7 +339,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       JSON.stringify(
         serialize({
           ...base,
-          imposition: { sidebars: { tripwires: { side: "right" as const } } },
+          imposition: { sidebars: { dashes: { side: "right" as const } } },
         }),
       ),
       1920,
@@ -368,7 +368,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       cards: [],
       panes: [],
       imposition: {
-        sidebars: { tripwires: { side: "right" } },
+        sidebars: { dashes: { side: "right" } },
         layout: "flow",
       },
       flowOffset: 640,
@@ -388,7 +388,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       panes: [],
       imposition: {
         kind: "three-up",
-        sidebars: { tripwires: { side: "right" } },
+        sidebars: { dashes: { side: "right" } },
         columns: { 1: { mode: "split", order: ["p1", "p2", "p3"] } },
       },
       columnOffsets: { 1: 173 },
@@ -429,7 +429,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       imposition: {
         kind: "one-up",
         contentWidth: "comfy",
-        sidebars: { tripwires: { side: "right" } },
+        sidebars: { dashes: { side: "right" } },
       },
       hasFocus: true,
     };
@@ -465,7 +465,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       title: "",
       acceptsFamilies: ["standard"],
     };
-    const json = JSON.stringify(serialize({ cards: [card], panes: [pane], imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true }));
+    const json = JSON.stringify(serialize({ cards: [card], panes: [pane], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }));
     const restored = deserialize(json, 1280, 800);
     const r = restored.panes[0];
     // Width (900) already fits the 1280 canvas; height (1200) is capped to the
@@ -481,31 +481,31 @@ describe("serialize and deserialize (v4 wire)", () => {
     expect(r.position.y + r.size.height).toBeLessThanOrEqual(800 - 8);
   });
 
-  function tripwiresDeck(
+  function dashesDeck(
     side: "left" | "right",
     size: { width: number; height: number },
   ): DeckState {
     const card: CardState = {
-      id: "tripwires",
-      componentId: "tripwires",
-      title: "Tripwires",
+      id: "dashes",
+      componentId: "dashes",
+      title: "Arcs",
       closable: true,
     };
     const pane: TugPaneState = {
-      id: "pane-tripwires",
+      id: "pane-dashes",
       // Geometry a rail card carries — width is its live width; position is
       // nominal, since the imposer pins it at render.
       position: { x: 0, y: 0 },
       size,
-      cardIds: ["tripwires"],
-      activeCardId: "tripwires",
-      title: "Tripwires",
+      cardIds: ["dashes"],
+      activeCardId: "dashes",
+      title: "Arcs",
       acceptsFamilies: [],
     };
     return {
       cards: [card],
       panes: [pane],
-      imposition: { sidebars: { tripwires: { side } } },
+      imposition: { sidebars: { dashes: { side } } },
       hasFocus: true,
     };
   }
@@ -513,10 +513,10 @@ describe("serialize and deserialize (v4 wire)", () => {
   test("round-trips a sidebar card's side through the imposition record", () => {
     for (const side of ["left", "right"] as const) {
       const json = JSON.stringify(
-        serialize(tripwiresDeck(side, { width: 420, height: 1080 })),
+        serialize(dashesDeck(side, { width: 420, height: 1080 })),
       );
       const restored = deserialize(json, 1920, 1080);
-      expect(sidebarSide(restored.imposition, "tripwires")).toBe(side);
+      expect(sidebarSide(restored.imposition, "dashes")).toBe(side);
       expect(restored.panes[0].acceptsFamilies).toEqual([]);
     }
   });
@@ -526,11 +526,11 @@ describe("serialize and deserialize (v4 wire)", () => {
     // order and no seam to restore. A blob written by the split build carries
     // both; reading them back would reinstate a geometry this build cannot
     // paint, so they come back as what they now are — nothing.
-    const deck = tripwiresDeck("right", { width: 420, height: 1080 });
+    const deck = dashesDeck("right", { width: 420, height: 1080 });
     const blob = serialize(deck) as Record<string, unknown>;
     const imposition = blob["imposition"] as Record<string, unknown>;
     imposition["sidebarSplit"] = { right: 0.72 };
-    (imposition["sidebars"] as Record<string, Record<string, unknown>>)["tripwires"][
+    (imposition["sidebars"] as Record<string, Record<string, unknown>>)["dashes"][
       "order"
     ] = 1;
     const restored = deserialize(JSON.stringify(blob), 1920, 1080);
@@ -540,50 +540,50 @@ describe("serialize and deserialize (v4 wire)", () => {
       ],
     ).toBeUndefined();
     expect(
-      (restored.imposition.sidebars["tripwires"] as unknown as Record<
+      (restored.imposition.sidebars["dashes"] as unknown as Record<
         string,
         unknown
       >)["order"],
     ).toBeUndefined();
     // The side, which still means something, survives.
-    expect(restored.imposition.sidebars["tripwires"]?.side).toBe("right");
+    expect(restored.imposition.sidebars["dashes"]?.side).toBe("right");
   });
 
   test("a blob with no `pinned` flag reads as pinned", () => {
     // Every blob written before a sidebar could be dragged off its pin. Absent
     // must not mean floating, or an upgrade would scatter every deck's rail.
     const json = JSON.stringify(
-      serialize(tripwiresDeck("right", { width: 420, height: 1080 })),
+      serialize(dashesDeck("right", { width: 420, height: 1080 })),
     );
-    expect(JSON.parse(json).imposition.sidebars.tripwires.pinned).toBeUndefined();
+    expect(JSON.parse(json).imposition.sidebars.dashes.pinned).toBeUndefined();
     expect(
-      deserialize(json, 1920, 1080).imposition.sidebars["tripwires"]?.pinned,
+      deserialize(json, 1920, 1080).imposition.sidebars["dashes"]?.pinned,
     ).toBeUndefined();
     expect(
-      isSidebarPinned(deserialize(json, 1920, 1080).imposition, "tripwires"),
+      isSidebarPinned(deserialize(json, 1920, 1080).imposition, "dashes"),
     ).toBe(true);
   });
 
   test("round-trips a sidebar card that has been dragged off its pin", () => {
-    const deck = tripwiresDeck("left", { width: 420, height: 1080 });
+    const deck = dashesDeck("left", { width: 420, height: 1080 });
     const floating = {
       ...deck,
-      imposition: withSidebarPinned(deck.imposition, "tripwires", false),
+      imposition: withSidebarPinned(deck.imposition, "dashes", false),
     };
     const restored = deserialize(JSON.stringify(serialize(floating)), 1920, 1080);
-    expect(restored.imposition.sidebars["tripwires"]?.pinned).toBe(false);
+    expect(restored.imposition.sidebars["dashes"]?.pinned).toBe(false);
     // The side survives the float, so re-pinning returns it to the same edge.
-    expect(sidebarSide(restored.imposition, "tripwires")).toBe("left");
+    expect(sidebarSide(restored.imposition, "dashes")).toBe("left");
   });
 
   test("a floating sidebar takes the canvas fit like any other free pane", () => {
     // Pinned, its geometry is derived and the clamp would be meaningless. Off
     // the pin it is an ordinary pane in the deck, and a deck restored on a
     // smaller display must not leave it hanging off the bottom.
-    const deck = tripwiresDeck("right", { width: 500, height: 2000 });
+    const deck = dashesDeck("right", { width: 500, height: 2000 });
     const floating = {
       ...deck,
-      imposition: withSidebarPinned(deck.imposition, "tripwires", false),
+      imposition: withSidebarPinned(deck.imposition, "dashes", false),
     };
     const r = deserialize(JSON.stringify(serialize(floating)), 1280, 800).panes[0];
     expect(r.size.height).toBeLessThanOrEqual(800);
@@ -607,7 +607,7 @@ describe("serialize and deserialize (v4 wire)", () => {
       title: "",
       acceptsFamilies: ["standard"],
     };
-    const json = JSON.stringify(serialize({ cards: [card], panes: [pane], imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true }));
+    const json = JSON.stringify(serialize({ cards: [card], panes: [pane], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }));
     const restored = deserialize(json, 1280, 800);
     const r = restored.panes[0];
     expect(r.size.width).toBe(400);
@@ -818,7 +818,7 @@ describe("TugPaneState widthPreset field", () => {
       widthPreset: "slim",
     };
     const json = JSON.stringify(
-      serialize({ cards: [card], panes: [stack], imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true }),
+      serialize({ cards: [card], panes: [stack], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }),
     );
     const restored = deserialize(json, 1920, 1080);
     expect(restored.panes[0].widthPreset).toBe("slim");
@@ -840,7 +840,7 @@ describe("TugPaneState widthPreset field", () => {
           widthPreset: "roomy",
         },
       ],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
     };
     const restored = deserialize(JSON.stringify(blob), 1920, 1080);
     expect(restored.panes[0].widthPreset).toBeUndefined();
@@ -861,7 +861,7 @@ describe("CardStateBag type", () => {
 
 describe("DeckState focusedCardId persistence", () => {
   test("serialize does not emit focusedCardId in the layout blob", () => {
-    const state: DeckState = { cards: [], panes: [], imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true };
+    const state: DeckState = { cards: [], panes: [], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true };
     const blob = serialize(state) as Record<string, unknown>;
     expect("focusedCardId" in blob).toBe(false);
   });
@@ -963,7 +963,7 @@ describe("deserialize edge cases", () => {
       },
     ];
     const json = JSON.stringify(
-      serialize({ cards, panes: paneList, imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true }),
+      serialize({ cards, panes: paneList, imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true }),
     );
     const restored = deserialize(json, 1920, 1080);
     expect(restored.panes.length).toBe(2);
@@ -1059,7 +1059,7 @@ describe("a retired collapsed flag deserializes to an expanded pane", () => {
       version: 4,
       cards: [{ id: "c1", componentId: "hello", title: "C", closable: true }],
       panes: [collapsedPane],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
     };
     const restored = deserialize(JSON.stringify(v4), 1920, 1080);
     expect(restored.panes.length).toBe(1);
@@ -1252,14 +1252,14 @@ describe("validateDeckState", () => {
   }
 
   test("accepts the empty deck", () => {
-    expect(() => validateDeckState({ cards: [], panes: [], imposition: { sidebars: { tripwires: { side: "right" } } }, hasFocus: true })).not.toThrow();
+    expect(() => validateDeckState({ cards: [], panes: [], imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true })).not.toThrow();
   });
 
   test("accepts a well-formed single-card, single-pane deck", () => {
     const state: DeckState = {
       cards: [makeCard("c1")],
       panes: [makeStack("s1", ["c1"], "c1")],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).not.toThrow();
@@ -1273,7 +1273,7 @@ describe("validateDeckState", () => {
         makeStack("s2", ["c3"], "c3"),
       ],
       activePaneId: "s2",
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).not.toThrow();
@@ -1283,7 +1283,7 @@ describe("validateDeckState", () => {
     const state: DeckState = {
       cards: [makeCard("c1")],
       panes: [makeStack("s1", ["c1", "ghost"], "c1")],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).toThrow(DeckStateInvariantError);
@@ -1297,7 +1297,7 @@ describe("validateDeckState", () => {
         makeStack("s1", ["c1", "c2"], "c1"),
         makeStack("s2", ["c2"], "c2"),
       ],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).toThrow(DeckStateInvariantError);
@@ -1308,7 +1308,7 @@ describe("validateDeckState", () => {
     const state: DeckState = {
       cards: [makeCard("c1"), makeCard("orphan")],
       panes: [makeStack("s1", ["c1"], "c1")],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).toThrow(DeckStateInvariantError);
@@ -1322,7 +1322,7 @@ describe("validateDeckState", () => {
         makeStack("s1", ["c1"], "c1"),
         makeStack("s-empty", [], "x"),
       ],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).toThrow(DeckStateInvariantError);
@@ -1333,7 +1333,7 @@ describe("validateDeckState", () => {
     const state: DeckState = {
       cards: [makeCard("c1"), makeCard("c2")],
       panes: [makeStack("s1", ["c1", "c2"], "ghost")],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).toThrow(DeckStateInvariantError);
@@ -1347,7 +1347,7 @@ describe("validateDeckState", () => {
       cards: [makeCard("c1")],
       panes: [makeStack("s1", ["c1"], "c1")],
       activePaneId: "no-such-stack",
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).toThrow(DeckStateInvariantError);
@@ -1360,7 +1360,7 @@ describe("validateDeckState", () => {
     const state: DeckState = {
       cards: [makeCard("c1"), makeCard("c1", "terminal")],
       panes: [makeStack("s1", ["c1"], "c1")],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).toThrow(/duplicate card id "c1"/);
@@ -1373,7 +1373,7 @@ describe("validateDeckState", () => {
         makeStack("s1", ["c1"], "c1"),
         makeStack("s1", ["c2"], "c2"),
       ],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).toThrow(/duplicate pane id "s1"/);
@@ -1385,7 +1385,7 @@ describe("validateDeckState", () => {
       panes: [makeStack("s1", ["c1"], "c1")],
       activePaneId: "s1",
       bullseyePaneId: "ghost",
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).toThrow(DeckStateInvariantError);
@@ -1400,11 +1400,11 @@ describe("validateDeckState", () => {
     // so the state that says "a rail card is in bullseye" is a legal one, and
     // the rail returns to the place that stayed reserved for it.
     const state: DeckState = {
-      cards: [makeCard("tripwires-card", "tripwires")],
-      panes: [makeStack("s-tripwires", ["tripwires-card"], "tripwires-card")],
-      activePaneId: "s-tripwires",
-      bullseyePaneId: "s-tripwires",
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      cards: [makeCard("dashes-card", "dashes")],
+      panes: [makeStack("s-dashes", ["dashes-card"], "dashes-card")],
+      activePaneId: "s-dashes",
+      bullseyePaneId: "s-dashes",
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).not.toThrow();
@@ -1419,7 +1419,7 @@ describe("validateDeckState", () => {
       panes: [makeStack("s1", ["c1"], "c1"), makeStack("s2", ["c2"], "c2")],
       activePaneId: "s2",
       bullseyePaneId: "s1",
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).not.toThrow();
@@ -1436,7 +1436,7 @@ describe("validateDeckState", () => {
     return {
       cards: [makeCard("c1"), makeCard("c2")],
       panes: [s1, s2],
-      imposition: { sidebars: { tripwires: { side: "right" } }, columns },
+      imposition: { sidebars: { dashes: { side: "right" } }, columns },
       hasFocus: true,
     };
   }
@@ -1536,14 +1536,14 @@ describe("imposition wire format", () => {
         impositionPane("p2", "c2", { slot: 1 }),
         impositionPane("p3", "c3", { slot: 2 }),
       ],
-      imposition: { kind: "three-up", sidebars: { tripwires: { side: "right" } } },
+      imposition: { kind: "three-up", sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     const restored = deserialize(JSON.stringify(serialize(state)), 1920, 1080);
     expect(restored.imposition).toEqual({
       kind: "three-up",
       contentWidth: "comfy",
-      sidebars: { tripwires: { side: "right" } },
+      sidebars: { dashes: { side: "right" } },
     });
     expect(restored.panes.map((p) => p.slot)).toEqual([0, 1, 2]);
   });
@@ -1561,7 +1561,7 @@ describe("imposition wire format", () => {
           size: { width: 800, height: 2000 },
         }),
       ],
-      imposition: { kind: "three-up", sidebars: { tripwires: { side: "right" } } },
+      imposition: { kind: "three-up", sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     const r = deserialize(JSON.stringify(serialize(state)), 1280, 800).panes[0];
@@ -1573,12 +1573,12 @@ describe("imposition wire format", () => {
     const state: DeckState = {
       cards: [impositionCard("c1")],
       panes: [impositionPane("p1", "c1")],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     const blob = serialize(state) as Record<string, unknown>;
     expect(blob["imposition"]).toEqual({
-      sidebars: { tripwires: { side: "right" } },
+      sidebars: { dashes: { side: "right" } },
     });
     const restored = deserialize(JSON.stringify(blob), 1920, 1080);
     expect(restored.imposition.kind).toBe(DEFAULT_IMPOSITION_KIND);
@@ -1627,10 +1627,10 @@ describe("imposition wire format", () => {
   test("validateDeckState rejects a slotted sidebar pane (invariant 6)", () => {
     const state: DeckState = {
       cards: [
-        { id: "tripwires", componentId: "tripwires", title: "Tripwires", closable: true },
+        { id: "dashes", componentId: "dashes", title: "Arcs", closable: true },
       ],
-      panes: [impositionPane("p1", "tripwires", { slot: 1 })],
-      imposition: { kind: "three-up", sidebars: { tripwires: { side: "right" } } },
+      panes: [impositionPane("p1", "dashes", { slot: 1 })],
+      imposition: { kind: "three-up", sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).toThrow(DeckStateInvariantError);
@@ -1642,18 +1642,18 @@ describe("imposition wire format", () => {
   test("validateDeckState rejects two panes hosting one sidebar card (invariant 6)", () => {
     const state: DeckState = {
       cards: [
-        { id: "tripwires-a", componentId: "tripwires", title: "Tripwires", closable: true },
-        { id: "tripwires-b", componentId: "tripwires", title: "Tripwires", closable: true },
+        { id: "dashes-a", componentId: "dashes", title: "Arcs", closable: true },
+        { id: "dashes-b", componentId: "dashes", title: "Arcs", closable: true },
       ],
       panes: [
-        impositionPane("p1", "tripwires-a"),
-        impositionPane("p2", "tripwires-b"),
+        impositionPane("p1", "dashes-a"),
+        impositionPane("p2", "dashes-b"),
       ],
-      imposition: { sidebars: { tripwires: { side: "right" } } },
+      imposition: { sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).toThrow(
-      /panes "p1" and "p2" both host the "tripwires" sidebar card/,
+      /panes "p1" and "p2" both host the "dashes" sidebar card/,
     );
   });
 
@@ -1661,7 +1661,7 @@ describe("imposition wire format", () => {
     const state: DeckState = {
       cards: [impositionCard("c1")],
       panes: [impositionPane("p1", "c1", { slot: 2 })],
-      imposition: { kind: "three-up", sidebars: { tripwires: { side: "right" } } },
+      imposition: { kind: "three-up", sidebars: { dashes: { side: "right" } } },
       hasFocus: true,
     };
     expect(() => validateDeckState(state)).not.toThrow();
@@ -1722,16 +1722,16 @@ describe("imposition rails", () => {
       version: 4,
       imposition,
       cards: [
-        { id: "tripwires-1", componentId: "tripwires", title: "Tripwires", closable: true },
+        { id: "dashes-1", componentId: "dashes", title: "Arcs", closable: true },
       ],
       panes: [
         {
-          id: "tripwires-pane",
+          id: "dashes-pane",
           position: { x: 0, y: 0 },
           size: { width: 420, height: 900 },
-          cardIds: ["tripwires-1"],
-          activeCardId: "tripwires-1",
-          title: "Tripwires",
+          cardIds: ["dashes-1"],
+          activeCardId: "dashes-1",
+          title: "Arcs",
           acceptsFamilies: [],
         },
       ],
@@ -1741,7 +1741,7 @@ describe("imposition rails", () => {
   const railsOf = (imposition: Record<string, unknown>) =>
     deserialize(railBlob(imposition), 1920, 1080).imposition.rails;
 
-  const sidebars = { tripwires: { side: "right" }, jots: { side: "right" } };
+  const sidebars = { dashes: { side: "right" }, jots: { side: "right" } };
 
   test("a divided rail round-trips whole, and a stored mode is dropped", () => {
     const imposition = {
@@ -1752,16 +1752,16 @@ describe("imposition rails", () => {
         right: {
           // A pre-[B01] blob's `mode`: read past and gone from the next write.
           mode: "split",
-          order: ["jots", "tripwires"],
-          shares: { jots: 1.4, tripwires: 1 },
+          order: ["jots", "dashes"],
+          shares: { jots: 1.4, dashes: 1 },
         },
       },
     };
     const restored = deserialize(railBlob(imposition), 1920, 1080);
     expect(restored.imposition.rails).toEqual({
       right: {
-        order: ["jots", "tripwires"],
-        shares: { jots: 1.4, tripwires: 1 },
+        order: ["jots", "dashes"],
+        shares: { jots: 1.4, dashes: 1 },
       },
     });
     // serialize() emits the imposition whole, so the record survives a save.
@@ -1785,9 +1785,9 @@ describe("imposition rails", () => {
     expect(
       railsOf({
         sidebars,
-        rails: { right: { mode: "sideways", order: ["jots", "tripwires"] } },
+        rails: { right: { mode: "sideways", order: ["jots", "dashes"] } },
       }),
-    ).toEqual({ right: { order: ["jots", "tripwires"] } });
+    ).toEqual({ right: { order: ["jots", "dashes"] } });
   });
 
 
@@ -1798,7 +1798,7 @@ describe("imposition rails", () => {
         rails: {
           right: {
             shares: {
-              tripwires: 2,
+              dashes: 2,
               jots: -1,
               overview: 0,
               a: Number.NaN,
@@ -1808,23 +1808,23 @@ describe("imposition rails", () => {
           },
         },
       }),
-    ).toEqual({ right: { shares: { tripwires: 2 } } });
+    ).toEqual({ right: { shares: { dashes: 2 } } });
   });
 
   test("non-string order entries are dropped", () => {
     expect(
       railsOf({
         sidebars,
-        rails: { right: { order: ["jots", 4, null, "tripwires"] } },
+        rails: { right: { order: ["jots", 4, null, "dashes"] } },
       }),
-    ).toEqual({ right: { order: ["jots", "tripwires"] } });
+    ).toEqual({ right: { order: ["jots", "dashes"] } });
   });
 
   test("a record nothing survives is an absent side", () => {
     expect(
       railsOf({
         sidebars,
-        rails: { right: { order: [], shares: { tripwires: -1 } } },
+        rails: { right: { order: [], shares: { dashes: -1 } } },
       }),
     ).toBeUndefined();
     expect(railsOf({ sidebars, rails: {} })).toBeUndefined();
@@ -1840,15 +1840,15 @@ describe("imposition rails", () => {
         sidebars,
         rails: {
           right: {
-            order: ["dev", "tripwires"],
-            shares: { dev: 2, tripwires: 1 },
+            order: ["dev", "dashes"],
+            shares: { dev: 2, dashes: 1 },
           },
         },
       }),
     ).toEqual({
       right: {
-        order: ["session", "tripwires"],
-        shares: { session: 2, tripwires: 1 },
+        order: ["session", "dashes"],
+        shares: { session: 2, dashes: 1 },
       },
     });
   });
@@ -1861,7 +1861,7 @@ describe("imposition rails", () => {
       railBlob({
         kind: "three-up",
         sidebars: {
-          tripwires: { side: "right", order: 1 },
+          dashes: { side: "right", order: 1 },
           jots: { side: "right", order: 0 },
         },
       }),
@@ -1870,7 +1870,7 @@ describe("imposition rails", () => {
     );
     expect(restored.imposition.rails).toBeUndefined();
     expect(restored.imposition.sidebars).toEqual({
-      tripwires: { side: "right" },
+      dashes: { side: "right" },
       jots: { side: "right" },
     });
   });
@@ -1902,7 +1902,7 @@ describe("imposition columns", () => {
   const columnsOf = (imposition: Record<string, unknown>) =>
     deserialize(columnBlob(imposition), 1920, 1080).imposition.columns;
 
-  const sidebars = { tripwires: { side: "right" } };
+  const sidebars = { dashes: { side: "right" } };
 
   test("a split column round-trips whole", () => {
     const imposition = {
@@ -2027,8 +2027,8 @@ describe("imposition columns", () => {
     // must come back called "dev" — migrating it would rename a member to an
     // id no pane has.
     expect(
-      columnsOf({ sidebars, columns: { 0: { order: ["dev", "tripwires"] } } }),
-    ).toEqual({ 0: { order: ["dev", "tripwires"] } });
+      columnsOf({ sidebars, columns: { 0: { order: ["dev", "dashes"] } } }),
+    ).toEqual({ 0: { order: ["dev", "dashes"] } });
   });
 
   test("a record nothing survives is an absent column set", () => {

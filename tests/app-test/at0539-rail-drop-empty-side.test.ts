@@ -65,7 +65,7 @@ const SETTLE_TAIL_MS = 900;
 const RAIL_WIDTH = 420;
 const PANES: Record<string, string> = {
   overview: "pOverview",
-  tripwires: "pTripwires",
+  dashes: "pDashes",
 };
 
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
@@ -83,7 +83,7 @@ interface Rect {
   height: number;
 }
 
-/** One split rail on the left, overview over tripwires; nothing on the right. */
+/** One split rail on the left, overview over dashes; nothing on the right. */
 function deckShape() {
   const pane = (id: string, cardId: string, title: string) => ({
     id,
@@ -97,18 +97,18 @@ function deckShape() {
   return {
     cards: [
       { id: "O", componentId: "overview", title: "Overview", closable: true },
-      { id: "T", componentId: "tripwires", title: "Tripwires", closable: true },
+      { id: "T", componentId: "dashes", title: "Arcs", closable: true },
     ],
-    panes: [pane(PANES.overview, "O", "Overview"), pane(PANES.tripwires, "T", "Tripwires")],
+    panes: [pane(PANES.overview, "O", "Overview"), pane(PANES.dashes, "T", "Arcs")],
     activePaneId: PANES.overview,
     imposition: {
       kind: "three-up",
       sidebars: {
         overview: { side: "left" },
-        tripwires: { side: "left" },
+        dashes: { side: "left" },
       },
       rails: {
-        left: { mode: "split", order: ["overview", "tripwires"] },
+        left: { mode: "split", order: ["overview", "dashes"] },
       },
     },
     hasFocus: true,
@@ -225,9 +225,9 @@ describe.skipIf(!SHOULD_RUN)(
           const left = await railInStore(app, "left");
           note(`after: right ${JSON.stringify(right)}, left ${JSON.stringify(left)}`);
           expect(right.order, "the right rail is the card alone").toEqual(["overview"]);
-          expect(left.order, "and the left rail no longer names it").toEqual(["tripwires"]);
+          expect(left.order, "and the left rail no longer names it").toEqual(["dashes"]);
           expect(await pinnedPanesOn(app, "right"), "one frame stands on the right").toEqual([PANES.overview]);
-          expect(await pinnedPanesOn(app, "left"), "one on the left").toEqual([PANES.tripwires]);
+          expect(await pinnedPanesOn(app, "left"), "one on the left").toEqual([PANES.dashes]);
           const overviewAfter = (await rectOf(app, frame(PANES.overview))) as Rect;
           note(`landed: overview ${JSON.stringify(overviewAfter)}`);
           expect(
