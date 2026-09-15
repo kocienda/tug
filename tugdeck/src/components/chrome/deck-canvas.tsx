@@ -627,6 +627,37 @@ function inlineRestorer(
 }
 
 /**
+ * Take the settle's marks off the container — after ONE forced style flush.
+ *
+ * The flush is the whole of this function, and it is not a tidiness: the
+ * settle's LAST write is the inline residue coming off its frames, and that
+ * write lands in the same task as these marks. `chrome.css` stands the frame's
+ * window-shade `transition: height` down for exactly the length of this window
+ * (`[data-imposer-settling] .tug-pane`) so no second clock runs on a height
+ * the settle is tweening — but a style recalc that sees the hand-back also
+ * sees the marks gone, so the transition it resolves against is the LIVE one
+ * and it arms on the hand-back itself.
+ *
+ * What that looked like is the fold: the frame is held inline at its open
+ * height for the crossing's length ([B01] of `three-beat-settle` holds every
+ * size term at First until its beat runs), the tween carries the edge down to
+ * the tier, and the hand-back then walks the frame from the one to the other
+ * on the shade's own 100ms — a card that has finished folding flashing back to
+ * full height and collapsing a second time, after the settle was over.
+ *
+ * Reading a layout property flushes style and layout, so the hand-back is
+ * resolved while the stand-down still stands: the frame settles at its
+ * committed height with no transition to arm, and taking the marks off after
+ * changes no property anybody can transition. One flush per settle, at a
+ * moment nothing else is pending.
+ */
+function endSettleMarks(el: HTMLElement): void {
+  void el.offsetHeight;
+  el.removeAttribute("data-imposer-settling");
+  el.removeAttribute("data-imposer-beat");
+}
+
+/**
  * The recipe each beat of a settle plays on. The move beat IS the crossing —
  * the settle the whole choreography is measured against — and the two resize
  * beats have recipes of their own in `lib/imposer-motion.ts`.
@@ -3076,16 +3107,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       }
       settleTimerRef.current = window.setTimeout(() => {
         settleTimerRef.current = null;
-        el.removeAttribute("data-imposer-settling");
-        el.removeAttribute("data-imposer-beat");
-        // Paired with the marks coming off, here as at every other point they
-        // do: "the settle is over" and "the notice went out" are one
-        // condition, and a sheet clamped against a frame this sweep just
-        // snapped is owed the same measure a completion would have earned it.
-        dispatchImposerSettleEnd(el);
-        releaseSettle("sweep");
         for (const [paneId, entry] of [...settleTweensRef.current]) {
           for (const anim of entry.anims) anim.cancel("snap-to-end");
+          // The residue, handed back HERE rather than left to the cancelled
+          // tweens' own completions: those land a microtask later, on the far
+          // side of the marks below, and a height handed back there would arm
+          // the shade transition the marks are standing down (see
+          // {@link endSettleMarks}). Idempotent — the completion hands back
+          // the same captured value again and writes nothing new.
+          for (const restore of entry.restores) restore();
           clearFlip(paneId, entry.el, entry.anims);
           // Same sweep for the fold mark: a crossing whose completion handler
           // never landed would leave the interior held and the card waiting on
@@ -3093,6 +3123,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           // over and no crossing of any vintage should outlive it.
           endFoldCrossing(entry.el);
         }
+        // After the frames, so the flush inside carries their hand-back.
+        endSettleMarks(el);
+        // Paired with the marks coming off, here as at every other point they
+        // do: "the settle is over" and "the notice went out" are one
+        // condition, and a sheet clamped against a frame this sweep just
+        // snapped is owed the same measure a completion would have earned it.
+        dispatchImposerSettleEnd(el);
+        releaseSettle("sweep");
         // Same sweep, for the same reason: an episode the Last pass never
         // reached (no tween on that frame, a window with no animation clock
         // at all) closes here rather than waiting for its own net.
@@ -3520,6 +3558,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       next: number;
       anims: TugAnimation[];
       restores: Array<() => void>;
+      /**
+       * The frame's own inline size values as REACT rendered them, keyed by
+       * axis — the same closures `restores` holds, reachable one at a time.
+       *
+       * A beat hands its axis back the moment it ends, and what it hands back
+       * has to be the committed value rather than nothing: the imposer writes
+       * its hold onto the very property React rendered the frame's height
+       * into, so `removeProperty` there takes React's number away with the
+       * hold and leaves the frame standing at its content's own height until
+       * the settle's completion restores it. On a fold that is the folded card
+       * at its OPEN floor for the whole of the move beat.
+       */
+      handBack: { width?: () => void; height?: () => void };
       crossingId: number | null;
     }
     const choreography: Choreographed[] = [];
@@ -3551,9 +3602,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     let outstanding = 0;
     const finish = (): void => {
       // The settle is over: the marks come off here, on the settle's own
-      // clock, and the sweep behind it finds nothing left to do.
-      el.removeAttribute("data-imposer-settling");
-      el.removeAttribute("data-imposer-beat");
+      // clock, and the sweep behind it finds nothing left to do. Through
+      // {@link endSettleMarks}, because the restores ran a few statements ago
+      // and the window has to outlast the style recalc that sees them.
+      endSettleMarks(el);
       // The settle's own clock announcing its own end. Every sheet up on this
       // canvas measures its clamp here, and nowhere in between ([P07]).
       dispatchImposerSettleEnd(el);
@@ -3839,8 +3891,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           endEpisode(paneId);
           continue;
         }
-        if (widthTweens) restores.push(inlineRestorer(frame, "width"));
-        if (heightTweens) restores.push(inlineRestorer(frame, "height"));
+        // Captured BEFORE `applyHolds` writes this settle's holds, so what
+        // each one hands back is React's committed value and not a hold —
+        // `arm` has already run any in-flight settle's restores, so nothing
+        // older is standing on these properties either.
+        const handBack: { width?: () => void; height?: () => void } = {};
+        if (widthTweens) {
+          handBack.width = inlineRestorer(frame, "width");
+          restores.push(handBack.width);
+        }
+        if (heightTweens) {
+          handBack.height = inlineRestorer(frame, "height");
+          restores.push(handBack.height);
+        }
         // The beats this frame runs — shrink, move, grow, skipping any it has
         // nothing for — so that no beat carries a size term and a translate
         // together ([B01] of `three-beat-settle`). A frame with no size term
@@ -3926,6 +3989,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           next: 0,
           anims,
           restores,
+          handBack,
           crossingId,
         });
         continue;
@@ -4170,17 +4234,26 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             // completion. TugAnimator commits an effect's value at its end,
             // and under `fill: none` that value is the underlying inline
             // style — the opening pose — so a frame left wearing it would
-            // snap back to its hold for the length of the next beat. The
-            // move ends at identity and the grow at the committed size, so
-            // taking the hold off leaves the frame exactly where the beat
-            // put it; the restorers at completion still hand back whatever
-            // React had rendered.
+            // snap back to its hold for the length of the next beat.
+            //
+            // How it comes off differs by property, and that is the whole of
+            // the care here. A TRANSFORM is the imposer's own and nothing
+            // underlies it, so it is removed. An AXIS is not: React renders
+            // the frame's committed size into the same inline property the
+            // hold was written over, so removing it takes React's number away
+            // too and drops the frame to whatever its content makes of it —
+            // for a folded card, its OPEN floor, held there for every beat
+            // between its own and the settle's completion. So an axis is
+            // HANDED BACK (`handBack`) rather than removed: the beat ended at
+            // the committed size, which is exactly the value React rendered,
+            // so the write leaves the frame where the beat put it and the
+            // frame keeps a height for the rest of the settle.
             for (const [c, beat] of launchedBeats) {
               // Stated as a rule over what the beat ANIMATED rather than as a
               // list of kinds: a beat ends at the value it animated to, which
               // is identity for a transform and the committed size for an
-              // axis, so every property this beat carried can come off and
-              // leave the frame exactly where the beat put it. The fused
+              // axis, so every property this beat carried can be settled here
+              // and leave the frame exactly where the beat put it. The fused
               // `room` beat carries all three at once, which a per-kind list
               // could only have covered by naming it in both branches.
               if (
@@ -4191,10 +4264,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
                 c.frame.style.removeProperty("transform");
               }
               if (beat.terms.width !== undefined) {
-                c.frame.style.removeProperty("width");
+                c.handBack.width?.();
               }
               if (beat.terms.height !== undefined) {
-                c.frame.style.removeProperty("height");
+                c.handBack.height?.();
               }
             }
           },
