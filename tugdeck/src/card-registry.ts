@@ -216,9 +216,10 @@ export interface CardRegistration {
    * the user sees moves — and revealed in one settle when its content is
    * quiet or the deck's bound expires. Only the card type knows what its
    * sheet is waiting on (the Session picker: a listing answered in two
-   * frames, and synopses on their own schedule), so it declares the source
-   * here and the deck composes it with the sheet's own height report and
-   * the bound. See `lib/arrival-reveal.ts` for the rule.
+   * frames), so it declares the source here and the deck composes it with
+   * the sheet's own height report and the bound. The source fires from the
+   * card's own draw, after its sheet has re-measured, never from a store's
+   * tick ([L04]). See `lib/arrival-reveal.ts` for the rule.
    *
    * `null` — or the field omitted — means there is nothing to wait on: the
    * card reveals on its sheet's first height report.

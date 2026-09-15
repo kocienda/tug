@@ -48,6 +48,7 @@ import {
   subscribeToSessionUpdated,
 } from "./session-ledger-events";
 import { getConnectionLifecycle } from "./connection-lifecycle";
+import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 
 /**
  * A session that holds nothing: no turns, no recorded user prompt, and no
@@ -356,6 +357,11 @@ export class SessionLedgerStore {
             : {}),
         };
         this.snapshots.set(project_dir, settled);
+        tugDevLogStore.debug("arrival", `listing ${scanning ? "phase 1 (scanning)" : "phase 2 (settled)"}`, {
+          project_dir,
+          rows: sorted.length,
+          withSynopsis: sorted.filter((r) => (r.synopsis ?? "").length > 0).length,
+        });
         this.tick();
       }),
       subscribeToListSessionsErr(({ project_dir, reason }) => {

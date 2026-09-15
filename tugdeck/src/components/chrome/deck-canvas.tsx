@@ -3273,6 +3273,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         landing,
         outcome: motion && firstRects.size > 0 ? "carried" : "unarmed",
       });
+      tugDevLogStore.debug("arrival", "settle ARM", {
+        panes: firstRects.size,
+        armed: motion && firstRects.size > 0,
+        landing,
+      });
       // Handed to the beat of the same kind the Last pass builds. The beat
       // that was running is over either way: its frames are held and
       // re-planned, and nothing is on a beat until the Last pass starts one.
@@ -3566,6 +3571,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // The everyday arrangement change — neither arriving nor departing — is
     // never fused and keeps its shrink/move/grow partition exactly.
     const fused = hasArrival || hasDeparture;
+    const traveled: Array<Record<string, number | string>> = [];
     for (const frame of el.querySelectorAll<HTMLElement>(
       ".tug-pane[data-pane-id]",
     )) {
@@ -3647,6 +3653,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         continue;
       }
       const lastRect = frame.getBoundingClientRect();
+      traveled.push({
+        paneId,
+        firstY: Math.round(firstRect.top),
+        firstH: Math.round(firstRect.height),
+        lastY: Math.round(lastRect.top),
+        lastH: Math.round(lastRect.height),
+      });
       const fade = fadePlan.get(paneId);
       const anims: TugAnimation[] = [];
       const restores: Array<() => void> = [];
@@ -3938,6 +3951,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // container names the running beat in `data-imposer-beat` so a sampled
     // frame can be read against the beat it belongs to.
     if (choreography.length + arrivals.length + departures.length > 0) {
+      tugDevLogStore.debug("arrival", "settle LAST → beats", {
+        fused,
+        arrivals: arrivals.map((a) => a.paneId),
+        departures: departures.length,
+        traveled,
+      });
       outstanding += 1;
       const present = (kind: BeatKind): Choreographed[] =>
         choreography.filter((c) => c.beats[c.next]?.kind === kind);

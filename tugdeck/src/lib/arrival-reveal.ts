@@ -31,10 +31,13 @@
  * moving — the one input to {@link arrivalRevealDue} the deck cannot answer
  * itself.
  *
- * `subscribe` fires the listener whenever the answer MAY have changed; the
- * deck re-asks `isQuiet` on every fire and never assumes a fire means quiet.
- * A source with nothing to wait on answers `true` from the first ask, and the
- * card reveals on its first height report.
+ * `subscribe` fires the listener when the content has been DRAWN and the
+ * answer may have changed — from the card's own layout effect, after the DOM
+ * matches the data and the sheet has re-measured ([L04]), never from a
+ * store's tick ahead of the render. The deck re-asks `isQuiet` on every fire
+ * and never assumes a fire means quiet. A source with nothing to wait on
+ * answers `true` from the first ask, and the card reveals on its first
+ * height report.
  */
 export interface ArrivalQuiet {
   subscribe(listener: () => void): () => void;
@@ -71,9 +74,9 @@ export const ARRIVAL_REVEAL_BOUND_MS = 250;
 /** The facts {@link arrivalRevealDue} decides over. */
 export interface ArrivalRevealInput {
   /**
-   * The sheet has reported a height at least once while hidden — which says
-   * its panel is mounted and measurable, and nothing about whether that
-   * number is current. The reveal measures the panel itself ([B04]).
+   * The sheet has reported a height at least once while hidden. Current by
+   * the time a quiet fire reads it, because the fire follows the draw and
+   * the draw re-measures the sheet first.
    */
   reported: boolean;
   /** The card type says its content is quiet ({@link ArrivalQuiet}). */

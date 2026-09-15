@@ -956,6 +956,25 @@ export function sheetPanelNaturalHeight(el: HTMLElement): number {
   );
 }
 
+/**
+ * The event a sheet's content dispatches, bubbling, when it has just DRAWN
+ * something that may have changed the panel's height — so the panel
+ * re-measures and re-reports inside the same layout-effect phase, ahead of
+ * the `ResizeObserver` that would otherwise deliver a frame later.
+ *
+ * This is the ready callback of [L04]: the child that changed the DOM says
+ * so, from its own `useLayoutEffect`, and the parent measures then. Without
+ * it a reader of the report has to guess whether the observer has caught up
+ * with the last render, and the two ways of guessing — a timer, or a direct
+ * DOM read from outside the sheet — are the two things [L05] and [L10] forbid.
+ */
+export const SHEET_CONTENT_CHANGED_EVENT = "tug-sheet-content-changed";
+
+/** Dispatch {@link SHEET_CONTENT_CHANGED_EVENT} from `el`, up to its sheet. */
+export function notifySheetContentChanged(el: HTMLElement): void {
+  el.dispatchEvent(new CustomEvent(SHEET_CONTENT_CHANGED_EVENT, { bubbles: true }));
+}
+
 /** {@link TugSheetPanel} props. */
 export interface TugSheetPanelProps {
   /** Ref to the `.tug-sheet-content` element itself. */
@@ -1664,8 +1683,12 @@ export function TugSheetContent({
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(content);
+    // Content that has just drawn asks for a measure NOW, ahead of the
+    // observer's own delivery — see `SHEET_CONTENT_CHANGED_EVENT`.
+    content.addEventListener(SHEET_CONTENT_CHANGED_EVENT, measure);
     return () => {
       observer.disconnect();
+      content.removeEventListener(SHEET_CONTENT_CHANGED_EVENT, measure);
       // Cleared on close and on unmount, which is the whole of the drop: a
       // claim outliving the panel that justified it is a floor nobody can
       // account for.

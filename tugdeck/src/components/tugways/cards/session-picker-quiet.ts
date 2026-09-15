@@ -17,14 +17,24 @@
  *   ([F03]): the list is `max-height: 14.5rem` over a `3.5rem` row floor, so
  *   once five rows stand in it no later frame can change its height;
  *
- * and, in either case, every row on screen has its synopsis — the description
- * line is what a synopsis fills, and a row whose description lands late is a
- * row that changes height. A row that never gets one waits out the bound,
- * which is short.
+ * and, while the listing is still scanning, every row on screen has its
+ * synopsis — the description line is what a synopsis fills, and a row whose
+ * description lands with the union is a row that changes height. A settled
+ * listing is quiet whatever its synopses say: they ride the rows, so a row
+ * the settled frame delivered without one is not getting one during this
+ * arrival, and holding the card for it only spends the bound.
  *
  * The rule is pure over a {@link WorkspaceSnapshot} and a synopsis lookup so
  * it can be tested without a deck; {@link sessionPickerQuiet} is the same rule
  * bound to the live stores, in the shape the registration declares.
+ *
+ * WHEN the deck is told to re-ask is the other half, and it is the picker's
+ * draw rather than the stores' tick ([L04]): `SessionProjectPickerForm`
+ * calls {@link notifyPickerDrawn} from a layout effect after rendering a
+ * listing frame, having first had its sheet re-measure. A source that fired
+ * on the store's tick would fire BEFORE the rows it announces are in the
+ * DOM, and a reveal decided then would commit the placeholder's height —
+ * which was the third motion, wearing a one-frame race.
  *
  * @module components/tugways/cards/session-picker-quiet
  */
@@ -85,7 +95,8 @@ export function pickerContentQuiet(
   const onScreen = rows.slice(0, PICKER_ROWS_TO_FILL_CAP - 1);
   const filled = rows.length + 1 >= PICKER_ROWS_TO_FILL_CAP;
   const settled = snapshot.scanning !== true;
-  if (!filled && !settled) return false;
+  if (settled) return true;
+  if (!filled) return false;
   return onScreen.every((row) => hasSynopsis(row.line_id));
 }
 
@@ -94,6 +105,12 @@ export function pickerContentQuiet(
  * deck reads ({@link ArrivalQuiet}): {@link pickerContentQuiet} over the
  * ledger store's snapshot for the seed path the picker opens on, and the
  * synopsis store's answer for each row.
+ *
+ * `subscribe` fires on {@link notifyPickerDrawn} — the picker's own word
+ * that a frame is in the DOM — and on nothing else. A synopsis that lands on
+ * its own, outside a listing frame, is not waited for here: synopses ride
+ * the rows, so that is a Summarize lane writing mid-arrival, which the
+ * bound covers and a later reservation corrects.
  *
  * The seed path is read once, at the arrival — the same path the picker's
  * own render reads through its hooks, by the same precedence — because a
@@ -110,11 +127,9 @@ export function sessionPickerQuiet(): ArrivalQuiet | null {
   const projectDir = readSeedPath();
   return {
     subscribe: (listener) => {
-      const unsubscribeLedger = ledger.subscribe(listener);
-      const unsubscribeSynopses = sessionSynopsisStore.subscribe(listener);
+      drawnListeners.add(listener);
       return () => {
-        unsubscribeLedger();
-        unsubscribeSynopses();
+        drawnListeners.delete(listener);
       };
     },
     isQuiet: () =>
@@ -123,4 +138,16 @@ export function sessionPickerQuiet(): ArrivalQuiet | null {
         (lineId) => sessionSynopsisStore.getSynopsis(lineId) !== null,
       ),
   };
+}
+
+const drawnListeners = new Set<() => void>();
+
+/**
+ * The picker has DRAWN a listing frame — called by `SessionProjectPickerForm`
+ * from a layout effect keyed on the ledger snapshot it rendered, after it has
+ * asked its sheet to re-measure. Every arriving card's quiet source re-asks
+ * its rule now, over a DOM that matches the store ([L04]).
+ */
+export function notifyPickerDrawn(): void {
+  for (const listener of [...drawnListeners]) listener();
 }

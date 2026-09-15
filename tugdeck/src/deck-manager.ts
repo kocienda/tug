@@ -64,8 +64,7 @@ import {
   noteOpeningBidMember,
   openingBidReportedFor,
 } from "./lib/opening-bid";
-import { memberFloorForSheetPanel } from "./lib/sheet-reservation";
-import { sheetPanelNaturalHeight } from "./components/tugways/tug-sheet";
+import { tugDevLogStore } from "./lib/tug-dev-log-store/tug-dev-log-store";
 import {
   bullseyePaneIdOf,
   columnAllocationOf,
@@ -1862,9 +1861,13 @@ export class DeckManager implements IDeckManagerStore {
     // later commit that clears the mark and writes the bid from that report
     // ([B04]). A caller that binds the card in the same gesture (`opening:
     // "bound"`: a resume, a command run in a new session) never shows the
-    // form, so the card lands visible at its ordinary policy.
+    // form, so the card lands visible at its ordinary policy. So does a host
+    // with no window: there is no sheet to lay out and nothing to wait for,
+    // and a mark made there would stand forever ([L31]).
     const arrivesHidden =
-      options?.opening !== "bound" && registration.openingForm !== undefined;
+      options?.opening !== "bound" &&
+      registration.openingForm !== undefined &&
+      typeof window !== "undefined";
     const arriving = arrivesHidden
       ? arrivingWith(this.deckState.arriving, paneId, true)
       : this.deckState.arriving;
@@ -1904,6 +1907,14 @@ export class DeckManager implements IDeckManagerStore {
           ...(arriving !== undefined ? { arriving } : {}),
         };
         this.notify("addCard");
+        if (arrivesHidden) {
+          tugDevLogStore.debug("arrival", "hidden commit", {
+            paneId,
+            cardId: firstCardId,
+            slot: win.slot ?? null,
+            kind: this.deckState.imposition.kind ?? null,
+          });
+        }
         this.scheduleSave();
         // The card is on the deck but its frame has not finished arriving,
         // and anything that wants to act on a card that has stopped moving
@@ -1996,20 +2007,7 @@ export class DeckManager implements IDeckManagerStore {
       });
       if (!due) return;
       dispose();
-      // The reveal MEASURES the hidden sheet off the DOM, so it must run after
-      // React has drawn whatever the fire that made it due was about. A
-      // quiet source fires synchronously inside its store's tick — the
-      // listing's rows land in the store before the picker has re-rendered
-      // them — and a measure taken in that same call would read the
-      // placeholder the rows are about to replace, which is the height the
-      // first report already holds and exactly the number the reveal must
-      // not commit. React flushes a store-driven update in a microtask, so a
-      // macrotask is after it; the reveal re-checks the mark when it runs.
-      if (typeof window === "undefined") {
-        this._revealArrival(paneId, cardId);
-        return;
-      }
-      window.setTimeout(() => this._revealArrival(paneId, cardId), 0);
+      this._revealArrival(paneId, cardId);
     };
     this.arrivalWatches.set(paneId, { decide, dispose });
     if (quiet !== null) disposers.push(quiet.subscribe(decide));
@@ -2024,26 +2022,25 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * The REVEAL commit for a pane that arrived hidden ([B04]): one commit that
-   * clears the arriving mark, writes the opening bid from the hidden sheet's
-   * height as it stands NOW, and seats the newcomer's weight in its column — so the
-   * settle it arms carries `room` for the neighbours and `arrive` for the
-   * card, fused as one motion.
+   * clears the arriving mark, writes the opening bid from the sheet's last
+   * hidden report, seats the newcomer's weight in its column, and slides the
+   * column's strip if the newcomer overflows it — so the settle it arms
+   * carries `room` for the neighbours, the strip's travel, and `arrive` for
+   * the card, fused as one motion.
    *
-   * The bid is READ OFF THE DOM here rather than taken from the sheet's last
-   * report: the panel is in the tree at the seat it will take, and forcing
-   * its layout is exact at this instant, whereas the stored report is the
-   * observer's last delivery — the placeholder the rows replaced, when the
-   * fire that made the reveal due was the rows landing. The two used to
-   * disagree by exactly a picker's worth, and the disagreement was the third
-   * motion: a reveal at the report's height, then the observer's next
-   * delivery re-dividing the column under a card that had just arrived.
-   * The measured number is written as the reservation as well as the bid,
-   * so the observer's own delivery of the same height is a no-change and
-   * commits nothing; the report bit is spent here so a LATER report that
-   * genuinely differs takes the ordinary supersede rule ([B05]). A pane
-   * whose panel cannot be found — the bound expired before its sheet
-   * mounted — reveals over the stored report if there is one, else at its
-   * policy floor, and its first live report adjusts it as on any card.
+   * The bid is the sheet's most recent reservation while hidden, already a
+   * member floor through `memberFloorForSheetPanel`, and it is CURRENT by
+   * construction: the quiet source fires from the picker's own layout effect
+   * after it has drawn, and that same effect has the sheet re-measure first
+   * (`notifySheetContentChanged`), so by the time this runs the report is a
+   * reading of the rows the user is about to see rather than of the
+   * placeholder they replaced ([L04]'s ready callback, and the reason no
+   * timer and no DOM read stand between the store and this commit). The
+   * report bit is spent here so the NEXT live report takes the ordinary
+   * supersede rule — every frame after the reveal is an honest reservation
+   * from a panel that genuinely changed ([B05]). A pane that never reported
+   * — the bound expired first — reveals at its policy floor, and its first
+   * live report adjusts it as on any card.
    *
    * The lifecycle mark and the deck's travel to the card are made from here
    * rather than from the hidden commit, because this is the arrival the
@@ -2056,22 +2053,21 @@ export class DeckManager implements IDeckManagerStore {
       return;
     }
     const arriving = arrivingWith(this.deckState.arriving, paneId, false);
-    const measured = this._measureArrivingSheet(paneId);
-    const report = measured ?? this.deckState.sheetReservations?.[paneId];
+    const report = this.deckState.sheetReservations?.[paneId];
+    tugDevLogStore.debug("arrival", "reveal commit", {
+      paneId,
+      cardId,
+      bid: report ?? null,
+    });
     const openingBids =
       report === undefined
         ? this.deckState.openingBids
         : openingBidsWith(this.deckState.openingBids, paneId, report);
-    const sheetReservations =
-      measured === undefined
-        ? this.deckState.sheetReservations
-        : { ...this.deckState.sheetReservations, [paneId]: measured };
     const { arriving: _cleared, ...rest } = this.deckState;
     const revealed: DeckState = {
       ...rest,
       ...(arriving !== undefined ? { arriving } : {}),
       ...(openingBids !== undefined ? { openingBids } : {}),
-      ...(sheetReservations !== undefined ? { sheetReservations } : {}),
     };
     this.deckState = {
       ...revealed,
@@ -2087,6 +2083,20 @@ export class DeckManager implements IDeckManagerStore {
               { openingBids, arriving },
             ),
     };
+    // The column's scroll is a term of THIS commit, not a later one. A
+    // newcomer whose floor does not fit beside its sitters overflows the
+    // column into a strip, and the strip has to slide to show the card
+    // whole; written here, that slide rides the room beat with the sitters'
+    // shrink, so the settle plays room, arrive, and the column's travel as
+    // one motion. Left for `_revealAfterArrival`, it was its own commit a beat
+    // after the card had landed — the deck's "TWO MOVES" rule, written for a
+    // file link opening a card in a slot the band is not showing, and read
+    // here as a third motion on every arrival that overflows. The deferred
+    // reveal still runs, and finds nothing left to move.
+    this.deckState = {
+      ...this.deckState,
+      ...this._revealTerms(paneId, this.deckState.panes),
+    };
     if (report !== undefined) {
       noteOpeningBidMember(cardId, paneId);
       openingBidReportedFor(paneId);
@@ -2096,23 +2106,6 @@ export class DeckManager implements IDeckManagerStore {
     }
     this.notify("revealArrival");
     this._revealAfterArrival(cardId);
-  }
-
-  /**
-   * The member floor the hidden sheet on `paneId` needs at this instant, read
-   * off its panel in the DOM — `sheetPanelNaturalHeight` over the
-   * `[data-slot="tug-sheet"]` element inside the pane's frame, through
-   * `memberFloorForSheetPanel`, which is the same arithmetic the sheet's own
-   * report goes through. `undefined` with no document, no frame, or no panel
-   * mounted in it.
-   */
-  private _measureArrivingSheet(paneId: string): number | undefined {
-    if (typeof document === "undefined") return undefined;
-    const panel = this.container.querySelector<HTMLElement>(
-      `.tug-pane[data-pane-id="${CSS.escape(paneId)}"] [data-slot="tug-sheet"]`,
-    );
-    if (panel === null) return undefined;
-    return memberFloorForSheetPanel(sheetPanelNaturalHeight(panel));
   }
 
   /**
@@ -4220,6 +4213,9 @@ export class DeckManager implements IDeckManagerStore {
     }
     this.deckState = { ...this.deckState, ...next };
     this.notify("setSheetReservation");
+    if (this.deckState.arriving?.[memberId] === true) {
+      tugDevLogStore.debug("arrival", "hidden sheet report", { memberId, height });
+    }
     // A report from a sheet on a HIDDEN, arriving member is the height the
     // reveal will write as the bid ([B04]); the watch standing over the
     // member re-asks its decision now that one has landed.

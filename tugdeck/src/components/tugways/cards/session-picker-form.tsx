@@ -74,6 +74,8 @@ import {
   type PickerSelection,
 } from "./session-picker-cells";
 import { parseRecents, parseString, seedPathFrom } from "./session-picker-seed";
+import { notifyPickerDrawn } from "./session-picker-quiet";
+import { notifySheetContentChanged } from "@/components/tugways/tug-sheet";
 import { noticeContent } from "./session-picker-notice-content";
 
 export interface SessionProjectPickerFormProps {
@@ -339,6 +341,19 @@ export function SessionProjectPickerForm({
   const path = userPath ?? seededPathRef.current ?? "";
   const trimmedPath = path.trim();
   const sessionLedger = useSessionLedger(trimmedPath);
+  // The listing frame this render drew is in the DOM once this runs, and
+  // nothing before it can say so: the store's tick precedes the render, and
+  // the sheet's `ResizeObserver` follows it by a frame. So this is where the
+  // sheet is asked to re-measure and the deck is told the picker has drawn —
+  // the ready callback of [L04], in the order that makes the report a card
+  // arriving hidden reveals at a reading of THESE rows ([L03]: layout
+  // effect, so it lands before paint, inside the same phase the sheet's own
+  // report effect runs in).
+  useLayoutEffect(() => {
+    const root = formRootRef.current;
+    if (root !== null) notifySheetContentChanged(root);
+    notifyPickerDrawn();
+  }, [sessionLedger]);
 
   // Re-validate the session list once per picker open. The ledger
   // store's snapshot is fetched once per connection, but terminal

@@ -92,11 +92,19 @@ describe("pickerContentQuiet", () => {
     expect(pickerContentQuiet(ready(rows, true), synopsesOf(rows))).toBe(false);
   });
 
-  test("a settled list whose on-screen row lacks its synopsis is not quiet", () => {
-    // The description line is what a synopsis fills; a row whose synopsis
-    // lands late is a row that changes height.
+  test("a settled list is quiet even when an on-screen row lacks its synopsis", () => {
+    // Synopses ride the rows; a row the settled frame delivered without one
+    // is not getting one during this arrival, so waiting only spends the
+    // bound.
     const rows = [row(1, { synopsis: true }), row(2)];
-    expect(pickerContentQuiet(ready(rows, false), synopsesOf(rows))).toBe(false);
+    expect(pickerContentQuiet(ready(rows, false), synopsesOf(rows))).toBe(true);
+  });
+
+  test("a scanning list at its cap still waits for its on-screen synopses", () => {
+    const rows = Array.from({ length: PICKER_ROWS_TO_FILL_CAP }, (_, i) =>
+      row(i, { synopsis: i !== 1 }),
+    );
+    expect(pickerContentQuiet(ready(rows, true), synopsesOf(rows))).toBe(false);
   });
 
   test("a missing synopsis BELOW the fold does not hold the reveal", () => {

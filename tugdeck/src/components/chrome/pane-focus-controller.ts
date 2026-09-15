@@ -109,6 +109,15 @@ export function usePaneFocusController(
   // `activeElement` is already the stop, and it is gated on the active
   // context — so a reveal that changed nothing, and a reader who moved to
   // another card while the newcomer was hidden, both cost nothing.
+  //
+  // This reads the store through the rendered snapshot and writes the DOM
+  // from a layout effect, which is the round-trip [L22] warns against for
+  // store-driven DOM writes. It is the right shape HERE and the exception is
+  // the reason [L22] gives: the DOM state this write depends on — the frame's
+  // `visibility` — is itself React-rendered from the same snapshot, so a
+  // direct store observer would fire before the frame can take focus. The
+  // write has to follow React's commit, and a layout effect is the one
+  // place that is guaranteed to ([L03]).
   const arrivingRef = useRef(snapshot.arriving);
   useLayoutEffect(() => {
     const previous = arrivingRef.current;
