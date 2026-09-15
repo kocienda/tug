@@ -112,14 +112,6 @@ const PENDING_SNAPSHOT: WorkspaceSnapshot = Object.freeze({
 type TrashSessionResult = { ok: true } | { error: { reason: string } };
 
 /**
- * How long {@link SessionLedgerStore.ensureListed} waits for a listing before
- * it resolves with whatever the snapshot then holds. Liveness, not a height
- * guess: a card must not be held off the deck by a server that never answers,
- * and nothing is measured until the wait ends one way or the other.
- */
-const LISTING_WAIT_BOUND_MS = 2_000;
-
-/**
  * Per-session-id index entry. Tracks which `projectDir` cache currently
  * holds the row so a `session_updated` push can locate the cached entry
  * without scanning every workspace. Used during patch + remove paths.
@@ -154,13 +146,6 @@ export class SessionLedgerStore {
   private readonly pendingTrash = new Map<string, (r: TrashSessionResult) => void>();
 
   private readonly disposers: Array<() => void> = [];
-
-  /**
-   * Callers waiting for a listing to LAND for a path — {@link ensureListed}'s
-   * resolvers, keyed by project dir and settled by the next `list_sessions_ok`
-   * that answers the path, or by its `list_sessions_err`.
-   */
-  private readonly listingWaiters = new Map<string, Array<() => void>>();
 
   constructor(conn: TugConnection) {
     this.conn = conn;
@@ -229,82 +214,6 @@ export class SessionLedgerStore {
     this.tick();
     this.requestList(projectDir);
   };
-
-  /**
-   * Resolve once a listing for `projectDir` has LANDED after this call — the
-   * first fetch when the path is unseen, the stale-while-revalidate refresh
-   * when it is settled, or the request already in flight when one is.
-   *
-   * This is what lets the deck measure the Session picker BEFORE it commits
-   * the card that shows it. The picker's height is its rows, and its rows are
-   * this store's answer for the path it opens on: a measure taken over a
-   * pending snapshot is a measure of the `checking…` placeholder, and the rows
-   * that land a few frames later re-divide the column the card just arrived
-   * in — the second motion the measure exists to remove.
-   *
-   * Which frame answers is the ledger's to say. The server lists in two
-   * phases: the ledger's rows at once, then the union with the on-disk JSONL
-   * scan, which on a large project takes seconds. When phase one carries
-   * rows, it is the answer — those rows are what Tug knows about the path,
-   * they settle the list's height, and the scan only ever adds. When phase
-   * one carries NONE, the ledger knows nothing about this path and the scan
-   * is the only source there is, so the wait runs to the settled frame; a
-   * project of terminal-made sessions is listed by its scan or not at all,
-   * and a picker measured over an empty list would be measured over nothing.
-   *
-   * `null` when there is nothing to wait for — an empty path, or a listing in
-   * an error state the picker will show as it stands — so a caller with no
-   * wait ahead of it can go on synchronously.
-   *
-   * The wait is bounded by {@link LISTING_WAIT_BOUND_MS}, past which it
-   * resolves with whatever the snapshot then holds.
-   */
-  ensureListed(projectDir: string): Promise<void> | null {
-    if (projectDir.length === 0) return null;
-    const cached = this.snapshots.get(projectDir);
-    if (cached === undefined) {
-      this.getSnapshot(projectDir);
-    } else if (cached.status === "error") {
-      return null;
-    } else if (cached.status === "ready" && cached.scanning !== true) {
-      this.refresh(projectDir);
-    }
-    // Otherwise pending or scanning: the request already in flight answers
-    // this call too.
-    return new Promise<void>((resolve) => {
-      let waiters = this.listingWaiters.get(projectDir);
-      if (waiters === undefined) {
-        waiters = [];
-        this.listingWaiters.set(projectDir, waiters);
-      }
-      const settle = (): void => {
-        clearTimeout(bound);
-        resolve();
-      };
-      const bound = setTimeout(settle, LISTING_WAIT_BOUND_MS);
-      waiters.push(settle);
-    });
-  }
-
-  /**
-   * A listing landed for `projectDir`: answer every {@link ensureListed}
-   * caller it answers. A phase-one frame with no rows answers nobody — the
-   * scan behind it is the only source for the path, and the waiters hold for
-   * the settled frame — while every other frame, and an error, answers all.
-   */
-  private settleListingWaiters(projectDir: string, landed: WorkspaceSnapshot): void {
-    const waiters = this.listingWaiters.get(projectDir);
-    if (waiters === undefined) return;
-    if (
-      landed.status === "ready" &&
-      landed.scanning === true &&
-      landed.rows.length === 0
-    ) {
-      return;
-    }
-    this.listingWaiters.delete(projectDir);
-    for (const settle of waiters) settle();
-  }
 
   trashSession(sessionId: string, projectDir?: string): Promise<TrashSessionResult> {
     return new Promise((resolve) => {
@@ -448,7 +357,6 @@ export class SessionLedgerStore {
         };
         this.snapshots.set(project_dir, settled);
         this.tick();
-        this.settleListingWaiters(project_dir, settled);
       }),
       subscribeToListSessionsErr(({ project_dir, reason }) => {
         const failed: WorkspaceSnapshot = {
@@ -458,7 +366,6 @@ export class SessionLedgerStore {
         };
         this.snapshots.set(project_dir, failed);
         this.tick();
-        this.settleListingWaiters(project_dir, failed);
       }),
       subscribeToListSessionsProgress(({ project_dir, parsed, total }) => {
         const cached = this.snapshots.get(project_dir);

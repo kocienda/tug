@@ -990,8 +990,8 @@ export interface TugSheetPanelProps {
   onMouseDown?: React.MouseEventHandler<HTMLDivElement>;
   /**
    * Wraps the header + body interior. The live sheet supplies its
-   * `<ResponderScope>`; a measuring render supplies nothing, because a render
-   * taken to read a number registers no responders ([P09]).
+   * `<ResponderScope>`; a caller with no chain to register into supplies
+   * nothing ([P09]).
    */
   wrapInterior?: (interior: React.ReactNode) => React.ReactNode;
   /** Rendered inside the panel box after the interior — the resize handles. */
@@ -1000,7 +1000,7 @@ export interface TugSheetPanelProps {
    * The sheet body, already wrapped in whatever the caller's body needs. The
    * live sheet hands its `FocusModeScope` in here rather than having the panel
    * build one, because the scope comes from the focus trap {@link TugSheetContent}
-   * owns — and a measuring render has no trap and needs none.
+   * owns.
    */
   children?: React.ReactNode;
 }
@@ -2315,7 +2315,8 @@ export function TugSheetContent({
             onMouseDown={suppressButtonFocusShift}
             // The responder scope wraps the header and body, inside the panel
             // box — where it has always been. It is passed in rather than
-            // built by the panel so a measuring render can leave it out ([P09]).
+            // built by the panel so a caller without a chain can leave it out
+            // ([P09]).
             wrapInterior={(interior) => <ResponderScope>{interior}</ResponderScope>}
             trailing={
               /* Drag-resize handles (pane-style edge/corner strips). Absolutely

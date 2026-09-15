@@ -1113,9 +1113,8 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   // its arrive beat — and that is exactly when the picker should be mounted.
   // The panel has no entrance of its own, so there is no second motion to keep
   // out of the frame's; mounting here means the picker is already inside the
-  // rectangle that fades in, at the height the deck measured for this very
-  // panel before the pane was committed. The card arriving IS the picker
-  // arriving.
+  // rectangle that fades in, at the height this very panel reported while the
+  // card stood hidden ([B01]). The card arriving IS the picker arriving.
   const cardLifecycle = useCardLifecycle();
   // The picker is the one sheet on the card nobody asked for: it arrives
   // because the card has no session, not because the user named it. So it
@@ -1169,8 +1168,8 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
 
     void showSheet({
       // The sheet's own facts come from the SAME factory that builds the
-      // panel, so the box the deck measured off-screen before this card's pane
-      // was committed and the box the user is about to see are one tree with
+      // panel, so the box this card measured while it stood hidden at its seat
+      // and the box the user is about to see are one tree with
       // one title, one icon and one width tier ([P01]). This call is for the
       // facts; `content` below calls it again with handlers bound to `close`,
       // because a render prop cannot be handed a `close` that does not exist
@@ -1188,9 +1187,9 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
       // card — an unbound Session card is its picker and nothing else — so the
       // card's own arrival IS the motion, and a panel sliding in on top of a
       // frame that is still fading in is the beat a user reads as the surface
-      // being late. The deck already knows how tall this panel will be before
-      // the pane is committed ([P02]), so the frame arrives at the picker's
-      // height with the picker in it.
+      // being late. The card arrives hidden and this panel reports its height
+      // before the reveal ([B01]), so the frame is seen to arrive at the
+      // picker's height with the picker in it.
       presentation: "none",
       // The picker seeds its own focus via the engine (`SessionProjectPickerForm`'s
       // smart-latch places the key view on the Sessions list, or the path field
@@ -1326,9 +1325,10 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
     //
     // The picker has no entrance any more ([P07]), so there is nothing left to
     // wait through — and waiting is now the wrong thing. The frame arrives at
-    // the height the deck measured for this very panel ([P02]); mounting the
-    // picker BEFORE the frame is shown is what lets it ride the arrive beat in,
-    // so the card and the thing inside it are one motion instead of two.
+    // the height this very panel reported while the card stood hidden ([B01]);
+    // mounting the picker BEFORE the frame is shown is what lets it report,
+    // and then ride the arrive beat in, so the card and the thing inside it
+    // are one motion instead of two.
     return cardLifecycle.observeCardDidActivate(cardId, () => presentSheet());
   }, [cardLifecycle, cardId, presentSheet]);
 

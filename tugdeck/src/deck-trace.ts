@@ -664,14 +664,13 @@ export type DeckTraceEvent = {
     }
   | {
       // Fired when a member's FIRST live reservation report disagrees with
-      // the opening bid the arrival commit wrote for it ([P04]). The bid is
-      // kept and the report is NOT committed: after [P02] the bid is a
-      // measurement of the very panel that is now reporting, taken off-screen
-      // at the width the pane went on to take, so the two numbers are supposed
-      // to be the same number. A row here is therefore a defect in the
-      // measuring render — a style that only applies on screen, a width the
-      // measure guessed wrong, an effect the measuring render was supposed to
-      // skip and did not — rather than a threshold anybody should be tuning.
+      // the opening bid the reveal commit wrote for it ([P04]). The bid is
+      // kept and the report is NOT committed: the bid is the very panel's own
+      // last report while its card stood hidden at the seat it now holds, so
+      // the two numbers are supposed to be the same number. A row here is
+      // therefore a defect in the reveal — a report the reveal missed, a
+      // width that changed under the hidden card — rather than a threshold
+      // anybody should be tuning.
       //
       // Always recorded, for the family's reason: it is evidence of a defect
       // in a session nobody was watching, and the arrival it describes has

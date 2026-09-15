@@ -45,6 +45,7 @@ import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/gesture-interpreter";
 import { DRAG_MOVE_THRESHOLD_PX } from "@/lib/press-travel";
 import {
   TugPane,
+  type ArrivingSeat,
   type SidebarStackStanding,
 } from "./tug-pane";
 import { CardHost } from "./card-host";
@@ -1291,6 +1292,33 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     }
     return map;
   }, [deckColumns]);
+  // The seat each ARRIVING pane draws at while it is hidden ([B08]). A
+  // marked pane is left out of `deckColumns` by construction, so its column
+  // here is the standing members' column: split with someone standing, and
+  // the newcomer sits at the run's bottom over the neighbour that will
+  // shrink; otherwise — a stacked column, or a slot it has to itself — it
+  // takes the undivided run, which is the frame it will have once revealed.
+  const arrivingSeatByPaneId = useMemo(() => {
+    const map = new Map<string, ArrivingSeat>();
+    const marks = deckState.arriving;
+    const kind = deckState.imposition.kind;
+    if (marks === undefined || kind === undefined) return map;
+    for (const pane of deckState.panes) {
+      if (marks[pane.id] !== true) continue;
+      if (pane.slot === undefined) continue;
+      const slot = clampSlot(kind, pane.slot);
+      const column = deckColumns.find((c) => c.slot === slot);
+      map.set(
+        pane.id,
+        column !== undefined &&
+          column.mode === "split" &&
+          column.members.length > 0
+          ? "bottom"
+          : "run",
+      );
+    }
+    return map;
+  }, [deckState, deckColumns]);
   const railWidthOf = (side: SidebarSide): number =>
     sidebarRails.find((rail) => rail.side === side)?.width ?? 0;
   // The held-open deck edge ([B10]). A side with no rail has no frame the
@@ -3130,6 +3158,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // so it has no First rect to measure and nothing to hand back yet.
         // The Last pass finds it as an arrival again ([P08]).
         if (pendingArrivalsRef.current.has(paneId)) continue;
+        // Hidden and arriving — appended to its column but not yet part of
+        // its division ([B01]). Not on screen either, for the same reasons:
+        // no First rect, no restore, no cancel. The commit that clears the
+        // mark leaves the attribute off the new DOM, so the Last pass of THAT
+        // settle finds the frame with no First rect and plays its arrival.
+        if (frame.hasAttribute("data-arriving")) continue;
         if (motion) firstRects.set(paneId, frame.getBoundingClientRect());
         // The fold's near side. Read for every frame rather than only the
         // ones that turn out to cross, because which frames those are is not
@@ -3520,6 +3554,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     ).some(
       (frame) =>
         !frame.hasAttribute("data-pointer-owned") &&
+        !frame.hasAttribute("data-arriving") &&
         !firstRects.has(frame.getAttribute("data-pane-id") ?? ""),
     );
     const hasDeparture = Array.from(firstRects.keys()).some(
@@ -3550,6 +3585,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         endEpisode(paneId);
         continue;
       }
+      // A frame still hidden and arriving is not this settle's either: it
+      // has no First rect because `arm` skipped it, and it is not arriving
+      // in the settle's sense until the commit that clears its mark. Nothing
+      // to plan, nothing to hold, and no episode was opened on it.
+      if (frame.hasAttribute("data-arriving")) continue;
       const firstRect = firstRects.get(paneId);
       if (firstRect === undefined) {
         // A frame that was not on screen when this settle armed: it is
@@ -5120,6 +5160,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             slotStack={slotStackByPaneId.get(stackState.id)}
             columnMember={columnMemberByPaneId.get(stackState.id)}
             columnMode={columnModeByPaneId.get(stackState.id)}
+            arriving={arrivingSeatByPaneId.get(stackState.id)}
             // The pane's own field ([P01]) rather than `paneFoldedOf` over
             // the deck state: the selector exists for readers holding a state
             // and an id, and this one is already holding the pane.

@@ -26,6 +26,7 @@ import type { FeedIdValue } from "./protocol";
 import type { CardState } from "./layout-tree";
 import type { FeedStoreFilter } from "./lib/feed-store";
 import type { TugSheetDisplayWidth } from "./components/tugways/tug-sheet";
+import type { ArrivalQuiet } from "./lib/arrival-reveal";
 
 /**
  * Fallback filter used by `CardHost` while a card is still unbound — i.e.,
@@ -188,26 +189,41 @@ export interface CardRegistration {
   unboundWidthPolicy?: { min: number; preferred: number; max?: number };
   /**
    * What this card's card looks like at the instant it opens, when that is a
-   * sheet ([P02], [Spec S02]).
+   * sheet ([Spec S02]).
    *
-   * Read by `addCard` off the registration it already has in hand, rendered
-   * off-screen, and measured — so the height the card's pane is committed with
-   * is the height the panel will actually stand at, written INTO the commit
-   * that appends the pane rather than into one a frame later. The deck names
-   * no `componentId` and imports nothing from `cards/`: this is a card type
-   * declaring a form and the deck reading it generically, exactly as
-   * {@link foldedSizePolicy} already is.
+   * Declaring it is what makes the card ARRIVE HIDDEN ([B01]): `addCard`
+   * commits the pane marked arriving, the real card lays out and reports its
+   * sheet's height where it will stand, and the reveal commit writes that
+   * report as the opening bid ([B04]) — so the height the card is seen to
+   * arrive at is the height the panel actually stands at, with no number
+   * guessed ahead of it. The deck reads the declaration's presence off the
+   * registration it already has in hand, names no `componentId`, and imports
+   * nothing from `cards/`: a card type declaring a form and the deck reading
+   * it generically, exactly as {@link foldedSizePolicy} already is.
    *
-   * Returning `null` means this card, this time, has no unbound form — the
-   * fresh-versus-restored distinction a registration may need. No bid is
-   * written, and there is no fallback height ([P02]): a form nobody could
-   * measure is a card that opens at its ordinary policy, not one the deck
-   * guesses a number for.
-   *
-   * The returned `panel` must be the SAME component tree the live sheet will
-   * render, built by the same factory, with inert handlers.
+   * The form itself is the card's to raise: the same factory answers here and
+   * at the live `showSheet`, so the sheet the hidden card measures and the
+   * sheet the user sees are one tree. A card type with no such sheet omits
+   * this and arrives visible, as every type but the Session card does.
    */
   openingForm?: (cardId: string) => OpeningForm | null;
+  /**
+   * The card type's word on when its opening sheet's content has stopped
+   * moving, for a card that arrives HIDDEN ([B01], [B03]).
+   *
+   * A card type declaring {@link openingForm} is committed to its column
+   * hidden — the real card, laying out and reporting its height while nothing
+   * the user sees moves — and revealed in one settle when its content is
+   * quiet or the deck's bound expires. Only the card type knows what its
+   * sheet is waiting on (the Session picker: a listing answered in two
+   * frames, and synopses on their own schedule), so it declares the source
+   * here and the deck composes it with the sheet's own height report and
+   * the bound. See `lib/arrival-reveal.ts` for the rule.
+   *
+   * `null` — or the field omitted — means there is nothing to wait on: the
+   * card reveals on its sheet's first height report.
+   */
+  arrivalQuiet?: (cardId: string) => ArrivalQuiet | null;
   /**
    * Where a fresh pane for this card type opens on the canvas.
    * `"cascade"` (the default) walks the standard cascade origin;
@@ -445,12 +461,12 @@ export function getFoldedSizePolicy(componentId: string): CardSizePolicy {
  * What a card type's card looks like at the instant it opens, when that is a
  * sheet ([Spec S02]).
  *
- * The deck renders this off-screen and measures the panel's natural height
- * before it commits the card's pane. That is the whole of its purpose, and it
- * is why every field here is a fact about the BOX rather than about the sheet's
- * behaviour: the title and the icon are in because the header is part of what
- * is measured, and `displayWidth` is in because the panel's width tier decides
- * where its text wraps.
+ * Built by one factory and spread into the live sheet, so the box a hidden
+ * card measures while it arrives ([B01]) and the box the user then sees are
+ * one tree. Every field here is a fact about the BOX rather than about the
+ * sheet's behaviour: the title and the icon are in because the header is
+ * part of the height, and `displayWidth` is in because the panel's width
+ * tier decides where its text wraps.
  */
 export interface OpeningForm {
   /** The panel, ready to render. Handlers are inert; height must not depend on them. */
@@ -461,16 +477,6 @@ export interface OpeningForm {
   title: string;
   /** The sheet's optional Lucide icon name, for the same reason. */
   icon?: string;
-  /**
-   * Make ready whatever the panel's HEIGHT depends on that no render can
-   * produce — a store's answer for a path, fetched lazily and landing a few
-   * frames after the first render asks for it. `addCard` waits on this before
-   * it measures and commits, so what is measured is the panel as it will
-   * stand rather than the placeholder its data replaces. `null` when nothing
-   * is pending, in which case the measure and the commit run synchronously
-   * inside the `addCard` call, exactly as for a form that declares none.
-   */
-  ready?: () => Promise<void> | null;
 }
 
 /**

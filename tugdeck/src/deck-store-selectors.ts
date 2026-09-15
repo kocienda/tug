@@ -441,7 +441,13 @@ export function deckColumnsOf(
 
 /** Every occupied slot's panes, keyed by the slot they actually stand in —
  *  clamped exactly as the strip and `resolvePlacement` clamp it, so a column
- *  and a placement never disagree about which slot a pane is in. */
+ *  and a placement never disagree about which slot a pane is in.
+ *
+ *  An ARRIVING pane is not standing ([B08]): it is mounted hidden at the seat
+ *  it will take, and the column divides its run among the members the user
+ *  can see. Leaving it out here, at the one place membership is read, is what
+ *  keeps every derivation downstream — the order, the allocation, the seams,
+ *  the move chords — agreeing that nothing moved when it was appended. */
 function columnStandingBySlot(
   state: DeckState,
   kind: NonNullable<DeckState["imposition"]["kind"]>,
@@ -449,6 +455,7 @@ function columnStandingBySlot(
   const bySlot = new Map<number, string[]>();
   for (const pane of state.panes) {
     if (pane.slot === undefined) continue;
+    if (state.arriving?.[pane.id] === true) continue;
     const slot = clampSlot(kind, pane.slot);
     const members = bySlot.get(slot);
     if (members) members.push(pane.id);
@@ -554,7 +561,14 @@ export function placeMembers(
   memberIds: readonly string[],
   shares: Readonly<Record<string, number>> | undefined,
 ): PlaceMember[] {
-  return memberIds.map((id) => {
+  // An arriving pane is drawn but not divided ([B08]): the column's readers
+  // already leave it out of `memberIds`, and a caller that hands one in
+  // anyway gets the standing members back, so the division never sees it.
+  const standing =
+    kind === "column" && state.arriving !== undefined
+      ? memberIds.filter((id) => state.arriving?.[id] !== true)
+      : memberIds;
+  return standing.map((id) => {
     const pane =
       kind === "rail"
         ? findSidebarPane(state, id)

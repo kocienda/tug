@@ -37,6 +37,7 @@ import {
   type CardStateBag,
   validateDeckState,
   clampPanesToDeck,
+  sweptArriving,
 } from "./layout-tree";
 import { buildDefaultLayout, serialize, deserialize } from "./serialization";
 import {
@@ -49,7 +50,11 @@ import {
   isSidebarCard,
   takesContentWidth,
 } from "./card-registry";
-import type { OpeningForm } from "./card-registry";
+import {
+  ARRIVAL_REVEAL_BOUND_MS,
+  arrivalRevealDue,
+  type ArrivalQuiet,
+} from "./lib/arrival-reveal";
 import { CARDS_CARD_ID } from "./lib/cards-card-id";
 import { ARCS_CARD_ID } from "./lib/arcs-card-id";
 import { LAYOUT_CARD_ID } from "./lib/layout-card-id";
@@ -59,12 +64,6 @@ import {
   noteOpeningBidMember,
   openingBidReportedFor,
 } from "./lib/opening-bid";
-import { memberFloorForSheetPanel } from "./lib/sheet-reservation";
-import { MeasuringRenderProvider } from "./lib/measuring-render";
-import {
-  TugSheetPanel,
-  sheetPanelNaturalHeight,
-} from "./components/tugways/tug-sheet";
 import {
   bullseyePaneIdOf,
   columnAllocationOf,
@@ -759,6 +758,30 @@ export function openingBidsWith(
 }
 
 /**
+ * {@link openingBidsWith}'s twin over {@link DeckState.arriving} — the same
+ * contract over the third record: identity when nothing changes, and the
+ * field gone with its last entry so absence stays the one reading of
+ * "nothing arriving".
+ *
+ * A third function rather than a parameterised one, for the reason the second
+ * was: the records differ in what they MEAN, and what they share is arithmetic
+ * over a sparse record, small enough to say three times.
+ */
+export function arrivingWith(
+  standing: Readonly<Record<string, true>> | undefined,
+  paneId: string,
+  mark: boolean,
+): Readonly<Record<string, true>> | undefined {
+  if (!mark) {
+    if (standing === undefined || !(paneId in standing)) return standing;
+    const { [paneId]: _dropped, ...rest } = standing;
+    return Object.keys(rest).length === 0 ? undefined : rest;
+  }
+  if (standing?.[paneId] === true) return standing;
+  return { ...(standing ?? {}), [paneId]: true };
+}
+
+/**
  * Whether a column is a WALL: some member other than `openPaneId` is folded.
  *
  * The definition [P06] rests on, and separate from {@link panesWithWallFolded}
@@ -947,44 +970,20 @@ export class DeckManager implements IDeckManagerStore {
   /** Single React root for the canvas */
   private reactRoot: Root | null = null;
 
-  /**
-   * The MEASURING layer ([P03]) — a second React root over a detached host,
-   * created on the first {@link measureOpeningForm} and torn down in
-   * {@link destroy}.
-   *
-   * It is not a view and it breaks no rule about one root. [L01] forbids
-   * re-rendering THE DECK's root from outside, because deck state flows
-   * through subscribable stores; this root renders no deck state, subscribes
-   * to nothing, and publishes nothing. It is a ruler. Its whole life is two
-   * synchronous renders per card creation — the form, then `null`.
-   *
-   * A second root is what makes the measure synchronous, and synchronous is
-   * the only property that matters here: `root.render` alone lands its commit
-   * later, which is exactly the frame-late number this arrangement removes.
-   *
-   * The host hangs off `this.container` rather than `document.body` so theme
-   * tokens, `--tugx-*` pane variables and font settings resolve for it exactly
-   * as they do for a live pane — a ruler calibrated in another room measures
-   * the wrong thing.
-   */
-  private measuringHost: HTMLElement | null = null;
-  private measuringRoot: Root | null = null;
-
-  /**
-   * How long the last opening-form measure took, in milliseconds, or `null`
-   * when none has been taken. Read through the diag surface ([Risk R02]).
-   */
-  private lastMeasureMs: number | null = null;
-
-  /**
-   * The error the last opening-form measure's render threw, or `null` when it
-   * rendered clean. A ruler that throws measures nothing, and nothing else
-   * says so; this is what the diag surface reads.
-   */
-  private lastMeasureError: Error | null = null;
-
   /** Set by {@link destroy}: a card landing after it has nothing to land on. */
   private destroyed = false;
+
+  /**
+   * The reveal watch standing over each pane that arrived hidden, keyed by
+   * pane id — its disposer, and the `decide` the sources call ([B03]).
+   * One entry per mark in {@link DeckState.arriving}; an entry outlives its
+   * mark only until the next source fires or the bound expires, at which
+   * point `decide` finds the mark gone and disposes.
+   */
+  private readonly arrivalWatches = new Map<
+    string,
+    { decide: () => void; dispose: () => void }
+  >();
 
   /**
    * The two place runs the last committed imposition was allocated against —
@@ -1642,6 +1641,10 @@ export class DeckManager implements IDeckManagerStore {
     // clamp returns the same object when nothing was out of bounds, so the
     // common path costs one pass and no allocation.
     this.deckState = clampPanesToDeck(this.deckState);
+    // And no arriving mark outlives its pane: a card closed before its
+    // reveal is removed by a writer that is not the arrival's own, so the
+    // mark is swept here, where every removal lands ([B08]).
+    this.deckState = sweptArriving(this.deckState);
     // Dev-only invariant check. Fires after every mutation so violations
     // surface at the site that produced them rather than downstream where
     // the symptom manifests. Guarded so production builds pay no cost.
@@ -1689,155 +1692,6 @@ export class DeckManager implements IDeckManagerStore {
    */
   getUsageStore(): UsageStore {
     return this.usageStore;
-  }
-
-  /**
-   * Render a card type's opening form off-screen at a given width and return
-   * the panel's natural height, or `null` if it could not be measured
-   * ([Spec S03]).
-   *
-   * This is the whole of [P02]: a card whose card at the instant it opens is a
-   * sheet has a height that nothing in the registration can know — it depends
-   * on what the list has in it, how the path wraps, whether a notice is up —
-   * and the deck needs that height BEFORE it commits the pane, because a
-   * number arriving a commit later re-targets a settle already in flight. So
-   * the deck renders the form, reads it, throws it away, and writes the number
-   * into the commit that appends the pane.
-   *
-   * There is NO fallback. A manager with no DOM, a form that renders no panel,
-   * a `flushSync` that could not run — each returns `null`, and the card opens
-   * at its ordinary policy. A guessed height is worse than none: it would be
-   * wrong in a way the first live report then has to argue with.
-   *
-   * @param form the card type's opening form, from its registration
-   * @param widthPx the width the pane will actually stand at
-   */
-  private measureOpeningForm(
-    form: OpeningForm,
-    widthPx: number,
-  ): number | null {
-    if (typeof window === "undefined") return null;
-    const container = this.container as HTMLElement | undefined;
-    if (!container) return null;
-
-    if (this.measuringHost === null) {
-      const host = document.createElement("div");
-      // Laid out (so `scrollHeight` is real) and otherwise absent: off-screen
-      // rather than `display: none`, hidden rather than transparent, and
-      // announced to nobody.
-      host.style.cssText =
-        "position:absolute;left:-10000px;top:0;visibility:hidden;pointer-events:none;contain:layout;";
-      host.setAttribute("aria-hidden", "true");
-      host.setAttribute("data-tug-measuring-host", "");
-      container.appendChild(host);
-      this.measuringHost = host;
-      // A render error inside the ruler is REPORTED, never swallowed. React
-      // answers an uncaught render error at a root by committing nothing —
-      // no throw out of `flushSync`, no console line in a production build —
-      // which is indistinguishable, from here, from a form that rendered no
-      // panel: the measure reads `null`, no bid is written, and every arrival
-      // quietly falls back to the card's ordinary policy. That is how a
-      // strict `useResponder` in the picker disabled this whole measure for a
-      // while without a single test noticing. So the error is written to the
-      // console in every build, naming the measure, and `lastMeasureError`
-      // carries it to the diag surface.
-      this.measuringRoot = createRoot(host, {
-        onUncaughtError: (error, info) => {
-          this.lastMeasureError = error instanceof Error ? error : new Error(String(error));
-          console.error(
-            "[DeckManager] measureOpeningForm: the opening form threw while " +
-              "rendering off-screen, so nothing was measured and this card " +
-              "opens at its ordinary policy. A component in the form needs a " +
-              "provider the measuring root does not supply, or reaches outside " +
-              "the render; gate it on `useIsMeasuringRender()` or use its " +
-              "tolerant form.",
-            error,
-            info.componentStack,
-          );
-        },
-      });
-    }
-    const host = this.measuringHost;
-    const root = this.measuringRoot;
-    if (host === null || root === null) return null;
-
-    host.style.width = `${widthPx}px`;
-
-    const startedAt = performance.now();
-    this.lastMeasureError = null;
-    try {
-      flushSync(() => {
-        root.render(
-          React.createElement(
-            MeasuringRenderProvider,
-            null,
-            // The one PASSIVE provider the live tree has and the panel's
-            // markup needs: a tooltip trigger throws without its provider,
-            // and a session row carries one. It registers nothing with the
-            // document — unlike the responder chain, which the form reaches
-            // through its tolerant hook instead ([P09]).
-            React.createElement(
-              TugTooltipProvider,
-              null,
-              // The clip is reproduced because the panel's percentage caps
-              // resolve against it, and it carries NO `data-vertical-anchor`
-              // because the picker's live clip is top-anchored — the bottom
-              // anchor's rule gives the panel a bottom margin the top-anchored
-              // default does not, and this measure counts both margins, so a
-              // mis-set anchor is a flat 12px error. The Radix focus-scope div
-              // between clip and panel needs no reproduction for the opposite
-              // reason: `.tug-sheet-focus-scope` is `display: contents`, so it
-              // is not a box in either tree.
-              React.createElement(
-                "div",
-                { className: "tug-sheet-clip" },
-                React.createElement(TugSheetPanel, {
-                  title: form.title,
-                  icon: form.icon,
-                  displayWidth: form.displayWidth,
-                  children: form.panel,
-                }),
-              ),
-            ),
-          ),
-        );
-      });
-    } catch (err) {
-      // [Risk R01]: `flushSync` refuses to run inside an existing React render
-      // or commit. `addCard` is called from event handlers and from the
-      // lifecycle cascade, never from a render — but a caller that broke that
-      // would silently get an asynchronous render and a `null` height, which
-      // is the wrong way to learn about it.
-      if (import.meta.env?.DEV) {
-        console.error(
-          "[DeckManager] measureOpeningForm: flushSync refused — the opening " +
-            "form was not measured, and this card will open at its ordinary " +
-            "policy. addCard must not be called from inside a React render.",
-          err,
-        );
-      }
-      return null;
-    }
-
-    const panel = host.querySelector<HTMLElement>('[data-slot="tug-sheet"]');
-    const height = panel === null ? null : sheetPanelNaturalHeight(panel);
-
-    flushSync(() => {
-      root.render(null);
-    });
-
-    this.lastMeasureMs = performance.now() - startedAt;
-    return height;
-  }
-
-  /** The last opening-form measure's duration in ms, for the diag surface. */
-  getLastOpeningFormMeasureMs(): number | null {
-    return this.lastMeasureMs;
-  }
-
-  /** What the last opening-form measure's render threw, if anything. */
-  getLastOpeningFormMeasureError(): Error | null {
-    return this.lastMeasureError;
   }
 
   // ---- Card / stack management () ----
@@ -1996,159 +1850,225 @@ export class DeckManager implements IDeckManagerStore {
         : {}),
     };
 
-    // The opening form, if this card's card at the instant it opens is a
-    // sheet — and only when it opens UNBOUND. A caller that binds the card in
-    // the same gesture (`opening: "bound"`: a resume, a command run in a new
-    // session) never shows the form, so nothing is measured for it and the
-    // card lands in this call at its ordinary policy.
-    const openingForm: OpeningForm | null =
-      options?.opening === "bound"
-        ? null
-        : registration.openingForm?.(firstCardId) ?? null;
+    // Whether the card ARRIVES HIDDEN ([B01]): a card type whose card at the
+    // instant it opens is a sheet declares `openingForm`, and an unbound one
+    // is that sheet and nothing else. Its height depends on what the sheet
+    // draws — rows a store answers lazily, synopses on their own schedule —
+    // so nothing read before the commit can know it. The pane is committed
+    // now, marked arriving, drawn hidden in its column at the seat it will
+    // take, and the live card's own report is the measure; the reveal is a
+    // later commit that clears the mark and writes the bid from that report
+    // ([B04]). A caller that binds the card in the same gesture (`opening:
+    // "bound"`: a resume, a command run in a new session) never shows the
+    // form, so the card lands visible at its ordinary policy.
+    const arrivesHidden =
+      options?.opening !== "bound" && registration.openingForm !== undefined;
+    const arriving = arrivesHidden
+      ? arrivingWith(this.deckState.arriving, paneId, true)
+      : this.deckState.arriving;
 
-    // Everything from the measure to the reveal, as one act: the number is
-    // read and the pane is appended in the same task, so nothing can move
-    // between the two.
-    const land = (): void => {
-      if (this.destroyed) return;
-
-      // The opening bid, MEASURED before the commit ([P02], [Spec S01]).
-      //
-      // A card type whose card at the instant it opens is a sheet declares
-      // that form; the deck renders it off-screen at the width this pane is
-      // about to stand at, reads the panel's natural height, and carries the
-      // number into the commit below. Before the commit and not after,
-      // because a bid written a commit later re-targets a settle already in
-      // flight — the judder this arrangement removes.
-      //
-      // The width is `paneRenderWidthOf`'s own rule over the pane about to be
-      // appended, CALLED rather than re-derived so the two cannot disagree.
-      // The splice adds the seeded CARDS as well as the pane because that
-      // selector resolves a pane's stack by filtering `state.cards` on
-      // `pane.cardIds`, and none of them are in `state.cards` until the
-      // commit runs.
-      //
-      // The deck names no `componentId` and imports nothing from `cards/`:
-      // this is a card type declaring a form and the deck reading it
-      // generically.
-      let openingBid: number | null = null;
-      if (openingForm !== null) {
-        const measureWidth = paneRenderWidthOf(
-          {
-            ...this.deckState,
-            cards: [...this.deckState.cards, ...seededCards],
-            panes: [...this.deckState.panes, win],
-          },
-          win,
-        );
-        const panelHeight = this.measureOpeningForm(openingForm, measureWidth);
-        if (panelHeight !== null) {
-          openingBid = memberFloorForSheetPanel(panelHeight);
+    // Single-commit flip (transition 4). `_flipFirstResponder` reads
+    // `oldFR` internally BEFORE running the commit, so it fires the
+    // correct deactivate pair even though the commit puts
+    // `activePaneId = paneId` (which would make a post-commit
+    // state-derived read return `firstCardId`).
+    this._flipFirstResponder(
+      firstCardId,
+      () => {
+        const arrived = [...this.deckState.panes, win];
+        this.deckState = {
+          ...this.deckState,
+          cards: [...this.deckState.cards, ...seededCards],
+          panes: arrived,
+          activePaneId: paneId,
+          // A new card opening into a split column is seated at its BOTTOM,
+          // in this same commit ([D194]): the column's order names it from
+          // the pane's first frame, so where a new card appears is a rule
+          // rather than the fallback's reading of two uuids. A card arriving
+          // VISIBLE is weighted here too, so what it takes of the run is a
+          // rule as well ([B05]); a card arriving hidden is not yet a member
+          // of the division, and its weight is written at the reveal.
+          imposition:
+            win.slot === undefined
+              ? this.deckState.imposition
+              : this._impositionSeating(
+                  this.deckState.imposition,
+                  arrived,
+                  paneId,
+                  win.slot,
+                  undefined,
+                  { arriving },
+                ),
+          ...(arriving !== undefined ? { arriving } : {}),
+        };
+        this.notify("addCard");
+        this.scheduleSave();
+        // The card is on the deck but its frame has not finished arriving,
+        // and anything that wants to act on a card that has stopped moving
+        // — the reveal below, the picker a Session card raises — waits on
+        // this mark. A card arriving HIDDEN is not arriving in the settle's
+        // sense until its reveal commit, which makes the mark then.
+        //
+        // Guarded on a window because the clearing half lives in the
+        // canvas's settle: a manager driven with no DOM has no canvas, so a
+        // mark made here would stand forever and every `onceCardDidArrive`
+        // for the card would defer rather than answering at once.
+        if (!arrivesHidden && typeof window !== "undefined") {
+          this.cardLifecycle.notifyCardWillArrive(firstCardId);
         }
-      }
+        for (const c of seededCards) {
+          this.cardLifecycle.notifyCardDidFinishConstruction(c.id);
+        }
+        this.putFocusedCardIdGuarded(firstCardId);
+      },
+      "addCard",
+    );
 
-      // Single-commit flip (transition 4). `_flipFirstResponder` reads
-      // `oldFR` internally BEFORE running the commit, so it fires the
-      // correct deactivate pair even though the commit puts
-      // `activePaneId = paneId` (which would make a post-commit
-      // state-derived read return `firstCardId`).
-      this._flipFirstResponder(
+    // The card has landed; now the deck goes to it. An opener that names a
+    // slot — a file link naming the one beside the card that cited it — can
+    // name a slot the band is not showing, and without a reveal the card
+    // arrives half under a rail, or off the end of the strip entirely, with
+    // nothing but its flash to say where it went.
+    //
+    // TWO MOVES, NOT ONE. Opening is one act and travelling to what was
+    // opened is another, and the deck performs them in that order, with a
+    // beat between, rather than arriving pre-scrolled: the reader watches
+    // the file open, and then watches the deck go to it.
+    //
+    // A card arriving hidden takes both moves from its reveal commit, which
+    // is the arrival the reader watches ([B04]); here it opens its watch.
+    if (arrivesHidden) {
+      this._watchArrival(
+        paneId,
         firstCardId,
-        () => {
-          const arrived = [...this.deckState.panes, win];
-          const bids =
-            openingBid === null
-              ? undefined
-              : {
-                  ...this.deckState.openingBids,
-                  [paneId]: openingBid,
-                };
-          this.deckState = {
-            ...this.deckState,
-            cards: [...this.deckState.cards, ...seededCards],
-            panes: arrived,
-            activePaneId: paneId,
-            // A new card opening into a split column is seated at its BOTTOM,
-            // in this same commit ([D194]): the column's order names it from
-            // the pane's first frame, so where a new card appears is a rule
-            // rather than the fallback's reading of two uuids — and it arrives
-            // weighted, so what it takes of the run is a rule too ([B05]). The
-            // bid goes in with it because the bid IS the floor the newcomer is
-            // weighed against.
-            imposition:
-              win.slot === undefined
-                ? this.deckState.imposition
-                : this._impositionSeating(
-                    this.deckState.imposition,
-                    arrived,
-                    paneId,
-                    win.slot,
-                    undefined,
-                    bids,
-                  ),
-            ...(bids !== undefined ? { openingBids: bids } : {}),
-          };
-          this.notify("addCard");
-          this.scheduleSave();
-          // The card is on the deck but its frame has not finished arriving,
-          // and anything that wants to act on a card that has stopped moving
-          // — the reveal below, the picker a Session card raises — waits on
-          // this mark.
-          //
-          // Guarded on a window because the clearing half lives in the
-          // canvas's settle: a manager driven with no DOM has no canvas, so a
-          // mark made here would stand forever and every `onceCardDidArrive`
-          // for the card would defer rather than answering at once.
-          if (typeof window !== "undefined") {
-            this.cardLifecycle.notifyCardWillArrive(firstCardId);
-          }
-          if (openingBid !== null) {
-            // The height went in above rather than through
-            // `openingBidForCard`, so the drop's map has to be told which
-            // member it landed on.
-            noteOpeningBidMember(firstCardId, paneId);
-          }
-          for (const c of seededCards) {
-            this.cardLifecycle.notifyCardDidFinishConstruction(c.id);
-          }
-          this.putFocusedCardIdGuarded(firstCardId);
-        },
-        "addCard",
+        registration.arrivalQuiet?.(firstCardId) ?? null,
       );
-
-      // The card has landed; now the deck goes to it. An opener that names a
-      // slot — a file link naming the one beside the card that cited it — can
-      // name a slot the band is not showing, and without a reveal the card
-      // arrives half under a rail, or off the end of the strip entirely, with
-      // nothing but its flash to say where it went.
-      //
-      // TWO MOVES, NOT ONE. Opening is one act and travelling to what was
-      // opened is another, and the deck performs them in that order, with a
-      // beat between, rather than arriving pre-scrolled: the reader watches
-      // the file open, and then watches the deck go to it.
-      this._revealAfterArrival(firstCardId);
-    };
-
-    // The commit waits on the form's READINESS, and on nothing else. The form
-    // may depend on an answer a store fetches lazily — the Session picker's
-    // rows for the path it opens on — and a measure taken before that answer
-    // lands is a measure of the placeholder it replaces: the rows then arrive
-    // a few frames after the card does, the sheet reports a taller panel, and
-    // the column divides itself again under a card that has only just
-    // arrived. That second division IS the third motion this whole
-    // arrangement exists to remove, so the deck does not commit until it can
-    // measure what it will draw. A form with nothing pending answers `null`
-    // and the card lands in this call, exactly as a card with no form does;
-    // the id is the caller's either way, and the card is on the deck by the
-    // time anything asynchronous could look for it.
-    const pending = openingForm?.ready?.() ?? null;
-    if (pending === null) {
-      land();
     } else {
-      void pending.then(land, land);
+      this._revealAfterArrival(firstCardId);
     }
 
     return firstCardId;
+  }
+
+  /**
+   * Stand a watch over `paneId`, which arrived hidden, and make its reveal
+   * commit when {@link arrivalRevealDue} says so ([B03]).
+   *
+   * Three sources feed the decision, and each re-asks it: the sheet's own
+   * height report for the member, which {@link setSheetReservation} routes
+   * here when the member is arriving; the card type's `quiet` source, which
+   * fires whenever its answer may have changed; and the bound, one timer
+   * armed at the hidden commit. The decision is re-derived from the store on
+   * every fire rather than accumulated, so nothing here can disagree with the
+   * record: a mark that is gone — the card closed or its pane torn down
+   * before the reveal, which {@link sweptArriving} drops at the next commit —
+   * ends the watch with no commit.
+   *
+   * A `null` quiet source is a card with nothing to wait on ([B03]): quiet
+   * from the first ask, so the first height report reveals it.
+   */
+  private _watchArrival(
+    paneId: string,
+    cardId: string,
+    quiet: ArrivalQuiet | null,
+  ): void {
+    let boundElapsed = false;
+    let disposed = false;
+    const disposers: Array<() => void> = [];
+    const dispose = (): void => {
+      if (disposed) return;
+      disposed = true;
+      for (const d of disposers) d();
+      this.arrivalWatches.delete(paneId);
+    };
+    const decide = (): void => {
+      if (disposed || this.destroyed) return;
+      if (this.deckState.arriving?.[paneId] !== true) {
+        dispose();
+        return;
+      }
+      const due = arrivalRevealDue({
+        reported: this.deckState.sheetReservations?.[paneId] !== undefined,
+        quiet: quiet?.isQuiet() ?? true,
+        boundElapsed,
+      });
+      if (!due) return;
+      dispose();
+      this._revealArrival(paneId, cardId);
+    };
+    this.arrivalWatches.set(paneId, { decide, dispose });
+    if (quiet !== null) disposers.push(quiet.subscribe(decide));
+    if (typeof window !== "undefined") {
+      const timer = window.setTimeout(() => {
+        boundElapsed = true;
+        decide();
+      }, ARRIVAL_REVEAL_BOUND_MS);
+      disposers.push(() => window.clearTimeout(timer));
+    }
+  }
+
+  /**
+   * The REVEAL commit for a pane that arrived hidden ([B04]): one commit that
+   * clears the arriving mark, writes the opening bid from the last hidden
+   * height report, and seats the newcomer's weight in its column — so the
+   * settle it arms carries `room` for the neighbours and `arrive` for the
+   * card, fused as one motion.
+   *
+   * The bid is the sheet's most recent reservation while hidden, already a
+   * member floor through `memberFloorForSheetPanel`; it goes in as a bid as
+   * well as standing as a reservation because the bid is the record the
+   * arrival's weight is read against, and the report bit is spent here so
+   * the NEXT live report takes the ordinary supersede rule rather than the
+   * first-report comparison — every frame after the reveal is an honest
+   * reservation from a panel that genuinely changed ([B05]). A pane that
+   * never reported — the bound expired first — reveals at its policy floor,
+   * and its first live report adjusts it as on any card.
+   *
+   * The lifecycle mark and the deck's travel to the card are made from here
+   * rather than from the hidden commit, because this is the arrival the
+   * settle plays and the reader watches.
+   */
+  private _revealArrival(paneId: string, cardId: string): void {
+    if (this.destroyed) return;
+    const pane = this.deckState.panes.find((p) => p.id === paneId);
+    if (pane === undefined || this.deckState.arriving?.[paneId] !== true) {
+      return;
+    }
+    const arriving = arrivingWith(this.deckState.arriving, paneId, false);
+    const report = this.deckState.sheetReservations?.[paneId];
+    const openingBids =
+      report === undefined
+        ? this.deckState.openingBids
+        : openingBidsWith(this.deckState.openingBids, paneId, report);
+    const { arriving: _cleared, ...rest } = this.deckState;
+    const revealed: DeckState = {
+      ...rest,
+      ...(arriving !== undefined ? { arriving } : {}),
+      ...(openingBids !== undefined ? { openingBids } : {}),
+    };
+    this.deckState = {
+      ...revealed,
+      imposition:
+        pane.slot === undefined
+          ? revealed.imposition
+          : this._impositionSeating(
+              revealed.imposition,
+              revealed.panes,
+              paneId,
+              pane.slot,
+              undefined,
+              { openingBids, arriving },
+            ),
+    };
+    if (report !== undefined) {
+      noteOpeningBidMember(cardId, paneId);
+      openingBidReportedFor(paneId);
+    }
+    if (typeof window !== "undefined") {
+      this.cardLifecycle.notifyCardWillArrive(cardId);
+    }
+    this.notify("revealArrival");
+    this._revealAfterArrival(cardId);
   }
 
   /**
@@ -4170,10 +4090,10 @@ export class DeckManager implements IDeckManagerStore {
    * standing bid supersedes nothing.
    *
    * **The FIRST report against a standing bid is held to it ([P04]).** The bid
-   * was measured off this very panel before the arrival commit was written, so
-   * the panel's own first live reading is supposed to be the same number. A
-   * first report that differs by half a pixel or more is therefore not news
-   * about the panel but a defect in the measuring render: it records an
+   * is this very panel's last report while its card stood hidden, written at
+   * the reveal ([B04]), so the panel's next live reading is supposed to be the
+   * same number. A first report that differs by half a pixel or more is
+   * therefore not news about the panel but a defect in the reveal: it records an
    * `opening-bid-mismatch` and commits nothing, so the arrival stays one
    * motion and the evidence is in the ring where somebody can read it. A first
    * report that AGREES hands the number from the bid record to the reservation
@@ -4256,6 +4176,10 @@ export class DeckManager implements IDeckManagerStore {
     }
     this.deckState = { ...this.deckState, ...next };
     this.notify("setSheetReservation");
+    // A report from a sheet on a HIDDEN, arriving member is the height the
+    // reveal will write as the bid ([B04]); the watch standing over the
+    // member re-asks its decision now that one has landed.
+    this.arrivalWatches.get(memberId)?.decide();
   }
 
   /**
@@ -4831,6 +4755,14 @@ export class DeckManager implements IDeckManagerStore {
    * back as a column of two: the arrival plus the sitter it divides with.
    * Takes the imposition it seats into rather than reading the store's, so a
    * batch can seat several panes into one commit.
+   *
+   * `session` is the session-only state the commit is about to write
+   * alongside the seating — the arriving marks, and the opening bid a card
+   * arrives on — read here rather than off the store because the store does
+   * not hold them yet and the seating has to be answered against the deck as
+   * the commit will leave it. A pane marked arriving is left out of the
+   * column's reading ([B08]): it is seated in the order, so it lands at the
+   * bottom when revealed, but it takes no weight until then.
    */
   private _impositionSeating(
     imposition: DeckImposition,
@@ -4838,13 +4770,18 @@ export class DeckManager implements IDeckManagerStore {
     paneId: string,
     slot: number,
     index?: number,
-    openingBids?: Readonly<Record<string, number>>,
+    session?: Pick<DeckState, "openingBids" | "arriving">,
   ): DeckImposition {
     const state = {
       ...this.deckState,
       panes,
       imposition,
-      ...(openingBids !== undefined ? { openingBids } : {}),
+      ...(session?.openingBids !== undefined
+        ? { openingBids: session.openingBids }
+        : {}),
+      ...(session?.arriving !== undefined
+        ? { arriving: session.arriving }
+        : {}),
     };
     const seated = withMemberSeated(
       imposition,
@@ -6828,12 +6765,7 @@ export class DeckManager implements IDeckManagerStore {
       this.reactRoot = null;
     }
     this.destroyed = true;
-    if (this.measuringRoot !== null) {
-      this.measuringRoot.unmount();
-      this.measuringRoot = null;
-    }
-    this.measuringHost?.remove();
-    this.measuringHost = null;
+    for (const watch of [...this.arrivalWatches.values()]) watch.dispose();
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener("beforeunload", this.handleBeforeUnload);
     this.lifecycleCascade.dispose();

@@ -437,6 +437,17 @@ describe("imposeRect", () => {
     expect(r.size.height).toBe(160);
   });
 
+  test("anchor end puts the frame at the run's bottom, spending no slack", () => {
+    // An arriving card's seat ([B08]): a newcomer to a split column lands at
+    // the bottom, so while it is hidden it draws at the bottom of the run at
+    // its floor, over the neighbour that will shrink to make room.
+    const r = imposeRect(at(0, 1), 400, FULL, { height: 160, anchor: "end" });
+    expect(r.size.height).toBe(160);
+    expect(r.position.y + r.size.height).toBe(
+      FULL.height - impositionGapBottomPx(),
+    );
+  });
+
   test("the anchor changes nothing for a frame that fills its run", () => {
     // No `height` means no slack to be anchored in, so the two agree.
     const filled = imposeRect(at(0, 1), 400, FULL, { width: 400 });

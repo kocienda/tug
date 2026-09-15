@@ -1452,13 +1452,19 @@ export function imposeRect(
   const width = pinned?.width ?? slotWidth;
   const height = pinned?.height ?? runHeight;
   // The vertical slack a height-pinned frame is placed in. `"start"` spends
-  // none of it; anything else halves it, which is the centring this has always
-  // done. See `PinnedFrame.anchor`.
+  // none of it, `"end"` spends all of it, and anything else halves it, which
+  // is the centring this has always done. See `PinnedFrame.anchor`.
   const slack = Math.max(0, runHeight - height);
   return {
     position: {
       x: span.x + IMPOSITION_GAP_PX + offset + Math.max(0, (slotWidth - width) / 2),
-      y: IMPOSITION_GAP_PX + (pinned?.anchor === "start" ? 0 : slack / 2),
+      y:
+        IMPOSITION_GAP_PX +
+        (pinned?.anchor === "start"
+          ? 0
+          : pinned?.anchor === "end"
+            ? slack
+            : slack / 2),
     },
     size: { width, height },
   };
@@ -1509,17 +1515,21 @@ export interface PinnedFrame {
   /**
    * Where a height-pinned frame sits in its run. `"center"` (the default, and
    * About's behaviour) floats it mid-run; `"start"` puts it at the run's top.
+   * `"end"` puts it at the run's bottom.
    *
    * The distinction is what the card IS. About is centred because a dialog box
    * is centred — it is the only thing on the canvas while it stands there. A
    * folded card is a ROW IN A WALL ([P04]): it is read from the top with
    * its neighbours, and one of them floating in the middle of an empty slot
    * would read as a card that failed to lay out rather than as a card at rest.
+   * An ARRIVING card is a newcomer to a split column, and a newcomer lands at
+   * the bottom ([D194]): its seat while it is hidden is the bottom of the run
+   * at its floor, overlapping the neighbour that will shrink to make room.
    *
    * Ignored when `height` is absent — a frame that fills its run has no slack
    * to be anchored in.
    */
-  anchor?: "start" | "center";
+  anchor?: "start" | "center" | "end";
 }
 
 export function imposeStyle(
@@ -1554,7 +1564,9 @@ export function imposeStyle(
           top:
             pinned.anchor === "start"
               ? run.top
-              : `calc(${run.top} + max(0px, (100% - ${run.top} - ${run.bottom} - ${pinned.height}px) / 2))`,
+              : pinned.anchor === "end"
+                ? `calc(100% - ${run.bottom} - ${pinned.height}px)`
+                : `calc(${run.top} + max(0px, (100% - ${run.top} - ${run.bottom} - ${pinned.height}px) / 2))`,
         };
 
   const band = `(100% - ${INSET_LEFT} - ${INSET_RIGHT} - ${GAP} * 2)`;

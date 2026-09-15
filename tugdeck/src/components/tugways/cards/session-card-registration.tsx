@@ -19,6 +19,7 @@ import {
 import { FeedId } from "@/protocol";
 import { SessionCardContent } from "./session-card";
 import { sessionPickerPanel } from "./session-picker-panel";
+import { sessionPickerQuiet } from "./session-picker-quiet";
 
 /**
  * The height a folded Session card stands at, in pixels ([P04]).
@@ -104,19 +105,22 @@ export function registerSessionCard(): void {
     // While this card is unbound it is its picker and nothing else, so what it
     // needs across is the picker's width and what it needs down is whatever
     // the picker turns out to be ([P06]). The width is declared here; the
-    // height is not declared anywhere, because the deck MEASURES the opening
-    // form below before it commits this card's pane, and the sheet reports its
-    // own height once it is up. A number written here would be a third answer
-    // that disagreed with both the moment the picker's content changed.
+    // height is not declared anywhere, because the card arrives HIDDEN and its
+    // sheet reports its own height before the reveal ([B01]). A number written
+    // here would be a second answer that disagreed with the sheet's the moment
+    // the picker's content changed.
     unboundWidthPolicy: {
       min: CONTENT_WIDTH_SLIM_PX,
       preferred: CONTENT_WIDTH_COMFY_PX,
     },
-    // The panel the deck renders off-screen and measures, built by the very
-    // factory the live sheet calls ([P01], [P02]). No handlers: a render taken
-    // to read a number has nothing to open or cancel, and a panel whose height
-    // depended on its handlers could not be measured at all.
+    // The opening form, built by the very factory the live sheet calls
+    // ([P01]). Declaring it is what makes this card arrive hidden and reveal
+    // at its picker's own height ([B01]). No handlers: a form declared for its
+    // box has nothing to open or cancel.
     openingForm: (cardId) => sessionPickerPanel({ cardId }),
+    // What the hidden card waits on before it is revealed ([B03]): the
+    // picker's listing settling or filling its cap, and its rows' synopses.
+    arrivalQuiet: () => sessionPickerQuiet(),
     engineKind: "em",
   });
 }

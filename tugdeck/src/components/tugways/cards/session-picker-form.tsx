@@ -74,7 +74,6 @@ import {
   type PickerSelection,
 } from "./session-picker-cells";
 import { parseRecents, parseString, seedPathFrom } from "./session-picker-seed";
-import { useIsMeasuringRender } from "@/lib/measuring-render";
 import { noticeContent } from "./session-picker-notice-content";
 
 export interface SessionProjectPickerFormProps {
@@ -226,13 +225,6 @@ export function SessionProjectPickerForm({
   onCancel,
   onRetryRestore,
 }: SessionProjectPickerFormProps) {
-  // True when this render is the deck's ruler rather than the user's picker
-  // ([P09]). It gates the three effects that reach OUTSIDE the component — the
-  // ledger revalidate, the recents existence probe, and the focus latch —
-  // and nothing else. The test for any gate added here is whether it changes
-  // what is DRAWN: if it does, it does not belong behind this flag, because
-  // the whole worth of measuring this tree is that it is the tree.
-  const isMeasuring = useIsMeasuringRender();
   const focusManager = useFocusManager();
   // Declared against the sheet's own trap, which `TugSheet` owns — hence the
   // context form, read from the enclosing `FocusModeScope`. This body renders
@@ -275,10 +267,6 @@ export function SessionProjectPickerForm({
     useState<ReadonlySet<string>>(EMPTY_STRING_SET);
   useEffect(() => {
     let cancelled = false;
-    // A ruler does not probe the filesystem ([P09]). What the probe changes is
-    // which recents the DROPDOWN lists, and the dropdown is closed in a
-    // measuring render, so nothing about the panel's height turns on it.
-    if (isMeasuring) return;
     if (recents.length === 0) {
       setMissingRecents((prev) => (prev.size === 0 ? prev : EMPTY_STRING_SET));
       return;
@@ -361,14 +349,10 @@ export function SessionProjectPickerForm({
   // is an event kick, not a state mirror).
   const didRefreshLedgerRef = useRef(false);
   useLayoutEffect(() => {
-    // A ruler does not kick a filesystem scan ([P09]). The rows already in the
-    // store are what the measuring render lays out; a revalidate would only
-    // change what a LATER render shows, and this one is thrown away.
-    if (isMeasuring) return;
     if (didRefreshLedgerRef.current || trimmedPath === "") return;
     didRefreshLedgerRef.current = true;
     getSessionLedgerStore()?.refresh(trimmedPath);
-  }, [trimmedPath, isMeasuring]);
+  }, [trimmedPath]);
 
   // The filter field's query — transient local UI state, never persisted, and
   // meaningless across project paths (the field remounts per path, below).
@@ -526,13 +510,10 @@ export function SessionProjectPickerForm({
     string | null
   >(null);
 
-  // The TOLERANT form, because this component is rendered twice: live, inside
-  // the deck's `ResponderChainProvider`, and off-screen by the deck's measuring
-  // root before the card is committed ([P02], [P09]). The measuring root
-  // provides no chain — a ruler registers no responders — and the strict hook
-  // throws there, which rendered the whole measure empty and left every
-  // arrival without a bid. Live, the provider is always present and the two
-  // hooks are the same hook.
+  // The TOLERANT form ([P09]). The picker renders live inside the deck's
+  // `ResponderChainProvider`, where the two hooks are the same hook; the
+  // tolerant one is kept so a render outside the chain — a fixture, a gallery
+  // — draws the picker rather than throwing out of it.
   const {
     ResponderScope: PickerFormResponderScope,
     responderRef: pickerFormResponderRef,
@@ -861,10 +842,6 @@ export function SessionProjectPickerForm({
   // registered) or re-lights it the instant it mounts. [L03] layout effect
   // (seed before paint).
   useLayoutEffect(() => {
-    // A ruler does not take focus ([P09]). This is the one gate whose absence
-    // would be VISIBLE: the measuring render would seed the key view onto its
-    // own throwaway list and pull the ring off whatever the user was on.
-    if (isMeasuring) return;
     if (focusManager === null) return;
     if (defaultFocusPlacedRef.current) return;
     if (userTouchedFieldRef.current) {

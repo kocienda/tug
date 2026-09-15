@@ -453,12 +453,12 @@ export interface DeckState {
    * a card at its declared height while the column around it had room to
    * spare; the one member that still reads floor = ceiling is a folded one.
    *
-   * Written by `addCard` for a card type declaring
-   * `CardRegistration.openingForm`, inside the same commit that appends the
-   * pane ([B02]), so nothing re-targets the settle a commit later. The number
-   * is MEASURED off that form rendered off-screen at the width the pane is
-   * about to stand at, rather than declared — the panel's height depends on
-   * what is in it, and nothing a registration can write knows that.
+   * Written at the REVEAL of a card that arrived hidden ([B04]) — the one
+   * commit that clears the {@link DeckState.arriving} mark and seats the
+   * newcomer — so nothing re-targets the settle a commit later. The number is
+   * the sheet's own last report while the card stood hidden at its seat,
+   * rather than declared or measured elsewhere — the panel's height depends
+   * on what is in it, and nothing a registration can write knows that.
    * **Cleared by the sheet that supersedes it**, in `setSheetReservation`'s own
    * commit ([B02]): by a claim at least as high as the bid, and by the sheet
    * going, whatever the bid was. So a bid that was too small is corrected by
@@ -479,6 +479,32 @@ export interface DeckState {
    * with its last entry, so absence is the one reading of "no bid".
    */
   openingBids?: Readonly<Record<string, number>>;
+  /**
+   * The ARRIVING mark: the members drawn in their column but not yet part of
+   * its division, keyed by pane id the way {@link DeckState.openingBids} is.
+   *
+   * A marked pane is the real card, mounted hidden at the seat it will take,
+   * so its content can lay out and report its height while the user sees
+   * nothing move ([B01], [B02]). For as long as the mark stands the column
+   * divides its run among the STANDING members only — `columnMembersOf`,
+   * `deckColumnsOf` and `placeMembers` all leave a marked pane out ([B08]) —
+   * so no neighbour's rect changes at the commit that appends the pane. The
+   * reveal is the one commit that removes the mark and writes the opening bid
+   * the hidden card measured, and from that commit the pane is an ordinary
+   * member ([B04]).
+   *
+   * `true` rather than a height or a timestamp: what the record says is WHICH
+   * panes are arriving, and the height it will arrive at is the sheet's own
+   * report, held elsewhere until the reveal reads it.
+   *
+   * Session state only, and never serialized, for {@link
+   * DeckState.openingBids}'s reason: nothing is arriving across a restart, and
+   * a restored mark would hold a settled card hidden with nothing to reveal it.
+   *
+   * Absent, rather than empty, when nothing is arriving: the field goes away
+   * with its last entry, so absence is the one reading of "nothing arriving".
+   */
+  arriving?: Readonly<Record<string, true>>;
 }
 
 // ---- Invariant validation ----
@@ -529,6 +555,34 @@ export function clampPanesToDeck(state: DeckState): DeckState {
     return { ...pane, position: { ...pane.position, y: DECK_TOP_Y } };
   });
   return changed ? { ...state, panes } : state;
+}
+
+/**
+ * Return `state` with no arriving mark naming a pane that is gone — the
+ * enforcement half of {@link DeckState.arriving}'s "absent when nothing is
+ * arriving".
+ *
+ * A card can be closed, or its pane torn down, in the window between the
+ * commit that appended it hidden and the reveal that would have cleared its
+ * mark, and the removal is one of several writers — close, detach, a batch
+ * assignment — none of which is the arrival's own. So the mark is swept at
+ * the store's commit point instead, where it holds for all of them at once,
+ * exactly as {@link clampPanesToDeck} holds invariant 7.
+ *
+ * Returns the SAME object when nothing needed sweeping, so the common path
+ * adds no allocation and no identity churn for `useSyncExternalStore`.
+ */
+export function sweptArriving(state: DeckState): DeckState {
+  const marks = state.arriving;
+  if (marks === undefined) return state;
+  const live = new Set(state.panes.map((pane) => pane.id));
+  const stale = Object.keys(marks).filter((paneId) => !live.has(paneId));
+  if (stale.length === 0) return state;
+  const kept = Object.fromEntries(
+    Object.entries(marks).filter(([paneId]) => live.has(paneId)),
+  ) as Record<string, true>;
+  const { arriving: _dropped, ...rest } = state;
+  return Object.keys(kept).length === 0 ? rest : { ...rest, arriving: kept };
 }
 
 /**

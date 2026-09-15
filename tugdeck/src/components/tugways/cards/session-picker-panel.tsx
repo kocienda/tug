@@ -1,13 +1,13 @@
 /**
  * session-picker-panel — the one factory that builds the Choose Session panel.
  *
- * The picker is built in exactly one place because it is rendered in two: the
- * live sheet a Session card raises, and the OFF-SCREEN measuring render the
- * deck takes before it commits the card's pane, to know how tall the panel
- * will be while there is still a commit to write the number into ([P01],
- * [P02]). Two call sites building two trees would make the measured height and
- * the drawn height agree only by the care of whoever edited last; one factory
- * makes them the same tree.
+ * The picker is built in exactly one place because it is asked for in two:
+ * the live sheet a Session card raises, and the registration's opening form,
+ * which is what makes a Session card arrive hidden and report this panel's
+ * height before it is revealed ([P01], [B01]). Two call sites building two
+ * trees would make the height the hidden card measured and the height the
+ * user sees agree only by the care of whoever edited last; one factory makes
+ * them the same tree.
  *
  * The factory lives apart from the form it builds because it is not a
  * component: a `.tsx` exporting both is mixed and non-accepting for Fast
@@ -19,17 +19,15 @@
 
 import type { OpeningForm } from "@/card-registry";
 import type { PickerNotice } from "@/lib/picker-notice-store";
-import { getSessionLedgerStore } from "@/lib/session-ledger-store";
 import {
   SessionProjectPickerForm,
   type SessionProjectPickerFormProps,
 } from "./session-picker-form";
-import { readSeedPath } from "./session-picker-seed";
 /**
- * The picker's handlers. Every one is optional: the measuring render supplies
- * none, because a render taken to read a number has nothing to open or cancel,
- * and a panel whose height depended on its handlers would not be measurable at
- * all ([P09]).
+ * The picker's handlers. Every one is optional: the registration's opening
+ * form supplies none, because a form declared for its box has nothing to
+ * open or cancel, and a panel whose height depended on its handlers would
+ * not be one box in both places ([P09]).
  */
 export interface SessionPickerHandlers {
   onOpen?: SessionProjectPickerFormProps["onOpen"];
@@ -47,8 +45,8 @@ const NOOP = (): void => {};
  * The return value is an {@link OpeningForm}: the live sheet spreads it into
  * `showSheet` and the registration hands it to the deck as the card's opening
  * form. Both get the same node from the same call, which is the whole of the
- * arrangement — the height the deck reads off a measuring render is the height
- * the user is about to see.
+ * arrangement — the height the hidden card reports before its reveal is the
+ * height the user is about to see.
  */
 export function sessionPickerPanel({
   cardId,
@@ -64,15 +62,6 @@ export function sessionPickerPanel({
     // three-line summary plus two trailing controls — the decision width
     // truncates all three.
     displayWidth: "lg",
-    // What the panel's height depends on that no render can produce: the
-    // sessions for the path the picker opens on. The ledger store answers a
-    // path it has never seen with a pending snapshot and fetches behind it,
-    // so a picker rendered before the rows land is the `checking…` placeholder
-    // — some 170px short of the picker the user is about to see. The deck
-    // waits on this before it measures ([P02]), so the bid is read over the
-    // rows rather than over the placeholder they replace, and the live
-    // picker's own once-per-open refresh finds the request already in flight.
-    ready: () => getSessionLedgerStore()?.ensureListed(readSeedPath()) ?? null,
     panel: (
       <SessionProjectPickerForm
         key={cardId}

@@ -57,6 +57,7 @@
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
 import { useDeckManager } from "@/deck-manager-context";
+import { getFocusManager } from "@/components/tugways/focus-manager";
 import { transferFocusForActivation } from "@/focus-transfer";
 import { installGestureInterpreter } from "@/gesture-interpreter";
 
@@ -92,6 +93,32 @@ export function usePaneFocusController(
   useLayoutEffect(() => {
     applyFocusRef.current();
   }, [activePaneId, snapshot, deckRootRef]);
+
+  // The keyboard lands when a hidden arrival is revealed.
+  //
+  // A pane that arrives HIDDEN carries `visibility: hidden` for the length of
+  // its mark, and a hidden element is not being rendered, so it cannot take
+  // DOM focus: a card whose content seeds its own key view while the mark
+  // stands — the Session picker does, the moment its sheet mounts — records
+  // the stop and finds `el.focus()` a no-op. The ring is engine state and
+  // paints at the reveal while `document.activeElement` is still wherever the
+  // gesture left it, which is a ringed surface the keys do not reach.
+  //
+  // So the mark coming off is when the keyboard is landed. `focusKeyView`
+  // re-derives the route from the current key view and skips the move when
+  // `activeElement` is already the stop, and it is gated on the active
+  // context — so a reveal that changed nothing, and a reader who moved to
+  // another card while the newcomer was hidden, both cost nothing.
+  const arrivingRef = useRef(snapshot.arriving);
+  useLayoutEffect(() => {
+    const previous = arrivingRef.current;
+    arrivingRef.current = snapshot.arriving;
+    if (previous === undefined || previous === snapshot.arriving) return;
+    const revealed = Object.keys(previous).some(
+      (paneId) => snapshot.arriving?.[paneId] !== true,
+    );
+    if (revealed) getFocusManager()?.focusKeyView();
+  }, [snapshot]);
 
   // Install the gesture interpreter and consume its activation/deselect
   // decisions. This effect owns the registration slot the interpreter needs:

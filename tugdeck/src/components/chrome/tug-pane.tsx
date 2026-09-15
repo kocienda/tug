@@ -1993,6 +1993,28 @@ export interface TugPaneProps {
    */
   columnMode?: ColumnMode;
   /**
+   * The pane is ARRIVING: appended to its column but not yet part of its
+   * division, drawn hidden at the seat it will take so its content can lay
+   * out and report its height while nothing the user sees moves ([B01],
+   * [B08]). Resolved by `DeckCanvas` from `DeckState.arriving`, like every
+   * other structural fact the frame stamps, and absent on every pane that is
+   * standing.
+   *
+   * The value is the SEAT. `"bottom"` is a newcomer to a split column with
+   * standing members: it draws at the run's bottom at its stack-policy floor,
+   * overlapping the neighbour that will shrink to make room when it is
+   * revealed. `"run"` is a newcomer with nothing to overlap — a stacked
+   * column, or a slot it has to itself — which takes the undivided run
+   * exactly as it will once revealed.
+   *
+   * Projected onto the frame as `data-arriving` and `visibility: hidden`
+   * ([B02]): the frame lays out, its sheet measures, and nothing can focus
+   * or click it. The settle skips a marked frame the way it skips a pending
+   * arrival, so the commit that appends the pane moves nothing, and the
+   * commit that clears the mark is the one its arrive beat plays on.
+   */
+  arriving?: ArrivingSeat;
+  /**
    * Set on a pane hosting a sidebar card, pinned or not. Separate from
    * {@link sidebarStack}, which says only where a PINNED rail stands: a rail
    * dragged off its pin is an ordinary free pane for geometry purposes but is
@@ -2042,6 +2064,10 @@ export interface TugPaneProps {
    */
   folded?: boolean;
 }
+
+/** Where an arriving pane draws while it is hidden — see
+ *  {@link TugPaneProps.arriving}. */
+export type ArrivingSeat = "bottom" | "run";
 
 /**
  * A resolved `left` value as a term usable inside a CSS math expression.
@@ -2115,6 +2141,7 @@ export function TugPane({
   bullseyeExit,
   columnMember,
   columnMode,
+  arriving,
   folded = false,
 }: TugPaneProps) {
   const sidebarSide = sidebarStack?.side;
@@ -4393,7 +4420,20 @@ export function TugPane({
     : sidebarSide !== undefined
       ? imposeSidebarStyle(sidebarSide, renderWidth, railMember)
       : imposed && placement !== undefined
-        ? imposeStyle(placement, slotWidth, pinnedFrame, { member: columnMember })
+        ? arriving === "bottom"
+          ? // The seat a newcomer will take ([B08]): the bottom of the run at
+            // the stack's floor, at the column's width. It is not a member of
+            // the division yet, so `columnMember` is absent and the run is the
+            // undivided one; the overlap with the member above is invisible
+            // because the frame is hidden.
+            imposeStyle(placement, slotWidth, {
+              ...pinnedFrame,
+              height: minSize.height,
+              anchor: "end",
+            })
+          : imposeStyle(placement, slotWidth, pinnedFrame, {
+              member: columnMember,
+            })
         : {
             left: position.x,
             top: position.y,
@@ -4525,11 +4565,17 @@ export function TugPane({
         ? { "data-imposed": String(placement.slot) }
         : {})}
       {...(bullseye ? { "data-bullseye": "" } : {})}
+      // Arriving: appended but not yet divided, drawn hidden at its seat
+      // ([B01], [B02]). The attribute is what the settle reads to skip the
+      // frame, and the stylesheet-free `visibility` below is what keeps it
+      // laying out while nothing can see, focus, or click it.
+      {...(arriving !== undefined ? { "data-arriving": arriving } : {})}
       data-stack-depth={String(slotStack.length)}
       style={{
         position: "absolute",
         ...modeStyle,
         ...exitStyle,
+        ...(arriving !== undefined ? { visibility: "hidden" as const } : {}),
         zIndex,
         boxSizing: "border-box",
         // Expose the pane's minimum width to descendants via CSS custom

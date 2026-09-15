@@ -2,15 +2,16 @@
  * opening-bid.ts — the gesture by which a card's declared height becomes the
  * floor its member opens at, for the length of the arrival window.
  *
- * A card type whose open form has a tall floor because of surfaces not yet on
- * screen may declare what its card LOOKS LIKE without them
- * (`CardRegistration.openingForm`); the deck renders that form off-screen at
- * the width the pane is about to take, measures it, and the place its card
- * stands in then holds that member at no less than the measured height — one
- * contributor to the member's floor, with its weight kept ([B01]). The Session
- * card's picker is the one declaration today: an unbound card is its picker
- * and nothing else, so it opens at the picker's own height rather than at the
- * transcript's 600px floor, and takes more where its column has more to give.
+ * A card type whose open form is a sheet declares so
+ * (`CardRegistration.openingForm`); the deck commits that card HIDDEN at the
+ * seat it will take, the sheet lays out and reports its height there, and the
+ * reveal commit writes that report as the bid — from which the place its card
+ * stands in holds that member at no less than the reported height, one
+ * contributor to the member's floor, with its weight kept ([B01], [B04]). The
+ * Session card's picker is the one declaration today: an unbound card is its
+ * picker and nothing else, so it opens at the picker's own height rather than
+ * at the transcript's 600px floor, and takes more where its column has more
+ * to give.
  *
  * **It is a BID rather than a height, and that is the whole of its life
  * ([B02]).** Its one legitimate job is to be known BEFORE `addCard` commits,
@@ -68,9 +69,9 @@ const bidMemberByCardId = new Map<string, string>();
  * the bid is cleared.
  *
  * The bit exists because [P04] is a statement about the first report and
- * nothing after it: the arrival commit's number and the panel's own first
+ * nothing after it: the reveal commit's number and the panel's own next
  * reading are supposed to be the same number, so a disagreement there is a
- * defect in the measuring render rather than a tuning problem, and it is
+ * defect in the reveal rather than a tuning problem, and it is
  * recorded rather than committed. Every LATER report is an honest reservation
  * update from a panel that has genuinely changed ([P05]) and takes today's
  * supersede rule untouched — a picker that grows a row after its sessions load
