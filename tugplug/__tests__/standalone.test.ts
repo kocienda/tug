@@ -231,6 +231,30 @@ describe("the arc verbs on a project that declares nothing", () => {
     expect(json.code, json.err).toBe(0);
     expect(JSON.parse(json.out).data.source).toBe("default");
   });
+
+  test("the brief skill's commit lands from the bundle alone, with no session", () => {
+    // The skill's last act: `tugtool commit --paths <brief>`. A user's
+    // project has no CLAUDE.md granting anything and no TUG_SESSION_ID in
+    // the environment; the hook approves the command by its prefix and the
+    // verb commits an explicit path without a ledger to consult. The user's
+    // own inflight edit beside it must stay out of the commit.
+    const decision = hook({ tool_name: "Bash", tool_input: { command: "tugtool commit --paths briefs/smoke-brief.md --message x" } });
+    expect(decision?.hookSpecificOutput?.permissionDecision).toBe("allow");
+
+    mkdirSync(join(project, "briefs"), { recursive: true });
+    writeFileSync(join(project, "briefs/smoke-brief.md"), "# Smoke\n");
+    writeFileSync(join(project, "src/app.txt"), "hello, inflight\n");
+
+    const commit = tugtool(["commit", "--paths", "briefs/smoke-brief.md", "--message", "briefs(smoke): Add brief for smoke"]);
+    expect(commit.code, commit.err).toBe(0);
+
+    const subject = run(["git", "log", "-1", "--format=%s"]);
+    expect(subject.out.trim()).toBe("briefs(smoke): Add brief for smoke");
+    const landed = run(["git", "show", "--name-only", "--format=", "HEAD"]);
+    expect(landed.out.trim()).toBe("briefs/smoke-brief.md");
+    const dirty = run(["git", "status", "--porcelain"]);
+    expect(dirty.out.trim()).toBe("M src/app.txt");
+  });
 });
 
 /**

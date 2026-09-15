@@ -52,6 +52,8 @@ tugtool commit --paths <path> --message "briefs(<slug>): Add brief for <what it 
 
 where `<slug>` is the filename's stem with a trailing `-brief` removed — the same slug the hand-off command below prints. The subject is the whole message; `tugtool commit` adds the session trailers itself, and there is no body, no `Co-Authored-By`, and no mention of AI or agents. `--paths` is what keeps this honest: the user's own inflight edits in the tree are never swept into a brief's commit, and nothing here runs raw `git`.
 
+This works in **any** project, not only one that has arranged for it. The command is the bundle's own verb, the plugin's hook approves it, and an explicit `--paths` commit consults no session ledger — so a project with no `CLAUDE.md`, no settings, and no live session lands the brief exactly the same way. Nothing in a project's instructions is needed to permit it, and a project instruction saying the model never commits is about the project's code; the brief the user just asked for is the one file this skill is trusted to land.
+
 **Two cases skip the commit, and you say which in the report.** An arc's own brief (address 2) lives under `.tug/arcs/<name>/`, which is never tracked, so there is nothing to commit. And an explicit path that lands outside the project's checkout cannot be committed to it. In every other case — the briefs directory, or an explicit path inside the checkout — the commit runs.
 
 If `tugtool commit` fails, say so with its output and still hand off; a written brief with a failed commit is a brief the user can land by hand, and a swallowed failure is the straggler this section exists to prevent.
