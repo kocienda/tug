@@ -70,7 +70,11 @@ export const ARRIVAL_REVEAL_BOUND_MS = 250;
 
 /** The facts {@link arrivalRevealDue} decides over. */
 export interface ArrivalRevealInput {
-  /** The sheet has reported a height at least once while hidden. */
+  /**
+   * The sheet has reported a height at least once while hidden — which says
+   * its panel is mounted and measurable, and nothing about whether that
+   * number is current. The reveal measures the panel itself ([B04]).
+   */
   reported: boolean;
   /** The card type says its content is quiet ({@link ArrivalQuiet}). */
   quiet: boolean;
@@ -81,11 +85,11 @@ export interface ArrivalRevealInput {
 /**
  * Whether the reveal commit is due.
  *
- * Due when the content is quiet AND a height has been reported — a quiet
- * sheet that has not yet measured has nothing to reveal at — or when the bound
- * has elapsed, whatever the other two say: an expired bound reveals over
- * whatever the card has, including no report at all, in which case the card
- * arrives at its policy floor and the first live report adjusts it.
+ * Due when the content is quiet AND the sheet has reported — a quiet sheet
+ * that has not yet mounted has nothing to measure — or when the bound has
+ * elapsed, whatever the other two say: an expired bound reveals over whatever
+ * the card has, including no panel at all, in which case the card arrives at
+ * its policy floor and the first live report adjusts it.
  */
 export function arrivalRevealDue(input: ArrivalRevealInput): boolean {
   if (input.boundElapsed) return true;

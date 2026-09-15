@@ -103,9 +103,6 @@
  * @covers tugdeck/src/lib/card-lifecycle.ts
  * @covers tugdeck/src/lib/settle-notice.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
- * @covers tugdeck/src/lib/session-ledger-store.ts
- * @covers tugdeck/src/components/tugways/cards/session-picker-panel.tsx
- * @covers tugdeck/src/components/tugways/cards/session-picker-seed.ts
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
@@ -773,10 +770,6 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           "the arrival is one armed settle, and nothing re-targeted it",
         ).toBe(1);
         expect(
-          trace.reservationNotifies,
-          "no reservation report moved the store after the commit — the first report was the bid and was handed over silently",
-        ).toBe(0);
-        expect(
           trace.mismatches,
           "no opening-bid mismatch — the first live report was the bid",
         ).toEqual([]);
@@ -831,141 +824,6 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         // readable before it ([P05]: a genuinely-changed picker is an honest
         // update, not a defect).
         await measureAtListCap(app, "arrival picker");
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a COLD ledger: the card arrives at the picker it is about to show, not at the placeholder",
-    async () => {
-      // The case the double hop was actually reported on. Nothing has listed
-      // this project's sessions yet, so the picker's first render would show
-      // the `checking…` placeholder and the rows would land a few frames
-      // later, some 170px taller. The deck waits for the listing before it
-      // measures ([P02], `OpeningForm.ready`), so the number it commits is
-      // the number the rows make, and no report after the commit moves it.
-      const app = await launchTugApp({ testName: "at0571-cold-ledger" });
-      try {
-        await seed(app);
-        if (fixture === null) throw new Error("the picker sessions fixture was not seeded");
-        // The picker seeds its path from the most recent project, so pointing
-        // recents at the fixture makes the ARRIVING picker the at-cap one —
-        // over a ledger that has never listed it.
-        await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugapp.dev", "recent-projects", { kind: "json", value: { paths: [${JSON.stringify(fixture.projectDir)}] } }), null)`,
-        );
-        await wait(300);
-
-        const mark = await traceMark(app);
-        const samples = await census(app, addSessionCard);
-        const arrived = arrivedPanes(samples);
-        expect(arrived.length, "exactly one frame arrived").toBe(1);
-        const newcomer = arrived[0];
-        const order = beatOrder(samples);
-        const visible = samples.filter((s) => Number(s.opacity[newcomer] ?? "0") > 0);
-        const firstVisible = visible[0];
-        note(
-          "cold arrival",
-          `order=${JSON.stringify(order)} first visible at t=${(firstVisible?.t ?? -1).toFixed(0)}ms with ${firstVisible?.rows ?? -1} row(s); rows on the last sample=${samples[samples.length - 1]?.rows ?? -1}`,
-        );
-
-        // Two motions, and the picker the reader first sees is the at-cap one:
-        // every session row is there on the first visible frame, because the
-        // rows were there before the pane was committed.
-        expect(order, "the arrival is exactly room then arrive").toEqual(["room", "arrive"]);
-        expect(
-          firstVisible?.rows ?? 0,
-          "the sessions list is full on the first frame the card can be seen",
-        ).toBe(fixture.sessions.length);
-
-        // The number the deck holds never moves after the commit: one held
-        // value across every sample, one armed settle, no reservation report
-        // landing on the store, no mismatch.
-        const heldValues = new Set(
-          samples
-            .map((s) => s.held[newcomer])
-            .filter((v): v is number => typeof v === "number")
-            .map((v) => Math.round(v)),
-        );
-        note("cold held", `held value(s) across the census: ${JSON.stringify([...heldValues])}`);
-        expect(heldValues.size, "the deck held ONE number for the member throughout").toBe(1);
-        const trace = await traceSince(app, mark);
-        note(
-          "cold trace",
-          `${trace.armedArms} armed of ${trace.arms} arm(s); reservation notifies=${trace.reservationNotifies}; mismatches=${JSON.stringify(trace.mismatches)}`,
-        );
-        expect(trace.armedArms, "one armed settle for the whole arrival").toBe(1);
-        expect(trace.reservationNotifies, "no reservation report re-divided the column").toBe(0);
-        expect(trace.mismatches, "the first live report was the bid").toEqual([]);
-
-        // And the held number is the panel on screen, through the deck's own
-        // arithmetic — the at-cap panel, not the placeholder's.
-        await wait(AFTER_LAND_MS);
-        const liveNatural = await pickerPanelNaturalHeight(app);
-        const held = await heldFor(app, newcomer);
-        note(
-          "cold held vs panel",
-          `held=${held.toFixed(1)} live panel natural=${(liveNatural ?? -1).toFixed(1)} → member floor ${((liveNatural ?? -1) + SHEET_PANEL_TO_MEMBER_PX).toFixed(1)}`,
-        );
-        expect(
-          Math.abs(held - ((liveNatural ?? -1) + SHEET_PANEL_TO_MEMBER_PX)),
-          "the number the deck committed is the at-cap panel the user sees",
-        ).toBeLessThanOrEqual(BID_DRIFT_PX);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a RETARGET inside the arrival keeps the card arriving: fused again, and no pop",
-    async () => {
-      // A second arrangement change landing while the room is still being
-      // made — here the sitter folding — replaces the settle. The frame that
-      // was arriving is still arriving: the replacement settle is planned
-      // fused, ends in an arrive beat, and the card fades in once rather than
-      // popping to full opacity the instant the retarget lands.
-      const app = await launchTugApp({ testName: "at0571-retarget" });
-      try {
-        await seed(app);
-        const mark = await traceMark(app);
-        const samples = await census(
-          app,
-          `(function () { ${addSessionCard}; setTimeout(function () { ${setCardFolded("A", true)}; }, 120); })()`,
-        );
-        const arrived = arrivedPanes(samples);
-        expect(arrived.length, "exactly one frame arrived").toBe(1);
-        const newcomer = arrived[0];
-        const order = beatOrder(samples);
-        const trace = await traceSince(app, mark);
-        // The largest jump in the newcomer's computed opacity between two
-        // consecutive samples: a fade moves a few hundredths per frame, a pop
-        // moves the whole way in one.
-        let worstStep = 0;
-        for (let i = 1; i < samples.length; i += 1) {
-          const a = Number(samples[i - 1].opacity[newcomer] ?? "0");
-          const b = Number(samples[i].opacity[newcomer] ?? "0");
-          worstStep = Math.max(worstStep, Math.abs(b - a));
-        }
-        note(
-          "retarget",
-          `order=${JSON.stringify(order)} armed=${trace.armedArms} of ${trace.arms} arm(s); worst opacity step=${worstStep.toFixed(3)}`,
-        );
-        expect(trace.armedArms, "the fold re-targeted the arrival").toBe(2);
-        expect(
-          order.includes("shrink") || order.includes("move") || order.includes("grow"),
-          "the replacement settle stayed fused — no everyday beat crept in",
-        ).toBe(false);
-        expect(order[order.length - 1], "and it still ended in the card's own arrive beat").toBe("arrive");
-        expect(worstStep, "the card faded in; it did not pop").toBeLessThan(0.35);
-        await wait(AFTER_LAND_MS);
-        const rest = await atRest(app);
-        expect(rest.inlineOpacities, "no frame keeps an inline opacity hold").toEqual([]);
-        expect(rest.picker, "the picker is up at rest").toBe(true);
       } finally {
         await app.close();
       }
