@@ -191,6 +191,7 @@ import {
   impositionLayout,
   railSeamProperty,
   railStripProperty,
+  cascadedHeights,
   seamDragBounds,
   stripCoordinatesOf,
   impositionGapBottomPx,
@@ -775,15 +776,20 @@ function placeSeamPx(place: SeamPlace): number {
  * `n + 1` coordinates become `n` heights, each the distance to the next
  * coordinate less the seam standing in it.
  *
- * A SHARED place's drag is **zero-sum**: only the two members either side of
- * `index` change, because only their shared coordinate moved, and the run they
- * divide is fixed — so no member the hand did not touch is resized by one it
- * did.
+ * A SHARED place's drag is **zero-sum** — the run it divides is fixed, so
+ * every pixel one member gains another gives up — but it is not confined to
+ * the two members either side of `index`. When the neighbour it is pushing
+ * reaches its own floor and the hand keeps going, the members beyond it give
+ * up their slack in turn, nearest first. A rail whose middle card is pinned
+ * at its floor would otherwise stop the sash dead while room stood free two
+ * cards further down, which is what the hand reads as a sash that has jammed.
+ * {@link cascadedHeights} is the arithmetic; this is only its unit.
  *
  * A FLOWING place's is not, and that is the settled answer rather than an
- * oversight ([B08]). Every coordinate below the boundary moves with it, so the
- * member above the seam takes the whole of the drag and the strip lengthens by
- * it. The alternative — trading against the member below, as a shared place
+ * oversight ([B08]). It is not zero-sum at all: every coordinate below the
+ * boundary moves with it, so the member above the seam takes the whole of the
+ * drag and the strip lengthens by it. The alternative — trading against the
+ * member below, as a shared place
  * does — would make lengthening one card cost its neighbour a height the
  * neighbour declared it needs, and in flow a declared height is the whole of
  * what a member stands at.
@@ -794,18 +800,27 @@ function placeSeamPx(place: SeamPlace): number {
  */
 function draggedHeights(
   allocation: PlaceAllocation,
+  members: readonly PlaceMember[],
   index: number,
   value: number,
 ): readonly number[] {
   const count = allocation.ids.length;
   const strip = [...allocation.tops, allocation.stripLength];
   const seam = allocation.seam;
-  if (allocation.standing === "overflow") {
-    const shift = value - strip[index + 1];
-    for (let i = index + 1; i < strip.length; i += 1) strip[i] += shift;
-  } else {
-    strip[index + 1] = value * allocation.run + seam / 2;
+  if (allocation.standing !== "overflow") {
+    // A shared place's boundary is stated as a fraction of the run; read back
+    // out, it is the height the hand is asking of the member above — which is
+    // the one thing {@link cascadedHeights} takes, and the round trip is the
+    // identity because the gesture wrote the fraction from that same height.
+    return cascadedHeights(
+      allocation,
+      members,
+      index,
+      value * allocation.run + seam / 2 - seam - (allocation.tops[index] ?? 0),
+    );
   }
+  const shift = value - strip[index + 1];
+  for (let i = index + 1; i < strip.length; i += 1) strip[i] += shift;
   const heights: number[] = [];
   for (let i = 0; i < count; i += 1) {
     heights.push(strip[i + 1] - strip[i] - (i < count - 1 ? seam : 0));
@@ -944,17 +959,22 @@ function PlaceSeam({
 
       seam.setPointerCapture(event.pointerId);
       seam.setAttribute("data-gesture", "seam");
-      // The two members this seam divides are the hand's for the duration —
-      // they resize under it every frame, with nothing animating them, which
-      // is the same thing a dragged frame does and wants the same mark. A
-      // settle landing mid-drag must skip them for the reason it skips any
+      // The place's members are the hand's for the duration — the two this
+      // seam divides always, and, when the drag cascades past a floor, the
+      // ones beyond them as well. They resize under it every frame with
+      // nothing animating them, which is the same thing a dragged frame does
+      // and wants the same mark. A settle landing mid-drag must skip them for
+      // the reason it skips any
       // pointer-owned frame (motion on top of a pointer lags the pointer),
       // and the cut detector must read their motion as a hand placing them
       // rather than as the imposer failing to carry them ([F05], [B05]).
-      const divided = [
-        memberPaneIdsRef.current[index],
-        memberPaneIdsRef.current[index + 1],
-      ]
+      //
+      // Every member rather than only the ones a given drag will reach: which
+      // those are is a function of how far the hand travels, and a mark
+      // handed out mid-gesture would arrive after the settle that needed it.
+      // A member that never moves is carried zero distance, which costs
+      // nothing.
+      const divided = [...memberPaneIdsRef.current]
         .filter((id): id is string => id !== undefined)
         .map((id) =>
           document.querySelector<HTMLElement>(
@@ -987,14 +1007,40 @@ function PlaceSeam({
         return Math.min(upper, Math.max(lower, next));
       };
 
+      // Where the division the hand is holding is published. An overflowing
+      // place writes the one boundary it moved; a shared one writes EVERY
+      // seam, because a cascade moves the boundaries below the one under the
+      // pointer too, and a frame still reading its old seam would overlap the
+      // member that had just given room up.
+      const publish = (height: number): void => {
+        if (overflowing) {
+          container.style.setProperty(
+            property,
+            `${Math.round(valueOf(height))}px`,
+          );
+          return;
+        }
+        const heights = cascadedHeights(
+          start,
+          membersRef.current,
+          index,
+          height,
+        );
+        let top = 0;
+        for (let k = 0; k < heights.length - 1; k += 1) {
+          top += heights[k];
+          container.style.setProperty(
+            seamPropertyOf(place, k),
+            String((top + seamPx / 2) / run),
+          );
+          top += seamPx;
+        }
+      };
+
       const apply = (): void => {
         rafId = null;
         if (!latch(latestY)) return;
-        const value = valueOf(computeHeight());
-        container.style.setProperty(
-          property,
-          overflowing ? `${Math.round(value)}px` : String(value),
-        );
+        publish(computeHeight());
       };
 
       const onPointerMove = (e: PointerEvent): void => {
@@ -1015,14 +1061,11 @@ function PlaceSeam({
         latestY = e.clientY;
         try {
           if (!latch(latestY)) return;
-          const value = valueOf(computeHeight());
+          const height = computeHeight();
           // The property stays as the gesture left it: the commit re-renders at
           // this fraction and the inset effect writes the same number back, so
           // there is no frame where a member reads the pre-gesture seam.
-          container.style.setProperty(
-            property,
-            overflowing ? `${Math.round(value)}px` : String(value),
-          );
+          publish(height);
           // Released BEFORE the commit, the way every other gesture machine
           // releases it ([P11]).
           //
@@ -1045,7 +1088,7 @@ function PlaceSeam({
           // description of what the release did: nothing moved, because the
           // hand had already moved it.
           for (const el of divided) el.removeAttribute("data-pointer-owned");
-          onCommit(place, index, value);
+          onCommit(place, index, valueOf(height));
         } finally {
           // And on EVERY path out, which is what the `finally` is for. A press
           // that never travelled commits nothing and returns above; a mark left
@@ -4403,16 +4446,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const rail = railMembersRef.current.find((r) => r.side === place.side);
         if (rail === undefined || rail.allocation === null) return;
         const ids = rail.members.map((member) => member.componentId);
+        const members = placeMembers(
+          state,
+          "rail",
+          ids,
+          state.imposition.rails?.[place.side]?.shares,
+        );
         store.setRailShares(
           place.side,
           placeSharesFromHeights(
-            placeMembers(
-              state,
-              "rail",
-              ids,
-              state.imposition.rails?.[place.side]?.shares,
-            ),
-            draggedHeights(rail.allocation, index, value),
+            members,
+            draggedHeights(rail.allocation, members, index, value),
             rail.allocation.run,
             rail.allocation.seam,
           ),
@@ -4421,16 +4465,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       }
       const column = deckColumnsRef.current.find((c) => c.slot === place.slot);
       if (column === undefined || column.allocation === null) return;
+      const members = placeMembers(
+        state,
+        "column",
+        column.members,
+        state.imposition.columns?.[place.slot]?.shares,
+      );
       store.setColumnShares(
         place.slot,
         placeSharesFromHeights(
-          placeMembers(
-            state,
-            "column",
-            column.members,
-            state.imposition.columns?.[place.slot]?.shares,
-          ),
-          draggedHeights(column.allocation, index, value),
+          members,
+          draggedHeights(column.allocation, members, index, value),
           column.allocation.run,
           column.allocation.seam,
         ),

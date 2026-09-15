@@ -26,6 +26,7 @@ import {
   railSeamProperty,
   railWeightOf,
   placeSharesFromHeights,
+  cascadedHeights,
   seamDragBounds,
   withRailOrder,
   withSidebarMovedToRail,
@@ -1302,17 +1303,77 @@ describe("seamDragBounds gives each regime its own room", () => {
     });
   });
 
-  test("a seam's range is its own two members' and nobody else's", () => {
-    // Three members, and the seam between the first two can trade only their
-    // span: the third member's height is not a term above or below, whatever
-    // it holds. The upper bound is the span less the neighbour's floor.
+  test("a seam's range is every member's slack on the side it pushes", () => {
+    // Three members, and the seam between the first two reaches past the
+    // second when the second runs out of slack: the third member's own slack
+    // is a term in the upper bound, because the hand that pushes the second
+    // to its floor keeps going into the third ([B09]).
     const appetites = members(3, { floor: 100 });
     const place = allocatePlaceHeights(appetites, 900, 0);
     expect(place.heights).toEqual([300, 300, 300]);
     expect(seamDragBounds(place, appetites, 0)).toEqual({
       lower: 100,
+      upper: 700,
+    });
+    // And the far side of the same rule: the seam between the last two can
+    // shrink the first member as well as the second, so its lower bound is
+    // the second's floor less the first's slack.
+    expect(seamDragBounds(place, appetites, 1)).toEqual({
+      lower: 100 - 200,
       upper: 500,
     });
+  });
+
+  test("a cascade takes from the members below, nearest first", () => {
+    const appetites = members(3, { floor: 100 });
+    const place = allocatePlaceHeights(appetites, 900, 0);
+    // 150px is inside the neighbour's own slack: it alone pays.
+    expect(cascadedHeights(place, appetites, 0, 450)).toEqual([450, 150, 300]);
+    // 400px is not: the neighbour goes to its floor and the member beyond it
+    // pays the rest. Nobody goes under a floor and the run is conserved.
+    expect(cascadedHeights(place, appetites, 0, 700)).toEqual([700, 100, 100]);
+    // And the ask past the bound gives back what it can find and no more.
+    expect(cascadedHeights(place, appetites, 0, 900)).toEqual([700, 100, 100]);
+  });
+
+  test("a cascade upward gives it all to the member below the seam", () => {
+    const appetites = members(3, { floor: 100 });
+    const place = allocatePlaceHeights(appetites, 900, 0);
+    // The member above the seam gives first, down to its own floor; the one
+    // above IT gives the rest, and every pixel lands in the member below.
+    expect(cascadedHeights(place, appetites, 1, 100)).toEqual([300, 100, 500]);
+    expect(cascadedHeights(place, appetites, 1, -100)).toEqual([100, 100, 700]);
+  });
+
+  test("a cascade stops at the absorbing member's ceiling", () => {
+    // A folded member takes its tier and no more, whatever the members beyond
+    // the seam have to give ([P05]).
+    const appetites: PlaceMember[] = [
+      { id: "m0", floor: 144, ceiling: 144, weight: 1 },
+      { id: "m1", floor: 100, weight: 1 },
+      { id: "m2", floor: 100, weight: 1 },
+    ];
+    const place = allocatePlaceHeights(appetites, 900, 0);
+    expect(place.heights).toEqual([144, 378, 378]);
+    expect(seamDragBounds(place, appetites, 0)).toEqual({
+      lower: 144,
+      upper: 144,
+    });
+    expect(cascadedHeights(place, appetites, 0, 600)).toEqual([144, 378, 378]);
+  });
+
+  test("a cascade conserves the run it divides", () => {
+    const appetites = members(4, { floor: 80 });
+    const place = allocatePlaceHeights(appetites, 1000, 12);
+    const total = (heights: readonly number[]): number =>
+      heights.reduce((sum, h) => sum + h, 0);
+    for (const ask of [-400, -80, 0, 120, 400, 5000]) {
+      const heights = cascadedHeights(place, appetites, 1, ask);
+      expect(total(heights)).toBeCloseTo(total(place.heights), 6);
+      for (const [i, height] of heights.entries()) {
+        expect(height).toBeGreaterThanOrEqual(appetites[i].floor);
+      }
+    }
   });
 
   test("a boundary that is not one reports the height standing where it is", () => {

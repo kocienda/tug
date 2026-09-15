@@ -3859,12 +3859,21 @@ export function arrivalSharesOf(
  * than re-deriving one from the heights they are about to clamp.
  *
  * A SHARED place trades the span between the two members either side of the
- * seam, and the floors are the only thing that bounds the trade: the upper
- * member may go no lower than its own floor and no higher than what leaves
- * its neighbour at its floor. Comfort and natural bound nothing — the division
- * is the hand's, and a card the hand makes shorter than its content scrolls
- * inside itself. A range that comes out inverted is reported as the height
- * standing exactly where it is.
+ * seam FIRST, and then — when that neighbour reaches its floor and the hand
+ * keeps pushing — the members beyond it, nearest first, each down to its own
+ * floor. So what bounds the trade is the whole of the place's slack on the
+ * side the hand is pushing toward, never just its immediate neighbour's: a
+ * rail whose middle card is pinned at its floor no longer stops the sash dead
+ * with room standing free two cards further down.
+ *
+ * Comfort and natural bound nothing — the division is the hand's, and a card
+ * the hand makes shorter than its content scrolls inside itself. A range that
+ * comes out inverted is reported as the height standing exactly where it is.
+ *
+ * What is bounded is what the hand ASKS of member `index`, and past that
+ * member's own floor the ask is no longer a height anybody can stand at: the
+ * member holds at its floor while the boundary travels on over the members
+ * above it. {@link cascadedHeights} is what turns the ask into heights.
  *
  * A place standing as a STRIP is the one that does not trade at all. Its
  * members are already at their floors and the run cannot hold even those
@@ -3880,21 +3889,88 @@ export function seamDragBounds(
   const heights = allocation.heights;
   const held = heights[index] ?? 0;
   if (index < 0 || index + 1 >= sane.length) return { lower: held, upper: held };
-  const a = sane[index];
-  const b = sane[index + 1];
-  const span = (heights[index] ?? 0) + (heights[index + 1] ?? 0);
   if (allocation.standing === "overflow") return { lower: held, upper: held };
-  // The seam's travel is bounded by BOTH members at BOTH ends: `a` may not go
-  // under its floor or over its ceiling, and neither may `b` — and `b`'s
-  // bounds are `a`'s read from the other end of the span ([P05]). Without the
-  // ceiling terms a hand could drag a folded member to twice its tier and
-  // the next allocation would snap it straight back.
-  const lower = Math.max(a.floor, span - (b.ceiling ?? Infinity));
-  const upper = Math.min(span - b.floor, a.ceiling ?? Infinity);
+  // The room the hand can find on each side: every member's own slack above
+  // its floor, summed to that end of the place. The far members are terms
+  // because the cascade reaches them, and with two members they contribute
+  // nothing — which is why this is the old span arithmetic widened rather
+  // than a second one.
+  const slackOf = (i: number): number =>
+    Math.max(0, (heights[i] ?? 0) - sane[i].floor);
+  let above = 0;
+  for (let i = 0; i < index; i += 1) above += slackOf(i);
+  let below = 0;
+  for (let i = index + 1; i < sane.length; i += 1) below += slackOf(i);
+  // And the room the ABSORBING member has left under its own ceiling — the
+  // one bound a cascade does not widen, because everything the far members
+  // give up lands in the single member on the hand's side of the seam
+  // ([P05]). Without it a hand could drag a folded member to twice its tier
+  // and the next allocation would snap it straight back.
+  const headroomBelow =
+    (sane[index + 1].ceiling ?? Infinity) - (heights[index + 1] ?? 0);
+  const lower = Math.max(sane[index].floor - above, held - headroomBelow);
+  const upper = Math.min(held + below, sane[index].ceiling ?? Infinity);
   if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower > upper) {
     return { lower: held, upper: held };
   }
   return { lower, upper };
+}
+
+/**
+ * The heights a place stands at when the hand asks member `index` for
+ * `height` — the cascade {@link seamDragBounds} bounds, and the one arithmetic
+ * behind both the live drag and the commit that ends it.
+ *
+ * `height` is an ASK rather than a height: past the member's own floor the
+ * member holds at that floor and the boundary travels on, so the member this
+ * names may well come back standing at something other than the number handed
+ * in. The gesture has one scalar to offer and this is it.
+ *
+ * The room moves one way and lands in one place. Dragging DOWN, the members
+ * below give up their slack nearest first — the neighbour to its floor, then
+ * the one below it, to the end of the place — and every pixel freed goes to
+ * member `index`. Dragging UP is the same sentence read from the other end:
+ * member `index` gives first, then the members above it, and member
+ * `index + 1` takes the lot.
+ *
+ * Only the members the hand actually reaches move, and the total is conserved
+ * exactly — every pixel taken is given — so the heights still sum to the run
+ * and {@link placeSharesFromHeights} inverts them without a residue ([P10]).
+ */
+export function cascadedHeights(
+  allocation: PlaceAllocation,
+  members: readonly PlaceMember[],
+  index: number,
+  height: number,
+): number[] {
+  const sane = sanitizedMembers(members);
+  const heights = sane.map((_, i) => allocation.heights[i] ?? 0);
+  if (index < 0 || index + 1 >= sane.length) return heights;
+  const delta = height - heights[index];
+  if (!Number.isFinite(delta) || Math.abs(delta) <= PLACE_HEIGHT_EPSILON) {
+    return heights;
+  }
+  // Who gives, in the order the hand reaches them, and who takes what they
+  // give: one pair of ends, read whichever way round the drag is going.
+  const givers: number[] = [];
+  if (delta > 0) {
+    for (let i = index + 1; i < sane.length; i += 1) givers.push(i);
+  } else {
+    for (let i = index; i >= 0; i -= 1) givers.push(i);
+  }
+  const taker = delta > 0 ? index : index + 1;
+  const headroom = (sane[taker].ceiling ?? Infinity) - heights[taker];
+  let need = Math.min(Math.abs(delta), headroom);
+  let found = 0;
+  for (const i of givers) {
+    if (need <= PLACE_HEIGHT_EPSILON) break;
+    const give = Math.min(need, Math.max(0, heights[i] - sane[i].floor));
+    heights[i] -= give;
+    found += give;
+    need -= give;
+  }
+  heights[taker] += found;
+  return heights;
 }
 
 /** One split member's place in its column: which slot, which position, and how

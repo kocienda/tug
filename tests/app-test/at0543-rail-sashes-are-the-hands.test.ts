@@ -19,6 +19,13 @@
  *      a card that leaves keeps its share, and a card that arrives with no
  *      share joins at weight 1 beside the others' unchanged weights.
  *
+ * A third sentence, added when the hand found the sash jammed: **the trade is
+ * not confined to the sash's own two members.** Push the neighbour to its
+ * floor and keep going and the members beyond it give up their slack in turn,
+ * nearest first — otherwise a rail whose middle card is pinned at 240 stops
+ * the sash dead with room standing free one card further down, which is what
+ * the hand reads as a sash that has jammed.
+ *
  * Heights rather than the stored numbers, because heights are what the rule is
  * about — a share nobody can see move is not the thing the user is promised.
  * The store is read once, to say that a rail nobody has divided carries no
@@ -31,6 +38,7 @@
  *
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/serialization.ts
+ * @covers tugdeck/src/lib/layout-imposer.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -52,6 +60,13 @@ const SETTLE_TAIL_MS = 900;
 /** How far down the sash travels. Well past `EPSILON`, well inside the floors
  *  either side of it, so the drag lands where it was aimed. */
 const DRAG_PX = 90;
+
+/** A sidebar card's registered floor, px — the number the cascade test pushes
+ *  the middle member onto and then past. */
+const SIDEBAR_FLOOR_PX = 240;
+/** How far past the neighbour's floor the cascading drag travels. Well past
+ *  `EPSILON`, and well inside the slack the LAST member has to give. */
+const CASCADE_OVERSHOOT_PX = 60;
 
 const RAIL_WIDTH = 420;
 const MEMBERS = ["cards", "jots", "layout"] as const;
@@ -163,6 +178,12 @@ async function hideJots(app: App): Promise<void> {
   );
 }
 
+/** Every member's height added up — the run the division divides, which a
+ *  drag may move about but never change. */
+function totalHeight(heights: Record<string, number>): number {
+  return MEMBERS.reduce((sum, id) => sum + (heights[id] ?? 0), 0);
+}
+
 /** Every member at the height `expected` records, within `EPSILON`. */
 function expectSameHeights(
   actual: Record<string, number>,
@@ -272,6 +293,79 @@ describe.skipIf(!SHOULD_RUN)(
             } finally {
               await app.close().catch(() => undefined);
             }
+          }
+        } finally {
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    test(
+      "a sash pushed past its neighbour's floor keeps going into the member beyond",
+      async () => {
+        const tugbankPath = mkTempTugbank();
+        try {
+          seedTugbankForLaunch(tugbankPath);
+          const app = await launchTugApp({
+            testName: "at0543-rail-sashes-cascade",
+            env: { TUGBANK_PATH: tugbankPath },
+            persistInTestMode: true,
+          });
+          try {
+            await app.seedDeckState({ state: deckShape(), focusCardId: "C" });
+            await awaitRail(app);
+
+            const equal = await railHeights(app);
+            note(`equal division: ${JSON.stringify(equal)}`);
+            const neighbourSlack = (equal["jots"] ?? 0) - SIDEBAR_FLOOR_PX;
+            const lastSlack = (equal["layout"] ?? 0) - SIDEBAR_FLOOR_PX;
+            expect(
+              Math.min(neighbourSlack, lastSlack),
+              "the seeded rail divides with slack above every floor to trade",
+            ).toBeGreaterThan(CASCADE_OVERSHOOT_PX + EPSILON);
+
+            // The whole of the neighbour's slack and then some: the first
+            // member asks for more than the second has to give, so the third
+            // is the only place the rest can come from. Under the rule this
+            // replaces, the sash stopped the moment the second reached 240
+            // and the overshoot went nowhere.
+            const travel = neighbourSlack + CASCADE_OVERSHOOT_PX;
+            const seam = `.tug-place-seam[data-rail-seam="right:0"]`;
+            await app.waitForCondition<boolean>(
+              `document.querySelectorAll(${JSON.stringify(seam)}).length === 1`,
+              { timeoutMs: 8_000 },
+            );
+            const box = await app.getElementBounds(seam);
+            const to = {
+              x: Math.round(box.x + box.width / 2),
+              y: Math.round(box.y + box.height / 2 + travel),
+            };
+            await app.nativeDragElementWithoutRelease(seam, to);
+            await app.nativeMouseUp(to);
+            await settled(app);
+
+            const after = await railHeights(app);
+            note(`after the cascading drag: ${JSON.stringify(after)}`);
+
+            expect(
+              (after["cards"] ?? 0) - (equal["cards"] ?? 0),
+              "the sash travelled past the neighbour's floor rather than stopping at it",
+            ).toBeGreaterThan(neighbourSlack + EPSILON);
+            expect(
+              Math.abs((after["jots"] ?? 0) - SIDEBAR_FLOOR_PX),
+              "the neighbour stands exactly at its floor: pushed onto it, never under it",
+            ).toBeLessThanOrEqual(EPSILON);
+            expect(
+              (equal["layout"] ?? 0) - (after["layout"] ?? 0),
+              "the member beyond the neighbour paid the overshoot",
+            ).toBeGreaterThan(CASCADE_OVERSHOOT_PX - EPSILON * 2);
+            expect(
+              Math.abs(totalHeight(after) - totalHeight(equal)),
+              "the trade is zero-sum: the run the members divide is unchanged",
+            ).toBeLessThanOrEqual(EPSILON);
+          } finally {
+            await app.close().catch(() => undefined);
           }
         } finally {
           rmTempTugbank(tugbankPath);
