@@ -873,10 +873,23 @@ export class ResponderChainManager {
 
   /**
    * The card responder enclosing the current keyboard key view
-   * (`[data-key-view-kbd]`), or null. A DOM walk (the engine projects the key
-   * view as that attribute) — used by {@link getKeyCard} as a fallback when the
-   * first responder is not inside a card (e.g. focus is on a focus-refusing
-   * cycle stop).
+   * (`[data-key-view-kbd]`), or null — used by {@link getKeyCard} as a fallback
+   * when the first responder is not inside a card (e.g. focus is on a
+   * focus-refusing cycle stop).
+   *
+   * TWO axes, in that order, because the key view can be inside a PORTAL. The
+   * DOM walk finds the nearest registered responder around the key view (the
+   * engine projects the key view as that attribute); from there the walk
+   * continues along `parentId`, which is the React-tree axis and therefore
+   * crosses the portal — the same property that makes a portaled sheet's
+   * `cancelDialog` route to its opener rather than to whatever the portal
+   * happens to land in.
+   *
+   * A DOM-only walk could not answer for a pane-modal sheet at all: the
+   * portal's host sits under the canvas, so a cover's Cancel holding the key
+   * view resolved to no card, and every `key-card` command was then dropped on
+   * the floor. That is not an abstention — ⌃⌘Y is a door a compaction's hold
+   * ADMITS ([B02]), and the drop read exactly like the hold refusing it.
    */
   private findCardFromKeyboardFocus(): string | null {
     if (typeof document === "undefined") return null;
@@ -886,7 +899,19 @@ export class ResponderChainManager {
     while (el !== null) {
       const id = el.getAttribute("data-responder-id");
       const node = id !== null ? this.nodes.get(id) : undefined;
-      if (node && node.kind === "card") return id;
+      if (node !== undefined) {
+        // Registered, so the CHAIN knows where this node lives and the DOM
+        // may not. Falls through to the next DOM ancestor only when the chain
+        // walk finds no card — an unparented responder, or one whose scope
+        // genuinely sits outside every card.
+        let currentId: string | null = id;
+        while (currentId !== null) {
+          const current = this.nodes.get(currentId);
+          if (current === undefined) break;
+          if (current.kind === "card") return currentId;
+          currentId = current.parentId;
+        }
+      }
       el = el.parentElement?.closest("[data-responder-id]") ?? null;
     }
     return null;

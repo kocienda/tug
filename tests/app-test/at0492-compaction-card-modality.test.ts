@@ -201,11 +201,15 @@ describe.skipIf(!SHOULD_RUN)(
           // which carries the same reading and the same Cancel — so the run is
           // still in front of the user, in one row instead of a panel.
           //
-          // The card is made first responder first so the gesture is
-          // DELIVERED: the cover autofocuses its own panel, and a fold that
-          // never reached the card's handler would read here exactly like one
-          // the hold turned away.
-          await app.evalJS<null>(`(window.__tug.setFirstResponder("A"), null)`);
+          // Dispatched with the keyboard exactly where the cover left it, and
+          // that is the assertion. This step used to pin the card as first
+          // responder first, which made the gesture deliverable and made the
+          // test blind: with the key view on the cover's own Cancel — a
+          // PORTALED element whose DOM sits under the canvas — the key-card
+          // walk found no card and dropped the command, so ⌃⌘Y on a compacting
+          // card did nothing while reading exactly like the hold refusing a
+          // door it actually admits. The chain resolves the cover to its card
+          // now ([B02]); pinning here would stop anyone noticing if it stopped.
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
           );
@@ -238,7 +242,6 @@ describe.skipIf(!SHOULD_RUN)(
           // from the run and the fold rather than raised once at the moment
           // the run opened. A panel nobody re-raises is what made the fold
           // look like a dismissal.
-          await app.evalJS<null>(`(window.__tug.setFirstResponder("A"), null)`);
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("toggle-session-fold"), null)`,
           );

@@ -876,15 +876,11 @@ function CompactionOccupant({
         <span className="session-telemetry-occupant-icon" aria-hidden>
           <Archive size="100%" />
         </span>
-        {/* Two titles, one seat. The running title is the sheet's own title
-            and the refusal is what replaces it for the flash's length — both
-            mounted, with CSS choosing between them off `data-refused`, because
-            a swap through React state would be an appearance change through
-            the wrong channel ([L06]) and would make the flash a re-render
-            rather than an animation. */}
+        {/* The running title: the sheet's own title, and the only reading
+            this seat measures. Its refusal counterpart is a sibling of the
+            GROUP rather than a child of this seat — see the sibling below. */}
         <span className="session-telemetry-occupant-title" data-title-swap>
           <span data-occupant-title="running">Compacting</span>
-          <span data-occupant-title="refused">{COMPACTION_REFUSAL_TEXT}</span>
         </span>
         {/* The sheet's barber pole, at the sheet's 8px, in the sheet's own
             colour: no role, so `running` resolves to `action` — the theme's
@@ -900,6 +896,24 @@ function CompactionOccupant({
             aria-hidden
           />
         </span>
+      </span>
+      {/* The refusal reading, laid across the row rather than seated beside
+          the title. Both readings are mounted and CSS chooses between them off
+          `data-refused` — a swap through React state would be an appearance
+          change through the wrong channel ([L06]) and would make the flash a
+          re-render rather than an animation.
+
+          It sits OUTSIDE the group because it is half again as wide as the
+          run's own reading, and a seat measuring both made the group the
+          refusal's width at rest: the bar left the mark and the title it
+          belongs with and came to rest against Cancel, which is the one
+          reading of this row that is wrong ([B03]). Absolute, it measures
+          nothing, so neither reading moves the other. */}
+      <span
+        className="session-telemetry-occupant-refusal"
+        data-occupant-title="refused"
+      >
+        {COMPACTION_REFUSAL_TEXT}
       </span>
       {/* The sheet's Cancel, exactly: `sm`, filled primary, wearing the
           persistent default ring the sheet's does, inside the row's own

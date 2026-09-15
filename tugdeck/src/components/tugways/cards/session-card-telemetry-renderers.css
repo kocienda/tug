@@ -218,6 +218,7 @@
    mark-title-action flex group; this grid is scoped to the compaction. */
 .session-telemetry-status-occupant[data-occupant="compaction"] {
   display: grid;
+  position: relative;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   justify-content: stretch;
@@ -306,36 +307,59 @@
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-/* The compaction occupant's title seat holds TWO readings — what the run is
-   doing, and what it says to a refused door — and swaps between them for the
-   flash's length ([B08]). While the card is folded this row is the run's only
-   face, so a ⌘W or a `/usage` that meets the hold has nowhere else to be
-   answered; the cover's line beneath its bar is not on screen.
+/* The compaction occupant carries TWO readings — what the run is doing, and
+   what it says to a refused door — and swaps between them for the flash's
+   length ([B08]). While the card is folded this row is the run's only face, so
+   a ⌘W or a `/usage` that meets the hold has nowhere else to be answered; the
+   cover's line beneath its bar is not on screen.
 
-   A grid with one area stacks the two readings in one seat, which is what
-   keeps the row from changing width mid-flash: the seat measures the wider of
-   them and stays there. The ellipsis moves onto the children, since they are
-   what overflows now.
+   They do not share a seat. The refusal reading is three times the running
+   one's width, so a seat measuring the wider of them opened a dead gap
+   between "Compacting" and the bar at rest — the group's own width became the
+   refusal's, and the bar drifted out of the icon-title-bar group and up
+   against Cancel, which is the one grouping the row must not read as ([B03]).
+   So the seat measures the running reading, and the refusal is laid OVER the
+   row (below), measuring nothing. Neither moves when the other appears.
 
    Both readings are mounted and CSS chooses between them ([L06], [L13]) — the
    same one-shot-animation-on-an-attribute shape the cover's refusal line uses,
    and the same 3.2s, so the two faces of one run answer a refused door in the
    same beat. */
 .session-telemetry-occupant-title[data-title-swap] {
-  display: grid;
-  grid-template-areas: "title";
-  overflow: visible;
+  display: block;
+  overflow: hidden;
 }
 
 .session-telemetry-occupant-title[data-title-swap] > span {
-  grid-area: title;
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.session-telemetry-occupant-title[data-title-swap] > [data-occupant-title="refused"] {
+/* The refusal reading, laid across the row rather than seated in the group.
+   Absolute, so it contributes no width: it runs from the row's padding edge to
+   Cancel's column — reserving the `min-width` Cancel is given above, so the
+   two never paint over each other — and is centred in what is left. */
+.session-telemetry-occupant-refusal {
+  position: absolute;
+  inset-inline-start: var(--tugx-sheet-space-a);
+  inset-inline-end: calc(
+    var(--tugx-sheet-space-a) + 5rem + var(--tugx-header-gap-one)
+  );
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tugx-header-title-size);
+  font-weight: var(--tugx-header-title-weight);
+  line-height: var(--tugx-header-title-lh);
+  color: var(--tugx-sheet-header-fg, var(--tug7-element-global-text-normal-default-rest));
   opacity: 0;
   visibility: hidden;
 }
@@ -347,9 +371,17 @@
 }
 
 .session-telemetry-status-occupant[data-refused]
-  .session-telemetry-occupant-title[data-title-swap]
-  > [data-occupant-title="refused"] {
+  .session-telemetry-occupant-refusal {
   animation: z2-occupant-refusal-flash 3.2s ease-in-out forwards;
+}
+
+/* The bar yields with the title it stands beside. The refusal reading is laid
+   across the whole row, so the bar would be underneath it for the flash's
+   length; same keyframes and same 3.2s, so the row says one thing at a time
+   and comes back whole. */
+.session-telemetry-status-occupant[data-refused]
+  .session-telemetry-occupant-bar {
+  animation: z2-occupant-title-yield 3.2s ease-in-out forwards;
 }
 
 @keyframes z2-occupant-refusal-flash {
