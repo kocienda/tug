@@ -73,6 +73,19 @@
      refuses one, and a hover on the box's empty air resolves to no preview id,
      which is the same as no hover at all. */
   pointer-events: auto;
+
+  /* And because it is reachable, it RINGS — the whole picture is one Tab stop
+     and the ring lands on this box, which is the drawing's box to the pixel.
+     The language's default 2px offset is authored for a control standing in
+     its own air; here the ring is a rectangle around a rectangle, with the
+     numbered strip below it and the picture's own border a pixel or two
+     inside, so at the default it touched both. Pushed out, it reads as a mark
+     ABOUT the picture rather than as another line in it.
+
+     The room it needs is reserved in `layout-card.css`: the plate's gap is
+     what stands between this ring and the strip's first pill, so the two
+     numbers move together. */
+  --tugx-focus-ring-offset: 5px;
 }
 
 /* One side's strip. Width comes from the same flex-basis the drawing's rail

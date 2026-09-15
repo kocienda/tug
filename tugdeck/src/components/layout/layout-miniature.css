@@ -180,10 +180,23 @@
   pointer-events: none;
 }
 
-/* Against a committed drawing the cards are solid, so the bracket takes the
-   accent to stay legible over them. */
+/* Against a committed drawing the cards are solid, so the bracket has to be
+   drawn in a hue to stay legible over them — and the hue is the KEY axis, not
+   the Accent.
+
+   Accent is the affordance axis: the focus ring, the caret bar, the drop
+   stroke. The picture's focus ring is drawn on the places overlay standing
+   exactly on this drawing, so a bracket in the accent put a second orange
+   rectangle a few pixels inside the first — the same mark in the same
+   vocabulary at two scales, which is what a double ring is, and the reader
+   had no way to tell which of the two said "the keyboard is here".
+
+   Key is the right axis on its own terms anyway. The window is a statement
+   about what is IN VIEW — the part of a strip too long for it that the
+   canvas is showing — and that is a selection, which is what Key is for.
+   Nothing about it answers a press. */
 .layout-mini[data-committed="true"] .layout-mini-window {
-  border-color: var(--tugx-accent);
+  border-color: var(--tug7-surface-toggle-primary-normal-on-rest);
   border-style: solid;
 }
 

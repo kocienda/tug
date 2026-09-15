@@ -90,7 +90,7 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
+  gap: 14px;
   padding: 6px 8px 8px;
 }
 
@@ -111,12 +111,19 @@
 /* The plate: the drawing, the marks on it, and the numbered strip under it,
    as one block. Its own gap is tighter than the section's, because the strip
    is the plan's legend — the air between a picture and its legend has to read
-   as smaller than the air between that pair and the rows below. */
+   as smaller than the air between that pair and the rows below.
+
+   Both numbers are a step wider than they were, and the step is the focus
+   ring's. The ring lands on the places overlay, which is the drawing's box to
+   the pixel and is pushed five pixels out from it (`layout-places.css`), so
+   at the old four-pixel gap the ring crossed the strip it stands above. This
+   gap is the room it needs; the section's is widened with it so the legend
+   still reads as closer to the picture than the rows below are to either. */
 .layouts-plate {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
+  gap: 10px;
 }
 
 .layouts-figure {
