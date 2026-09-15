@@ -359,6 +359,11 @@
                                  is the same depth whether it shows the
                                  instruments or a compaction. Measured.
        --tugx-z2-occupant-gap    between the occupant's mark, title and action
+       --tugx-z2-occupant-bar-width
+                                 the compaction occupant's barber pole. Fixed,
+                                 so the mark-title-bar group has a width to
+                                 centre on; the sheet's own bar fills its
+                                 panel and has no such number.
 
      Two things do NOT read from here. The `@container` rungs in
      `tug-status-cell.css` that hide TIME, TASKS and JOBS as the card narrows
@@ -385,6 +390,7 @@
      builds a 53px strip. at0562 pins the two depths equal. */
   --tugx-z2-occupant-height: 35px;
   --tugx-z2-occupant-gap: 0.625rem;
+  --tugx-z2-occupant-bar-width: 160px;
 
   flex: 0 0 auto;
   display: flex;

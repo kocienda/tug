@@ -66,6 +66,7 @@ import { CardIdContext } from "@/lib/card-id-context";
 import { TugPlacard } from "@/components/tugways/tug-placard";
 import { TugStatusCell } from "@/components/tugways/tug-status-cell";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { useFocusTrap } from "@/components/tugways/use-focus-trap";
 import { SideQuestionBody } from "@/components/tugways/cards/side-question-overlay";
 import { useAnnotationContext } from "@/components/tugways/cards/transcript-host-helpers";
 import {
@@ -630,59 +631,129 @@ export function foldArrivalTitle(arrival: FoldArrival): string {
 }
 
 /**
- * Whether the compaction occupant is still LEAVING the row — true from the
- * unfold's first frame until the crossing that carries it ends ([B06]).
+ * Which face of the run the Z2 row is wearing, written on the row as
+ * `data-face` ([B05]):
  *
- * The fold flag flips on that first frame, and the occupant is derived from
- * it, so without this the run's face would be off the screen before the edge
- * had moved: Z2 is `position: sticky; bottom: 0` for the crossing's length, so
- * the row the user is watching travels DOWN with the frame and is in view the
- * whole way. The run's other face is not up yet either — the cover waits for
- * the same crossing to end — so what a one-frame unmount leaves behind is a
- * strip that shows nothing at all about a run that is still going.
+ *   - `showing`  — the card is folded and the row IS the run's face.
+ *   - `leaving`  — an unfold is in flight with motion on; the row fades over
+ *                  the crossing. With motion off the row stays `showing`
+ *                  until the cover has drawn, and then goes `behind`.
+ *   - `behind`   — the card is open and the cover is the face; the occupant
+ *                  stands in the tree, hidden, waiting for the next fold.
  *
- * Held rather than animated out of the tree: the row stays mounted and the CSS
- * fades it on the imposer's clock, which is the same clock its arrival used
- * and the same one the cover's `settle` exit reads.
+ * The compaction occupant is mounted for the run's whole length whichever
+ * face is up, and every transition between the three is an attribute change
+ * on one live element rather than a mount or an unmount. That is the whole
+ * point: the old shape derived the occupant from the fold flag and held a
+ * `departing` flag in state set from an effect, so the unfold's first
+ * committed render had NO occupant — the instruments painted for a frame, the
+ * occupant unmounted, and a beat later it mounted again wearing the departure
+ * with its arrival animation re-armed underneath ([F04]). An attribute
+ * written in a layout effect lands before that first paint, on the element
+ * that never left.
  *
- * Motion off and reduced motion never depart at all — there is no crossing to
- * ride, and the layout snap IS the settle — which is the predicate the card's
- * own fold effect and the cover's raise both use, for the reason all three
- * must agree about which folds are carried.
+ * Why the row travels: Z2 is `position: sticky; bottom: 0` for the crossing's
+ * length, so the row the user is watching rides DOWN with the frame and is in
+ * view the whole way, and the run's other face is not up yet either — the
+ * cover waits for the same crossing to end. `leaving` is what keeps the run
+ * on screen through that.
+ *
+ * Motion off and reduced motion never leave — there is no crossing to ride,
+ * and the layout snap IS the settle — which is the predicate the card's own
+ * fold effect and the cover's raise both use, for the reason all three must
+ * agree about which folds are carried.
+ *
+ * Written on the ROW rather than the occupant because the row is what hides
+ * the instruments, and the two have to move together: the cells stand down
+ * while a folded face is showing or leaving and come back the moment the
+ * face is `behind`, in the same attribute write. [L06]: appearance through the
+ * DOM, never React state.
  */
-function useCompactionDeparture(
+export type CompactionFace = "showing" | "leaving" | "behind";
+
+function useCompactionFace(
+  rowRef: React.RefObject<HTMLDivElement | null>,
   compacting: boolean,
   foldedShowing: boolean,
   paneFrameEl: HTMLElement | null,
-): boolean {
-  const [departing, setDeparting] = useState(false);
+): void {
   // The fold read one run behind, so an unfold can be told from a card that
   // was open all along. Only the unfold has a crossing to ride.
   const wasFoldedRef = useRef(foldedShowing);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const wasFolded = wasFoldedRef.current;
     wasFoldedRef.current = foldedShowing;
-    // Every path that is not "a compacting card just unfolded with motion on"
-    // CLEARS the flag rather than merely declining to set it. A departure left
-    // standing after its run settled would seat the occupant on the next
-    // `/compact`'s open card, which is the one place this row must never be.
-    if (
-      !wasFolded ||
-      foldedShowing ||
-      !compacting ||
-      paneFrameEl === null ||
-      !isTugMotionEnabled()
-    ) {
-      setDeparting(false);
+    const row = rowRef.current;
+    if (row === null) return;
+    if (!compacting) {
+      row.removeAttribute("data-face");
       return;
     }
-    setDeparting(true);
-    return afterFoldCrossing(paneFrameEl, () => {
-      setDeparting(false);
+    if (foldedShowing) {
+      row.setAttribute("data-face", "showing");
+      return;
+    }
+    // Every path that is not "a compacting card just unfolded" goes straight
+    // BEHIND rather than merely declining to leave. A `leaving` left standing
+    // would keep the instruments hidden under a cover that is already up.
+    if (!wasFolded || paneFrameEl === null) {
+      row.setAttribute("data-face", "behind");
+      return;
+    }
+    // An UNFOLD. With motion on the row `leaves`: it fades over the closing
+    // portion of the crossing on a window that outlasts the end event by the
+    // cover's rise. With motion off there is no crossing and nothing to fade
+    // — the departure would be instant and the row invisible — so the face
+    // stays `showing` instead: the row is simply the run's face until the
+    // cover is.
+    const motion = isTugMotionEnabled();
+    const heldFace = motion ? "leaving" : "showing";
+    if (motion) row.setAttribute("data-face", "leaving");
+    // `behind` waits for the departure to FINISH and then one more frame, not
+    // for the crossing to end: the row's fade is timed to run past the end
+    // event by the cover's rise ([B06]), so the two faces overlap for a beat,
+    // and a `behind` written at the end event would cut the row off the moment
+    // the cover began. The extra frame is for the cover itself — it is raised
+    // at the end event and mounts in a later commit, so a `behind` on the
+    // event's own frame gave the instruments one frame under no cover, which
+    // is [F04]'s flash on a different clock. The crossing's end is still the
+    // gate (it is when the cover is raised; with no crossing the probe fires on
+    // the next frame), and the animations are read off the live element then.
+    let cancelled = false;
+    let settleFrame: number | null = null;
+    const stopWaiting = afterFoldCrossing(paneFrameEl, () => {
+      const occupant = row.querySelector<HTMLElement>(
+        '[data-slot="session-telemetry-status-occupant"]',
+      );
+      const running = occupant?.getAnimations() ?? [];
+      void Promise.allSettled(running.map((a) => a.finished)).then(() => {
+        if (cancelled) return;
+        settleFrame = window.requestAnimationFrame(() => {
+          settleFrame = null;
+          if (cancelled) return;
+          if (row.getAttribute("data-face") !== heldFace) return;
+          row.setAttribute("data-face", "behind");
+        });
+      });
     });
-  }, [foldedShowing, compacting, paneFrameEl]);
-  return departing;
+    return () => {
+      cancelled = true;
+      stopWaiting();
+      if (settleFrame !== null) window.cancelAnimationFrame(settleFrame);
+    };
+  }, [rowRef, foldedShowing, compacting, paneFrameEl]);
 }
+
+/**
+ * The focus group the folded row's Cancel registers in, and the `group:order`
+ * key that addresses it. A constant rather than a `useId` because the session
+ * card's fold reclaim has to name it: while a run is in flight on a folded
+ * card, Return means Cancel ([B02]), and the card lands its Return-home here
+ * instead of on the fold control. Focus keys are scoped to the card's own
+ * focus context, so one name serves every card.
+ */
+export const COMPACTION_CANCEL_FOCUS_GROUP = "session-compaction-cancel";
+export const COMPACTION_CANCEL_FOCUS_KEY = `${COMPACTION_CANCEL_FOCUS_GROUP}:0`;
 
 /**
  * The compaction occupant — a folded card's Z2 row while a `/compact` runs.
@@ -714,14 +785,18 @@ function useCompactionDeparture(
  */
 function CompactionOccupant({
   cardId,
-  leaving,
+  showing,
 }: {
   cardId: string | null;
-  leaving: boolean;
+  /** Whether the row is the run's showing face — the card is folded. */
+  showing: boolean;
 }): React.ReactElement {
   const rootRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
-    if (cardId === null) return;
+    // Only the SHOWING face files for the refusal flash: the occupant is
+    // mounted behind the cover too ([B05]), and a face nobody can see must not
+    // answer for the cover's refusal.
+    if (cardId === null || !showing) return;
     return compactionProgressStore.registerRefusalNudge(cardId, () => {
       const el = rootRef.current;
       if (el === null) return;
@@ -729,56 +804,123 @@ function CompactionOccupant({
       void el.offsetWidth;
       el.setAttribute("data-refused", "");
     });
-  }, [cardId]);
+  }, [cardId, showing]);
+  // The row's Cancel is the run's live default while the row is the run's
+  // showing face — seeded onto the key view exactly as the cover's Cancel is
+  // ([B02]). The filled fill and the double ring both key on the focus
+  // manager's projection, which stamps them only when the key view is not
+  // some other button; a fold is performed by clicking a button, so without
+  // this seed the fold control holds the key view when the row appears and
+  // the row's Cancel is refused the ring ([F02]). Seeding makes the same
+  // claim the sheet makes: Return on a compacting card means Cancel. Not
+  // while the row is leaving — a face on its way out is nobody's default.
+  //
+  // The seed is one-shot and a child's, so on the fold that brings this row
+  // up it runs BEFORE the card's own fold effect reclaims the keyboard. That
+  // reclaim is why the key is a stable constant rather than a `useId`: the
+  // card reads {@link COMPACTION_CANCEL_FOCUS_KEY} and lands Return here
+  // rather than on the fold control while a run is in flight, so the two
+  // agree about where a folded compacting card's Return lives.
+  //
+  // And the seed alone is a position, not a paint. The ring paints only while
+  // keyboard-focus mode is engaged, and what engages it for the cover is that
+  // the cover is a TRAPPED focus mode — a surface appearing, in the engine's
+  // derivation. The row is the same surface on one line, so it pushes the
+  // same trap for as long as it is the run's showing face: Tab is scoped to
+  // Cancel as it is under the cover, the ring paints without the user
+  // asking, and Escape flashes the run's refusal exactly as the cover's
+  // Escape does — a compaction has no keyboard exit on either face. Neither
+  // the trap nor the seed stands while the row is leaving or behind the
+  // cover: a face on its way out is nobody's default, and behind the cover
+  // the cover's own trap and seed are the ones in force.
+  const { FocusModeScope } = useFocusTrap({
+    active: showing,
+    onEscapeDismiss: () => {
+      if (cardId !== null) compactionProgressStore.refuse(cardId);
+    },
+  });
+  // Seeded on every rising edge of `showing`, not once. `useSeedKeyView` is
+  // one-shot per mount, which was the whole of it while the occupant mounted
+  // per fold; now that it stands for the run's length ([B05]) a one-shot seed
+  // would claim the key view on the FIRST fold of a run and on none of the
+  // folds after it, and the cover — which does still mount per raise — would
+  // go on re-seeding its own. The card's fold reclaim covers the same ground
+  // for a first-responder card; this covers a card folding in the background,
+  // whose reclaim stands down by design.
+  const focusManager = useContext(FocusManagerContext);
+  useLayoutEffect(() => {
+    if (!showing || focusManager === null) return;
+    focusManager.place(
+      cardId,
+      { kind: "focus-key", focusKey: COMPACTION_CANCEL_FOCUS_KEY },
+      { modality: "keyboard" },
+    );
+  }, [showing, focusManager, cardId]);
   return (
     <div
       ref={rootRef}
       className="session-telemetry-status-occupant"
       data-slot="session-telemetry-status-occupant"
       data-occupant="compaction"
-      data-leaving={leaving ? "" : undefined}
       role="status"
     >
-      {/* The sheet header's icon: the same `Archive` the cover is raised with,
-          in a box the CSS sizes to the header's own icon column. */}
-      <span className="session-telemetry-occupant-icon" aria-hidden>
-        <Archive size="100%" />
-      </span>
-      {/* Two titles, one seat. The running title is the sheet's own title and
-          the refusal is what replaces it for the flash's length — both mounted,
-          with CSS choosing between them off `data-refused`, because a swap
-          through React state would be an appearance change through the wrong
-          channel ([L06]) and would make the flash a re-render rather than an
-          animation. */}
-      <span className="session-telemetry-occupant-title" data-title-swap>
-        <span data-occupant-title="running">Compacting</span>
-        <span data-occupant-title="refused">{COMPACTION_REFUSAL_TEXT}</span>
-      </span>
-      {/* The sheet's barber pole, at the sheet's 8px, filling the line between
-          the title and Cancel the way it fills the sheet's width. */}
-      <span className="session-telemetry-occupant-bar" aria-hidden>
-        <TugProgressIndicator
-          variant="bar"
-          size={8}
-          state="running"
-          role="inherit"
-          aria-hidden
-        />
+      {/* The mark, the title and the bar as ONE group, centred in the row's
+          full width by the CSS grid ([B03]); Cancel rides the trailing edge
+          on its own. The wrapper is what gives the three a width to centre. */}
+      <span
+        className="session-telemetry-occupant-group"
+        data-slot="session-telemetry-occupant-group"
+      >
+        {/* The sheet header's icon: the same `Archive` the cover is raised
+            with, in a box the CSS sizes to the header's own icon column. */}
+        <span className="session-telemetry-occupant-icon" aria-hidden>
+          <Archive size="100%" />
+        </span>
+        {/* Two titles, one seat. The running title is the sheet's own title
+            and the refusal is what replaces it for the flash's length — both
+            mounted, with CSS choosing between them off `data-refused`, because
+            a swap through React state would be an appearance change through
+            the wrong channel ([L06]) and would make the flash a re-render
+            rather than an animation. */}
+        <span className="session-telemetry-occupant-title" data-title-swap>
+          <span data-occupant-title="running">Compacting</span>
+          <span data-occupant-title="refused">{COMPACTION_REFUSAL_TEXT}</span>
+        </span>
+        {/* The sheet's barber pole, at the sheet's 8px, in the sheet's own
+            colour: no role, so `running` resolves to `action` — the theme's
+            key blue — exactly as the sheet's does. An `inherit` here painted
+            the bar in the row's prose colour, which nobody chose ([B01]). The
+            CSS gives it a fixed width so the group has a width to centre
+            ([B03], [B04]). */}
+        <span className="session-telemetry-occupant-bar" aria-hidden>
+          <TugProgressIndicator
+            variant="bar"
+            size={8}
+            state="running"
+            aria-hidden
+          />
+        </span>
       </span>
       {/* The sheet's Cancel, exactly: `sm`, filled primary, wearing the
-          persistent default ring the sheet's does. */}
-      <TugPushButton
-        className="session-telemetry-occupant-action"
-        emphasis="primary"
-        role="action"
-        size="sm"
-        persistentDefaultRing
-        onClick={() => {
-          if (cardId !== null) compactionProgressStore.requestCancel(cardId);
-        }}
-      >
-        Cancel
-      </TugPushButton>
+          persistent default ring the sheet's does, inside the row's own
+          trapped mode so it is the one stop the walk has while the run is
+          folded. */}
+      <FocusModeScope>
+        <TugPushButton
+          className="session-telemetry-occupant-action"
+          emphasis="primary"
+          role="action"
+          size="sm"
+          focusGroup={COMPACTION_CANCEL_FOCUS_GROUP}
+          focusOrder={0}
+          persistentDefaultRing
+          onClick={() => {
+            if (cardId !== null) compactionProgressStore.requestCancel(cardId);
+          }}
+        >
+          Cancel
+        </TugPushButton>
+      </FocusModeScope>
     </div>
   );
 }
@@ -940,23 +1082,20 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // A compaction HOLDS the card — nothing else can arrive under it — so it
   // wins the row without the two having to be ordered against each other.
   //
-  // On the way OUT the compaction outlives the fold flag by one crossing
-  // ([B06]): the flag flips on the unfold's first frame and the row is in view
-  // for the whole sweep, so the occupant stays seated and fades as the edge
-  // comes down. Nothing else here departs — an arrival is a notice the card
-  // was already folded for, on nobody's clock.
-  const departing = useCompactionDeparture(
-    compacting,
-    foldedShowing,
-    paneFrameEl,
-  );
-  const occupant: FoldOccupant | null = departing
+  // And it holds the row for the run's whole length, folded or not ([B05]):
+  // the occupant is in the tree from the run's first frame to its last, and
+  // WHICH face is up — the row, or the cover it stands behind — is
+  // `data-face` on the row, written by `useCompactionFace` below rather than
+  // derived here. So an unfold changes an attribute on a live element; it
+  // never unmounts the run's face and mounts it again ([F04]). An arrival is
+  // different: a notice the card was already folded for, on nobody's clock,
+  // so it is simply present while the card is folded.
+  const occupant: FoldOccupant | null = compacting
     ? "compaction"
-    : !foldedShowing
-      ? null
-      : compacting
-        ? "compaction"
-        : arrival;
+    : foldedShowing
+      ? arrival
+      : null;
+  useCompactionFace(rowRef, compacting, foldedShowing, paneFrameEl);
 
   // Command-span enhancement for the `/btw` answer markdown — the same known-
   // command gate the main transcript passes to its `TugMarkdownBlock`.
@@ -1573,7 +1712,10 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       data-replay-inert={replayInert ? "true" : undefined}
       // The occupant hides the cells through CSS rather than unmounting them:
       // the five-cell row is unconditionally mounted ([L26]), and a fold is no
-      // more a reason to break that than a phase transition is. [L06].
+      // more a reason to break that than a phase transition is. [L06]. For the
+      // compaction the hiding also reads `data-face` (written imperatively by
+      // `useCompactionFace`): the cells stand while the run's face is
+      // `behind` the cover, and stand down while it is showing or leaving.
       data-occupant={occupant ?? undefined}
     >
       {/* The one thing a folded card has to say, in place of its instruments
@@ -1587,7 +1729,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           (the cover declares `inhabit` and raises no panel), so without it the
           one way to stop a compaction would be to unfold first. */}
       {occupant === "compaction" ? (
-        <CompactionOccupant cardId={cardId} leaving={departing} />
+        <CompactionOccupant cardId={cardId} showing={foldedShowing} />
       ) : null}
       {/* The deferred arrival's notice ([B03]/[B05]) — the inline-dialog
           vocabulary at row scale: the dialog's own mark, its own tone, a

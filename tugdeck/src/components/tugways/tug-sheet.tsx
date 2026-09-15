@@ -103,6 +103,7 @@ import { raisePaneAbovePeers } from "@/components/tugways/pane-raise";
 import { isCardFolded, unfoldCardForBiddenSurface } from "@/lib/card-fold";
 import { CardIdContext } from "@/lib/card-id-context";
 import { readSettleMs } from "@/lib/layout-imposer";
+import { getTugTiming, isTugMotionEnabled } from "@/components/tugways/scale-timing";
 import { IMPOSER_SETTLE_END } from "@/lib/settle-notice";
 import { refuseCardModalHold } from "@/lib/card-modal-hold-store";
 import { useSheetLifecycle } from "@/lib/sheet-lifecycle";
@@ -315,6 +316,17 @@ const SHEET_ROLL_PX = 28;
  * the row" is a short one from a panel that is already resting on it.
  */
 const SHEET_SETTLE_DROP_PX = 48;
+
+/**
+ * Where the `settle` handoff splits the imposer's crossing, as a fraction of
+ * it ([B06]). The Z2 row's arrival waits out this much of the window and
+ * fades up over the rest (`session-card-telemetry-renderers.css`); the cover's
+ * exit holds for the same portion and lowers over the rest, so the two faces
+ * are on screen together through the closing part. One number, read by the
+ * panel, its scrim, and — as a literal the stylesheet cannot import — the
+ * row's own keyframe delay; change one and change the other.
+ */
+const SETTLE_HANDOFF_SPLIT = 0.55;
 
 const SHEET_PRESENTATION_MOTION: Record<TugSheetPresentation, SheetPresentationMotion> = {
   // Empty both ways. Nothing reads these — the enter and exit effects return
@@ -1339,6 +1351,12 @@ export function TugSheetContent({
   // Presence: keep the portal mounted during the exit animation.
   // `mounted` becomes true when open goes true, and false only after the exit animation completes.
   const [mounted, setMounted] = useState(false);
+  // `open` as a ref, for the cleanups that have to tell a CLOSE from an
+  // unmount-while-open. Written during render, so a cleanup running for an
+  // `open` transition reads the new value and one running for a deletion
+  // reads the old.
+  const openRef = useRef(open);
+  openRef.current = open;
   const sheetContentRef = useRef<HTMLDivElement | null>(null);
   const clipRef = useRef<HTMLDivElement | null>(null);
   // The shade's own scrim element ([P17]); the enter/exit effects fade it in
@@ -1984,9 +2002,24 @@ export function TugSheetContent({
         : SHEET_PRESENTATION_MOTION[presentation];
     // The shade fades from its resting alpha to transparent as it rolls out, so
     // it dismisses as a fade rather than popping when the DOM unmounts.
+    //
+    // The `settle` exit runs over the CLOSING portion of the crossing rather
+    // than from its first frame: the panel holds still for the opening part
+    // — the card's edge is travelling and the Z2 row's own arrival is waiting
+    // out the same portion — and then lowers over the closing part, while the
+    // row is fading up underneath it. Both faces on screen for a beat is the
+    // handoff; a panel that had finished leaving before the row began was a
+    // window with neither. The hold is a keyframe at the split rather than a
+    // delay, so the group still owns one duration and one finished promise.
     const exitFrames = isShade
       ? withShadeOpacity(motion.exit, readShadeAlpha(contentEl), 0)
-      : motion.exit;
+      : presentation === "settle"
+        ? [
+            { ...motion.exit[0], offset: 0 },
+            { ...motion.exit[0], offset: SETTLE_HANDOFF_SPLIT },
+            { ...motion.exit[1], offset: 1 },
+          ]
+        : motion.exit;
     g.animate(contentEl, exitFrames, {
       key: "sheet-content",
       easing: "ease-in",
@@ -2022,7 +2055,38 @@ export function TugSheetContent({
     // raising the whole-pane scrim would dim the live prompt entry.
     if (!open || presentation === "shade") return;
     paneScrim.show();
-    return () => paneScrim.hide();
+    // The `settle` cover's scrim rides the same closing window as its panel
+    // ([B07]): the dimming holds through the crossing's opening portion and
+    // lowers with the panel rather than dropping on the fold's first frame,
+    // which read as the room going bright a beat before anything moved. The
+    // registry is a count, so a hide that lands late is still one hide.
+    return () => {
+      // The panel is read HERE rather than at setup: this effect runs on the
+      // commit where `open` goes true, and on that commit the portal is not in
+      // the DOM yet — `mounted` is promoted by an effect above and the content
+      // renders one commit later, so a ref read at setup is null for the whole
+      // of the open and the hold below never runs at all. At cleanup the panel
+      // is still mounted (the exit animation owns its teardown), which is
+      // exactly when the duration is wanted.
+      //
+      // And only a CLOSE holds. An unmount-while-open (a card dragged to
+      // another pane) takes the panel away in the same frame, so a scrim
+      // outliving it would dim a pane with nothing on it: there is no handoff
+      // to ride where there is no exit.
+      const contentEl = sheetContentRef.current;
+      if (
+        presentation === "settle" &&
+        !openRef.current &&
+        contentEl !== null &&
+        isTugMotionEnabled()
+      ) {
+        const holdMs =
+          readSettleMs(contentEl) * getTugTiming() * SETTLE_HANDOFF_SPLIT;
+        window.setTimeout(() => paneScrim.hide(), holdMs);
+        return;
+      }
+      paneScrim.hide();
+    };
   }, [open, paneScrim, presentation]);
 
   // And raise the host pane itself above its peers for as long as the panel is

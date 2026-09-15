@@ -76,6 +76,7 @@ import {
 import type { ArcJoinActions } from "./session-changes/session-changes-arc-join";
 import { SessionHistoryView } from "./session-history/session-history-view";
 import { SessionTelemetryStatusRow } from "./session-card-telemetry-renderers";
+import { COMPACTION_CANCEL_FOCUS_KEY } from "./session-card-telemetry-renderers";
 import type { SessionTelemetryStatusRowHandle } from "./session-card-telemetry-renderers";
 import { formatPathChipText } from "../chrome/path-chip-format";
 import {
@@ -2382,9 +2383,22 @@ export function SessionCardBody({
     // cycle (a slash-command picker, a banner).
     if (cycle.cycling) return;
     if (folded && focusManager !== null) {
+      // Folded, Return is the fold control's — unless a `/compact` is in
+      // flight, in which case the Z2 row is the run's face and its Cancel is
+      // the card's live default, exactly as the cover's Cancel is on the open
+      // card ([B02]). The row seeds that itself when it mounts, but this
+      // reclaim runs after the row's seed on the fold that brings the row up,
+      // so it has to make the same choice or it would take the mark straight
+      // back. Read off the store at the moment of the reclaim: this is an
+      // imperative placement, not render state.
+      const run = compactionProgressStore.getFor(cardId);
+      const compacting = run !== null && run.outcome === null;
       focusManager.place(
         cardId,
-        { kind: "focus-key", focusKey: FOLD_FOCUS_KEY },
+        {
+          kind: "focus-key",
+          focusKey: compacting ? COMPACTION_CANCEL_FOCUS_KEY : FOLD_FOCUS_KEY,
+        },
         { modality: "keyboard" },
       );
       return;

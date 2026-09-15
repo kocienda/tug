@@ -149,7 +149,19 @@
    unmounted, because the row is unconditionally mounted ([L26]) and this is
    an appearance change ([L06]). They come back the moment the occupant
    clears. */
-.session-telemetry-status-row[data-occupant] [data-slot="tug-status-cell"] {
+.session-telemetry-status-row[data-occupant]:not([data-face="behind"])
+  [data-slot="tug-status-cell"] {
+  display: none;
+}
+
+/* The compaction occupant BEHIND the cover ([B05]): the card is open, the
+   cover is the run's face, and this one stands in the tree unseen so the next
+   fold changes an attribute rather than mounting it. `display: none` rather
+   than `visibility`, so the arrival animation below starts from its first
+   frame when the face comes back to `showing` — a hidden-but-displayed
+   element would have finished arriving behind the cover. */
+.session-telemetry-status-row[data-face="behind"]
+  .session-telemetry-status-occupant[data-occupant="compaction"] {
   display: none;
 }
 
@@ -192,19 +204,37 @@
    bar, Cancel** — and every piece wears the sheet's own clothes rather than a
    row-scale rendering of them. The icon and title are the sheet header's
    (`tug-sheet.css`, `styles/tugx-header.css`): its icon column, its muted
-   icon tint, its title size and weight. The bar is the sheet's 8px track and
-   takes the whole line between the title and the button, as it takes the
-   sheet's whole width. Cancel is the sheet's `sm` primary button with the
-   sheet actions' minimum width. The arrival's notice above keeps its own
-   centred mark-title-action group; this one is a flex line with the bar as
-   the flexing member. */
+   icon tint, its title size and weight. The bar is the sheet's 8px track at a
+   fixed width (`--tugx-z2-occupant-bar-width`, Z2 TUNING). Cancel is the
+   sheet's `sm` primary button with the sheet actions' minimum width.
+
+   The line is a `1fr auto 1fr` grid ([B03]): the mark, title and bar sit as
+   ONE group in the middle column, so the group is centred in the row's full
+   width rather than in whatever is left of Cancel; Cancel rides the third
+   column's trailing edge. The two flanking `1fr` columns are what make the
+   centre the row's centre — a flex line could not do it, because a group
+   cannot be centred while one member flexes and the action sits beside it
+   ([F03]). The arrival's notice above keeps its own centred
+   mark-title-action flex group; this grid is scoped to the compaction. */
 .session-telemetry-status-occupant[data-occupant="compaction"] {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  justify-content: stretch;
+  gap: var(--tugx-header-gap-one);
+  padding-inline: var(--tugx-sheet-space-a);
+}
+
+/* The centred group: the mark, the title and the bar, as one flex line in
+   the grid's middle column. `display: contents` would lose the gap between
+   them, so it is a real box. */
+.session-telemetry-occupant-group {
+  grid-column: 2;
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: flex-start;
   gap: var(--tugx-header-gap-one);
-  padding-inline: var(--tugx-sheet-space-a);
+  min-width: 0;
 }
 
 /* The sheet header's icon box, verbatim: the box owns the size and the svg
@@ -236,15 +266,15 @@
   color: var(--tugx-sheet-header-fg, var(--tug7-element-global-text-normal-default-rest));
 }
 
-/* The barber pole's seat: the flexing member of the line. The bar's track has
-   no intrinsic width — it fills whatever it is given — and here it is given
-   everything between the title and Cancel, the way the sheet gives it the
-   whole panel width. */
+/* The barber pole's seat, at a fixed width ([B04]). The bar's track has no
+   intrinsic width — it fills whatever it is given — and a group cannot be
+   centred while one member flexes, so the seat is given one number, tuned
+   in the built app from the Z2 TUNING block in `session-card.css`. */
 .session-telemetry-occupant-bar {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  min-width: 48px;
+  width: var(--tugx-z2-occupant-bar-width, 160px);
 }
 
 .session-telemetry-occupant-bar > * {
@@ -256,7 +286,8 @@
    takes below. */
 .session-telemetry-status-occupant[data-occupant="compaction"]
   .session-telemetry-occupant-action.tug-push-button {
-  flex: 0 0 auto;
+  grid-column: 3;
+  justify-self: end;
   min-width: 5rem;
   padding-block: 0;
 }
@@ -389,9 +420,15 @@
    would time it against a crossing that is not happening. */
 .session-telemetry-status-occupant[data-occupant="compaction"] {
   animation: z2-occupant-arrive
-    calc(var(--tugx-imposer-settle-duration, 400ms) * var(--tug-timing, 1) * 0.45)
+    calc(
+      var(--tugx-imposer-settle-duration, 400ms) * var(--tug-timing, 1) *
+        var(--tug-motion, 1) * 0.45
+    )
     ease-out
-    calc(var(--tugx-imposer-settle-duration, 400ms) * var(--tug-timing, 1) * 0.55)
+    calc(
+      var(--tugx-imposer-settle-duration, 400ms) * var(--tug-timing, 1) *
+        var(--tug-motion, 1) * 0.55
+    )
     both;
 }
 
@@ -409,21 +446,37 @@
 /* And the DEPARTURE, on the unfold ([B06]) — the arrival's mirror, and the
    other half of the same handoff.
 
-   The fold flag flips on the unfold's first frame, so the row is derived out
-   of existence before the edge has moved; the renderer holds the occupant
-   seated for the crossing's length instead (`useCompactionDeparture`) and
-   marks it `data-leaving`, and this is what the hold is for. It fades and
-   sinks over the OPENING part of the window — where the arrival waited — so
-   the run's face leaves as the edge sweeps down and the seat is empty by the
-   time the cover rises out of it at the crossing's end.
+   The fold flag flips on the unfold's first frame, and the occupant stays
+   mounted through it ([B05]); what changes is the row's `data-face`, which
+   `useCompactionFace` writes as `leaving` for the crossing's length and
+   `behind` once this animation has finished. The row HOLDS full opacity
+   through the opening part of the window — the edge is sweeping down and the
+   run has no other face yet — and fades over the closing part, on a window
+   that runs PAST the crossing's end by the cover's own rise: the cover is
+   raised at the end event, and the row is still on screen while it rises,
+   so the two faces overlap for a beat rather than leaving a gap between them
+   ([B06], [B07]). A departure that finished before the cover began was the
+   empty window [F05] describes.
 
-   Two attribute selectors, so this outranks the arrival rule the same element
-   is still carrying: a departing row has already finished arriving, and the
-   `both` fill on that animation would otherwise hold it opaque. */
-.session-telemetry-status-occupant[data-occupant="compaction"][data-leaving] {
+   The row's attribute plus the occupant's, so this outranks the arrival rule
+   the same element is still carrying: a departing row has already finished
+   arriving, and the `both` fill on that animation would otherwise hold it
+   opaque. */
+.session-telemetry-status-row[data-face="leaving"]
+  .session-telemetry-status-occupant[data-occupant="compaction"] {
   animation: z2-occupant-depart
-    calc(var(--tugx-imposer-settle-duration, 400ms) * var(--tug-timing, 1) * 0.45)
+    calc(
+      (
+          var(--tugx-imposer-settle-duration, 400ms) * var(--tug-timing, 1) * 0.45 +
+            var(--tug-motion-duration-moderate, 200ms)
+        ) *
+        var(--tug-motion, 1)
+    )
     ease-in
+    calc(
+      var(--tugx-imposer-settle-duration, 400ms) * var(--tug-timing, 1) *
+        var(--tug-motion, 1) * 0.55
+    )
     both;
 }
 
@@ -439,12 +492,18 @@
 }
 
 /* Reduced motion and motion off snap, as the fold itself does — the row is
-   simply there when the crossing ends. Both forms, because the app's motion
-   switch is a body attribute rather than a media query and either can be the
-   one in force. */
+   simply there when the crossing ends. Three forms, because three things can
+   be the one in force: the media query, the body attribute the app mirrors it
+   onto, and the `--tug-motion` toggle the app's own setting writes. The toggle
+   is a factor on every clock above rather than a rule here, so a `0` makes
+   each animation instant and its `both` fill lands on the resting frame — the
+   arrival at full opacity — on the same frame the JS side, which reads the
+   same token, decides there is no crossing to ride. A delay that survived the
+   toggle held the row at opacity 0 while the cover had already gone. */
 @media (prefers-reduced-motion: reduce) {
   .session-telemetry-status-occupant[data-occupant="compaction"],
-  .session-telemetry-status-occupant[data-occupant="compaction"][data-leaving] {
+  .session-telemetry-status-row[data-face="leaving"]
+    .session-telemetry-status-occupant[data-occupant="compaction"] {
     animation: none;
   }
 }
@@ -452,7 +511,8 @@
 body[data-tug-motion="off"]
   .session-telemetry-status-occupant[data-occupant="compaction"],
 body[data-tug-motion="off"]
-  .session-telemetry-status-occupant[data-occupant="compaction"][data-leaving] {
+  .session-telemetry-status-row[data-face="leaving"]
+  .session-telemetry-status-occupant[data-occupant="compaction"] {
   animation: none;
 }
 
