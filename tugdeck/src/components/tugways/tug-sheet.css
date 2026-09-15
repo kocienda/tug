@@ -443,6 +443,10 @@ body {
  *                 its EXIT differs (a longer drop, on the imposer's clock),
  *                 and an exit's last frame is never a resting state the panel
  *                 is seen in: the sheet unmounts on it.
+ *   - none:       the presented geometry itself. The one tier whose resting
+ *                 state is not an "off" position, because it has no entrance
+ *                 to be off for: the panel is carried in by whatever it stands
+ *                 in, and no JS animation ever holds it.
  *
  * `data-tug-sheet-presentation` is always set by TugSheetContent, so
  * the `top` rule below is the effective default. */
@@ -466,6 +470,16 @@ body {
 .tug-sheet-content[data-tug-sheet-presentation="scale-fade"] {
   transform: scale(0.96);
   opacity: 0;
+}
+
+/* The invariant the block above states for every tier, written out: a `none`
+   panel rests in the presented geometry, because it is presented the moment it
+   is in the DOM. Declared rather than left to the cascade so the rule is
+   visible beside the others — and so a future default that moved the panel
+   would have to take this one out on purpose. */
+.tug-sheet-content[data-tug-sheet-presentation="none"] {
+  transform: none;
+  opacity: 1;
 }
 
 /* ---- Reduced motion ----

@@ -244,6 +244,13 @@ export type DeckTraceEventShape = {
       source: "completion" | "sweep" | "unmount";
     }
   | {
+      kind: "opening-bid-mismatch";
+      memberId: string;
+      /** The height the arrival commit bid, and the panel's own first reading. */
+      bid: number;
+      report: number;
+    }
+  | {
       kind: "session-lifecycle";
       event: string;
       fields: Record<string, unknown>;
@@ -286,6 +293,7 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "settle-arm",
   "settle-retarget",
   "settle-release",
+  "opening-bid-mismatch",
   "session-lifecycle",
 ] as const;
 export type HarnessKnownTraceKind = (typeof HARNESS_KNOWN_TRACE_KINDS)[number];
@@ -539,6 +547,8 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return `settle-retarget ${e.mode} beat=${fmt(e.beat)} pane=${fmt(e.paneId)}`;
     case "settle-release":
       return `settle-release ${e.source}`;
+    case "opening-bid-mismatch":
+      return `opening-bid-mismatch ${fmt(e.memberId)} bid=${e.bid} report=${e.report} (${e.report - e.bid >= 0 ? "+" : ""}${e.report - e.bid})`;
     case "session-lifecycle":
       return `session-lifecycle ${fmt(e.event)} ${Object.entries(e.fields)
         .map(([k, v]) => `${k}=${fmt(v)}`)

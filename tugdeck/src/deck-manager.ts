@@ -49,11 +49,22 @@ import {
   isSidebarCard,
   takesContentWidth,
 } from "./card-registry";
+import type { OpeningForm } from "./card-registry";
 import { CARDS_CARD_ID } from "./lib/cards-card-id";
 import { ARCS_CARD_ID } from "./lib/arcs-card-id";
 import { LAYOUT_CARD_ID } from "./lib/layout-card-id";
 import { TRIPWIRES_CARD_ID } from "./lib/tripwires-card-id";
-import { noteOpeningBidMember } from "./lib/opening-bid";
+import {
+  clearOpeningBidReport,
+  noteOpeningBidMember,
+  openingBidReportedFor,
+} from "./lib/opening-bid";
+import { memberFloorForSheetPanel } from "./lib/sheet-reservation";
+import { MeasuringRenderProvider } from "./lib/measuring-render";
+import {
+  TugSheetPanel,
+  sheetPanelNaturalHeight,
+} from "./components/tugways/tug-sheet";
 import {
   bullseyePaneIdOf,
   columnAllocationOf,
@@ -937,6 +948,35 @@ export class DeckManager implements IDeckManagerStore {
   private reactRoot: Root | null = null;
 
   /**
+   * The MEASURING layer ([P03]) — a second React root over a detached host,
+   * created on the first {@link measureOpeningForm} and torn down in
+   * {@link destroy}.
+   *
+   * It is not a view and it breaks no rule about one root. [L01] forbids
+   * re-rendering THE DECK's root from outside, because deck state flows
+   * through subscribable stores; this root renders no deck state, subscribes
+   * to nothing, and publishes nothing. It is a ruler. Its whole life is two
+   * synchronous renders per card creation — the form, then `null`.
+   *
+   * A second root is what makes the measure synchronous, and synchronous is
+   * the only property that matters here: `root.render` alone lands its commit
+   * later, which is exactly the frame-late number this arrangement removes.
+   *
+   * The host hangs off `this.container` rather than `document.body` so theme
+   * tokens, `--tugx-*` pane variables and font settings resolve for it exactly
+   * as they do for a live pane — a ruler calibrated in another room measures
+   * the wrong thing.
+   */
+  private measuringHost: HTMLElement | null = null;
+  private measuringRoot: Root | null = null;
+
+  /**
+   * How long the last opening-form measure took, in milliseconds, or `null`
+   * when none has been taken. Read through the diag surface ([Risk R02]).
+   */
+  private lastMeasureMs: number | null = null;
+
+  /**
    * The two place runs the last committed imposition was allocated against —
    * `null` on each until the first retune measures it.
    *
@@ -1641,6 +1681,116 @@ export class DeckManager implements IDeckManagerStore {
     return this.usageStore;
   }
 
+  /**
+   * Render a card type's opening form off-screen at a given width and return
+   * the panel's natural height, or `null` if it could not be measured
+   * ([Spec S03]).
+   *
+   * This is the whole of [P02]: a card whose card at the instant it opens is a
+   * sheet has a height that nothing in the registration can know — it depends
+   * on what the list has in it, how the path wraps, whether a notice is up —
+   * and the deck needs that height BEFORE it commits the pane, because a
+   * number arriving a commit later re-targets a settle already in flight. So
+   * the deck renders the form, reads it, throws it away, and writes the number
+   * into the commit that appends the pane.
+   *
+   * There is NO fallback. A manager with no DOM, a form that renders no panel,
+   * a `flushSync` that could not run — each returns `null`, and the card opens
+   * at its ordinary policy. A guessed height is worse than none: it would be
+   * wrong in a way the first live report then has to argue with.
+   *
+   * @param form the card type's opening form, from its registration
+   * @param widthPx the width the pane will actually stand at
+   */
+  private measureOpeningForm(
+    form: OpeningForm,
+    widthPx: number,
+  ): number | null {
+    if (typeof window === "undefined") return null;
+    const container = this.container as HTMLElement | undefined;
+    if (!container) return null;
+
+    if (this.measuringHost === null) {
+      const host = document.createElement("div");
+      // Laid out (so `scrollHeight` is real) and otherwise absent: off-screen
+      // rather than `display: none`, hidden rather than transparent, and
+      // announced to nobody.
+      host.style.cssText =
+        "position:absolute;left:-10000px;top:0;visibility:hidden;pointer-events:none;contain:layout;";
+      host.setAttribute("aria-hidden", "true");
+      host.setAttribute("data-tug-measuring-host", "");
+      container.appendChild(host);
+      this.measuringHost = host;
+      this.measuringRoot = createRoot(host);
+    }
+    const host = this.measuringHost;
+    const root = this.measuringRoot;
+    if (host === null || root === null) return null;
+
+    host.style.width = `${widthPx}px`;
+
+    const startedAt = performance.now();
+    try {
+      flushSync(() => {
+        root.render(
+          React.createElement(
+            MeasuringRenderProvider,
+            null,
+            // The clip is reproduced because the panel's percentage caps
+            // resolve against it, and it carries NO `data-vertical-anchor`
+            // because the picker's live clip is top-anchored — the bottom
+            // anchor's rule gives the panel a bottom margin the top-anchored
+            // default does not, and this measure counts both margins, so a
+            // mis-set anchor is a flat 12px error. The Radix focus-scope div
+            // between clip and panel needs no reproduction for the opposite
+            // reason: `.tug-sheet-focus-scope` is `display: contents`, so it
+            // is not a box in either tree.
+            React.createElement(
+              "div",
+              { className: "tug-sheet-clip" },
+              React.createElement(TugSheetPanel, {
+                title: form.title,
+                icon: form.icon,
+                displayWidth: form.displayWidth,
+                children: form.panel,
+              }),
+            ),
+          ),
+        );
+      });
+    } catch (err) {
+      // [Risk R01]: `flushSync` refuses to run inside an existing React render
+      // or commit. `addCard` is called from event handlers and from the
+      // lifecycle cascade, never from a render — but a caller that broke that
+      // would silently get an asynchronous render and a `null` height, which
+      // is the wrong way to learn about it.
+      if (import.meta.env?.DEV) {
+        console.error(
+          "[DeckManager] measureOpeningForm: flushSync refused — the opening " +
+            "form was not measured, and this card will open at its ordinary " +
+            "policy. addCard must not be called from inside a React render.",
+          err,
+        );
+      }
+      return null;
+    }
+
+    const panel = host.querySelector<HTMLElement>('[data-slot="tug-sheet"]');
+    const height = panel === null ? null : sheetPanelNaturalHeight(panel);
+
+    flushSync(() => {
+      root.render(null);
+    });
+
+    this.lastMeasureMs = performance.now() - startedAt;
+    return height;
+  }
+
+  /** The last opening-form measure's duration in ms, for the diag surface. */
+  getLastOpeningFormMeasureMs(): number | null {
+    return this.lastMeasureMs;
+  }
+
   // ---- Card / stack management () ----
 
   /**
@@ -1787,6 +1937,41 @@ export class DeckManager implements IDeckManagerStore {
         : {}),
     };
 
+    // The opening bid, MEASURED before the commit ([P02], [Spec S01]).
+    //
+    // A card type whose card at the instant it opens is a sheet declares that
+    // form; the deck renders it off-screen at the width this pane is about to
+    // stand at, reads the panel's natural height, and carries the number into
+    // the commit below. Before the commit and not after, because a bid written
+    // a commit later re-targets a settle already in flight — the judder this
+    // arrangement removes.
+    //
+    // The width is `paneRenderWidthOf`'s own rule over the pane about to be
+    // appended, CALLED rather than re-derived so the two cannot disagree. The
+    // splice adds the seeded CARDS as well as the pane because that selector
+    // resolves a pane's stack by filtering `state.cards` on `pane.cardIds`,
+    // and none of them are in `state.cards` until the commit runs.
+    //
+    // The deck names no `componentId` and imports nothing from `cards/`: this
+    // is a card type declaring a form and the deck reading it generically.
+    const openingForm: OpeningForm | null =
+      registration.openingForm?.(firstCardId) ?? null;
+    let openingBid: number | null = null;
+    if (openingForm !== null) {
+      const measureWidth = paneRenderWidthOf(
+        {
+          ...this.deckState,
+          cards: [...this.deckState.cards, ...seededCards],
+          panes: [...this.deckState.panes, win],
+        },
+        win,
+      );
+      const panelHeight = this.measureOpeningForm(openingForm, measureWidth);
+      if (panelHeight !== null) {
+        openingBid = memberFloorForSheetPanel(panelHeight);
+      }
+    }
+
     // Single-commit flip (transition 4). `_flipFirstResponder` reads
     // `oldFR` internally BEFORE running the commit, so it fires the
     // correct deactivate pair even though the commit puts
@@ -1796,23 +1981,12 @@ export class DeckManager implements IDeckManagerStore {
       firstCardId,
       () => {
         const arrived = [...this.deckState.panes, win];
-        // A card type that declares what it is worth while it is nothing but
-        // the sheet it exists to raise has that height written here, IN THE
-        // COMMIT that appends its pane rather than after it ([B02]): one
-        // written a commit later would re-target a settle already in flight,
-        // which is the judder it exists to remove.
-        //
-        // Read off the registration already in hand — its unbound FORM's
-        // floor, which is the one term of that policy the deck needs here.
-        // The deck names no componentId and imports nothing from `cards/`
-        // ([P02]): this is a card declaring a form and the deck reading it
-        // generically, exactly as `foldedSizePolicy` already is.
         const bids =
-          registration.unboundSizePolicy === undefined
+          openingBid === null
             ? undefined
             : {
                 ...this.deckState.openingBids,
-                [paneId]: registration.unboundSizePolicy.min.height,
+                [paneId]: openingBid,
               };
         this.deckState = {
           ...this.deckState,
@@ -1852,7 +2026,7 @@ export class DeckManager implements IDeckManagerStore {
         if (typeof window !== "undefined") {
           this.cardLifecycle.notifyCardWillArrive(firstCardId);
         }
-        if (registration.unboundSizePolicy !== undefined) {
+        if (openingBid !== null) {
           // The height went in above rather than through
           // `openingBidForCard`, so the drop's map has to be told which
           // member it landed on.
@@ -3898,8 +4072,70 @@ export class DeckManager implements IDeckManagerStore {
    * transition having to remember to take it down.
    * {@link sheetClaimWith} is the rule, and states why a claim BELOW a
    * standing bid supersedes nothing.
+   *
+   * **The FIRST report against a standing bid is held to it ([P04]).** The bid
+   * was measured off this very panel before the arrival commit was written, so
+   * the panel's own first live reading is supposed to be the same number. A
+   * first report that differs by half a pixel or more is therefore not news
+   * about the panel but a defect in the measuring render: it records an
+   * `opening-bid-mismatch` and commits nothing, so the arrival stays one
+   * motion and the evidence is in the ring where somebody can read it. A first
+   * report that AGREES hands the number from the bid record to the reservation
+   * record and does not notify: the member's floor is the same pixel either
+   * way, and the picker's first report lands inside the arrival's own settle
+   * window ([P07]), where a notify over a floor that did not move would
+   * retarget a settle that is still carrying frames. Every
+   * report after the first takes the supersede rule untouched — a picker that
+   * grows once its sessions arrive is telling the truth, and the settle it
+   * costs is the honest one ([P05]). A `null` is a DROP rather than a report:
+   * it is the sheet leaving, not the panel reading, and it neither sets the
+   * bit nor spends the comparison.
    */
   setSheetReservation(memberId: string, height: number | null): void {
+    const bid = this.deckState.openingBids?.[memberId];
+    const isFirstReport =
+      bid !== undefined && height !== null && !openingBidReportedFor(memberId);
+    if (isFirstReport) {
+      // The half-pixel unit is the deck's own, not a new one: the settle reads
+      // a frame as changing size only when `Math.abs(first - last) >= 0.5`
+      // (`deck-canvas.tsx`), and the arrangement signature rounds every height
+      // it carries to the pixel. Half a pixel is therefore the width of the
+      // band in which this deck already declines to call something a change,
+      // and a rule that recorded a defect below it would be recording noise
+      // the rest of the machinery cannot act on.
+      if (Math.abs(height - bid) >= 0.5) {
+        deckTrace.record({
+          kind: "opening-bid-mismatch",
+          memberId,
+          bid,
+          report: height,
+        });
+        return;
+      }
+      // The report and the bid agree, which is what [P04] says they will: the
+      // bid was measured off this very panel. The two records still have to
+      // move — the reservation takes over as the member's floor and the bid
+      // comes down — but the member's FLOOR does not change by a pixel, so
+      // there is nothing for a settle to carry, and notifying would arm one.
+      //
+      // That matters because the picker now mounts INSIDE the arrival's settle
+      // window ([P07]): its first report lands while the frames are still held
+      // at their First sizes, and a notify there retargets the settle in
+      // flight and strands a survivor at the height it was being held at. A
+      // handoff that changes no allocation is not an arrangement change, and
+      // the deck already declines to settle over one.
+      const handoff = sheetClaimWith(
+        {
+          sheetReservations: this.deckState.sheetReservations,
+          openingBids: this.deckState.openingBids,
+        },
+        memberId,
+        height,
+      );
+      clearOpeningBidReport(memberId);
+      this.deckState = { ...this.deckState, ...handoff };
+      return;
+    }
     const next = sheetClaimWith(
       {
         sheetReservations: this.deckState.sheetReservations,
@@ -3913,6 +4149,14 @@ export class DeckManager implements IDeckManagerStore {
       next.openingBids === this.deckState.openingBids
     ) {
       return;
+    }
+    // A bid this commit cleared — superseded by the claim, or taken down with
+    // the sheet — takes its report bit with it, so the next arrival in this
+    // place gets its own first report to compare ([P04]). The clearing lives
+    // here rather than inside `sheetClaimWith` because that function is pure
+    // and tested as such; this is the moment the supersede actually lands.
+    if (next.openingBids !== this.deckState.openingBids) {
+      clearOpeningBidReport(memberId);
     }
     this.deckState = { ...this.deckState, ...next };
     this.notify("setSheetReservation");
@@ -6487,6 +6731,12 @@ export class DeckManager implements IDeckManagerStore {
       this.reactRoot.unmount();
       this.reactRoot = null;
     }
+    if (this.measuringRoot !== null) {
+      this.measuringRoot.unmount();
+      this.measuringRoot = null;
+    }
+    this.measuringHost?.remove();
+    this.measuringHost = null;
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener("beforeunload", this.handleBeforeUnload);
     this.lifecycleCascade.dispose();

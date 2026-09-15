@@ -16,9 +16,9 @@ import {
   CONTENT_WIDTH_COMFY_PX,
   CONTENT_WIDTH_SLIM_PX,
 } from "@/lib/layout-imposer";
-import { memberFloorForSheetPanel } from "@/lib/sheet-reservation";
 import { FeedId } from "@/protocol";
 import { SessionCardContent } from "./session-card";
+import { sessionPickerPanel } from "./session-picker-panel";
 
 /**
  * The height a folded Session card stands at, in pixels ([P04]).
@@ -45,79 +45,6 @@ import { SessionCardContent } from "./session-card";
  * this. Z2's band was untouched throughout.
  */
 export const SESSION_FOLDED_HEIGHT_PX = 144;
-
-/**
- * The natural height of the Choose Session panel, in pixels — the picker's own
- * box plus the sheet's top margin, which is the number the SHEET reports when
- * it measures ([B03]).
- *
- * A Session card with no session behind it is nothing but the Choose Session
- * picker it exists to raise, and the 600px floor in `sizePolicy` below is what
- * a TRANSCRIPT and a composer need — neither of which is on screen yet. So the
- * unbound form declares its own policy, the same way the folded form does, and
- * this is the one measurement that policy rests on.
- *
- * **This is the panel's height, not the member's.** What the member under it
- * needs is {@link memberFloorForSheetPanel} of this, and that sum is the
- * deck's — the title bar and the clip's drop, the clamp's gap against the
- * canvas, less the gap the imposition already leaves under a column's last
- * member. The card knows its panel and nothing else about the box around it,
- * which is what keeps the opening bid and the sheet's own measured reservation
- * denominating one quantity instead of two.
- *
- * The terms, read off the built app rather than off the stylesheet, WITH THE
- * SESSIONS LIST AT ITS CAP. The list is `max-height: 14.5rem` and every row has
- * a 3.5rem floor, so on any project with more than three sessions the list
- * stands at that cap and the picker is as tall as it ever gets. That is the
- * picker this number has to hold: a card pinned at the height of a shorter
- * list opens with the Choose Session header cut off above the path field and
- * the action row cut off below the list, and the sheet's clamp scrolls the
- * rest. A project with fewer sessions opens with air under the list, and air
- * is the price of a constant the arrival can know before `addCard` commits.
- *
- * The two terms this number is: `542`, the panel's own box with the list at
- * its cap — its `scrollHeight` plus its two 1px borders — and `12`, the
- * `--tugx-sheet-space-a` top margin, Choose Session keeping the sheet's
- * default TOP anchor (`modal-rest-line.ts` exempts it) whose rule is
- * `margin: space-a auto 0`. `at0569`'s diagnostics print exactly this sum as
- * the sheet's own reading over a seeded five-session project.
- *
- * The member height this resolved to was 444 once, over a panel box of 368 —
- * the picker as every app-test sees it on a fresh per-instance `sessions.db`,
- * with exactly one row ("New session") in its list. It was measured honestly
- * against the wrong picker, and no test could say so while the tests measured
- * the same one. The list's cap is 174px above the one-row list, and so is this.
- *
- * MEASURED, not derived: `at0569` opens the picker in the built app over a
- * seeded list at the cap and fails if the panel clips at this height, which is
- * what would catch a picker that outgrows it — a taller cap, a taller action
- * row, a wider path field that wraps. Nothing measures the picker at RUNTIME to
- * find this number ([P02]): a measured height arrives a commit after the card
- * does and re-targets the settle mid-beat, which is the judder this constant
- * exists to remove.
- *
- * One state is KNOWINGLY outside it: the picker re-presented after a failed
- * resume carries an inline notice above the form (`SessionProjectPickerForm`'s
- * `notice`), and a panel already at the cap plus a notice is taller than this
- * number holds, so the clamp scrolls it. That is a transient state on a
- * conditional element, and carrying it here would be permanent air under every
- * picker that never sees one. Left as air-versus-scroll for whoever decides it
- * matters; the `at0569` assertions above are the fit with no notice up.
- */
-export const SESSION_UNBOUND_PANEL_HEIGHT_PX = 554;
-
-/**
- * The member floor an unbound Session card declares, in pixels ([P02]) — its
- * panel's natural height through the deck's own chrome arithmetic.
- *
- * Derived rather than written: the sum has one home
- * ({@link memberFloorForSheetPanel}) and the sheet's measured reservation goes
- * through the same one, which is what makes the opening bid and the
- * measurement that supersedes it the same quantity.
- */
-export const SESSION_UNBOUND_HEIGHT_PX = memberFloorForSheetPanel(
-  SESSION_UNBOUND_PANEL_HEIGHT_PX,
-);
 
 export function registerSessionCard(): void {
   registerCard({
@@ -175,17 +102,21 @@ export function registerSessionCard(): void {
     },
     takesContentWidth: true,
     // While this card is unbound it is its picker and nothing else, so what it
-    // NEEDS is the picker's height rather than the transcript's floor ([P02]).
-    // A floor and no ceiling, which is the one way this form differs from the
-    // folded one above ([B01], [B04]): the card asks for the picker's height
-    // and takes more where its column has more to give.
-    unboundSizePolicy: {
-      min: { width: CONTENT_WIDTH_SLIM_PX, height: SESSION_UNBOUND_HEIGHT_PX },
-      preferred: {
-        width: CONTENT_WIDTH_COMFY_PX,
-        height: SESSION_UNBOUND_HEIGHT_PX,
-      },
+    // needs across is the picker's width and what it needs down is whatever
+    // the picker turns out to be ([P06]). The width is declared here; the
+    // height is not declared anywhere, because the deck MEASURES the opening
+    // form below before it commits this card's pane, and the sheet reports its
+    // own height once it is up. A number written here would be a third answer
+    // that disagreed with both the moment the picker's content changed.
+    unboundWidthPolicy: {
+      min: CONTENT_WIDTH_SLIM_PX,
+      preferred: CONTENT_WIDTH_COMFY_PX,
     },
+    // The panel the deck renders off-screen and measures, built by the very
+    // factory the live sheet calls ([P01], [P02]). No handlers: a render taken
+    // to read a number has nothing to open or cancel, and a panel whose height
+    // depended on its handlers could not be measured at all.
+    openingForm: (cardId) => sessionPickerPanel({ cardId }),
     engineKind: "em",
   });
 }

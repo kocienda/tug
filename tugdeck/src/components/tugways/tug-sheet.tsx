@@ -201,7 +201,21 @@ export type TugSheetPresentation =
   | "rise"
   | "scale-fade"
   | "settle"
-  | "shade";
+  | "shade"
+  // No entrance and no exit: the panel's resting state IS its presented
+  // geometry, and it appears and goes with whatever is carrying it.
+  //
+  // For a surface that is not an arrival of its own. A picker that IS the card
+  // it stands in has nothing to slide in over — the card's own arrival is the
+  // motion, and a second slide on top of it is the beat the user reads as the
+  // surface being late ([P07]). The same on the way out: the card departs and
+  // takes the panel with it, so an exit animation here would be a panel
+  // animating inside a frame that is itself fading.
+  //
+  // The tier is a declaration about the surface rather than a tuning knob, for
+  // the reason every other tier is: whether a surface arrives on its own is a
+  // design fact about what it is, not a number anybody should be adjusting.
+  | "none";
 
 /**
  * What a surface does when it arrives on a **folded** card ([B04] of the
@@ -303,6 +317,11 @@ const SHEET_ROLL_PX = 28;
 const SHEET_SETTLE_DROP_PX = 48;
 
 const SHEET_PRESENTATION_MOTION: Record<TugSheetPresentation, SheetPresentationMotion> = {
+  // Empty both ways. Nothing reads these — the enter and exit effects return
+  // before they resolve a motion for `none` — and they are here because the
+  // record is total over the union and a tier with no entry would be a second
+  // spelling of "no motion" for the type to have to carry.
+  none: { enter: [], exit: [] },
   top: {
     enter: [{ transform: "translateY(-100%)" }, { transform: "translateY(0)" }],
     exit: [{ transform: "translateY(0)" }, { transform: "translateY(-100%)" }],
@@ -907,6 +926,193 @@ export interface TugSheetContentProps {
   children?: React.ReactNode;
 }
 
+/* ---------------------------------------------------------------------------
+ * TugSheetPanel — the panel box, and the one expression that measures it
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * The panel's NATURAL height: what the box wants, whatever room it was given.
+ *
+ * `scrollHeight` plus both border widths plus both block margins ([F05]). It is
+ * `scrollHeight` rather than the border box because `scrollHeight` is stable
+ * against a cap that is currently biting — the number does not move under the
+ * room a report wins — and the margins are in because the panel's own gutters
+ * are part of what it occupies.
+ *
+ * This is the ONE copy in the deck: the bottom-anchor effect's `needed` and the
+ * natural-height report both call it. `tests/app-test/picker-sessions-fixture.ts`
+ * carries a deliberate copy as `pickerPanelNaturalHeight` — the harness runs in
+ * the app's page, not in this module's import graph — and it must move with this.
+ */
+export function sheetPanelNaturalHeight(el: HTMLElement): number {
+  const cs = getComputedStyle(el);
+  const px = (value: string): number => Number.parseFloat(value) || 0;
+  return (
+    el.scrollHeight +
+    px(cs.borderTopWidth) +
+    px(cs.borderBottomWidth) +
+    px(cs.marginTop) +
+    px(cs.marginBottom)
+  );
+}
+
+/** {@link TugSheetPanel} props. */
+export interface TugSheetPanelProps {
+  /** Ref to the `.tug-sheet-content` element itself. */
+  panelRef?: React.Ref<HTMLDivElement>;
+  /** The panel element's `id` (the live sheet's `contentId`). */
+  id?: string;
+  /** Sheet title — rendered in the header, and the `aria-label` when hidden. */
+  title: string;
+  /** Optional Lucide icon name (PascalCase), resolved here. */
+  icon?: string;
+  /** Color role for {@link icon}. */
+  iconRole?: TugSheetIconRole;
+  /** Optional description text. */
+  description?: string;
+  /** Element id for the title heading (`aria-labelledby`). */
+  titleId?: string;
+  /** Element id for the description (`aria-describedby`). */
+  descriptionId?: string;
+  /** The `data-tug-sheet-presentation` tier. */
+  presentation?: TugSheetPresentation;
+  /** The `data-display-width` tier. */
+  displayWidth?: TugSheetDisplayWidth;
+  /** Marks the panel resizable (`data-resizable`); the handles are {@link trailing}. */
+  resizable?: boolean;
+  /** Marks the panel aspect-locked (`data-aspect-lock`). */
+  aspectLockContent?: boolean;
+  /** Suppress the header block. */
+  hideHeader?: boolean;
+  /** Drop the header's bottom rule. */
+  hideHeaderRule?: boolean;
+  onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
+  onMouseDown?: React.MouseEventHandler<HTMLDivElement>;
+  /**
+   * Wraps the header + body interior. The live sheet supplies its
+   * `<ResponderScope>`; a measuring render supplies nothing, because a render
+   * taken to read a number registers no responders ([P09]).
+   */
+  wrapInterior?: (interior: React.ReactNode) => React.ReactNode;
+  /** Rendered inside the panel box after the interior — the resize handles. */
+  trailing?: React.ReactNode;
+  /**
+   * The sheet body, already wrapped in whatever the caller's body needs. The
+   * live sheet hands its `FocusModeScope` in here rather than having the panel
+   * build one, because the scope comes from the focus trap {@link TugSheetContent}
+   * owns — and a measuring render has no trap and needs none.
+   */
+  children?: React.ReactNode;
+}
+
+/**
+ * The sheet's panel box: the `.tug-sheet-content` element, its header and its
+ * body, and nothing that makes a sheet modal. The Radix content, the focus
+ * scope, the responder scope, the key handlers and the ref compositions all
+ * stay in {@link TugSheetContent}.
+ *
+ * It is one component because the height measured before a card commits and the
+ * height the live sheet reports have to be the same box by construction rather
+ * than by two authors keeping two trees in step ([P01]).
+ */
+export function TugSheetPanel({
+  panelRef,
+  id,
+  title,
+  icon,
+  iconRole = "muted",
+  description,
+  titleId,
+  descriptionId,
+  presentation,
+  displayWidth,
+  resizable = false,
+  aspectLockContent = false,
+  hideHeader = false,
+  hideHeaderRule = false,
+  onKeyDown,
+  onMouseDown,
+  wrapInterior,
+  trailing,
+  children,
+}: TugSheetPanelProps) {
+  // Resolve the optional header icon by Lucide name (PascalCase), matching
+  // TugAlert's lookup. Unknown names resolve to null (no icon, no throw).
+  const IconComponent = icon ? (icons[icon as keyof typeof icons] ?? null) : null;
+
+  const interior = (
+    <>
+      {/* Sheet header: an optional role-colored icon left of the
+          title + description (the TugAlert header layout). No close
+          button — sheets dismiss via Cancel/Escape. Suppressed when
+          `hideHeader` (e.g. TugAlertSheet owns the panel); the title
+          still labels the dialog via aria-label above. */}
+      {!hideHeader && (
+        <div
+          className={
+            hideHeaderRule
+              ? "tug-sheet-header tug-sheet-header-no-rule"
+              : "tug-sheet-header"
+          }
+          data-icon-role={icon ? iconRole : undefined}
+          data-has-description={description ? "true" : undefined}
+        >
+          {IconComponent && (
+            <div className="tug-sheet-icon" aria-hidden="true">
+              {/* The icon box owns the size (one-line vs two-line
+                  header, see tugx-header.css); the svg fills it. */}
+              <IconComponent size="100%" />
+            </div>
+          )}
+          <div className="tug-sheet-heading">
+            <h2 id={titleId} className="tug-sheet-title">{title}</h2>
+            {description && (
+              <p id={descriptionId} className="tug-sheet-description">
+                {description}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Headerless sheets (e.g. TugAlertSheet) still expose their
+          description for aria-describedby and reading order. */}
+      {hideHeader && description && (
+        <p id={descriptionId} className="tug-sheet-description">{description}</p>
+      )}
+
+      {/* Sheet body: arbitrary content, wrapped by the caller — the live
+          sheet hands it in inside the trap's focus mode, so focusables
+          there join this sheet's mode. */}
+      <div className="tug-sheet-body">
+        {children}
+      </div>
+    </>
+  );
+
+  return (
+    <div
+      ref={panelRef}
+      id={id}
+      className="tug-sheet-content"
+      role="dialog"
+      aria-labelledby={hideHeader ? undefined : titleId}
+      aria-label={hideHeader ? title : undefined}
+      aria-describedby={description ? descriptionId : undefined}
+      data-slot="tug-sheet"
+      data-tug-sheet-presentation={presentation}
+      data-display-width={displayWidth}
+      data-resizable={resizable ? "true" : undefined}
+      data-aspect-lock={aspectLockContent ? "true" : undefined}
+      onKeyDown={onKeyDown}
+      onMouseDown={onMouseDown}
+    >
+      {wrapInterior ? wrapInterior(interior) : interior}
+      {trailing}
+    </div>
+  );
+}
+
 /**
  * TugSheetContent — the sheet panel, focus scope, and portal logic.
  *
@@ -965,10 +1171,6 @@ export function TugSheetContent({
 
   const titleId = `${contentId}-title`;
   const descriptionId = `${contentId}-desc`;
-
-  // Resolve the optional header icon by Lucide name (PascalCase), matching
-  // TugAlert's lookup. Unknown names resolve to null (no icon, no throw).
-  const IconComponent = icon ? (icons[icon as keyof typeof icons] ?? null) : null;
 
   // Chain manager — null when rendered outside a ResponderChainProvider.
   // Escape / Cmd+. fall back to calling onOpenChange directly in that
@@ -1233,15 +1435,10 @@ export function TugSheetContent({
         const px = (value: string): number => Number.parseFloat(value) || 0;
         const marginBottom = px(cs.marginBottom);
         const marginTop = px(cs.marginTop);
-        const gutters = marginTop + marginBottom;
         // `scrollHeight` is the panel's natural height whether or not the cap
         // is currently biting, so this measure is stable against its own
         // write — the loop quiesces on the second pass.
-        const needed =
-          content.scrollHeight +
-          px(cs.borderTopWidth) +
-          px(cs.borderBottomWidth) +
-          gutters;
+        const needed = sheetPanelNaturalHeight(content);
         const band = frame.bottom - restInset - restingTop;
         let shortfall = needed - band;
         if (shortfall > 0) {
@@ -1456,14 +1653,7 @@ export function TugSheetContent({
     if (!declaresNaturalHeight || content === null) return;
     let last: number | null = null;
     const measure = (): void => {
-      const cs = getComputedStyle(content);
-      const px = (value: string): number => Number.parseFloat(value) || 0;
-      const height =
-        content.scrollHeight +
-        px(cs.borderTopWidth) +
-        px(cs.borderBottomWidth) +
-        px(cs.marginTop) +
-        px(cs.marginBottom);
+      const height = sheetPanelNaturalHeight(content);
       // Report only on change. The panel's box moves when the room it was
       // given changes, and re-reporting the same number at each of those would
       // be a commit per observer callback on the other end.
@@ -1680,6 +1870,17 @@ export function TugSheetContent({
     const contentEl = sheetContentRef.current;
     if (!contentEl) return;
 
+    // A `none` panel is already where it belongs — its resting state IS the
+    // presented geometry — so there is no entrance to run and nothing to wait
+    // for. `sheetDidShow` fires here rather than off an animation's promise,
+    // which is the same moment in the sequence: the sheet is fully presented.
+    if (presentation === "none") {
+      if (cardIdForLifecycle !== null && sheetLifecycle !== null) {
+        sheetLifecycle.notifySheetDidShow(cardIdForLifecycle);
+      }
+      return;
+    }
+
     const g = group({ duration: "--tug-motion-duration-moderate" });
     const isShade = presentation === "shade";
     const motion =
@@ -1724,6 +1925,16 @@ export function TugSheetContent({
     if (open || !mounted) return;
     const contentEl = sheetContentRef.current;
     if (!contentEl) {
+      setMounted(false);
+      return;
+    }
+
+    // A `none` panel has no exit to run, so the unmount happens now rather than
+    // on an animation's completion. The ORDER the state diagram below promises
+    // is untouched: `mounted → false` is still what carries the panel out of
+    // the DOM, and `sheetDidHide` / `sheetDidReturnResult` still fire off that
+    // transition, one tick earlier than a tier with a motion to finish.
+    if (presentation === "none") {
       setMounted(false);
       return;
     }
@@ -2085,75 +2296,34 @@ export function TugSheetContent({
           onMountAutoFocus={handleMountAutoFocus}
           onUnmountAutoFocus={handleUnmountAutoFocus}
         >
-          <div
-            ref={composedContentRef}
+          <TugSheetPanel
+            panelRef={composedContentRef}
             id={contentId}
-            className="tug-sheet-content"
-            role="dialog"
-            aria-labelledby={hideHeader ? undefined : titleId}
-            aria-label={hideHeader ? title : undefined}
-            aria-describedby={description ? descriptionId : undefined}
-            data-slot="tug-sheet"
-            data-tug-sheet-presentation={presentation}
-            data-display-width={displayWidth}
-            data-resizable={resizable ? "true" : undefined}
-            data-aspect-lock={aspectLockContent ? "true" : undefined}
+            title={title}
+            icon={icon}
+            iconRole={iconRole}
+            description={description}
+            titleId={titleId}
+            descriptionId={descriptionId}
+            presentation={presentation}
+            displayWidth={displayWidth}
+            resizable={resizable}
+            aspectLockContent={aspectLockContent}
+            hideHeader={hideHeader}
+            hideHeaderRule={hideHeaderRule}
             onKeyDown={handleKeyDown}
             onMouseDown={suppressButtonFocusShift}
-          >
-            <ResponderScope>
-              {/* Sheet header: an optional role-colored icon left of the
-                  title + description (the TugAlert header layout). No close
-                  button — sheets dismiss via Cancel/Escape. Suppressed when
-                  `hideHeader` (e.g. TugAlertSheet owns the panel); the title
-                  still labels the dialog via aria-label above. */}
-              {!hideHeader && (
-                <div
-                  className={
-                    hideHeaderRule
-                      ? "tug-sheet-header tug-sheet-header-no-rule"
-                      : "tug-sheet-header"
-                  }
-                  data-icon-role={icon ? iconRole : undefined}
-                  data-has-description={description ? "true" : undefined}
-                >
-                  {IconComponent && (
-                    <div className="tug-sheet-icon" aria-hidden="true">
-                      {/* The icon box owns the size (one-line vs two-line
-                          header, see tugx-header.css); the svg fills it. */}
-                      <IconComponent size="100%" />
-                    </div>
-                  )}
-                  <div className="tug-sheet-heading">
-                    <h2 id={titleId} className="tug-sheet-title">{title}</h2>
-                    {description && (
-                      <p id={descriptionId} className="tug-sheet-description">
-                        {description}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Headerless sheets (e.g. TugAlertSheet) still expose their
-                  description for aria-describedby and reading order. */}
-              {hideHeader && description && (
-                <p id={descriptionId} className="tug-sheet-description">{description}</p>
-              )}
-
-              {/* Sheet body: arbitrary content. Wrapped in the trap's focus
-                  mode so focusables inside join this sheet's mode. */}
-              <div className="tug-sheet-body">
-                <FocusModeScope>{children}</FocusModeScope>
-              </div>
-            </ResponderScope>
-
-            {/* Drag-resize handles (pane-style edge/corner strips). Absolutely
-                positioned, so they sit outside the flex flow. `data-tug-focus="refuse"`
-                keeps a resize drag from coarsening the key view onto the sheet box
-                — the seeded default button (e.g. Done) keeps its ring + filled
-                promotion across a resize. */}
-            {resizable &&
+            // The responder scope wraps the header and body, inside the panel
+            // box — where it has always been. It is passed in rather than
+            // built by the panel so a measuring render can leave it out ([P09]).
+            wrapInterior={(interior) => <ResponderScope>{interior}</ResponderScope>}
+            trailing={
+              /* Drag-resize handles (pane-style edge/corner strips). Absolutely
+                 positioned, so they sit outside the flex flow. `data-tug-focus="refuse"`
+                 keeps a resize drag from coarsening the key view onto the sheet box
+                 — the seeded default button (e.g. Done) keeps its ring + filled
+                 promotion across a resize. */
+              resizable &&
               (bottomAnchorEl !== null
                 ? SHEET_RESIZE_EDGES_BOTTOM
                 : SHEET_RESIZE_EDGES_TOP)
@@ -2173,8 +2343,11 @@ export function TugSheetContent({
                     onPointerMove={onResizePointerMove}
                     onPointerUp={onResizePointerUp}
                   />
-                ))}
-          </div>
+                ))
+            }
+          >
+            <FocusModeScope>{children}</FocusModeScope>
+          </TugSheetPanel>
         </FocusScopeRadix.FocusScope>
       </div>
     </TugSheetStackingContext.Provider>,

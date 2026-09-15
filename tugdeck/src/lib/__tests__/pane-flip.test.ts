@@ -9,6 +9,7 @@ import {
   scaleDistortion,
   springSettleKeyframes,
   type SettleBeat,
+  type BeatKind,
 } from "@/lib/pane-flip";
 import { motionKeyframes } from "@/lib/imposer-motion";
 
@@ -308,12 +309,13 @@ describe("springSettleKeyframes, with a real size term", () => {
 });
 
 describe("BEAT_ORDER", () => {
-  test("is the five kinds, outermost first", () => {
+  test("is the six kinds, outermost first", () => {
     // The one place the order lives: the canvas folds its chain over this
     // array, so a chain that disagreed with the kinds would have to disagree
     // with this.
     expect(BEAT_ORDER).toEqual([
       "depart",
+      "room",
       "shrink",
       "move",
       "grow",
@@ -321,11 +323,31 @@ describe("BEAT_ORDER", () => {
     ]);
   });
 
-  test("the middle three are the ones planSettleBeats can emit, in its order", () => {
+  test("the partition's three are the ones planSettleBeats emits unfused, in its order", () => {
     // A departure has no Last rect to invert and an arrival no First, so the
     // planner emits neither — the canvas authors the outer two because it is
     // the only thing that knows they happened.
-    expect(BEAT_ORDER.slice(1, -1)).toEqual(["shrink", "move", "grow"]);
+    expect(BEAT_ORDER.filter((k) => k !== "depart" && k !== "arrive" && k !== "room")).toEqual([
+      "shrink",
+      "move",
+      "grow",
+    ]);
+  });
+
+  test("it folds to the three shapes a settle actually runs", () => {
+    // The canvas's `launched` reduction filters this array by what the settle
+    // has, so the order a settle runs in IS a fold of it. Each of the three
+    // keeps the array's own promise: room given up before anything moves in,
+    // nothing appearing until every frame already on screen has landed.
+    const fold = (present: readonly BeatKind[]) =>
+      BEAT_ORDER.filter((kind) => present.includes(kind));
+    expect(fold(["room", "arrive"])).toEqual(["room", "arrive"]);
+    expect(fold(["depart", "room"])).toEqual(["depart", "room"]);
+    expect(fold(["depart", "room", "arrive"])).toEqual([
+      "depart",
+      "room",
+      "arrive",
+    ]);
   });
 });
 
@@ -471,9 +493,98 @@ describe("planSettleBeats", () => {
   });
 });
 
+describe("planSettleBeats, fused", () => {
+  /** The two term-sets the canvas's Last pass actually produces for a frame
+   *  that both travels and resizes. Never `sx` and a real `width` together:
+   *  the caller passes `sx: widthSmears ? sx : 1` and
+   *  `width: widthTweens ? … : undefined`, and the two are mutually exclusive
+   *  by construction — a fixture the caller cannot produce is a test that
+   *  cannot fail for the right reason. */
+  const SMEARED = {
+    dx: -40,
+    dy: 24,
+    sx: 1.08,
+    height: [600, 420] as const,
+  };
+  const REAL_WIDTH = {
+    dx: -40,
+    dy: 24,
+    sx: 1,
+    width: [500, 900] as const,
+    height: [600, 420] as const,
+  };
+
+  test("a smeared frame fuses to one room beat carrying every term", () => {
+    const beats = planSettleBeats(SMEARED, { fused: true });
+    expect(beats.map((b) => b.kind)).toEqual(["room"]);
+    expect(beats[0].terms).toEqual(SMEARED);
+    expect(beats[0].held).toEqual({});
+  });
+
+  test("a real-width frame fuses to one room beat carrying every term", () => {
+    const beats = planSettleBeats(REAL_WIDTH, { fused: true });
+    expect(beats.map((b) => b.kind)).toEqual(["room"]);
+    expect(beats[0].terms).toEqual(REAL_WIDTH);
+    expect(beats[0].held).toEqual({});
+  });
+
+  test("a frame with nothing to carry plans nothing, fused or not", () => {
+    expect(planSettleBeats({ dx: 0, dy: 0 }, { fused: true })).toEqual([]);
+    expect(planSettleBeats({ dx: 0, dy: 0 })).toEqual([]);
+  });
+
+  test("unfused — and with the argument omitted — the partition is unchanged", () => {
+    const partitioned: BeatKind[] = ["shrink", "move", "grow"];
+    expect(planSettleBeats(REAL_WIDTH).map((b) => b.kind)).toEqual(partitioned);
+    expect(
+      planSettleBeats(REAL_WIDTH, { fused: false }).map((b) => b.kind),
+    ).toEqual(partitioned);
+    expect(planSettleBeats(REAL_WIDTH, {}).map((b) => b.kind)).toEqual(
+      partitioned,
+    );
+    // And the everyday settle — a stack move with no size at all — is still
+    // one transform-only beat, fused never entering into it.
+    expect(planSettleBeats({ dx: -40, dy: 24 }).map((b) => b.kind)).toEqual([
+      "move",
+    ]);
+  });
+});
+
+describe("a smear and a real width are mutually exclusive", () => {
+  // The pin that keeps the fixtures above honest, asserted where the
+  // exclusivity is DECIDED rather than assumed: the canvas reads a width
+  // change as a smear exactly when its distortion is within the cap, and as a
+  // real term otherwise, and it is never both. A beat carrying both would make
+  // `springSettleKeyframes` emit a `scaleX` and a real `width` in one keyframe
+  // list and apply the width change twice ([D135]'s cap).
+  const decide = (first: number, last: number) => {
+    const sx = last > 0 ? first / last : 1;
+    const smears = scaleDistortion(sx) <= MAX_FLIP_SCALE_DISTORTION;
+    return {
+      sx: smears ? sx : 1,
+      width: smears ? undefined : ([first, last] as const),
+    };
+  };
+
+  test("a width within the cap smears and carries no real width term", () => {
+    const terms = decide(520, 500);
+    expect(scaleDistortion(terms.sx)).toBeLessThanOrEqual(
+      MAX_FLIP_SCALE_DISTORTION,
+    );
+    expect(terms.sx).not.toBe(1);
+    expect(terms.width).toBeUndefined();
+  });
+
+  test("a width past the cap carries a real width term and no smear", () => {
+    const terms = decide(900, 500);
+    expect(terms.width).toEqual([900, 500]);
+    expect(terms.sx).toBe(1);
+  });
+});
+
 describe("beatLaunchVelocity", () => {
   test("a settle nothing interrupted launches every beat from rest", () => {
-    for (const kind of ["shrink", "move", "grow"] as const) {
+    for (const kind of ["shrink", "move", "grow", "room"] as const) {
       expect(beatLaunchVelocity(kind, null)).toBe(0);
     }
   });
@@ -484,6 +595,7 @@ describe("beatLaunchVelocity", () => {
       0.9,
     );
     expect(beatLaunchVelocity("grow", { kind: "grow", velocity: 2.2 })).toBe(2.2);
+    expect(beatLaunchVelocity("room", { kind: "room", velocity: 3.1 })).toBe(3.1);
   });
 
   test("every other kind launches from rest, whichever beat was interrupted", () => {
@@ -498,6 +610,13 @@ describe("beatLaunchVelocity", () => {
     expect(beatLaunchVelocity("grow", moving)).toBe(0);
     const growing = { kind: "grow", velocity: 1.4 } as const;
     expect(beatLaunchVelocity("shrink", growing)).toBe(0);
+    // A room's travel is the whole settle's — a translate and a size on one
+    // clock — so a move's is not its and a shrink's is not either.
+    const inRoom = { kind: "room", velocity: 1.4 } as const;
+    expect(beatLaunchVelocity("move", inRoom)).toBe(0);
+    expect(beatLaunchVelocity("shrink", inRoom)).toBe(0);
+    expect(beatLaunchVelocity("grow", inRoom)).toBe(0);
+    expect(beatLaunchVelocity("room", moving)).toBe(0);
     expect(beatLaunchVelocity("move", growing)).toBe(0);
   });
 

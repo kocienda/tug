@@ -28,8 +28,9 @@
  * DECLARES while it is unbound ([B01]). A Session card with no session behind
  * it is nothing but the picker it exists to raise — no transcript, no composer,
  * and so none of what the 600px floor is for. So the card declares what it is
- * worth unbound (`SESSION_UNBOUND_HEIGHT_PX`), and `placeMembers` reads that
- * declaration as one more contributor to the member's FLOOR: the largest thing
+ * worth unbound — MEASURED, off the picker's own panel, before the commit that
+ * appends the pane — and `placeMembers` reads that bid as one more
+ * contributor to the member's FLOOR: the largest thing
  * standing on the member wins, and the member keeps its weight. The card
  * stands at the picker's height whenever its share of the run would put it
  * lower, takes the share when the share is higher — which is the second test
@@ -78,15 +79,23 @@
  * The one-row picker's fit is still read before the list fills, because a
  * panel that fits the cap must also fit less.
  *
- * ## What this file does NOT prove
+ * ## Two fixtures, and what each of them can say
  *
- * That `addCard` WRITES a pin on the production path. This test SEEDS its deck,
- * and `addCard` is the only thing that writes one, so `deckShape` seeds
- * `openingBids` itself — `seedDeckState` is an atomic in-process state
- * replace, so a new `DeckState` field passes straight through it. What is under
- * test here is the ALLOCATOR's reading of a bid and the sheet's own claim
- * ending one. The production write is claim 4 of the choreography test, which
- * adds its card at run time.
+ * The first two tests SEED their deck, including the opening bid, because
+ * `addCard` is the only thing that writes one and nothing here calls it —
+ * `seedDeckState` is an atomic in-process state replace, so a `DeckState`
+ * field passes straight through it. What they are about is the ALLOCATOR's
+ * reading of a bid, and what the sheet's own claim does to one. And because a
+ * seeded bid is by definition a number nobody measured, they are also where
+ * the first-report rule is seen REFUSING: the live report disagrees with the
+ * seeded number, the deck records the disagreement instead of quietly
+ * re-targeting, and the claim lands later on an honest update ([P04], [P05]).
+ *
+ * The third test adds its card through the production `show-card` path, so
+ * `addCard` measures the card's opening form and bids what it read. That is
+ * where the rule is seen AGREEING — the number the deck holds for the member
+ * is the panel the user is looking at, at two picker heights far enough apart
+ * that no constant could have satisfied both.
  *
  * The card is bound through the harness rather than by driving the picker's
  * Open, because the binding update IS what unmounts the picker on the real path
@@ -157,6 +166,19 @@ const SESSION_FLOOR_PX = 600;
 const REPORTER_DRIFT = 3;
 
 /**
+ * How far a MEASURED bid may sit from a fresh reading of the panel it was
+ * measured off.
+ *
+ * Tighter than {@link REPORTER_DRIFT} on purpose, and the tightness is the
+ * claim: the bid and the live report come from the identical component through
+ * the identical formula, taken a second apart with nothing between them but
+ * the commit that appended the pane. Sub-pixel layout rounding is the whole of
+ * what may differ. A looser bar here would let a bid that was merely CLOSE
+ * pass, and close is what a constant is.
+ */
+const MEASURED_BID_DRIFT = 1;
+
+/**
  * What the deck adds between a sheet's panel and the member under it —
  * `memberFloorForSheetPanel`'s sum, copied for the reason every other constant
  * in this header is: `--jsx` is off here, so nothing under `components/` can be
@@ -171,16 +193,20 @@ const REPORTER_DRIFT = 3;
 const SHEET_PANEL_TO_MEMBER_PX = 64;
 
 /**
- * `SESSION_UNBOUND_HEIGHT_PX` from `session-card-registration.tsx`, copied
- * rather than imported: that module is a `.tsx` and this project compiles
- * without `--jsx`, which is the same reason `at0552` carries its own copy of
- * `SESSION_FOLDED_HEIGHT_PX`.
+ * The opening bid this fixture SEEDS. It is no longer a copy of anything in
+ * the app, because there is nothing left to copy: the declared unbound height
+ * is gone, and `addCard` measures the card's opening form and bids what it
+ * reads. This file seeds its deck rather than adding to it, so the number
+ * below is one this fixture chose — large enough to clear both the stack floor
+ * and the share the hand gives the member, which is what makes a reading here
+ * distinguishable from either.
  *
- * A copy that drifts fails here rather than passing quietly — every geometry
- * assertion below is against this number, so changing the constant without
- * changing this one turns the file red on the commit that does it.
+ * And it is deliberately a number no picker will ever report. A seeded bid is
+ * a number nobody measured, so the first live report disagrees with it — and
+ * the first-report rule refusing that report, with a row in the trace naming
+ * both numbers, is what this file asserts below ([P04], [Spec S04]).
  */
-const SESSION_UNBOUND_HEIGHT_PX = 618;
+const SEEDED_OPENING_BID_PX = 618;
 
 /**
  * A project whose Sessions list stands at its 14.5rem cap. The picker a fresh
@@ -254,7 +280,7 @@ function deckShape(shares: Record<string, number>) {
       sidebars: {},
       columns: { 0: { mode: "split", order: ["p1", "p2"], shares } },
     },
-    openingBids: { p2: SESSION_UNBOUND_HEIGHT_PX },
+    openingBids: { p2: SEEDED_OPENING_BID_PX },
     hasFocus: true,
   };
 }
@@ -335,6 +361,31 @@ async function reservations(app: App): Promise<Record<string, number> | null> {
   );
 }
 
+/**
+ * Every `opening-bid-mismatch` the deck has recorded this run.
+ *
+ * The kind is always-recorded — it does not wait on `enable(true)` — because a
+ * first live report disagreeing with the bid is the one thing the deck wants
+ * on the record whether or not anybody armed the trace ([Spec S04]).
+ */
+async function bidMismatches(
+  app: App,
+): Promise<{ memberId: string; bid: number; report: number }[]> {
+  return app.evalJS(
+    `(function () {
+      var out = [];
+      var events = window.__deckTrace.since(0);
+      for (var i = 0; i < events.length; i += 1) {
+        var e = events[i];
+        if (e.kind === "opening-bid-mismatch") {
+          out.push({ memberId: e.memberId, bid: e.bid, report: e.report });
+        }
+      }
+      return out;
+    })()`,
+  );
+}
+
 /** The opening bids the live store holds, keyed by member. */
 async function pins(app: App): Promise<Record<string, number> | null> {
   return app.evalJS<Record<string, number> | null>(
@@ -406,8 +457,13 @@ async function pickerEdges(app: App): Promise<{
 
 /**
  * Point the open picker at the seeded project, let the list reach its cap,
- * and assert the panel fits the pinned card whole. The natural height this
- * prints is the reading `SESSION_UNBOUND_HEIGHT_PX` is resolved from.
+ * and assert the panel fits the pinned card whole.
+ *
+ * Filling the list is a genuine change to the picker, so the report it
+ * provokes is an ordinary one rather than a first one ([P05]) — which is why
+ * this is where the claim lands on a fixture whose bid was seeded rather than
+ * measured. The number it prints is the panel the deck derived that claim
+ * from.
  */
 async function assertFitAtListCap(app: App): Promise<void> {
   if (fixture === null) throw new Error("the picker sessions fixture was not seeded");
@@ -421,7 +477,7 @@ async function assertFitAtListCap(app: App): Promise<void> {
     `with the list at its cap: panel natural ${natural ?? -1}px, overflow ${full?.overflow ?? -1}, bottom slack ${(full?.bottomSlack ?? -1).toFixed(1)}px, header ${(edges?.headerBelowTitleBar ?? -1).toFixed(1)}px below the title bar, actions ${(edges?.actionsAbovePaneBottom ?? -1).toFixed(1)}px above the frame's bottom`,
   );
   note(
-    `with the list at its cap the deck claims ${claimed?.p2 ?? -1}px for the member; the card declared ${SESSION_UNBOUND_HEIGHT_PX}`,
+    `with the list at its cap the deck claims ${claimed?.p2 ?? -1}px for the member; this fixture seeded a bid of ${SEEDED_OPENING_BID_PX}`,
   );
   // ── The reservation is NOT inert on a Session card any more ([B03]). The
   //    deck derives the member's floor from the panel the sheet measured, so
@@ -431,10 +487,6 @@ async function assertFitAtListCap(app: App): Promise<void> {
   expect(
     Math.abs((claimed?.p2 ?? -1) - ((natural ?? -1) + SHEET_PANEL_TO_MEMBER_PX)),
     "the claim is what the member needs for this panel, not the panel's own height",
-  ).toBeLessThanOrEqual(REPORTER_DRIFT);
-  expect(
-    Math.abs((claimed?.p2 ?? -1) - SESSION_UNBOUND_HEIGHT_PX),
-    "and it agrees with the height the card declared for the same picker",
   ).toBeLessThanOrEqual(REPORTER_DRIFT);
   expect(full, "the picker's panel is on screen with the list at its cap").not.toBeNull();
   expect(
@@ -502,19 +554,19 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           await pins(app),
           "the pin is keyed by the host pane and carries the declared height",
-        ).toEqual({ p2: SESSION_UNBOUND_HEIGHT_PX });
+        ).toEqual({ p2: SEEDED_OPENING_BID_PX });
 
         // ── The card stands there: the declaration is the largest floor on
         //    the member, and the one-part share the hand gave it is smaller. ──
         expect(
-          Math.abs(before.p2.height - SESSION_UNBOUND_HEIGHT_PX),
-          `the unbound card stands at SESSION_UNBOUND_HEIGHT_PX (${SESSION_UNBOUND_HEIGHT_PX})`,
+          Math.abs(before.p2.height - SEEDED_OPENING_BID_PX),
+          `the unbound card stands at SEEDED_OPENING_BID_PX (${SEEDED_OPENING_BID_PX})`,
         ).toBeLessThanOrEqual(EPSILON);
 
         // ── And the neighbour holds all of the rest of the run. ──
         expect(
           Math.abs(
-            before.p1.height - (run - IMPOSITION_GAP_PX - SESSION_UNBOUND_HEIGHT_PX),
+            before.p1.height - (run - IMPOSITION_GAP_PX - SEEDED_OPENING_BID_PX),
           ),
           "the neighbour holds the run less the gap and the pinned height",
         ).toBeLessThanOrEqual(EPSILON);
@@ -536,34 +588,51 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         //    card stands at, and why a reading here cannot be confused for
         //    either of them. ──
         expect(
-          SESSION_UNBOUND_HEIGHT_PX - SESSION_FLOOR_PX,
+          SEEDED_OPENING_BID_PX - SESSION_FLOOR_PX,
           "the declaration is above the stack floor, so it is the floor that binds",
         ).toBeGreaterThan(EPSILON);
         expect(
           (run - IMPOSITION_GAP_PX) * 0.25,
           "and above the share the hand gave it, so the share does not lift it",
-        ).toBeLessThan(SESSION_UNBOUND_HEIGHT_PX - EPSILON);
+        ).toBeLessThan(SEEDED_OPENING_BID_PX - EPSILON);
 
         await raisePicker(app);
 
-        // ── The reservation is still made, keyed by the host pane, carrying
-        //    the panel's own measured height. The mechanism is untouched. ──
-        const claimed = await reservations(app);
-        expect(Object.keys(claimed ?? {}), "keyed by the host pane").toEqual([
-          "p2",
-        ]);
+
+        // ── The FIRST live report is held to the bid, and this bid was
+        //    seeded rather than measured — so the report disagrees with it and
+        //    is refused, with a row in the trace naming both numbers ([P04],
+        //    [Spec S04]). The refusal is the point: a bid nobody measured is
+        //    exactly the case the rule exists for, and the deck says so out
+        //    loud instead of quietly re-targeting a settle already in flight. ──
+        const refused = await bidMismatches(app);
+        note(`first report against the seeded bid: ${JSON.stringify(refused)}`);
+        expect(
+          refused.map((m) => m.memberId),
+          "the first live report on the seeded member was held to the bid",
+        ).toEqual(["p2"]);
+        expect(
+          refused[0]?.bid,
+          "and the row names the bid it was held to",
+        ).toBe(SEEDED_OPENING_BID_PX);
+        expect(
+          Math.abs((refused[0]?.report ?? -1) - SEEDED_OPENING_BID_PX),
+          "and a report far enough from it that no tolerance could have passed it",
+        ).toBeGreaterThan(REPORTER_DRIFT);
+        // The refused report wrote nothing, and a LATER one — the panel
+        // settling a pixel or two under its own resize observer — comes
+        // through the ordinary path and lands. That is the rule working
+        // rather than a hole in it: the rule holds the FIRST report to the
+        // bid, and a bid nobody measured loses that argument once.
+        note(
+          `the claim that stands after the refusal: ${JSON.stringify(await reservations(app))}`,
+        );
+
         const panel = await panelMeasure(app);
         expect(panel, "the picker's panel is on screen").not.toBeNull();
         note(
-          `claimed ${claimed?.p2 ?? -1}px; panel natural ${panel?.natural ?? -1}px, overflow ${panel?.overflow ?? -1}, bottom slack ${(panel?.bottomSlack ?? -1).toFixed(1)}px`,
+          `panel natural ${panel?.natural ?? -1}px, overflow ${panel?.overflow ?? -1}, bottom slack ${(panel?.bottomSlack ?? -1).toFixed(1)}px`,
         );
-        expect(
-          Math.abs(
-            (claimed?.p2 ?? -1) -
-              ((panel?.natural ?? -1) + SHEET_PANEL_TO_MEMBER_PX),
-          ),
-          "the number on the deck is what the member needs for the panel the sheet measured",
-        ).toBeLessThanOrEqual(REPORTER_DRIFT);
 
         // ── And the panel does not clip at the pinned height, read both
         //    ways: uncapped in its own box, and inside the frame around it. ──
@@ -663,7 +732,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           before.p2.height,
           "which is well above the height it declared — no ceiling held it",
-        ).toBeGreaterThan(SESSION_UNBOUND_HEIGHT_PX + EPSILON);
+        ).toBeGreaterThan(SEEDED_OPENING_BID_PX + EPSILON);
         expect(
           Math.abs(
             before.p1.height - (run - IMPOSITION_GAP_PX) * 0.25,
@@ -680,10 +749,16 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
 
         await raisePicker(app);
 
-        const claimed = await reservations(app);
+        // The same refusal as the first test's, for the same reason: the bid
+        // this fixture seeded is a number no picker measures, so the first
+        // live report is held to it and written nowhere. What this test is
+        // about is downstream of that — the DIVISION, which ignores the bid
+        // whichever way the report went.
+        const refused = await bidMismatches(app);
+        note(`first report against the seeded bid: ${JSON.stringify(refused)}`);
         expect(
-          Object.keys(claimed ?? {}),
-          "the claim is still made — it is the DIVISION that ignores it",
+          refused.map((m) => m.memberId),
+          "the first live report on the seeded member was held to the bid",
         ).toEqual(["p2"]);
 
         const panel = await panelMeasure(app);
@@ -734,6 +809,142 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
           Math.abs(settled.p2.height - (run - IMPOSITION_GAP_PX) * 0.75),
           "and the division really is the stored 3:1",
         ).toBeLessThanOrEqual(EPSILON);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a card added on the production path bids what it measured, and the picker reports the same number",
+    async () => {
+      const app = await launchTugApp({
+        testName: "at0569-measured-bid",
+      });
+      try {
+        // No Session card and no seeded bid in this fixture: the card arrives
+        // through `addCard`, which is the only thing that MEASURES one. Slot 0
+        // is a split column holding a single `hello` card, so the newcomer
+        // joins it as a second member rather than stacking.
+        await app.seedDeckState({
+          state: {
+            cards: [
+              { id: "A", componentId: "hello", title: "Card A", closable: true },
+              { id: "C", componentId: "hello", title: "Card C", closable: true },
+            ],
+            panes: [
+              {
+                id: "p1",
+                position: { x: 40, y: 40 },
+                size: { width: 600, height: 400 },
+                cardIds: ["A"],
+                activeCardId: "A",
+                title: "",
+                acceptsFamilies: ["maker"],
+                slot: 0,
+              },
+              {
+                id: "p3",
+                position: { x: 40, y: 40 },
+                size: { width: 600, height: 400 },
+                cardIds: ["C"],
+                activeCardId: "C",
+                title: "",
+                acceptsFamilies: ["maker"],
+                slot: 1,
+              },
+            ],
+            activePaneId: "p1",
+            imposition: {
+              kind: "two-up",
+              sidebars: {},
+              columns: { 0: { mode: "split", order: ["p1"] } },
+            },
+            hasFocus: true,
+          },
+          focusCardId: "A",
+        });
+        await app.waitForCondition<boolean>(
+          `document.querySelector('.tug-pane[data-pane-id="p3"]') !== null`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        await app.evalJS<null>(
+          `(window.__tug.dispatchControlAction("show-card", { component: "session" }), null)`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
+          { timeoutMs: 15_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        const newcomer = await app.evalJS<string | null>(
+          `(function () {
+            var seeded = ["p1", "p3"];
+            var frames = document.querySelectorAll(".tug-pane[data-pane-id]");
+            for (var i = 0; i < frames.length; i += 1) {
+              var id = frames[i].getAttribute("data-pane-id");
+              if (seeded.indexOf(id) === -1) return id;
+            }
+            return null;
+          })()`,
+        );
+        expect(newcomer, "the card arrived").not.toBeNull();
+
+        // ── ONE ROW. A fresh instance's `sessions.db` is empty, so the picker
+        //    the card raises lists a single "New session" row and its panel is
+        //    the short one. The number the deck holds for the member is what
+        //    the app measured off that panel before it committed the pane, and
+        //    the panel the user is now looking at reports the same number
+        //    through the same arithmetic ([P02], [P04]). ──
+        const oneRowPanel = await pickerPanelNaturalHeight(app);
+        const oneRowHeld =
+          (await reservations(app))?.[newcomer ?? ""] ??
+          (await pins(app))?.[newcomer ?? ""] ??
+          -1;
+        note(
+          `one-row picker: panel natural ${(oneRowPanel ?? -1).toFixed(1)}px, the deck holds ${oneRowHeld.toFixed(1)}px for the member`,
+        );
+        expect(oneRowPanel, "the picker's panel is on screen").not.toBeNull();
+        expect(
+          Math.abs(oneRowHeld - ((oneRowPanel ?? -1) + SHEET_PANEL_TO_MEMBER_PX)),
+          "the first live report is the bid — the number the app measured before the commit",
+        ).toBeLessThanOrEqual(MEASURED_BID_DRIFT);
+        expect(
+          await bidMismatches(app),
+          "and the deck recorded no disagreement, because there was none",
+        ).toEqual([]);
+
+        // ── AT THE CAP. Filling the list is a genuine change to the picker,
+        //    so the report it provokes is an honest update rather than a
+        //    contradiction ([P05]). The member's number follows it, and the
+        //    two heights are far enough apart that no single constant could
+        //    have been right at both — which is the whole case for measuring.
+        //    ──
+        if (fixture === null) {
+          throw new Error("the picker sessions fixture was not seeded");
+        }
+        await pointPickerAt(app, fixture);
+        await wait(AFTER_LAND_MS);
+        const cappedPanel = await pickerPanelNaturalHeight(app);
+        const cappedHeld = (await reservations(app))?.[newcomer ?? ""] ?? -1;
+        note(
+          `list at its cap: panel natural ${(cappedPanel ?? -1).toFixed(1)}px, the deck holds ${cappedHeld.toFixed(1)}px for the member`,
+        );
+        expect(
+          Math.abs(cappedHeld - ((cappedPanel ?? -1) + SHEET_PANEL_TO_MEMBER_PX)),
+          "the claim follows the picker that changed under it",
+        ).toBeLessThanOrEqual(REPORTER_DRIFT);
+        expect(
+          cappedHeld - oneRowHeld,
+          "and the two pickers are far enough apart that no constant fits both",
+        ).toBeGreaterThan(100);
+        expect(
+          await bidMismatches(app),
+          "an honest update is not a mismatch",
+        ).toEqual([]);
       } finally {
         await app.close();
       }

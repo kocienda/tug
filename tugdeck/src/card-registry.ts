@@ -25,6 +25,7 @@ import type React from "react";
 import type { FeedIdValue } from "./protocol";
 import type { CardState } from "./layout-tree";
 import type { FeedStoreFilter } from "./lib/feed-store";
+import type { TugSheetDisplayWidth } from "./components/tugways/tug-sheet";
 
 /**
  * Fallback filter used by `CardHost` while a card is still unbound — i.e.,
@@ -161,34 +162,52 @@ export interface CardRegistration {
    */
   foldedSizePolicy?: CardSizePolicy;
   /**
-   * The policy this card type takes while the card is nothing but the sheet it
-   * exists to raise ([P02], [B04]).
+   * The WIDTH this card type takes while the card is nothing but the sheet it
+   * exists to raise ([P06]).
    *
-   * `foldedSizePolicy`'s model, one condition further on, and the same shape:
-   * a form this card type has, declared as a whole policy rather than as a
-   * number the deck has to know what to do with. A card type whose OPEN form
-   * has a tall floor because of surfaces that are not on screen yet — the
-   * Session card's transcript and composer behind its 600px floor — may say
-   * here what it is worth while it is only its sheet.
+   * `foldedSizePolicy`'s model, one condition further on — a form this card
+   * type has, declared by the card rather than by the deck. What it does NOT
+   * declare is a height, and that is the decision: while unbound, the member's
+   * height floor comes from the opening bid the deck MEASURES at arrival and
+   * then from the sheet's own reservation, so a height declared here would be
+   * a third answer to a question two mechanisms already answer.
    *
-   * **How it differs from the folded policy is the whole of [B01]:** this one
-   * declares a `min.height` and NO `max.height`. A folded card is a band and
-   * says so with `min.height === max.height`; an unbound card is a member that
-   * knows what it needs and takes more when its column has more to give. A
-   * `max.height` declared here would be the dead band the one-rule change
-   * removed, so do not declare one.
+   * A width, by contrast, nothing measures: it is what the card type is worth
+   * across, and it is the same whether or not a session is behind it.
    *
-   * Read through {@link getStackSizePolicy}'s `unbound` form selector, and
-   * directly by `addCard` off the registration it already has in hand — the
-   * deck names no componentId and imports nothing from `cards/`. What `addCard`
-   * writes from it is read by `placeMembers` as one contributor to the member's
-   * FLOOR, and the member keeps its weight.
+   * Read through {@link getUnboundSizePolicy}, which composes it into a policy
+   * whose `min.height` is `0` and whose `preferred.height` is the ordinary
+   * policy's. Omitted by every card type with no such condition — every type
+   * but the Session card today — in which case that accessor falls back to the
+   * card's ordinary policy exactly as the folded accessor does.
    *
-   * Omitted by every card type with no such condition, which is every type but
-   * the Session card today, in which case {@link getUnboundSizePolicy} falls
-   * back to that card's ordinary policy exactly as the folded accessor does.
+   * A card type declaring this and a card type declaring {@link openingForm}
+   * are the same set; `src/lib/__tests__/opening-form-registry.test.ts` is the
+   * linter for that, because half a declared form is worse than none.
    */
-  unboundSizePolicy?: CardSizePolicy;
+  unboundWidthPolicy?: { min: number; preferred: number; max?: number };
+  /**
+   * What this card's card looks like at the instant it opens, when that is a
+   * sheet ([P02], [Spec S02]).
+   *
+   * Read by `addCard` off the registration it already has in hand, rendered
+   * off-screen, and measured — so the height the card's pane is committed with
+   * is the height the panel will actually stand at, written INTO the commit
+   * that appends the pane rather than into one a frame later. The deck names
+   * no `componentId` and imports nothing from `cards/`: this is a card type
+   * declaring a form and the deck reading it generically, exactly as
+   * {@link foldedSizePolicy} already is.
+   *
+   * Returning `null` means this card, this time, has no unbound form — the
+   * fresh-versus-restored distinction a registration may need. No bid is
+   * written, and there is no fallback height ([P02]): a form nobody could
+   * measure is a card that opens at its ordinary policy, not one the deck
+   * guesses a number for.
+   *
+   * The returned `panel` must be the SAME component tree the live sheet will
+   * render, built by the same factory, with inert handlers.
+   */
+  openingForm?: (cardId: string) => OpeningForm | null;
   /**
    * Where a fresh pane for this card type opens on the canvas.
    * `"cascade"` (the default) walks the standard cascade origin;
@@ -423,21 +442,55 @@ export function getFoldedSizePolicy(componentId: string): CardSizePolicy {
 }
 
 /**
- * The size policy for a registered card type in its UNBOUND form ([P02],
- * [B04]).
+ * What a card type's card looks like at the instant it opens, when that is a
+ * sheet ([Spec S02]).
+ *
+ * The deck renders this off-screen and measures the panel's natural height
+ * before it commits the card's pane. That is the whole of its purpose, and it
+ * is why every field here is a fact about the BOX rather than about the sheet's
+ * behaviour: the title and the icon are in because the header is part of what
+ * is measured, and `displayWidth` is in because the panel's width tier decides
+ * where its text wraps.
+ */
+export interface OpeningForm {
+  /** The panel, ready to render. Handlers are inert; height must not depend on them. */
+  panel: React.ReactNode;
+  /** The `data-display-width` tier the live sheet will use. */
+  displayWidth: TugSheetDisplayWidth;
+  /** The sheet's title — the header is part of the box that is measured. */
+  title: string;
+  /** The sheet's optional Lucide icon name, for the same reason. */
+  icon?: string;
+}
+
+/**
+ * The size policy for a registered card type in its UNBOUND form ([P06]).
  *
  * {@link getFoldedSizePolicy}'s twin, with the same fallback and for the same
  * reason: a card type that declares no unbound form reads as its ordinary
  * self, and a pane hosting an unbound Session tab beside a Text tab is still
  * one box that has to fit the Text card.
+ *
+ * What it composes from {@link CardRegistration.unboundWidthPolicy} is a
+ * policy with a ZERO height floor. The unbound form contributes nothing to a
+ * member's height, because the deck already has two better answers for it —
+ * the opening bid it measured at arrival, and the reservation the live sheet
+ * reports — and a declared height would be a third that disagrees with both.
+ * The `preferred` height is carried over from the ordinary policy so the
+ * result is still a well-formed policy rather than one that prefers nothing.
  */
 export function getUnboundSizePolicy(componentId: string): CardSizePolicy {
   const registration = registry.get(componentId);
-  return (
-    registration?.unboundSizePolicy ??
-    registration?.sizePolicy ??
-    DEFAULT_SIZE_POLICY
-  );
+  const ordinary = registration?.sizePolicy ?? DEFAULT_SIZE_POLICY;
+  const unboundWidth = registration?.unboundWidthPolicy;
+  if (unboundWidth === undefined) return ordinary;
+  return {
+    min: { width: unboundWidth.min, height: 0 },
+    ...(unboundWidth.max !== undefined
+      ? { max: { width: unboundWidth.max, height: Infinity } }
+      : {}),
+    preferred: { width: unboundWidth.preferred, height: ordinary.preferred.height },
+  };
 }
 
 /**

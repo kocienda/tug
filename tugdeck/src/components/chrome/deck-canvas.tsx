@@ -635,6 +635,10 @@ function inlineRestorer(
  */
 const BEAT_RECIPE: Record<BeatKind, MotionRecipe> = {
   depart: "divide-join",
+  // The fused beat IS the crossing, for the move beat's reason: it is the one
+  // motion the settle is measured against, and a settle that carries an
+  // arrival or a departure runs its whole geometry on that one clock ([P08]).
+  room: "crossing",
   shrink: "shrink",
   move: "crossing",
   grow: "grow",
@@ -657,6 +661,27 @@ function applyHolds(frame: HTMLElement, held: HeldTerms): void {
   if (held.width !== undefined) frame.style.width = `${held.width}px`;
   if (held.height !== undefined) frame.style.height = `${held.height}px`;
 }
+
+/**
+ * Every attribute by which something addresses a LIVE node, stripped from a
+ * departure face and from every node under it.
+ *
+ * `id` and `data-pane-id` keep the settle's own walks off the still. The other
+ * four keep everything else off it: `data-card-id` is how the deck, the
+ * harness and every app-test name a card; `data-testid` is how a test names
+ * anything; `data-tug-focus-key` is how the focus machinery names a target;
+ * `data-slot` is how both a stylesheet and a test name a part. A face that
+ * answered any of them would be a card the document still says is there, for
+ * the whole beat the ghost stands.
+ */
+const FACE_IDENTITY_ATTRS = [
+  "id",
+  "data-pane-id",
+  "data-card-id",
+  "data-testid",
+  "data-tug-focus-key",
+  "data-slot",
+] as const;
 
 /**
  * How tall a seam's hit strip is. Wider than the 5px gap it sits in, because a
@@ -2772,6 +2797,80 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   cardLifecycleRef.current = cardLifecycle;
 
   /**
+   * The face a departing pane had, cloned the last moment it still existed.
+   *
+   * A departure's ghost owns the position, the size, the background and the
+   * border of the pane that left, and it has never had anything INSIDE it: by
+   * the time the settle's Last pass runs, the removal commit has landed and
+   * React has unmounted the frame, so the only thing still known about the
+   * pane is the rect `arm` measured. A card that departs therefore fades out
+   * as a coloured rectangle rather than as itself, which reads as the content
+   * vanishing a beat before the frame does ([P07]).
+   *
+   * `cardWillBeginDestruction` is the one notification that fires while the
+   * frame is still mounted — `_closePane` sends it BEFORE the removal commit —
+   * so it is the only moment a face can be taken.
+   *
+   * **The clone answers to nothing.** Every attribute by which anything —
+   * the settle's own `.tug-pane[data-pane-id]` walk, the focus machinery, a
+   * test waiting for a card to leave — addresses a LIVE thing is stripped from
+   * the face and from every node under it ({@link FACE_IDENTITY_ATTRS}). A
+   * still that still answers `[data-card-id="A"]` is a card that never closed
+   * as far as anybody asking is concerned, and the ghost outlives the frame by
+   * a whole beat. Appearance survives the strip because appearance rides on
+   * classes; the handful of CSS rules keyed on `data-slot` tune details a
+   * 240ms fade does not show, and that is the price of the rule being a rule.
+   *
+   * Keyed by pane id and emptied by the pass that plants it. A notification
+   * that does not lead to a removal — a card closed out of a pane that keeps
+   * standing — leaves an entry the next settle clears, so a stale face can
+   * never be planted in a later departure's ghost.
+   */
+  const departureFacesRef = useRef<Map<string, HTMLElement>>(new Map());
+
+  useLayoutEffect(() => {
+    const lifecycle = cardLifecycle;
+    if (lifecycle === null) return;
+    return lifecycle.observeCardWillBeginDestruction(null, (cardId) => {
+      const el = containerRef.current;
+      if (el === null) return;
+      // The CURRENT panes, off the store: the pane is still there, and the
+      // rendered snapshot this component closed over may be a commit behind.
+      const pane = store
+        .getSnapshot()
+        .panes.find((p) => p.cardIds.includes(cardId));
+      if (pane === undefined) return;
+      // One face per pane, taken by the first card that says it is going.
+      // `_closePane` notifies EVERY card in the pane before its removal
+      // commit, and the frame does not change between those notifications —
+      // so a four-tab pane would otherwise deep-clone the same frame four
+      // times and keep the last. The clone is the expensive part of this
+      // subscriber, and it is taken on the close gesture itself.
+      if (departureFacesRef.current.has(pane.id)) return;
+      const frame = el.querySelector<HTMLElement>(
+        `.tug-pane[data-pane-id="${pane.id}"]`,
+      );
+      if (frame === null) return;
+      const face = frame.cloneNode(true) as HTMLElement;
+      for (const attr of FACE_IDENTITY_ATTRS) {
+        face.removeAttribute(attr);
+        for (const node of face.querySelectorAll(`[${attr}]`)) {
+          node.removeAttribute(attr);
+        }
+      }
+      face.setAttribute("aria-hidden", "true");
+      // A picture answers to nothing, and focus is the other way a node
+      // answers. `aria-hidden` takes it out of the accessibility tree but
+      // leaves its buttons and fields in the tab order, so a Tab pressed
+      // during the fade could land the ring inside a card that has already
+      // closed. `inert` is what takes the whole subtree out of both.
+      face.setAttribute("inert", "");
+      face.classList.add("tug-pane-exit-face");
+      departureFacesRef.current.set(pane.id, face);
+    });
+  }, [cardLifecycle, store]);
+
+  /**
    * Fire `cardDidArrive` for every card the deck holds that is still marked
    * arriving — the UNCONDITIONAL DRAIN, and the whole of [R01]'s answer.
    *
@@ -3370,6 +3469,41 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // notice a departing pane gives: by the time an effect could run on it,
     // there is no element to run one on.
     const survivors = new Set<string>();
+    // Whether this settle carries an arrival or a departure, answered BEFORE
+    // anything is planned, because every frame's plan depends on it ([P08]).
+    //
+    // The pass below discovers both while it walks — a frame with no First
+    // rect is arriving, and a First rect with no survivor departed — but by
+    // then the first frames have already been planned, and a settle cannot
+    // fuse half its frames. Both questions are answerable from what is
+    // already in hand: the frames in the DOM now, and the rects `arm`
+    // measured. So they are asked here, on one walk of each, and the answer
+    // is one boolean for the whole settle.
+    //
+    // `data-pointer-owned` is excluded on the arrival side for the reason the
+    // walk below states: a zone drop has no First rect and is not arriving.
+    for (const frame of el.querySelectorAll<HTMLElement>(
+      ".tug-pane[data-pane-id]",
+    )) {
+      const paneId = frame.getAttribute("data-pane-id");
+      if (paneId !== null) survivors.add(paneId);
+    }
+    const hasArrival = Array.from(
+      el.querySelectorAll<HTMLElement>(".tug-pane[data-pane-id]"),
+    ).some(
+      (frame) =>
+        !frame.hasAttribute("data-pointer-owned") &&
+        !firstRects.has(frame.getAttribute("data-pane-id") ?? ""),
+    );
+    const hasDeparture = Array.from(firstRects.keys()).some(
+      (paneId) => !survivors.has(paneId),
+    );
+    // One gesture, one beat. An arrival's or a departure's room is made or
+    // given up once, and the deck reads as making it once rather than as a
+    // survivor shrinking, then sliding, then a newcomer appearing ([P08]).
+    // The everyday arrangement change — neither arriving nor departing — is
+    // never fused and keeps its shrink/move/grow partition exactly.
+    const fused = hasArrival || hasDeparture;
     for (const frame of el.querySelectorAll<HTMLElement>(
       ".tug-pane[data-pane-id]",
     )) {
@@ -3572,15 +3706,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // together ([B01] of `three-beat-settle`). A frame with no size term
         // plans to exactly one move beat carrying today's terms, which is the
         // stack move, unchanged ([B02]).
-        const beats = planSettleBeats({
-          dx,
-          dy,
-          sx: widthSmears ? sx : 1,
-          width: widthTweens ? [firstRect.width, lastRect.width] : undefined,
-          height: heightTweens
-            ? [firstRect.height, lastRect.height]
-            : undefined,
-        });
+        const beats = planSettleBeats(
+          {
+            dx,
+            dy,
+            sx: widthSmears ? sx : 1,
+            width: widthTweens ? [firstRect.width, lastRect.width] : undefined,
+            height: heightTweens
+              ? [firstRect.height, lastRect.height]
+              : undefined,
+          },
+          { fused },
+        );
         if (beats.length === 0) {
           endEpisode(paneId);
           continue;
@@ -3602,14 +3739,43 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // every frame is planned, and a beat is all frames' together, so a
         // frame whose own first beat is the move or the grow waits in this
         // pose while its neighbours make room.
-        const grow = beats.find((beat) => beat.kind === "grow");
+        // The RULE, in both directions: every size term this frame's FIRST
+        // beat carries is held at its First value until that beat runs,
+        // alongside the inverse transform.
+        //
+        // It used to hold a GROWING axis only, and that was correct for one
+        // reason and one only — the shrink beat was the settle's first beat,
+        // so a shrinking axis had nothing to wait through and could be left
+        // at the Last size the commit already gave it. That is no longer
+        // true. With `room` in {@link BEAT_ORDER} the fused beat is not first
+        // whenever a departure is present, so in the combined settle
+        // (`["depart","room","arrive"]`) a survivor whose height shrinks
+        // would stand at its shrunken size from the launch and the beat would
+        // then animate a height from Last to Last.
+        //
+        // Reading the planned beats is necessary but not sufficient, which is
+        // why the direction asymmetry goes with it: what matters is not which
+        // way an axis moves but whether its beat has run, and until it has,
+        // the frame belongs at First.
+        const firstBeat = beats[0];
         applyHolds(frame, {
           ...(moves ? { transform: { dx, dy, sx: widthSmears ? sx : 1 } } : {}),
-          ...(grow?.terms.width !== undefined
-            ? { width: grow.terms.width[0] }
+          // What the first beat itself holds — the axis whose own beat is
+          // later still — and what the first beat ANIMATES, held at its start
+          // until it does. A beat never holds an axis it animates, so the two
+          // spreads can never fight over one property, and together they are
+          // every size term the frame carries.
+          ...(firstBeat?.held.width !== undefined
+            ? { width: firstBeat.held.width }
             : {}),
-          ...(grow?.terms.height !== undefined
-            ? { height: grow.terms.height[0] }
+          ...(firstBeat?.held.height !== undefined
+            ? { height: firstBeat.held.height }
+            : {}),
+          ...(firstBeat?.terms.width !== undefined
+            ? { width: firstBeat.terms.width[0] }
+            : {}),
+          ...(firstBeat?.terms.height !== undefined
+            ? { height: firstBeat.terms.height[0] }
             : {}),
         });
         settleTweensRef.current.set(paneId, { el: frame, anims, restores });
@@ -3670,9 +3836,23 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       ghost.style.top = `${rect.top}px`;
       ghost.style.width = `${rect.width}px`;
       ghost.style.height = `${rect.height}px`;
+      // The face the pane had, if one was taken. When none was — a pane that
+      // left some other way than a card being destroyed — the ghost stays
+      // blank, which is what it has always been and is still correct.
+      const face = departureFacesRef.current.get(paneId);
+      if (face !== undefined) {
+        ghost.appendChild(face);
+        departureFacesRef.current.delete(paneId);
+      }
       el.appendChild(ghost);
       departures.push({ paneId, ghost });
     }
+    // A destruction notification that did not lead to a departure leaves a face
+    // behind — a card closed out of a pane that keeps standing is the ordinary
+    // case. Clear every entry this settle did not plant, so a face can never be
+    // held past the arrangement it was taken in and planted in some later
+    // pane's ghost.
+    departureFacesRef.current.clear();
     // The beats. Every frame's shrink tweens together; on their joint
     // completion every frame's move tweens; then every frame's grow tweens —
     // and a beat no frame has a term in is skipped, so the everyday stack move
@@ -3849,15 +4029,25 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             // put it; the restorers at completion still hand back whatever
             // React had rendered.
             for (const [c, beat] of launchedBeats) {
-              if (beat.kind === "move") {
+              // Stated as a rule over what the beat ANIMATED rather than as a
+              // list of kinds: a beat ends at the value it animated to, which
+              // is identity for a transform and the committed size for an
+              // axis, so every property this beat carried can come off and
+              // leave the frame exactly where the beat put it. The fused
+              // `room` beat carries all three at once, which a per-kind list
+              // could only have covered by naming it in both branches.
+              if (
+                beat.terms.dx !== 0 ||
+                beat.terms.dy !== 0 ||
+                (beat.terms.sx ?? 1) !== 1
+              ) {
                 c.frame.style.removeProperty("transform");
-              } else if (beat.kind === "grow") {
-                if (beat.terms.width !== undefined) {
-                  c.frame.style.removeProperty("width");
-                }
-                if (beat.terms.height !== undefined) {
-                  c.frame.style.removeProperty("height");
-                }
+              }
+              if (beat.terms.width !== undefined) {
+                c.frame.style.removeProperty("width");
+              }
+              if (beat.terms.height !== undefined) {
+                c.frame.style.removeProperty("height");
               }
             }
           },

@@ -454,8 +454,11 @@ export interface DeckState {
    * spare; the one member that still reads floor = ceiling is a folded one.
    *
    * Written by `addCard` for a card type declaring
-   * `CardRegistration.unboundSizePolicy`, inside the same commit that
-   * appends the pane ([B02]), so nothing re-targets the settle a commit later.
+   * `CardRegistration.openingForm`, inside the same commit that appends the
+   * pane ([B02]), so nothing re-targets the settle a commit later. The number
+   * is MEASURED off that form rendered off-screen at the width the pane is
+   * about to stand at, rather than declared — the panel's height depends on
+   * what is in it, and nothing a registration can write knows that.
    * **Cleared by the sheet that supersedes it**, in `setSheetReservation`'s own
    * commit ([B02]): by a claim at least as high as the bid, and by the sheet
    * going, whatever the bid was. So a bid that was too small is corrected by

@@ -259,7 +259,9 @@ export async function pointPickerAt(
 /**
  * The picker panel's natural height as the sheet computes it — `scrollHeight`
  * plus borders and margins — or `null` when no panel is up. This is the number
- * `SESSION_UNBOUND_HEIGHT_PX` is resolved from, so a geometry test prints it.
+ * the deck itself measures and bids before it commits a Session card's pane, by
+ * the identical formula, so a geometry test prints it and compares against it.
+ * There is no declared constant it resolves to any more, and that is the point.
  */
 export async function pickerPanelNaturalHeight(
   app: PickerDriver,

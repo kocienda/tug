@@ -22,6 +22,12 @@ import { analyze } from "../../../scripts/fast-refresh-sweep";
 const FROZEN_BOUNDARIES: readonly string[] = [
   "src/components/tugways/cards/session-card.tsx",
   "src/components/tugways/cards/session-card-transcript.tsx",
+  // The picker's own module. It left `session-card.tsx` when the opening-form
+  // factory needed it from outside, and it is frozen here for the same reason
+  // the card is: the picker is a surface people edit, and a full page reload
+  // per edit is what the boundary work bought back. The factory and the notice
+  // mapper are separate modules precisely so this one stays component-only.
+  "src/components/tugways/cards/session-picker-form.tsx",
 ];
 
 describe("fast-refresh boundary oracle", () => {

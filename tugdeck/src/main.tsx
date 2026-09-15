@@ -138,6 +138,7 @@ declare global {
         getCardState(cardId: string): unknown;
         captureCardState(cardId: string): unknown;
         registeredComponentKeys(cardId: string): string[];
+        lastOpeningFormMeasureMs(): number | null;
       };
       /**
        * Measurement surface — the two write-capable moves a profiling
@@ -765,6 +766,15 @@ if (!container) {
         const reg = deck.peekComponentStatePreservationRegistry(cardId);
         return reg ? Array.from(reg.keys()) : [];
       },
+      /**
+       * How long the last opening-form measure took, in milliseconds, or
+       * `null` if none has been taken ([Risk R02]).
+       *
+       * The measure is two synchronous React renders on the card-creation
+       * path, so its cost is paid where a person is watching. This is how a
+       * test or a profiling session reads it without a channel of its own.
+       */
+      lastOpeningFormMeasureMs: () => deck.getLastOpeningFormMeasureMs(),
     },
 
     /**

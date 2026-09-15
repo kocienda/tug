@@ -1533,11 +1533,15 @@ body {
  * rect instead and fades it, so a close reads as the card leaving rather than
  * the card having never been there.
  *
- * It is deliberately a plain tile rather than a clone of the pane: it carries
- * the chrome's ground, border, and radius and nothing else. A live clone would
- * duplicate ids, re-run the card's effects, and pay for a subtree that is on
- * its way out — all to be visible for a fraction of a second, at an opacity
- * that never shows what is inside it.
+ * It carries the chrome's ground, border, and radius, and the canvas plants
+ * the pane's own FACE inside it when it has one — a `cloneNode(true)` taken
+ * while the frame was still mounted, with every `id` and `data-pane-id`
+ * stripped. It is markup rather than a live subtree: React never sees it, no
+ * effect re-runs, nothing selects it, and it is thrown away with the ghost.
+ * That is what makes a close read as the card leaving rather than as its
+ * contents vanishing a beat before its frame does. A departure with no face
+ * taken — a pane that left some other way — fades as the plain tile, which is
+ * what every departure used to be.
  *
  * Inert in every sense: it takes no pointer events, and the canvas removes it
  * when the fade lands. Motion is TugAnimator's ([L13]), so nothing here
@@ -1550,4 +1554,13 @@ body {
   background-color: var(--tugx-pane-bg);
   border: 1px solid var(--tugx-pane-border);
   border-radius: var(--tug-radius-md);
+}
+
+/* The planted face fills the ghost that owns its position and size. It is a
+   detached clone with no layout of its own, so it is given one here rather
+   than inheriting whatever the live frame's inline geometry happened to say. */
+.tug-pane-exit-ghost > .tug-pane-exit-face {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }

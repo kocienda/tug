@@ -1,6 +1,6 @@
 /**
- * at0571-picker-card-arrival.test.ts — a Session card's arrival is three
- * steps, and only one thing moves in each.
+ * at0571-picker-card-arrival.test.ts — a Session card's arrival is TWO
+ * motions, and the height it arrives at was known before the commit.
  *
  * ## What this gates
  *
@@ -12,57 +12,58 @@
  * changing under it. What the reader saw was hitching, and a picker that
  * arrived at the wrong size in the wrong place.
  *
- * The arrival is now a SEQUENCE, and each step starts when the one before it
- * finishes. The neighbour shrinks to make the room; then the new frame fades
- * into the room that opened; then, and only then, the picker's sheet plays its
- * own enter. The first two are beats of one settle chain — `shrink` and
- * `arrive`, the outer beats the entrance and departure became — and the third
- * waits on `cardDidArrive`, an event the arrive beat's own completion fires,
- * rather than on a timer that was a second copy of the imposer's spring.
+ * Then it was three: a shrink, an arrive, and a sheet that waited on
+ * `cardDidArrive`. Three is one too many. An arrival is one thing happening —
+ * the column re-dividing to seat a newcomer — and the newcomer is not a second
+ * event that follows it. So the arrangement change and the newcomer's entrance
+ * are FUSED into a single `room` beat, the card's own entrance rides the
+ * second, and the picker rides the frame rather than waiting behind a beat it
+ * cannot see ([P07], [P08]).
  *
- * The room the card opens into is a CONSTANT, not a measurement. An unbound
- * Session card is nothing but the picker it exists to raise, so it declares
- * what it is worth in that state and `addCard` pins its member at exactly that
- * height in the commit that appends the pane. A measured number would arrive a
- * commit after the card did and re-target a settle already in flight, which is
- * the judder the pin exists to remove.
+ * The height the card arrives at is MEASURED, and measured BEFORE the commit
+ * that appends the pane ([P02]). The card type declares an opening form; the
+ * deck renders that form off-screen at the width the pane is about to stand
+ * at, reads the panel's natural height, and writes the member floor it derives
+ * from it as the opening bid inside the same commit. Nothing in this file
+ * names a declared height any more, because there is no longer one to name:
+ * the number this test reads off the live store is a number the app measured
+ * seconds earlier, and the assertion is that the picker the user then sees
+ * reports exactly it ([P04]).
  *
  * The claims are read over the frames the imposer itself marks, against the
  * beat it names on each one (`data-imposer-beat` on the canvas), which is what
  * `runBeat` writes the attribute for. Nothing here depends on a wall-clock
  * window:
  *
- *   1. **During the shrink beat the new frame is not visible.** Its computed
- *      `opacity` is `0` on every sample the imposer marks `shrink`. This is
- *      the claim the old overlap could not make at all: the frame was fading
- *      in while the neighbour was still shrinking, so there was no instant at
- *      which only one thing was moving.
- *   2. **During the arrive beat nothing changes size.** Between consecutive
- *      samples marked `arrive`, no frame's height moves by more than 1.5px.
- *      The room is already open by then; all that is left is the newcomer
- *      appearing in it.
- *   3. **The picker's panel is not present until the beats are over.** It is
- *      absent from the document on every sample carrying a beat, and present
- *      afterwards. A sheet that came up mid-settle is the one that clamped
- *      itself against a moving frame.
- *   4. **The shrink really shrank, and `addCard` really wrote the pin.** The
- *      sitting member's height travels the whole extent between the run it
- *      held alone and the run less the gap and the pinned height, and the pin
- *      is in the live deck state keyed by the new pane. Claims 1 to 3 are free
- *      for anything that breaks this one: a card that never arrived is
- *      invisible during a shrink that never happened. This is also the one
- *      place the PRODUCTION write is exercised — `at0569` seeds its pin
- *      because it seeds its deck, and says so; this file adds its card at run
- *      time through the same `show-card` action a menu item dispatches.
+ *   1. **The arrival is exactly `room` then `arrive`, and nothing else.** No
+ *      `shrink`, no `move`, no `grow`, no `depart`. Two motions is the
+ *      contract, and a census naming a third is the contract broken.
+ *   2. **The picker is on the frame from the first frame the reader can see
+ *      it.** On the arriving frame's first sample whose computed opacity is
+ *      above 0, the picker's panel is already in the document, and it is there
+ *      on every sample after. This is the exact reverse of what this file used
+ *      to assert: the picker waited for the beats to end, which is what made
+ *      the arrival three motions instead of two.
+ *   3. **Nothing re-targets the settle once it is launched.** Exactly one
+ *      armed `settle-arm` is recorded across the whole gesture. A second one
+ *      is a number that arrived late — the defect the pre-commit measure
+ *      exists to remove — and the trace is where it would show.
+ *   4. **The bid was measured, and the picker agrees with it.** The opening
+ *      bid keyed by the new pane is present, the newcomer stands at least
+ *      there, and the bid equals the live panel's own natural height put
+ *      through the same chrome arithmetic the deck used. No
+ *      `opening-bid-mismatch` row is recorded, which is the app's own
+ *      statement that the first live report and the bid were the same number.
  *   5. **Nothing is left behind.** At rest no frame carries an inline
  *      `opacity`, the canvas carries neither `data-imposer-settling` nor
  *      `data-imposer-beat`, and no exit ghost is in the document. An opacity
  *      hold left on a settled frame is a card the reader cannot see.
  *
- * The second test is the departure, which is the same design read backwards:
- * cancelling the picker closes the card, the ghost standing at its last rect
- * fades out on its own beat while the survivor holds still, and only then does
- * the survivor grow back over the room.
+ * The second test is the departure, which is the same design read backwards
+ * and is also two motions: `depart`, then `room`. The ghost that stands where
+ * the card was carries the card's own FACE — a still clone planted in it one
+ * commit before the frame leaves — so what fades out is the card the reader
+ * was looking at rather than a blank tile.
  *
  * The sitting member is a `hello` card rather than a second Session card for
  * `at0569`'s reason: an unbound Session card raises its picker the moment it
@@ -73,37 +74,36 @@
  * one no app-test has ever driven. The sitter folds first, so the column has
  * hundreds of pixels the sitter's tier does not claim, and then the same
  * production arrival runs. The newcomer takes that room instead of standing at
- * the height it declared with a dead band beneath it, the folded sitter does
- * not move at all, and the column's last member reaches the run's own bottom.
+ * the height it bid with a dead band beneath it, the folded sitter does not
+ * move at all, and the column's last member reaches the run's own bottom.
  * "No band beneath it" is read against the frame in slot 1, which is a single
  * member spanning the same run — a reading that cannot be satisfied by the two
  * heights the claim is about.
  *
  * `@covers` names the planner that partitions a settle's terms into beats, the
- * lifecycle channel the sheet waits on, the settle-end notice the clamp
- * measures from, and the allocator that divides the column — the arrival's own
- * weight is derived there ({@link arrivalSharesOf}), and the roomy claim below
- * is a claim about what that division does.
+ * lifecycle channel the card's activation runs through, the settle-end notice
+ * the clamp measures from, and the allocator that divides the column — the
+ * arrival's own weight is derived there ({@link arrivalSharesOf}), and the
+ * roomy claim below is a claim about what that division does.
  *
  * Two modules this file is unmistakably about are deliberately NOT named, for
  * the same reason and by the same precedent. `deck-canvas.tsx`, which plans
  * and launches every beat asserted here, stands at its recorded fan-out of 21,
  * one past the selection budget; so does `session-card.tsx`, where the picker
- * waits. Recorded debt may be paid down but never refinanced, so naming either
- * would be refused outright on the commit that did it — which is exactly the
- * call `at0563` made about the same two modules, and `at0569` about the
- * second. What stands in their place are the seams each reaches this
+ * is raised. Recorded debt may be paid down but never refinanced, so naming
+ * either would be refused outright on the commit that did it — which is
+ * exactly the call `at0563` made about the same two modules, and `at0569`
+ * about the second. What stands in their place are the seams each reaches this
  * choreography through: `pane-flip.ts` owns the beat order and the partition
- * the canvas launches, and `card-lifecycle.ts` owns the channel the picker
- * waits on. An edit that changes which beats run, or when a card is said to
- * have arrived, selects this file through one of those.
+ * the canvas launches, and `card-lifecycle.ts` owns the channel the picker's
+ * presentation rides. An edit that changes which beats run, or when a card is
+ * said to have activated, selects this file through one of those.
  *
  * @covers tugdeck/src/lib/pane-flip.ts
  * @covers tugdeck/src/lib/card-lifecycle.ts
  * @covers tugdeck/src/lib/settle-notice.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  */
-
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
@@ -120,14 +120,32 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 /**
- * `SESSION_UNBOUND_HEIGHT_PX` from `session-card-registration.tsx`, copied
- * rather than imported: that module is a `.tsx` and this project compiles
- * without `--jsx`, which is the same reason `at0569` and `at0552` carry their
- * own copies of the constants they measure against.
+ * What the deck adds between a sheet's panel and the member under it —
+ * `memberFloorForSheetPanel`'s sum, copied for the reason `at0569` carries the
+ * same copy: `--jsx` is off here, so nothing under `components/` can be
+ * imported, and `lib/sheet-reservation.ts` reaches the card registry through
+ * the `@` alias this file does not resolve.
  *
- * A copy that drifts fails claim 4 rather than passing quietly.
+ * 37 (the pane's title bar and the 1px its sheet clip drops below it) + 32
+ * (`SHEET_CANVAS_GAP`) − 5 (`IMPOSITION_GAP_PX`, the gap already under a
+ * column's last member). This is the ONLY number in this file, and it is a
+ * shape rather than a height: it is what turns the panel the app measured into
+ * the member floor the app bid, so claim 4 can put the two on the same footing
+ * without either of them being written down anywhere.
  */
-const SESSION_UNBOUND_HEIGHT_PX = 618;
+const SHEET_PANEL_TO_MEMBER_PX = 64;
+
+/**
+ * How far the bid may sit from a fresh reading of the live panel.
+ *
+ * The two use the identical formula over the identical component, so this is
+ * not a tolerance on the arithmetic — it is a tolerance on WHEN: the bid was
+ * read off an off-screen render taken before the commit, and this reading is
+ * taken off the live panel after it. Sub-pixel layout rounding is the whole of
+ * what may differ, and the alternatives a wrong bid would be — a constant, the
+ * frame, the stack floor — are tens or hundreds of pixels away.
+ */
+const BID_DRIFT_PX = 1;
 
 /**
  * A project whose Sessions list stands at its 14.5rem cap, so the picker the
@@ -229,8 +247,22 @@ interface Sample {
   inlineOpacity: Record<string, string>;
   /** Whether the picker's panel was in the document. */
   picker: boolean;
+  /**
+   * The opening bids the live store held on this frame, keyed by member.
+   *
+   * Sampled rather than read at the end, because a bid does not survive being
+   * agreed with: the first live report that matches it hands the number over
+   * to the member's sheet reservation and clears the bid in the same commit
+   * ([B02]). So the only place the bid is observable is DURING the arrival,
+   * which is also the only place it matters.
+   */
+  bids: Record<string, number>;
   /** How many exit ghosts stood on the canvas. */
   ghosts: number;
+  /** Whether a ghost carried a planted FACE — a still clone of the pane. */
+  ghostFace: boolean;
+  /** Whether that face carried the picker's own marker class. */
+  ghostFacePicker: boolean;
 }
 
 /**
@@ -263,6 +295,14 @@ async function census(app: App, gesture: string): Promise<Sample[]> {
           picker: document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null,
           ghosts: document.querySelectorAll(${JSON.stringify(EXIT_GHOST)}).length,
         };
+        sample.bids = window.tugdeck.diag.getDeckState().openingBids || {};
+        var face = document.querySelector(
+          ${JSON.stringify(`${EXIT_GHOST} > .tug-pane-exit-face`)},
+        );
+        sample.ghostFace = face !== null;
+        sample.ghostFacePicker =
+          face !== null &&
+          face.querySelector(${JSON.stringify(PICKER_FORM)}) !== null;
         var frames = document.querySelectorAll(".tug-pane[data-pane-id]");
         for (var i = 0; i < frames.length; i += 1) {
           var el = frames[i];
@@ -281,6 +321,53 @@ async function census(app: App, gesture: string): Promise<Sample[]> {
   await app.evalJS<null>(`(${gesture}, null)`);
   await wait(CENSUS_MS + 300);
   return app.evalJS<Sample[]>(`window.__at0571`);
+}
+
+/**
+ * Turn the deck's own trace on and take a mark, so `traceSince` below can read
+ * exactly the events one gesture produced.
+ *
+ * `settle-arm` records only while the trace is enabled; `opening-bid-mismatch`
+ * is an always-recorded kind and would be there either way. Enabling costs the
+ * canvas a record per arm, which is nothing beside the rAF sampler already
+ * running over the same window.
+ */
+async function traceMark(app: App): Promise<number> {
+  return app.evalJS<number>(
+    `(function () {
+      window.__deckTrace.enable(true);
+      return window.__deckTrace.mark();
+    })()`,
+  );
+}
+
+/** The kinds this file reads back, counted over the events since `mark`. */
+async function traceSince(
+  app: App,
+  mark: number,
+): Promise<{
+  armedArms: number;
+  arms: number;
+  mismatches: { memberId: string; bid: number; report: number }[];
+}> {
+  return app.evalJS(
+    `(function () {
+      var events = window.__deckTrace.since(${mark});
+      var arms = 0;
+      var armedArms = 0;
+      var mismatches = [];
+      for (var i = 0; i < events.length; i += 1) {
+        var e = events[i];
+        if (e.kind === "settle-arm") {
+          arms += 1;
+          if (e.armed === true) armedArms += 1;
+        } else if (e.kind === "opening-bid-mismatch") {
+          mismatches.push({ memberId: e.memberId, bid: e.bid, report: e.report });
+        }
+      }
+      return { arms: arms, armedArms: armedArms, mismatches: mismatches };
+    })()`,
+  );
 }
 
 /** The samples the imposer named a given beat on. */
@@ -450,10 +537,38 @@ async function isFolded(app: App, paneId: string): Promise<boolean> {
   );
 }
 
-/** The opening bids the live store holds, keyed by member. */
-async function pins(app: App): Promise<Record<string, number> | null> {
-  return app.evalJS<Record<string, number> | null>(
-    `(window.tugdeck.diag.getDeckState().openingBids || null)`,
+/**
+ * The number the deck holds for `paneId` — its opening bid while the bid still
+ * stands, and its sheet reservation once the first live report has superseded
+ * it.
+ *
+ * They are the same number by the first-report rule ([P04]), so which of the
+ * two records it is sitting in is a matter of how far the handoff has got, and
+ * no assertion here should depend on that.
+ */
+async function heldFor(app: App, paneId: string): Promise<number> {
+  return app.evalJS<number>(
+    `(function () {
+      var s = window.tugdeck.diag.getDeckState();
+      var bid = (s.openingBids || {})[${JSON.stringify(paneId)}];
+      if (typeof bid === "number") return bid;
+      var claim = (s.sheetReservations || {})[${JSON.stringify(paneId)}];
+      return typeof claim === "number" ? claim : -1;
+    })()`,
+  );
+}
+
+/**
+ * How long the last opening-form measure took, in milliseconds, off the deck's
+ * diag surface ([Risk R02]).
+ *
+ * Printed and never asserted on. Every app-test runs behind a machine-wide
+ * gate with a whole `Tug.app` under it, so a threshold here would be a
+ * measurement of the machine's load at the moment the gate opened.
+ */
+async function measureCostMs(app: App): Promise<number | null> {
+  return app.evalJS<number | null>(
+    `(window.tugdeck.diag.lastOpeningFormMeasureMs() ?? null)`,
   );
 }
 
@@ -509,17 +624,16 @@ const cancelPicker = `(function () {
 
 describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
   test(
-    "the neighbour makes room, then the card fades into it, then the picker comes up",
+    "the column makes room and the card rides in on the picker it already measured",
     async () => {
       const app = await launchTugApp({ testName: "at0571-arrival" });
       try {
         await seed(app);
-        const runBefore = (
-          await app.evalJS<number>(
-            `document.querySelector('.tug-pane[data-pane-id="${SITTER}"]').getBoundingClientRect().height`,
-          )
+        const runBefore = await app.evalJS<number>(
+          `document.querySelector('.tug-pane[data-pane-id="${SITTER}"]').getBoundingClientRect().height`,
         );
 
+        const mark = await traceMark(app);
         const samples = await census(app, addSessionCard);
         const arrived = arrivedPanes(samples);
         note("arrival", `panes arrived: ${JSON.stringify(arrived)}`);
@@ -527,28 +641,38 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         const newcomer = arrived[0];
 
         const order = beatOrder(samples);
-        const shrink = beatFrames(samples, "shrink");
+        const room = beatFrames(samples, "room");
         const arrive = beatFrames(samples, "arrive");
-        const withBeat = samples.filter((s) => s.beat !== "");
         note(
           "arrival beats",
-          `order=${JSON.stringify(order)} shrink=${shrink.length}f arrive=${arrive.length}f run before=${runBefore.toFixed(2)}`,
+          `order=${JSON.stringify(order)} room=${room.length}f arrive=${arrive.length}f run before=${runBefore.toFixed(2)}`,
         );
+
+        // ── 1. TWO MOTIONS. The arrangement change and the newcomer's
+        //    entrance are one beat and its successor, and there is no third.
+        //    Asserted as the whole census rather than as a presence check, so
+        //    a shrink or a move creeping back in fails here rather than
+        //    passing under an assertion that only looked for what it wanted
+        //    ([P08]). ──
+        expect(order, "the arrival is exactly room then arrive").toEqual([
+          "room",
+          "arrive",
+        ]);
         expect(
-          shrink.length,
-          "the shrink beat must be sampled mid-motion",
+          room.length,
+          "the room beat must be sampled mid-motion",
         ).toBeGreaterThan(3);
         expect(
           arrive.length,
           "the arrive beat must be sampled mid-motion",
         ).toBeGreaterThan(3);
 
-        // 4, first, because 1 to 3 are only claims if there was a real
-        // arrival to read them over. The sitter's own height is the motion,
-        // and the pin is the number it travelled to.
-        const sitterTravel = spread(shrink, (s) => s.heights[SITTER] ?? 0);
+        // 4, next, because 1 to 3 are only claims if there was a real arrival
+        // to read them over. The sitter's own height is the motion, and the
+        // bid is the number the app measured before it committed.
+        const sitterTravel = spread(room, (s) => s.heights[SITTER] ?? 0);
         // Both resting heights are read from the LAST sample rather than from
-        // the extreme of the shrink beat. The beat's last sampled frame is a
+        // the extreme of the room beat. The beat's last sampled frame is a
         // pixel or so short of where the spring finally lands, and reading the
         // minimum there would build that overshoot into the arithmetic — which
         // is what turned an exact claim into a tolerance on the first run of
@@ -556,72 +680,85 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         const last = samples[samples.length - 1];
         const sitterRest = last.heights[SITTER] ?? -1;
         const newcomerRest = last.heights[newcomer] ?? -1;
-        const livePins = await pins(app);
+        // The bid as the sampler caught it, on the first frame it appeared:
+        // the commit that appended the pane carried it, and the first live
+        // report hands it over and clears it.
+        const bidSamples = samples
+          .map((s) => s.bids[newcomer])
+          .filter((v): v is number => typeof v === "number");
+        const bid = bidSamples[0] ?? -1;
         note(
           "arrival extent",
-          `sitter travel=${sitterTravel.toFixed(2)} run before=${runBefore.toFixed(2)} at rest sitter=${sitterRest.toFixed(2)} newcomer=${newcomerRest.toFixed(2)} pins=${JSON.stringify(livePins)}`,
+          `sitter travel=${sitterTravel.toFixed(2)} run before=${runBefore.toFixed(2)} at rest sitter=${sitterRest.toFixed(2)} newcomer=${newcomerRest.toFixed(2)} bid=${bid.toFixed(2)} on ${bidSamples.length} sample(s)`,
         );
-        // The pin bit: the newcomer stands at the height it declared, not at
-        // the 600px stack floor a Session card would otherwise claim and not
-        // at a share of the run. This is the exact claim.
+        expect(
+          bid,
+          "addCard measured the opening form and bid the number, on the production path",
+        ).toBeGreaterThan(0);
+        // The bid is a FLOOR, so the newcomer stands at least there — this
+        // fixture's column has nothing spare to lift it past, but the claim is
+        // written the way the allocator reads the number rather than the way
+        // this run happens to land ([P02]).
         expect(
           newcomerRest,
-          "the arriving card stands at exactly the height it declared unbound",
-        ).toBeCloseTo(SESSION_UNBOUND_HEIGHT_PX, 0);
-        // And the sitter holds every pixel the pin did not take: the two
+          "the arriving card stands at least at the height the app bid for it",
+        ).toBeGreaterThanOrEqual(bid - EPSILON);
+        // And the sitter holds every pixel the newcomer did not take: the two
         // members and the gap between them are the run the sitter held alone.
         expect(
           sitterRest + IMPOSITION_GAP_PX + newcomerRest,
-          "the sitter holds every pixel the pin did not take",
+          "the sitter holds every pixel the newcomer did not take",
         ).toBeCloseTo(runBefore, 0);
         expect(
           sitterTravel,
           "and it travelled the whole extent to get there",
-        ).toBeGreaterThan(SESSION_UNBOUND_HEIGHT_PX * 0.8);
-        expect(
-          livePins?.[newcomer],
-          "addCard wrote the pin on the production path",
-        ).toBe(SESSION_UNBOUND_HEIGHT_PX);
+        ).toBeGreaterThan(bid * 0.8);
 
-        // 1. The newcomer is invisible for the whole of the shrink.
-        const visibleDuringShrink = shrink.filter(
-          (s) => s.opacity[newcomer] !== undefined && s.opacity[newcomer] !== "0",
-        );
-        note(
-          "arrival hold",
-          `samples with the newcomer visible during shrink: ${visibleDuringShrink.length}`,
-        );
-        expect(
-          visibleDuringShrink.length,
-          "the arriving frame is held invisible for the whole shrink beat",
-        ).toBe(0);
-
-        // 2. Nothing resizes during the arrive beat.
-        const worst = worstHeightStep(arrive);
-        note(
-          "arrive beat",
-          `worst height step: ${worst.step.toFixed(2)}px on ${worst.pane || "nothing"}`,
-        );
-        expect(
-          worst.step,
-          "no frame changes size during the arrive beat",
-        ).toBeLessThan(EPSILON);
-
-        // 3. The picker waits for the beats to be over.
-        const pickerDuringBeats = withBeat.filter((s) => s.picker);
-        const pickerAfter = samples.filter((s) => s.beat === "" && s.picker);
+        // ── 2. The picker RIDES THE FRAME. The reverse of what this file
+        //    used to assert: on the first sample the arriving frame is visible
+        //    at all, the picker is already in the document, and it is there on
+        //    every sample after ([P07]). A picker that waited for the beats
+        //    would be absent on the first visible sample and would make the
+        //    arrival three motions again. ──
+        const visible = samples.filter((s) => {
+          const o = s.opacity[newcomer];
+          return o !== undefined && Number.parseFloat(o) > 0;
+        });
+        const firstVisible = visible[0];
+        const visibleWithoutPicker = visible.filter((s) => !s.picker);
         note(
           "picker",
-          `present on ${pickerDuringBeats.length} beat sample(s), on ${pickerAfter.length} sample(s) after`,
+          `first visible at t=${(firstVisible?.t ?? -1).toFixed(0)}ms beat=${firstVisible?.beat || "none"} picker=${firstVisible?.picker ?? false}; ${visible.length} visible sample(s), ${visibleWithoutPicker.length} without the picker`,
         );
         expect(
-          pickerDuringBeats.length,
-          "the picker's panel is absent while a beat is running",
-        ).toBe(0);
-        expect(
-          pickerAfter.length,
-          "and present once the beats are over",
+          visible.length,
+          "the arriving frame becomes visible during the census",
         ).toBeGreaterThan(0);
+        expect(
+          visibleWithoutPicker.length,
+          "the picker is on the frame from the first sample the reader can see it",
+        ).toBe(0);
+
+        // ── 3. Nothing re-targeted the settle. One armed arm for the whole
+        //    gesture: a second one is a number that landed after the commit
+        //    and re-aimed a settle already in flight, which is precisely what
+        //    measuring before the commit removes ([P02], [B06]).
+        //    4, continued: and the app itself says the first live report and
+        //    the bid were the same number, because the guard that would have
+        //    recorded a disagreement recorded nothing ([P04], [Spec S04]). ──
+        const trace = await traceSince(app, mark);
+        note(
+          "arrival trace",
+          `${trace.armedArms} armed of ${trace.arms} arm(s); mismatches=${JSON.stringify(trace.mismatches)}`,
+        );
+        expect(
+          trace.armedArms,
+          "the arrival is one armed settle, and nothing re-targeted it",
+        ).toBe(1);
+        expect(
+          trace.mismatches,
+          "no opening-bid mismatch — the first live report was the bid",
+        ).toEqual([]);
 
         // 5. Nothing is left behind.
         await wait(AFTER_LAND_MS);
@@ -636,8 +773,42 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         expect(rest.ghosts, "and no exit ghost stands").toBe(0);
         expect(rest.picker, "the picker is up at rest").toBe(true);
 
+        // ── 4, finished. The bid the app wrote before the commit, against a
+        //    fresh reading of the panel the user is now looking at, put
+        //    through the same chrome arithmetic the deck used. This is the
+        //    arc's whole claim in one comparison, and neither side of it is a
+        //    number anybody wrote down. ──
+        const liveNatural = await pickerPanelNaturalHeight(app);
+        const costMs = await measureCostMs(app);
+        const held = await heldFor(app, newcomer);
+        note(
+          "bid vs first report",
+          `bid=${bid.toFixed(1)} held=${held.toFixed(1)} live panel natural=${(liveNatural ?? -1).toFixed(1)} → member floor ${((liveNatural ?? -1) + SHEET_PANEL_TO_MEMBER_PX).toFixed(1)}`,
+        );
+        // A note(), never an assertion: a timing assertion on a serialized
+        // app-test measures contention rather than the measure ([Risk R02]).
+        note(
+          "measure cost",
+          `the last opening-form measure took ${costMs === null ? "n/a" : `${costMs.toFixed(2)}ms`}`,
+        );
+        expect(liveNatural, "the picker's panel is on screen").not.toBeNull();
+        expect(
+          Math.abs(bid - ((liveNatural ?? -1) + SHEET_PANEL_TO_MEMBER_PX)),
+          "the bid is the panel the user sees, through the deck's own arithmetic",
+        ).toBeLessThanOrEqual(BID_DRIFT_PX);
+        // And the handoff carried the same number across: the bid is gone and
+        // the member's own claim stands at it, which is what a first report
+        // AGREEING with a bid does ([B02]).
+        expect(
+          Math.abs(held - bid),
+          "the number the deck holds for the member is still the number it bid",
+        ).toBeLessThanOrEqual(BID_DRIFT_PX);
+
         // The picker over a project with more sessions than the list's cap
-        // holds — the case a real project presents.
+        // holds — the case a real project presents. It comes LAST, because
+        // filling the list changes the panel and so the claim above is only
+        // readable before it ([P05]: a genuinely-changed picker is an honest
+        // update, not a defect).
         await measureAtListCap(app, "arrival picker");
       } finally {
         await app.close();
@@ -647,7 +818,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
   );
 
   test(
-    "cancelling the picker takes the card away before the survivor grows back",
+    "cancelling the picker takes the card away, and its ghost wears the card's own face",
     async () => {
       const app = await launchTugApp({ testName: "at0571-departure" });
       try {
@@ -660,26 +831,40 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         await wait(AFTER_LAND_MS);
         await measureAtListCap(app, "departure picker");
 
+        // The height the leaving card stands at, read before it goes: the
+        // survivor's travel is measured against it below, and once the card
+        // is gone there is nothing left to read it off.
+        const leaving = await arrivedPaneId(app);
+        expect(leaving, "the card to cancel is on the canvas").not.toBeNull();
+        const leavingHeight = (
+          await paneRects(app, [leaving ?? ""])
+        )[leaving ?? ""].height;
+
         const samples = await census(app, cancelPicker);
         const order = beatOrder(samples);
         const depart = beatFrames(samples, "depart");
-        const grow = beatFrames(samples, "grow");
+        const room = beatFrames(samples, "room");
         note(
           "departure beats",
-          `order=${JSON.stringify(order)} depart=${depart.length}f grow=${grow.length}f`,
+          `order=${JSON.stringify(order)} depart=${depart.length}f room=${room.length}f leaving=${leavingHeight.toFixed(1)}`,
         );
+
+        // ── TWO MOTIONS, read backwards. The ghost fades on its own beat,
+        //    then the column re-divides in one — there is no separate grow,
+        //    because the survivor taking the room back IS the arrangement
+        //    change ([P08]). ──
+        expect(order, "the departure is exactly depart then room").toEqual([
+          "depart",
+          "room",
+        ]);
         expect(
           depart.length,
           "the depart beat must be sampled mid-motion",
         ).toBeGreaterThan(3);
         expect(
-          grow.length,
-          "the grow beat must be sampled mid-motion",
+          room.length,
+          "the room beat must be sampled mid-motion",
         ).toBeGreaterThan(3);
-        expect(
-          order.indexOf("depart"),
-          "the ghost fades before anything grows",
-        ).toBeLessThan(order.indexOf("grow"));
 
         // The survivor holds still for the whole of the ghost's fade — the
         // departure's half of "one kind of thing at a time".
@@ -693,25 +878,49 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           "no frame changes size during the depart beat",
         ).toBeLessThan(EPSILON);
 
-        // The ghost is the depart beat's whole subject, so it is gone by the
-        // time the survivor starts growing over the room it stood in.
-        const ghostsDuringGrow = grow.filter((s) => s.ghosts > 0);
+        // ── The ghost carries the card's own FACE. A still clone of the pane
+        //    is planted in it one commit before the frame leaves, so what the
+        //    reader watches fade is the card that was there rather than a
+        //    blank tile — and on this card the face is the picker, which is
+        //    what the marker class proves. ──
+        const withGhost = samples.filter((s) => s.ghosts > 0);
         note(
-          "ghost",
-          `standing on ${depart.filter((s) => s.ghosts > 0).length} depart sample(s), ${ghostsDuringGrow.length} grow sample(s)`,
+          "ghost face",
+          `${withGhost.length} sample(s) with a ghost, ${withGhost.filter((s) => s.ghostFace).length} carrying a face, ${withGhost.filter((s) => s.ghostFacePicker).length} carrying the picker`,
         );
         expect(
-          ghostsDuringGrow.length,
-          "the ghost is gone before the grow beat starts",
+          withGhost.length,
+          "a ghost stands where the card was",
+        ).toBeGreaterThan(0);
+        expect(
+          withGhost.filter((s) => !s.ghostFace).length,
+          "every ghost carries a planted face",
+        ).toBe(0);
+        expect(
+          withGhost.filter((s) => !s.ghostFacePicker).length,
+          "and the face is the card the reader was looking at — the picker",
+        ).toBe(0);
+
+        // The ghost is the depart beat's whole subject, so it is gone by the
+        // time the survivor takes the room back.
+        const ghostsDuringRoom = room.filter((s) => s.ghosts > 0);
+        note(
+          "ghost",
+          `standing on ${depart.filter((s) => s.ghosts > 0).length} depart sample(s), ${ghostsDuringRoom.length} room sample(s)`,
+        );
+        expect(
+          ghostsDuringRoom.length,
+          "the ghost is gone before the room beat starts",
         ).toBe(0);
 
         // And the survivor really did grow back over the whole run.
-        const growTravel = spread(grow, (s) => s.heights[SITTER] ?? 0);
+        const growTravel = spread(room, (s) => s.heights[SITTER] ?? 0);
         note("departure extent", `survivor travel=${growTravel.toFixed(2)}`);
         expect(
           growTravel,
           "the survivor grows back over the room the card left",
-        ).toBeGreaterThan(SESSION_UNBOUND_HEIGHT_PX * 0.8);
+        ).toBeGreaterThan(leavingHeight * 0.8);
+
 
         await wait(AFTER_LAND_MS);
         const rest = await atRest(app);
@@ -760,13 +969,6 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           Math.abs(before[SITTER].height - run),
           "alone in its column the folded sitter is still the whole run — there is nothing yet to divide with",
         ).toBeLessThanOrEqual(EPSILON);
-        // The room is worth having: what the tier leaves is hundreds of pixels
-        // more than the arrival declares, which is what makes this the roomy
-        // case rather than a tight one.
-        expect(
-          run - IMPOSITION_GAP_PX - SITTER_FOLDED_TIER_PX,
-          "and the room it leaves is well past what the newcomer declares",
-        ).toBeGreaterThan(SESSION_UNBOUND_HEIGHT_PX + EPSILON);
 
         await app.evalJS<null>(`(${addSessionCard}, null)`);
         await app.waitForCondition<boolean>(
@@ -780,18 +982,34 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         const after = await paneRects(app, [SITTER, "p3", newcomer ?? ""]);
         const arrival = after[newcomer ?? ""];
         const shares = await columnShares(app, 0);
+        const bid = await heldFor(app, newcomer ?? "");
         note(
           "roomy arrival",
-          `sitter=${after[SITTER].height.toFixed(1)} newcomer=${arrival.height.toFixed(1)} of run ${run.toFixed(1)}; band beneath=${(after.p3.bottom - arrival.bottom).toFixed(1)}; shares=${JSON.stringify(shares)}`,
+          `sitter=${after[SITTER].height.toFixed(1)} newcomer=${arrival.height.toFixed(1)} bid=${bid.toFixed(1)} of run ${run.toFixed(1)}; band beneath=${(after.p3.bottom - arrival.bottom).toFixed(1)}; shares=${JSON.stringify(shares)}`,
         );
 
-        // ── It took the ROOM, not its declaration. Read the strong way
-        //    round: above the height it declared, which the ceiling this arc
-        //    removed could never have allowed. ──
+        // ── The room is worth having: what the folded tier leaves is
+        //    hundreds of pixels more than the app bid for the newcomer, which
+        //    is what makes this the roomy case rather than a tight one. The
+        //    comparison is against the LIVE bid — the number this run
+        //    measured — because there is no declared height left to compare
+        //    against, and that is the arc. ──
+        expect(
+          bid,
+          "the newcomer arrived carrying a measured bid",
+        ).toBeGreaterThan(0);
+        expect(
+          run - IMPOSITION_GAP_PX - SITTER_FOLDED_TIER_PX,
+          "and the room the folded sitter leaves is well past what the newcomer bid",
+        ).toBeGreaterThan(bid + EPSILON);
+
+        // ── It took the ROOM, not its bid. Read the strong way round: above
+        //    the height it bid, which the ceiling this arc removed could never
+        //    have allowed. ──
         expect(
           arrival.height,
-          "the newcomer stands above the height it declared unbound",
-        ).toBeGreaterThan(SESSION_UNBOUND_HEIGHT_PX + EPSILON);
+          "the newcomer stands above the height it bid — the bid is a floor, not a ceiling",
+        ).toBeGreaterThan(bid + EPSILON);
         expect(
           Math.abs(
             arrival.height - (run - IMPOSITION_GAP_PX - SITTER_FOLDED_TIER_PX),

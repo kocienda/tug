@@ -663,6 +663,27 @@ export type DeckTraceEvent = {
       source: "completion" | "sweep" | "unmount";
     }
   | {
+      // Fired when a member's FIRST live reservation report disagrees with
+      // the opening bid the arrival commit wrote for it ([P04]). The bid is
+      // kept and the report is NOT committed: after [P02] the bid is a
+      // measurement of the very panel that is now reporting, taken off-screen
+      // at the width the pane went on to take, so the two numbers are supposed
+      // to be the same number. A row here is therefore a defect in the
+      // measuring render — a style that only applies on screen, a width the
+      // measure guessed wrong, an effect the measuring render was supposed to
+      // skip and did not — rather than a threshold anybody should be tuning.
+      //
+      // Always recorded, for the family's reason: it is evidence of a defect
+      // in a session nobody was watching, and the arrival it describes has
+      // already happened by the time anyone could think to opt in.
+      kind: "opening-bid-mismatch";
+      memberId: string;
+      // The number the arrival commit bid, and the number the live panel
+      // first read. Both raw, so the difference is readable without arithmetic.
+      bid: number;
+      report: number;
+    }
+  | {
       // One `[dev::session-lifecycle]` line, mirrored into the ring by
       // `logSessionLifecycle`. The browser leg of that stream is the one
       // leg with no durable sink: tugcode's copy reaches `tugcast.log`
@@ -713,6 +734,10 @@ export type DeckTraceEventInput =
   | Omit<Extract<DeckTraceEvent, { kind: "settle-arm" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-retarget" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-release" }>, StampedFields>
+  | Omit<
+      Extract<DeckTraceEvent, { kind: "opening-bid-mismatch" }>,
+      StampedFields
+    >
   | Omit<Extract<DeckTraceEvent, { kind: "session-lifecycle" }>, StampedFields>;
 
 // ---------------------------------------------------------------------------
@@ -917,6 +942,7 @@ const ALWAYS_RECORDED_KINDS: ReadonlySet<DeckTraceEvent["kind"]> = new Set([
   "follow-bottom",
   "extent-rebase",
   "session-lifecycle",
+  "opening-bid-mismatch",
 ]);
 
 function appendEvent(

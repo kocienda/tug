@@ -108,6 +108,8 @@ import { useRenameSessionSheet } from "./rename-session-sheet";
 import { useResumeSheet } from "./resume-sheet";
 import { SessionPendingContextStrip } from "./session-pending-context-strip";
 import { SessionFoldControl } from "./session-fold-control";
+import { sessionPickerPanel } from "./session-picker-panel";
+import { noticeContent } from "./session-picker-notice-content";
 import { isTugMotionEnabled } from "../scale-timing";
 import {
   FOLD_CROSSING_ATTR,
@@ -1105,16 +1107,15 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   // fresh `addCard("dev")` (dev IS the new FR) presents the sheet
   // on mount without waiting for a macrotask drain.
   //
-  // And an ARRIVING card waits too, for the neighbouring reason ([F03], [B05]).
-  // `addCard` flips first responder inside the same commit that appends the
-  // pane, so the activation above lands while the frame has not yet been
-  // brought on screen: the settle is holding it invisible until its arrive
-  // beat. A sheet presenting there plays its entrance inside a frame that is
-  // itself mid-fade — two motions over one rectangle, which is a motion nobody
-  // can read. `onceCardDidArrive` waits for the frame to stop moving, and
-  // answers AT ONCE for a card with no settle in flight, which is every card
-  // activated by a click and the single-slot open where there was never
-  // anything to wait for.
+  // An ARRIVING card does NOT wait, and that is the point ([P07]). `addCard`
+  // flips first responder inside the same commit that appends the pane, so the
+  // activation above lands while the frame is still being held invisible until
+  // its arrive beat — and that is exactly when the picker should be mounted.
+  // The panel has no entrance of its own, so there is no second motion to keep
+  // out of the frame's; mounting here means the picker is already inside the
+  // rectangle that fades in, at the height the deck measured for this very
+  // panel before the pane was committed. The card arriving IS the picker
+  // arriving.
   const cardLifecycle = useCardLifecycle();
   // The picker is the one sheet on the card nobody asked for: it arrives
   // because the card has no session, not because the user named it. So it
@@ -1123,6 +1124,29 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
   // that latched on the deferred call would never appear again. The unfold
   // effect underneath is what owes it its presentation.
   const folded = useIsCardFolded(cardId);
+  // The one gesture a cancelled picker makes: take the card away.
+  //
+  // Two paths reach it and they must land the same way ([P07]). The Cancel
+  // BUTTON calls it directly and never dismisses the sheet, because the card
+  // is what departs and the picker rides out inside it — dismissing the panel
+  // first would play a sheet exit inside a frame that is itself fading, which
+  // is the second motion this arc is removing. Escape and ⌘. take Radix's own
+  // dismissal, which closes the sheet and reaches `sheetDidReturnResult` with
+  // no result; that handler calls this same function. One function, so a
+  // keyboard cancel and a button cancel cannot drift apart.
+  //
+  // `CLOSE_TAB` (not `CLOSE`): a picker cancel has nothing to save — the card
+  // has not opened a session yet — so it bypasses Dev's `confirmClose: true`
+  // policy. `sendToTarget` walks `parentId` from a known node rather than
+  // reading first responder, which at this moment is still settling ([D02]).
+  const dismissCancelledCard = useCallback(() => {
+    manager?.sendToTarget(cardId, {
+      action: TUG_ACTIONS.CLOSE_TAB,
+      value: cardId,
+      sender: senderId,
+      phase: "discrete",
+    });
+  }, [manager, cardId, senderId]);
   const presentSheet = useCallback(() => {
     if (shownRef.current) return;
     if (isCardFolded(cardId)) return;
@@ -1141,19 +1165,33 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
     const canRetry =
       retryTugSessionId !== undefined && retryProjectDir !== undefined;
 
+    const openingForm = sessionPickerPanel({ cardId });
+
     void showSheet({
-      title: "Choose Session",
-      icon: "FolderOpen",
+      // The sheet's own facts come from the SAME factory that builds the
+      // panel, so the box the deck measured off-screen before this card's pane
+      // was committed and the box the user is about to see are one tree with
+      // one title, one icon and one width tier ([P01]). This call is for the
+      // facts; `content` below calls it again with handlers bound to `close`,
+      // because a render prop cannot be handed a `close` that does not exist
+      // yet. The element this first call builds is never rendered.
+      title: openingForm.title,
+      icon: openingForm.icon,
       // Unbidden ([B04]): the card raised this itself. Declaring the tier at
       // all is what marks it so — see `ShowSheetOptions.foldPresentation`.
       // `defer` rather than `inhabit` because a project path, a filter and a
       // list of sessions is not one row of Z2, and the guard above means this
       // call never reaches the host while the card is folded anyway.
       foldPresentation: "defer",
-      // A path combo box, a filter field, and session rows that carry a
-      // three-line summary plus two trailing controls — the decision width
-      // truncates all three.
-      displayWidth: "lg",
+      displayWidth: openingForm.displayWidth,
+      // The picker has no entrance and no exit of its own ([P07]). It is the
+      // card — an unbound Session card is its picker and nothing else — so the
+      // card's own arrival IS the motion, and a panel sliding in on top of a
+      // frame that is still fading in is the beat a user reads as the surface
+      // being late. The deck already knows how tall this panel will be before
+      // the pane is committed ([P02]), so the frame arrives at the picker's
+      // height with the picker in it.
+      presentation: "none",
       // The picker seeds its own focus via the engine (`SessionProjectPickerForm`'s
       // smart-latch places the key view on the Sessions list, or the path field
       // when Open is disabled). Suppress Radix's mount-autofocus so it can't ALSO
@@ -1189,108 +1227,109 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
       // couple the deck's division to the height of content nobody bounded.
       reportNaturalHeight: (height) =>
         reserveSheetHeightForCard(cardId, height),
-      content: (close) => (
-        <SessionProjectPickerForm
-          notice={activeNoticeRef.current}
-          onOpen={(projectDir, sessionMode, sessionId, display) => {
-            const connection = getConnection();
-            if (!connection) {
-              console.warn("SessionProjectPicker: connection unavailable");
-              return;
-            }
-            // Start the sheet's exit animation FIRST. Defer the wire
-            // send until after the animation has played:
-            // `spawn_session_ok` arrives in single-digit milliseconds
-            // in-process, and the resulting binding update flips this
-            // card from picker → body, unmounting the picker (and its
-            // sheet host) mid-animation. The user-visible symptom is
-            // the sheet "just disappearing" on Open while Cancel
-            // animates correctly. Deferring the wire send by the
-            // sheet's exit duration lets the sheet play its exit
-            // cleanly before the binding flip cascades through the
-            // card.
-            close("open");
-            window.setTimeout(() => {
-              if (sessionMode === "resume") {
-                // A `resume` can be rejected by the server (e.g.
-                // `session_live_elsewhere` when the session's ledger
-                // entry is still bound to another card). Route it
-                // through `fireRestore` so it registers a restore
-                // expectation: the card shows `SessionRestoring` while
-                // in flight, and a rejection (the `SESSION_STATE`
-                // errored frame) clears the registry and sets a
-                // picker notice — which re-presents the picker with
-                // the failure reason. Calling `sendSpawnSession`
-                // directly here would leave an empty card when
-                // `spawn_session_ok` never arrives: the sheet has
-                // already dismissed with `result: "open"` and the
-                // picker's `shownRef` guard blocks a re-present.
-                fireRestore(cardId, sessionId, projectDir, connection, display);
-              } else {
-                // The `new` arm: a fresh spawn mints its line from the drop
-                // ([P03]). A resume never reaches here — it goes through
-                // `fireRestore`, which offers only a line the deck knows.
-                const lineId = provisionSpawnLine(sessionId);
-                sendSpawnSession(
-                  connection,
-                  cardId,
-                  sessionId,
-                  projectDir,
-                  sessionMode,
-                  provisionSpawnTag(lineId),
-                  lineId,
-                );
+      content: (close) =>
+        sessionPickerPanel({
+          cardId,
+          handlers: {
+            notice: activeNoticeRef.current,
+            onOpen: (projectDir, sessionMode, sessionId, display) => {
+              const connection = getConnection();
+              if (!connection) {
+                console.warn("SessionProjectPicker: connection unavailable");
+                return;
               }
-            }, SHEET_EXIT_ANIMATION_MS);
-          }}
-          onCancel={() => close("cancel")}
-          onRetryRestore={
-            canRetry
-              ? () => {
-                  const connection = getConnection();
-                  if (!connection) {
-                    console.warn(
-                      "SessionProjectPicker: connection unavailable for retry",
-                    );
-                    return;
-                  }
-                  // Same exit-animation deferral as Open above —
-                  // `fireRestore` triggers a binding restore that can
-                  // unmount this picker.
-                  close("retry");
-                  window.setTimeout(() => {
-                    fireRestore(
-                      cardId,
-                      retryTugSessionId as string,
-                      retryProjectDir as string,
-                      connection,
-                    );
-                  }, SHEET_EXIT_ANIMATION_MS);
+              // Start the sheet's exit animation FIRST. Defer the wire
+              // send until after the animation has played:
+              // `spawn_session_ok` arrives in single-digit milliseconds
+              // in-process, and the resulting binding update flips this
+              // card from picker → body, unmounting the picker (and its
+              // sheet host) mid-animation. The user-visible symptom is
+              // the sheet "just disappearing" on Open while Cancel
+              // animates correctly. Deferring the wire send by the
+              // sheet's exit duration lets the sheet play its exit
+              // cleanly before the binding flip cascades through the
+              // card.
+              close("open");
+              window.setTimeout(() => {
+                if (sessionMode === "resume") {
+                  // A `resume` can be rejected by the server (e.g.
+                  // `session_live_elsewhere` when the session's ledger
+                  // entry is still bound to another card). Route it
+                  // through `fireRestore` so it registers a restore
+                  // expectation: the card shows `SessionRestoring` while
+                  // in flight, and a rejection (the `SESSION_STATE`
+                  // errored frame) clears the registry and sets a
+                  // picker notice — which re-presents the picker with
+                  // the failure reason. Calling `sendSpawnSession`
+                  // directly here would leave an empty card when
+                  // `spawn_session_ok` never arrives: the sheet has
+                  // already dismissed with `result: "open"` and the
+                  // picker's `shownRef` guard blocks a re-present.
+                  fireRestore(cardId, sessionId, projectDir, connection, display);
+                } else {
+                  // The `new` arm: a fresh spawn mints its line from the drop
+                  // ([P03]). A resume never reaches here — it goes through
+                  // `fireRestore`, which offers only a line the deck knows.
+                  const lineId = provisionSpawnLine(sessionId);
+                  sendSpawnSession(
+                    connection,
+                    cardId,
+                    sessionId,
+                    projectDir,
+                    sessionMode,
+                    provisionSpawnTag(lineId),
+                    lineId,
+                  );
                 }
-              : null
-          }
-        />
-      ),
+              }, SHEET_EXIT_ANIMATION_MS);
+            },
+            // Not `close("cancel")`: the card departs and takes the picker
+            // with it, which is one motion rather than a panel leaving a frame
+            // that is about to leave too.
+            onCancel: () => dismissCancelledCard(),
+            onRetryRestore:
+              canRetry
+                ? () => {
+                    const connection = getConnection();
+                    if (!connection) {
+                      console.warn(
+                        "SessionProjectPicker: connection unavailable for retry",
+                      );
+                      return;
+                    }
+                    // Same exit-animation deferral as Open above —
+                    // `fireRestore` triggers a binding restore that can
+                    // unmount this picker.
+                    close("retry");
+                    window.setTimeout(() => {
+                      fireRestore(
+                        cardId,
+                        retryTugSessionId as string,
+                        retryProjectDir as string,
+                        connection,
+                      );
+                    }, SHEET_EXIT_ANIMATION_MS);
+                  }
+                : null
+          },
+        }).panel,
       // Fire after the sheet's exit animation finishes so the card
     });
-  }, [showSheet, cardId]);
+  }, [showSheet, cardId, dismissCancelledCard]);
 
   useLayoutEffect(() => {
     if (cardLifecycle === null) return;
-    // Two subscriptions, one inside the other: activation, then arrival. The
-    // inner cancel is held so the effect's teardown runs it, and so a second
-    // activation replaces the pending wait rather than stacking a second one.
-    let cancelArrival: (() => void) | null = null;
-    const stopObserving = cardLifecycle.observeCardDidActivate(cardId, () => {
-      cancelArrival?.();
-      cancelArrival = cardLifecycle.onceCardDidArrive(cardId, () =>
-        presentSheet(),
-      );
-    });
-    return () => {
-      cancelArrival?.();
-      stopObserving();
-    };
+    // One subscription. It used to be two, the inner one waiting for the
+    // frame to stop moving before the picker presented: a sheet playing its
+    // entrance inside a frame that was itself mid-fade was two motions over
+    // one rectangle, and the wait was how that was avoided.
+    //
+    // The picker has no entrance any more ([P07]), so there is nothing left to
+    // wait through — and waiting is now the wrong thing. The frame arrives at
+    // the height the deck measured for this very panel ([P02]); mounting the
+    // picker BEFORE the frame is shown is what lets it ride the arrive beat in,
+    // so the card and the thing inside it are one motion instead of two.
+    return cardLifecycle.observeCardDidActivate(cardId, () => presentSheet());
   }, [cardLifecycle, cardId, presentSheet]);
 
   // A card that goes away takes its reservation with it ([B05]). The sheet
@@ -1360,12 +1399,7 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
       // rejection (below) can re-present it.
       sheetOpenRef.current = false;
       if (result === "open" || result === "retry") return;
-      manager?.sendToTarget(cardId, {
-        action: TUG_ACTIONS.CLOSE_TAB,
-        value: cardId,
-        sender: senderId,
-        phase: "discrete",
-      });
+      dismissCancelledCard();
     },
   });
 
@@ -1427,1187 +1461,6 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
       ) : null}
       {renderSheet()}
     </div>
-  );
-}
-
-interface SessionProjectPickerFormProps {
-  /**
-   * Notice surfaced above the form when the picker is re-presented
-   * after a session failure (e.g. a resume that didn't take, a
-   * canceled restore, or a restore timeout). The notice carries the
-   * reason so the user sees it in the same picker that lets them
-   * choose what to do next. `null` when the picker is opening fresh.
-   */
-  notice: PickerNotice | null;
-  onOpen: (
-    projectDir: string,
-    sessionMode: CardSessionMode,
-    sessionId: string,
-    /**
-     * Resume display metadata from the selected ledger row (Spec S03
-     * of the resume-performance plan) — what the replay progress
-     * affordance can say from t=0. `undefined` for new-mode opens.
-     */
-    display?: ResumeDisplayMetadata,
-  ) => void;
-  onCancel: () => void;
-  /**
-   * Invoked when the user clicks Retry on a notice that carries
-   * `staleTugSessionId` + `staleProjectDir`. Re-fires the restore via
-   * `fireRestore` — the card flips from picker back to
-   * `SessionRestoring` and the whole cycle runs again. `null` on a
-   * fresh-picker notice that doesn't carry retry context.
-   */
-  onRetryRestore: (() => void) | null;
-}
-
-/** One entry in the sessions record. */
-interface SessionRecord {
-  sessionId: string;
-  projectDir: string;
-  createdAt: number;
-}
-
-/**
- * Pure parser for the `dev.tugapp.dev / recent-projects` tagged-value
- * entry. Mirrors `readSessionRecentProjects` in shape — split out so the
- * picker can subscribe to live updates via `useTugbankValue` instead of
- * reading once into `useState` (an L02 violation when external state
- * is copied into React state, even via a lazy initial value).
- */
-function parseRecents(entry: TaggedValue | undefined): string[] {
-  if (!entry || entry.kind !== "json" || entry.value === undefined) return [];
-  const raw = entry.value as { paths?: unknown } | null;
-  if (!raw || typeof raw !== "object" || !Array.isArray(raw.paths)) return [];
-  return raw.paths.filter(
-    (p): p is string => typeof p === "string" && p.length > 0,
-  );
-}
-
-/**
- * Parse a tugbank string value. The Swift host writes
- * `dev.tugapp.app/initial-project-path` as `{ kind: "string" }` via
- * `TugbankClient.setString` — empty string when the key is missing
- * or shaped unexpectedly.
- */
-function parseString(entry: TaggedValue | undefined): string {
-  if (!entry || entry.kind !== "string" || typeof entry.value !== "string")
-    return "";
-  return entry.value;
-}
-
-/** Stable `[]` reference — useTugbankValue's `fallback` must be reference-stable. */
-const EMPTY_STRING_ARRAY: ReadonlyArray<string> = [];
-
-/** Stable empty set — the initial / no-missing-recents value. */
-const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
-
-/** `formatValue` for the picker's scan-progress bar — "465 of 1,022". */
-function formatScanProgressValue(value: number, max: number): string {
-  return `${value.toLocaleString()} of ${max.toLocaleString()}`;
-}
-
-/** Title + message + icon a picker notice renders as, for {@link TugInlineAlert}. */
-interface NoticeContent {
-  title: string;
-  message?: string;
-  tone: TugInlineAlertTone;
-  /** Lucide icon name. */
-  icon: string;
-}
-
-/**
- * Map a picker notice to a human-centric title / message split for the inline
- * alert. `resume_failed` surfaces the *real* reason carried on `notice.message`
- * (from tugcode's `resume_failed` IPC) as the secondary line rather than
- * guessing a cause — the old copy asserted "deleted or in use elsewhere", which
- * was routinely false (the 2026-07-22 commit-xp session had a 40 MB transcript
- * sitting on disk). `restore_canceled` and `restore_timed_out` name the project
- * path from `staleProjectDir` so the user sees which card was affected. Falls
- * back to the raw `notice.message` as the title on unexpected shapes.
- */
-function noticeContent(notice: PickerNotice): NoticeContent {
-  switch (notice.category) {
-    case "resume_failed": {
-      const reason = notice.message.trim();
-      const hasReason =
-        reason.length > 0 && reason.toLowerCase() !== "resume failed";
-      return {
-        title: "Couldn’t resume the previous session",
-        message: hasReason
-          ? `${reason}. Retry, or start a new session below.`
-          : "Retry, or start a new session below.",
-        tone: "caution",
-        icon: "TriangleAlert",
-      };
-    }
-    case "restore_canceled":
-      return {
-        title: "Resume canceled",
-        message:
-          notice.staleProjectDir !== undefined
-            ? `You stopped restoring the session for ${notice.staleProjectDir}.`
-            : notice.message,
-        tone: "muted",
-        icon: "Info",
-      };
-    case "restore_timed_out":
-      return {
-        title: "Couldn’t resume the previous session",
-        message:
-          "Restoring it took too long. The server may be unreachable — Retry, or start a new session below.",
-        tone: "caution",
-        icon: "TriangleAlert",
-      };
-    case "signed_out":
-      return notice.message === "claude_missing"
-        ? {
-            title: "Claude Code isn’t available",
-            message: "Finish setup, then pick a session below.",
-            tone: "caution",
-            icon: "TriangleAlert",
-          }
-        : {
-            title: "You were signed out of Claude",
-            message: "Log back in, then resume or start a session below.",
-            tone: "caution",
-            icon: "LogOut",
-          };
-    case "spawn_failed":
-      // `message` already carries the human reason (from `spawnErrorMessage`).
-      // The picker itself is the recovery — pick a directory that exists and
-      // Open — so there's no separate action here.
-      return {
-        title: "Can’t open this project",
-        message: `${notice.message} Choose a directory that exists below, then Open.`,
-        tone: "danger",
-        icon: "FolderX",
-      };
-    case "spawn_budget":
-      // Deliberately does NOT steer at the picker. The host refused on its
-      // own budget, so the project directory is fine and "choose a directory
-      // that exists" — what `spawn_failed` says — would be false advice.
-      // `message` carries which budget it was and what clears it.
-      return {
-        title: "Can’t start another session",
-        message: notice.message,
-        tone: "caution",
-        icon: "TriangleAlert",
-      };
-    default:
-      return { title: notice.message, tone: "muted", icon: "Info" };
-  }
-}
-
-/**
- * Persistent-cycling focus group for the session picker ([P13] persistent —
- * [#step-picker-keys]). The picker lives inside a `TugSheet`, which already
- * pushes a trapped engine focus mode (`useFocusTrap`); authoring the picker's
- * controls into this one group makes them stops in that mode's Tab walk, read
- * top-to-bottom: path combo box → Sessions → Move-all-to-Trash → Cancel → Open.
- * There is no toggle — the sheet's mode IS the picker's base mode (unlike the
- * connected card's toggleable ⌥⇥ cycle). A not-ready Sessions list and a
- * disabled stop (Move-all-to-Trash with nothing to trash, Open with no valid
- * path) simply drop out of the walk via the engine's rendered/interactive
- * filters; the order leaves a gap the walk skips. Order `1` — vacated when the
- * Recents list folded into the path combo box's own dropdown — is now the
- * Sessions filter field, which sits between the path field and the list in
- * reading order; the stops below keep their authored focus-keys.
- */
-const PICKER_CYCLE_GROUP = "session-picker-cycle";
-const PICKER_ORDER_PATH = 0;
-// The native "Browse…" folder button leads the path field in reading order, so
-// it takes a negative order to slot BEFORE PATH (0) in the Tab walk — Tab from
-// the browse button lands on the path field, then the Sessions list, keeping the
-// button out from between the field and the list. Its fractional order also
-// avoids renumbering the stops below — their authored focus-keys
-// (`session-picker-cycle:2…5`) are a stable contract the app-tests and a baked
-// corpus snapshot address by string, so they must not shift.
-const PICKER_ORDER_BROWSE = -0.5;
-// The path combo box's chevron sits at the field's right edge, between the
-// field and the filter in reading order — fractional for the same
-// stable-focus-key reason as Browse above.
-const PICKER_ORDER_CHEVRON = 0.5;
-const PICKER_ORDER_FILTER = 1;
-const PICKER_ORDER_SESSIONS = 2;
-const PICKER_ORDER_TRASH_ALL = 3;
-const PICKER_ORDER_CANCEL = 4;
-const PICKER_ORDER_OPEN = 5;
-/**
- * Stable focus-key (`group:order`) of a picker stop. The smart-latch seed lands
- * the ring on a specific stop by this key via a keyboard `place()` — the picker's
- * commit-home (Open) is LAST in reading order, so the session-card "seed = first
- * stop" convention (`focusFirstInMode`) doesn't fit; seeding by key does.
- */
-const pickerFocusKey = (order: number): string =>
-  `${PICKER_CYCLE_GROUP}:${order}`;
-
-/**
- * The Choose Session sheet's arrow order — the sheet's stops laid out as the
- * rows they read as on screen. Without it the sheet is served by the liveliness
- * net alone, which walks the linear order; a sheet is exactly the surface the
- * focus language asks to be authored, so Cancel / Open get a real horizontal
- * ring (Left/Right swap, wrapping) instead of two more stops in a column.
- *
- * The Sessions list is a single-node row, so it takes no ring: the engine
- * injects its live cursor handle as the group, interior arrows rove its rows,
- * and only an arrow off the cursor's edge crosses the seam to the row above or
- * below. Every key is a module constant, so the order is too — nothing to
- * memoize.
- */
-const PICKER_SPATIAL_ORDER: SpatialOrder = rowGridOrder([
-  [
-    pickerFocusKey(PICKER_ORDER_BROWSE),
-    pickerFocusKey(PICKER_ORDER_PATH),
-    pickerFocusKey(PICKER_ORDER_CHEVRON),
-  ],
-  [pickerFocusKey(PICKER_ORDER_FILTER)],
-  [pickerFocusKey(PICKER_ORDER_SESSIONS)],
-  [pickerFocusKey(PICKER_ORDER_TRASH_ALL)],
-  [pickerFocusKey(PICKER_ORDER_CANCEL), pickerFocusKey(PICKER_ORDER_OPEN)],
-]);
-
-/**
- * Render `text` with `<mark>` highlights at `matches` (UTF-16 code-unit
- * half-open ranges) — the recents dropdown's substring emphasis. Empty
- * `matches` → the text unmarked.
- */
-function renderRecentHighlight(
-  text: string,
-  matches: ReadonlyArray<readonly [number, number]>,
-): React.ReactNode {
-  if (matches.length === 0) return text;
-  const parts: React.ReactNode[] = [];
-  let cursor = 0;
-  for (const [start, end] of matches) {
-    if (start > cursor) parts.push(text.slice(cursor, start));
-    parts.push(
-      <mark key={`m-${start}`} className="session-card-picker-match">
-        {text.slice(start, end)}
-      </mark>,
-    );
-    cursor = end;
-  }
-  if (cursor < text.length) parts.push(text.slice(cursor));
-  return parts;
-}
-
-function SessionProjectPickerForm({
-  notice,
-  onOpen,
-  onCancel,
-  onRetryRestore,
-}: SessionProjectPickerFormProps) {
-  const focusManager = useFocusManager();
-  // Declared against the sheet's own trap, which `TugSheet` owns — hence the
-  // context form, read from the enclosing `FocusModeScope`. This body renders
-  // inside that trap; if the order ever landed on the base mode instead (the
-  // context form no-ops there), that is the signal the call has drifted outside
-  // the trap.
-  useSpatialOrder(PICKER_SPATIAL_ORDER);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  // Per-state default focus for the picker ([P12] Picker → Open). The Open
-  // button is the destination so Return opens the seeded path — but Open is
-  // `disabled` until a valid path settles, and the path seed is async, so the
-  // placement is a deliberate smart latch (below) that seeds the engine key view
-  // by focus-key once Open settles enabled, else the path field; never yanked
-  // once the user has engaged the field. Both stops are addressed by their stable
-  // `group:order`, so no element ref is needed for the seed.
-  const defaultFocusPlacedRef = useRef(false);
-  const userTouchedFieldRef = useRef(false);
-  // Form's outer DOM node — used to scope the anchor querySelector for
-  // the form-owned trash-confirmation popover so the lookup never
-  // walks outside the picker form's own subtree.
-  const formRootRef = useRef<HTMLDivElement | null>(null);
-  const formResponderId = useId();
-
-  // External state via `useSyncExternalStore` per [L02]. Recents
-  // ride on tugbank; sessions flow through the tugcast-side
-  // `SessionLedgerStore` keyed on the user-typed path.
-  const recents = useTugbankValue(
-    "dev.tugapp.dev",
-    "recent-projects",
-    parseRecents,
-    EMPTY_STRING_ARRAY as string[],
-  );
-
-  // Recent paths whose directory the last `/api/fs/stat` probe reported as
-  // gone (deleted / moved since it was recorded). Opening one dead-ends at the
-  // "Can't open project" screen, so we drop them from the dropdown seed up
-  // front. Best-effort and additive: only paths explicitly reported missing
-  // are hidden; a probe failure leaves the set empty and every recent shows.
-  const [missingRecents, setMissingRecents] =
-    useState<ReadonlySet<string>>(EMPTY_STRING_SET);
-  useEffect(() => {
-    let cancelled = false;
-    if (recents.length === 0) {
-      setMissingRecents((prev) => (prev.size === 0 ? prev : EMPTY_STRING_SET));
-      return;
-    }
-    void probeDirExistence(recents).then((existsMap) => {
-      if (cancelled) return;
-      const gone = new Set<string>();
-      for (const recentPath of recents) {
-        if (existsMap[recentPath] === false) gone.add(recentPath);
-      }
-      setMissingRecents((prev) =>
-        prev.size === gone.size && [...gone].every((p) => prev.has(p))
-          ? prev
-          : gone,
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [recents]);
-
-  // Suggested project path the Swift host refreshes at every launch
-  // (the repo source tree for debug builds, `$HOME` for release).
-  // Used to seed the input when the user has no Recent Project Paths
-  // yet so first launch isn't a dead-end.
-  const initialProjectPath = useTugbankValue(
-    "dev.tugapp.app",
-    "initial-project-path",
-    parseString,
-    "",
-  );
-
-  // The user's chosen default project directory (Settings ▸ General, or the
-  // ConfigureTug step). Outranks the Swift hint in the seed chain below.
-  const defaultProjectPath = useTugbankValue(
-    DEFAULT_PROJECT_PATH_DOMAIN,
-    DEFAULT_PROJECT_PATH_KEY,
-    parseString,
-    "",
-  );
-
-  // Reliable fallback for the seed when there is no Swift hint: the backend
-  // home directory (the browser can't know it). See the seed effect below.
-  const hostFacts = useHostFacts();
-
-  const [path, setPath] = useState("");
-  const trimmedPath = path.trim();
-  const sessionLedger = useSessionLedger(trimmedPath);
-
-  // Re-validate the session list once per picker open. The ledger
-  // store's snapshot is fetched once per connection, but terminal
-  // sessions and other out-of-band JSONL writers never push
-  // `session_updated` — without this the list freezes at whatever the
-  // first open saw. Stale-while-revalidate: cached rows stay on screen
-  // while the refresh scan runs ([L02] — the store owns the state; this
-  // is an event kick, not a state mirror).
-  const didRefreshLedgerRef = useRef(false);
-  useLayoutEffect(() => {
-    if (didRefreshLedgerRef.current || trimmedPath === "") return;
-    didRefreshLedgerRef.current = true;
-    getSessionLedgerStore()?.refresh(trimmedPath);
-  }, [trimmedPath]);
-
-  // One-shot input seed (effect below).
-  const didSeedPathRef = useRef(false);
-
-  // The filter field's query — transient local UI state, never persisted, and
-  // meaningless across project paths (the field remounts per path, below).
-  const [filterQuery, setFilterQuery] = useState("");
-
-  // The Sessions list for the currently-typed project path (always visible —
-  // placeholder when no path / ledger pending), narrowed by the filter field.
-  // "New session" stays in the list under any query: Open falls to a new
-  // session with or without the row, so hiding it would misrepresent what Open
-  // does — and keeping it means the filtered list is never empty.
-  // Recents are no longer a separate list: they seed the path combo box's own
-  // dropdown (below).
-  const sessionsDataSource = useSessionsDataSource(
-    trimmedPath,
-    sessionLedger,
-    filterQuery,
-  );
-  // The projection's version, so the selection-invalidation effect below re-runs
-  // on every filter recompute and not just on a ledger tick ([L02]).
-  const sessionsVersion = useSyncExternalStore(
-    useCallback(
-      (cb: () => void) => sessionsDataSource.subscribe(cb),
-      [sessionsDataSource],
-    ),
-    useCallback(() => sessionsDataSource.getVersion(), [sessionsDataSource]),
-  );
-
-  // One-shot seed so first open isn't a dead-end: if the input is empty,
-  // prefer the most-recent project, then the user's default project directory,
-  // then the Swift-provided hint, then the backend home directory. Skipped once
-  // a value is present so later tugbank / host-facts ticks can't overwrite a
-  // user edit.
-  //
-  // The default tier reads the *explicit* setting, never the `<home>/tug`
-  // resolution: an unset key falls through to the Swift hint (which seeds the
-  // repo source tree on debug builds) instead of being shadowed by a computed
-  // path the user never chose.
-  useLayoutEffect(() => {
-    if (didSeedPathRef.current) return;
-    if (path !== "") {
-      didSeedPathRef.current = true;
-      return;
-    }
-    if (recents.length > 0) {
-      didSeedPathRef.current = true;
-      setPath(recents[0]);
-      return;
-    }
-    const seed =
-      defaultProjectPath !== ""
-        ? defaultProjectPath
-        : initialProjectPath !== ""
-          ? initialProjectPath
-          : (hostFacts?.home ?? "");
-    if (seed === "") return;
-    didSeedPathRef.current = true;
-    setPath(seed);
-  }, [path, recents, defaultProjectPath, initialProjectPath, hostFacts]);
-
-  // Session selection. Owned here, read by cells via context. Open
-  // resolves submission per [Spec S02].
-  const [selection, setSelection] = useState<PickerSelection | null>(null);
-
-  // [Spec S03] selection invalidation — sessions only. Auto-default
-  // to `session-new` on first SESSIONS visibility per [D06]; clear
-  // when sessions go away; snap-back when the selected resume row
-  // vanishes from the ledger.
-  const sessionsReady = sessionsDataSource.isReady();
-  const ledgerRows = sessionLedger.rows;
-  useLayoutEffect(() => {
-    if (!sessionsReady) {
-      if (selection !== null) setSelection(null);
-      return;
-    }
-    if (selection === null) {
-      setSelection({ kind: "session-new" });
-      return;
-    }
-    if (selection.kind === "session-resume") {
-      // Visibility is asked of the PROJECTION, not the raw ledger: a row the
-      // filter hid is not selectable, and leaving it selected would let Open
-      // resume a session the user can no longer see.
-      if (!sessionsDataSource.hasVisibleSession(selection.sessionId)) {
-        setSelection({ kind: "session-new" });
-      }
-    }
-    // `sessionsVersion` is the projection's change token — the effect must
-    // re-run per filter recompute, not only per ledger tick.
-  }, [sessionsReady, sessionsVersion, sessionsDataSource, selection]);
-
-  // Trash actions — the picker form owns the confirmation flow per
-  // [tugplan-session-picker-redesign §D14] (no per-cell popovers).
-  //
-  // Per-row trash: the trash `TugIconButton` in `SessionResumeCell`
-  // dispatches `request-trash-session` with `{ sessionId }` payload.
-  // The chain handler below populates `pendingTrashSessionId`. A
-  // single anchored `TugConfirmPopover` rendered at the form level
-  // confirms, and its `onConfirm` callback unconditionally moves the
-  // session to trash.
-  //
-  // Trash-all: the picker-level button uses the imperative-mode
-  // `TugConfirmPopover` API (legacy). It does not need the chain-
-  // dispatch path because the button is always visible at a fixed
-  // location, not anchored to a specific row.
-
-  const trashSession = useCallback(
-    (sessionId: string): void => {
-      const store = getSessionLedgerStore();
-      if (store === null) return;
-      const row = ledgerRows.find((r) => r.session_id === sessionId);
-      // Live-in-Tug and terminal-live rows are untrashable (the cell
-      // hides the control; this is the defensive backstop — the
-      // supervisor refuses both anyway).
-      if (
-        row === undefined ||
-        row.state === "live" ||
-        row.terminal_live !== null
-      )
-        return;
-      // Always pass the project dir: external rows (no ledger row
-      // server-side) need it to locate the JSONL; ledger rows ignore it.
-      void store.trashSession(sessionId, row.project_dir);
-      setSelection((prev) =>
-        prev?.kind === "session-resume" && prev.sessionId === sessionId
-          ? { kind: "session-new" }
-          : prev,
-      );
-    },
-    [ledgerRows],
-  );
-
-  // ---- Form-owned trash confirmation ----
-  //
-  // `pendingTrashSessionId` is `null` when no trash is in flight.
-  // The chain handler for `request-trash-session` (registered below)
-  // sets it; the popover's `onConfirm` and `onCancel` both clear it.
-  // The anchor is resolved in a layout effect by querying the trash
-  // icon's DOM node within this form's own subtree — the cell's
-  // `data-session-id="<id>"` attribute on the row + the
-  // `data-slot="tug-icon-button"` on the trash button form a stable
-  // selector that survives row reordering and virtualization recycle.
-  const [pendingTrashSessionId, setPendingTrashSessionId] = useState<
-    string | null
-  >(null);
-  const [pendingTrashAnchorEl, setPendingTrashAnchorEl] =
-    useState<HTMLElement | null>(null);
-
-  useLayoutEffect(() => {
-    if (pendingTrashSessionId === null) {
-      setPendingTrashAnchorEl(null);
-      return;
-    }
-    const root = formRootRef.current;
-    if (root === null) return;
-    const escaped =
-      typeof CSS !== "undefined" && typeof CSS.escape === "function"
-        ? CSS.escape(pendingTrashSessionId)
-        : pendingTrashSessionId;
-    const selector = `[data-session-id="${escaped}"] [data-slot="tug-icon-button"]`;
-    const el = root.querySelector<HTMLElement>(selector);
-    setPendingTrashAnchorEl(el ?? null);
-  }, [pendingTrashSessionId]);
-
-  // Chain handler for `request-trash-session` dispatched by the per-
-  // row trash button. The cell carries the sessionId on the event's
-  // `value`; we narrow defensively per [L07] and ignore malformed
-  // payloads. Setting `pendingTrashSessionId` triggers the layout
-  // effect above (anchor resolution) and the popover render below.
-  const handleRequestTrashSession = useCallback((event: ActionEvent) => {
-    const v = event.value;
-    if (
-      v !== null &&
-      typeof v === "object" &&
-      "sessionId" in v &&
-      typeof (v as { sessionId: unknown }).sessionId === "string"
-    ) {
-      setPendingTrashSessionId((v as { sessionId: string }).sessionId);
-    }
-  }, []);
-
-  // Recents-trash pending state. The recents now live in the path combo box's
-  // dropdown, which portals outside this form's DOM subtree — so a chain
-  // dispatch (which walks the DOM for a responder) can't route from there. The
-  // trash button uses a direct `onClick` instead, setting this state and
-  // capturing the button element as the confirm popover's anchor (below).
-  const [pendingTrashRecentPath, setPendingTrashRecentPath] = useState<
-    string | null
-  >(null);
-
-  const {
-    ResponderScope: PickerFormResponderScope,
-    responderRef: pickerFormResponderRef,
-  } = useResponder({
-    id: formResponderId,
-    actions: {
-      [TUG_ACTIONS.REQUEST_TRASH_SESSION]: handleRequestTrashSession,
-    },
-  });
-
-  // Merged ref: the form's root div carries BOTH the form responder's
-  // `data-responder-id` (so the chain DOM walk lands here) AND our
-  // own `formRootRef` (so the anchor querySelector is scoped to the
-  // form's subtree). React calls function refs with the element on
-  // mount and `null` on unmount, so the merge mirrors the same
-  // calling shape both ways.
-  const setFormRootRef = useCallback(
-    (el: HTMLDivElement | null): void => {
-      formRootRef.current = el;
-      pickerFormResponderRef(el);
-    },
-    [pickerFormResponderRef],
-  );
-
-  // Confirm / cancel callbacks for the form-owned popover. Both
-  // unconditionally clear `pendingTrashSessionId`, which flips the
-  // popover's controlled `open` to `false`. Confirm additionally runs
-  // the move-to-trash via the existing `trashSession` helper.
-  const handleConfirmTrash = useCallback(() => {
-    if (pendingTrashSessionId !== null) {
-      trashSession(pendingTrashSessionId);
-    }
-    setPendingTrashSessionId(null);
-  }, [pendingTrashSessionId, trashSession]);
-
-  const handleCancelTrash = useCallback(() => {
-    setPendingTrashSessionId(null);
-  }, []);
-
-  // The pending row's prompt would compose a richer message here, but
-  // the picker UX uses the short, generic prompt "Move to Trash?" for
-  // both single-row and bottom-button paths.
-  const pendingTrashMessage = "Move to Trash?";
-
-  // ---- Recent Project Paths trash ----
-  //
-  // `pendingTrashRecentPath` is declared above (next to `useResponder`). The
-  // dropdown trash button captures its own element as the confirm popover's
-  // anchor directly on click (see the combo-box seed builder), since the
-  // portaled dropdown is outside this form's DOM subtree. Here: the remove
-  // action and the confirm/cancel callbacks.
-  const [pendingTrashRecentAnchorEl, setPendingTrashRecentAnchorEl] =
-    useState<HTMLElement | null>(null);
-
-  // Remove one path from the recents list. Optimistically updates the tugbank
-  // cache (so the list re-renders immediately) then persists via PUT.
-  const trashRecent = useCallback(
-    (path: string): void => {
-      const next = recents.filter((p) => p !== path);
-      const client = getTugbankClient();
-      client?.setLocalValue("dev.tugapp.dev", "recent-projects", {
-        kind: "json",
-        value: { paths: next },
-      });
-      putSessionRecentProjects(next);
-    },
-    [recents],
-  );
-
-  const handleConfirmTrashRecent = useCallback(() => {
-    if (pendingTrashRecentPath !== null) {
-      trashRecent(pendingTrashRecentPath);
-    }
-    setPendingTrashRecentPath(null);
-    setPendingTrashRecentAnchorEl(null);
-  }, [pendingTrashRecentPath, trashRecent]);
-
-  const handleCancelTrashRecent = useCallback(() => {
-    setPendingTrashRecentPath(null);
-    setPendingTrashRecentAnchorEl(null);
-  }, []);
-
-  const trashAll = useCallback((): void => {
-    const store = getSessionLedgerStore();
-    if (store === null) return;
-    let any = false;
-    for (const row of ledgerRows) {
-      if (row.state === "live") continue;
-      void store.trashSession(row.session_id);
-      any = true;
-    }
-    if (any) setSelection({ kind: "session-new" });
-  }, [ledgerRows]);
-
-  // Imperative handle for the trash-all confirm popover anchored to
-  // the Move-all-to-Trash button. Click flow: open popover → await
-  // confirmation → run `trashAll`.
-  const trashAllConfirmRef = useRef<TugConfirmPopoverHandle>(null);
-  const handleTrashAllClick = useCallback(async (): Promise<void> => {
-    const ok = await trashAllConfirmRef.current?.confirm();
-    if (ok === true) trashAll();
-  }, [trashAll]);
-
-  // Submit per [Spec S02] — resolves `(mode, sessionId)` from the
-  // effective selection. The override parameter lets the form-level
-  // Enter handler pass a synchronously-resolved selection from a
-  // focused cell wrapper, since `setSelection` calls in the same
-  // event don't reach state until the next render.
-  const submitWith = useCallback(
-    (effectiveSelection: PickerSelection | null): void => {
-      const trimmed = inputRef.current?.value.trim() ?? "";
-      if (!trimmed) return;
-
-      let mode: CardSessionMode;
-      let sessionId: string;
-      let resumeCandidateId: string | null = null;
-      let display: ResumeDisplayMetadata | undefined;
-
-      if (effectiveSelection?.kind === "session-resume") {
-        resumeCandidateId = effectiveSelection.sessionId;
-        const row = ledgerRows.find(
-          (r) => r.session_id === effectiveSelection.sessionId,
-        );
-        if (row !== undefined && row.state !== "live") {
-          mode = "resume";
-          sessionId = row.session_id;
-          display = {
-            title: row.name ?? row.last_user_prompt ?? null,
-            turnCount: row.turn_count,
-          };
-        } else {
-          mode = "new";
-          sessionId = crypto.randomUUID();
-        }
-      } else {
-        mode = "new";
-        sessionId = crypto.randomUUID();
-      }
-
-      logSessionLifecycle("picker.submit", {
-        project_dir: trimmed,
-        session_mode: mode,
-        session_id: sessionId,
-        resume_candidate_id: resumeCandidateId,
-      });
-      onOpen(trimmed, mode, sessionId, display);
-    },
-    [onOpen, ledgerRows],
-  );
-
-  const submit = useCallback((): void => {
-    submitWith(selection);
-  }, [submitWith, selection]);
-
-  // Open the recent-path trash confirmation. Anchored to the path field (a
-  // stable element that never unmounts), so the dropdown is free to close when
-  // the confirm takes focus without stranding the popover. Shared by the mouse
-  // click and the Shift+Delete keyboard path.
-  const requestTrashRecent = useCallback((recentPath: string): void => {
-    setPendingTrashRecentPath(recentPath);
-    setPendingTrashRecentAnchorEl(inputRef.current);
-  }, []);
-
-  // Seed source for the path combo box's dropdown: the recent project paths,
-  // filtered to those matching the typed query (all when the query is empty, so
-  // the dropdown opens like a menu), each rendered with `<mark>` highlights on
-  // the matched substring. Choosing a row fills the input (the combo box's own
-  // commit); the trailing trash — or Shift+Delete on the highlighted row —
-  // removes the recent. The confirm popover anchors to the trash button element
-  // (captured from the click, or resolved by path for the keyboard path), since
-  // the dropdown portals outside this form and a form-scoped lookup wouldn't
-  // find it.
-  const buildRecentsSeed = useCallback(
-    (query: string): TugComboBoxItem[] => {
-      const q = query.trim();
-      const items: TugComboBoxItem[] = [];
-      for (const recentPath of recents) {
-        // Don't offer a directory we already know is gone — opening it would
-        // just dead-end at "Can't open project".
-        if (missingRecents.has(recentPath)) continue;
-        const match = caseInsensitiveSubstring(q, recentPath);
-        if (q !== "" && match === null) continue;
-        const matches = match?.matches ?? [];
-        const pathShort =
-          recentPath.split("/").filter(Boolean).slice(-1)[0] ?? recentPath;
-        items.push({
-          value: recentPath,
-          label: (
-            <span
-              className="session-card-picker-path-recent"
-              data-testid="session-card-picker-path-recent"
-              title={recentPath}
-              aria-label={recentPath}
-            >
-              {renderRecentHighlight(recentPath, matches)}
-            </span>
-          ),
-          rowData: {
-            "data-recent-path": recentPath,
-            "data-pending-trash":
-              pendingTrashRecentPath === recentPath ? "true" : undefined,
-          },
-          onRemove: () => requestTrashRecent(recentPath),
-          trailing: (
-            <TugIconButton
-              icon={<Trash2 size={14} aria-hidden="true" />}
-              aria-label={`Remove ${pathShort} from recent paths`}
-              title={`Remove ${pathShort} from recent paths`}
-              tone="danger"
-              className="session-card-picker-recent-trash"
-              onClick={() => requestTrashRecent(recentPath)}
-            />
-          ),
-        });
-      }
-      return items;
-    },
-    [recents, missingRecents, pendingTrashRecentPath, requestTrashRecent],
-  );
-
-  // Sessions list delegate — onSelect updates the session selection
-  // (or no-ops on live / loading rows).
-  const sessionsDelegate = useMemo<TugListViewDelegate>(
-    () => ({
-      onSelect: (index) => {
-        const row = sessionsDataSource.rowAt(index);
-        switch (row.kind) {
-          case "session-new":
-            setSelection({ kind: "session-new" });
-            return;
-          case "session-resume":
-            if (row.row.state === "live") return;
-            setSelection({
-              kind: "session-resume",
-              sessionId: row.row.session_id,
-            });
-            return;
-          case "loading":
-            return;
-        }
-      },
-    }),
-    [sessionsDataSource],
-  );
-
-  // Arrow navigation over the Sessions list is owned by the focus engine: the
-  // `TugListView` is authored as one single-select cycle stop, so ↑/↓ move the
-  // cursor within it AND select the landed row — the session selection follows
-  // the cursor (no separate Space step). A single-select list does not consume
-  // Return: it falls through to the picker's default action (Open, which keeps
-  // its ring the whole time via `persistentDefaultRing`), so arrowing to a row
-  // and pressing Return opens it. Per-row trash stays mouse-driven (the row
-  // trash icons are focus-refusing pointer affordances); keyboard users trash
-  // via the Move-all-to-Trash stop.
-
-  // Cell-context value for the Sessions list: `selection` drives session cells'
-  // selection state; `pendingTrashSessionId` drives the matching row's
-  // `data-pending-trash="true"` marker so its trash icon stays visible +
-  // highlighted while the form-owned confirm popover is up. The per-row trash
-  // flow dispatches `request-trash-session` through the chain, and the form's
-  // chain handler above owns the response.
-  const cellContextValue = useMemo(
-    () => ({
-      selection,
-      pendingTrashSessionId,
-      filterQuery,
-    }),
-    [selection, pendingTrashSessionId, filterQuery],
-  );
-
-  // The filter field's contract: report each keystroke, and hand the key view
-  // down to the Sessions list on ArrowDown. Escape is the field's own (it
-  // clears in place while non-empty); an empty field's Escape falls through to
-  // the sheet's dismiss, so no `filterFieldDidRequestDismiss` here. Enter stays
-  // with the picker's default action (Open), so no submit either.
-  const pickerListRef = useRef<TugListViewHandle>(null);
-  const pickerFilter = useAttachedFilter(() => pickerListRef.current);
-  const filterDelegate = useMemo(
-    () => ({
-      filterFieldDidChangeQuery: setFilterQuery,
-      // ↑/↓ cursor the Sessions list from the caret ([P08]) instead of handing
-      // the key view down to it, so narrowing and choosing stay one gesture.
-      ...pickerFilter.delegate,
-    }),
-    [focusManager, pickerFilter],
-  );
-
-  // Master/detail layout: project-path input → Recents list →
-  // Sessions list (+ Move-all-to-Trash button) → Cancel/Open.
-  const sessionsPending = sessionsDataSource.isPending();
-  const nonLiveCount = sessionsDataSource.nonLiveCount();
-  // The list omits prompt-free sessions, but the trash sweep takes every
-  // session on the path — so the tooltip names both halves rather than
-  // implying the visible count is the whole of it.
-  const trashAllTooltip =
-    nonLiveCount > 0
-      ? `${nonLiveCount} ${nonLiveCount === 1 ? "session" : "sessions"}, plus all empty sessions`
-      : "All empty sessions";
-  // The `list_sessions` round-trip carries a filesystem existence check
-  // for the typed path. An explicit `false` (path confirmed missing)
-  // disables Open so a doomed `spawn_session` is never sent; `undefined`
-  // (still checking) leaves Open enabled — the spawn-error banner is the
-  // backstop for the race window.
-  const dirMissing = sessionsDataSource.dirExists() === false;
-  const openDisabled = trimmedPath.length === 0 || dirMissing;
-
-  // Smart-latch default focus ([P12] Picker → New session). Re-evaluated as the
-  // async path seed settles `openDisabled` and the sessions list becomes ready:
-  //   - Open enabled + sessions ready → seed the Sessions list, which rests its
-  //     cursor on the "New session" row (the selection defaults to
-  //     `session-new`). A single-select list does not consume Return, so it
-  //     falls through to the persistent-default Open: one Return spawns a new
-  //     session at the seeded (most-recent) path. Latch.
-  //   - Open enabled but sessions not ready yet → keep the caret in the path
-  //     field so a still-loading picker is never ringless; do NOT latch, so the
-  //     seed promotes to the Sessions list the moment the list mounts.
-  //   - Open disabled → keep the ring/caret in the path field so typing starts
-  //     immediately; do NOT latch, so a seed that later enables Open
-  //     (before the user types) promotes the ring on the next run.
-  //   - The user has touched the field → that field is the default;
-  //     latch without moving so typing is never interrupted.
-  // The picker is persistent-cycling ([P13]) — the seed is the engine KEY VIEW
-  // (ring + DOM focus), not a bare `.focus()`, so the focus engine stays the
-  // single owner and the ring rests on the seed at open. The keyboard `place()`
-  // resolves the stop by its stable focus-key now (the field is already
-  // registered) or re-lights it the instant it mounts. [L03] layout effect
-  // (seed before paint).
-  useLayoutEffect(() => {
-    if (focusManager === null) return;
-    if (defaultFocusPlacedRef.current) return;
-    if (userTouchedFieldRef.current) {
-      defaultFocusPlacedRef.current = true;
-      return;
-    }
-    if (openDisabled || !sessionsReady) {
-      focusManager.place(
-        null,
-        { kind: "focus-key", focusKey: pickerFocusKey(PICKER_ORDER_PATH) },
-        { modality: "keyboard" },
-      );
-      return;
-    }
-    defaultFocusPlacedRef.current = true;
-    focusManager.place(
-      null,
-      { kind: "focus-key", focusKey: pickerFocusKey(PICKER_ORDER_SESSIONS) },
-      { modality: "keyboard" },
-    );
-  }, [openDisabled, sessionsReady, focusManager]);
-
-  return (
-    <PickerFormResponderScope>
-      <div ref={setFormRootRef} className="session-card-picker-form">
-        {notice !== null &&
-          (() => {
-            const content = noticeContent(notice);
-            return (
-              <div
-                data-testid="session-card-picker-notice"
-                data-notice-category={notice.category}
-              >
-                <TugInlineAlert
-                  title={content.title}
-                  message={content.message}
-                  tone={content.tone}
-                  icon={content.icon}
-                  live="alert"
-                  actions={
-                    onRetryRestore !== null ? (
-                      <TugPushButton
-                        emphasis="outlined"
-                        role={content.tone === "danger" ? "danger" : "action"}
-                        onClick={onRetryRestore}
-                        data-testid="session-card-picker-notice-retry"
-                      >
-                        Retry
-                      </TugPushButton>
-                    ) : undefined
-                  }
-                />
-              </div>
-            );
-          })()}
-        <label className="session-card-picker-field">
-          <span className="session-card-picker-label">Project path</span>
-          {/*
-          The path field is a combo box: typing filters the recent projects
-          (its seed) AND completes filesystem paths, both in one dropdown; a
-          click / chevron / ArrowDown opens the recents as a menu; the Browse
-          button is the native-picker escape hatch.
-        */}
-          <TugFileChooser
-            ref={inputRef}
-            value={path}
-            onChange={(next) => {
-              // A user edit (typing / completion pick) — not the programmatic
-              // seed, which calls `setPath` directly — claims the field as the
-              // default focus so the smart latch never yanks it to Open.
-              userTouchedFieldRef.current = true;
-              setPath(next);
-            }}
-            base={path !== "" ? path : "/"}
-            kind="directory"
-            onSubmit={submit}
-            seed={buildRecentsSeed}
-            menuMode
-            placeholder="/path/to/project"
-            focusGroup={PICKER_CYCLE_GROUP}
-            focusOrder={PICKER_ORDER_PATH}
-            browseFocusOrder={PICKER_ORDER_BROWSE}
-            chevronFocusOrder={PICKER_ORDER_CHEVRON}
-          />
-        </label>
-        <PickerCellProvider value={cellContextValue}>
-          <div className="session-card-picker-section">
-            <span className="session-card-picker-label">
-              Sessions
-              {sessionsReady && sessionLedger.scanning === true ? (
-                <span
-                  className="session-card-picker-scanning"
-                  role="status"
-                  aria-live="polite"
-                  data-testid="session-card-picker-scanning"
-                >
-                  {sessionLedger.scanProgress !== undefined &&
-                  sessionLedger.scanProgress.total > 0 ? (
-                    // Determinate ticks from the host's scan: the same
-                    // labeled-bar recipe as the restore strip, sized for
-                    // the section header.
-                    <TugProgressIndicator
-                      variant="bar"
-                      size={6}
-                      role="action"
-                      state="running"
-                      label="Scanning…"
-                      glyphPosition="right"
-                      value={Math.min(
-                        sessionLedger.scanProgress.parsed,
-                        sessionLedger.scanProgress.total,
-                      )}
-                      max={sessionLedger.scanProgress.total}
-                      showValue
-                      formatValue={formatScanProgressValue}
-                      className="session-card-picker-scanning-bar"
-                      aria-label="Scanning sessions"
-                    />
-                  ) : (
-                    "scanning sessions…"
-                  )}
-                </span>
-              ) : null}
-              {/* The filter trims a path's session list — hundreds of rows on a
-                busy project. Keyed on the path so switching projects clears a
-                filter that meant something only for the previous one. */}
-              <TugFilterField
-                key={trimmedPath}
-                className="session-card-picker-filter"
-                delegate={filterDelegate}
-                attachment={pickerFilter}
-                placeholder="Filter sessions"
-                data-testid="session-card-picker-filter"
-                focusGroup={PICKER_CYCLE_GROUP}
-                focusOrder={PICKER_ORDER_FILTER}
-              />
-            </span>
-            <div className="session-card-picker-sessions-host">
-              {sessionsReady ? (
-                <TugListView
-                  ref={pickerListRef}
-                  dataSource={sessionsDataSource}
-                  delegate={sessionsDelegate}
-                  cellRenderers={SESSIONS_CELL_RENDERERS}
-                  scrollKey="session-card-picker-sessions"
-                  rowLayout="flush"
-                  className="session-card-picker-sessions-list session-card-picker-list-view"
-                  focusGroup={PICKER_CYCLE_GROUP}
-                  focusOrder={PICKER_ORDER_SESSIONS}
-                  attachedFilter={pickerFilter}
-                  singleSelect
-                  // Arrowing out of a non-empty filter field should land on the
-                  // first MATCH. A single-select list commits as its cursor
-                  // lands, so without this seed the first Down would select
-                  // "New session" and silently discard the user's prior pick.
-                  initialSelectedIndex={
-                    filterQuery === ""
-                      ? undefined
-                      : sessionsDataSource.firstResumeIndex()
-                  }
-                />
-              ) : sessionsPending ? (
-                <div
-                  className="session-card-picker-empty"
-                  role="status"
-                  aria-live="polite"
-                  data-testid="session-card-picker-pending-placeholder"
-                >
-                  checking…
-                </div>
-              ) : (
-                <div
-                  className="session-card-picker-empty"
-                  data-testid="session-card-picker-sessions-empty"
-                >
-                  Type or select a project path to see sessions
-                </div>
-              )}
-            </div>
-            <div
-              className="session-card-picker-trash-all"
-              data-disabled={nonLiveCount === 0 ? "true" : undefined}
-              title={trashAllTooltip}
-            >
-              <TugLabel
-                emphasis="proposal"
-                data-testid="session-card-picker-trash-all-label"
-              >
-                Move all sessions to Trash for this path
-              </TugLabel>
-              <TugConfirmPopover
-                ref={trashAllConfirmRef}
-                message={
-                  nonLiveCount > 1
-                    ? "Move all sessions to Trash?"
-                    : "Move to Trash?"
-                }
-                confirmLabel="Trash"
-                confirmRole="danger"
-                side="top"
-              >
-                <TugPushButton
-                  subtype="icon"
-                  emphasis="ghost"
-                  role="danger"
-                  icon={<Trash2 size={16} aria-hidden="true" />}
-                  onClick={handleTrashAllClick}
-                  disabled={nonLiveCount === 0}
-                  aria-label="Move all sessions to Trash for this path"
-                  data-testid="session-card-picker-trash-all"
-                  focusGroup={PICKER_CYCLE_GROUP}
-                  focusOrder={PICKER_ORDER_TRASH_ALL}
-                />
-              </TugConfirmPopover>
-            </div>
-          </div>
-        </PickerCellProvider>
-        <div className="tug-sheet-actions">
-          {dirMissing && (
-            <TugLabel
-              className="session-card-picker-dir-warning"
-              emphasis="calm"
-              data-testid="session-card-picker-dir-warning"
-            >
-              {"Directory doesn't exist"}
-            </TugLabel>
-          )}
-          <TugPushButton
-            size="sm"
-            emphasis="outlined"
-            role="action"
-            onClick={onCancel}
-            focusGroup={PICKER_CYCLE_GROUP}
-            focusOrder={PICKER_ORDER_CANCEL}
-          >
-            Cancel
-          </TugPushButton>
-          <TugPushButton
-            size="sm"
-            emphasis="primary"
-            role="action"
-            onClick={submit}
-            disabled={openDisabled}
-            focusGroup={PICKER_CYCLE_GROUP}
-            focusOrder={PICKER_ORDER_OPEN}
-            persistentDefaultRing
-          >
-            Open
-          </TugPushButton>
-        </div>
-        {/*
-        Form-owned trash-session confirmation popover. Driven by
-        `pendingTrashSessionId` state set by the chain handler on
-        `request-trash-session`. Anchored to the requesting row's
-        trash icon via a virtualRef populated in the layout effect.
-        One instance, N anchor targets — see [D14] / [D15].
-      */}
-        <TugConfirmPopover
-          open={pendingTrashSessionId !== null}
-          anchorEl={pendingTrashAnchorEl}
-          message={pendingTrashMessage}
-          confirmLabel="Trash"
-          confirmRole="danger"
-          side="left"
-          onConfirm={handleConfirmTrash}
-          onCancel={handleCancelTrash}
-        />
-        {/* Form-owned confirm popover for removing a Recent Project Path,
-          anchored to the (stable) path field. The message names the path since
-          the anchor is the field, not the specific dropdown row. */}
-        <TugConfirmPopover
-          open={pendingTrashRecentPath !== null}
-          anchorEl={pendingTrashRecentAnchorEl}
-          message={
-            pendingTrashRecentPath !== null
-              ? `Remove ${pendingTrashRecentPath} from recent paths?`
-              : "Remove from recent paths?"
-          }
-          confirmLabel="Remove"
-          confirmRole="danger"
-          side="bottom"
-          onConfirm={handleConfirmTrashRecent}
-          onCancel={handleCancelTrashRecent}
-        />
-      </div>
-    </PickerFormResponderScope>
   );
 }
 

@@ -71,27 +71,27 @@ const FOLDED_POLICY: CardSizePolicy = {
 };
 
 /**
- * The unbound form ([P02], [B04]). Taller than the tier and taller than the
- * open floor, and — the whole of what distinguishes it from the folded one —
- * carrying NO `max`: what the card needs while it is only its sheet, not a
- * band it is held inside.
+ * The unbound form ([P06]). A WIDTH and no height: while the card is only its
+ * sheet, what it needs across is a fact about the card type, and what it needs
+ * down is measured — the opening bid the deck reads off the form before it
+ * commits the pane, and then the sheet's own reservation. A height declared
+ * here would be a third answer that disagreed with both.
  */
-const UNBOUND = 618;
-const UNBOUND_POLICY: CardSizePolicy = {
-  min: { width: 675, height: UNBOUND },
-  preferred: { width: 900, height: UNBOUND },
+const UNBOUND_WIDTH: { min: number; preferred: number; max?: number } = {
+  min: 675,
+  preferred: 900,
 };
 
 function registerUnboundable(
   componentId: string,
   sizePolicy: CardSizePolicy,
-  unboundSizePolicy: CardSizePolicy,
+  unboundWidthPolicy: { min: number; preferred: number; max?: number },
   foldedSizePolicy?: CardSizePolicy,
 ): void {
   registerCard({
     ...makeRegistration(componentId),
     sizePolicy,
-    unboundSizePolicy,
+    unboundWidthPolicy,
     ...(foldedSizePolicy !== undefined ? { foldedSizePolicy } : {}),
   });
 }
@@ -381,21 +381,24 @@ describe("getStackSizePolicy({ folded })", () => {
   });
 });
 
-// ---- getStackSizePolicy — the unbound form ([P02], [B04]) ----
+// ---- getStackSizePolicy — the unbound form ([P06]) ----
 
 describe("getStackSizePolicy({ unbound })", () => {
-  it("returns the declared floor with NO ceiling on any axis", () => {
-    registerUnboundable("session", OPEN_POLICY, UNBOUND_POLICY);
+  it("contributes NO height floor, and no ceiling on any axis", () => {
+    registerUnboundable("session", OPEN_POLICY, UNBOUND_WIDTH);
     const policy = getStackSizePolicy(["session"], { unbound: true });
-    expect(policy.min.height).toBe(UNBOUND);
-    // The one way this form differs from the folded one ([B01]): a folded card
-    // is a band and reads `min === max`, and an unbound card is a member that
-    // takes more where its column has more to give.
+    // The width is the card type's own; the height is zero, because the deck
+    // has two better answers for it — the measured opening bid and the sheet's
+    // reservation — and a declared one would only argue with them.
+    expect(policy.min.width).toBe(675);
+    expect(policy.min.height).toBe(0);
+    // A folded card is a band and reads `min === max`; an unbound card is a
+    // member that takes more where its column has more to give.
     expect(policy.max).toBeUndefined();
   });
 
   it("uses the ordinary policy when the option is absent", () => {
-    registerUnboundable("session", OPEN_POLICY, UNBOUND_POLICY);
+    registerUnboundable("session", OPEN_POLICY, UNBOUND_WIDTH);
     expect(getStackSizePolicy(["session"]).min.height).toBe(600);
   });
 
@@ -403,7 +406,7 @@ describe("getStackSizePolicy({ unbound })", () => {
     // They are forms of one card rather than independent flags, and a folded
     // card is not showing the sheet its unbound form was declared for — the
     // same precedence `placeMembers`' branch order takes.
-    registerUnboundable("session", OPEN_POLICY, UNBOUND_POLICY, FOLDED_POLICY);
+    registerUnboundable("session", OPEN_POLICY, UNBOUND_WIDTH, FOLDED_POLICY);
     const policy = getStackSizePolicy(["session"], {
       folded: true,
       unbound: true,
@@ -416,7 +419,7 @@ describe("getStackSizePolicy({ unbound })", () => {
     // A pane is one box, the folded case's reason exactly: an unbound Session
     // tab beside a Text tab is still a box that has to fit the Text tab, and a
     // Text tab taller than the declaration wins the floor.
-    registerUnboundable("session", OPEN_POLICY, UNBOUND_POLICY);
+    registerUnboundable("session", OPEN_POLICY, UNBOUND_WIDTH);
     registerSized("text", {
       min: { width: 300, height: 700 },
       preferred: { width: 400, height: 800 },
@@ -430,9 +433,26 @@ describe("getStackSizePolicy({ unbound })", () => {
 // ---- getUnboundSizePolicy — the per-card resolver ----
 
 describe("getUnboundSizePolicy", () => {
-  it("returns the declared unbound policy", () => {
-    registerUnboundable("session", OPEN_POLICY, UNBOUND_POLICY);
-    expect(getUnboundSizePolicy("session")).toEqual(UNBOUND_POLICY);
+  it("composes the declared width with a ZERO height floor", () => {
+    registerUnboundable("session", OPEN_POLICY, UNBOUND_WIDTH);
+    expect(getUnboundSizePolicy("session")).toEqual({
+      min: { width: 675, height: 0 },
+      // The preferred height is the ORDINARY policy's, carried over so the
+      // result is a well-formed policy rather than one that prefers nothing.
+      preferred: { width: 900, height: 1200 },
+    });
+  });
+
+  it("carries a declared max width through, with an unbounded height", () => {
+    registerUnboundable("session", OPEN_POLICY, {
+      min: 675,
+      preferred: 900,
+      max: 1400,
+    });
+    expect(getUnboundSizePolicy("session").max).toEqual({
+      width: 1400,
+      height: Infinity,
+    });
   });
 
   it("falls back to the ordinary policy for a card with no unbound form", () => {

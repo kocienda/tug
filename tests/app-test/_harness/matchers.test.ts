@@ -517,6 +517,12 @@ const EVENT_FIXTURES: Record<
     event: "perf.replay_ingest",
     fields: { frames: 3396, dispatchMs: 11 },
   },
+  "opening-bid-mismatch": {
+    kind: "opening-bid-mismatch",
+    memberId: "p2",
+    bid: 618,
+    report: 444,
+  },
 };
 
 describe("summarizeEvent — exhaustive per-kind coverage", () => {

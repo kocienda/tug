@@ -229,7 +229,7 @@ export function springSettleKeyframes(
 }
 
 /** The beats a settle runs in, in the order it runs them. */
-export type BeatKind = "depart" | "shrink" | "move" | "grow" | "arrive";
+export type BeatKind = "depart" | "room" | "shrink" | "move" | "grow" | "arrive";
 
 /**
  * The order the canvas chains them in — the one place the order lives, so a
@@ -238,9 +238,19 @@ export type BeatKind = "depart" | "shrink" | "move" | "grow" | "arrive";
  * A frame's departure opens the settle and its arrival closes it: the room is
  * given up before anything moves into it, and nothing appears until every
  * frame that was already on screen has finished going where it is going.
+ *
+ * One flat array still holds both ends of the settle, because every settle is
+ * a FOLD of this array rather than a walk of it. An arrival folds to
+ * `["room", "arrive"]`, a departure to `["depart", "room"]`, and a settle
+ * carrying both to `["depart", "room", "arrive"]` — and in each of the three
+ * the promise above is exactly what the order keeps: the room a closing pane
+ * gives up is given up before anything moves into it, and the newcomer does
+ * not appear until every frame already on screen has landed. `room` sits
+ * between them because that is where making room belongs in both directions.
  */
 export const BEAT_ORDER: readonly BeatKind[] = [
   "depart",
+  "room",
   "shrink",
   "move",
   "grow",
@@ -305,21 +315,50 @@ export interface SettleBeat {
  * sum. Air opening between members during the shrink is the make-room beat
  * being legible, not a seam failing.
  *
- * It emits only the MIDDLE three of {@link BEAT_ORDER}, and the outer two are
- * not an omission. This function partitions one frame's FLIP terms, and the
- * outer beats have no FLIP terms to partition: an arrival has no First rect to
- * invert and a departure has no Last one. They are the canvas's to author
- * because the canvas is the only thing that knows they happened — a frame that
- * was not on screen when the settle armed, and a pane `arm` measured whose
- * frame the commit took away.
+ * It emits no `depart` and no `arrive`, and that is not an omission. This
+ * function partitions one frame's FLIP terms, and the two fades have no FLIP
+ * terms to partition: an arrival has no First rect to invert and a departure
+ * has no Last one. They are the canvas's to author because the canvas is the
+ * only thing that knows they happened — a frame that was not on screen when
+ * the settle armed, and a pane `arm` measured whose frame the commit took
+ * away.
+ *
+ * ## The fused beat
+ *
+ * With `fused`, the partition is not taken at all: the frame's whole
+ * {@link SettleTerms} ride one `room` beat, holding nothing. That is for the
+ * settle that carries an arrival or a departure ([P08]), where the room being
+ * made or given up is ONE gesture and the deck should read as making it once
+ * rather than as three motions in a row — the survivor shrinking, then
+ * sliding, then the newcomer appearing.
+ *
+ * A fused beat carries a size term, so it is main-thread by construction, and
+ * the three-beat settle's reason for keeping a move transform-only does not
+ * apply to it: that rule exists so a beat that COULD be composited is, and a
+ * beat that must animate `width` or `height` could never have been. The rule
+ * this does NOT relax is the everyday one. An arrangement change with no
+ * arrival and no departure — the stack move, a slot nudge, a resize — is
+ * never fused, and still partitions into shrink, move and grow exactly as it
+ * does today, with the move still transform-only.
  */
-export function planSettleBeats(terms: SettleTerms): SettleBeat[] {
+export function planSettleBeats(
+  terms: SettleTerms,
+  options: { fused?: boolean } = {},
+): SettleBeat[] {
   const { dx, dy, sx = 1 } = terms;
   const width = sizeTerm(terms.width);
   const height = sizeTerm(terms.height);
   const moves = dx !== 0 || dy !== 0 || sx !== 1;
   const shrinks = width?.direction === "shrink" || height?.direction === "shrink";
   const grows = width?.direction === "grow" || height?.direction === "grow";
+
+  // The fused plan: one beat, every term, nothing held. A frame with no term
+  // at all still plans to nothing, which is what keeps a settle from arming a
+  // beat over frames that are already where they belong.
+  if (options.fused === true) {
+    if (!moves && !shrinks && !grows) return [];
+    return [{ kind: "room", terms, held: {} }];
+  }
 
   // A frame carrying no size term at all is the everyday case, and its plan is
   // today's tween, untouched: one transform-only beat.
@@ -382,13 +421,19 @@ export interface InterruptedBeat {
  *
  * A retarget hands the interrupted beat's velocity to the FIRST beat of the
  * same kind in the choreography that replaces it — a shrink's into the
- * shrink, a move's into the move, a grow's into the grow — and every other
- * beat launches from rest ([B06] of `three-beat-settle`). The kinds are
+ * shrink, a move's into the move, a grow's into the grow, a room's into the
+ * room — and every other beat launches from rest ([B06] of
+ * `three-beat-settle`). The kinds are
  * different motions in different units: a move's velocity is travels of a
  * translate per second and a shrink's is travels of a width, and handing one
  * to the other would throw a frame that was closing up across the deck at
  * the speed it was closing. A choreography runs each kind at most once, so
  * the first beat of a kind is the only one.
+ *
+ * A fused `room` beat is a kind of its own for exactly that reason. Its
+ * travel is the whole settle's — a translate and a size on one clock — so a
+ * move's velocity is not its velocity and a shrink's is not either, and a
+ * retarget between a fused settle and an unfused one hands nothing across.
  *
  * A settle nothing interrupted has no interrupted beat, and every beat of it
  * launches from rest.

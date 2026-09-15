@@ -3,13 +3,14 @@
  * floor its member opens at, for the length of the arrival window.
  *
  * A card type whose open form has a tall floor because of surfaces not yet on
- * screen may declare what it is worth without them
- * (`CardRegistration.unboundSizePolicy`), and the place its card stands in
- * then holds that member at no less than that height — one contributor to the
- * member's floor, with its weight kept ([B01]). The Session card's picker is
- * the one declaration today: an unbound card is its picker and nothing else,
- * so it opens at the picker's height rather than at the transcript's 600px
- * floor, and takes more where its column has more to give.
+ * screen may declare what its card LOOKS LIKE without them
+ * (`CardRegistration.openingForm`); the deck renders that form off-screen at
+ * the width the pane is about to take, measures it, and the place its card
+ * stands in then holds that member at no less than the measured height — one
+ * contributor to the member's floor, with its weight kept ([B01]). The Session
+ * card's picker is the one declaration today: an unbound card is its picker
+ * and nothing else, so it opens at the picker's own height rather than at the
+ * transcript's 600px floor, and takes more where its column has more to give.
  *
  * **It is a BID rather than a height, and that is the whole of its life
  * ([B02]).** Its one legitimate job is to be known BEFORE `addCard` commits,
@@ -62,6 +63,52 @@ import { sheetReservationMemberIdOf } from "@/lib/sheet-reservation";
 const bidMemberByCardId = new Map<string, string>();
 
 /**
+ * The members whose standing bid has already been reported against by a live
+ * sheet — one entry per member, set by the FIRST report and cleared whenever
+ * the bid is cleared.
+ *
+ * The bit exists because [P04] is a statement about the first report and
+ * nothing after it: the arrival commit's number and the panel's own first
+ * reading are supposed to be the same number, so a disagreement there is a
+ * defect in the measuring render rather than a tuning problem, and it is
+ * recorded rather than committed. Every LATER report is an honest reservation
+ * update from a panel that has genuinely changed ([P05]) and takes today's
+ * supersede rule untouched — a picker that grows a row after its sessions load
+ * is telling the truth, and holding it to the arrival's number would clip it.
+ *
+ * Per member rather than per card, because the member is what the bid and the
+ * reservation are both keyed by, and the bid's whole life is the member's.
+ */
+const reportedMembers = new Set<string>();
+
+/**
+ * Whether `memberId`'s standing bid has already been reported against, marking
+ * it reported in the same breath.
+ *
+ * Test-and-set in one call rather than a read and a write, because the caller
+ * is inside a commit and the two halves have no meaningful moment between
+ * them: every path that asks this question is the path that spends the answer.
+ */
+export function openingBidReportedFor(memberId: string): boolean {
+  if (reportedMembers.has(memberId)) return true;
+  reportedMembers.add(memberId);
+  return false;
+}
+
+/**
+ * Forget that `memberId` was reported against, so a bid written after this one
+ * gets its own first report.
+ *
+ * Called wherever a bid is cleared. A member that is bid for twice — a card
+ * torn down and another opened in the same place — is two arrivals and owes
+ * two comparisons, and a bit that outlived its bid would spend the second
+ * arrival's comparison before it happened.
+ */
+export function clearOpeningBidReport(memberId: string): void {
+  reportedMembers.delete(memberId);
+}
+
+/**
  * Record that `cardId`'s bid stands under `memberId`, without writing the bid
  * itself.
  *
@@ -96,6 +143,7 @@ export function openingBidForCard(
     const bid = standing ?? bidMemberByCardId.get(cardId);
     if (bid === undefined) return;
     bidMemberByCardId.delete(cardId);
+    clearOpeningBidReport(bid);
     deckStore.setOpeningBid(bid, null);
     return;
   }
