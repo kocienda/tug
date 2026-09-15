@@ -656,6 +656,13 @@ function endSettleMarks(el: HTMLElement): void {
   el.removeAttribute("data-imposer-beat");
 }
 
+/** One pane's in-flight settle: its tweens and the inline residue they owe back. */
+interface SettleTween {
+  el: HTMLElement;
+  anims: TugAnimation[];
+  restores: Array<() => void>;
+}
+
 /**
  * The recipe each beat of a settle plays on. The move beat IS the crossing —
  * the settle the whole choreography is measured against — and the two resize
@@ -2792,12 +2799,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * once at a stale size against fresh `calc()` geometry, which is a flash on
    * exactly the gesture that is already the most confusing one to watch.
    */
-  const settleTweensRef = useRef<
-    Map<
-      string,
-      { el: HTMLElement; anims: TugAnimation[]; restores: Array<() => void> }
-    >
-  >(new Map());
+  const settleTweensRef = useRef<Map<string, SettleTween>>(new Map());
   /**
    * Which frames a rail mode flip fades rather than moves, computed when the
    * settle arms and consumed by the Last pass.
@@ -3226,6 +3228,22 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // Read once: the custom property survives from the previous settle, and
       // falls back to the constant before the first one has written it.
       const episodeWindowMs = readSettleMs(el) * getTugTiming();
+      // The frames this arm carries, in DOM order, each beside the settle it
+      // interrupted — collected by a pass that HOLDS and MEASURES, and a
+      // second pass below that hands the residue back.
+      //
+      // The split is what the two writes cost. `hold-at-current` is
+      // `commitStyles()` — the running pose written into inline style — and
+      // it is layout-neutral by construction: the value it writes is the one
+      // already on screen. A RESTORER is the opposite: it puts back the value
+      // the frame had before the settle, and a width handed back re-lays out
+      // every frame beside it in the strip. Interleaved, that write landed
+      // between one frame's `getBoundingClientRect` and the next one's.
+      const armed: Array<{
+        paneId: string;
+        frame: HTMLElement;
+        running: SettleTween | undefined;
+      }> = [];
       for (const frame of el.querySelectorAll<HTMLElement>(
         ".tug-pane[data-pane-id]",
       )) {
@@ -3248,36 +3266,38 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // mark leaves the attribute off the new DOM, so the Last pass of THAT
         // settle finds the frame with no First rect and plays its arrival.
         if (frame.hasAttribute("data-arriving")) continue;
-        if (motion) firstRects.set(paneId, frame.getBoundingClientRect());
-        // The fold's near side. Read for every frame rather than only the
-        // ones that turn out to cross, because which frames those are is not
-        // knowable until the Last pass has the other side: `data-folded` is an
-        // attribute read, and the content rect costs nothing extra in a loop
-        // that has already flushed layout for the frame's own rect above.
-        if (motion) {
-          firstFolds.set(paneId, {
-            folded: frame.hasAttribute("data-folded"),
-            contentHeight: contentBoxHeight(frame),
-          });
-        }
-        episodes.set(paneId, beginResizeEpisode(frame, episodeWindowMs));
+        // A frame caught mid-settle is HELD BEFORE it is measured, and that
+        // order is the whole of this branch.
+        //
+        // It is not snapped to the end it never reached — `hold-at-current`
+        // is `commitStyles()` and then a cancel, so the pose the tween is
+        // showing this instant becomes the frame's own inline style, and the
+        // velocity it was carrying is handed to the beat of the same kind
+        // this arm is about to launch, so the card continues rather than
+        // stopping and starting again ([P04]). A frame caught mid-resize is
+        // held at the size the eye has too, and its First rect is that size,
+        // so it is re-planned from where it is.
+        //
+        // Measuring FIRST is what this used to do, on the reasoning that the
+        // rect is measured through the running transform and the hold leaves
+        // that transform exactly as measured. The first half of that is not
+        // reliable: an accelerated transform lives on the compositor, and
+        // `getBoundingClientRect` reads the style the main thread last
+        // resolved — which, for a frame whose inline style still carries the
+        // START pose of the tween now playing over it, is that start pose
+        // rather than the pose on screen. One frame per gesture read that
+        // way: its First came back equal to its Last, the Last pass planned
+        // no tween for it, and it CUT to its new place while every frame
+        // beside it glided — the close-during-an-arrival jump ([P08]).
+        //
+        // `commitStyles()` is exactly the repair, because it resolves the
+        // animation's current value itself rather than asking layout what it
+        // thinks. Measuring after it reads a pose that is inline, resolved,
+        // and the one on screen. The hand-back stays in the second pass: it
+        // writes a value the frame does NOT have, which is a relayout, and a
+        // relayout between two frames' measurements is a First rect nobody saw.
         const running = settleTweensRef.current.get(paneId);
         if (running !== undefined) {
-          // A frame caught mid-settle. It is not snapped to the end it never
-          // reached — it is held exactly where the eye has it, and the
-          // velocity it was carrying is handed to the beat of the same kind
-          // this arm is about to launch, so the card continues rather than
-          // stopping and starting again ([P04]). A frame caught mid-resize
-          // is held at the size the eye has too, and its First rect below is
-          // that size, so it is re-planned from where it is.
-          //
-          // Held is also what makes the First rect above correct without any
-          // repair: the rect was measured through the running transform, and
-          // `hold-at-current` leaves that transform exactly as measured. The
-          // `snap-to-end` this replaces committed the tween's FINAL value into
-          // inline style instead, and the microtask that took it back was long
-          // enough to paint — one frame at a stale size against fresh calc
-          // geometry, which is the flash the census counts.
           const beat = settleBeatRef.current;
           if (interrupted === null && beat !== null) {
             // Read once: every frame in a beat rides the same curve, and the
@@ -3302,6 +3322,35 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             beat: beat?.kind ?? null,
           });
           for (const anim of running.anims) anim.cancel("hold-at-current");
+        }
+        if (motion) firstRects.set(paneId, frame.getBoundingClientRect());
+        // The fold's near side. Read for every frame rather than only the
+        // ones that turn out to cross, because which frames those are is not
+        // knowable until the Last pass has the other side: `data-folded` is an
+        // attribute read, and the content rect costs nothing extra in a loop
+        // that has already flushed layout for the frame's own rect above.
+        if (motion) {
+          firstFolds.set(paneId, {
+            folded: frame.hasAttribute("data-folded"),
+            contentHeight: contentBoxHeight(frame),
+          });
+        }
+        armed.push({ paneId, frame, running });
+      }
+
+      // Second pass: the episodes, and the frames caught mid-settle. Every
+      // write below — a restored width, a cleared transform, an episode's
+      // begin event — happens after the last measurement above. The residue
+      // still goes back on the SAME tick as the cancel that earned it, which
+      // is what the registry's own doc asks for; it goes back a few lines
+      // later in that tick, and nothing paints in between.
+      for (const { paneId, frame, running } of armed) {
+        episodes.set(paneId, beginResizeEpisode(frame, episodeWindowMs));
+        if (running !== undefined) {
+          // The `snap-to-end` the hold above replaces committed the tween's
+          // FINAL value into inline style instead, and the microtask that took
+          // it back was long enough to paint — one frame at a stale size
+          // against fresh calc geometry, which is the flash the census counts.
           for (const restore of running.restores) restore();
           clearFlip(paneId, frame, running.anims);
         }
