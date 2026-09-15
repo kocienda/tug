@@ -1286,6 +1286,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Every one of them is selection-relative — the frontend resolves the
         // layout selection, else the Cards list's cursor, else the first
         // responder — so the move target is all the payload there is.
+        //
+        // "Split or Stack Column" is the BOOT title only. The registry gate
+        // rewrites it on every menuState push to name the one verb the next
+        // press performs — "Split Column" over a stacked place, "Stack
+        // Column" over a split one — so the row is never a coin toss. It
+        // falls back to the pair when no column resolves, which is also when
+        // the row is dark.
         wMenu.addItem(NSMenuItem(title: "Split or Stack Column", action: #selector(toggleColumnSplit(_:)), keyEquivalent: "").identified("window.columnSplit"))
         for (title, where_, id) in [
             ("Move Card Up in Column", "up", "window.columnMoveUp"),
@@ -2060,6 +2067,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Window ▸ Split or Stack Column. No payload, for the same reason
     /// Bullseye carries none: which slot divides is the frontend's answer, and
     /// it resolves it from the layout selection the chord resolves too.
+    ///
+    /// The title is the registry gate's dynamic one, and the item is dark only
+    /// when the layout selection resolves to no column at all: a slot one card
+    /// deep still splits, which arms the place for the card that arrives next.
     @objc private func toggleColumnSplit(_ sender: Any?) {
         sendControl("toggle-column-split")
     }

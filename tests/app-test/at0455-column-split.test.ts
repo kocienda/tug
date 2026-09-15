@@ -709,11 +709,19 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         expect(await memberOrder()).toEqual(atEnd);
         note(`chord walk: ${before.join(",")} -> ${after.join(",")} -> ${atEnd.join(",")}`);
 
-        // ── ⌃⌘S on a slot with one card is refused, not obeyed. ──
+        // ── ⌃⌘S on a slot with one card SPLITS it. ──
         //
-        // Slot 2 is empty in the fixture, so the card is moved there first:
-        // a slot of one has nothing to divide, and the record must stay clean
-        // rather than gaining a split nothing can draw.
+        // Slot 2 is empty in the fixture, so the card is moved there first.
+        // A place one card deep is still a place, and arming it to split is a
+        // legal act that the next card to arrive lands into. The pane badge's
+        // own menu has always performed it — "One card in this column, press
+        // to split it" — so a chord that refused made the two doors onto one
+        // verb disagree, and the menu row went dark where the badge was lit.
+        //
+        // The geometry does not change with the record: case 4 above already
+        // asserts that a lone member of a split slot stands exactly where an
+        // unsplit one does. What the split buys is the arrangement, which the
+        // badge reads and the next arrival divides.
         await app.dispatchControlAction("assign-slot", {
           cardIds: ["A"],
           slot: 2,
@@ -722,9 +730,16 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         await app.nativeKey("s", SPLIT);
         await wait(AFTER_LAND_MS);
         expect(
-          (await columnsRecord(app))["2"],
-          "⌃⌘S refuses a slot holding one card rather than recording a split",
-        ).toBeUndefined();
+          (await columnsRecord(app))["2"]?.mode,
+          "⌃⌘S splits a slot holding one card, arming the place",
+        ).toBe("split");
+        // And the toggle is a toggle there too: the way back is the same key.
+        await app.nativeKey("s", SPLIT);
+        await wait(AFTER_LAND_MS);
+        expect(
+          (await columnsRecord(app))["2"]?.mode,
+          "⌃⌘S re-stacks the place it just split",
+        ).toBe("stack");
       } finally {
         await app.close();
       }

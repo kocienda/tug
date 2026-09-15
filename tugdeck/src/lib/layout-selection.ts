@@ -31,8 +31,9 @@
  */
 
 import { isSidebarCard } from "@/card-registry";
-import { columnMembersOf, columnMoveOrder } from "@/deck-store-selectors";
-import { clampSlot } from "@/lib/layout-imposer";
+import { columnMoveOrder } from "@/deck-store-selectors";
+import { clampSlot, columnModeOf } from "@/lib/layout-imposer";
+import type { ColumnMode } from "@/lib/layout-imposer";
 import {
   getLayoutCursorCard,
   cardsSelectionStore,
@@ -92,7 +93,7 @@ function contentCardsAmong(
 export function resolveColumnMenuFact(
   deck: IDeckManagerStore,
   selection: CardsSelectionStore = cardsSelectionStore,
-): { canSplit: boolean; canMoveUp: boolean; canMoveDown: boolean } | null {
+): { mode: ColumnMode; canMoveUp: boolean; canMoveDown: boolean } | null {
   const cardIds = contentCardsAmong(deck, resolveLayoutSelection(deck, selection));
   if (cardIds.length === 0) return null;
   const state = deck.getSnapshot();
@@ -100,13 +101,15 @@ export function resolveColumnMenuFact(
   const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
   if (host?.slot === undefined) return null;
   const slot = clampSlot(state.imposition.kind, host.slot);
-  // Membership alone decides whether a slot can split, so no run is measured
-  // and no allocation is asked for.
-  const members = columnMembersOf(state, slot);
   const order = columnMoveOrder(state, host.id);
   const at = order.indexOf(host.id);
   return {
-    canSplit: members.length >= 2,
+    // The arrangement the slot is SET to, which is what the toggle inverts —
+    // never what the geometry happens to be drawing. A lone member draws
+    // across the whole slot whichever mode it stands under, so reading the
+    // drawing would make the menu name the wrong verb for a split place that
+    // has not been joined yet.
+    mode: columnModeOf(state.imposition, slot),
     canMoveUp: at > 0,
     canMoveDown: at !== -1 && at < order.length - 1,
   };

@@ -1849,14 +1849,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (host?.slot === undefined) return;
         const slot = clampSlot(state.imposition.kind, host.slot);
         const column = deckColumnsOf(state, null).find((c) => c.slot === slot);
-        // A slot with one card is already unsplit and has nothing to divide.
-        // The refusal is VISIBLE — the pane flashes — because a chord that
-        // does nothing and says nothing is indistinguishable from one that
-        // never arrived ([P08]).
-        if (column === undefined || column.members.length < 2) {
+        // A slot one card deep is NOT refused. Splitting it is a legal act
+        // that commits `mode: "split"` and arms the place for the next card
+        // to land into — the same act the pane badge's own menu has always
+        // performed, and the badge saying "press to split it" while the chord
+        // flashed a refusal was one surface calling the other a liar.
+        //
+        // The only refusal left is a slot that holds no column at all, which
+        // `deckColumnsOf` answers for. It stays VISIBLE — the pane flashes —
+        // because a chord that does nothing and says nothing is
+        // indistinguishable from one that never arrived ([P08]).
+        if (column === undefined) {
           tugDevLogStore.debug(
             "toggle-column-split",
-            "the selection's slot holds one card; nothing to divide",
+            "the selection's card stands in no column",
             { slot, cardId: cardIds[0] },
           );
           flashCardPane(store, cardIds[0]);

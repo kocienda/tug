@@ -447,6 +447,45 @@ describe("computeCommandCapabilities", () => {
     expect(deselected["window.revealStack"].enabled).toBe(false);
   });
 
+  test("the split row names the verb the next press performs", () => {
+    const chain = new ResponderChainManager();
+
+    // No column resolves — a free deck, or nothing selected. The row is dark,
+    // and it keeps the neutral pair rather than naming a verb it would not
+    // perform. A dark row promising "Split Column" is a lie the user can read.
+    const none = computeCommandCapabilities(source(chain, { column: null }));
+    expect(none["window.columnSplit"].enabled).toBe(false);
+    expect(none["window.columnSplit"].title).toBe("Split or Stack Column");
+
+    // A stacked place, one card deep. It is ENABLED: splitting a slot that
+    // holds one card is a legal act that arms the place for the card arriving
+    // next, and the pane badge has always offered it. The row was gated on a
+    // second member and went dark exactly where the badge said "press to
+    // split it" — the two surfaces contradicting each other over one slot.
+    const stacked = computeCommandCapabilities(
+      source(chain, {
+        column: { mode: "stack", canMoveUp: false, canMoveDown: false },
+      }),
+    );
+    expect(stacked["window.columnSplit"].enabled).toBe(true);
+    expect(stacked["window.columnSplit"].title).toBe("Split Column");
+    // The travel rows are NOT loosened with it: a lone member really has
+    // nowhere to go, and that refusal is what `disabledChord: "keep"` beeps.
+    expect(stacked["window.columnMoveUp"].enabled).toBe(false);
+    expect(stacked["window.columnMoveDown"].enabled).toBe(false);
+
+    // The same row over a split place, saying the way back.
+    const split = computeCommandCapabilities(
+      source(chain, {
+        column: { mode: "split", canMoveUp: true, canMoveDown: false },
+      }),
+    );
+    expect(split["window.columnSplit"].enabled).toBe(true);
+    expect(split["window.columnSplit"].title).toBe("Stack Column");
+    expect(split["window.columnMoveUp"].enabled).toBe(true);
+    expect(split["window.columnMoveDown"].enabled).toBe(false);
+  });
+
   test("the card-width radio checks the stamped preset, and none at a dragged width", () => {
     const chain = new ResponderChainManager();
 

@@ -28,7 +28,7 @@
 
 import type { TugAction } from "./action-vocabulary";
 import { TUG_ACTIONS } from "./action-vocabulary";
-import type { ContentWidth, SidebarSide } from "@/lib/layout-imposer";
+import type { ColumnMode, ContentWidth, SidebarSide } from "@/lib/layout-imposer";
 import {
   CONTENT_WIDTH_LABELS,
   CONTENT_WIDTH_PRESETS,
@@ -224,7 +224,7 @@ export interface CommandMenuFacts {
    * chord would stop firing to match ([P05]).
    */
   readonly column: {
-    readonly canSplit: boolean;
+    readonly mode: ColumnMode;
     readonly canMoveUp: boolean;
     readonly canMoveDown: boolean;
   } | null;
@@ -778,7 +778,11 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
  *
  * `disabledChord: "keep"`, matching the width family: a dimmed item holds its
  * key equivalent, so the beep is honest feedback that the user pressed the
- * right keys at a moment the column had no move to make. Nothing else in the
+ * right keys at a moment the column had no move to make. That is the ⌃⌘
+ * arrows' case and not ⌃⌘S's: splitting is never refused for want of a second
+ * member — a slot one card deep is a place, and arming it to split is a legal
+ * act that the next arrival lands into. ⌃⌘S is dark only when the layout
+ * selection resolves to no column at all. Nothing else in the
  * JS funnel wants ⌃⌘S or the ⌃⌘ arrows, so there is nothing for a detach to
  * hand them back to.
  *
@@ -800,7 +804,20 @@ const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
       ),
     ],
     validate: (chain: CommandValidationSource) =>
-      chain.menu.column?.canSplit === true,
+      chain.menu.column !== null,
+    // The item says which of its two verbs the next press performs. A slot's
+    // arrangement is not legible from the menu bar, and "Split or Stack" made
+    // the user press to find out which one they were asking for — the
+    // arrangement decides, so let the arrangement name the row.
+    //
+    // A column that resolves to nothing keeps the neutral phrasing rather
+    // than an arbitrary verb: the row is dark there, and a dark row naming a
+    // verb is a promise it is not keeping.
+    dynamicTitle: (chain: CommandValidationSource) => {
+      const mode = chain.menu.column?.mode;
+      if (mode === undefined) return "Split or Stack Column";
+      return mode === "split" ? "Stack Column" : "Split Column";
+    },
   },
   ...(
     [

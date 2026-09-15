@@ -89,13 +89,23 @@ afterEach(() => {
 
 describe("resolveColumnMenuFact", () => {
   test("a layout selection outranks the fronted card", () => {
-    // The fronted card stands alone in slot 1 and has nothing to divide; the
-    // selection stands in the stacked slot and does. The menu has to follow
-    // the selection, because the chord does.
-    const deck = storeOver(threeUp({ activePaneId: "pane-c" }));
-    expect(resolveColumnMenuFact(deck)?.canSplit).toBe(false);
+    // The fronted card stands alone in slot 1, which is stacked; the selection
+    // stands in slot 0, which is split. The menu has to follow the selection,
+    // because the chord does — and the two slots' modes are what make the
+    // difference visible, since the title the item carries is read off `mode`.
+    const deck = storeOver(
+      threeUp({
+        activePaneId: "pane-c",
+        imposition: {
+          kind: "three-up",
+          sidebars: { cards: { side: "right" } },
+          columns: { 0: { mode: "split" } },
+        },
+      }),
+    );
+    expect(resolveColumnMenuFact(deck)?.mode).toBe("stack");
     cardsSelectionStore.pickOnly("card-a");
-    expect(resolveColumnMenuFact(deck)?.canSplit).toBe(true);
+    expect(resolveColumnMenuFact(deck)?.mode).toBe("split");
   });
 
   test("the Cards list's cursor answers when the Cards card holds the keyboard", () => {
@@ -105,7 +115,7 @@ describe("resolveColumnMenuFact", () => {
     const deck = storeOver(threeUp({ activePaneId: "pane-cards" }));
     expect(resolveColumnMenuFact(deck)).toBeNull();
     setLayoutCursorCard("card-a");
-    expect(resolveColumnMenuFact(deck)?.canSplit).toBe(true);
+    expect(resolveColumnMenuFact(deck)?.mode).toBe("stack");
   });
 
   test("no content card resolves to null, not to a false-filled fact", () => {
@@ -120,10 +130,13 @@ describe("resolveColumnMenuFact", () => {
     expect(resolveColumnMenuFact(free)).toBeNull();
   });
 
-  test("a column of one can be neither divided nor travelled", () => {
+  test("a column of one has nowhere to travel, but still names its mode", () => {
+    // `mode` is a fact about the place, not about how many cards fill it: a
+    // slot one card deep is stacked until someone splits it, and splitting it
+    // is a legal act the menu must be willing to name.
     const deck = storeOver(threeUp({ activePaneId: "pane-c" }));
     expect(resolveColumnMenuFact(deck)).toEqual({
-      canSplit: false,
+      mode: "stack",
       canMoveUp: false,
       canMoveDown: false,
     });
@@ -140,13 +153,13 @@ describe("resolveColumnMenuFact", () => {
     });
     // `pane-a` is the bottom member: it can rise, and it has nowhere to fall.
     expect(resolveColumnMenuFact(storeOver(state))).toEqual({
-      canSplit: true,
+      mode: "split",
       canMoveUp: true,
       canMoveDown: false,
     });
     cardsSelectionStore.pickOnly("card-b");
     expect(resolveColumnMenuFact(storeOver(state))).toEqual({
-      canSplit: true,
+      mode: "split",
       canMoveUp: false,
       canMoveDown: true,
     });
@@ -158,7 +171,7 @@ describe("resolveColumnMenuFact", () => {
     // frontmost — so it cannot rise.
     const deck = storeOver(threeUp({ activePaneId: "pane-b" }));
     expect(resolveColumnMenuFact(deck)).toEqual({
-      canSplit: true,
+      mode: "stack",
       canMoveUp: false,
       canMoveDown: true,
     });
