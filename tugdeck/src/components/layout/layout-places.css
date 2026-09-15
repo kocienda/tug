@@ -83,9 +83,28 @@
      ABOUT the picture rather than as another line in it.
 
      The room it needs is reserved in `layout-card.css`: the plate's gap is
-     what stands between this ring and the strip's first pill, so the two
-     numbers move together. */
-  --tugx-focus-ring-offset: 5px;
+     what stands between this ring and the strip's first pill, and the plan
+     layer's gap is what stands between it and the note above, so the three
+     numbers move together. The ring itself is declared below rather than
+     here — see why. */
+}
+
+/* The offset is written as `outline-offset` on the ringed element, NOT as
+   `--tugx-focus-ring-offset` on the box above, which is how it was first cut
+   and which was wrong in a way the picture showed immediately. That property
+   is a CUSTOM property, and custom properties inherit: declared on this box
+   it reached every mark inside it too, and a mark's cursor ring — a
+   `[data-key-cursor]` outline reading the same var — was pushed out with it,
+   off the block it belongs to and across the drawing's own frame. One
+   element wanted a wider ring; the declaration handed one to
+   everything under it.
+
+   `outline-offset` is not inherited, so it says what it means. At (0,2,0) it
+   also outranks the language's own (0,1,0) rule without touching it, and the
+   two suppressions that matter — the backgrounded window and the
+   non-engaged deck — work by clearing `outline`, which this leaves alone. */
+.layout-places[data-key-view-kbd] {
+  outline-offset: 4px;
 }
 
 /* One side's strip. Width comes from the same flex-basis the drawing's rail
@@ -170,6 +189,25 @@
  * own width; nothing ever laps it, so nothing is bought by moving its mark. */
 .layout-places[data-layout="fit"] .layout-places-block > .layout-places-mark {
   justify-content: flex-start;
+}
+
+/* A mark's own keyboard mark rides the Accent axis, like every keyboard mark
+   in the app.
+
+   It has to be said at all because a mark is a `ghost`/`action` button, and
+   `internal/tug-button.css` points every action button's ring at the action
+   role's blue — right everywhere else, and a collision here: the drawing's
+   other blue rectangle is the flow window, which says what is IN VIEW. Two
+   blue rectangles a few pixels apart meaning two unrelated things is the
+   confusion this picture was just corrected for. One hue per fact — orange is
+   the keyboard, and it is orange at both scales here (this ring, and the
+   picture's own ring around the whole drawing); key is the view.
+
+   On the BUTTON rather than on `.layout-places-mark`, because the button
+   declares the property on itself and an element's own declaration beats an
+   inherited one however close the ancestor is. */
+.layout-places-mark .tug-icon-button {
+  --tugx-focus-ring: var(--tug7-element-global-fill-normal-accent-rest);
 }
 
 /* Every mark rests at ONE weight. An earlier cut whispered the marks with

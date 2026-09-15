@@ -90,7 +90,7 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 14px;
+  gap: 16px;
   padding: 6px 8px 8px;
 }
 
@@ -113,17 +113,22 @@
    is the plan's legend — the air between a picture and its legend has to read
    as smaller than the air between that pair and the rows below.
 
-   Both numbers are a step wider than they were, and the step is the focus
-   ring's. The ring lands on the places overlay, which is the drawing's box to
-   the pixel and is pushed five pixels out from it (`layout-places.css`), so
-   at the old four-pixel gap the ring crossed the strip it stands above. This
-   gap is the room it needs; the section's is widened with it so the legend
-   still reads as closer to the picture than the rows below are to either. */
+   Both numbers are wider than they were, and the amount is the focus ring's.
+   The ring lands on the places overlay, which is the drawing's box to the
+   pixel and stands four pixels out from it (`layout-places.css`), so it
+   reaches 5.5px below the picture — and at the four-pixel gap this started
+   at, it crossed the strip. A gap that merely CLEARS the ring is not enough
+   either: a ring landing a pixel or two short of the numbers reads as
+   touching them. So the gap is the ring's reach plus about as much air again
+   on the far side of it — 6.5px, enough that the two read as separate and
+   little enough that the legend stays the picture's. The section's gap moves
+   in step, so the legend still reads as closer to the picture than the rows
+   below are to either. */
 .layouts-plate {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
+  gap: 12px;
 }
 
 .layouts-figure {
@@ -144,7 +149,13 @@
    type immediately above a bordered picture read as a label stuck to it, and
    the summary is the statement the drawing illustrates. A step wider than the
    air inside the summary itself, so the caption and its note read as one
-   block. */
+   block.
+
+   It is also what holds the focus ring below off the note: the ring reaches
+   5.5px past the picture's top edge as well as its bottom one, and the note
+   is the one thing above the drawing. The two clearances come out the same
+   6.5px, which is not a coincidence worth preserving by hand — if this step
+   or the plate's changes, check the other. */
 .layouts-plan-layer {
   display: none;
   flex-direction: column;

@@ -195,9 +195,35 @@
    about what is IN VIEW — the part of a strip too long for it that the
    canvas is showing — and that is a selection, which is what Key is for.
    Nothing about it answers a press. */
+
+/* WHICH key token, and why not the obvious one. The first cut reached for
+   `--tug7-surface-toggle-primary-normal-on-rest` — the Key axis's filled
+   surface, the colour of the selected segment pill directly below — and it
+   came out nearly invisible in the dark themes. The arithmetic says why: that
+   token is l:600 and the blocks it is drawn over are l:610. The two differ in
+   CHROMA alone, and a hairline that differs from its ground only in chroma is
+   a hue the eye has to hunt for rather than a line it reads. (In the light
+   themes the same pair is l:650 on l:800 and read fine, which is how it
+   shipped.)
+
+   `element-tone-icon-normal-active-rest` is the Key axis's INK — the tone a
+   mark is drawn in rather than the surface a control is filled with — and it
+   is separated from the block by lightness in both polarities, in the
+   direction each polarity expects: l:750 over l:610 in the dark themes, l:490
+   under l:800 in the light ones, at c:240 against the block's near-neutral
+   c:40. An ink token for a line drawn on a picture is also the honest
+   reading: nothing here is a filled control.
+
+   And it is drawn at two pixels rather than one. The window is the only mark
+   in the drawing that has to be found rather than merely seen — every other
+   stroke bounds a shape the eye already has — and at a hairline over a mid
+   block it reads as an artifact of the blocks behind it. The at-rest window,
+   which stands on a hollow drawing with nothing competing, keeps its 1px
+   dash. */
 .layout-mini[data-committed="true"] .layout-mini-window {
-  border-color: var(--tug7-surface-toggle-primary-normal-on-rest);
+  border-color: var(--tug7-element-tone-icon-normal-active-rest);
   border-style: solid;
+  border-width: 2px;
 }
 
 /* The committed drawing MOVES, so it moves the way the deck does: one rule over
