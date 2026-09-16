@@ -1849,6 +1849,7 @@ mod tests {
             notes: Vec::new(),
             stopped: stopped.map(|(stage, why)| (stage, why.to_owned())),
             last_stop: None,
+            stopping: None,
             resume: None,
             dispatched: None,
             owner: None,

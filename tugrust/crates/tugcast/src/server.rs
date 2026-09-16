@@ -684,20 +684,50 @@ async fn arc_handler(
             // halts a running turn**: an `arc_ask` is a stage ending its own
             // turn over a question, and interrupting it would truncate the
             // sentence the receipt exists to carry.
-            if let Err(reason) = supervisor
-                .stop_arc_now(
-                    &session_id,
-                    std::path::Path::new(&project_dir),
-                    &arc,
-                    crate::feeds::agent_supervisor::StopTerms {
-                        stage,
-                        reason,
-                        question: question.as_deref(),
-                        halt: reason == tugarc_core::arc::ArcStopReason::StoppedByUser,
-                    },
-                )
-                .await
-            {
+            //
+            // **The protocol runs as its own task, and this request only
+            // listens.** The stop is no longer milliseconds: it marks the arc
+            // `stopping`, tears the session's work down, and waits up to the
+            // project's ceiling for it to go quiet. Axum drops a handler
+            // future the instant the client's socket closes, and on this
+            // route the client is routinely a casualty of the very teardown
+            // it asked for — `tugtool arc ask` runs inside the stage's own
+            // turn, so it is a child of the claude whose process group the
+            // teardown sweeps. Awaiting the protocol inline would therefore
+            // cancel it mid-wait in the common case, leaving the
+            // `arc-stopping` mark standing with neither the `arc-stop` that
+            // ends the protocol nor the abandon line that gives it up: an arc
+            // the wheel stands down for, that both presses refuse by
+            // sentence, and that no gesture clears ([P03]). A `^C` on the
+            // CLI, or any dropped connection, is the same shape.
+            let stopping = {
+                let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+                let supervisor = Arc::clone(supervisor);
+                let (session_id, project_dir, arc) =
+                    (session_id.clone(), project_dir.clone(), arc.clone());
+                let question = question.clone();
+                let halt = reason == tugarc_core::arc::ArcStopReason::StoppedByUser;
+                tokio::spawn(async move {
+                    let outcome = supervisor
+                        .stop_arc_now(
+                            &session_id,
+                            std::path::Path::new(&project_dir),
+                            &arc,
+                            crate::feeds::agent_supervisor::StopTerms {
+                                stage,
+                                reason,
+                                question: question.as_deref(),
+                                halt,
+                            },
+                        )
+                        .await;
+                    // Nobody left to tell is the cancelled-request case, and
+                    // the protocol above has already finished either way.
+                    let _ = done_tx.send(outcome);
+                });
+                done_rx.await
+            };
+            if let Err(reason) = stopping.unwrap_or(Err("stop task failed")) {
                 return err(StatusCode::SERVICE_UNAVAILABLE, reason);
             }
             (

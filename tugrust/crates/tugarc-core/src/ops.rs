@@ -2820,8 +2820,24 @@ pub fn step_withdraw(name: &str, step: u32) -> Result<StepOutcome, String> {
 /// Refused on `done`, which is [`step_reopen`]'s business.
 pub fn step_reset(name: &str, step: u32, why: Option<&str>) -> Result<StepOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
-    reconcile_branches(&repo_root, &mut Vec::new());
-    step_in(&repo_root, name, step, StepPhase::Reset, None, None, why)
+    step_reset_in(&repo_root, name, step, why)
+}
+
+/// [`step_reset`] against a repo root the caller already holds.
+///
+/// The CLI resolves its root from the cwd, which is the one thing a server
+/// cannot do: the arc runner holds the project path as a fact and runs from
+/// wherever tugcast was launched. So the body lives here and `step_reset`
+/// delegates to it — one park, whichever door reached it, rather than two
+/// that are free to drift.
+pub fn step_reset_in(
+    repo_root: &Path,
+    name: &str,
+    step: u32,
+    why: Option<&str>,
+) -> Result<StepOutcome, String> {
+    reconcile_branches(repo_root, &mut Vec::new());
+    step_in(repo_root, name, step, StepPhase::Reset, None, None, why)
 }
 
 /// Reopen a finished step: the ledger row goes `done` → `in progress`, its
@@ -3189,6 +3205,26 @@ fn dirty_tracked_paths(dir: &Path) -> Vec<String> {
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
         .collect()
+}
+
+/// The arc worktree's uncommitted tracked paths, or empty when it has no
+/// worktree ([P08]).
+///
+/// What a resumed stage cannot learn from its own transcript: a stop
+/// terminates the claude mid-edit and the bytes stay on disk, so a rotated
+/// session inherits a tree whose changes nothing has explained to it. This is
+/// the read the prompt's dirty clause names.
+///
+/// The same `git diff --name-only HEAD` [`dirty_tracked_paths`] already makes
+/// per arc — no new git invocation shape, which is what [D171] is about. An
+/// absent worktree is empty rather than an error: there is nothing to explain
+/// about a tree that does not exist.
+pub fn worktree_dirt(repo_root: &Path, name: &str) -> Vec<String> {
+    let worktree = worktree_path(repo_root, name);
+    if !worktree.exists() {
+        return Vec::new();
+    }
+    dirty_tracked_paths(&worktree)
 }
 
 /// Everything `dir` holds uncommitted: tracked paths differing from HEAD
@@ -6789,6 +6825,41 @@ Some context.
         // And it is genuinely a park, not a close: the step opens again.
         let reopened = step_start("park-arc", 1, 2).unwrap();
         assert_eq!(reopened.status, "in progress");
+    }
+
+    /// The park has one body, whichever door reached it ([P07]).
+    ///
+    /// `step_reset` resolves its root from the cwd, which is the one thing the
+    /// arc runner cannot do — it holds the project path as a fact and runs from
+    /// wherever tugcast was launched. So the runner calls `step_reset_in`, and
+    /// what it gets has to be exactly what a person at the CLI gets.
+    #[serial]
+    #[test]
+    fn step_reset_and_step_reset_in_agree() {
+        let (_temp, root) = stepped_arc("park-twin-arc");
+
+        step_start("park-twin-arc", 1, 2).unwrap();
+        let through_cwd = step_reset("park-twin-arc", 1, Some("the same reason")).unwrap();
+        step_start("park-twin-arc", 1, 2).unwrap();
+        let through_root =
+            step_reset_in(&root, "park-twin-arc", 1, Some("the same reason")).unwrap();
+
+        assert_eq!(through_cwd.arc, through_root.arc);
+        assert_eq!(through_cwd.plan, through_root.plan);
+        assert_eq!(through_cwd.step, through_root.step);
+        assert_eq!(through_cwd.total, through_root.total);
+        assert_eq!(through_cwd.status, through_root.status);
+        assert_eq!(through_cwd.commit, through_root.commit);
+        assert_eq!(through_cwd.through, through_root.through);
+        assert_eq!(through_root.status, "pending");
+        assert_eq!(
+            log_text(&root)
+                .matches("step-reset  1/2 Step 1: The first step — the same reason")
+                .count(),
+            2,
+            "both doors wrote the same line: {}",
+            log_text(&root),
+        );
     }
 
     /// A park is refused on a finished row. Un-finishing is `reopen`'s act,

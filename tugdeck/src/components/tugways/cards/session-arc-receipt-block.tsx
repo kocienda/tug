@@ -568,7 +568,7 @@ function ArcResumeOffer({ arc }: { arc: string }): React.ReactElement {
     // offer exists to avoid.
     const connection = getConnection();
     if (connection === null) return;
-    arcPressStore.press(arc, "resume");
+    arcPressStore.press(arc, "resume", binding.tugSessionId);
     connection.sendControlFrame("arc_resume", {
       tug_session_id: binding.tugSessionId,
       project_dir: binding.projectDir,

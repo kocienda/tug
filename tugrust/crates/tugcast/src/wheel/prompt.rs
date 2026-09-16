@@ -219,12 +219,12 @@ pub fn where_clause(
 
 /// The stage's opening prompt.
 ///
-/// Five clauses, each dropped when its fact is absent: the ask, where the
+/// Six clauses, each dropped when its fact is absent: the ask, where the
 /// stage is ([`where_clause`]), the paths the document cites, what moved in
 /// those files since the document was written, and — for an arc that stopped
-/// and is resuming — where it stopped and why. A call with only an ask returns
-/// exactly that ask, which is what makes this a safe replacement for a bare
-/// one.
+/// and is resuming — where it stopped and why, and what its worktree is
+/// holding uncommitted. A call with only an ask returns exactly that ask,
+/// which is what makes this a safe replacement for a bare one.
 ///
 /// The `where` clause comes second because it is what the stage reads *before*
 /// it reads anything else: the ask says what to do, and the line under it says
@@ -240,12 +240,22 @@ pub fn where_clause(
 /// prompt is composed, so a caller reading that field would drop the clause on
 /// exactly the prompts it exists for. `ArcRecord::last_stop` is what keeps it
 /// for the generation, and it is what the continue act reads.
+///
+/// The dirty clause is the one fact a resumed stage cannot learn from its own
+/// transcript, and after a stop's terminate it is the fact most likely to be
+/// true: the bytes an interrupted step had written are still on disk with
+/// nobody to explain them. It says they are the arc's own rather than
+/// somebody else's, which is the difference between work to pick up and a
+/// tree to be suspicious of. Passed only on a resume — a fresh rotation into a
+/// clean stage has no stop to explain and the clause would read as an
+/// accusation.
 pub fn compose(
     ask: &str,
     place: Option<&str>,
     paths: &[String],
     commits: &[String],
     resume: Option<(&str, &str)>,
+    dirty: Option<&str>,
 ) -> String {
     let mut out = ask.to_owned();
     if let Some(place) = place {
@@ -265,6 +275,12 @@ pub fn compose(
             "\n\nthis arc was stopped in {stage} — {reason}; it is resuming"
         ));
     }
+    if let Some(dirty) = dirty {
+        out.push_str(&format!(
+            "\n\nthe arc's worktree has uncommitted changes — they are this arc's own, from the \
+             step it was stopped in: {dirty}"
+        ));
+    }
     out
 }
 
@@ -279,7 +295,7 @@ mod tests {
         // The regression guard for every stage whose document cites nothing
         // and whose repo git has never seen: the prompt must be byte-identical
         // to the bare ask the runner sent before this composition existed.
-        assert_eq!(compose(ASK, None, &[], &[], None), ASK);
+        assert_eq!(compose(ASK, None, &[], &[], None, None), ASK);
     }
 
     #[test]
@@ -287,25 +303,70 @@ mod tests {
         let paths = vec!["src/a.rs".to_string(), "src/b.ts".to_string()];
         let commits = vec!["abc1234 move the thing".to_string()];
 
-        let with_paths = compose(ASK, None, &paths, &[], None);
+        let with_paths = compose(ASK, None, &paths, &[], None, None);
         assert!(with_paths.starts_with(ASK));
         assert!(with_paths.contains("citations: src/a.rs, src/b.ts"));
         assert!(!with_paths.contains("what changed"));
 
-        let with_commits = compose(ASK, None, &[], &commits, None);
+        let with_commits = compose(ASK, None, &[], &commits, None, None);
         assert!(with_commits.contains("what changed in those files"));
         assert!(with_commits.contains("abc1234 move the thing"));
         assert!(!with_commits.contains("citations:"));
 
-        let resuming = compose(ASK, None, &[], &[], Some(("implement", "lint")));
+        let resuming = compose(ASK, None, &[], &[], Some(("implement", "lint")), None);
         assert!(resuming.ends_with("this arc was stopped in implement — lint; it is resuming"));
 
-        let everything = compose(ASK, None, &paths, &commits, Some(("review", "api error")));
+        let everything = compose(
+            ASK,
+            None,
+            &paths,
+            &commits,
+            Some(("review", "api error")),
+            None,
+        );
         assert!(
             everything.find("citations:").unwrap() < everything.find("what changed").unwrap(),
             "the citations come before what moved in them"
         );
         assert!(everything.contains("stopped in review — api error"));
+    }
+
+    /// **A resume over a dirty tree says so, and says whose it is** ([P08]).
+    /// A stop terminates the claude mid-edit and the bytes stay on disk, so a
+    /// rotated session inherits changes nothing has explained to it. The
+    /// clause says they are the arc's own, which is the difference between
+    /// work to pick up and a tree to be suspicious of.
+    #[test]
+    fn a_resume_over_a_dirty_tree_says_so() {
+        let composed = compose(
+            ASK,
+            None,
+            &[],
+            &[],
+            Some(("implement", "stopped by user")),
+            Some("src/a.rs, src/b.ts"),
+        );
+        assert!(
+            composed.ends_with(
+                "the arc's worktree has uncommitted changes — they are this arc's own, from the \
+                 step it was stopped in: src/a.rs, src/b.ts"
+            ),
+            "{composed}",
+        );
+        assert!(
+            composed.find("it is resuming").unwrap() < composed.find("uncommitted").unwrap(),
+            "the stop comes first and the tree explains it: {composed}",
+        );
+    }
+
+    /// And a resume over a clean one says nothing about it. There is nothing
+    /// to hand over, and a clause reporting an empty list is a sentence the
+    /// reader has to finish before learning it meant nothing.
+    #[test]
+    fn a_clean_resume_says_nothing_about_the_tree() {
+        let composed = compose(ASK, None, &[], &[], Some(("implement", "lint")), None);
+        assert!(!composed.contains("uncommitted"), "{composed}");
+        assert!(composed.ends_with("it is resuming"), "{composed}");
     }
 
     #[test]
@@ -372,7 +433,7 @@ mod tests {
         // In a composed prompt it sits directly under the ask, above the
         // citations: what to do, then from where, then what to read.
         let place = where_clause(worktree, "s-1", "review", None);
-        let composed = compose(ASK, Some(&place), &["src/a.rs".to_string()], &[], None);
+        let composed = compose(ASK, Some(&place), &["src/a.rs".to_string()], &[], None, None);
         assert!(composed.starts_with(ASK));
         assert!(
             composed.find("where:").unwrap() < composed.find("citations:").unwrap(),

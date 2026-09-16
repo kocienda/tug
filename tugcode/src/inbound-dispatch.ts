@@ -110,6 +110,16 @@ export const INBOUND_HANDLERS: InboundHandlers = {
   stop_task: (msg, { sessionManager }) =>
     sessionManager?.handleStopTask(msg.task_id),
 
+  // End the session's every piece of work and respawn `--resume` ([P04]).
+  // Fire-and-forget for the same reason the other respawns are: awaiting
+  // would block the IPC loop behind the teardown's grace.
+  stop_all_work: (msg, { sessionManager, writeLine }) =>
+    reportAsync(
+      sessionManager?.handleStopAllWork(msg.task_ids ?? []),
+      "Stop all work failed",
+      writeLine,
+    ),
+
   // Replay the session JSONL ([D12]). Fire-and-forget: runReplay's re-entrancy
   // guard drops a request that races an in-flight replay, and awaiting would
   // block the loop behind the replay tail.

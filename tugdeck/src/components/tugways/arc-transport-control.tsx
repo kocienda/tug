@@ -155,7 +155,7 @@ export function ArcTransportControl({
         console.warn(`arc ${verb} not sent: no connection`, { arc });
         return;
       }
-      arcPressStore.press(arc, verb);
+      arcPressStore.press(arc, verb, actor.tugSessionId);
       // The same three fields for every verb. A Start names no kind: the
       // opening reads that off the arc's documents ([P03]), and a row that
       // should not have offered Start is answered by the server's own refusal

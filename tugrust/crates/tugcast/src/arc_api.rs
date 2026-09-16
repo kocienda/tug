@@ -331,6 +331,15 @@ pub(crate) fn arc_resume(
     if let Some(holder) = other_holder(ledger, &arc_id, tug_session_id.as_str()) {
         return ArcApiOutcome::Error(format!("{holder} is running {arc}"));
     }
+    // Refused while the stop is in flight: a resume that cleared a mark the
+    // protocol is about to read would pick the arc up under a stop half done
+    // ([B05]). Once the `arc-stop` lands the arc is stopped, and this verb
+    // resumes it as any other.
+    if record.stopping.is_some() {
+        return ArcApiOutcome::Error(format!(
+            "{arc}'s arc is stopping — wait for the stop to finish"
+        ));
+    }
     if let Some((stage, _)) = record.stopped {
         if let Err(e) = tugarc_core::arc::append_arc_resume(project_dir, arc, stage) {
             return ArcApiOutcome::Error(e.to_string());
@@ -463,6 +472,16 @@ pub(crate) fn arc_stop(
     if let Some((stage, reason)) = record.stopped.as_ref() {
         return ArcApiOutcome::Error(format!(
             "{arc}'s arc is already stopped in {} — {reason}",
+            stage.as_str()
+        ));
+    }
+    // A stop protocol in flight is the one state a second press must not run
+    // over: two stoppers sharing no lock is the shape the mark exists to
+    // close ([B05]). The press is answered by sentence; the protocol's own
+    // end answers the first.
+    if let Some(stage) = record.stopping {
+        return ArcApiOutcome::Error(format!(
+            "{arc}'s arc is already stopping in {}",
             stage.as_str()
         ));
     }
@@ -1793,5 +1812,80 @@ mod tests {
         std::fs::create_dir_all(&stranger).unwrap();
 
         assert!(!same_project(&stranger.to_string_lossy(), &worktree));
+    }
+
+    /// **A second Stop on a stopping arc is refused** ([B05]). The mark says a
+    /// protocol is in flight, and the answer is the sentence rather than a
+    /// second stopper racing the first.
+    #[test]
+    #[serial_test::serial]
+    fn a_second_stop_on_a_stopping_arc_is_refused() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+        tugarc_core::arc::append_arc_stage(
+            root,
+            "alpha",
+            tugarc_core::arc::ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stopping(root, "alpha", tugarc_core::arc::ArcStage::Implement)
+            .unwrap();
+
+        match arc_stop(&ledger, root, "claude-1", "alpha") {
+            ArcApiOutcome::Error(message) => {
+                assert_eq!(message, "alpha's arc is already stopping in implement");
+            }
+            other => panic!(
+                "a stopping arc is not stopped again: {}",
+                outcome_name(&other)
+            ),
+        }
+    }
+
+    /// **A Resume during the stop is refused** ([B05]), and refused before any
+    /// `arc-resume` line is written — the record still carries the mark and
+    /// no stop afterwards.
+    #[test]
+    #[serial_test::serial]
+    fn a_resume_during_the_stop_is_refused() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+        tugarc_core::arc::append_arc_stage(
+            root,
+            "alpha",
+            tugarc_core::arc::ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stopping(root, "alpha", tugarc_core::arc::ArcStage::Implement)
+            .unwrap();
+
+        match arc_resume(&ledger, root, "claude-1", "alpha") {
+            ArcApiOutcome::Error(message) => {
+                assert_eq!(
+                    message,
+                    "alpha's arc is stopping — wait for the stop to finish"
+                );
+            }
+            other => panic!("a stopping arc is not resumed: {}", outcome_name(&other)),
+        }
+        let record = tugarc_core::arc::read_arc(root, "alpha").unwrap();
+        assert_eq!(record.stopping, Some(tugarc_core::arc::ArcStage::Implement));
+        assert_eq!(record.resume, None, "no `arc-resume` line was written");
     }
 }

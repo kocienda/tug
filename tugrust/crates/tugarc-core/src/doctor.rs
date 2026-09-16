@@ -208,6 +208,42 @@ pub fn diagnose(repo_root: &Path, name: &str) -> ArcDiagnosis {
     }
 }
 
+/// The codes of the three findings that say a step is half-walked: the log
+/// declares one open and the table disagrees, the log declares one the table
+/// has no row for, or the table reads one open that the log never declared.
+///
+/// They are grouped because a **resume** treats them as one thing. Every other
+/// finding is a record disagreeing with another record; these three describe
+/// the interruption a resume exists to pick up from, so a runner that stopped
+/// on them would make a resume unable to resume.
+pub const OPEN_STEP_CODES: [&str; 3] = [
+    "open-step-status",
+    "open-step-missing-row",
+    "undeclared-open-row",
+];
+
+/// The step those findings are about, so a caller that must act on one has a
+/// number rather than a sentence.
+///
+/// An [`ArcFinding`] carries a stable code and a sentence a person reads; the
+/// step is inside the prose, which is no place for a machine to read it from.
+/// The log's declared-open step comes first because that is what
+/// `open-step-status` and `open-step-missing-row` are *about*, and the table's
+/// own open row answers `undeclared-open-row`, which is the case where the log
+/// declares nothing.
+pub fn open_step(repo_root: &Path, name: &str) -> Option<u32> {
+    let decls = read_declarations(repo_root, name);
+    if decls.step_in_flight
+        && let Some((current, _)) = decls.step
+    {
+        return Some(current);
+    }
+    let (_, rows) = read_table(repo_root, name)?;
+    rows.iter()
+        .find(|row| row.status == "in progress")
+        .map(|row| row.step)
+}
+
 /// The table against the log: the split the doctor exists for.
 fn check_table_against_log(
     findings: &mut Vec<ArcFinding>,

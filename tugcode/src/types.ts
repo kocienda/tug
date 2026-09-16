@@ -1018,6 +1018,24 @@ export interface SideQuestionAnswer {
 }
 
 /**
+ * The answer to a `stop_all_work` ([P12]): the session's claude was torn
+ * down — tasks asked to stop, scheduled wakes cleared, its process group
+ * swept — and respawned `--resume`. tugcast's supervisor clears the entry's
+ * open jobs on this frame, because no closing edge for those jobs can ever
+ * arrive from a claude that is gone and a respawn that never heard of them.
+ *
+ * Sent on the failure paths too: a teardown that half-worked still swept the
+ * group, so the jobs are gone either way, and a wait that was never released
+ * would only run to its ceiling and report a stop that did happen as one that
+ * did not.
+ */
+export interface StopAllWorkDone {
+  type: "stop_all_work_done";
+  tug_session_id: string;
+  ipc_version: number;
+}
+
+/**
  * API retry notification. Claude Code retries up to 10 times with exponential backoff.
  */
 export interface ApiRetry {
@@ -1646,6 +1664,7 @@ export type OutboundMessage =
   | SkillsInventory
   | HooksInventory
   | SideQuestionAnswer
+  | StopAllWorkDone
   | PromptAnchor
   | UnknownEvent;
 

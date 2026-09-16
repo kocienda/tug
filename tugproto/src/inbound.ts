@@ -227,6 +227,22 @@ export interface StopTask {
 }
 
 /**
+ * End every piece of work the session's claude is doing — its background
+ * tasks, its scheduled wakes, and every process in its group — and respawn
+ * it `--resume` so the card stays bound ([P04]).
+ *
+ * `task_ids` are the jobs tugcast's supervisor holds open for this session;
+ * tugcode keeps no open-job set of its own, so the ids ride the verb and each
+ * gets a best-effort `stop_task` before the group is reaped ([P12]). tugcode
+ * answers with `stop_all_work_done { tug_session_id }` once the respawn's
+ * handshake acks — the frame the supervisor's quiet wait turns on.
+ */
+export interface StopAllWork {
+  type: "stop_all_work";
+  task_ids: string[];
+}
+
+/**
  * A recency window for a replay request, expressed entirely in turns
  * (the canonical unit — see `tuglaws/turn-metric.md`). Bounds the replay
  * to a turn range so a long session loads only the most relevant tail
@@ -369,6 +385,7 @@ export type InboundMessage =
   | AddDirectory
   | SessionCommand
   | StopTask
+  | StopAllWork
   | RequestReplay
   | CancelReplay
   | RewindPreview
@@ -396,6 +413,7 @@ export const INBOUND_VERBS = [
   "add_directory",
   "session_command",
   "stop_task",
+  "stop_all_work",
   "request_replay",
   "cancel_replay",
   "rewind_preview",

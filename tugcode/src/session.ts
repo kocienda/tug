@@ -57,6 +57,7 @@ import type {
   ReplayLineageEntry,
   SideQuestion,
   SideQuestionAnswer,
+  StopAllWorkDone,
   SessionStageSpec,
 } from "./types.ts";
 import { join, dirname, resolve } from "node:path";
@@ -271,6 +272,13 @@ export const RESUME_INITIALIZE_DELAY_MS = 2_000;
  * disk by then, and the ack reports that truthfully.
  */
 export const REWIND_READY_TIMEOUT_MS = 20_000;
+
+/**
+ * How long `stop_all_work` waits for the respawn's handshake before answering
+ * anyway. Inside tugcast's own ceiling on the stop, so a slow resume answers
+ * `done` with the jobs honestly gone rather than letting the wait expire.
+ */
+export const STOP_ALL_WORK_READY_TIMEOUT_MS = 15_000;
 
 /**
  * Soft cap on the number of raw lines captured from claude's stdout
@@ -3970,6 +3978,16 @@ export class SessionManager {
       stderr: "pipe",
       cwd: this.projectDir,
       env: scrubbedEnv,
+      // `setsid()` before exec, the same move tugcast's shell feed makes for
+      // its shells: claude leads a NEW session with NO controlling TTY and is
+      // its own process-group leader (pgid == pid), so `kill(-pid, …)` reaps
+      // claude AND every tool subprocess it has running — the backgrounded
+      // `sleep`, the test sweep, the build. That is what makes a stop end
+      // the work rather than the process that started it ([P04]). macOS
+      // ships no `setsid` binary, so this option is the only route. This is
+      // the one site that spawns the CLI; every respawn and the fork come
+      // through it.
+      detached: true,
     });
   }
 
@@ -4020,10 +4038,14 @@ export class SessionManager {
     const drainTask = this.stdoutDrainTask;
     if (this.claudeProcess) {
       const child = this.claudeProcess;
+      // Captured now: the handle is dropped below, and the group sweep after
+      // the exit needs the pid claude led its group under.
+      const pid = child.pid;
       if (escalate) {
         // Signal ladder for a wedged claude: SIGINT, brief grace, SIGKILL.
+        // Group-wide, so a wedged claude's children go with it ([P04]).
         try {
-          child.kill("SIGINT");
+          this.signalGroupOrChild(child, "SIGINT");
           await Promise.race([
             child.exited,
             new Promise<void>((res) =>
@@ -4034,7 +4056,7 @@ export class SessionManager {
           // Process may already be gone.
         }
         try {
-          child.kill("SIGKILL");
+          this.signalGroupOrChild(child, "SIGKILL");
           await child.exited;
         } catch {
           // Already terminated.
@@ -4066,7 +4088,7 @@ export class SessionManager {
             Math.max(250, graceMs / 2),
           );
           try {
-            child.kill();
+            this.signalGroupOrChild(child, "SIGTERM");
             const terminated = await Promise.race([
               child.exited.then(() => true),
               new Promise<boolean>((res) =>
@@ -4074,7 +4096,7 @@ export class SessionManager {
               ),
             ]);
             if (!terminated) {
-              child.kill("SIGKILL");
+              this.signalGroupOrChild(child, "SIGKILL");
               await child.exited;
             }
           } catch {
@@ -4082,6 +4104,15 @@ export class SessionManager {
           }
         }
       }
+      // **The unconditional sweep — not redundant with the ladders above.**
+      // The ladders run only for a claude that outlived its grace. A healthy
+      // claude exits politely on its stdin EOF, and on that path — the one
+      // every `stop_all_work` takes — nothing above ever signals it, so its
+      // children would outlive the very teardown [P04] exists for. So after
+      // the child has exited, on either branch and however it exited, one
+      // SIGKILL to what is left of the group. `ESRCH` is the ordinary answer
+      // (nothing left) and is swallowed.
+      this.sweepProcessGroup(pid);
       this.claudeProcess = null;
       // The drain task observes EOF on the closed stdout stream and
       // exits its loop; reset the handle so a subsequent respawn can
@@ -4173,18 +4204,7 @@ export class SessionManager {
       // the fresh spawn's watcher is armed normally.
       this.isShuttingDown = false;
 
-      // Respawn resume — keep the card bound, reload the intact JSONL.
-      this.sessionMode = "resume";
-      // A different process from here on; the flag is a fact about the one
-      // that just died.
-      this.claudeReceivedInput = false;
-      const claudeId = this.resolveClaudeId();
-      this.claudeProcess = this.spawnClaude(claudeId, "resume");
-      this.startStdoutDrain(this.claudeProcess);
-      this.startStderrReader();
-      this.installEarlyExitWatcher();
-      this.sendInitializeHandshake();
-      this.writeSyntheticSessionInit(claudeId);
+      const claudeId = this.respawnResume();
 
       logSessionLifecycle("tugcode.force_terminate_respawned", {
         session_id: this.sessionId,
@@ -4193,6 +4213,180 @@ export class SessionManager {
       });
     } finally {
       this.forceTerminateInProgress = false;
+    }
+  }
+
+  /**
+   * Respawn `--resume` against the current claude id after a teardown,
+   * keeping the card bound: the same conversation, its JSONL intact, and a
+   * synthetic `session_init` so the card re-announces it.
+   *
+   * One body for {@link forceTerminateAndRespawn} and
+   * {@link handleStopAllWork}, because two copies of this sequence is how one
+   * of them comes to skip the synthetic init. Resume mode is forced even for
+   * a `new`-mode session: its on-disk JSONL already exists under its id, so
+   * `--resume` is correct and avoids a `--session-id` collision.
+   *
+   * Returns the claude id the respawn resumed.
+   */
+  private respawnResume(): string {
+    this.sessionMode = "resume";
+    // A different process from here on; the flag is a fact about the one
+    // that just died.
+    this.claudeReceivedInput = false;
+    const claudeId = this.resolveClaudeId();
+    this.claudeProcess = this.spawnClaude(claudeId, "resume");
+    this.startStdoutDrain(this.claudeProcess);
+    this.startStderrReader();
+    this.installEarlyExitWatcher();
+    this.sendInitializeHandshake();
+    this.writeSyntheticSessionInit(claudeId);
+    return claudeId;
+  }
+
+  /**
+   * Signal claude's whole process group, falling back to the child alone when
+   * the group is already gone. `signal` is a name so the fallback can carry
+   * it unchanged.
+   *
+   * The group is the point ([P04]): claude leads it (`detached: true` in
+   * {@link spawnClaude}), so `kill(-pid, …)` reaches every tool subprocess
+   * it has running. `ESRCH` on the group means no such group — a claude
+   * that never became a leader, or one whose group has already emptied —
+   * and the child itself is signalled instead, which is what this did
+   * before it was group-wide.
+   */
+  private signalGroupOrChild(child: ClaudeSubprocess, signal: NodeJS.Signals): void {
+    if (this.signalProcessGroup(child.pid, signal) === "gone") {
+      child.kill(signal);
+    }
+  }
+
+  /**
+   * The post-exit sweep: one SIGKILL to whatever is left of the group claude
+   * led. `ESRCH` — nothing left — is the ordinary answer and is swallowed;
+   * any other refusal is logged and swallowed too, because a sweep inside a
+   * teardown must never be what throws.
+   */
+  private sweepProcessGroup(pid: number): void {
+    if (!(pid > 0)) return;
+    this.signalProcessGroup(pid, "SIGKILL");
+  }
+
+  /**
+   * `kill(-pid, signal)`, answered rather than thrown: `"sent"`, `"gone"`
+   * (`ESRCH`), or `"failed"` (anything else, logged). The one place the
+   * negative-pid form is spelled, and the one seam a test stubs — a test that
+   * let this reach the OS with a made-up pid would be signalling somebody
+   * else's process group.
+   */
+  private signalProcessGroup(
+    pid: number,
+    signal: NodeJS.Signals,
+  ): "sent" | "gone" | "failed" {
+    if (!(pid > 0)) return "gone";
+    try {
+      process.kill(-pid, signal);
+      return "sent";
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ESRCH") return "gone";
+      console.error(`process group ${pid} refused ${signal}:`, err);
+      return "failed";
+    }
+  }
+
+  /**
+   * Handle `stop_all_work` ([P04], Spec S02): end every piece of work this
+   * session's claude is doing, then respawn it `--resume` and answer.
+   *
+   * In order, each awaited: a `stop_task` for every id tugcast named (the
+   * supervisor holds the open-job set; tugcode holds none, so the ids ride
+   * the verb — best-effort, an id claude does not know is a no-op); clear
+   * the pending scheduled triggers, wakeups and crons alike; then the
+   * teardown. `killAndCleanup({ escalate: false })` lets a healthy claude
+   * exit on its stdin EOF and then sweeps its process group unconditionally,
+   * which is the rung that actually ends the work — the ladders never run
+   * for a claude that exits politely. Then the respawn, exactly as
+   * {@link forceTerminateAndRespawn} does it: same claude id, `--resume`,
+   * JSONL intact, synthetic `session_init`, so the card stays bound.
+   *
+   * **The respawn is the mechanism, not an accident of it.** A
+   * terminate-and-respawn is the one act that provably ends in-process
+   * `ScheduleWakeup` timers, `Monitor` watchers, `Workflow` agents, and any
+   * tool subprocess in the group — they lived in the process that is gone.
+   * What it does **not** establish ([Q01]): whether a `CronCreate` entry
+   * survives the respawn on claude's side. A cron is claude's own record, and
+   * whether a resumed session re-arms one is claude's behavior, not this
+   * teardown's; the trigger list here is cleared either way, so no wake from
+   * one is announced by tugcode.
+   *
+   * Answers `stop_all_work_done` once the respawn's handshake acks — and on
+   * the failure paths too. A teardown that half-worked still swept the
+   * group, so the jobs are gone either way, and a `done` withheld would only
+   * leave tugcast's wait to its ceiling ([P12]).
+   *
+   * A stop racing a wedge recovery rides that recovery rather than
+   * respawning twice: the recovery's own teardown sweeps the group and its
+   * respawn is the same act, so this answers `done` and leaves the latch to
+   * it.
+   */
+  async handleStopAllWork(taskIds: string[]): Promise<void> {
+    const answer = (): void => {
+      const frame: StopAllWorkDone = {
+        type: "stop_all_work_done",
+        tug_session_id: this.sessionId,
+        ipc_version: 2,
+      };
+      writeLine(frame);
+    };
+    if (this.forceTerminateInProgress) {
+      logSessionLifecycle("tugcode.stop_all_work", {
+        session_id: this.sessionId,
+        tasks_stopped: 0,
+        triggers_cleared: this.pendingScheduledTriggers.length,
+        rode_recovery: true,
+      });
+      this.pendingScheduledTriggers = [];
+      answer();
+      return;
+    }
+    this.forceTerminateInProgress = true;
+    try {
+      let tasksStopped = 0;
+      for (const taskId of taskIds) {
+        this.handleStopTask(taskId);
+        tasksStopped += 1;
+      }
+      const triggersCleared = this.pendingScheduledTriggers.length;
+      this.pendingScheduledTriggers = [];
+      logSessionLifecycle("tugcode.stop_all_work", {
+        session_id: this.sessionId,
+        tasks_stopped: tasksStopped,
+        triggers_cleared: triggersCleared,
+      });
+      // Close the in-flight turn as a cancel, not an error, when the drain
+      // observes the teardown's EOF.
+      if (this.activeTurn !== null) {
+        this.activeTurn.interrupted = true;
+        this.activeTurn.interruptCause ??= "recovery";
+      }
+
+      await this.killAndCleanup({ escalate: false });
+      this.isShuttingDown = false;
+
+      const claudeId = this.respawnResume();
+      const child = this.claudeProcess;
+      if (child !== null) {
+        await this.awaitSpawnReady(child, STOP_ALL_WORK_READY_TIMEOUT_MS);
+      }
+      logSessionLifecycle("tugcode.stop_all_work_respawned", {
+        session_id: this.sessionId,
+        claude_session_id: claudeId,
+        handshake_acked: this.initializeHandshakeAcked,
+      });
+    } finally {
+      this.forceTerminateInProgress = false;
+      answer();
     }
   }
 

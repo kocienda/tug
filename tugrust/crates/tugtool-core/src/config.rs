@@ -121,6 +121,21 @@ pub struct ArcConfig {
     /// join offer unsettled, because none of them acts on the answer.
     #[serde(default)]
     pub idle_settle_secs: Option<u64>,
+
+    /// How long a stop's quiesce may take before it gives up and reports the
+    /// rung it stalled on, in seconds. Absent means
+    /// [`ARC_STOP_CEILING_SECS_DEFAULT`], which [`ArcConfig::stop_ceiling`]
+    /// applies.
+    ///
+    /// The stop is a protocol with an end: it interrupts the turn, asks
+    /// tugcode to end the session's work and sweep its process group, and
+    /// waits for the session to go genuinely quiet before it answers. That
+    /// wait has to be bounded, because a missed edge would otherwise hold the
+    /// press open forever — a late `arc_stop_err` naming the rung is the one
+    /// direction this wait is allowed to fail in. There is no off switch: a
+    /// stop that never ends is worse than one that reports late.
+    #[serde(default)]
+    pub arc_stop_ceiling_secs: Option<u64>,
 }
 
 /// One surface of a project: the paths it claims, and what checking it means.
@@ -185,6 +200,16 @@ pub const ARC_STALL_SECS_DEFAULT: u64 = 1_800;
 /// act, including the first rotation after a door, lands this much later.
 pub const IDLE_SETTLE_SECS_DEFAULT: u64 = 5;
 
+/// How long a stop's quiesce may take before it reports the rung it stalled
+/// on, when a project declares nothing ([P05]).
+///
+/// Thirty seconds, which is above the ladder the stop actually walks with
+/// margin: tugcode's 5s EOF grace for a claude that exits politely, the 1.5s
+/// fallback rung under it, the unconditional group sweep, and the respawn's
+/// handshake. Not the escalate ladder's rungs, which belong to the wedge
+/// recovery and not to this path.
+pub const ARC_STOP_CEILING_SECS_DEFAULT: u64 = 30;
+
 impl ArcConfig {
     /// The compaction threshold to actually use: the declaration, or the
     /// default. The default lives at the consumer rather than in the parse so
@@ -208,6 +233,17 @@ impl ArcConfig {
     pub fn idle_settle(&self) -> Option<std::time::Duration> {
         let secs = self.idle_settle_secs.unwrap_or(IDLE_SETTLE_SECS_DEFAULT);
         (secs > 0).then(|| std::time::Duration::from_secs(secs))
+    }
+
+    /// The stop's ceiling to actually use: the declaration, or the default.
+    /// Unlike the clock and the settle there is no `0` that turns it off — a
+    /// stop with no ceiling is a press that can hang forever, which is the one
+    /// thing the wait must never do.
+    pub fn stop_ceiling(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(
+            self.arc_stop_ceiling_secs
+                .unwrap_or(ARC_STOP_CEILING_SECS_DEFAULT),
+        )
     }
 }
 
@@ -265,6 +301,12 @@ post_create = []
 # a fraction of a second apart, and in that gap a session reads idle while it
 # is still working. Declare none and it is 5; declare 0 to act on the instant.
 # idle_settle_secs = 5
+
+# How long a stop's quiesce may take — the interrupt, the teardown of the
+# session's background work and process group, and the wait for it to go
+# genuinely quiet — before the press is answered with the rung it stalled on.
+# Declare none and it is 30.
+# arc_stop_ceiling_secs = 30
 "#;
 
 /// Why a config file was refused. Every variant carries the offending value,

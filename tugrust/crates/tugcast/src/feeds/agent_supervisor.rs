@@ -42,7 +42,8 @@ use super::agent_bridge::{
 use super::code::{parse_tug_session_id, splice_tug_session_id};
 use super::session_metadata::{
     is_activity_delta, is_background_tasks_changed, is_rate_limit_event, is_session_capabilities,
-    is_system_metadata, is_task_edge, is_task_progress, is_tool_use, is_turn_end, is_wake_started,
+    is_stop_all_work_done, is_system_metadata, is_task_edge, is_task_progress, is_tool_use,
+    is_turn_end, is_wake_started,
 };
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
@@ -530,6 +531,23 @@ pub struct LedgerEntry {
     /// [`LedgerEntry::reap_stuck_jobs`] so a wire shape nothing here foresaw
     /// degrades `holders_busy` to *late*, never *forever*.
     pub open_jobs: std::collections::BTreeMap<String, std::time::Instant>,
+    /// Notified at exactly the edges where [`LedgerEntry::is_quiet`] can
+    /// become true, so a waiter watches the session rather than polling it
+    /// ([P05]).
+    ///
+    /// Three sites fire it, and they are the only three: the frame loop's
+    /// turn-end arm, after `turn_active` is cleared and the counters have
+    /// moved; [`AgentSupervisor::apply_job_edge`], on the transition into
+    /// quiet it already reports; and the `stop_all_work_done` arm, which is
+    /// the only one that can fire with several jobs open at once ([P12]).
+    /// Each notifies from inside the same entry guard that wrote the fact, so
+    /// a waiter cannot observe a half-applied edge.
+    ///
+    /// An `Arc` rather than a plain `Notify` because the stop clones the
+    /// handle out and drops every guard before awaiting on it: the wait must
+    /// never hold the map lock or an entry lock across an await, or the very
+    /// frames that would release it cannot be folded (Risk R01).
+    pub quiesced: Arc<tokio::sync::Notify>,
     /// The last `model_change` selector a **WebSocket client** sent for this
     /// session — the deck's own choice ([P15]).
     ///
@@ -659,6 +677,7 @@ impl LedgerEntry {
             turn_cancelled: false,
             step_closed_this_turn: None,
             open_jobs: std::collections::BTreeMap::new(),
+            quiesced: Arc::new(tokio::sync::Notify::new()),
             input_tx: None,
             cancel: CancellationToken::new(),
             card_id: None,
@@ -6417,8 +6436,26 @@ impl AgentSupervisor {
         }
     }
 
-    /// Perform a stop the blocking half already decided on: the interrupt,
-    /// the hand-back, the receipt, and the record, in that order.
+    /// Perform a stop the blocking half already decided on — a protocol with
+    /// an end, whose answer follows the stop rather than the decision.
+    ///
+    /// In order, each awaited ([P06]): mark the arc `stopping`; resolve the
+    /// card; interrupt the turn if one is running; tell tugcode to end the
+    /// session's background work and sweep its claude's process group; wait
+    /// for the session to read [`LedgerEntry::is_quiet`]; evict the runner's
+    /// memory; and only then hand the card back, send the receipt, and append
+    /// the `arc-stop` line. The record is the **last** thing a stop writes,
+    /// so `Ok(())` — and the `arc_stop_ok` the caller sends on it — means the
+    /// arc has stopped rather than that a line was appended, which is the
+    /// [L31] fault this control exists to remove.
+    ///
+    /// **The wait is bounded** by `[tugtool.arc] arc_stop_ceiling_secs`,
+    /// thirty seconds by default — above tugcode's own teardown ladder with
+    /// margin. A wait that runs out returns `Err("stop stalled at: quiet")`
+    /// having appended the abandon line, so the mark never outlives the press
+    /// ([P03]) and no `arc-stop` is written over an arc that may still be
+    /// running. Every other refusal here leaves the record in the same state:
+    /// marked, then abandoned, and stopped by nothing.
     ///
     /// Lifted here from `server.rs`'s `ArcStopped` arm so both doors — the
     /// HTTP route the CLI posts to and the CONTROL frame the transport
@@ -6431,6 +6468,23 @@ impl AgentSupervisor {
     /// `false`: a stage ending its own turn over a question is mid-sentence,
     /// and interrupting it would truncate the very thing the receipt exists to
     /// carry.
+    ///
+    /// That claim — that `halt` dispatches the deck's own `interrupt` — is
+    /// true only of the frame this function now addresses to the **card**.
+    ///
+    /// **The identity model: the decide half keeps the segment, the perform
+    /// half addresses the card** ([P01]). `session` arrives as whatever
+    /// `arc_api::arc_stop` resolved, which is the arc line's live *segment* —
+    /// the vocabulary `bound_session_by_arc` is keyed by. The supervisor
+    /// ledger is keyed by the **card's** own tug session id, which never
+    /// moves; a rotation mints a segment and records it as the entry's
+    /// `claude_session_id`, so after any stage dispatch the live segment is an
+    /// id no supervisor entry wears. Every effect below — reading
+    /// `turn_active`, the `interrupt` frame, the hand-back and the receipt
+    /// `stop_arc_for_session` sends — therefore converts back through
+    /// [`Self::card_entry_for_segment`] first, and a segment no live card
+    /// wears is `Err("no_card")` ahead of every other act rather than a green
+    /// answer over an arc still running.
     ///
     /// `question` is written as an `arc-note` **before** the stop, because the
     /// receipt is composed from the record the stop path re-reads — a note
@@ -6450,12 +6504,44 @@ impl AgentSupervisor {
         arc: &str,
         terms: StopTerms<'_>,
     ) -> Result<(), &'static str> {
+        // The mark, before anything else ([P02]). From here to the last line
+        // the record says a stop is under way, so no reader has to infer it
+        // from a silence that now lasts seconds rather than milliseconds, and
+        // every exit below goes through `abandon` or through the `arc-stop`
+        // line, both of which clear it ([P03]).
+        if let Err(e) = tugarc_core::arc::append_arc_stopping(project, arc, terms.stage) {
+            warn!(
+                arc = %arc,
+                error = %e,
+                "could not mark the arc as stopping; the stop runs unguarded",
+            );
+        }
+        let abandon = |reason: &'static str| -> Result<(), &'static str> {
+            if let Err(e) =
+                tugarc_core::arc::append_arc_stopping_abandoned(project, arc, terms.stage)
+            {
+                warn!(
+                    arc = %arc,
+                    error = %e,
+                    "could not clear the stopping mark on an abandoned stop",
+                );
+            }
+            Err(reason)
+        };
+        let Some((card_session, entry)) = self.card_entry_for_segment(session).await else {
+            warn!(
+                arc = %arc,
+                segment = %session,
+                "no live card wears this session, so the stop was not performed",
+            );
+            return abandon("no_card");
+        };
         let Some(wheel) = self.wheel.get() else {
             warn!(
                 arc = %arc,
                 "no wheel is attached, so the stop was not performed",
             );
-            return Err("no_wheel");
+            return abandon("no_wheel");
         };
         if let Some(question) = terms.question {
             if let Err(e) = tugarc_core::arc::append_arc_note(project, arc, question) {
@@ -6467,32 +6553,88 @@ impl AgentSupervisor {
             }
         }
 
-        let session_id = TugSessionId::new(session.to_string());
         if terms.halt {
-            let turn_active = {
-                let entry = {
-                    let ledger = self.ledger.lock().await;
-                    ledger.get(&session_id).cloned()
-                };
-                match entry {
-                    Some(entry) => entry.lock().await.turn_active,
-                    None => false,
-                }
-            };
+            let turn_active = entry.lock().await.turn_active;
             if turn_active {
                 tracing::info!(arc = %arc, "stop halts a running turn");
                 self.dispatch_one(code_input_frame(&serde_json::json!({
                     "type": "interrupt",
-                    "tug_session_id": session,
+                    "tug_session_id": card_session.as_str(),
                 })))
                 .await;
             }
         }
 
+        // Rung two: tugcode ends the rest of it ([P04]). The open jobs ride
+        // the verb because the supervisor is the only holder of that set —
+        // tugcode keeps none — and each gets a best-effort `stop_task` before
+        // the group is reaped ([P12]). Read under a short lock, with the
+        // guard dropped before anything is awaited (Risk R01).
+        let task_ids: Vec<String> = entry.lock().await.open_jobs.keys().cloned().collect();
+        self.dispatch_one(code_input_frame(&serde_json::json!({
+            "type": "stop_all_work",
+            "tug_session_id": card_session.as_str(),
+            "task_ids": task_ids,
+        })))
+        .await;
+
+        // Rung three: wait for it to be true. The ceiling is the project's,
+        // and a wait that runs out is an abandoned stop naming the rung it
+        // stalled on — never a green answer over an arc still running.
+        let ceiling = {
+            let project = project.to_path_buf();
+            tokio::task::spawn_blocking(move || {
+                tugtool_core::config::Config::load_from_project(&project)
+                    .unwrap_or_default()
+                    .tugtool
+                    .arc
+                    .stop_ceiling()
+            })
+            .await
+            .unwrap_or_else(|_| tugtool_core::config::ArcConfig::default().stop_ceiling())
+        };
+        if !Self::await_quiet(&entry, ceiling).await {
+            warn!(
+                arc = %arc,
+                card = %card_session,
+                ceiling_secs = ceiling.as_secs(),
+                "the session never went quiet, so the stop is abandoned rather \
+                 than reported as one that landed",
+            );
+            return abandon("stop stalled at: quiet");
+        }
+
+        // Only now is the card genuinely the user's again, which is what
+        // earns the `HandBack::Send` below.
+        //
+        // Evict the runner's memory of the arc before the record moves, as
+        // the wheel's own stops do ([P11]). There is no `ArcReading` here to
+        // seed the marks from, so they are read from the entry and the arc's
+        // ledger at stop time; an arc whose ledger cannot be read seeds
+        // `None`, which the runner reads as a stop it did not watch and
+        // invents no baseline for.
+        let wake_turns_ended = entry.lock().await.wake_turns_ended;
+        let done_count = {
+            let (project, arc) = (project.to_path_buf(), arc.to_owned());
+            tokio::task::spawn_blocking(move || super::arc_runner::done_count_for(&project, &arc))
+                .await
+                .ok()
+                .flatten()
+        };
+        super::arc_runner::evict_for_stop(
+            &wheel.arc_memory,
+            &super::arc_runner::arc_key_for(project, arc),
+            done_count.map(|done_count| super::arc_runner::StopMarks {
+                wake_turns_ended,
+                done_count,
+            }),
+        )
+        .await;
+
         super::arc_runner::stop_arc_for_session(
             self,
             wheel,
-            &session_id,
+            &card_session,
             project,
             arc,
             terms.stage,
@@ -6505,6 +6647,49 @@ impl AgentSupervisor {
         .await;
         self.registry.changeset_all_bump().notify_one();
         Ok(())
+    }
+
+    /// Wait until `entry` reads [`LedgerEntry::is_quiet`], or until `ceiling`
+    /// runs out. Answers whether it went quiet ([P05]).
+    ///
+    /// **Watched, not polled.** The two facts `is_quiet` reads move at exactly
+    /// three edges, and every one of them notifies the entry's `quiesced`
+    /// handle from inside the guard that moved them. A loop that re-read the
+    /// entry on a timer would be the shape this project refuses, and it would
+    /// answer later than this does.
+    ///
+    /// **Arm, then re-check, then await** — in that order, and the order is
+    /// the whole of it. `Notify::notify_waiters` wakes only waiters already
+    /// registered, so a check made before registering leaves a window in
+    /// which the edge fires, wakes nobody, and the wait then sleeps to its
+    /// ceiling over a session that went quiet milliseconds ago.
+    /// [`tokio::sync::Notified::enable`] registers without waiting, which is
+    /// what lets the check happen after registration and before the await.
+    ///
+    /// **No guard is held across an await** (Risk R01). The `Notify` handle
+    /// and every read of `is_quiet` take the entry lock and drop it again;
+    /// the map lock is never involved at all. The frames that make a session
+    /// quiet are folded by the merger task, which needs both locks, so a wait
+    /// holding either would be waiting on itself.
+    ///
+    /// A missed notify degrades to a late `false` rather than a hang, because
+    /// the whole loop runs inside one `tokio::time::timeout`. That is the one
+    /// direction this wait is allowed to fail in.
+    async fn await_quiet(entry: &Arc<Mutex<LedgerEntry>>, ceiling: std::time::Duration) -> bool {
+        let quiesced = Arc::clone(&entry.lock().await.quiesced);
+        tokio::time::timeout(ceiling, async {
+            loop {
+                let notified = quiesced.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if entry.lock().await.is_quiet() {
+                    return;
+                }
+                notified.await;
+            }
+        })
+        .await
+        .is_ok()
     }
 
     /// Handle an `arc_run` CONTROL request (Spec S02): start an arc on the
@@ -6589,6 +6774,18 @@ impl AgentSupervisor {
     /// route cannot reach the other case — it refuses with 503 when the wheel
     /// is absent — but the CONTROL route can, and a green button over a
     /// running arc is exactly the [L31] fault this control exists to remove.
+    ///
+    /// **The answer frame is an effect, so it is addressed to the card**
+    /// ([P01]). The blocking half answers in segments; `arc_stop_ok` survives
+    /// that either way, because `action-dispatch.ts` settles the press on
+    /// `payload.arc` rather than on the session. `arc_stop_err` does not:
+    /// `arcPressStore.refuse` parks by session and `ArcPressNoticeController`
+    /// reads the card's bound id, so a segment-addressed refusal lands in a
+    /// slot no reader subscribes to — invisible on exactly the rotated arcs
+    /// this path is about. Both frames go through the same
+    /// [`Self::card_entry_for_segment`] walk, falling back to the segment when
+    /// no card wears it: a refusal that cannot be routed is still better sent
+    /// than swallowed.
     async fn do_arc_stop(&self, request: &BindArcPayload) {
         let Some(ledger) = self.session_ledger.clone() else {
             Self::send_arc_stop_err(
@@ -6618,6 +6815,12 @@ impl AgentSupervisor {
                 reason,
                 question,
             }) => {
+                // Resolved before the stop, from the same walk `stop_arc_now`
+                // makes: the card this press is to be answered on.
+                let answer_to = match self.card_entry_for_segment(&session_id).await {
+                    Some((card, _)) => card.as_str().to_string(),
+                    None => session_id.clone(),
+                };
                 match self
                     .stop_arc_now(
                         &session_id,
@@ -6632,9 +6835,9 @@ impl AgentSupervisor {
                     )
                     .await
                 {
-                    Ok(()) => Self::send_arc_stop_ok(&self.control_tx, &session_id, &arc),
+                    Ok(()) => Self::send_arc_stop_ok(&self.control_tx, &answer_to, &arc),
                     Err(reason) => {
-                        Self::send_arc_stop_err(&self.control_tx, &session_id, &arc, reason)
+                        Self::send_arc_stop_err(&self.control_tx, &answer_to, &arc, reason)
                     }
                 }
             }
@@ -11008,7 +11211,56 @@ impl AgentSupervisor {
                 );
             }
         }
-        entry.is_quiet()
+        // The transition into quiet, notified from inside the guard that
+        // wrote it so a waiter cannot observe a half-applied edge ([P05]).
+        let quiet = entry.is_quiet();
+        if quiet {
+            entry.quiesced.notify_waiters();
+        }
+        quiet
+    }
+
+    /// Fold tugcode's answer to a `stop_all_work` ([P12]): the session's jobs
+    /// are closed wholesale, its turn flag cleared, and the quiet edge
+    /// notified.
+    ///
+    /// The claude those jobs ran under is gone and the process group they ran
+    /// *in* has been swept, so the work is over — and no per-task closing edge
+    /// can ever say so, because the process that would have sent one is dead
+    /// and the respawn beside it has never heard of those ids. Reading the
+    /// jobs as open afterwards would be the ledger disbelieving an act it
+    /// asked for.
+    ///
+    /// This is the one writer for the half of `is_quiet` nothing else could
+    /// write on this path. Without it the stop's wait cannot converge over an
+    /// open job: [`LedgerEntry::reap_stuck_jobs`]' horizon is thirty minutes,
+    /// which is no fallback for a press, so every such stop would run to its
+    /// ceiling and report a stop that did happen as one that did not.
+    ///
+    /// It introduces no new notion of finished — `is_quiet` is untouched — and
+    /// it is the only one of the three notify sites that can fire with several
+    /// jobs open at once.
+    pub(super) async fn apply_stop_all_work_done(&self, session_id: &TugSessionId) {
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            ledger.get(session_id).cloned()
+        };
+        let Some(entry_arc) = entry_arc else {
+            return;
+        };
+        let mut entry = entry_arc.lock().await;
+        let closed = entry.open_jobs.len();
+        entry.open_jobs.clear();
+        entry.turn_active = false;
+        entry.quiesced.notify_waiters();
+        drop(entry);
+        tracing::info!(
+            target: "dev::ledger",
+            event = "stop_all_work_done",
+            session_id = %session_id,
+            jobs_closed = closed,
+            "the teardown reaped the group the jobs ran in, so the session is quiet",
+        );
     }
 
     /// Apply the per-frame journal intercept the merger runs on every
@@ -11235,6 +11487,9 @@ impl AgentSupervisor {
                     if is_task_progress(&frame.payload) {
                         self.refresh_job_stamp(&id, &frame.payload).await;
                     }
+                    if is_stop_all_work_done(&frame.payload) {
+                        self.apply_stop_all_work_done(&id).await;
+                    }
                     if is_turn_end(&frame.payload) || is_wake_started(&frame.payload) {
                         let entry_arc = {
                             let ledger = self.ledger.lock().await;
@@ -11268,6 +11523,12 @@ impl AgentSupervisor {
                                 // no longer *this* turn's business, and the
                                 // gate opens again (W8).
                                 entry.step_closed_this_turn = None;
+                                // One of the two facts `is_quiet` reads has
+                                // just moved, so a stop waiting on the quiet
+                                // edge is woken from inside the same guard
+                                // that moved it ([P05]). It re-checks the
+                                // other fact for itself.
+                                entry.quiesced.notify_waiters();
                                 drop(entry);
                                 // The session went idle: an arc parked behind it
                                 // because the gate refuses to move a branch
@@ -24481,6 +24742,21 @@ mod tests {
         (sup, entry, input_rx, register_rx)
     }
 
+    /// Stand in for the tugcode a stop is waiting on: after a beat, answer
+    /// the teardown verb the way the real one does ([P12]).
+    ///
+    /// Without it every stop taken over a running turn waits out its whole
+    /// ceiling, because nothing in a test ever makes a session quiet — the
+    /// frames that would are the ones a live claude sends.
+    fn answer_the_teardown(sup: &Arc<AgentSupervisor>, card: &'static str) {
+        let sup = Arc::clone(sup);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            sup.apply_stop_all_work_done(&TugSessionId::new(card.to_owned()))
+                .await;
+        });
+    }
+
     /// The frames a session was sent, by `type`, drained without blocking.
     fn frame_types(input_rx: &mut mpsc::Receiver<Frame>) -> Vec<String> {
         let mut out = Vec::new();
@@ -24501,6 +24777,7 @@ mod tests {
         let root = dir.path();
         let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
         entry.lock().await.turn_active = true;
+        answer_the_teardown(&sup, "claude-1");
 
         sup.stop_arc_now(
             "claude-1",
@@ -24518,8 +24795,13 @@ mod tests {
 
         assert_eq!(
             frame_types(&mut input_rx),
-            vec!["interrupt".to_string(), "model_change".to_string()],
-            "the interrupt goes first, and the hand-back follows it",
+            vec![
+                "interrupt".to_string(),
+                "stop_all_work".to_string(),
+                "model_change".to_string()
+            ],
+            "the interrupt goes first, the teardown follows it, and the \
+             hand-back comes last",
         );
         assert_eq!(
             tugarc_core::arc::read_arc(root, "demo").unwrap().stopped,
@@ -24553,7 +24835,11 @@ mod tests {
         .await
         .expect("the stop lands");
 
-        assert_eq!(frame_types(&mut input_rx), vec!["model_change".to_string()]);
+        assert_eq!(
+            frame_types(&mut input_rx),
+            vec!["stop_all_work".to_string(), "model_change".to_string()],
+            "no turn to end, but the rest of the work still ends",
+        );
     }
 
     /// **An `arc ask` never interrupts** ([P03]). A stage stopping over a
@@ -24565,6 +24851,7 @@ mod tests {
         let root = dir.path();
         let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
         entry.lock().await.turn_active = true;
+        answer_the_teardown(&sup, "claude-1");
 
         sup.stop_arc_now(
             "claude-1",
@@ -24582,7 +24869,7 @@ mod tests {
 
         assert_eq!(
             frame_types(&mut input_rx),
-            vec!["model_change".to_string()],
+            vec!["stop_all_work".to_string(), "model_change".to_string()],
             "a turn ending on its own question is not cut short",
         );
         let record = tugarc_core::arc::read_arc(root, "demo").unwrap();
@@ -24657,6 +24944,544 @@ mod tests {
         assert!(
             !answers.iter().any(|(action, _)| action == "arc_stop_ok"),
             "{answers:?}",
+        );
+    }
+
+    /// The [`stop_harness`] after a rotation: the card is `card-A`, the
+    /// stage's live segment is `segment-B`, and the arc line is bound to the
+    /// segment — which is what `arc_api::arc_stop` resolves a press to, and
+    /// an id no supervisor entry is keyed by ([P01]).
+    async fn rotated_stop_harness(
+        root: &std::path::Path,
+        attach_wheel: bool,
+    ) -> (
+        Arc<AgentSupervisor>,
+        Arc<Mutex<LedgerEntry>>,
+        mpsc::Receiver<Frame>,
+        mpsc::Receiver<MergerRegistration>,
+    ) {
+        std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
+        std::fs::write(root.join(".tug/arcs/demo/brief.md"), "# A brief\n").unwrap();
+        std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\n",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(
+            root,
+            "demo",
+            tugarc_core::ArcStage::Implement,
+            "segment-B",
+            None,
+        )
+        .unwrap();
+
+        let (sup, ledger, register_rx) = test_minimal_supervisor_reading_its_ledger();
+        // One line, two segments: the card's own row first, the rotation's
+        // later, so `live_segment_of("card-A")` is `segment-B`.
+        for (id, now) in [("card-A", 1_000), ("segment-B", 2_000)] {
+            ledger
+                .record_spawn(
+                    id,
+                    "ws-test",
+                    &root.to_string_lossy(),
+                    "card-1",
+                    now,
+                    "line-1",
+                    None,
+                )
+                .unwrap();
+        }
+        ledger
+            .set_arc_binding("segment-B", Some(("tugarc/demo#1", "demo")))
+            .unwrap();
+        if attach_wheel {
+            let _ = sup.wheel.set(Arc::new(crate::wheel::WheelState::default()));
+        }
+
+        let card = TugSessionId::new("card-A".to_string());
+        let input_rx = install_live_session_for_tests(
+            &sup,
+            &card,
+            WorkspaceKey::from_test_str("ws-test"),
+            root.to_path_buf(),
+        )
+        .await;
+        let entry = sup.ledger.lock().await.get(&card).cloned().expect("entry");
+        entry.lock().await.claude_session_id = Some("segment-B".to_string());
+        (sup, entry, input_rx, register_rx)
+    }
+
+    /// Every frame a session was sent, parsed, drained without blocking.
+    fn frames(input_rx: &mut mpsc::Receiver<Frame>) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        while let Ok(frame) = input_rx.try_recv() {
+            out.push(serde_json::from_slice(&frame.payload).unwrap());
+        }
+        out
+    }
+
+    /// Every CONTROL frame carrying an `action`, drained without blocking.
+    fn control_actions(control_rx: &mut broadcast::Receiver<Frame>) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        while let Ok(frame) = control_rx.try_recv() {
+            let parsed: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            if parsed["action"].is_string() {
+                out.push(parsed);
+            }
+        }
+        out
+    }
+
+    /// **A stop after a rotation interrupts the card** ([P01]). The press
+    /// resolves to the live segment, which no supervisor entry is keyed by;
+    /// the interrupt has to reach the card that entry belongs to, or it
+    /// reaches nothing and the turn runs on under a button that says it
+    /// stopped.
+    #[tokio::test]
+    async fn a_stop_after_a_rotation_interrupts_the_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, entry, mut input_rx, _register_rx) = rotated_stop_harness(root, true).await;
+        entry.lock().await.turn_active = true;
+        answer_the_teardown(&sup, "card-A");
+
+        sup.stop_arc_now(
+            "segment-B",
+            root,
+            "demo",
+            StopTerms {
+                stage: tugarc_core::ArcStage::Implement,
+                reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
+                question: None,
+                halt: true,
+            },
+        )
+        .await
+        .expect("the stop lands");
+
+        let sent = frames(&mut input_rx);
+        let interrupt = sent
+            .iter()
+            .find(|frame| frame["type"] == "interrupt")
+            .unwrap_or_else(|| panic!("an interrupt was sent: {sent:?}"));
+        assert_eq!(
+            interrupt["tug_session_id"], "card-A",
+            "the interrupt is addressed to the card, not the segment: {sent:?}",
+        );
+        assert_eq!(
+            tugarc_core::arc::read_arc(root, "demo").unwrap().stopped,
+            Some((
+                tugarc_core::ArcStage::Implement,
+                "stopped by user".to_string()
+            )),
+        );
+    }
+
+    /// And the receipt reaches the same card, because the deck is bound to the
+    /// card's id and a receipt addressed to a segment finds no card to paint.
+    #[tokio::test]
+    async fn a_stop_after_a_rotation_delivers_its_receipt_to_the_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, entry, mut input_rx, _register_rx) = rotated_stop_harness(root, true).await;
+        entry.lock().await.turn_active = true;
+        let mut control_rx = sup.control_tx.subscribe();
+        answer_the_teardown(&sup, "card-A");
+
+        sup.stop_arc_now(
+            "segment-B",
+            root,
+            "demo",
+            StopTerms {
+                stage: tugarc_core::ArcStage::Implement,
+                reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
+                question: None,
+                halt: true,
+            },
+        )
+        .await
+        .expect("the stop lands");
+
+        let actions = control_actions(&mut control_rx);
+        let receipt = actions
+            .iter()
+            .find(|frame| frame["action"] == "arc_receipt")
+            .unwrap_or_else(|| panic!("a receipt was sent: {actions:?}"));
+        assert_eq!(receipt["tug_session_id"], "card-A", "{actions:?}");
+        // The hand-back rides the card's channel for the same reason.
+        assert!(
+            frames(&mut input_rx)
+                .iter()
+                .any(|frame| frame["type"] == "model_change"
+                    && frame["tug_session_id"] == "card-A"),
+        );
+    }
+
+    /// **A segment no live card wears is refused, ahead of every other act**
+    /// ([P01]). Nothing is interrupted and nothing is recorded: a stop that
+    /// found no card to act on has not happened, and a green answer over it
+    /// would be the [L31] fault again.
+    #[tokio::test]
+    async fn a_stop_on_a_segment_no_card_wears_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
+        std::fs::write(root.join(".tug/arcs/demo/brief.md"), "# A brief\n").unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        let (sup, _ledger, _register_rx) = test_minimal_supervisor_reading_its_ledger();
+        let _ = sup.wheel.set(Arc::new(crate::wheel::WheelState::default()));
+
+        assert_eq!(
+            sup.stop_arc_now(
+                "segment-B",
+                root,
+                "demo",
+                StopTerms {
+                    stage: tugarc_core::ArcStage::Implement,
+                    reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
+                    question: None,
+                    halt: true,
+                },
+            )
+            .await,
+            Err("no_card"),
+        );
+        assert!(
+            tugarc_core::arc::read_arc(root, "demo")
+                .unwrap()
+                .stopped
+                .is_none(),
+            "no `arc-stop` line was appended",
+        );
+    }
+
+    /// **A refused stop after a rotation answers the card** ([P01]). The
+    /// `_err` is parked by session and read off the card's bound id, so one
+    /// addressed to the segment lands in a slot no reader subscribes to — and
+    /// every refusal this arc adds would be invisible on exactly the arcs it
+    /// is about. Without this pin the deck-side notice path is covered by
+    /// nothing.
+    #[tokio::test]
+    async fn a_refused_stop_after_a_rotation_answers_the_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, _entry, _input_rx, _register_rx) = rotated_stop_harness(root, false).await;
+        let mut control_rx = sup.control_tx.subscribe();
+
+        sup.do_arc_stop(&BindArcPayload {
+            tug_session_id: "card-A".to_string(),
+            project_dir: root.to_string_lossy().to_string(),
+            arc: "demo".to_string(),
+        })
+        .await;
+
+        let actions = control_actions(&mut control_rx);
+        let refusal = actions
+            .iter()
+            .find(|frame| frame["action"] == "arc_stop_err")
+            .unwrap_or_else(|| panic!("the press was refused: {actions:?}"));
+        assert_eq!(refusal["reason"], "no_wheel", "{actions:?}");
+        assert_eq!(
+            refusal["tug_session_id"], "card-A",
+            "the refusal is addressed to the card the press came from: {actions:?}",
+        );
+        assert!(
+            !actions.iter().any(|frame| frame["action"] == "arc_stop_ok"),
+            "{actions:?}",
+        );
+    }
+
+    /// Spawn `stop_arc_now` as its own task, so a test can observe the stop
+    /// while it is still waiting. Everything it needs is owned, because the
+    /// real caller's borrows do not outlive a `tokio::spawn`.
+    fn spawn_stop(
+        sup: &Arc<AgentSupervisor>,
+        root: &std::path::Path,
+        segment: &'static str,
+        halt: bool,
+    ) -> tokio::task::JoinHandle<Result<(), &'static str>> {
+        let sup = Arc::clone(sup);
+        let root = root.to_path_buf();
+        tokio::spawn(async move {
+            sup.stop_arc_now(
+                segment,
+                &root,
+                "demo",
+                StopTerms {
+                    stage: tugarc_core::ArcStage::Implement,
+                    reason: tugarc_core::arc::ArcStopReason::StoppedByUser,
+                    question: None,
+                    halt,
+                },
+            )
+            .await
+        })
+    }
+
+    /// Every arc-log marker written for `demo`, in the order they were
+    /// written. Split on the log's own field separator rather than matched as
+    /// substrings, because `arc-stop` is a prefix of `arc-stopping` and a
+    /// `contains` would read one for the other.
+    fn arc_log_markers(root: &std::path::Path) -> Vec<String> {
+        std::fs::read_to_string(tugtool_core::paths::arc_log_path(root))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.trim_end().splitn(4, "  ");
+                let _at = fields.next()?;
+                let arc = fields.next()?;
+                let marker = fields.next()?;
+                (arc.trim() == "demo").then(|| marker.trim().to_owned())
+            })
+            .collect()
+    }
+
+    /// **The stop does not answer while a job is open** ([P12]). `is_quiet` is
+    /// two facts and the turn ending is only one of them: work the stage
+    /// backgrounded runs on until the group it ran in is gone. Nothing but the
+    /// teardown's own answer can close those jobs — the claude that would have
+    /// sent their per-task closing edges is dead by then — so folding one of
+    /// those edges here would be testing the branch the real stop can never
+    /// take.
+    #[tokio::test]
+    async fn the_stop_does_not_answer_while_a_job_is_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, entry, _input_rx, _register_rx) = stop_harness(root, true).await;
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = false;
+            guard.open_jobs.insert("t1".to_owned(), Instant::now());
+        }
+
+        let stopping = spawn_stop(&sup, root, "claude-1", true);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            !stopping.is_finished(),
+            "the stop is still waiting on the open job",
+        );
+        assert!(
+            tugarc_core::arc::read_arc(root, "demo")
+                .unwrap()
+                .stopped
+                .is_none(),
+            "so no `arc-stop` line is on the record and no `_ok` can have been sent",
+        );
+
+        sup.apply_stop_all_work_done(&TugSessionId::new("claude-1".to_owned()))
+            .await;
+
+        stopping.await.unwrap().expect("the stop lands");
+        assert_eq!(
+            tugarc_core::arc::read_arc(root, "demo").unwrap().stopped,
+            Some((
+                tugarc_core::ArcStage::Implement,
+                "stopped by user".to_string()
+            )),
+            "and both land once the teardown has answered",
+        );
+    }
+
+    /// **The verb carries the open task ids** ([P12]). tugcode holds no
+    /// open-job set of its own, so a `stop_all_work` naming none would make
+    /// its first rung a loop over nothing. Sending the ids gives a running
+    /// agent its one chance to close cleanly before the group sweep takes the
+    /// choice away.
+    #[tokio::test]
+    async fn the_stop_carries_the_open_task_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = false;
+            guard.open_jobs.insert("t1".to_owned(), Instant::now());
+            guard.open_jobs.insert("t2".to_owned(), Instant::now());
+        }
+
+        let stopping = spawn_stop(&sup, root, "claude-1", true);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let sent = frames(&mut input_rx);
+        let verb = sent
+            .iter()
+            .find(|frame| frame["type"] == "stop_all_work")
+            .unwrap_or_else(|| panic!("the teardown verb was dispatched: {sent:?}"));
+        assert_eq!(
+            verb["task_ids"],
+            serde_json::json!(["t1", "t2"]),
+            "both open jobs ride the verb: {sent:?}",
+        );
+        assert_eq!(verb["tug_session_id"], "claude-1", "{sent:?}");
+
+        sup.apply_stop_all_work_done(&TugSessionId::new("claude-1".to_owned()))
+            .await;
+        stopping.await.unwrap().expect("the stop lands");
+    }
+
+    /// **The teardown's answer empties the job set** ([P12]). It is the only
+    /// notify site that can fire with several jobs open at once, and the only
+    /// writer for the half of `is_quiet` that nothing else on this path can
+    /// write.
+    #[tokio::test]
+    async fn a_stop_all_work_done_empties_the_job_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, entry, _input_rx, _register_rx) = stop_harness(root, true).await;
+        {
+            let mut guard = entry.lock().await;
+            guard.turn_active = true;
+            for task in ["t1", "t2", "t3"] {
+                guard.open_jobs.insert(task.to_owned(), Instant::now());
+            }
+        }
+
+        // A waiter armed first, so the assertion is about the notify and not
+        // only about the fields it moved.
+        let waiting = tokio::spawn({
+            let entry = Arc::clone(&entry);
+            async move { AgentSupervisor::await_quiet(&entry, Duration::from_secs(5)).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        sup.apply_stop_all_work_done(&TugSessionId::new("claude-1".to_owned()))
+            .await;
+
+        assert!(
+            waiting.await.unwrap(),
+            "the wait was released by the fold, not by its ceiling",
+        );
+        let guard = entry.lock().await;
+        assert!(guard.open_jobs.is_empty(), "{:?}", guard.open_jobs);
+        assert!(guard.is_quiet());
+    }
+
+    /// **A wait that runs out abandons the stop rather than reporting one**
+    /// ([P03], [P05]). The `_err` names the rung, the abandon line clears the
+    /// stopping mark so the arc is not frozen out of the wheel, and no
+    /// `arc-stop` is written over an arc that may still be running.
+    #[tokio::test]
+    async fn the_stop_answers_err_at_the_ceiling() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, entry, _input_rx, _register_rx) = stop_harness(root, true).await;
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\narc_stop_ceiling_secs = 1\n",
+        )
+        .unwrap();
+        // Never quiet: the turn does not end and nothing answers the teardown.
+        entry.lock().await.turn_active = true;
+
+        assert_eq!(
+            spawn_stop(&sup, root, "claude-1", true).await.unwrap(),
+            Err("stop stalled at: quiet"),
+            "the refusal names the rung it stalled on",
+        );
+        let record = tugarc_core::arc::read_arc(root, "demo").unwrap();
+        assert!(record.stopped.is_none(), "no `arc-stop` line was written");
+        assert!(
+            record.stopping.is_none(),
+            "and the mark does not outlive the press it was taken for",
+        );
+        assert_eq!(
+            arc_log_markers(root)
+                .iter()
+                .filter(|marker| *marker == "arc-stopping")
+                .count(),
+            2,
+            "the mark and its abandon line are both on the log",
+        );
+    }
+
+    /// **The `arc-stop` line is the last thing a stop writes** ([P06]). The
+    /// `arc-stopping` mark precedes it, nothing sits between them, and the
+    /// record moving is what `arc_stop_ok` then means.
+    #[tokio::test]
+    async fn the_arc_stop_line_is_the_last_thing_the_stop_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, entry, _input_rx, _register_rx) = stop_harness(root, true).await;
+        entry.lock().await.turn_active = false;
+
+        spawn_stop(&sup, root, "claude-1", true)
+            .await
+            .unwrap()
+            .expect("the stop lands");
+
+        let markers = arc_log_markers(root);
+        let stopping = markers
+            .iter()
+            .position(|marker| marker == "arc-stopping")
+            .unwrap_or_else(|| panic!("the mark was written: {markers:?}"));
+        let stopped = markers
+            .iter()
+            .position(|marker| marker == "arc-stop")
+            .unwrap_or_else(|| panic!("the stop was recorded: {markers:?}"));
+        assert!(stopping < stopped, "{markers:?}");
+        assert_eq!(stopped, stopping + 1, "nothing sits between them: {markers:?}");
+        assert_eq!(stopped, markers.len() - 1, "and nothing follows: {markers:?}");
+    }
+
+    /// **A missed notify degrades to a late refusal, never a hang** (Risk
+    /// R01's residual). The entry goes quiet behind the waiter's back, with no
+    /// edge to wake it; the ceiling is what answers instead.
+    #[tokio::test]
+    async fn a_missed_notify_degrades_to_a_late_err() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (_sup, entry, _input_rx, _register_rx) = stop_harness(root, true).await;
+        entry.lock().await.turn_active = true;
+
+        let waiting = tokio::spawn({
+            let entry = Arc::clone(&entry);
+            async move { AgentSupervisor::await_quiet(&entry, Duration::from_secs(1)).await }
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Quiet, and silent about it — the one failure this wait is allowed.
+        entry.lock().await.turn_active = false;
+
+        assert!(
+            !waiting.await.unwrap(),
+            "the ceiling answered rather than the wait hanging on a lost edge",
+        );
+    }
+
+    /// **An ask quiesces without interrupting** ([P06]). A stage ending its
+    /// own turn over a question is mid-sentence and must not be truncated —
+    /// but its jobs and its children should end exactly as a user stop's do,
+    /// or the question is asked over a card still doing work.
+    #[tokio::test]
+    async fn an_ask_quiesces_without_interrupting() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
+        entry.lock().await.turn_active = false;
+
+        sup.stop_arc_now(
+            "claude-1",
+            root,
+            "demo",
+            StopTerms {
+                stage: tugarc_core::ArcStage::Implement,
+                reason: tugarc_core::arc::ArcStopReason::NeedsDecision,
+                question: Some("which of the two?"),
+                halt: false,
+            },
+        )
+        .await
+        .expect("the stop lands");
+
+        let sent = frame_types(&mut input_rx);
+        assert!(
+            !sent.iter().any(|frame| frame == "interrupt"),
+            "nothing truncates the sentence: {sent:?}",
+        );
+        assert!(
+            sent.iter().any(|frame| frame == "stop_all_work"),
+            "and the rest of the work ends all the same: {sent:?}",
         );
     }
 }

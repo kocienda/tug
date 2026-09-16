@@ -444,6 +444,17 @@ pub struct ArcRecord {
     /// short of the generation reset. A record carrying one says the arc
     /// stopped at some point in this generation, never that it is stopped now.
     pub last_stop: Option<(ArcStage, String)>,
+    /// A stop **protocol in flight**, not a state: the stage a stop was pressed
+    /// on, set before the interrupt is sent and cleared by the `arc-stop` line
+    /// that ends the protocol or by the `arc-stopping <stage> abandoned` line
+    /// a failed stop writes. While it stands, nothing else may move the arc:
+    /// the runner's sweep stands down, a second Stop is refused, and a Resume
+    /// is refused ([B05]).
+    ///
+    /// It is on the record rather than only in runner memory because the race
+    /// it guards — a stop landing on an arc a rotation is mid-way through —
+    /// spans a tugcast restart, and runner memory does not.
+    pub stopping: Option<ArcStage>,
     /// The stage a resume asked to rotate again. Written by
     /// `tugtool arc run` on a stopped arc, and cleared by the next
     /// `arc-stage` line — the rotation it asked for.
@@ -531,6 +542,7 @@ pub fn read_arc(repo_root: &Path, arc: &str) -> Option<ArcRecord> {
             notes: Vec::new(),
             stopped: None,
             last_stop: None,
+            stopping: None,
             resume: None,
             dispatched: None,
             owner: None,
@@ -557,6 +569,13 @@ pub fn read_arc(repo_root: &Path, arc: &str) -> Option<ArcRecord> {
                     // produce. Cleared here and only here, so the gap the
                     // marker exists to describe is exactly the gap it covers.
                     record.dispatched = None;
+                    // `stopping` is deliberately **not** cleared here. A stop
+                    // pressed while a rotation is in flight lands its mark,
+                    // and then the rotation's own `arc-stage` line arrives —
+                    // clearing the mark on that line would erase the stop
+                    // mid-protocol and let the sweep pick the arc back up
+                    // under it ([F08]). Only the protocol's own end clears it:
+                    // the `arc-stop` line, or the abandon line.
                     record.stages.push(stage);
                 }
             }
@@ -564,6 +583,24 @@ pub fn read_arc(repo_root: &Path, arc: &str) -> Option<ArcRecord> {
                 if let Some((stage, reason)) = read_stop_line(note) {
                     record.stopped = Some((stage, reason.clone()));
                     record.last_stop = Some((stage, reason));
+                    record.stopping = None;
+                }
+            }
+            // `<stage>` sets the mark; `<stage> abandoned` clears it. Two
+            // states on one marker, so a reader that knows the set cannot
+            // fail to know the clear.
+            //
+            // **Skew.** A reader older than this marker falls through the `_`
+            // arm below and reads no mark — which is exactly today's
+            // behavior, a stop with nothing guarding its window. Neither
+            // direction can invent a stop the other did not record.
+            "arc-stopping" => {
+                if let Some((stage, word)) = read_stop_line(note) {
+                    record.stopping = if word == "abandoned" {
+                        None
+                    } else {
+                        Some(stage)
+                    };
                 }
             }
             "arc-resume" => {
@@ -723,6 +760,34 @@ pub fn append_arc_stop(
 ) -> Result<(), TugError> {
     let note = format!("{} {}", stage.as_str(), reason.as_str());
     append_arc_log(repo_root, arc, "arc-stop", note.trim())
+}
+
+/// Append `arc-stopping` — a stop protocol on `stage` is in flight.
+///
+/// Written **before** anything else the stop does, so that from the first
+/// act to the last the record says the arc is being stopped and nothing else
+/// moves it. A marker of its own rather than a field on `arc-stop`, for the
+/// reason `arc-owner` is one: `arc-stop` is read as `<stage> <reason>` and a
+/// reason is free text, so a field appended to it is a word an older reader
+/// takes for part of the reason. A marker it does not know, it skips.
+pub fn append_arc_stopping(repo_root: &Path, arc: &str, stage: ArcStage) -> Result<(), TugError> {
+    append_arc_log(repo_root, arc, "arc-stopping", stage.as_str())
+}
+
+/// Append `arc-stopping <stage> abandoned` — the stop protocol on `stage` did
+/// not finish, and the mark it set is cleared.
+///
+/// The failed stop's own line rather than a second marker, so a reader that
+/// knows the set knows the clear. The arc goes back to being an arc the wheel
+/// may move; the next press runs the whole protocol fresh, because no
+/// `arc-stop` was ever written ([P03]).
+pub fn append_arc_stopping_abandoned(
+    repo_root: &Path,
+    arc: &str,
+    stage: ArcStage,
+) -> Result<(), TugError> {
+    let note = format!("{} abandoned", stage.as_str());
+    append_arc_log(repo_root, arc, "arc-stopping", &note)
 }
 
 /// Append `arc-resume` — a stopped arc was picked back up, and `stage` is the
@@ -1415,6 +1480,39 @@ mod tests {
         );
     }
 
+    /// **A stop written over a standing resume keeps it** ([B09]). The resume
+    /// arm stops a hung turn as `stalled` without clearing the resume the user
+    /// pressed, which is only safe if the fold leaves it standing: the record
+    /// then carries both, decides nothing, and the next press writes a fresh
+    /// `arc-resume` that clears `stopped` and makes the arm fire.
+    #[test]
+    #[serial]
+    fn a_stop_over_a_standing_resume_keeps_it() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
+        append_arc_stage(root, "d", ArcStage::Implement, "s1", None).unwrap();
+        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::StoppedByUser).unwrap();
+        append_arc_resume(root, "d", ArcStage::Implement).unwrap();
+
+        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::Stalled).unwrap();
+        let record = read_arc(root, "d").unwrap();
+        assert_eq!(
+            record.stopped,
+            Some((ArcStage::Implement, "stalled".to_string())),
+        );
+        assert_eq!(
+            record.resume,
+            Some(ArcStage::Implement),
+            "so the next press still means something",
+        );
+
+        append_arc_resume(root, "d", ArcStage::Implement).unwrap();
+        let pressed = read_arc(root, "d").unwrap();
+        assert_eq!(pressed.stopped, None);
+        assert_eq!(pressed.resume, Some(ArcStage::Implement));
+    }
+
     /// The marker's whole job: the stage is already seated and already moving,
     /// so the arc is running again and nobody is owed a rotation. `arc-resume`
     /// alone would leave one standing.
@@ -1530,5 +1628,93 @@ mod tests {
 
         append_arc_done(root, "d").expect("done");
         assert!(read_arc(root, "d").expect("arc").done);
+    }
+
+    /// **An `arc-stage` line does not clear a standing stop mark** ([F08]).
+    /// A stop pressed while a rotation is in flight lands its mark first; the
+    /// rotation's announcement then arrives, and if that line cleared the mark
+    /// the stop would be erased mid-protocol. The next reader will otherwise
+    /// "tidy" this into the neighbouring `record.stopped = None`.
+    #[serial]
+    #[test]
+    fn an_arc_stage_line_does_not_clear_a_standing_stop_mark() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+
+        append_arc_start(root, "d", "arc/idea.md").unwrap();
+        append_arc_stopping(root, "d", ArcStage::Devise).unwrap();
+        append_arc_stage(root, "d", ArcStage::Devise, "sess-1", None).unwrap();
+
+        let record = read_arc(root, "d").unwrap();
+        assert_eq!(record.stopping, Some(ArcStage::Devise));
+        assert_eq!(record.stages.len(), 1, "and the rotation still lands");
+    }
+
+    /// The abandon line clears the mark, and a fresh set stands again: the
+    /// two states ride one marker so nothing can know one without the other.
+    #[serial]
+    #[test]
+    fn the_abandon_line_clears_the_mark() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+
+        append_arc_start(root, "d", "arc/idea.md").unwrap();
+        append_arc_stopping(root, "d", ArcStage::Implement).unwrap();
+        assert_eq!(
+            read_arc(root, "d").unwrap().stopping,
+            Some(ArcStage::Implement)
+        );
+
+        append_arc_stopping_abandoned(root, "d", ArcStage::Implement).unwrap();
+        assert_eq!(read_arc(root, "d").unwrap().stopping, None);
+
+        append_arc_stopping(root, "d", ArcStage::Implement).unwrap();
+        assert_eq!(
+            read_arc(root, "d").unwrap().stopping,
+            Some(ArcStage::Implement)
+        );
+    }
+
+    /// The `arc-stop` that ends a successful protocol clears the mark, so no
+    /// mark ever stands with no press outstanding.
+    #[serial]
+    #[test]
+    fn an_arc_stop_line_clears_the_mark() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+
+        append_arc_start(root, "d", "arc/idea.md").unwrap();
+        append_arc_stage(root, "d", ArcStage::Implement, "sess-1", None).unwrap();
+        append_arc_stopping(root, "d", ArcStage::Implement).unwrap();
+        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::StoppedByUser).unwrap();
+
+        let record = read_arc(root, "d").unwrap();
+        assert_eq!(record.stopping, None);
+        assert!(record.stopped.is_some());
+    }
+
+    /// **Skew.** A reader with no `arc-stopping` arm falls through `_ => {}`
+    /// and reads every other field exactly as it would without the line: the
+    /// marker adds a mark and changes nothing else on the record.
+    #[serial]
+    #[test]
+    fn an_older_reader_skips_the_marker() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+
+        append_arc_start(root, "d", "arc/idea.md").unwrap();
+        append_arc_stage(root, "d", ArcStage::Implement, "sess-1", None).unwrap();
+        append_arc_note(root, "d", "a note").unwrap();
+        let without = read_arc(root, "d").unwrap();
+
+        append_arc_stopping(root, "d", ArcStage::Implement).unwrap();
+        let mut with = read_arc(root, "d").unwrap();
+        assert_eq!(with.stopping, Some(ArcStage::Implement));
+
+        // Every other field reads as it did. `last_activity` moves with any
+        // line, mark or not, so it is the one field the comparison excludes.
+        with.stopping = None;
+        with.last_activity = without.last_activity.clone();
+        assert_eq!(with, without);
     }
 }

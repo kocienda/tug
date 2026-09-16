@@ -164,6 +164,23 @@ pub fn is_background_tasks_changed(payload: &[u8]) -> bool {
         .any(|w| w == BACKGROUND_TASKS_CHANGED_NEEDLE)
 }
 
+/// Needle bytes for `stop_all_work_done` — tugcode's answer to the stop's
+/// teardown verb ([P12]). It is not a job edge and not a turn edge: it is the
+/// statement that the session's claude, and the process group its background
+/// work ran in, are gone and a fresh one has been resumed in their place.
+///
+/// The supervisor folds it by clearing the entry's open jobs wholesale,
+/// because no closing edge for those jobs can ever arrive — the claude that
+/// would have sent them is dead, and the respawn has never heard of them.
+const STOP_ALL_WORK_DONE_NEEDLE: &[u8] = b"\"type\":\"stop_all_work_done\"";
+
+/// Check if a payload could be tugcode's answer to a `stop_all_work`.
+pub fn is_stop_all_work_done(payload: &[u8]) -> bool {
+    payload
+        .windows(STOP_ALL_WORK_DONE_NEEDLE.len())
+        .any(|w| w == STOP_ALL_WORK_DONE_NEEDLE)
+}
+
 /// Check if a payload could open or close a background job — a cheap needle
 /// gate in front of the parse that reads its task id ([P08]).
 pub fn is_task_edge(payload: &[u8]) -> bool {

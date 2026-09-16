@@ -4703,6 +4703,7 @@ Some context.
             notes: Vec::new(),
             stopped: None,
             last_stop: None,
+            stopping: None,
             resume: None,
             dispatched: None,
             owner: None,

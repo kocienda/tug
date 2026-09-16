@@ -96,7 +96,7 @@ pub struct ArcContext {
 
 /// Per-arc memory the documents cannot hold.
 #[derive(Debug, Default, Clone)]
-struct ArcState {
+pub(crate) struct ArcState {
     /// How many `arc-stage` lines the record held when a rotation was
     /// dispatched, while that rotation's own line has not landed yet.
     ///
@@ -234,16 +234,24 @@ impl QuietMarks {
 
 /// The baseline a stop leaves for whatever notices life after it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct StopMarks {
+pub(crate) struct StopMarks {
     /// The seated session's wake-opened turn count at the stop — the baseline
     /// a later wake is legible against, so life on a stopped stage can be told
     /// from the stop's own reading seen a second time.
-    wake_turns_ended: u32,
+    pub(crate) wake_turns_ended: u32,
     /// How many ledger rows read `done` at the stop — so a step closing
     /// afterwards is legible as motion rather than as the stop's own reading
     /// seen a second time.
-    done_count: usize,
+    pub(crate) done_count: usize,
 }
+
+/// The runner's memory, keyed by [`arc_key_for`].
+///
+/// Held on the wheel rather than as a local of `run_arc_engine`, because the
+/// runner is not the only thing that stops an arc: a user stop performed from
+/// a CONTROL frame has to evict this memory exactly as the wheel's own stops
+/// do ([P11]), and it reaches the wheel, not the engine's stack.
+pub(crate) type ArcMemory = Arc<Mutex<HashMap<String, ArcState>>>;
 
 /// A prompt already delivered, remembered until the turn it opened ends.
 #[derive(Debug, Clone)]
@@ -272,7 +280,8 @@ pub async fn run_arc_engine(
     mut tick_rx: mpsc::Receiver<String>,
     mut recompute_rx: watch::Receiver<Frame>,
 ) {
-    let state: Arc<Mutex<HashMap<String, ArcState>>> = Arc::new(Mutex::new(HashMap::new()));
+    // The wheel's, so a stop performed outside this loop can evict from it.
+    let state: ArcMemory = Arc::clone(&ctx.wheel.arc_memory);
 
     // The settle's own return path ([P01]). An idle reading the runner
     // declines to spend arms one task that sleeps and sends the arc's session
@@ -408,7 +417,58 @@ async fn card_session_for_segment(ctx: &ArcContext, segment: &str) -> TugSession
 
 /// A key that separates two arcs of the same name in different projects.
 fn arc_key(arc: &BoundArc) -> String {
-    format!("{}\u{0}{}", arc.project.display(), arc.name)
+    arc_key_for(&arc.project, &arc.name)
+}
+
+/// The runner's key for one arc: `"{project}\0{name}"`. One spelling, so a
+/// stop performed outside the runner evicts the entry the runner wrote rather
+/// than a lookalike.
+pub(crate) fn arc_key_for(project: &Path, name: &str) -> String {
+    format!("{}\u{0}{}", project.display(), name)
+}
+
+/// Evict a stopped arc's memory and put back only the stop's own marks.
+///
+/// Every other field described a stage that is no longer being asked for
+/// turns, and each would go on being read: the clock against a
+/// `last_motion_at` that only gets staler, the horizon against a quiet count
+/// that can only grow, a `pending` prompt against a turn that will never end.
+/// The incident's morning was that memory outliving the stop it recorded
+/// ([B06]).
+///
+/// One body for both stoppers ([P11]): the wheel's own stop in `finish`,
+/// which has a reading to seed the marks from, and the user stop performed
+/// from a CONTROL frame, which has no reading and seeds `None` where it could
+/// not read one — the "a stop this process did not watch" case `evaluate`
+/// already declines to invent a baseline for.
+pub(crate) async fn evict_for_stop(state: &ArcMemory, key: &str, marks: Option<StopMarks>) {
+    let mut map = state.lock().await;
+    map.remove(key);
+    map.insert(
+        key.to_string(),
+        ArcState {
+            stop_marks: marks,
+            ..Default::default()
+        },
+    );
+}
+
+/// How many ledger rows read closed for `name`'s arc right now, read from the
+/// ledger the implement stage walks. `None` when the arc has no ledger or it
+/// does not parse — the user stop seeds no marks rather than a wrong count.
+pub(crate) fn done_count_for(project: &Path, name: &str) -> Option<usize> {
+    let ledger_abs = tugarc_core::ledger_file(project, name)?;
+    let source = std::fs::read_to_string(ledger_abs).ok()?;
+    plan::parse(&source).ok().map(|doc| count_closed(&doc))
+}
+
+/// Closed, not finished: a withdrawn step ended, so it counts here and a
+/// withdrawal is a rotation boundary exactly as a completion is.
+fn count_closed(doc: &plan::PlanDoc) -> usize {
+    doc.ledger_rows
+        .iter()
+        .filter(|row| row.status == "done" || row.status == "withdrawn")
+        .count()
 }
 
 /// How often the engine wakes with nothing having happened, so the clock can
@@ -892,7 +952,23 @@ async fn watch_the_clock_unseated(
     else {
         return;
     };
-    if record.done || record.stopped.is_some() {
+    // `stopping` beside the two: this path never consults `arc_action`, so
+    // its stand-down arm does not cover it — it reads the record itself and
+    // calls `stop_arc_for_session` directly. Without this a stopping arc whose
+    // card has no snapshot can be stopped a *second* time, as `Stalled`, while
+    // the protocol is still in flight, and the `arc-stop` that stop writes
+    // clears the mark and races the protocol's own ([F09]).
+    //
+    // `resume` beside them ([B09]): a resume on a card this process never saw
+    // live is waiting for the deck to spawn one, and that wait is the deck's
+    // own act rather than silence. Clocking it stops the arc as `stalled` on
+    // the tick after the press — the resume the user asked for answered by a
+    // second stop.
+    if record.done
+        || record.stopped.is_some()
+        || record.stopping.is_some()
+        || record.resume.is_some()
+    {
         return;
     }
     // **Whose arc is this?** The arc log is shared across every instance over
@@ -1438,17 +1514,7 @@ fn read(
         _ => None,
     };
 
-    // Closed, not finished: a withdrawn step ended, so it counts here and a
-    // withdrawal is a rotation boundary exactly as a completion is.
-    let done_count = doc
-        .as_ref()
-        .map(|d| {
-            d.ledger_rows
-                .iter()
-                .filter(|row| row.status == "done" || row.status == "withdrawn")
-                .count()
-        })
-        .unwrap_or(0);
+    let done_count = doc.as_ref().map(count_closed).unwrap_or(0);
     let first_pending = doc.as_ref().and_then(|d| {
         d.ledger_rows
             .iter()
@@ -1577,6 +1643,38 @@ fn lints_as_plan(source: &str) -> bool {
     }
 }
 
+/// The dirty clause's path list, or `None` when the tree is clean ([P08]).
+///
+/// Capped at ten. A stage stopped in the middle of a rename campaign leaves
+/// two hundred paths behind, and a prompt that listed them all would bury the
+/// ask under the footnote — the count is what a reader needs past the tenth
+/// name, not the names.
+fn dirty_clause(paths: Vec<String>) -> Option<String> {
+    const SHOWN: usize = 10;
+    if paths.is_empty() {
+        return None;
+    }
+    let extra = paths.len().saturating_sub(SHOWN);
+    let mut list = paths
+        .iter()
+        .take(SHOWN)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if extra > 0 {
+        list.push_str(&format!(" and {extra} more"));
+    }
+    Some(list)
+}
+
+/// The arc worktree's dirt off the blocking pool — git runs under it.
+async fn worktree_dirt_for(arc: &BoundArc) -> Vec<String> {
+    let (project, name) = (arc.project.clone(), arc.name.clone());
+    tokio::task::spawn_blocking(move || tugarc_core::ops::worktree_dirt(&project, &name))
+        .await
+        .unwrap_or_default()
+}
+
 /// The stage's opening prompt: the arc's ask, plus what the documents say
 /// about where to start and what has moved.
 ///
@@ -1588,6 +1686,7 @@ fn opening_prompt(
     rotation: &Rotation,
     arc: &BoundArc,
     seat: &Path,
+    dirty: Option<&str>,
 ) -> Option<String> {
     let steps = rotation
         .steps
@@ -1619,10 +1718,28 @@ fn opening_prompt(
     // A stopped arc that is rotating again is resuming, and the stage it opens
     // is owed that fact: it is the difference between starting the work and
     // picking it back up.
+    //
+    // **`last_stop`, never `stopped`** ([P08]). `compose`'s own docblock says
+    // why: every act that picks a stopped arc back up clears `stopped` before
+    // the prompt is composed — the `arc-resume` line does it — so a caller
+    // reading that field drops the clause on exactly the prompts it exists
+    // for. `last_stop` is kept for the generation, for the act doing the
+    // picking up.
+    //
+    // **And gated on a standing `resume`, for the same reason.** `last_stop`
+    // is kept for the *generation*, not for the resume: an arc stopped once
+    // and picked back up carries it through every rotation afterwards, so a
+    // clause read straight off it tells an audit stage rotated hours later
+    // that it is resuming from a stop somebody already resumed from. The
+    // standing `resume` is what says this rotation is the picking up — it is
+    // the same fact the dirty clause is gated on, and the `arc-stage` line
+    // this dispatch is about to produce is what clears it.
     let resume = reading
         .record
-        .stopped
-        .as_ref()
+        .resume
+        .is_some()
+        .then(|| reading.record.last_stop.as_ref())
+        .flatten()
         .map(|(stage, reason)| (stage.as_str(), reason.as_str()));
     Some(wheel::prompt::compose(
         &ask,
@@ -1630,6 +1747,7 @@ fn opening_prompt(
         &reading.cited_paths,
         &reading.commits_since,
         resume,
+        dirty,
     ))
 }
 
@@ -1704,6 +1822,87 @@ async fn seat_or_stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage) -> Opti
             None
         }
     }
+}
+
+/// What the doctor's comparison left for the caller to act on.
+struct RecordsVerdict {
+    /// The codes among [`tugarc_core::doctor::OPEN_STEP_CODES`] a resume
+    /// excluded from the disagreement. Empty on every path that is not a
+    /// resume, and on a resume whose step records agree.
+    open_step: Vec<String>,
+}
+
+/// Run the doctor's five-record comparison where a dispatch can still act on
+/// it: `Some(verdict)` when the records agree, `None` when the arc has been
+/// stopped as `RecordsDisagree` and the caller should return.
+///
+/// **Both resume paths run this, and they act on its one exception
+/// differently** ([P07]). A rotation hands a stage its coordinates — the
+/// worktree, the seat, the step in hand — as facts rather than as something to
+/// probe for, and `tugplug/skills/arc-implement/SKILL.md` tells that stage the
+/// runner "ran `arc doctor`'s comparison … immediately before" the `where`
+/// line it is reading. That sentence was true of `rotate` and false of
+/// `continue_stage`; this helper is what makes it true of both, rather than
+/// the alternative of editing the claim down to what the code did.
+///
+/// **The asymmetry is the whole point.** The three findings in
+/// `OPEN_STEP_CODES` describe a step left half-walked, which on a resume is
+/// exactly the interruption being resumed from — stopping on them would make a
+/// resume unable to resume. So a resume excludes them here and the caller
+/// decides what they mean: the stage's **own** session re-enters the row,
+/// because it has a transcript that knows what it changed and `arc step start`
+/// accepts a re-entry idempotently; a **rotated** session is given a `pending`
+/// row instead, because it knows nothing and a half-open row would be a claim
+/// it cannot stand behind.
+///
+/// `arc-unbound` is excluded on every path, resume or not. It asks whether any
+/// live session is bound to this arc and answers out of the machine's sessions
+/// ledger — a question the caller already answered better, from the binding
+/// that produced the seat it is holding. A runner that stopped on it would be
+/// taking a second, worse reading of its own premise. `seat-missing` is *not*
+/// excluded, which is what makes a worktree deleted by hand and a `create_in`
+/// that failed read the same way.
+async fn records_agree_or_stop(
+    ctx: &ArcContext,
+    arc: &BoundArc,
+    stage: ArcStage,
+    resuming: bool,
+) -> Option<RecordsVerdict> {
+    let (project, name) = (arc.project.clone(), arc.name.clone());
+    let diagnosis =
+        tokio::task::spawn_blocking(move || tugarc_core::doctor::doctor(&project, &name, false))
+            .await
+            .ok()
+            .and_then(|outcome| outcome.ok());
+    let Some(outcome) = diagnosis else {
+        return Some(RecordsVerdict {
+            open_step: Vec::new(),
+        });
+    };
+    let mut open_step = Vec::new();
+    let mut disagreements = Vec::new();
+    for finding in &outcome.diagnosis.findings {
+        if finding.code == "arc-unbound" {
+            continue;
+        }
+        if resuming && tugarc_core::doctor::OPEN_STEP_CODES.contains(&finding.code.as_str()) {
+            open_step.push(finding.code.clone());
+            continue;
+        }
+        disagreements.push(finding.sentence.clone());
+    }
+    if !disagreements.is_empty() {
+        // The sentences ride as a note, the carriage `NeedsDecision` already
+        // established: the reason vocabulary is closed and cannot carry a
+        // payload, and a receipt saying only that the records disagree is a
+        // stop nobody can act on.
+        let note = disagreements.join("; ");
+        let (p, d) = (arc.project.clone(), arc.name.clone());
+        let _ = tokio::task::spawn_blocking(move || append_arc_note(&p, &d, &note)).await;
+        stop(ctx, arc, stage, ArcStopReason::RecordsDisagree).await;
+        return None;
+    }
+    Some(RecordsVerdict { open_step })
 }
 
 /// The origin a wheel-sent prompt is attributed to.
@@ -1793,7 +1992,7 @@ async fn deliver_prompt(
                 ArcStage::Implement.as_str(),
                 Some(*steps),
             );
-            wheel::prompt::compose(&ask, Some(&place), &[], &[], None)
+            wheel::prompt::compose(&ask, Some(&place), &[], &[], None, None)
         }
         // The re-ask, composed exactly as the continue ask is: the `where`
         // clause and nothing else, because the session already holds its own
@@ -1809,7 +2008,7 @@ async fn deliver_prompt(
                 ArcStage::Implement.as_str(),
                 Some(*steps),
             );
-            wheel::prompt::compose(&ask, Some(&place), &[], &[], None)
+            wheel::prompt::compose(&ask, Some(&place), &[], &[], None, None)
         }
     };
 
@@ -1937,44 +2136,59 @@ async fn rotate(
     // believes a `where` line built over a desynced record works from a
     // frontier the surfaces do not share. So the doctor's five-record
     // comparison runs here, at the one point where a disagreement can still be
-    // caught before anybody acts on it, and its named findings become the stop
-    // rather than the prompt.
-    let project = arc.project.clone();
-    let name = arc.name.clone();
-    let diagnosis =
-        tokio::task::spawn_blocking(move || tugarc_core::doctor::doctor(&project, &name, false))
-            .await
-            .ok()
-            .and_then(|outcome| outcome.ok());
-    if let Some(outcome) = diagnosis {
-        // Every finding but one — `seat-missing` included, which is what makes
-        // a worktree deleted by hand and a `create_in` that failed read the
-        // same way. `arc-unbound` asks whether any live session
-        // is bound to this arc, and answers it out of the machine's sessions
-        // ledger — a question this path already answered better, from the
-        // binding that produced the seat it is holding. A runner that stopped
-        // on it would be taking a second, worse reading of its own premise.
-        let disagreements: Vec<String> = outcome
-            .diagnosis
-            .findings
-            .iter()
-            .filter(|f| f.code != "arc-unbound")
-            .map(|f| f.sentence.clone())
-            .collect();
-        if !disagreements.is_empty() {
-            // The sentences ride as a note, the carriage `NeedsDecision`
-            // already established: the reason vocabulary is closed and cannot
-            // carry a payload, and a receipt saying only that the records
-            // disagree is a stop nobody can act on.
-            let note = disagreements.join("; ");
-            let (p, d) = (arc.project.clone(), arc.name.clone());
-            let _ = tokio::task::spawn_blocking(move || append_arc_note(&p, &d, &note)).await;
-            stop(ctx, arc, rotation.stage, ArcStopReason::RecordsDisagree).await;
-            return;
+    // caught before anybody acts on it.
+    let resuming = reading.record.resume.is_some();
+    let Some(verdict) = records_agree_or_stop(ctx, arc, rotation.stage, resuming).await else {
+        return;
+    };
+    // **A rotated resume is handed a `pending` row, never a half-open one**
+    // ([P07]). The session about to be seated has no transcript and no way to
+    // know what the interrupted one had already changed, so the honest record
+    // is a step nobody has opened — plus [Step 7](#step-7)'s dirty-tree
+    // clause, which is what says the worktree's edits are the arc's own.
+    if !verdict.open_step.is_empty() {
+        let (p, d) = (arc.project.clone(), arc.name.clone());
+        let reset = tokio::task::spawn_blocking(move || {
+            let step = tugarc_core::doctor::open_step(&p, &d)?;
+            Some((
+                step,
+                tugarc_core::ops::step_reset_in(&p, &d, step, Some("resumed on a fresh session")),
+            ))
+        })
+        .await
+        .ok()
+        .flatten();
+        match reset {
+            Some((step, Ok(_))) => info!(
+                target: "dev::session-lifecycle",
+                event = "arc.step_reset_for_rotated_resume",
+                arc = %arc.name,
+                step = step,
+                findings = %verdict.open_step.join(", "),
+            ),
+            Some((step, Err(e))) => warn!(
+                arc = %arc.name,
+                step = step,
+                error = %e,
+                "could not park the open step a rotated resume inherits",
+            ),
+            None => warn!(
+                arc = %arc.name,
+                findings = %verdict.open_step.join(", "),
+                "the records name a half-walked step and nothing names which",
+            ),
         }
     }
 
-    let Some(prompt) = opening_prompt(reading, rotation, arc, &seat) else {
+    // The worktree's dirt, on a resume only ([P08]). A fresh rotation into a
+    // clean stage has no stop to explain, and the clause would read there as
+    // an accusation rather than as the handover it is.
+    let dirty = if resuming {
+        dirty_clause(worktree_dirt_for(arc).await)
+    } else {
+        None
+    };
+    let Some(prompt) = opening_prompt(reading, rotation, arc, &seat, dirty.as_deref()) else {
         stop(ctx, arc, rotation.stage, ArcStopReason::PromptUnavailable).await;
         return;
     };
@@ -2318,6 +2532,46 @@ async fn continue_stage(
         return;
     };
 
+    // **The seat first, then the doctor, then the appends** ([P07]). The
+    // order is not `rotate`'s and cannot be: this path records the continue
+    // and swaps the card back onto the stage's model *before* it seats, and
+    // the `arc-continue` line clears `stopped` and `resume` as it goes. So a
+    // doctor dropped in where the prompt is composed would let a
+    // `RecordsDisagree` stop land on an arc that had already recorded a
+    // continue that never happened, on a card already wearing the stage's
+    // model. The seat still goes before the doctor, for `rotate`'s own
+    // recorded reason: the doctor reads the seat as a record and would
+    // otherwise report `seat-missing` against a worktree this path was about
+    // to make.
+    let Some(seat) = seat_or_stop(ctx, arc, stage).await else {
+        return;
+    };
+    // A continue is always a resume — the guard above refused every reading
+    // whose `resume` is not this stage — so the half-walked-step findings are
+    // always the interruption being resumed from.
+    let Some(verdict) = records_agree_or_stop(ctx, arc, stage, true).await else {
+        return;
+    };
+    if !verdict.open_step.is_empty() {
+        // Re-entered, not reset: this is the stage's own session, whose
+        // transcript knows what it changed, and `arc step start` accepts a
+        // re-entry idempotently. Only a rotated resume is given a `pending`
+        // row, because only a rotated one has no way to know.
+        info!(
+            target: "dev::session-lifecycle",
+            event = "arc.open_step_reentered",
+            arc = %arc.name,
+            stage = stage.as_str(),
+            findings = %verdict.open_step.join(", "),
+        );
+    }
+    // A continue over a missing document composes an ask against nothing —
+    // the same stop `rotate` takes, at the same point, above every append.
+    if reading.record.document.is_none() {
+        stop(ctx, arc, stage, ArcStopReason::DocumentMissing).await;
+        return;
+    }
+
     let (project, name) = (arc.project.clone(), arc.name.clone());
     let outcome = tokio::task::spawn_blocking({
         let (project, name) = (project.clone(), name.clone());
@@ -2338,18 +2592,16 @@ async fn continue_stage(
         );
     }
 
-    // The seat, made rather than computed, exactly as the rotation makes it:
-    // a resumed stage is owed a worktree that exists as much as a fresh one.
-    let Some(seat) = seat_or_stop(ctx, arc, stage).await else {
-        return;
-    };
     let place = wheel::prompt::where_clause(&seat, arc.session.as_str(), stage.as_str(), steps);
     let resume = reading
         .record
         .last_stop
         .as_ref()
         .map(|(stage, reason)| (stage.as_str(), reason.as_str()));
-    let text = wheel::prompt::compose(&ask, Some(&place), &[], &[], resume);
+    // A continue is always a resume, so the dirty clause is always owed when
+    // there is any dirt to name ([P08]).
+    let dirty = dirty_clause(worktree_dirt_for(arc).await);
+    let text = wheel::prompt::compose(&ask, Some(&place), &[], &[], resume, dirty.as_deref());
 
     // Dispatched exactly as `deliver_prompt` dispatches: the wheel's own row
     // on CODE_OUTPUT first, then the submission, then Tug's record of what the
@@ -2538,6 +2790,11 @@ pub(crate) enum HandBack {
 /// reaches the card over `input_tx` and the spawn queue while the receipt
 /// publishes on `control_tx`, so the two travel different channels and neither
 /// caller can pin which lands first.
+///
+/// It is now true for a further reason on the button's path: `stop_arc_now`
+/// waits for the session to read `is_quiet` before it calls this, so the card
+/// handed back is one nothing is still speaking on ([P06]). The wheel's own
+/// stoppers earn the same thing through the settle.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn stop_arc_for_session(
     supervisor: &AgentSupervisor,
@@ -2576,6 +2833,7 @@ pub(crate) async fn stop_arc_for_session(
                 notes: Vec::new(),
                 stopped: None,
                 last_stop: None,
+                stopping: None,
                 resume: None,
                 dispatched: None,
                 owner: None,
@@ -2645,26 +2903,16 @@ async fn finish(
             },
         )
         .await;
-        // Evict the running arc's memory and put back only the stop's own
-        // marks. Every other field described a stage that is no longer being
-        // asked for turns, and each would go on being read: the clock against
-        // a `last_motion_at` that only gets staler, the horizon against a
-        // quiet count that can only grow. The incident's morning was that
-        // memory outliving the stop it recorded.
-        {
-            let mut map = state.lock().await;
-            map.remove(key);
-            map.insert(
-                key.to_string(),
-                ArcState {
-                    stop_marks: Some(StopMarks {
-                        wake_turns_ended: reading.wake_turns_ended,
-                        done_count: reading.done_count,
-                    }),
-                    ..Default::default()
-                },
-            );
-        }
+        // The eviction, through the same helper the user stop takes ([P11]).
+        evict_for_stop(
+            state,
+            key,
+            Some(StopMarks {
+                wake_turns_ended: reading.wake_turns_ended,
+                done_count: reading.done_count,
+            }),
+        )
+        .await;
         return;
     }
     // The done ending keeps its own body, receipt before hand-back. Only the
@@ -3042,6 +3290,7 @@ Some context.
             &review,
             &bound(root, "demo"),
             &tugarc_core::ops::worktree_path(root, "demo"),
+            None,
         )
         .expect("a prompt");
         assert_eq!(
@@ -3144,6 +3393,7 @@ Some context.
             },
             &bound(root, "demo"),
             &tugarc_core::ops::worktree_path(root, "demo"),
+            None,
         )
         .unwrap();
         assert!(
@@ -3302,6 +3552,7 @@ Some context.
             },
             &bound(root, "demo"),
             &tugarc_core::ops::worktree_path(root, "demo"),
+            None,
         )
         .unwrap();
         assert!(prompt.starts_with("/tugplug:arc-devise a plan for .tug/arcs/demo/brief.md"));
@@ -3338,6 +3589,7 @@ Some context.
             },
             &bound(root, "demo"),
             &tugarc_core::ops::worktree_path(root, "demo"),
+            None,
         )
         .unwrap();
         assert!(
@@ -3379,6 +3631,7 @@ Some context.
             },
             &bound(root, "demo"),
             &tugarc_core::ops::worktree_path(root, "demo"),
+            None,
         )
         .unwrap();
         assert!(
@@ -3851,6 +4104,115 @@ Some context.
                 .map(|(stage, reason)| (*stage, reason.as_str())),
             Some((ArcStage::Devise, ArcStopReason::Stalled.as_str())),
             "a factless arc degrades to late, never to forever",
+        );
+    }
+
+    /// **A stopping arc is not clocked by the unseated sweep** ([B05]). The
+    /// `arc_action` pin cannot catch this: the unseated path never calls it.
+    /// It reads the record and stops directly, so the mark has to be read
+    /// here too, or a stop in flight is stopped a second time as `Stalled`.
+    #[tokio::test]
+    async fn a_stopping_arc_is_not_clocked_by_the_unseated_sweep() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+        tugarc_core::arc::append_arc_stopping(root, "demo", ArcStage::Devise).unwrap();
+
+        let (ctx, _entry, _register_rx) = harness(root).await;
+        ctx.supervisor
+            .ledger
+            .lock()
+            .await
+            .remove(&TugSessionId::new("claude-1".to_string()));
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        // A clock already past the deadline, so the only thing between this
+        // sweep and a `Stalled` stop is the mark.
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_motion_at: Some(Instant::now() - Duration::from_secs(5)),
+                ..Default::default()
+            },
+        );
+
+        let stops_before = arc_stop_lines(root);
+        sweep(&ctx, &state).await;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(arc_stop_lines(root), stops_before, "no `arc-stop` line");
+        let record = read_arc(root, "demo").unwrap();
+        assert!(record.stopped.is_none());
+        assert_eq!(
+            record.stopping,
+            Some(ArcStage::Devise),
+            "and the mark stands"
+        );
+    }
+
+    /// **A resume on an unspawned card is not clocked** ([B09]). The card the
+    /// resume names has no snapshot — the deck has not spawned it yet — so the
+    /// sweep lands here, reads silence, and would stop the arc as `Stalled` on
+    /// the tick after the press. That wait is the deck's own act rather than
+    /// silence, and the only thing that can tell the two apart at this depth
+    /// is the standing `resume` on the record.
+    #[tokio::test]
+    async fn a_resume_on_an_unspawned_card_is_not_clocked() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Devise,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Devise).unwrap();
+
+        let (ctx, _entry, _register_rx) = harness(root).await;
+        ctx.supervisor
+            .ledger
+            .lock()
+            .await
+            .remove(&TugSessionId::new("claude-1".to_string()));
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        // A clock already past the deadline, so the only thing between this
+        // sweep and a `Stalled` stop is the standing resume.
+        state.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_motion_at: Some(Instant::now() - Duration::from_secs(5)),
+                ..Default::default()
+            },
+        );
+
+        let stops_before = arc_stop_lines(root);
+        sweep(&ctx, &state).await;
+        sweep(&ctx, &state).await;
+
+        assert_eq!(arc_stop_lines(root), stops_before, "no `arc-stop` line");
+        let record = read_arc(root, "demo").unwrap();
+        assert!(record.stopped.is_none());
+        assert_eq!(
+            record.resume,
+            Some(ArcStage::Devise),
+            "and the resume is still there for the deck to answer",
         );
     }
 
@@ -4810,6 +5172,7 @@ Some context.
             notes: Vec::new(),
             stopped: None,
             last_stop: None,
+            stopping: None,
             resume: None,
             dispatched: None,
             owner: None,
@@ -5736,6 +6099,75 @@ Some context.
         );
     }
 
+    /// **A user stop evicts the arc's memory** ([B06], [P11]) exactly as the
+    /// wheel's stops do — through the same helper, on the wheel's own map.
+    /// Before this the CONTROL-frame stop never touched the runner's state,
+    /// so a stale clock, a quiet count at the horizon and a pending prompt all
+    /// outlived the stop with no marks beside them.
+    #[tokio::test]
+    async fn a_user_stop_evicts_the_arcs_memory() {
+        use super::super::agent_supervisor::StopTerms;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "done", "pending");
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
+            .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        // The supervisor's wheel is the runner's wheel, as `main.rs` wires it.
+        let _ = ctx.supervisor.wheel.set(Arc::clone(&ctx.wheel));
+        entry.lock().await.wake_turns_ended = 3;
+        ctx.wheel.arc_memory.lock().await.insert(
+            demo_key(root),
+            ArcState {
+                last_motion_at: Some(Instant::now() - Duration::from_secs(600)),
+                quiet_turns: 2,
+                pending: Some(PendingPrompt {
+                    kind: PromptKind::Continue { steps: (2, 2) },
+                    turns_ended_at: 1,
+                }),
+                last_done_count: Some(1),
+                prompt_turns_seen: Some(1),
+                all_turns_seen: Some(1),
+                ..Default::default()
+            },
+        );
+
+        ctx.supervisor
+            .stop_arc_now(
+                "claude-1",
+                root,
+                "demo",
+                StopTerms {
+                    stage: ArcStage::Implement,
+                    reason: ArcStopReason::StoppedByUser,
+                    question: None,
+                    halt: false,
+                },
+            )
+            .await
+            .expect("the stop lands");
+
+        let map = ctx.wheel.arc_memory.lock().await;
+        let after = &map[&demo_key(root)];
+        assert_eq!(after.last_motion_at, None, "the clock has nothing to age");
+        assert_eq!(after.quiet_turns, 0, "no turns are held against a stop");
+        assert!(after.pending.is_none(), "no prompt is waited on");
+        assert_eq!(after.last_done_count, None);
+        assert_eq!(after.prompt_turns_seen, None);
+        assert_eq!(after.all_turns_seen, None);
+        assert_eq!(
+            after.stop_marks,
+            Some(StopMarks {
+                wake_turns_ended: 3,
+                done_count: 1,
+            }),
+            "the marks are read from the entry and the ledger at stop time",
+        );
+    }
+
     /// **The incident itself, as the horizon sees it.** Six backgrounded
     /// commands completed, each re-invoking the model and each ending a turn;
     /// the runner counted six quiet turns against a stage that had been asked
@@ -6018,13 +6450,386 @@ Some context.
         );
     }
 
+
+
+    /// **A rotated resume is told it is resuming** ([P08], [F12]). Every act
+    /// that picks a stopped arc back up clears `stopped` before the runner
+    /// composes — the `arc-resume` line does it — so the rotation path, which
+    /// read that field, dropped the clause on exactly the prompts it exists
+    /// for. `last_stop` is the field kept for the generation, and it is what a
+    /// resumed stage is owed: the difference between starting the work and
+    /// picking it back up.
+    #[test]
+    fn a_rotated_resume_is_told_it_is_resuming() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
+        std::fs::write(root.join(".tug/arcs/demo/plan.md"), LINTING_PLAN).unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/plan.md").unwrap();
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
+        assert!(
+            reading.record.stopped.is_none(),
+            "the post-`arc-resume` shape: the field the rotation used to read is already clear",
+        );
+        let prompt = opening_prompt(
+            &reading,
+            &Rotation {
+                stage: ArcStage::Implement,
+                steps: Some((1, 2)),
+                note: None,
+            },
+            &bound(root, "demo"),
+            &tugarc_core::ops::worktree_path(root, "demo"),
+            None,
+        )
+        .expect("a prompt");
+        assert!(
+            prompt.contains("this arc was stopped in implement — stopped by user; it is resuming"),
+            "{prompt}",
+        );
+    }
+
+    /// **And an ordinary rotation after that resume is not.** `last_stop` is
+    /// kept for the whole generation, so an arc stopped once carries it into
+    /// every rotation afterwards; a clause read straight off it would tell a
+    /// stage rotated long after the arc was picked back up that it is
+    /// resuming from a stop somebody already resumed from. The standing
+    /// `resume` is what says this rotation is the picking up, and the
+    /// `arc-stage` line the resumed rotation produced is what clears it.
+    #[test]
+    fn a_rotation_after_a_resume_is_not_told_it_is_resuming() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
+        std::fs::write(root.join(".tug/arcs/demo/plan.md"), LINTING_PLAN).unwrap();
+        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/plan.md").unwrap();
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+        // The rotation the resume asked for lands, which clears `resume` and
+        // leaves `last_stop` standing for the rest of the generation.
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "sess-1", None)
+            .unwrap();
+
+        let reading = read(
+            root,
+            "demo",
+            &snapshot(true, true, None),
+            TickMemory::default(),
+        )
+        .unwrap();
+        assert!(
+            reading.record.last_stop.is_some(),
+            "the history the clause would have been read off is still there",
+        );
+        let prompt = opening_prompt(
+            &reading,
+            &Rotation {
+                stage: ArcStage::Audit,
+                steps: None,
+                note: None,
+            },
+            &bound(root, "demo"),
+            &tugarc_core::ops::worktree_path(root, "demo"),
+            None,
+        )
+        .expect("a prompt");
+        assert!(!prompt.contains("it is resuming"), "{prompt}");
+    }
+
+    /// The dirty clause names ten paths and counts the rest. A stage stopped
+    /// mid-rename leaves two hundred behind, and a prompt that listed them all
+    /// would bury the ask under its own footnote.
+    #[test]
+    fn a_long_dirty_list_is_capped() {
+        let paths: Vec<String> = (1..=11).map(|n| format!("src/f{n}.rs")).collect();
+        let clause = dirty_clause(paths).expect("a dirty tree has a clause");
+        assert_eq!(clause.matches("src/f").count(), 10, "{clause}");
+        assert!(clause.ends_with(" and 1 more"), "{clause}");
+
+        assert_eq!(
+            dirty_clause(vec!["src/a.rs".to_string()]).as_deref(),
+            Some("src/a.rs"),
+            "a short list is named in full, with nothing counted",
+        );
+        assert_eq!(dirty_clause(Vec::new()), None, "a clean tree has no clause");
+    }
+
+    /// A project shaped exactly like [`implementing_project`], with one thing
+    /// missing: the `arc-start` line, and so the document it records.
+    ///
+    /// The one way to reach a record whose `document` is `None` — the fold
+    /// sets the field from that line's note and from nowhere else.
+    fn implementing_project_without_a_document(root: &Path) {
+        git_project(root);
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\nimplement_compact_tokens = 300000\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".tug/arcs/demo/plan.md"),
+            plan_with_statuses("done", "pending"),
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_plan(root, "demo", ".tug/arcs/demo/plan.md").unwrap();
+        tugarc_core::log::append_arc_log(root, "demo", "run-through", "2").unwrap();
+        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
+            .unwrap();
+    }
+
+    /// A stopped, resumed implement arc whose table claims a round the log
+    /// cannot corroborate: step 1 reads `done` with an empty commit cell.
+    ///
+    /// A disagreement that is **not** one of the three half-walked-step
+    /// findings, which is the point — those three a resume excludes, and a
+    /// test written over one of them would prove nothing about the stop.
+    fn resumed_arc_whose_records_disagree(root: &Path) {
+        implementing_project(root, "done", "pending");
+        // A declared stage model, so the `model_change` a continue would send
+        // is nameable apart from the `default` a stop's hand-back sends.
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\nimplement_compact_tokens = 300000\n\
+             implement_model = \"sonnet\"\n",
+        )
+        .unwrap();
+        let plan = std::fs::read_to_string(root.join(".tug/arcs/demo/plan.md")).unwrap();
+        std::fs::write(
+            root.join(".tug/arcs/demo/plan.md"),
+            plan.replace("| done | `abc1234` |", "| done | — |"),
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::ImplementIdle,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+    }
+
+    /// **The continue path reads the records too** ([P07]). A resumed stage is
+    /// handed the same `where` line a rotated one is, and the skill tells it
+    /// the runner ran the doctor's comparison immediately before composing it.
+    /// That was true of the rotation and false of the continue, so a resume
+    /// onto a desynced record asked a stage to work from a frontier the
+    /// surfaces do not share.
+    #[tokio::test]
+    async fn a_continue_over_disagreeing_records_stops_rather_than_asking() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        resumed_arc_whose_records_disagree(root);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+
+        let record = tugarc_core::read_arc(root, "demo").expect("the arc record");
+        let (_, reason) = record.stopped.expect("a stop");
+        assert_eq!(reason, ArcStopReason::RecordsDisagree.as_str());
+        let sent: Vec<serde_json::Value> = drained(&entry).await;
+        assert!(
+            !sent.iter().any(|frame| frame["type"] == "user_message"),
+            "no stage was asked anything: {sent:?}",
+        );
+        assert!(
+            record
+                .notes
+                .last()
+                .is_some_and(|note| note.contains("empty commit cell")),
+            "{:?}",
+            record.notes,
+        );
+    }
+
+    /// **And it stops before it records anything** ([P07]). The continue path
+    /// appends `arc-continue` and swaps the card back onto the stage's model
+    /// *before* it seats, and the `arc-continue` line clears `stopped` and
+    /// `resume` as it goes — so a doctor dropped in where the prompt is
+    /// composed would leave a stopped arc carrying a continue that never
+    /// happened, on a card already wearing a model nobody is driving. This is
+    /// the pin for the order, and the one that fails if the doctor moves.
+    #[tokio::test]
+    async fn a_continue_that_stops_on_the_doctor_records_no_continue() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        resumed_arc_whose_records_disagree(root);
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+
+        assert!(
+            !arc_log_markers(root)
+                .iter()
+                .any(|line| line.starts_with("arc-continue")),
+            "no continue was recorded: {:?}",
+            arc_log_markers(root),
+        );
+        let sent = drained(&entry).await;
+        assert!(
+            !sent
+                .iter()
+                .any(|frame| frame["type"] == "model_change" && frame["model"] == "sonnet"),
+            "and the card was not put back on the stage's model: {sent:?}",
+        );
+    }
+
+    /// **The stage's own session re-enters its open row** ([P07]). It has a
+    /// transcript that knows what it changed, and `arc step start` accepts a
+    /// re-entry idempotently — so the row it was working stands, and the
+    /// half-walked-step findings are the interruption being resumed from
+    /// rather than a disagreement to stop over.
+    #[tokio::test]
+    async fn a_continue_over_an_open_step_re_enters_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "in progress", "pending");
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+
+        let record = tugarc_core::read_arc(root, "demo").expect("the arc record");
+        assert!(record.stopped.is_none(), "the arc was not stopped again");
+        assert!(
+            arc_log_markers(root)
+                .iter()
+                .any(|line| line == "arc-continue  implement"),
+            "the stage was picked back up in place: {:?}",
+            arc_log_markers(root),
+        );
+        assert_eq!(
+            ledger_status(root, "step-1"),
+            "in progress",
+            "and its open row was left exactly as it was",
+        );
+    }
+
+    /// **A rotated resume is handed a `pending` row instead** ([P07]). The
+    /// session about to be seated has never seen this arc and cannot know what
+    /// the interrupted one had already changed, so a row reading `in progress`
+    /// would be a claim it has no way to stand behind. It is parked, and
+    /// walked again from the top.
+    #[tokio::test]
+    async fn a_rotated_resume_resets_an_open_step_to_pending() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project(root, "in progress", "pending");
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        // Another claude on the card: the record's session is not this one, so
+        // the resume is a rotation rather than a continue.
+        entry.lock().await.claude_session_id = Some("claude-2".to_string());
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+
+        let record = tugarc_core::read_arc(root, "demo").expect("the arc record");
+        assert!(record.stopped.is_none(), "the arc was not stopped");
+        assert_eq!(
+            ledger_status(root, "step-1"),
+            "pending",
+            "the half-walked row was parked for the session that inherits it",
+        );
+    }
+
+    /// **A continue over a missing document stops, as a rotation does.** The
+    /// ask would be composed against nothing, and a stage asked to work on a
+    /// document that is not there is worse off than one told the arc stopped.
+    #[tokio::test]
+    async fn a_continue_over_a_missing_document_stops() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        implementing_project_without_a_document(root);
+        tugarc_core::arc::append_arc_stop(
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        set_context(&entry, 100_000).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+
+        let record = tugarc_core::read_arc(root, "demo").expect("the arc record");
+        let (_, reason) = record.stopped.expect("a stop");
+        assert_eq!(reason, ArcStopReason::DocumentMissing.as_str());
+        assert!(
+            !arc_log_markers(root)
+                .iter()
+                .any(|line| line.starts_with("arc-continue")),
+            "and nothing was recorded before the stop: {:?}",
+            arc_log_markers(root),
+        );
+    }
+
+    /// The status cell a ledger row carries, read back off the plan.
+    fn ledger_status(root: &Path, anchor: &str) -> String {
+        let source = std::fs::read_to_string(root.join(".tug/arcs/demo/plan.md")).unwrap();
+        tugtool_core::plan::parse(&source)
+            .expect("the plan parses")
+            .ledger_rows
+            .iter()
+            .find(|row| row.anchor == anchor)
+            .unwrap_or_else(|| panic!("no {anchor} row"))
+            .status
+            .clone()
+    }
+
     /// How many `arc-stop` lines the arc log holds — the record every later
     /// reader learns a stop from, so a second one is a second stop.
     fn arc_stop_lines(root: &Path) -> usize {
         std::fs::read_to_string(tugtool_core::paths::arc_log_path(root))
             .unwrap_or_default()
             .lines()
-            .filter(|line| line.contains("arc-stop"))
+            .filter(|line| line.contains("  arc-stop  "))
             .count()
     }
 

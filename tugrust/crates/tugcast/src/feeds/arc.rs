@@ -366,6 +366,16 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         return Some(ArcAction::Reverse { stage: *stage });
     }
 
+    // **A stopping arc is one nothing else may act on** ([B05]). The mark is
+    // set before a stop's first act and cleared by its last, and while it
+    // stands the arc is mid-protocol: not stopped, so the arm below does not
+    // catch it, and not to be rotated, prompted or stopped again either.
+    // Below the reversal because a reversal reads a *stopped* record, which a
+    // stopping one is not yet.
+    if record.stopping.is_some() {
+        return None;
+    }
+
     // Every other stopped arc, and every finished one, is not advanced by a
     // tick. Resuming one is an explicit `/arc`, which rotates the stopped
     // stage again and clears the stop by doing so.
@@ -375,38 +385,54 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
 
     let stage = record.current_stage();
 
-    // A dead session outranks every document fact: whatever the documents say,
-    // there is nothing left to advance.
-    if !facts.session_live {
-        return Some(ArcAction::Stop {
-            stage: stage.unwrap_or(ArcStage::Devise),
-            reason: ArcStopReason::SessionGone,
-        });
-    }
-
-    // A resume names the stage to rotate again and outranks every document
-    // fact and the clock alike: the documents still say what they said when
-    // the arc stopped, and the user has asked for the stopped stage back.
+    // **A standing resume outranks every reading of the session** ([B09]). It
+    // names the stage to rotate again, and it is the one thing on the record a
+    // person put there a moment ago: the documents still say what they said
+    // when the arc stopped, and the user has asked for the stopped stage back.
     //
-    // Above the clock, which is the arm this one is here to beat. An arc that
-    // sat stopped overnight has a stall deadline long since run out, and that
-    // silence is the silence the stop already accounted for — answering
-    // `Stalled` to it would re-stop the arc on the same tick the resume
-    // arrived, which is what the incident's two undone Resume presses were.
+    // Above `session_live`, which is the arm this one used to sit under. A
+    // dead session read above a standing resume meant the press produced a
+    // *fresh* stop — `session gone`, written over the reason the user was
+    // reading — rather than the resume they asked for. The user has just said
+    // go, and a fresh session is what spawning means here, so a resume onto a
+    // dead claude rotates.
     //
-    // The idle check is this arm's own rather than the shared gate's below,
-    // because the shared gate is now under the clock. The verb runs from
-    // inside the asking session's own turn, so waiting for idle is what places
-    // this rotation at that turn's end — and returning `None` rather than
-    // falling through is the point: a resume that is merely *early* must not
-    // become some other arm's decision.
+    // Above the clock, for the reason it always was: an arc that sat stopped
+    // overnight has a stall deadline long since run out, and that silence is
+    // the silence the stop already accounted for — answering `Stalled` to it
+    // would re-stop the arc on the same tick the resume arrived, which is what
+    // the incident's two undone Resume presses were.
+    //
+    // What the clock does still get is the **hung turn**. The idle check is
+    // this arm's own rather than the shared gate's below, because the shared
+    // gate is under the clock: the verb runs from inside the asking session's
+    // own turn, so waiting for idle is what places this rotation at that
+    // turn's end. But a turn that never ends is not a resume that is merely
+    // *early*, and returning `None` to it left the one arm that exists for a
+    // hung turn unreachable from a resumed record. So the not-idle branch
+    // consults the clock before it returns nothing. A stalled one stops as
+    // `Stalled` and keeps its `resume` — the fold's `arc-stop` arm does not
+    // clear it — so the next press still means something.
     if let Some(stage) = record.resume {
-        if !facts.session_idle {
-            return None;
-        }
         let steps = (stage == ArcStage::Implement)
             .then(|| facts.ledger.first_pending.zip(facts.ledger.run_through))
             .flatten();
+        if !facts.session_live {
+            return Some(ArcAction::Rotate(Rotation {
+                stage,
+                steps,
+                note: None,
+            }));
+        }
+        if !facts.session_idle {
+            if facts.stalled {
+                return Some(ArcAction::Stop {
+                    stage,
+                    reason: ArcStopReason::Stalled,
+                });
+            }
+            return None;
+        }
         // **The stage's own card, so the stage's own session** ([P08]). A
         // resume used to rotate unconditionally, and a rotation is a fresh
         // session: the incident's resume spent the whole working context of a
@@ -424,6 +450,17 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
             steps,
             note: None,
         }));
+    }
+
+    // A dead session outranks every document fact: whatever the documents say,
+    // there is nothing left to advance. Below the resume arm and only there
+    // ([B09]) — a resume is the one fact on the record that is a person's live
+    // instruction rather than a reading of what already happened.
+    if !facts.session_live {
+        return Some(ArcAction::Stop {
+            stage: stage.unwrap_or(ArcStage::Devise),
+            reason: ArcStopReason::SessionGone,
+        });
     }
 
     // The clock, above the idle gate on purpose. A hung turn never goes idle,
@@ -811,6 +848,7 @@ mod tests {
             notes: Vec::new(),
             stopped: None,
             last_stop: None,
+            stopping: None,
             resume: None,
             dispatched: None,
             owner: None,
@@ -2022,8 +2060,8 @@ mod tests {
     /// morning and both presses were undone within 160 ms. With the resume arm
     /// below the clock, a stale `stalled` was the answer to the very tick the
     /// resume was asking to act on. Above it, the resume wins — and a resume
-    /// that arrives mid-turn waits rather than falling through to the arm it
-    /// was placed above.
+    /// that arrives mid-turn on a session that is merely busy waits rather
+    /// than falling through to the arm it was placed above.
     #[test]
     fn a_tick_that_reads_a_resume_can_never_decide_stalled() {
         let mut record = record(&[ArcStage::Implement]);
@@ -2042,6 +2080,7 @@ mod tests {
         );
 
         facts.session_idle = false;
+        facts.stalled = false;
         assert_eq!(
             arc_action(&record, &facts),
             None,
@@ -2049,12 +2088,34 @@ mod tests {
         );
     }
 
-    /// The one arm a resume does not outrank. A resume asks for a stage back
-    /// on a session that is gone, and there is nothing to rotate onto — so the
-    /// more specific stop still wins, which is why the resume arm went below
-    /// `session_live` rather than above everything.
+    /// **The hung turn, which is the one silence a resume does not account
+    /// for** ([B09]). A resume mid-turn waits — unless the turn it is waiting
+    /// on never ends, in which case waiting is forever and the arm that exists
+    /// for exactly that shape sits below this one, unreachable. So the not-idle
+    /// branch reads the clock before it returns nothing.
     #[test]
-    fn a_gone_session_still_outranks_a_resume() {
+    fn a_resume_onto_a_hung_turn_is_reachable_by_the_clock() {
+        let mut record = record(&[ArcStage::Implement]);
+        record.resume = Some(ArcStage::Implement);
+
+        let mut facts = facts();
+        facts.session_idle = false;
+        facts.stalled = true;
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::Stalled,
+            }),
+        );
+    }
+
+    /// **A resume onto a dead claude rotates** ([B09]). The user has just said
+    /// go, and a fresh session is what spawning means here; the arm above used
+    /// to answer their press with a second stop — `session gone`, written over
+    /// the reason they were reading.
+    #[test]
+    fn a_resume_onto_a_dead_claude_rotates() {
         let mut record = record(&[ArcStage::Implement]);
         record.resume = Some(ArcStage::Implement);
 
@@ -2062,10 +2123,60 @@ mod tests {
         facts.session_live = false;
         assert_eq!(
             arc_action(&record, &facts),
-            Some(ArcAction::Stop {
+            Some(ArcAction::Rotate(Rotation {
                 stage: ArcStage::Implement,
-                reason: ArcStopReason::SessionGone,
+                steps: None,
+                note: None,
+            })),
+        );
+    }
+
+    /// **A record carrying both a stop and a resume decides nothing** ([B09]).
+    /// That shape is what the hung-turn stop above produces — the `arc-stop`
+    /// arm does not clear `resume` — and the terminal arm catches it, so the
+    /// arc sits where the stop left it. The next press writes a fresh
+    /// `arc-resume` clearing `stopped`, and only then does the resume arm
+    /// fire. The fold's half of this is pinned in `tugarc_core::arc` as
+    /// `a_stop_over_a_standing_resume_keeps_it`.
+    #[test]
+    fn a_stopped_and_resumed_record_decides_nothing_until_the_next_press() {
+        let mut record = record(&[ArcStage::Implement]);
+        record.resume = Some(ArcStage::Implement);
+        record.stopped = Some((ArcStage::Implement, "stalled".to_string()));
+
+        let facts = facts();
+        assert_eq!(
+            arc_action(&record, &facts),
+            None,
+            "a stopped arc is not advanced by a tick, resume standing or not",
+        );
+
+        // What the next Resume press writes.
+        record.stopped = None;
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Continue {
+                stage: ArcStage::Implement,
+                steps: None,
             }),
         );
+    }
+
+    /// **A stopping arc decides nothing** ([B05]). Facts that would otherwise
+    /// stop the arc — a dead session outranks every document fact — decide
+    /// nothing while a stop protocol is in flight, because the protocol is
+    /// already stopping it and a second stopper would race the first.
+    #[test]
+    fn a_stopping_arc_decides_nothing() {
+        let mut record = record(&[ArcStage::Implement]);
+        let mut facts = facts();
+        facts.session_live = false;
+        assert!(
+            matches!(arc_action(&record, &facts), Some(ArcAction::Stop { .. })),
+            "without the mark these facts stop the arc",
+        );
+
+        record.stopping = Some(ArcStage::Implement);
+        assert_eq!(arc_action(&record, &facts), None);
     }
 }

@@ -1450,13 +1450,25 @@ export function initActionDispatch(
       const sessionId = payload.tug_session_id;
       const arc = payload.arc;
       if (typeof arc !== "string" || arc.length === 0) return;
-      // Released whether or not the refusal can be routed to a card: a button
-      // left waiting on a frame nobody can speak is worse than a silent
-      // refusal.
-      arcPressStore.settle(arc, verb);
-      if (typeof sessionId !== "string" || sessionId.length === 0) return;
+      // **Routable means a card actually holds it**, not merely that the
+      // payload named something. An empty id is the obvious case; the one that
+      // bites is a *non-empty* id no card wears, which is what a
+      // segment-addressed refusal is on any rotated arc — waved straight
+      // through by a length check into a store slot `ArcPressNoticeController`
+      // never reads. `cardIdForSession` is the deck's own segment → line →
+      // card walk, the same question `unbind_arc_ok` below asks.
+      //
+      // Either way the store releases the button, and a null id falls back to
+      // the card the press was made from: a button left waiting on a frame
+      // nobody can speak is worse than a silent refusal, and a refusal nobody
+      // can speak is worse than one spoken where the press was.
+      const named =
+        typeof sessionId === "string" && sessionId.length > 0
+          ? sessionId
+          : null;
+      const routable = named !== null && cardIdForSession(named) !== null;
       arcPressStore.refuse(
-        sessionId,
+        routable ? named : null,
         arc,
         verb,
         typeof payload.reason === "string" ? payload.reason : "unknown",

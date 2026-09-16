@@ -247,6 +247,11 @@ pub struct WheelState {
     /// ledger would put a database behind every rotation unit test. Attached
     /// once, at startup, by [`Self::attach_ledger`].
     ledger: StdMutex<Option<Arc<crate::session_ledger::SessionLedger>>>,
+    /// The arc runner's per-arc memory, held here so a stop performed from
+    /// outside the runner — the CONTROL-frame user stop — evicts the entry
+    /// the runner wrote ([P11]). The runner reads and writes it on every
+    /// sweep; every other holder only ever evicts.
+    pub(crate) arc_memory: crate::feeds::arc_runner::ArcMemory,
 }
 
 impl WheelState {
