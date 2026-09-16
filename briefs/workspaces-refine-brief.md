@@ -38,6 +38,8 @@ Every one of these is against the landed code, not against the model. The v5 blo
 
 **[F07] The product already keeps hidden cards mounted rather than re-mounting them.** `CardHost` (`tugdeck/src/components/chrome/card-host.tsx`) keeps every background tab of a pane mounted and hides it with `display: none`, so identity, editor state and scroll survive a tab switch. This is the precedent the switch should follow, and it is also why the close-guard walk in [F05] works for background tabs: their guards are live because they are mounted. **(verified)**
 
+**[F08] The pane title bar is a fixed spine of verb buttons, and one of them is already a popup menu.** `tug-pane.tsx` lays the trailing end out right to left — close box, card width, bullseye — as ghost icon buttons every card kind shares, with the card's own verbs (the Session card's summary `···`, Reveal in Finder) portaled in ahead of them by the masthead. Card width is a `TugPopupMenu` over a ghost `TugButton`, the sanctioned composition for a title-bar control that opens a list. A verb offered by every card kind belongs in the shared spine, at one offset on every pane. **(verified)**
+
 ---
 
 ## Decisions {#decisions}
@@ -56,11 +58,7 @@ Every one of these is against the landed code, not against the model. The v5 blo
 
 **[B07] Memory pressure is managed later, not now.** With [B06], every workspace's DOM stays resident. The user's own framing is that some way to minimize pressure will eventually be needed but the landed behaviour is too conservative. So no eviction, no most-recently-used budget, no parked-after-N-minutes policy in this pass; the hook for one is the existing parked-deck record, which is exactly the shape an evicted workspace would take. A policy is a separate brief once there is a measurement to size it against.
 
----
-
-## Open Questions {#open-questions}
-
-- **Where does Move to Workspace get a named verb?** Drag is the fast path ([B03]). A menu door for it — "Move to ▸" on a card row's right-click, on the pane's title bar, or in the Window menu for the focused card — was not in the user's notes and is not decided here. It would settle by the user saying which surface, if any, they want; the arc can land [B03] without it.
+**[B08] Move to Workspace is a popup menu in the pane title bar's shared spine, on every pane.** A `TugPopupMenu` over a ghost `TugButton`, composed like card width ([F08]), sitting in the trailing spine so it is at the same offset on a Session card's masthead as on a Text card. Its items are the other workspaces by name; choosing one calls `moveCardToSpace` for the pane's active card, and [B04] holds — the user stays where they are. With one workspace the button dims rather than disappears, the spine's own rule. The user named the session masthead as the surface; the spine is where the masthead's shared verbs already live, and a card of any kind moves, so the control is the pane's rather than the Session card's. Drag ([B03]) remains the fast path; this is the named door.
 
 ---
 
@@ -81,6 +79,7 @@ An arc, `workspaces-refine`. The natural order:
 1. The trace that confirms or refutes [F06], since [B06] rests on it.
 2. [B02] folding and [B01] the card's doors — small, independent, and what the user hits first.
 3. [B03] the block-wide drop target and highlight, with [B04] held by a test.
-4. [B05] the guarded delete, reusing the pane's guard walk rather than writing a second one.
-5. [B01] the Window menu verbs, with the control frames they need.
-6. [B06] mounted workspaces, last, because it changes the deck canvas and the capture doctrine and wants everything above it green first.
+4. [B08] the title-bar Move to Workspace menu, which shares [B03]'s `moveCardToSpace` path and its test.
+5. [B05] the guarded delete, reusing the pane's guard walk rather than writing a second one.
+6. [B01] the Window menu verbs, with the control frames they need.
+7. [B06] mounted workspaces, last, because it changes the deck canvas and the capture doctrine and wants everything above it green first.
