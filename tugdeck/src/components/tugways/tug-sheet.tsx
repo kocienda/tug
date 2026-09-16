@@ -1312,6 +1312,21 @@ export function TugSheetContent({
           held.onRefused();
           return;
         }
+        // A cancel that did not come through this sheet's own door carries no
+        // `sender` — the registry's global ⌘. binding dispatches `cancelDialog`
+        // to the first responder bare. Closing on it directly would put the
+        // panel away while `useTugSheet`'s observer, which resolves the
+        // `showSheet()` promise only for a dispatch carrying its sender id,
+        // never fires: the caller's promise hangs, and an opener that gates on
+        // it (the AI configuration sheet's ⌃⌘I toggle) is left believing the
+        // sheet is still up, with nothing to close. Re-enter through
+        // `requestCancel`, which dispatches the same action with the sender
+        // attached, so every keyboard exit resolves the promise the way
+        // Escape and the Cancel button already do.
+        if (event.sender !== senderId) {
+          requestCancel();
+          return;
+        }
         closeSheet();
       },
     },
