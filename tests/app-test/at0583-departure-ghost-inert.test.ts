@@ -4,10 +4,11 @@
  *
  * ## What this gates
  *
- * A departure face is a `cloneNode(true)` of a whole live `.tug-pane`, planted
- * in the ghost and left standing for the length of the fade. Every attribute
- * the clone carried comes with it, and an attribute is how nearly everything in
- * the deck ADDRESSES a live thing: the focus machinery resolves
+ * A departure ghost is a blank tile. For one day it carried a FACE — a
+ * `cloneNode(true)` of a whole live `.tug-pane`, planted in it and left standing
+ * for the length of the fade — and every attribute the clone carried came with
+ * it. An attribute is how nearly everything in the deck ADDRESSES a live thing:
+ * the focus machinery resolves
  * `[data-tug-focusable="…"]` and `[data-responder-id="…"]`, the card host
  * restores scroll through `[data-tug-scroll-key]`, focus transfer finds a
  * component's saved state through `[data-tug-state-key]`, the gesture
@@ -15,34 +16,40 @@
  * portals mount onto `[data-tug-annotation="commit-sha"]`, and every app-test
  * names anything at all with `[data-testid]`.
  *
- * `takeDepartureFace` already stripped six of those. The others were not on the
- * list, so for the whole beat a ghost stands, the document holds a SECOND set
- * of answers to questions whose true answer is "that card closed" — and the
- * queries above are document-wide, so the still is not merely reachable, it is
- * reachable FIRST when it sorts before the live card in document order.
+ * `takeDepartureFace` stripped six of those and the others were not on the list,
+ * so for the whole beat a ghost stood, the document held a SECOND set of answers
+ * to questions whose true answer is "that card closed" — and the queries above
+ * are document-wide, so the still was not merely reachable, it was reachable
+ * FIRST when it sorted before the live card in document order. The strip list
+ * could not be finished, and the clone is retired for that reason.
  *
- * This file is the [B04] half of the contract: the face answers to nothing,
- * read as a census over the real selectors rather than as a list of attributes
- * checked against itself. `at0582` is the other half — the face places itself
- * nowhere.
+ * So this file is the TRIPWIRE on that decision. An empty tile answers nothing
+ * by construction — but "by construction" is a property of today's code, and the
+ * census below is what turns re-planting anything live inside a ghost back into a
+ * red rather than into a quiet second set of answers. It reads the real selectors
+ * rather than a list of attributes checked against itself, and it runs against
+ * the richest card there is, so the day something IS planted the census names it.
  *
  * ## The claim
  *
  * While a ghost stands:
  *
- * 1. No selector in {@link LIVE_SELECTORS} resolves inside it.
- * 2. The ghost is `inert`, `aria-hidden`, and takes no pointer events — read as
- *    COMPUTED `pointer-events`, because that is what a hit test reads, and the
- *    face is checked as well as the ghost so the rule cannot be satisfied by
- *    the ghost alone.
+ * 1. It carries no nodes at all — the blank tile, read as a count.
+ * 2. No selector in {@link LIVE_SELECTORS} resolves inside it.
+ * 3. It takes no pointer events — read as COMPUTED `pointer-events`, because
+ *    that is what a hit test reads.
  *
  * The census also reports every `data-*` attribute still standing inside the
- * ghost, in a `note()`. That list is not asserted — most of what survives is
- * appearance, which is the whole point of the still — but it is what a reader
- * consults when a NEW addressing attribute is invented, and it is how the next
- * entry for the strip list gets found without another leak first.
+ * ghost, in a `note()`. On a blank tile that list is empty and the note says so,
+ * which is the cheapest possible reading of the rule this file holds.
  *
- * @covers tugdeck/src/components/chrome/departure-face.ts
+ * `deck-canvas.tsx` is what plants a ghost and is not in the `@covers` list, on
+ * at0587's precedent: it is already recorded at the selection ceiling in
+ * `select-tests.ts`, and the ratchet lets recorded debt be paid down rather
+ * than refinanced in place. `tug-pane.css` carries the ghost's whole styling,
+ * including the `pointer-events: none` this file reads computed.
+ *
+ * @covers tugdeck/src/components/tugways/tug-pane.css
  */
 import { describe, expect, test } from "bun:test";
 
@@ -89,12 +96,11 @@ interface Standing {
   answered: Record<string, number>;
   /** Every `data-*` attribute name still standing anywhere inside the ghost. */
   survivors: string[];
+  /** How many nodes stand inside the ghost. A departure is a blank tile. */
+  carried: number;
   ghostInert: boolean;
   ghostAriaHidden: string;
   ghostPointerEvents: string;
-  faceInert: boolean;
-  faceAriaHidden: string;
-  facePointerEvents: string;
   /** How many ghosts stood when the reading was taken. */
   ghosts: number;
 }
@@ -145,7 +151,6 @@ async function arm(app: App): Promise<void> {
       var tick = function () {
         var ghost = document.querySelector(".tug-pane-exit-ghost");
         if (ghost !== null && window.__at0583 === null) {
-          var face = ghost.querySelector(":scope > .tug-pane-exit-face");
           var answered = {};
           for (var i = 0; i < selectors.length; i += 1) {
             answered[selectors[i]] = ghost.querySelectorAll(selectors[i]).length;
@@ -161,12 +166,10 @@ async function arm(app: App): Promise<void> {
           window.__at0583 = {
             answered: answered,
             survivors: Object.keys(survivors).sort(),
+            carried: ghost.childNodes.length,
             ghostInert: ghost.hasAttribute("inert"),
             ghostAriaHidden: ghost.getAttribute("aria-hidden") || "",
             ghostPointerEvents: getComputedStyle(ghost).pointerEvents,
-            faceInert: face === null ? false : face.hasAttribute("inert"),
-            faceAriaHidden: face === null ? "" : face.getAttribute("aria-hidden") || "",
-            facePointerEvents: face === null ? "" : getComputedStyle(face).pointerEvents,
             ghosts: document.querySelectorAll(".tug-pane-exit-ghost").length,
           };
         }
@@ -180,7 +183,7 @@ async function arm(app: App): Promise<void> {
 
 describe.skipIf(!SHOULD_RUN)("AT0583: the departure ghost answers nothing", () => {
   test(
-    "no live selector resolves inside a standing ghost, and it is inert",
+    "a standing ghost carries nothing, answers nothing, and takes no pointer events",
     async () => {
       const app = await launchTugApp({ testName: "at0583-departure-ghost-inert" });
       try {
@@ -231,8 +234,7 @@ describe.skipIf(!SHOULD_RUN)("AT0583: the departure ghost answers nothing", () =
         );
         note(
           "inertness",
-          `ghost: inert=${read.ghostInert} aria-hidden="${read.ghostAriaHidden}" pointer-events=${read.ghostPointerEvents}; ` +
-            `face: inert=${read.faceInert} aria-hidden="${read.faceAriaHidden}" pointer-events=${read.facePointerEvents}`,
+          `ghost: carries ${read.carried} node(s), inert=${read.ghostInert} aria-hidden="${read.ghostAriaHidden}" pointer-events=${read.ghostPointerEvents}`,
         );
 
         const answering = LIVE_SELECTORS.filter(
@@ -246,20 +248,15 @@ describe.skipIf(!SHOULD_RUN)("AT0583: the departure ghost answers nothing", () =
           "while a ghost stands, nothing the app addresses a live node by resolves inside it",
         ).toEqual([]);
 
-        // Inert in every sense, on the face as well as on the ghost: the rule
-        // is the FACE's, and a ghost that carried it alone would leave a still
-        // planted anywhere else live.
-        expect(read.faceAriaHidden, "the face is out of the accessibility tree").toBe(
-          "true",
-        );
-        expect(read.faceInert, "the face is out of the tab order").toBe(true);
+        // The blank tile itself. A departure carries nothing, which is what
+        // makes the census above answer nothing rather than merely happen to.
+        expect(
+          read.carried,
+          "a departure is a blank tile — nothing stands inside it",
+        ).toBe(0);
         expect(
           read.ghostPointerEvents,
           "the ghost takes no pointer events",
-        ).toBe("none");
-        expect(
-          read.facePointerEvents,
-          "and neither does the face — what a hit test reads is the computed value",
         ).toBe("none");
         expect(read.ghosts, "one departure, one ghost").toBe(1);
       } finally {

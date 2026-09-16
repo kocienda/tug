@@ -1139,11 +1139,10 @@ describe.skipIf(!SHOULD_RUN)(
             "a close interrupted by a second arrangement change leaves no ghost behind",
           ).toEqual([]);
 
-          // [B06]: one face, one ghost. Two panes closed back to back each get
-          // their own ghost wearing their own face — a face is taken at the
-          // last moment its pane exists and consumed by the pass that plants
-          // it, so neither can be planted in the other's ghost, and neither
-          // departure is cut short by the other landing beside it.
+          // One pane, one ghost. Two panes closed back to back each get their
+          // own blank tile, so neither departure is cut short by the other
+          // landing beside it — and neither tile carries anything inside it,
+          // which is what a departure has been since the clone was retired.
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `document.querySelector('.tug-pane[data-pane-id="p3"]') !== null`,
@@ -1162,39 +1161,31 @@ describe.skipIf(!SHOULD_RUN)(
             })()`,
           );
           await wait(90);
-          const pair = await app.evalJS<{ ghosts: number; faces: number; shared: boolean }>(
+          const pair = await app.evalJS<{ ghosts: number; carried: number }>(
             `(function () {
               var ghosts = document.querySelectorAll(".tug-pane-exit-ghost");
-              var faces = [];
+              // A ghost is a blank tile: the clone that used to be planted
+              // inside one is retired, so anything at all under a ghost is the
+              // failure now.
+              var carried = 0;
               for (var i = 0; i < ghosts.length; i += 1) {
-                var face = ghosts[i].querySelector(":scope > .tug-pane-exit-face");
-                if (face !== null) faces.push(face);
+                carried += ghosts[i].childNodes.length;
               }
-              // The same NODE in two ghosts is the failure this pins: a face
-              // held past the pass that should have consumed it, planted a
-              // second time in a later departure's ghost.
-              var shared = false;
-              for (var a = 0; a < faces.length; a += 1) {
-                for (var b = a + 1; b < faces.length; b += 1) {
-                  if (faces[a] === faces[b]) shared = true;
-                }
-              }
-              return { ghosts: ghosts.length, faces: faces.length, shared: shared };
+              return { ghosts: ghosts.length, carried: carried };
             })()`,
           );
           note(
             "two-card close",
-            `${pair.ghosts} ghost(s), ${pair.faces} face(s), shared face: ${pair.shared}`,
+            `${pair.ghosts} ghost(s), ${pair.carried} node(s) carried inside them`,
           );
           expect(
             pair.ghosts,
             "two panes closed back to back each leave their own ghost — neither is cut short by the other",
           ).toBe(2);
           expect(
-            pair.faces,
-            "and each ghost wears a face of its own ([B06])",
-          ).toBe(2);
-          expect(pair.shared, "no face is planted in two ghosts").toBe(false);
+            pair.carried,
+            "and each is a blank tile — a departure carries nothing inside it",
+          ).toBe(0);
           await wait(AFTER_LAND_MS * 3);
           expect(
             await app.evalJS<number>(

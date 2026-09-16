@@ -53,7 +53,6 @@ import {
   type SidebarStackStanding,
 } from "./tug-pane";
 import { CardHost } from "./card-host";
-import { takeDepartureFace } from "./departure-face";
 import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
@@ -2966,7 +2965,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * before anything is launched, so no completion ever runs, so the tile
    * stands in the document for the life of the canvas. One per close
    * interrupted at exactly the wrong moment, and nothing in the deck would
-   * ever notice: a ghost answers to nothing (`departure-face.ts`), which is
+   * ever notice: a ghost carries nothing and answers to nothing, which is
    * what makes it safe and also what makes a stranded one invisible.
    *
    * So a ghost is registered the moment it is planted and removed BY NAME at
@@ -3129,38 +3128,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   cardLifecycleRef.current = cardLifecycle;
 
   /**
-   * The face a departing pane had, cloned the last moment it still existed.
-   *
-   * A departure's ghost owns the position, the size, the background and the
-   * border of the pane that left, and it has never had anything INSIDE it: by
-   * the time the settle's Last pass runs, the removal commit has landed and
-   * React has unmounted the frame, so the only thing still known about the
-   * pane is the rect `arm` measured. A card that departs therefore fades out
-   * as a coloured rectangle rather than as itself, which reads as the content
-   * vanishing a beat before the frame does ([P07]).
-   *
-   * `cardWillBeginDestruction` is the one notification that fires while the
-   * frame is still mounted — `_closePane` sends it BEFORE the removal commit —
-   * so it is the only moment a face can be taken.
-   *
-   * **The clone answers to nothing.** Every attribute by which anything —
-   * the settle's own `.tug-pane[data-pane-id]` walk, the focus machinery, a
-   * test waiting for a card to leave — addresses a LIVE thing is stripped from
-   * the face and from every node under it ({@link takeDepartureFace}). A
-   * still that still answers `[data-card-id="A"]` is a card that never closed
-   * as far as anybody asking is concerned, and the ghost outlives the frame by
-   * a whole beat. Appearance survives the strip because appearance rides on
-   * classes; the handful of CSS rules keyed on `data-slot` tune details a
-   * 240ms fade does not show, and that is the price of the rule being a rule.
-   *
-   * Keyed by pane id and emptied by the pass that plants it. A notification
-   * that does not lead to a removal — a card closed out of a pane that keeps
-   * standing — leaves an entry the next settle clears, so a stale face can
-   * never be planted in a later departure's ghost.
-   */
-  const departureFacesRef = useRef<Map<string, HTMLElement>>(new Map());
-
-  /**
    * The frames that are ARRIVING — held invisible by a Last pass and not yet
    * launched into their arrive beat.
    *
@@ -3181,33 +3148,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * settle releases, since nothing is pending past the end of the settle.
    */
   const pendingArrivalsRef = useRef<Set<string>>(new Set());
-
-  useLayoutEffect(() => {
-    const lifecycle = cardLifecycle;
-    if (lifecycle === null) return;
-    return lifecycle.observeCardWillBeginDestruction(null, (cardId) => {
-      const el = containerRef.current;
-      if (el === null) return;
-      // The CURRENT panes, off the store: the pane is still there, and the
-      // rendered snapshot this component closed over may be a commit behind.
-      const pane = store
-        .getSnapshot()
-        .panes.find((p) => p.cardIds.includes(cardId));
-      if (pane === undefined) return;
-      // One face per pane, taken by the first card that says it is going.
-      // `_closePane` notifies EVERY card in the pane before its removal
-      // commit, and the frame does not change between those notifications —
-      // so a four-tab pane would otherwise deep-clone the same frame four
-      // times and keep the last. The clone is the expensive part of this
-      // subscriber, and it is taken on the close gesture itself.
-      if (departureFacesRef.current.has(pane.id)) return;
-      const frame = el.querySelector<HTMLElement>(
-        `.tug-pane[data-pane-id="${pane.id}"]`,
-      );
-      if (frame === null) return;
-      departureFacesRef.current.set(pane.id, takeDepartureFace(frame));
-    });
-  }, [cardLifecycle, store]);
 
   /**
    * Fire `cardDidArrive` for every card the deck holds that is still marked
@@ -4331,14 +4271,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       ghost.style.top = `${rect.top}px`;
       ghost.style.width = `${rect.width}px`;
       ghost.style.height = `${rect.height}px`;
-      // The face the pane had, if one was taken. When none was — a pane that
-      // left some other way than a card being destroyed — the ghost stays
-      // blank, which is what it has always been and is still correct.
-      const face = departureFacesRef.current.get(paneId);
-      if (face !== undefined) {
-        ghost.appendChild(face);
-        departureFacesRef.current.delete(paneId);
-      }
       el.appendChild(ghost);
       // Registered the instant it is planted, so every exit below can hand it
       // back by name. A departure whose pane somehow departs twice replaces
@@ -4346,12 +4278,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       departureGhostsRef.current.set(paneId, { ghost, launched: false });
       departures.push({ paneId, ghost });
     }
-    // A destruction notification that did not lead to a departure leaves a face
-    // behind — a card closed out of a pane that keeps standing is the ordinary
-    // case. Clear every entry this settle did not plant, so a face can never be
-    // held past the arrangement it was taken in and planted in some later
-    // pane's ghost.
-    departureFacesRef.current.clear();
     // The beats. Every frame's shrink tweens together; on their joint
     // completion every frame's move tweens; then every frame's grow tweens —
     // and a beat no frame has a term in is skipped, so the everyday stack move

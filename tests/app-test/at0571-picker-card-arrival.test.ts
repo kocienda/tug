@@ -61,9 +61,9 @@
  *
  * The second test is the departure, which is the same design read backwards
  * and is also two motions: `depart`, then `room`. The ghost that stands where
- * the card was carries the card's own FACE — a still clone planted in it one
- * commit before the frame leaves — so what fades out is the card the reader
- * was looking at rather than a blank tile.
+ * the card was is a BLANK TILE carrying nothing, which is what a departure
+ * has been since the clone planted inside it was retired — a copy of a card
+ * leaves behind everything about the card that is not DOM.
  *
  * The sitting member is a `hello` card rather than a second Session card for
  * `at0569`'s reason: an unbound Session card raises its picker the moment it
@@ -263,10 +263,8 @@ interface Sample {
   held: Record<string, number>;
   /** How many exit ghosts stood on the canvas. */
   ghosts: number;
-  /** Whether a ghost carried a planted FACE — a still clone of the pane. */
-  ghostFace: boolean;
-  /** Whether that face carried the picker's own marker class. */
-  ghostFacePicker: boolean;
+  /** How many nodes stood INSIDE the ghosts. A departure is a blank tile. */
+  ghostCarried: number;
 }
 
 /**
@@ -306,13 +304,11 @@ async function census(app: App, gesture: string): Promise<Sample[]> {
         for (var key in claims) sample.held[key] = claims[key];
         for (var key in bids) sample.held[key] = bids[key];
         sample.rows = document.querySelectorAll('[data-testid="session-card-picker-session-resume"]').length;
-        var face = document.querySelector(
-          ${JSON.stringify(`${EXIT_GHOST} > .tug-pane-exit-face`)},
-        );
-        sample.ghostFace = face !== null;
-        sample.ghostFacePicker =
-          face !== null &&
-          face.querySelector(${JSON.stringify(PICKER_FORM)}) !== null;
+        var tiles = document.querySelectorAll(${JSON.stringify(EXIT_GHOST)});
+        sample.ghostCarried = 0;
+        for (var g = 0; g < tiles.length; g += 1) {
+          sample.ghostCarried += tiles[g].childNodes.length;
+        }
         var frames = document.querySelectorAll(".tug-pane[data-pane-id]");
         for (var i = 0; i < frames.length; i += 1) {
           var el = frames[i];
@@ -832,7 +828,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
   );
 
   test(
-    "cancelling the picker takes the card away, and its ghost wears the card's own face",
+    "cancelling the picker takes the card away, and its ghost is a blank tile",
     async () => {
       const app = await launchTugApp({ testName: "at0571-departure" });
       try {
@@ -892,27 +888,23 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           "no frame changes size during the depart beat",
         ).toBeLessThan(EPSILON);
 
-        // ── The ghost carries the card's own FACE. A still clone of the pane
-        //    is planted in it one commit before the frame leaves, so what the
-        //    reader watches fade is the card that was there rather than a
-        //    blank tile — and on this card the face is the picker, which is
-        //    what the marker class proves. ──
+        // ── The ghost stands where the card was, and it is a BLANK TILE. The
+        //    clone that used to be planted in it is retired: a copy of a card
+        //    leaves behind everything about the card that is not DOM, and the
+        //    set of such things has no end to enumerate. What survives is the
+        //    claim that a departure is marked at all. ──
         const withGhost = samples.filter((s) => s.ghosts > 0);
         note(
-          "ghost face",
-          `${withGhost.length} sample(s) with a ghost, ${withGhost.filter((s) => s.ghostFace).length} carrying a face, ${withGhost.filter((s) => s.ghostFacePicker).length} carrying the picker`,
+          "ghost tile",
+          `${withGhost.length} sample(s) with a ghost, ${withGhost.filter((s) => s.ghostCarried > 0).length} carrying anything inside`,
         );
         expect(
           withGhost.length,
           "a ghost stands where the card was",
         ).toBeGreaterThan(0);
         expect(
-          withGhost.filter((s) => !s.ghostFace).length,
-          "every ghost carries a planted face",
-        ).toBe(0);
-        expect(
-          withGhost.filter((s) => !s.ghostFacePicker).length,
-          "and the face is the card the reader was looking at — the picker",
+          withGhost.filter((s) => s.ghostCarried > 0).length,
+          "and it is a blank tile — a departure carries nothing inside it",
         ).toBe(0);
 
         // The ghost is the depart beat's whole subject, so it is gone by the

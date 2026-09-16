@@ -1,6 +1,6 @@
 /**
  * at0582-departure-ghost-rect.test.ts — a departing card's ghost stands exactly
- * where the card stood, and its face fills the ghost.
+ * where the card stood, and it stands there empty.
  *
  * ## What this gates
  *
@@ -8,21 +8,20 @@
  * removal commit, so by the time there is an animation to run there is no
  * element to run it on. The canvas plants a `.tug-pane-exit-ghost` at the
  * frame's last measured rect instead, fades it, and takes it away
- * (`deck-canvas.tsx`, "The departures"). Since `ebcb64175` the ghost also
- * carries a FACE — a `cloneNode(true)` of the whole `.tug-pane` subtree, taken
- * on `cardWillBeginDestruction` while the frame still exists — so the card
- * fades as itself rather than as a coloured rectangle.
+ * (`deck-canvas.tsx`, "The departures"). It is a BLANK TILE: for one day it
+ * also carried a FACE — a `cloneNode(true)` of the whole `.tug-pane` subtree,
+ * taken on `cardWillBeginDestruction` while the frame still existed — and that
+ * clone is retired, because a copy of a card leaves behind everything about the
+ * card that is not DOM and the set of such things has no end to enumerate.
  *
- * Nothing tested WHERE either of them stood. `at0450` asserts a ghost exists
- * mid-fade and is gone at rest; `at0571` asserts the ghost carries a face and
- * that the face carries the picker. Neither compares a rect to anything, and
- * the defect that fell through the gap is the plainest one there is: the
- * clone keeps the live frame's inline `position: absolute` and the imposer's
- * `left`/`top`, inline geometry outranks the `.tug-pane-exit-ghost >
- * .tug-pane-exit-face { position: absolute; inset: 0 }` class rule, and so the
- * face is laid out INSIDE the ghost at the pane's own canvas coordinates. The
- * reader sees the card, then a copy of it shifted down and right by the strip
- * gap, then the copy fading.
+ * Nothing tested WHERE the ghost stood. `at0450` asserts one exists mid-fade
+ * and is gone at rest; `at0571` asserts one stands over a cancelled picker.
+ * Neither compares a rect to anything, and the defect that fell through the
+ * gap was measured against the clone this file was written for: it kept the
+ * live frame's inline `position: absolute` and the imposer's `left`/`top`, so
+ * it was laid out INSIDE the ghost at the pane's own canvas coordinates — 1136px
+ * off on a slot-2 pane. The rect claim outlives the clone, because the tile
+ * that fades is placed by exactly the same three lines.
  *
  * ## The claim
  *
@@ -30,27 +29,31 @@
  *
  * 1. The GHOST's bounding rect equals the rect the departing frame stood at,
  *    within a pixel. The ghost owns position and size.
- * 2. The FACE's bounding rect equals the same rect. The face owns NOTHING: it
- *    is a picture that fills the box the ghost placed, and any geometry of its
- *    own — inline or otherwise — is a leak.
+ * 2. The ghost carries NOTHING. Not a node, for the whole time it stands: a
+ *    departure is the tile and the tile is empty, and anything found under one
+ *    is a copy of a card that somebody planted back.
  *
  * The deck is at rest when the close is dispatched, so the rect the arm
  * measures is the rect on screen the instant before the gesture, and that is
- * what the census reads both of them against.
+ * what the census reads the ghost against.
  *
  * A per-frame sampler rather than a before-and-after reading, for the reason
  * `at0576` gives: the ghost stands for one beat and is taken away, so a check
  * that runs after it is gone has nothing to look at, and a check that runs
  * once mid-fade cannot tell a ghost that stood still from one that drifted.
  *
- * ## Why the face is read twice
+ * ## Why the tile's contents are named rather than counted
  *
- * The rect is the claim. The face's INLINE `position`/`left`/`top` are read
- * alongside it because they are the leak's mechanism, and a failure that names
- * them is a failure that says what to fix rather than only that something
- * moved.
+ * A count says a tile is not empty; the first child's tag and class say WHAT
+ * was planted in it, which is the difference between a failure that says what
+ * to fix and one that says only that something is there.
  *
- * @covers tugdeck/src/components/chrome/departure-face.ts
+ * `deck-canvas.tsx` plants the ghost and is not in the `@covers` list, on
+ * at0587's precedent: it is already recorded at the selection ceiling in
+ * `select-tests.ts`, and the ratchet lets recorded debt be paid down rather
+ * than refinanced in place. `tug-pane.css` is the ghost's whole styling and is
+ * where the face's two rules were taken out.
+ *
  * @covers tugdeck/src/components/tugways/tug-pane.css
  */
 import { describe, expect, test } from "bun:test";
@@ -99,10 +102,10 @@ interface Sample {
   ghosts: number;
   /** The ghost's rect, when one stands. */
   ghost: Rect | null;
-  /** The face's rect, when the ghost carries one. */
-  face: Rect | null;
-  /** The face's own inline geometry — the leak's mechanism, named. */
-  faceInline: string;
+  /** How many nodes stand inside the ghost. A departure is a blank tile. */
+  carried: number;
+  /** What the first of them is, named — `""` when the tile is empty. */
+  carriedIs: string;
 }
 
 /**
@@ -161,7 +164,7 @@ async function frameRect(app: App, paneId: string): Promise<Rect> {
 
 /**
  * Arm the per-frame sampler, close the pane, and hand back every frame's
- * reading of the ghost and its face.
+ * reading of the ghost and of whatever stands inside it.
  */
 async function census(app: App, paneId: string): Promise<Sample[]> {
   await app.evalJS<null>(
@@ -176,25 +179,17 @@ async function census(app: App, paneId: string): Promise<Sample[]> {
       var tick = function () {
         var canvas = document.querySelector("[data-imposer-settling]");
         var ghost = document.querySelector(".tug-pane-exit-ghost");
-        var face =
-          ghost === null
-            ? null
-            : ghost.querySelector(":scope > .tug-pane-exit-face");
+        var first = ghost === null ? null : ghost.firstElementChild;
         window.__at0582.push({
           t: Math.round(performance.now() - t0),
           beat: canvas === null ? "" : canvas.getAttribute("data-imposer-beat") || "",
           ghosts: document.querySelectorAll(".tug-pane-exit-ghost").length,
           ghost: box(ghost),
-          face: box(face),
-          faceInline:
-            face === null
-              ? ""
-              : "position=" + (face.style.position || "-") +
-                " left=" + (face.style.left || "-") +
-                " top=" + (face.style.top || "-") +
-                " width=" + (face.style.width || "-") +
-                " height=" + (face.style.height || "-") +
-                " transform=" + (face.style.transform || "-"),
+          carried: ghost === null ? 0 : ghost.childNodes.length,
+          carriedIs:
+            first === null
+              ? (ghost !== null && ghost.childNodes.length > 0 ? "a text node" : "")
+              : first.tagName.toLowerCase() + "." + (first.className || "(no class)"),
         });
         if (performance.now() - t0 < ${CENSUS_MS}) requestAnimationFrame(tick);
       };
@@ -224,7 +219,7 @@ const fmt = (r: Rect): string =>
 
 describe.skipIf(!SHOULD_RUN)("AT0582: the departure ghost's rect", () => {
   test(
-    "the ghost stands where the card stood, and the face fills the ghost",
+    "the ghost stands where the card stood, and it stands there empty",
     async () => {
       const app = await launchTugApp({ testName: "at0582-departure-ghost" });
       try {
@@ -247,21 +242,23 @@ describe.skipIf(!SHOULD_RUN)("AT0582: the departure ghost's rect", () => {
           standing.length,
           "a closing pane leaves a ghost, and the census must have seen it stand",
         ).toBeGreaterThan(2);
-        const withFace = standing.filter((s) => s.face !== null);
+        const carrying = standing.filter((s) => s.carried > 0);
         expect(
-          withFace.length,
-          "the ghost carries a face for the whole time it stands ([F01])",
-        ).toBe(standing.length);
+          carrying.map((s) => `t=${s.t}ms beat "${s.beat}": the tile carried ${s.carried} node(s), first ${s.carriedIs}`).slice(0, 6),
+          "the ghost is a blank tile for the whole time it stands — a departure carries nothing inside it",
+        ).toEqual([]);
         note(
           "census",
           `${samples.length} frames sampled; a ghost stood on ${standing.length} of them, ` +
             `beats ${[...new Set(standing.map((s) => s.beat || "(none)"))].join(", ")}`,
         );
-        note("face inline geometry", withFace[0]?.faceInline ?? "(no face)");
+        note(
+          "tile contents",
+          `${carrying.length} of ${standing.length} standing frames carried anything`,
+        );
 
         const offences: string[] = [];
         let worstGhost = 0;
-        let worstFace = 0;
         for (const s of standing) {
           const gd = drift(s.ghost as Rect, measured);
           worstGhost = Math.max(worstGhost, gd);
@@ -270,22 +267,14 @@ describe.skipIf(!SHOULD_RUN)("AT0582: the departure ghost's rect", () => {
               `t=${s.t}ms beat "${s.beat}": the ghost stood at ${fmt(s.ghost as Rect)}, ${gd.toFixed(1)}px off the measured ${fmt(measured)}`,
             );
           }
-          if (s.face === null) continue;
-          const fd = drift(s.face, measured);
-          worstFace = Math.max(worstFace, fd);
-          if (fd > EPSILON && offences.length < 6) {
-            offences.push(
-              `t=${s.t}ms beat "${s.beat}": the face stood at ${fmt(s.face)}, ${fd.toFixed(1)}px off the measured ${fmt(measured)} (inline ${s.faceInline})`,
-            );
-          }
         }
         note(
           "worst drift",
-          `ghost ${worstGhost.toFixed(1)}px, face ${worstFace.toFixed(1)}px (bar ${EPSILON}px)`,
+          `ghost ${worstGhost.toFixed(1)}px (bar ${EPSILON}px)`,
         );
         expect(
           offences,
-          "the ghost and its face both stand at the rect the departing frame was measured at, on every frame of the fade",
+          "the ghost stands at the rect the departing frame was measured at, on every frame of the fade",
         ).toEqual([]);
 
         // Nothing retained at rest: the same bar `at0450` holds, read here so
