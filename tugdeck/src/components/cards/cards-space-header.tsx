@@ -8,20 +8,25 @@
  * the delegate's and on this row means "go there" — `activate-space`, a no-op
  * on the workspace already showing.
  *
- * **The four verbs are context-menu verbs, not buttons on the row.** A person
- * makes a workspace once and deletes one almost never, and the row's whole job
- * in between is to be read and travelled through. So New / Rename / Duplicate
- * / Delete ride a right-click menu, the same grammar the Arcs card's rows take
- * ([L30] — a verb over the thing the right-click landed on is a declared
- * escape from the command table, which is why all four are in
- * `ACTIONS_OUTSIDE_THE_TABLE`).
+ * **The four verbs have a visible door as well as a right-click.** They used
+ * to be right-click-only, on the argument that a person makes a workspace
+ * once and deletes one almost never, so the row's whole job in between is to
+ * be read and travelled through. That argument holds for how OFTEN they are
+ * reached and says nothing about whether they can be FOUND: a verb with no
+ * visible door is a verb a person has to already know about ([B01]). So the
+ * row carries a `···` trigger in its trailing cluster which opens the same
+ * four-item menu the right-click opens — one menu, one item list, two ways in.
+ * They are ordinary table commands now rather than outside-the-table escapes,
+ * because each takes an optional `spaceId` and means the active workspace
+ * without one ([P02]).
  *
  * **The menu carries no responder of its own.** `TugEditorContextMenu`
  * dispatches each item to the responder that encloses it in the React tree,
- * and a cell renders inside the card's own `ResponderScope` — so the four
- * actions land on the card body, which is where the deck-store calls, the
- * rename in flight and the delete confirm all live. A cell is recycled as the
- * list changes; none of that could be held here.
+ * and every one of those dispatches now travels the chain to its ROOT, which
+ * is where the four verbs are answered ([P02]). Rename and Delete need this
+ * card's surfaces, so the root hands them back through
+ * `cardsSpaceVerbRequest` ([P03], [P08]). Either way nothing is held on a
+ * cell, which is recycled as the list changes.
  *
  * Laws: [L02] every fact on the row comes from the data source's projection;
  * [L06] the active mark and the drop-target highlight are CSS on `data-*`;
@@ -32,6 +37,7 @@
  */
 
 import React from "react";
+import { MoreHorizontal } from "lucide-react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
@@ -41,6 +47,7 @@ import {
 } from "@/components/tugways/tug-editor-context-menu";
 import { TugInput } from "@/components/tugways/tug-input";
 import { TugLabel } from "@/components/tugways/tug-label";
+import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import type {
   TugListViewCellProps,
@@ -251,13 +258,38 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
       }}
       trailing={
         <>
-          {/* Always drawn, so every header ends at the same edge, and disabled
-              on the active workspace — that one is expanded by the data
-              source's own rule and has no other state to offer ([P09]). */}
+          {/* The visible door to the same four verbs the right-click opens
+              ([B01]). It opens the menu at its own rect rather than at a
+              pointer position, which is what makes it a button rather than a
+              second right-click. It sits AHEAD of the fold cue so the cue
+              stays at the row's edge, where it is on every other header. */}
+          <TugIconButton
+            className="cards-header-verbs"
+            icon={<MoreHorizontal />}
+            aria-label={`Actions for workspace ${row.name}`}
+            // The row is the workspace's own door — a press arms its carry and
+            // a click goes there — so the trigger has to keep both events to
+            // itself. Otherwise opening the menu would also travel to the
+            // workspace, which is the opposite of what a person reaching for
+            // "Delete" meant.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e?.stopPropagation();
+              const el = e?.currentTarget;
+              if (el === undefined) return;
+              const rect = el.getBoundingClientRect();
+              menu.openMenuAt(rect.left, rect.bottom);
+            }}
+            data-testid="cards-space-verbs-button"
+            size="2xs"
+          />
+          {/* Always drawn, so every header ends at the same edge, and never
+              disabled: every workspace folds, the active one included, which
+              is what makes the cue mean something to a person with one
+              workspace ([B02]). */}
           <BlockFoldCue
             className="cards-header-fold"
             collapsed={!row.expanded}
-            disabled={row.active}
             onToggle={() => ctx.onToggleSpace(row.spaceId)}
             collapsedLabel="Expand"
             expandedLabel="Collapse"

@@ -359,6 +359,8 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `window.columnMoveTop` | `move-in-column:top` | first responder | registry gate |
 | `window.columnMoveUp` | `move-in-column:up` | first responder | registry gate |
 | `window.columnSplit` | `toggle-column-split` | first responder | registry gate |
+| `window.deleteWorkspace` | `delete-space` | first responder | registry gate |
+| `window.duplicateWorkspace` | `duplicate-space` | first responder | host tier |
 | `window.enterFullScreen` | `toggle-full-screen` | AppKit performs it | host tier |
 | `window.focusCardAbove` | `focus-card:above` | first responder | registry gate |
 | `window.focusCardBelow` | `focus-card:below` | first responder | registry gate |
@@ -371,10 +373,12 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `window.goToSlot.5` | `go-to-slot:5` | first responder | registry gate |
 | `window.goToSlot.6` | `go-to-slot:6` | first responder | registry gate |
 | `window.minimize` | `minimize` | AppKit performs it | host tier |
+| `window.newWorkspace` | `new-space` | first responder | host tier |
 | `window.nextCard` | `next-tab` | first responder | registry gate |
 | `window.nextCardInStack` | `next-stack-card` | first responder | registry gate |
 | `window.previousCard` | `previous-tab` | first responder | registry gate |
 | `window.previousCardInStack` | `previous-stack-card` | first responder | registry gate |
+| `window.renameWorkspace` | `rename-space` | first responder | host tier |
 | `window.resizeSidebarsToFit` | `resize-sidebars-to-fit` | registered handler | registry gate |
 | `window.revealStack` | `reveal-stack` | first responder | registry gate |
 | `window.sidebar.cards.left` | `set-sidebar-side:cards:left` | registered handler | registry gate |

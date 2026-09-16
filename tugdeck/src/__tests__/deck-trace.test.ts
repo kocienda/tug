@@ -386,3 +386,48 @@ describe("deckTrace.record stamps store snapshot", () => {
     }
   });
 });
+
+describe("deckTrace space-switch-timing", () => {
+  test("every Spec S01 field survives the ring, and the kind is opt-in", () => {
+    const reading = {
+      kind: "space-switch-timing",
+      fromSpaceId: "space-a",
+      toSpaceId: "space-b",
+      outgoingCards: 3,
+      incomingCards: 2,
+      commitMs: 1.25,
+      restoreMs: 0.75,
+      totalMs: 7,
+      paintMs: 41,
+    } as const;
+
+    // Off by default for this kind: it is a measurement under study, not
+    // evidence of a defect, so it must not be in ALWAYS_RECORDED_KINDS.
+    deckTrace.enable(false);
+    deckTrace.record({ ...reading });
+    expect(deckTrace.dump()).toHaveLength(0);
+
+    deckTrace.enable(true);
+    deckTrace.record({ ...reading });
+
+    const events = deckTrace.dump();
+    expect(events).toHaveLength(1);
+    const event = events[0] as Extract<
+      DeckTraceEvent,
+      { kind: "space-switch-timing" }
+    >;
+    // The whole payload, field for field — this test is the instrument's
+    // own contract. No timing assertion: what the numbers say is the
+    // measurement's business, not the ring's.
+    expect(event.fromSpaceId).toBe("space-a");
+    expect(event.toSpaceId).toBe("space-b");
+    expect(event.outgoingCards).toBe(3);
+    expect(event.incomingCards).toBe(2);
+    expect(event.commitMs).toBe(1.25);
+    expect(event.restoreMs).toBe(0.75);
+    expect(event.totalMs).toBe(7);
+    expect(event.paintMs).toBe(41);
+    expect(typeof event.timestamp).toBe("number");
+    expect(typeof event.seq).toBe("number");
+  });
+});

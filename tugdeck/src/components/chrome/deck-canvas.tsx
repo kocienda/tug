@@ -40,7 +40,11 @@ import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { applyBagFocus, transferFocusForActivation } from "@/focus-transfer";
 import { deckTrace, type CommitLanding } from "@/deck-trace";
-import { toggleSidebarCard, toggleSidebarRail } from "@/sidebar-toggle";
+import {
+  revealSidebarCard,
+  toggleSidebarCard,
+  toggleSidebarRail,
+} from "@/sidebar-toggle";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/gesture-interpreter";
 import { DRAG_MOVE_THRESHOLD_PX } from "@/lib/press-travel";
 import {
@@ -65,6 +69,8 @@ import {
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
 import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
+import type { IDeckManagerStore } from "@/deck-manager-store";
+import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-request";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { getJotsStore } from "@/lib/jots-store";
 import {
@@ -154,6 +160,8 @@ import {
 import type { Rect } from "@/snap";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import "./slot-vacancy.css";
+import { SHOWN_PANE_FRAMES, SpaceLayerShownContext } from "./space-layer";
+import "./space-layer.css";
 import "./rail-vacancy.css";
 import "./margin-cap.css";
 import "./rail-shadow.css";
@@ -1203,6 +1211,30 @@ function PlaceSeam({
 // ---- DeckCanvas ----
 
 /**
+ * Which workspace a verb acts on: the one its payload names, or — when it
+ * names none — the ACTIVE one ([P02]). That default is what lets the Window
+ * menu fire the same verb the card's `···` does, and it is written once here
+ * rather than four times in the handlers.
+ *
+ * `null` when the payload names a workspace the deck does not hold, or when
+ * there is no active workspace to fall back to; the caller does nothing.
+ */
+function targetSpaceId(
+  store: IDeckManagerStore,
+  raw: unknown,
+): string | null {
+  const snapshot = store.getSpacesSnapshot();
+  if (typeof raw === "string") {
+    if (!snapshot.spaces.some((s) => s.id === raw)) {
+      console.warn(`workspace verb: no space with id "${raw}"`);
+      return null;
+    }
+    return raw;
+  }
+  return snapshot.activeSpaceId ?? null;
+}
+
+/**
  * The actions DeckCanvas genuinely implements (its actions-map keys).
  *
  * DeckCanvas's `canHandle: () => true` is a *dispatch* last-resort so
@@ -1245,16 +1277,46 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.CLEAR_RECENT_DOCUMENTS,
   TUG_ACTIONS.FOCUS_PANE,
   TUG_ACTIONS.ACTIVATE_SPACE,
+  // The four workspace verbs ([P02]). They validate here for the same reason
+  // they are answered here: the Window menu's rows are gated on the chain's
+  // answer, and the chain always reaches this root.
+  TUG_ACTIONS.NEW_SPACE,
+  TUG_ACTIONS.RENAME_SPACE,
+  TUG_ACTIONS.DUPLICATE_SPACE,
+  TUG_ACTIONS.DELETE_SPACE,
 ]);
+
+/**
+ * One mounted workspace's standing in the canvas ([B06]).
+ *
+ * `deck` is the live `deckState` for the shown layer and the parked record
+ * off the spaces snapshot for every other. Nothing here reads a deck out of
+ * the store in a render body — see the memo that builds these.
+ */
+interface SpaceLayer {
+  spaceId: string;
+  shown: boolean;
+  deck: DeckState;
+}
 
 /**
  * DeckCanvas — plain function component (no `forwardRef`).
  *
- * Renders the responder-chain root and one TugPane per entry in deckState.panes.
+ * Renders the responder-chain root and, per mounted workspace, one wrapper
+ * holding a TugPane per entry in that workspace's deck ([B06]). Exactly one
+ * wrapper is shown; the rest carry no `data-space-shown` and are
+ * `display: none`, which is how a workspace switch became a style change
+ * rather than an unmount of every card on one side and a mount of every card
+ * on the other.
  *
  * State is read from DeckManagerContext via useSyncExternalStore -- no
  * deckState prop. The variable `store` holds the IDeckManagerStore instance;
  * `manager` continues to hold the ResponderChainManager (unchanged).
+ *
+ * The canvas itself stays a SINGLETON and everything singleton about it lives
+ * outside the wrappers: the responder-chain root, `cardDragCoordinator.init`,
+ * `DeckCommitBeacon`, the overlay root, the seams, the caps and the shadows.
+ * Those are the deck's, not any one workspace's ((#canvas-shape)).
  */
 export function DeckCanvas(_props: DeckCanvasProps) {
   // ---- Store subscription ([D04]) ----
@@ -1280,6 +1342,46 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     cardsSelectionStore.subscribe,
     () => cardsSelectionStore.getSnapshot().ids.length > 0,
   );
+  // The level ABOVE the deck: the workspace list and which one is active.
+  // `subscribe` above fires for changes inside a deck and never for the list,
+  // so the spine's Move to Workspace menu needs its own subscription ([L02]).
+  // Every pane's title bar takes the same snapshot — the list is a fact about
+  // the window, not about any one pane.
+  const spacesSnapshot = useSyncExternalStore(
+    store.subscribeSpaces,
+    store.getSpacesSnapshot,
+  );
+  // The mounted workspaces, in the list's order, each with the deck its
+  // wrapper renders ([B06], (#canvas-shape)). The ACTIVE one's deck is the
+  // live `deckState` — it is the deck every selector, effect and law in this
+  // file is written against, and the snapshot deliberately does not carry a
+  // copy of it. Every other mounted workspace's deck is the parked record on
+  // the snapshot, read through the store hook above rather than by a
+  // `store.getSpaceDeck(id)` call in this body, which [L02] forbids.
+  //
+  // A host with no spaces store to answer — a unit harness, a boot before the
+  // first snapshot — reports no mounted ids at all, and gets the one layer it
+  // has always had.
+  const spaceLayers = useMemo<SpaceLayer[]>(() => {
+    const layers: SpaceLayer[] = [];
+    for (const spaceId of spacesSnapshot.mountedSpaceIds) {
+      if (spaceId === spacesSnapshot.activeSpaceId) {
+        layers.push({ spaceId, shown: true, deck: deckState });
+        continue;
+      }
+      const parked = spacesSnapshot.mountedDecks.get(spaceId);
+      if (parked === undefined) continue;
+      layers.push({ spaceId, shown: false, deck: parked });
+    }
+    if (!layers.some((layer) => layer.shown)) {
+      layers.unshift({
+        spaceId: spacesSnapshot.activeSpaceId,
+        shown: true,
+        deck: deckState,
+      });
+    }
+    return layers;
+  }, [spacesSnapshot, deckState]);
   // Every pane hosting a sidebar card, pinned or dragged loose. They share the
   // z-band above the free panes: a rail must never be occluded by a card, and
   // that is a property of being a rail rather than of any one card on it.
@@ -2098,6 +2200,58 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           return;
         }
         store.activateSpace(spaceId);
+      },
+      // The four workspace verbs, answered HERE for the reason `activate-space`
+      // above is ([P02]): the Window menu can fire any of them while a Session
+      // card holds focus and the Workspaces card is not even open, so a handler
+      // on that card would make the menu row work only when the card happened
+      // to be focused.
+      //
+      // Each takes an OPTIONAL `spaceId`. Present, it is the row a right-click
+      // or a `···` landed on; absent, the verb means the ACTIVE workspace,
+      // which is the target the menu names. `targetSpaceId` below is that one
+      // rule, written once.
+      [TUG_ACTIONS.NEW_SPACE]: () => {
+        store.createSpace();
+      },
+      [TUG_ACTIONS.RENAME_SPACE]: (event: ActionEvent) => {
+        const payload = event.value as
+          | { spaceId?: unknown; name?: unknown }
+          | undefined;
+        const spaceId = targetSpaceId(store, payload?.spaceId);
+        if (spaceId === null) return;
+        // With a name it commits outright; without one it opens the header's
+        // inline field, which is the one place a workspace name is typed
+        // ([P03]) — so this half reveals the Workspaces card and hands the
+        // verb to it through the request store ([P08]). The menu item and the
+        // `···` both send no name, so both take the second path.
+        if (typeof payload?.name === "string") {
+          store.renameSpace(spaceId, payload.name);
+          return;
+        }
+        revealSidebarCard(store, CARDS_CARD_ID);
+        cardsSpaceVerbRequest.request("rename", spaceId);
+      },
+      [TUG_ACTIONS.DUPLICATE_SPACE]: (event: ActionEvent) => {
+        const spaceId = targetSpaceId(
+          store,
+          (event.value as { spaceId?: unknown } | undefined)?.spaceId,
+        );
+        if (spaceId === null) return;
+        store.duplicateSpace(spaceId);
+      },
+      [TUG_ACTIONS.DELETE_SPACE]: (event: ActionEvent) => {
+        const spaceId = targetSpaceId(
+          store,
+          (event.value as { spaceId?: unknown } | undefined)?.spaceId,
+        );
+        if (spaceId === null) return;
+        // Same hand-off as the rename, and for the same reason: the confirm
+        // popover is anchored to a header row and is the one place a workspace
+        // delete is answered ([P03]). Whether a confirm opens at all is the
+        // card's decision and stays exactly where it was.
+        revealSidebarCard(store, CARDS_CARD_ID);
+        cardsSpaceVerbRequest.request("delete", spaceId);
       },
       [TUG_ACTIONS.REVEAL_IN_FINDER]: (event: ActionEvent) => {
         if (typeof event.value !== "string" || event.value === "") return;
@@ -3333,7 +3487,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         running: SettleTween | undefined;
       }> = [];
       for (const frame of el.querySelectorAll<HTMLElement>(
-        ".tug-pane[data-pane-id]",
+        SHOWN_PANE_FRAMES,
       )) {
         // A pane the pointer positions writes its own `left`/`top` every
         // frame; motion on top of a pointer lags the pointer. The mark is
@@ -3788,13 +3942,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // `data-pointer-owned` is excluded on the arrival side for the reason the
     // walk below states: a zone drop has no First rect and is not arriving.
     for (const frame of el.querySelectorAll<HTMLElement>(
-      ".tug-pane[data-pane-id]",
+      SHOWN_PANE_FRAMES,
     )) {
       const paneId = frame.getAttribute("data-pane-id");
       if (paneId !== null) survivors.add(paneId);
     }
     const hasArrival = Array.from(
-      el.querySelectorAll<HTMLElement>(".tug-pane[data-pane-id]"),
+      el.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES),
     ).some(
       (frame) =>
         !frame.hasAttribute("data-pointer-owned") &&
@@ -3812,7 +3966,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const fused = hasArrival || hasDeparture;
     const traveled: Array<Record<string, number | string>> = [];
     for (const frame of el.querySelectorAll<HTMLElement>(
-      ".tug-pane[data-pane-id]",
+      SHOWN_PANE_FRAMES,
     )) {
       const paneId = frame.getAttribute("data-pane-id");
       if (paneId === null) continue;
@@ -4814,7 +4968,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const state = store.getSnapshot();
         const panes = new Map<string, Rect>();
         for (const el of canvas.querySelectorAll<HTMLElement>(
-          ".tug-pane[data-pane-id]",
+          SHOWN_PANE_FRAMES,
         )) {
           const paneId = el.getAttribute("data-pane-id");
           if (paneId === null) continue;
@@ -5410,139 +5564,250 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           style={vacancy.style}
         />
       ))}
-      {/* TugPanes: one per pane in deckState.panes.
-          Rendered in stable ID order (no DOM reordering on focus change).
-          Z-index from store array position (first = lowest). Panes whose
-          active card's componentId is unregistered are skipped with a
-          warning. */}
-      {sortedStacks.map((stackState) => {
-        const activeCard = cardsById.get(stackState.activeCardId);
-        const fallbackCard =
-          activeCard ?? cardsById.get(stackState.cardIds[0]);
-        const componentId = fallbackCard?.componentId;
-        if (!componentId) {
-          console.warn(
-            `[DeckCanvas] stack "${stackState.id}" has no active card -- skipping render.`,
-          );
-          return null;
-        }
+      {/* One wrapper per MOUNTED workspace ([B06], (#canvas-shape)).
 
-        const registration = getRegistration(componentId);
-        if (!registration) {
-          console.warn(
-            `[DeckCanvas] stack "${stackState.id}" references unregistered componentId "${componentId}" -- skipping render.`,
-          );
-          return null;
-        }
+          The shown wrapper renders exactly what this canvas has always
+          rendered, from the live `deckState`; every other mounted workspace
+          renders its parked deck off the spaces snapshot. Both go through the
+          same code below so a switch changes props rather than tree shape —
+          that is the whole mechanism. A wrapper keyed by workspace id and a
+          pane keyed by pane id means React reconciles both sides of a switch
+          in place, so no `CardHost` unmounts and none mounts, and a session's
+          transcript is at the same scroll offset because nothing was ever
+          torn down to be replayed.
 
-        /**
-         * onClose wrapper: when the closed stack matches
-         * Close-button handler: delegates to store. No gallery-stack bookkeeping
-         * needed — show-component-gallery re-derives the gallery stack from
-         * the live snapshot on every dispatch.
-         */
-        const handleClose = () => {
-          store.handlePaneClosed(stackState.id);
-        };
+          The wrapper is `display: contents` while shown — it has no box at
+          all, so the panes lay out against `containerRef` exactly as before,
+          with no new stacking context between them and the seams, caps and
+          shadows they share the canvas with. Hidden, it is `display: none`.
+          Both rules are in space-layer.css, keyed on `data-space-shown`
+          ([L06]); this body writes the attribute and nothing else.
 
-        const stackCards = stackState.cardIds
-          .map((cid) => cardsById.get(cid))
-          .filter((c): c is NonNullable<typeof c> => c !== undefined);
-        const hasMultipleCards = stackCards.length > 1;
-
+          A hidden workspace's panes take no interaction: no drop zones, no
+          close, no reveal, no move menu. They are mounted so their cards stay
+          alive, and nothing more. */}
+      {spaceLayers.map((layer) => {
+        const layerCardsById = layer.shown
+          ? cardsById
+          : new Map(layer.deck.cards.map((c) => [c.id, c] as const));
+        const layerStacks = layer.shown
+          ? sortedStacks
+          : [...layer.deck.panes].sort((a, b) => a.id.localeCompare(b.id));
+        const layerSidebarPaneIds = layer.shown
+          ? sidebarPaneIds
+          : new Set(findSidebarPanes(layer.deck).map(({ pane }) => pane.id));
+        const layerHostStackIdByCardId = layer.shown
+          ? hostStackIdByCardId
+          : new Map(
+              layer.deck.panes.flatMap((p) =>
+                p.cardIds.map((cid) => [cid, p.id] as const),
+              ),
+            );
         return (
-          <TugPane
-            key={stackState.id}
-            stackState={stackState}
-            meta={registration.defaultMeta}
-            layoutRole={registration.layoutRole}
-            // A pane is one box shared by every tab in the stack, so
-            // its resize floor must clear the widest card kind it
-            // hosts — not just the active tab. `getStackSizePolicy`
-            // takes the element-wise max of the stack's mins.
-            sizePolicy={getStackSizePolicy(
-              stackCards.map((c) => c.componentId),
-              // A folded pane is sized by the folded policy ([P04]):
-              // the open card's 600px floor is what its transcript and
-              // composer need, and a wall cannot pack while every member
-              // still claims it.
-              //
-              // And an UNBOUND pane is sized by the unbound policy ([B04],
-              // [D195]), on the same fact `placeMembers` reads, so the frame's
-              // resize floor and the column's member floor are one answer
-              // rather than two. The unbound policy's height floor is zero, and
-              // `TugPane` floors its chrome-measured `minSize` to
-              // `sizePolicy.min` — so what stands is the chrome's own
-              // measurement rather than a collapsed frame. The hidden arriving
-              // seat is untouched by this: it comes from the `arriving` prop,
-              // resolved from `DeckState.arriving`, not from `minSize`.
-              {
-                folded: stackState.folded === true,
-                unbound: isUnboundMember(deckState, stackState.id),
-              },
-            )}
-            zIndex={zIndexMap.get(stackState.id) ?? CARD_ZINDEX_BASE}
-            placement={placementFor(stackState)}
-            bullseye={bullseyePaneId === stackState.id}
-            // Every OTHER content pane leaves the canvas while bullseye
-            // holds — receding a card that is still sitting there is not
-            // what "distraction-free" means. Rails are excluded and stay at
-            // their pins: a rail leaving would take the band's insets with
-            // it, and the bullseyed card would jump the moment the posture
-            // began.
-            bullseyeExit={
-              bullseyePaneId !== null &&
-              bullseyePaneId !== stackState.id &&
-              !sidebarPaneIds.has(stackState.id)
-                ? bullseyeAnchorCentre
-                : undefined
-            }
-            contentWidthPx={contentWidthPx}
-            slotStack={slotStackByPaneId.get(stackState.id)}
-            columnMember={columnMemberByPaneId.get(stackState.id)}
-            columnMode={columnModeByPaneId.get(stackState.id)}
-            arriving={arrivingSeatByPaneId.get(stackState.id)}
-            // The pane's own field ([P01]) rather than `paneFoldedOf` over
-            // the deck state: the selector exists for readers holding a state
-            // and an id, and this one is already holding the pane.
-            folded={stackState.folded === true}
-            onRevealPane={handleRevealPane}
-            sidebarStack={stackByPaneId.get(stackState.id)}
-            isSidebarPane={sidebarPaneIds.has(stackState.id)}
-            onCardMoved={store.handlePaneMoved}
-            onClose={handleClose}
-            dropZones={dropZoneHost}
-            onCardMerged={(sourceStackId, targetStackId, insertIndex) => {
-              // Resolve the active card id from the source stack at commit time.
-              const snapshot = store.getSnapshot();
-              const sourceStack = snapshot.panes.find(
-                (s) => s.id === sourceStackId,
+          <div
+            key={layer.spaceId}
+            className="tug-space-layer"
+            data-space-layer={layer.spaceId}
+            {...(layer.shown ? { "data-space-shown": "" } : {})}
+          >
+            {/* The one fact a card in here may need about its own standing:
+                whether the workspace it is mounted in is on screen. Read by
+                anything that acts on a BROADCAST rather than on the responder
+                chain — see the context's own doc. */}
+            <SpaceLayerShownContext.Provider value={layer.shown}>
+            {/* TugPanes: one per pane in this workspace's deck.
+                Rendered in stable ID order (no DOM reordering on focus change).
+                Z-index from store array position (first = lowest). Panes whose
+                active card's componentId is unregistered are skipped with a
+                warning. */}
+            {layerStacks.map((stackState) => {
+              const activeCard = layerCardsById.get(stackState.activeCardId);
+              const fallbackCard =
+                activeCard ?? layerCardsById.get(stackState.cardIds[0]);
+              const componentId = fallbackCard?.componentId;
+              if (!componentId) {
+                console.warn(
+                  `[DeckCanvas] stack "${stackState.id}" has no active card -- skipping render.`,
+                );
+                return null;
+              }
+
+              const registration = getRegistration(componentId);
+              if (!registration) {
+                console.warn(
+                  `[DeckCanvas] stack "${stackState.id}" references unregistered componentId "${componentId}" -- skipping render.`,
+                );
+                return null;
+              }
+
+              /**
+               * onClose wrapper: when the closed stack matches
+               * Close-button handler: delegates to store. No gallery-stack bookkeeping
+               * needed — show-component-gallery re-derives the gallery stack from
+               * the live snapshot on every dispatch.
+               */
+              const handleClose = () => {
+                store.handlePaneClosed(stackState.id);
+              };
+
+              const stackCards = stackState.cardIds
+                .map((cid) => layerCardsById.get(cid))
+                .filter((c): c is NonNullable<typeof c> => c !== undefined);
+              const hasMultipleCards = stackCards.length > 1;
+
+              return (
+                <TugPane
+                  key={stackState.id}
+                  stackState={stackState}
+                  meta={registration.defaultMeta}
+                  layoutRole={registration.layoutRole}
+                  // A pane is one box shared by every tab in the stack, so
+                  // its resize floor must clear the widest card kind it
+                  // hosts — not just the active tab. `getStackSizePolicy`
+                  // takes the element-wise max of the stack's mins.
+                  sizePolicy={getStackSizePolicy(
+                    stackCards.map((c) => c.componentId),
+                    // A folded pane is sized by the folded policy ([P04]):
+                    // the open card's 600px floor is what its transcript and
+                    // composer need, and a wall cannot pack while every member
+                    // still claims it.
+                    //
+                    // And an UNBOUND pane is sized by the unbound policy ([B04],
+                    // [D195]), on the same fact `placeMembers` reads, so the frame's
+                    // resize floor and the column's member floor are one answer
+                    // rather than two. The unbound policy's height floor is zero, and
+                    // `TugPane` floors its chrome-measured `minSize` to
+                    // `sizePolicy.min` — so what stands is the chrome's own
+                    // measurement rather than a collapsed frame. The hidden arriving
+                    // seat is untouched by this: it comes from the `arriving` prop,
+                    // resolved from `DeckState.arriving`, not from `minSize`.
+                    {
+                      folded: stackState.folded === true,
+                      unbound: isUnboundMember(layer.deck, stackState.id),
+                    },
+                  )}
+                  zIndex={
+                    layer.shown
+                      ? zIndexMap.get(stackState.id) ?? CARD_ZINDEX_BASE
+                      : CARD_ZINDEX_BASE
+                  }
+                  // Every placement below is the SHOWN workspace's. A hidden
+                  // one has no imposition to stand in — its panes come back
+                  // through these same props the moment it is shown, which is
+                  // the commit that also reveals them.
+                  placement={layer.shown ? placementFor(stackState) : undefined}
+                  bullseye={layer.shown && bullseyePaneId === stackState.id}
+                  // Every OTHER content pane leaves the canvas while bullseye
+                  // holds — receding a card that is still sitting there is not
+                  // what "distraction-free" means. Rails are excluded and stay at
+                  // their pins: a rail leaving would take the band's insets with
+                  // it, and the bullseyed card would jump the moment the posture
+                  // began.
+                  bullseyeExit={
+                    layer.shown &&
+                    bullseyePaneId !== null &&
+                    bullseyePaneId !== stackState.id &&
+                    !layerSidebarPaneIds.has(stackState.id)
+                      ? bullseyeAnchorCentre
+                      : undefined
+                  }
+                  contentWidthPx={layer.shown ? contentWidthPx : undefined}
+                  slotStack={
+                    layer.shown ? slotStackByPaneId.get(stackState.id) : undefined
+                  }
+                  columnMember={
+                    layer.shown
+                      ? columnMemberByPaneId.get(stackState.id)
+                      : undefined
+                  }
+                  columnMode={
+                    layer.shown ? columnModeByPaneId.get(stackState.id) : undefined
+                  }
+                  arriving={
+                    layer.shown
+                      ? arrivingSeatByPaneId.get(stackState.id)
+                      : undefined
+                  }
+                  // The pane's own field ([P01]) rather than `paneFoldedOf` over
+                  // the deck state: the selector exists for readers holding a state
+                  // and an id, and this one is already holding the pane.
+                  folded={stackState.folded === true}
+                  onRevealPane={layer.shown ? handleRevealPane : undefined}
+                  spaces={spacesSnapshot.spaces}
+                  activeSpaceId={spacesSnapshot.activeSpaceId}
+                  onMoveToSpace={
+                    layer.shown
+                      ? (spaceId) => {
+                          // The pane's ACTIVE card is what moves — the one the
+                          // title bar is naming. [B04]: the move does not follow
+                          // the card, so nothing here touches the active
+                          // workspace.
+                          store.moveCardToSpace(stackState.activeCardId, spaceId);
+                        }
+                      : undefined
+                  }
+                  sidebarStack={
+                    layer.shown ? stackByPaneId.get(stackState.id) : undefined
+                  }
+                  isSidebarPane={layerSidebarPaneIds.has(stackState.id)}
+                  onCardMoved={store.handlePaneMoved}
+                  onClose={layer.shown ? handleClose : undefined}
+                  dropZones={layer.shown ? dropZoneHost : undefined}
+                  onCardMerged={
+                    layer.shown
+                      ? (sourceStackId, targetStackId, insertIndex) => {
+                          // Resolve the active card id from the source stack at
+                          // commit time.
+                          const snapshot = store.getSnapshot();
+                          const sourceStack = snapshot.panes.find(
+                            (s) => s.id === sourceStackId,
+                          );
+                          if (!sourceStack) return;
+                          store.moveCardToPane(
+                            sourceStackId,
+                            sourceStack.activeCardId,
+                            targetStackId,
+                            insertIndex,
+                          );
+                        }
+                      : undefined
+                  }
+                  activeCardId={stackState.activeCardId}
+                  cards={hasMultipleCards ? stackCards : undefined}
+                  cardTitle={hasMultipleCards ? stackState.title : undefined}
+                  acceptedFamilies={
+                    hasMultipleCards ? stackState.acceptsFamilies : undefined
+                  }
+                />
               );
-              if (!sourceStack) return;
-              store.moveCardToPane(
-                sourceStackId,
-                sourceStack.activeCardId,
-                targetStackId,
-                insertIndex,
+            })}
+
+            {/* Flat card-content list: every card of THIS workspace is mounted
+                exactly once and routes its DOM via portal into its host stack's
+                content div. React keys by cardId so React preserves component
+                identity when a card moves between stacks (detach / merge).
+                Non-active cards render with `display: none` so they stay alive
+                without affecting layout. Content factories and contexts live in
+                CardHost; see card-host.tsx. */}
+            {layer.deck.cards.map((card) => {
+              const hostStackId = layerHostStackIdByCardId.get(card.id);
+              if (!hostStackId) return null;
+              const hostStack = layer.deck.panes.find((s) => s.id === hostStackId);
+              return (
+                <CardHost
+                  key={card.id}
+                  cardId={card.id}
+                  hostStackId={hostStackId}
+                  componentId={card.componentId}
+                  isActive={hostStack?.activeCardId === card.id}
+                />
               );
-            }}
-            activeCardId={stackState.activeCardId}
-            cards={hasMultipleCards ? stackCards : undefined}
-            cardTitle={hasMultipleCards ? stackState.title : undefined}
-            acceptedFamilies={
-              hasMultipleCards ? stackState.acceptsFamilies : undefined
-            }
-          />
+            })}
+            </SpaceLayerShownContext.Provider>
+          </div>
         );
       })}
 
-      {/* Flat card-content list: every card is mounted exactly once and
-          routes its DOM via portal into its host stack's content div. React
-          keys by cardId so React preserves component identity when a card
-          moves between stacks (detach / merge). Non-active cards render
-          with `display: none` so they stay alive without affecting layout.
-          Content factories and contexts live in CardHost; see
-          card-host.tsx. */}
       {/* One seam per gap of every split rail: the boundary between two
           members, and the handle that moves it. Rendered here rather than by
           either neighbour because a seam belongs to the rail, not to a card —
@@ -5620,20 +5885,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             onCommit={handleSeamCommit}
           />
         ));
-      })}
-      {cards.map((card) => {
-        const hostStackId = hostStackIdByCardId.get(card.id);
-        if (!hostStackId) return null;
-        const hostStack = panes.find((s) => s.id === hostStackId);
-        return (
-          <CardHost
-            key={card.id}
-            cardId={card.id}
-            hostStackId={hostStackId}
-            componentId={card.componentId}
-            isActive={hostStack?.activeCardId === card.id}
-          />
-        );
       })}
       {/* The margin caps: what no rail can cover, and nothing else. A flow
           card's ink stops at the band's edge by occlusion rather than by a

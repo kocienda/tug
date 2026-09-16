@@ -21,8 +21,12 @@
  *      `close_session`, so its absence is the close-path assertion — and
  *      `cardLineFacts("A")` still answers with the same `tugSessionId`, which
  *      it can only do while the binding stands in `cardSessionBindingStore`.
- *   4. `activate-space` back. The transcript lands on the same pixel, from the
- *      bag the switch captured and `CardHost` replayed on the fresh mount.
+ *      **No `save-callback` under the `"space-switch"` tag** is recorded
+ *      either: a switch used to capture every outgoing card's bag against the
+ *      rebuild on return, and there is no rebuild any more ([B06]).
+ *   4. `activate-space` back. The transcript lands on the same pixel, because
+ *      the card was never taken down — at0587 is where that mechanism is
+ *      asserted at its source.
  *
  * Step 4 is the other half of the claim: a switch that kept the session alive
  * but lost the reading position would still have cost the user their place.
@@ -140,6 +144,7 @@ interface SpacesProbe {
 interface TraceEvent {
   kind: string;
   event?: string;
+  source?: string;
 }
 
 describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions", () => {
@@ -231,7 +236,7 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
         // ---- 3. The negative: no close path ran, and the binding stands.
         const events = await app.evalJS<TraceEvent[]>(
           `window.__deckTrace.since(${mark}).map(function (e) {
-            return { kind: e.kind, event: e.event };
+            return { kind: e.kind, event: e.event, source: e.source };
           })`,
         );
         const removals = events.filter(
@@ -240,6 +245,18 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
             e.event === "services_store.deck_removed_card",
         );
         expect(removals).toEqual([]);
+
+        // And no CAPTURE either, which is the newer half of the same claim.
+        // A switch used to fire every outgoing card's save callback under the
+        // `"space-switch"` tag, because every one of those cards was about to
+        // unmount. They no longer do ([B06]): the workspace stays mounted and
+        // the canvas hides it, so there is nothing to capture and nothing to
+        // replay. One `save-callback` under that tag here would mean the
+        // teardown had quietly come back.
+        const captures = events.filter(
+          (e) => e.kind === "save-callback" && e.source === "space-switch",
+        );
+        expect(captures).toEqual([]);
 
         // `cardLineFacts` throws when the card holds no binding, so answering
         // at all is the assertion; answering with the SAME id says the session
@@ -419,9 +436,23 @@ const SURFACE_ONE = "surface-one";
 const SURFACE_TWO = "surface-two";
 const SURFACE_THREE = "surface-three";
 
-const HEADER = '[data-testid="cards-space-header"]';
+/**
+ * "On screen", said out loud.
+ *
+ * Every workspace the leg has visited stays MOUNTED ([B06]), so the document
+ * now holds one Workspaces card per visited workspace — all of them but one
+ * inside a wrapper with no `data-space-shown` and no boxes. A bare
+ * `document.querySelectorAll` over rows would count the hidden ones too, and
+ * a count is the assertion in half of this leg. So the row selectors below
+ * carry the scope and the portaled ones (menus, confirms, the rename field)
+ * deliberately do not: an overlay is mounted at the canvas's overlay root,
+ * outside every layer.
+ */
+const SHOWN = "[data-space-layer][data-space-shown] ";
+
+const HEADER = `${SHOWN}[data-testid="cards-space-header"]`;
 const headerFor = (id: string): string =>
-  `.cards-space-header[data-cards-space-id="${id}"]`;
+  `${SHOWN}.cards-space-header[data-cards-space-id="${id}"]`;
 const foldFor = (id: string): string =>
   `${headerFor(id)} [data-slot="cards-space-fold"]`;
 const MENU_ITEM = "[data-item-action]";
@@ -430,7 +461,7 @@ const CONFIRM = '[data-slot="tug-confirm-popover"]';
 const CONFIRM_MESSAGE = '[data-slot="tug-confirm-message"]';
 const CONFIRM_OK = '[data-slot="tug-confirm-confirm"]';
 const CONFIRM_CANCEL = '[data-slot="tug-confirm-cancel"]';
-const CURSOR_ROW = ".cards-list .tug-list-view-cell[data-key-cursor]";
+const CURSOR_ROW = `${SHOWN}.cards-list .tug-list-view-cell[data-key-cursor]`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -531,20 +562,33 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 8_000 },
           );
 
-          // ---- 4. The fold cue opens a parked workspace, read-only.
+          // ---- 4. The fold cue folds a parked workspace shut, and opens it
+          // again. Every workspace now arrives EXPANDED ([B02]), so the rows
+          // are on screen before the first click and the cue's first job is to
+          // put them away; what the leg asserts is unchanged — the cue drives
+          // a parked workspace's rows, and driving them is not going there.
           expect(
             await app.evalJS<number>(
-              `document.querySelectorAll('[data-cards-space-inactive="true"]').length`,
+              `document.querySelectorAll(
+                 '${SHOWN}.cards-list [data-cards-space-run="${SURFACE_THREE}"][data-cards-space-inactive="true"]'
+               ).length`,
             ),
-          ).toBe(0);
+          ).toBeGreaterThan(0);
           await app.nativeClickAtElement(foldFor(SURFACE_THREE));
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(
-               '.cards-list [data-cards-space-run="${SURFACE_THREE}"][data-cards-space-inactive="true"]'
+               '${SHOWN}.cards-list [data-cards-space-run="${SURFACE_THREE}"][data-cards-space-inactive="true"]'
+             ).length === 0`,
+            { timeoutMs: 8_000 },
+          );
+          await app.nativeClickAtElement(foldFor(SURFACE_THREE));
+          await app.waitForCondition<boolean>(
+            `document.querySelectorAll(
+               '${SHOWN}.cards-list [data-cards-space-run="${SURFACE_THREE}"][data-cards-space-inactive="true"]'
              ).length > 0`,
             { timeoutMs: 8_000 },
           );
-          // Opening it is a glance, not a move: the deck on screen is unchanged.
+          // Folding it is a glance, not a move: the deck on screen is unchanged.
           expect(
             await app.evalJS<string>(
               `window.tugdeck.diag.getSpaces().activeSpaceId`,
@@ -649,7 +693,10 @@ describe.skipIf(!SHOULD_RUN)(
             await app.evalJS<string>(
               `document.querySelector(${JSON.stringify(CONFIRM_MESSAGE)}).textContent`,
             ),
-          ).toBe("Delete Away and close 1 session?");
+            // Two panes stand in that workspace — its Workspaces rail and the
+            // Session card — and the sentence counts cards, with the live
+            // sessions among them named parenthetically ([P06], Spec S03).
+          ).toBe("Delete Away and close 2 cards (1 session)?");
           await app.nativeClickAtElement(CONFIRM_CANCEL);
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) === null`,

@@ -423,11 +423,22 @@ body {
   opacity: 1;
 }
 
-/* The cross-workspace drop target ([P10], Step 9 wires the drag). Set as an
-   attribute mid-drag by `useBlockReorder`, so nothing re-renders ([L06]). */
+/* The cross-workspace drop target ([P10], [B03]). A workspace's whole BLOCK is
+   the target — its header and every row filed under it, all wearing the same
+   `data-cards-space-run` — so the wash goes on the run rather than an outline
+   on the header. An outline on one row said "aim here"; a wash over the block
+   says "this place", which is what a card is being moved into.
+
+   Set as an attribute mid-drag by `useBlockReorder`, so nothing re-renders
+   ([L06]). A collapsed workspace washes its header alone, which is the whole
+   of what it is showing. */
+.cards-list [data-cards-space-run][data-drop-target="true"] {
+  background: var(--tug7-surface-tone-primary-normal-accent-rest);
+}
+/* The header keeps a stronger edge, so a washed block still reads as headed
+   rather than as a uniform slab. */
 .cards-space-header[data-drop-target="true"] {
-  outline: 1px solid var(--tug7-element-global-border-accent-normal-rest);
-  outline-offset: -1px;
+  box-shadow: inset 0 1px 0 var(--tug7-element-global-border-normal-accent-rest);
 }
 
 /* The inline rename field takes the label's type rather than the input's, so

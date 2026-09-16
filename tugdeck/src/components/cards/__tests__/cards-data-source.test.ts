@@ -1275,7 +1275,7 @@ describe("workspaces as the outer level", () => {
     ]);
   });
 
-  it("the active workspace is expanded even when the caller says otherwise", () => {
+  it("the active workspace folds like any other, and its header still counts", () => {
     const rows = buildCardsRows(
       inputs(activeDeck, {
         spaces: [
@@ -1283,8 +1283,9 @@ describe("workspaces as the outer level", () => {
             id: "home",
             name: "Home",
             active: true,
-            // The rule is the projection's, not the caller's: an entry for the
-            // active workspace could only ever disagree with it.
+            // The caller's answer is the whole rule now ([B02]). The active
+            // workspace used to be forced open here, which made its fold cue
+            // dead — and a person with one workspace had no live cue at all.
             expanded: false,
             deck: activeDeck,
           },
@@ -1292,11 +1293,18 @@ describe("workspaces as the outer level", () => {
       }),
       r,
     );
-    expect(shape(rows)).toEqual([
-      "space:Home(1)",
-      "header:files(1)",
-      "pane:file-pane:alpha.txt",
-    ]);
+    // The header, and nothing under it.
+    expect(shape(rows)).toEqual(["space:Home(1)-collapsed"]);
+    // The count is taken before the fold decides what to draw, so a folded
+    // workspace still says how much is inside it — which is the only thing
+    // the collapsed header has left to say.
+    const header = rows[0];
+    expect(header?.type).toBe("space-header");
+    if (header?.type !== "space-header") throw new Error("unreachable");
+    expect(header.count).toBe(1);
+    expect(header.summary).toBe("1 card");
+    expect(header.active).toBe(true);
+    expect(header.expanded).toBe(false);
   });
 
   it("a filter matching only the other workspace keeps BOTH headers", () => {

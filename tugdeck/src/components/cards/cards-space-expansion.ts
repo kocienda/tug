@@ -1,17 +1,19 @@
 /**
- * cards-space-expansion.ts — which inactive workspaces the Cards card is
- * showing the insides of.
+ * cards-space-expansion.ts — which workspaces the Cards card has folded shut.
  *
- * **A glance, not an arrangement.** Opening an inactive workspace's rows is
- * how a person checks what is over there before deciding to go — and a check
+ * **A glance, not an arrangement.** Folding a workspace shut is how a person
+ * gets a long list out of the way while they work somewhere else — and that
  * is over when the window closes. So this is session-only and deliberately
- * unpersisted: a relaunch brings back every workspace collapsed but the active
- * one, which is the state a person would have wanted anyway and the one the
- * list reads most clearly in ([P09]).
+ * unpersisted: a relaunch brings back every workspace expanded, which is the
+ * list's own default and what a person opening a fresh window would expect
+ * to see ([P09]).
  *
- * The active workspace is not in here at all. It is always expanded, by the
- * data source's own rule, so an entry for it could only ever disagree with
- * that rule.
+ * **The set holds COLLAPSED ids, and every workspace can be in it — the
+ * active one included.** Expanded is the default, so an empty set means the
+ * whole list is open; a workspace is folded exactly when its id is here. The
+ * active workspace used to be excluded by a rule in the data source that made
+ * its cue dead, and a person with one workspace had a fold cue that did
+ * nothing ([B02]).
  *
  * A module store rather than component state: the Cards card can be closed and
  * reopened, and two of them can stand at once in different panes, and neither
@@ -21,7 +23,7 @@
  * @module components/cards/cards-space-expansion
  */
 
-class ExpandedSpacesStore {
+class CollapsedSpacesStore {
   private ids: ReadonlySet<string> = new Set();
 
   private readonly listeners = new Set<() => void>();
@@ -36,7 +38,7 @@ class ExpandedSpacesStore {
   /** Stable by identity until a toggle or a prune changes the set. */
   getSnapshot = (): ReadonlySet<string> => this.ids;
 
-  /** Open a collapsed workspace's rows, or close an open one's. */
+  /** Fold an open workspace's rows shut, or open a folded one's. */
   toggle = (spaceId: string): void => {
     const next = new Set(this.ids);
     if (!next.delete(spaceId)) next.add(spaceId);
@@ -46,8 +48,8 @@ class ExpandedSpacesStore {
 
   /**
    * Drop every id not in `live` — the Cards card calls this when the spaces
-   * snapshot changes, so a deleted workspace does not leave an entry behind
-   * that a later workspace could inherit by reusing its id.
+   * snapshot changes, so a deleted workspace does not leave a collapsed entry
+   * behind that a later workspace could inherit by reusing its id.
    *
    * A no-op when nothing was stale, so the snapshot's identity holds and no
    * subscriber recomputes for a prune that pruned nothing.
@@ -69,7 +71,7 @@ class ExpandedSpacesStore {
     this.notify();
   };
 
-  /** Test seam: forget every expansion. */
+  /** Test seam: forget every fold, which is the everything-expanded default. */
   _resetForTest = (): void => {
     this.ids = new Set();
     this.listeners.clear();
@@ -80,4 +82,4 @@ class ExpandedSpacesStore {
   }
 }
 
-export const expandedSpacesStore = new ExpandedSpacesStore();
+export const collapsedSpacesStore = new CollapsedSpacesStore();

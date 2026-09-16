@@ -105,6 +105,7 @@ import { ConfigureTugRequest } from "./components/tugways/configure-tug-request"
 import { TugVersionGate } from "./components/tugways/tug-version-gate";
 import { TugRestoreGate } from "./components/tugways/tug-restore-gate";
 import { ErrorBoundary } from "./components/chrome/error-boundary";
+import { paneCanvasOf } from "./components/chrome/space-layer";
 import { TugBannerProvider } from "./components/chrome/tug-banner-bridge";
 import { RateLimitBulletinBridge } from "./components/chrome/rate-limit-bulletin-bridge";
 import { RateLimitStore } from "./lib/rate-limit-store";
@@ -1065,6 +1066,20 @@ export class DeckManager implements IDeckManagerStore {
   /** Which entry in {@link spaces} is rendered. */
   private activeSpaceId = "";
 
+  /**
+   * The workspaces React is holding mounted ([P01], [B06]).
+   *
+   * A workspace joins on its first activation and never leaves except by
+   * being deleted: a switch hides and shows rather than unmounting, so the
+   * cost of returning to a workspace the user has already visited is a style
+   * change rather than a rebuild of every card in it. The boot workspace is
+   * seeded here because it is mounted without anybody activating it.
+   *
+   * There is deliberately no eviction policy: [B07] deferred one, and a
+   * budget nobody has measured a need for is a guess with a knob on it.
+   */
+  private mountedSpaceIds: Set<string> = new Set();
+
   /** Subscribers to the spaces store — the list's shape, not the decks. */
   private spacesSubscribers: Set<() => void> = new Set();
 
@@ -1155,9 +1170,22 @@ export class DeckManager implements IDeckManagerStore {
    */
   public getSpacesSnapshot = (): SpacesSnapshot => {
     if (this.spacesSnapshotCache === null) {
+      const mountedSpaceIds = this.spaces
+        .filter((s) => this.mountedSpaceIds.has(s.id))
+        .map((s) => s.id);
+      const mountedDecks = new Map<string, DeckState>();
+      for (const space of this.spaces) {
+        // The active space's deck is the live one and is not cached here —
+        // see {@link SpacesSnapshot}.
+        if (space.deck === null) continue;
+        if (!this.mountedSpaceIds.has(space.id)) continue;
+        mountedDecks.set(space.id, space.deck);
+      }
       this.spacesSnapshotCache = {
         spaces: this.spaces.map((s) => ({ id: s.id, name: s.name })),
         activeSpaceId: this.activeSpaceId,
+        mountedSpaceIds,
+        mountedDecks,
       };
     }
     return this.spacesSnapshotCache;
@@ -1227,8 +1255,8 @@ export class DeckManager implements IDeckManagerStore {
   /**
    * Render `spaceId`'s deck, parking the one on screen ([P04]).
    *
-   * **A switch is not a close, and the whole procedure exists to keep that
-   * true.** The one subscriber that turns "card left the deck" into a wire
+   * **A switch is not a close, and it is not a teardown either.** The one
+   * subscriber that turns "card left the deck" into a wire
    * `close_session` is `cardServicesStore`, and it listens to
    * `observeCardWillBeginDestruction` rather than to the deck snapshot. So
    * nothing here fires destruction, nothing calls
@@ -1238,23 +1266,23 @@ export class DeckManager implements IDeckManagerStore {
    * binding stays in `cardSessionBindingStore`, and its tugcode process is
    * never signalled ([B05], Risk R01).
    *
-   * What the outgoing cards DO get is the capture. Their panes unmount, so
-   * this runs the same teardown-save core every other capture moment runs —
-   * tagged `"space-switch"` — and each card's bag lands in `cardStateCache`
-   * for `CardHost` to replay on the fresh mount when the workspace returns.
-   * That replay is restore moment 2/3 in `tuglaws/state-preservation.md` — a
-   * fresh mount with a previously-saved bag, the same shape a cross-pane move
-   * takes — not cold boot; the one-shot guard that would block it is
-   * per-`CardHost`-instance, which is what lets it fire again.
+   * And the outgoing cards get NO capture, because their panes do not
+   * unmount. A workspace the user has visited stays mounted and the canvas
+   * hides it ([B06]); the bags every other capture moment exists to write
+   * are the live DOM itself here, held by cards that were never taken down.
+   * So there is nothing to save and nothing to replay, and this method runs
+   * neither.
    *
-   * **[L26] is on point and is answered rather than skipped.** The law says
-   * not to tear down an entity that is logically continuous, and a parked
-   * workspace's cards are exactly that. The answer is [B04]: holding every
-   * workspace's panes mounted-but-hidden is the cost that decision rejects,
-   * and ten workspaces of live DOM is not a preservation strategy. So this is
-   * a teardown that is genuinely unavoidable, which is the case [L23] exists
-   * for — capture into the bag, replay on reconstruction — and the ordering
-   * below is the discipline that makes the capture complete.
+   * **[L26] is on point and is now simply obeyed.** The law says not to tear
+   * down an entity that is logically continuous, and a workspace's cards are
+   * exactly that. This used to answer the law rather than obey it — the
+   * argument was that holding every workspace's panes mounted is a cost the
+   * design rejects, so the teardown was genuinely unavoidable and [L23]'s
+   * capture-and-replay was the discipline that made it survivable. The
+   * measurement behind [B06] refuted the premise: the teardown and the
+   * rebuild WERE the switch's cost, and paying it for a workspace that is
+   * only being looked away from buys nothing. What stays behind is this
+   * record-writing, which persistence and the Workspaces card read.
    */
   public activateSpace = (spaceId: string): void => {
     // (1) Already there.
@@ -1271,36 +1299,62 @@ export class DeckManager implements IDeckManagerStore {
     }
     const incomingDeck = incoming.deck;
 
-    // (2) Capture every outgoing card's bag on the shared teardown core.
-    void this.teardownSave("space-switch");
+    // The switch instrument ([P09]). Every reading below is a delta from
+    // `t0`, so the phases are separable and `totalMs` is the whole
+    // synchronous span; `paintMs` is stamped in the double rAF at the end,
+    // which is the only place the record can be made.
+    const t0 = performance.now();
+    const fromSpaceId = outgoing.id;
+    const outgoingCards = this.deckState.cards.length;
+    const incomingCards = incomingDeck.cards.length;
 
-    // (3) A card mid-arrival is parked settled: the reveal it was waiting for
-    // is about to be unmounted, and `parkedDeck` drops the mark with it.
+    // (2) A card mid-arrival is settled where it stands. Its pane is not
+    // unmounted any more, but it is about to have no box to travel in, and a
+    // beat that cannot finish is a watch nothing will ever release.
+    // `parkedDeck` drops the mark from the record for the same reason.
     for (const watch of Array.from(this.arrivalWatches.values())) {
       watch.dispose();
     }
 
-    // (4) Remember where the user was, and park the live deck.
+    // (3) Remember where the user was, and write the outgoing workspace's
+    // record.
+    //
+    // The record is NOT a capture: nothing here is being taken down, and the
+    // cards go on holding their own state in their own live DOM ([B06]). It
+    // is written because persistence serializes from it and the Workspaces
+    // card's read-only rows are drawn from it, and it is `parkedDeck`'s
+    // stripped copy for the same reason `serialize` omits those fields — a
+    // bullseye posture, a strip offset, a sheet's floor claim, an arrival
+    // mark are all facts about what is on screen, and a record is not on
+    // screen. Stripping a copy costs the live deck nothing: `parkedDeck`
+    // returns a new object and `this.deckState` is untouched, so every
+    // transient mark the shown tree still needs is still on it.
     outgoing.focusedCardId = this.getFirstResponderCardId() ?? undefined;
     outgoing.deck = parkedDeck(this.deckState);
 
-    // (5) Deactivate the outgoing first responder and swap the deck in one
+    // (4) Deactivate the outgoing first responder and swap the deck in one
     // commit, so subscribers see a single transition rather than a deck
     // whose active pane names a card that is no longer in it.
+    const commitStart = performance.now();
     this._flipFirstResponder(
       null,
       () => {
         this.deckState = { ...incomingDeck, hasFocus: this.deckState.hasFocus };
         this.activeSpaceId = spaceId;
         incoming.deck = null;
+        // This workspace is mounted from here on ([P01]). Inside the commit
+        // so the invalidation below carries it, and before it so the one
+        // snapshot subscribers see already names the new arrangement.
+        this.mountedSpaceIds.add(spaceId);
         this.invalidateSpacesSnapshot();
         this.notify("activateSpace");
         this.scheduleSave();
       },
       "activateSpace",
     );
+    const commitMs = performance.now() - commitStart;
 
-    // (6) Construction for every incoming card the lifecycle has not seen —
+    // (5) Construction for every incoming card the lifecycle has not seen —
     // the same fan-out the constructor runs over a boot deck, so a card
     // arriving from a parked workspace is announced exactly once, whichever
     // activation first stands it up.
@@ -1310,12 +1364,14 @@ export class DeckManager implements IDeckManagerStore {
       }
     }
 
-    // (7) Restore this workspace's sessions, synchronously, BEFORE React
+    // (6) Restore this workspace's sessions, synchronously, BEFORE React
     // mounts its cards — a session card that mounts unbound with no
     // expectation registered falls through to the project picker (Risk R02).
+    const restoreStart = performance.now();
     this.spaceRestoreHook?.(this.deckState);
+    const restoreMs = performance.now() - restoreStart;
 
-    // (8) Put focus where the user left it in this workspace, falling back to
+    // (7) Put focus where the user left it in this workspace, falling back to
     // the active pane's card. A space that names a card no longer in its deck
     // gets the fallback rather than nothing.
     const remembered = incoming.focusedCardId;
@@ -1327,6 +1383,29 @@ export class DeckManager implements IDeckManagerStore {
     if (focus !== null && focus !== undefined) {
       this.activateCard(focus);
     }
+
+    // The reading, stamped after the browser has painted. A double
+    // `requestAnimationFrame` is the ordinary way to land past the frame the
+    // commit above produced: the first callback runs before that paint, the
+    // second after it. This is the arc's one timer and it is diagnostic —
+    // the no-polling rule is about the product watching itself, and nothing
+    // here repeats.
+    const totalMs = performance.now() - t0;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        deckTrace.record({
+          kind: "space-switch-timing",
+          fromSpaceId,
+          toSpaceId: spaceId,
+          outgoingCards,
+          incomingCards,
+          commitMs,
+          restoreMs,
+          totalMs,
+          paintMs: performance.now() - t0,
+        });
+      });
+    });
   };
 
   /**
@@ -1445,8 +1524,7 @@ export class DeckManager implements IDeckManagerStore {
    *
    * Deleting the ACTIVE workspace activates its nearest neighbour first — the
    * previous one, else the next — so the deck being torn down is a parked one
-   * by the time it is torn down, and every capture the switch owes has
-   * already run through {@link activateSpace}.
+   * by the time it is torn down.
    *
    * Then the two close paths, which are disjoint by construction:
    *
@@ -1502,6 +1580,7 @@ export class DeckManager implements IDeckManagerStore {
     }
 
     this.spaces.splice(index, 1);
+    this.mountedSpaceIds.delete(spaceId);
     this.invalidateSpacesSnapshot();
     this.scheduleSave();
     return true;
@@ -1547,16 +1626,22 @@ export class DeckManager implements IDeckManagerStore {
    *
    * The three cases differ only in which side is on screen:
    *
-   * - **Source is active.** The moving cards' panes are about to unmount, so
-   *   each gets its save callback fired first — the same capture a workspace
-   *   switch runs, tagged the same way — and the bag lands in
-   *   `cardStateCache` for the replay on the far side. A pane holding the
-   *   first responder hands the bit off through `_flipFirstResponder`.
+   * - **Source is active.** A pane holding the first responder hands the bit
+   *   off through `_flipFirstResponder`.
    * - **Destination is active.** The pane arrives visible rather than marked
    *   `arriving`: it is a settled card with a measured height, not a card
    *   opening, so there is nothing to hold a frame for. Cards the lifecycle
    *   has not constructed are announced, and the arrival is revealed.
-   * - **Neither is active.** Two parked records change and nothing renders.
+   * - **Neither is active.** Two records change, and what renders depends on
+   *   whether either workspace is mounted ([B06]).
+   *
+   * **Whichever case it is, the moving cards' panes are rebuilt**, because a
+   * pane leaves one workspace's layer and is stood up in another's. Since
+   * [B06] that is true of a workspace nobody is looking at, too: a visited
+   * workspace stays mounted, so its panes are live React trees a move takes
+   * down. So every case captures first ([L23]) — the bag lands in
+   * `cardStateCache` for the replay on the far side, and a card whose host is
+   * not mounted has no callback registered and costs nothing.
    *
    * A no-op when the card is already in `spaceId`, when no space has that id,
    * or when {@link moveCardBetweenDecks} refuses — a sidebar card's pane, or a
@@ -1587,22 +1672,31 @@ export class DeckManager implements IDeckManagerStore {
     const movingPane = sourceDeck.panes.find((p) => p.cardIds.includes(cardId));
     const movingCardIds = movingPane?.cardIds ?? [cardId];
 
-    // Neither side is on screen: two records change and nothing renders.
+    // Capture before React takes the moving panes down ([L23]). Unconditional:
+    // see the three cases above — the destination's layer stands the pane back
+    // up whichever workspace was the one on screen.
+    for (const id of movingCardIds) {
+      this.invokeSaveCallback(id, "space-switch");
+    }
+
+    // Neither side is on screen: two records change, and only a mounted
+    // workspace's layer re-renders.
     if (sourceRecord.deck !== null && destRecord.deck !== null) {
       sourceRecord.deck = moved.source;
       destRecord.deck = moved.dest;
+      // A parked record the spaces snapshot may be holding has been
+      // rewritten, and the canvas renders a mounted workspace's panes from
+      // that snapshot ([B06]) — so the cached identity has to go.
+      this.invalidateSpacesSnapshot();
       this.scheduleSave();
       return true;
     }
 
     if (sourceRecord.deck === null) {
-      // The source is on screen. Capture before the panes unmount ([L23]).
-      for (const id of movingCardIds) {
-        this.invokeSaveCallback(id, "space-switch");
-      }
       destRecord.deck = moved.dest;
       const commit = (): void => {
         this.deckState = moved.source;
+        this.invalidateSpacesSnapshot();
         this.notify("moveCardToSpace");
         this.scheduleSave();
       };
@@ -1627,6 +1721,7 @@ export class DeckManager implements IDeckManagerStore {
     // The destination is on screen: the pane arrives.
     sourceRecord.deck = moved.source;
     this.deckState = moved.dest;
+    this.invalidateSpacesSnapshot();
     this.notify("moveCardToSpace");
     this.scheduleSave();
     for (const id of movingCardIds) {
@@ -5080,7 +5175,7 @@ export class DeckManager implements IDeckManagerStore {
       `.tug-pane[data-pane-id="${escaped}"]`,
     );
     if (!frame) return null;
-    const canvas = frame.parentElement?.getBoundingClientRect() ?? null;
+    const canvas = paneCanvasOf(frame)?.getBoundingClientRect() ?? null;
     const zoom = getTugZoom() || 1;
     const rect = frame.getBoundingClientRect();
     return {
@@ -7357,6 +7452,7 @@ export class DeckManager implements IDeckManagerStore {
       const id = crypto.randomUUID();
       this.spaces = [{ id, name: MAIN_SPACE_NAME, deck: null }];
       this.activeSpaceId = id;
+      this.mountedSpaceIds = new Set([id]);
       this.invalidateSpacesSnapshot();
       return this.filterRegisteredCards(buildDefaultLayout());
     }
@@ -7374,6 +7470,7 @@ export class DeckManager implements IDeckManagerStore {
         : {}),
     }));
     this.activeSpaceId = this.spaces[activeIndex].id;
+    this.mountedSpaceIds = new Set([this.activeSpaceId]);
     this.invalidateSpacesSnapshot();
 
     return this.filterRegisteredCards(loaded.spaces[activeIndex].deck);

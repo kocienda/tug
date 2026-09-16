@@ -21,6 +21,7 @@
  */
 
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
+import { SHOWN_PANE_FRAMES } from "@/components/chrome/space-layer";
 
 /**
  * How far a frame may move between two samples before it counts as a jump.
@@ -189,7 +190,7 @@ export function classifySamples(
 export function sampleFrames(root: ParentNode): Map<string, PaneSample> {
   const samples = new Map<string, PaneSample>();
   for (const frame of root.querySelectorAll<HTMLElement>(
-    ".tug-pane[data-pane-id]",
+    SHOWN_PANE_FRAMES,
   )) {
     const paneId = frame.getAttribute("data-pane-id");
     if (paneId === null) continue;

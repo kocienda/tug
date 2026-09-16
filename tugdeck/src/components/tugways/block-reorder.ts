@@ -50,11 +50,13 @@
  * **A drop TARGET is the other thing a carry can land on** ({@link
  * UseBlockReorderOptions.dropTargets}). Some lists hold elements that are not
  * part of the order being dragged but are still somewhere a block can be put
- * down — the Cards card's workspace headers, which a pane row is dropped onto
- * to move the card into that workspace ([P10]). While the pointer is over one,
- * the reorder stands down whole: the siblings ease back to their resting
- * places, the caret hides, and the target wears `data-drop-target="true"` so
- * the host's CSS can mark it. A release there calls
+ * down — the Cards card's workspaces, onto which a pane row is dropped to move
+ * the card there ([P10], [B03]). While the pointer is over one, the reorder
+ * stands down whole: the siblings ease back to their resting places, the caret
+ * hides, and **every element sharing the target's key** wears
+ * `data-drop-target="true"` so the host's CSS can mark the block as one place
+ * (Spec S02) — a selector matching one element per key marks one, which is the
+ * degenerate case rather than a different path. A release there calls
  * `dropTargets.onDrop(kind, targetKey)` and eases the block back instead of
  * committing an order — the drop's outcome is the host's to write, and it is
  * not a reorder. Leaving the target restores the ordinary reorder mid-gesture,
@@ -169,14 +171,37 @@ export interface UseBlockReorderOptions {
    * The host writes the outcome; this hook commits no order for such a drop
    * and eases the block back where it came from. Whether a particular target
    * means anything for a particular block (dropping a row onto its own
-   * workspace's header) is the host's to decide in `onDrop` — the mark is
-   * shown for every match, because a target that highlights and then refuses
-   * is clearer than one that silently does not light up.
+   * workspace's header) is the host's to decide in `onDrop`.
+   *
+   * **A target is a BLOCK of elements, and one element is the degenerate
+   * case** (Spec S02). Every element in the container matching `selector`
+   * whose `attr` equals the hit key is marked `data-drop-target="true"`, and
+   * every one of them is cleared when the pointer leaves, on an Escape abort,
+   * and at the end of the gesture. A workspace's whole run — its header and
+   * each row filed under it — therefore lights as one place to put a card
+   * down, which is what it is; a selector that matches one element per key
+   * marks one, exactly as before.
+   *
+   * `excludeKey` names a key that is NOT a target for the current drag, and
+   * it is what makes a run selector safe. The rule above it — a key in the
+   * drag's visible order is a block rather than a target — is not enough once
+   * targets and the reorder's own rows overlap: a pane row's `visible` order
+   * is scoped to one group in one workspace, so that workspace's OWN run key
+   * never appears in it, and every sibling row under the pointer would read
+   * as a hit and stand the reorder down with nothing committed. The host
+   * excludes the dragged block's own run and the in-group reorder lives.
+   *
+   * This replaces an earlier reading — that a target which highlights and
+   * then refuses is clearer than one that silently does not light up. That
+   * held while a target could not overlap the reorder's own rows. It can now,
+   * and a target that lights over the row you are dragging past does not read
+   * as a refusal; it reads as a broken drag.
    */
   dropTargets?: {
     readonly selector: string;
     readonly attr: string;
     readonly onDrop: (kind: string, targetKey: string) => void;
+    readonly excludeKey?: () => string | null;
   };
   /**
    * The row's content is ALSO a native HTML5 drag source (a jot's incipit,
@@ -369,12 +394,16 @@ export function useBlockReorder({
       // The drop target under the pointer, if the host declared any and the
       // pointer is over one. The dragged block carries `pointer-events: none`
       // for the length of the gesture, so it never hit-tests as itself.
-      let dropTargetEl: HTMLElement | null = null;
+      //
+      // `dropTargetEls` is every element sharing the hit key, because a target
+      // is a block (Spec S02). One element is the ordinary case and needs no
+      // special path.
+      let dropTargetEls: HTMLElement[] = [];
       let dropTargetKey: string | null = null;
       const hitDropTarget = (
         clientX: number,
         clientY: number,
-      ): { el: HTMLElement; key: string } | null => {
+      ): { els: HTMLElement[]; key: string } | null => {
         const targets = dropTargetsRef.current;
         if (targets === undefined) return null;
         const under = document.elementFromPoint(clientX, clientY);
@@ -385,11 +414,18 @@ export function useBlockReorder({
         // An element whose key is in the order being dragged is a BLOCK, not
         // a target: dragging onto it is the ordinary reorder.
         if (key === null || visible.includes(key)) return null;
-        return { el, key };
+        // And the host's own exclusion — the key this drag came out of, which
+        // `visible` cannot express when the order is scoped narrower than the
+        // target key is.
+        if (targets.excludeKey?.() === key) return null;
+        const els = Array.from(
+          container.querySelectorAll<HTMLElement>(targets.selector),
+        ).filter((e) => e.getAttribute(targets.attr) === key);
+        return { els, key };
       };
       const leaveDropTarget = (): void => {
-        dropTargetEl?.removeAttribute("data-drop-target");
-        dropTargetEl = null;
+        for (const el of dropTargetEls) el.removeAttribute("data-drop-target");
+        dropTargetEls = [];
         dropTargetKey = null;
       };
 
@@ -416,11 +452,11 @@ export function useBlockReorder({
         // every shift computes to zero and the caret is removed.
         const hit = hitDropTarget(clientX, clientY);
         if (hit !== null) {
-          if (hit.el !== dropTargetEl) {
+          if (hit.key !== dropTargetKey) {
             leaveDropTarget();
-            dropTargetEl = hit.el;
+            dropTargetEls = hit.els;
             dropTargetKey = hit.key;
-            hit.el.setAttribute("data-drop-target", "true");
+            for (const el of hit.els) el.setAttribute("data-drop-target", "true");
           }
           if (targetIndex !== dragIndex) {
             targetIndex = dragIndex;

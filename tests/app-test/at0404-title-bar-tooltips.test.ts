@@ -73,6 +73,7 @@ const BULLSEYE = `${PANE} [data-testid="tug-pane-title-bar-bullseye-button"]`;
 const REVEAL_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-item-reveal-card-file"]`;
 const OPTIONS_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-item-show-card-settings"]`;
 const WIDTH_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-width-button"]`;
+const MOVE_SPACE_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-move-space-button"]`;
 const CLOSE_BUTTON = `${PANE} [data-testid="tug-pane-close-button"]`;
 const WIDTH_MENU = '[data-testid="tug-pane-title-bar-width-menu"]';
 
@@ -381,6 +382,21 @@ describe.skipIf(!SHOULD_RUN)(
             "the gear opens the card's own view settings",
           ).toBe("Card Settings…");
 
+          // --- Move to Workspace: the act, and why it is dimmed. ----------
+          // One workspace stands in this deck, so the trigger is disabled and
+          // the phrase has to say so — which is the whole reason the bubble
+          // hangs off the anchoring span rather than the button ([L31]): a
+          // disabled button takes no pointer events, and the one state that
+          // most needs explaining would explain nothing.
+          expect(
+            await hoverPhrase(app, MOVE_SPACE_BUTTON),
+            "dimmed, it says what it would do and why it cannot",
+          ).toBe("Move this card to another workspace — there is only one");
+          expect(
+            await chipText(app, MOVE_SPACE_BUTTON),
+            "the move has no chord yet — drag is its fast path",
+          ).toBeNull();
+
           // --- Width: the act, and the width it is holding now. -----------
           expect(
             await hoverPhrase(app, WIDTH_BUTTON),
@@ -399,10 +415,15 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await chipText(app, CLOSE_BUTTON), "with ⌘W beside it").toBe("⌘W");
 
           // --- The row's spine, right to left. ----------------------------
-          // Bullseye, card width, Reveal in Finder — the three verbs more than
-          // one kind of card offers, at the end that holds still. Only the
-          // leftmost positions belong to what a particular card adds, which
-          // here is Card Settings.
+          // Bullseye, card width, Move to Workspace, Reveal in Finder — the
+          // verbs more than one kind of card offers, at the end that holds
+          // still. Only the leftmost positions belong to what a particular
+          // card adds, which here is Card Settings.
+          //
+          // Move to Workspace is authored in the spine rather than published
+          // through the items store, because a card of ANY kind moves and the
+          // verb is therefore the pane's; it sits before card width so
+          // bullseye and width keep the two spots already learned.
           //
           // The failure this catches is the one it was written for: a Text
           // card published Reveal then Settings and the Session masthead
@@ -423,6 +444,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toEqual([
             "Card Settings…",
             "Reveal in Finder",
+            "Move to workspace",
             "Card width",
             "Bullseye",
           ]);

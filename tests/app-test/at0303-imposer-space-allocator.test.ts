@@ -181,7 +181,10 @@ async function seedPreferredWidth(app: App, widthPx: number): Promise<void> {
 /** The width of the canvas the chain is imposed across. */
 async function canvasWidth(app: App): Promise<number> {
   return app.evalJS<number>(
-    `document.querySelector(".tug-pane").parentElement.clientWidth`,
+    // The canvas container by identity rather than by walking up one level: a
+    // pane's parent is its workspace wrapper now ([B06]), and a shown wrapper
+    // is `display: contents`, so it has no box and `clientWidth` reads 0.
+    `document.querySelector("[data-deck-canvas-background]").clientWidth`,
   );
 }
 

@@ -407,10 +407,11 @@ export interface MenuStatePaneEntry {
 /**
  * One workspace row for the Window menu's Workspaces section ([P12], [B10]).
  *
- * The decks are absent by design, exactly as `SpacesSnapshot` leaves them out:
- * a menu row is a name and a mark, and carrying a parked deck here would make
- * the payload — which is diffed whole on every flush — change on every
- * mutation inside the active workspace.
+ * The decks are absent by design: a menu row is a name and a mark, and
+ * carrying a parked deck here would make the payload — which is diffed whole
+ * on every flush — change on every mutation inside any workspace. The spaces
+ * snapshot carries the mounted workspaces' parked decks for the canvas's
+ * sake; nothing about this projection wants them.
  */
 export interface MenuStateSpaceEntry {
   id: string;
@@ -559,7 +560,12 @@ export function computeFileMenuGates(block: MenuStateFileBlock): FileMenuGates {
  * the shape a unit test of the pane projection wants, and the honest reading
  * before the first spaces snapshot lands: no workspaces, so no section.
  */
-const EMPTY_SPACES_SNAPSHOT: SpacesSnapshot = { spaces: [], activeSpaceId: "" };
+const EMPTY_SPACES_SNAPSHOT: SpacesSnapshot = {
+  spaces: [],
+  activeSpaceId: "",
+  mountedSpaceIds: [],
+  mountedDecks: new Map(),
+};
 
 /** Deck-derived half of the payload (everything except the dev block). */
 export interface MenuStateDeckProjection {
@@ -1137,6 +1143,10 @@ export class HostMenuStatePublisher {
       sidebars,
       column: this.columnFactSource?.() ?? null,
       focusTravel: this.focusTravelFactSource?.() ?? null,
+      // The same array the payload's Workspaces section is built from, so the
+      // Delete row's gate and the rows it would delete from can never
+      // disagree about how many there are ([P07]).
+      spaceCount: spaces.length,
     };
     this.lastFacts = facts;
     const commands = computeCommandCapabilities(this.validationSource(facts));

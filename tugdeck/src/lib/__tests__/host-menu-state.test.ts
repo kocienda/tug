@@ -17,6 +17,7 @@ import { TUG_ACTIONS } from "../../components/tugways/action-vocabulary";
 import { cardTitleStore } from "../card-title-store";
 import { registerCard } from "../../card-registry";
 import type { CardState, DeckState, TugPaneState } from "../../layout-tree";
+import type { SpacesSnapshot } from "../../spaces";
 
 function card(id: string, overrides: Partial<CardState> = {}): CardState {
   return {
@@ -47,6 +48,18 @@ function pane(
 
 function deck(cards: CardState[], panes: TugPaneState[]): DeckState {
   return { cards, panes, imposition: { sidebars: { dashes: { side: "right" } } }, hasFocus: true };
+}
+
+/**
+ * A spaces snapshot for the projection. The mounted fields are the canvas's
+ * ([B06]) and the Window menu's projection reads neither, so they are empty
+ * here rather than repeated at every call.
+ */
+function spacesOf(
+  spaces: readonly { id: string; name: string }[],
+  activeSpaceId: string,
+): SpacesSnapshot {
+  return { spaces, activeSpaceId, mountedSpaceIds: [], mountedDecks: new Map() };
 }
 
 // Pane names resolve through the card registry now, so the projection tests
@@ -94,13 +107,16 @@ describe("projectDeckState", () => {
   });
 
   test("every workspace is projected in order, the rendered one marked", () => {
-    const projection = projectDeckState(deck([], []), {
-      spaces: [
-        { id: "s1", name: "Main" },
-        { id: "s2", name: "Second" },
-      ],
-      activeSpaceId: "s2",
-    });
+    const projection = projectDeckState(
+      deck([], []),
+      spacesOf(
+        [
+          { id: "s1", name: "Main" },
+          { id: "s2", name: "Second" },
+        ],
+        "s2",
+      ),
+    );
     expect(projection.spaces).toEqual([
       { id: "s1", name: "Main", active: false },
       { id: "s2", name: "Second", active: true },
@@ -403,19 +419,13 @@ describe("HostMenuStatePublisher", () => {
     const publisher = new HostMenuStatePublisher((p) => posted.push(p));
     const state = deck([card("a")], [pane("p1", ["a"])]);
     publisher.setDeckProjection(
-      projectDeckState(state, {
-        spaces: [{ id: "s1", name: "Main" }],
-        activeSpaceId: "s1",
-      }),
+      projectDeckState(state, spacesOf([{ id: "s1", name: "Main" }], "s1")),
     );
     await settle();
     // Nothing about the deck moved — only the name one level up, which is
     // exactly the change the menu's own subscription exists to carry.
     publisher.setDeckProjection(
-      projectDeckState(state, {
-        spaces: [{ id: "s1", name: "Renamed" }],
-        activeSpaceId: "s1",
-      }),
+      projectDeckState(state, spacesOf([{ id: "s1", name: "Renamed" }], "s1")),
     );
     await settle();
     expect(posted).toHaveLength(2);

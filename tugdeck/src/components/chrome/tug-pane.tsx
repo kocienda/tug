@@ -34,6 +34,7 @@ import React, {
 } from "react";
 import {
   CircleDot,
+  FolderInput,
   MoreHorizontal,
   MoveHorizontal,
   X,
@@ -125,6 +126,7 @@ import {
   getCardCloseGuard,
   type CardCloseDecision,
 } from "@/lib/card-close-guard";
+import { closeGuardWalk } from "@/lib/close-guard-walk";
 import {
   cardWaivesCloseConfirm,
   readCardCloseAdvice,
@@ -138,6 +140,11 @@ import {
   transferFocusForActivation,
 } from "@/focus-transfer";
 import { paneOcclusionGesture } from "@/components/chrome/pane-occlusion-controller";
+import {
+  SHOWN_PANE_FRAMES,
+  paneCanvasOf,
+  useSpaceLayerShown,
+} from "@/components/chrome/space-layer";
 
 // ===========================================================================
 // CardTitleBar (window title chrome)
@@ -378,6 +385,24 @@ export interface CardTitleBarProps {
    */
   onSetWidth?: (preset: ContentWidth) => void;
   /**
+   * The workspace list, in the user's order, and which one is active. Feeds
+   * the Move to Workspace popup: its rows are the workspaces OTHER than
+   * {@link activeSpaceId}, by name. Resolved in `DeckCanvas`, where the
+   * spaces store lives — a pane cannot see the level above its own deck.
+   *
+   * A list of one is not an absent control: the trigger renders disabled and
+   * its tooltip says why, which is the spine's rule everywhere else.
+   */
+  spaces?: readonly { id: string; name: string }[];
+  /** The workspace this pane's card currently lives in — never a menu row. */
+  activeSpaceId?: string;
+  /**
+   * File the pane's active card into another workspace. Wired in `DeckCanvas`
+   * to `moveCardToSpace`; [B04] holds, so the user stays where they are and
+   * the card is announced only by the destination's count changing.
+   */
+  onMoveToSpace?: (spaceId: string) => void;
+  /**
    * The active card's masthead request, or null for the one-line bar. Present
    * → the bar renders at {@link MASTHEAD_HEIGHT} and gives its title region
    * to the card family's masthead component instead of a title string; the
@@ -473,6 +498,9 @@ function CardTitleBar({
   placeArrangement,
   onArrangePlace,
   onSetWidth,
+  spaces = EMPTY_SPACES,
+  activeSpaceId,
+  onMoveToSpace,
   masthead = null,
   sidebar = false,
   folded = false,
@@ -589,6 +617,10 @@ function CardTitleBar({
   // reveal to ask for.
   const deck = useContext(DeckManagerContext);
 
+  // Whether this pane's workspace is the one on screen. The gate on every
+  // measurement this bar takes — see the controls-width effect.
+  const layerShown = useSpaceLayerShown();
+
   // Whether the pointer is inside the title bar — the fact the rollup's reveal
   // reads. Written to the DOM as `data-pointer-within`, never to React state
   // ([L06]): it is pure appearance, it turns on every pass of the pointer
@@ -632,6 +664,17 @@ function CardTitleBar({
     const bar = barElRef.current;
     const controls = controlsElRef.current;
     if (bar === null || controls === null) return;
+    // Nothing measures in the dark. A pane in a workspace the canvas is
+    // hiding has no boxes, so `offsetWidth` reads 0 and the bar would learn
+    // that its controls are no width at all — a reading about a `display:
+    // none` ancestor rather than about this bar. The effect is keyed on the
+    // shown bit, so the measurement is taken in the very commit that reveals
+    // the workspace ([B06], (#geometry-on-show)).
+    if (!layerShown) return;
+    bar.style.setProperty(
+      "--tugx-pane-controls-width",
+      `${controls.offsetWidth}px`,
+    );
     const observer = new ResizeObserver(() => {
       bar.style.setProperty(
         "--tugx-pane-controls-width",
@@ -642,7 +685,7 @@ function CardTitleBar({
     return () => {
       observer.disconnect();
     };
-  }, []);
+  }, [layerShown]);
 
   // Controlled-mode open state for the close-confirm popover (the shared
   // `TugConfirmPopover` component). The X button and the imperative
@@ -676,7 +719,11 @@ function CardTitleBar({
   // that is no longer painted. The card-width menu inside the row is therefore
   // CONTROLLED, and while it stands the row is held open.
   const [widthMenuOpen, setWidthMenuOpen] = useState(false);
-  const rollupHeld = widthMenuOpen;
+  // Move to Workspace is controlled for the identical reason, stated at the
+  // width control below, and feeds the same bit: two menus in the row, either
+  // of which standing holds the row open.
+  const [moveMenuOpen, setMoveMenuOpen] = useState(false);
+  const rollupHeld = widthMenuOpen || moveMenuOpen;
 
   // Where a masthead's own chrome affordance mounts: an empty host inside the
   // control cluster, directly AFTER the stack badge. Held as state rather than
@@ -1163,6 +1210,63 @@ function CardTitleBar({
             </TugTooltip>
           );
         })}
+        {/* Move to Workspace. Authored in place in the spine rather than
+            published through the items store: the authored end of the row is
+            for the PANE's own verbs, and a card of any kind moves — so this is
+            the pane's verb rather than any card family's ([B08]).
+
+            It sits before card width in source order, which is further LEFT in
+            the right-to-left spine, so bullseye and width keep the two
+            positions the eye has already learned.
+
+            Choosing a row files the pane's active card into that workspace and
+            leaves the user exactly where they are ([B04]): a drag is a filing
+            gesture, not a travel one, and the menu is the same gesture wearing
+            a name. Drag remains the fast path; this is the named door. */}
+        {onMoveToSpace !== undefined && (
+          <TugTooltip
+            content={
+              spaces.length > 1
+                ? "Move this card to another workspace"
+                : "Move this card to another workspace — there is only one"
+            }
+          >
+            {/* The phrase rides the anchoring span rather than the button,
+                because a disabled button takes no pointer events and would
+                never raise the tooltip that explains why it is disabled
+                ([L31]). The composition the width control already uses
+                provides the span, so the one-workspace case needs nothing
+                added. */}
+            <span className="tug-pane-title-bar-tooltip-anchor">
+              <TugPopupMenu
+                trigger={
+                  <TugButton
+                    subtype="icon"
+                    emphasis="ghost"
+                    role="action"
+                    size="sm"
+                    icon={<FolderInput />}
+                    aria-label="Move to workspace"
+                    disabled={spaces.length <= 1}
+                    data-testid="tug-pane-title-bar-move-space-button"
+                  />
+                }
+                align="end"
+                // Controlled for the reason written at card width below: the
+                // menu portals its rows outside the card, so the pointer
+                // travelling to a row leaves the title bar and would collapse
+                // the row this trigger stands in.
+                open={moveMenuOpen}
+                onOpenChange={setMoveMenuOpen}
+                items={spaces
+                  .filter((space) => space.id !== activeSpaceId)
+                  .map((space) => ({ id: space.id, label: space.name }))}
+                onSelect={(id) => onMoveToSpace(id)}
+                data-testid="tug-pane-title-bar-move-space-menu"
+              />
+            </span>
+          </TugTooltip>
+        )}
         {/* Card width. A dedicated, persistent trigger rather than a row in
             the `…` overflow above: width is reached often and carries state,
             and a control whose current value is invisible until you open it
@@ -1708,7 +1812,7 @@ function snapshotCardRects(
   // any other card, so a card can be abutted to it. A rail exposes the same
   // `getBoundingClientRect` as any pane, so its rect needs no special case.
   const els = document.querySelectorAll<HTMLElement>(
-    ".tug-pane[data-pane-id]",
+    SHOWN_PANE_FRAMES,
   );
   els.forEach((el) => {
     const paneId = el.getAttribute("data-pane-id");
@@ -1962,6 +2066,19 @@ export interface TugPaneProps {
    */
   onRevealPane?: (entry: SlotStackEntry) => void;
   /**
+   * The workspace list and the active workspace, threaded straight to
+   * {@link CardTitleBarProps.spaces} and `activeSpaceId`. Resolved in
+   * `DeckCanvas`, which is where the spaces store lives.
+   */
+  spaces?: readonly { id: string; name: string }[];
+  activeSpaceId?: string;
+  /**
+   * File this pane's active card into another workspace. Wired in
+   * `DeckCanvas` to `moveCardToSpace`; the pane and its title bar only report
+   * the choice, the same shape {@link onRevealPane} above takes.
+   */
+  onMoveToSpace?: (spaceId: string) => void;
+  /**
    * Set only on a pane standing in a rail: where that rail stands and where
    * this pane stands on it. A rail is imposed as the strip's fixed end rather
    * than a link in its chain, so its panes take a pin instead of a `placement`:
@@ -2094,6 +2211,11 @@ function cssLength(value: CSSProperties["left"]): string {
 // `slotStack` prop does not hand the title bar a fresh identity per render.
 const EMPTY_SLOT_STACK: readonly SlotStackEntry[] = [];
 
+// The same trick for the workspace list: a pane rendered before the spaces
+// store has been consulted takes one frozen empty array rather than a new one
+// each render.
+const EMPTY_SPACES: readonly { id: string; name: string }[] = [];
+
 type ResizeEdge = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
 
 const RESIZE_EDGES: ResizeEdge[] = ["n", "s", "e", "w", "nw", "ne", "sw", "se"];
@@ -2135,6 +2257,9 @@ export function TugPane({
   contentWidthPx,
   slotStack = EMPTY_SLOT_STACK,
   onRevealPane,
+  spaces,
+  activeSpaceId: spacesActiveSpaceId,
+  onMoveToSpace,
   sidebarStack,
   isSidebarPane = false,
   bullseye = false,
@@ -2223,6 +2348,11 @@ export function TugPane({
   const stackId = id;
   const minContentSize = minContentSizeProp ?? DEFAULT_MIN_CONTENT;
   const store = useDeckManager();
+
+  // Whether this pane's workspace is the one on screen ([B06]). Every
+  // measurement below is armed on it, so a hidden workspace measures nothing
+  // and a shown one measures in the commit that reveals it.
+  const layerShown = useSpaceLayerShown();
 
   const [cardEl, setCardEl] = useState<HTMLDivElement | null>(null);
   // Frame element exposed via TugPaneFrameContext and bridged through
@@ -2581,29 +2711,18 @@ export function TugPane({
           .map((c) => c.id)
           .filter((id) => id !== activeId),
       ];
-      const guarded = ids.filter((id) => getCardCloseGuard(id) !== null);
-      if (guarded.length === 0) return null;
-      // All guards clean → no decisions to collect; fall through to the
-      // normal confirm-popover flow so a multi-tab pane keeps its
-      // "Close N Tabs?" stray-click protection. When any card IS dirty,
-      // the visit sequence collects an explicit per-card decision and
-      // supersedes the popover — asking again after would double-prompt.
-      if (!guarded.some((id) => getCardCloseGuard(id)?.needsDecision() === true)) {
-        return null;
-      }
-      return async () => {
-        for (const id of guarded) {
-          // Re-resolve at visit time: an earlier decision (e.g. Save) may
-          // have replaced or released this card's guard.
-          const guard = getCardCloseGuard(id);
-          if (!guard) continue;
-          if (guard.needsDecision() && activeCardIdRef.current !== id) {
-            performSelectCard(id);
-          }
-          if ((await guard.run()) === "cancel") return "cancel";
-        }
-        return "close";
-      };
+      // The walk itself is shared with the workspace delete ([P05]), which
+      // owes the user the same per-card sheets over a different set of
+      // cards. A `null` here still means "nothing was asked", which is what
+      // keeps a multi-tab pane's "Close N Tabs?" stray-click protection.
+      //
+      // `activeCardIdRef` is read INSIDE the callback rather than captured,
+      // so the walk sees the activations it has itself performed.
+      return closeGuardWalk(
+        ids,
+        performSelectCard,
+        (id) => activeCardIdRef.current === id,
+      );
     },
     [performSelectCard],
   );
@@ -2638,13 +2757,20 @@ export function TugPane({
       setAccessoryHeight(0);
       return;
     }
+    // A hidden workspace's pane measures nothing ([B06],
+    // (#geometry-on-show)). Its accessory has no box, so the reading would
+    // be 0 — and 0 is not "this tab bar is flat", it is "this tab bar is not
+    // being laid out". It would drop the pane's `minSize` by the bar's whole
+    // height and the frame would step on the commit that reveals it. Keyed
+    // on the shown bit, so the reading is taken in that commit instead.
+    if (!layerShown) return;
     setAccessoryHeight(el.getBoundingClientRect().height);
     const ro = new ResizeObserver(() => {
       setAccessoryHeight(el.getBoundingClientRect().height);
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [resolvedAccessory]);
+  }, [resolvedAccessory, layerShown]);
 
   // ---------------------------------------------------------------------------
   // onMinSizeChange — content-reported minimum drives resize clamp
@@ -3028,7 +3154,8 @@ export function TugPane({
       // once at pointer-down and is read (not written) during the drag.
 
       // Snapshot canvas bounds and drag start state once.
-      dragCanvasBounds.current = frame.parentElement?.getBoundingClientRect() ?? null;
+      dragCanvasBounds.current =
+        paneCanvasOf(frame)?.getBoundingClientRect() ?? null;
       dragActive.current = true;
       dragStartPointer.current = { x: event.clientX, y: event.clientY };
 
@@ -3409,7 +3536,7 @@ export function TugPane({
             pos.y = snapResult.y;
           }
           // Render snap guides via DOM manipulation. [D03]
-          const container = frame.parentElement;
+          const container = paneCanvasOf(frame);
           if (container) {
             syncGuideElements(dragGuideEls, snapResult.guides, container, dragGuideEdgeOffsets);
           }
@@ -3872,7 +3999,8 @@ export function TugPane({
       // Snap geometry runs in layout space; divide visual measurements by zoom.
       const resizeZoom = getTugZoom() || 1;
       const resizeGuideEdgeOffsets = measureGuideEdgeOffsets(frame, resizeZoom);
-      const resizeCanvasBounds = frame.parentElement?.getBoundingClientRect() ?? null;
+      const resizeCanvasBounds =
+        paneCanvasOf(frame)?.getBoundingClientRect() ?? null;
 
       // Resizing releases an imposed pane from its slot, exactly as dragging
       // does — and on the same terms: only once the pointer has travelled far
@@ -3971,7 +4099,7 @@ export function TugPane({
           }
 
           // Render resize snap guides. [D03]
-          const container = frame.parentElement;
+          const container = paneCanvasOf(frame);
           if (container) {
             syncGuideElements(resizeGuideEls, snapResult.guides, container, resizeGuideEdgeOffsets);
           }
@@ -4098,7 +4226,7 @@ export function TugPane({
       if (!frameRef.current) return;
       if (sidebarSide === undefined) return;
       const frame: HTMLDivElement = frameRef.current;
-      const container = frame.parentElement;
+      const container = paneCanvasOf(frame);
       if (!container) return;
 
       // A rail drag is not one pane's resize: the property it writes insets
@@ -4106,7 +4234,7 @@ export function TugPane({
       // live under the moving edge. Every frame in the container gets an
       // episode, the rail's own included.
       const scrollEpisodes = [
-        ...container.querySelectorAll<HTMLElement>(".tug-pane[data-pane-id]"),
+        ...container.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES),
       ].map((paneFrame) =>
         beginResizeEpisode(paneFrame, GESTURE_EPISODE_WINDOW_MS),
       );
@@ -4640,6 +4768,9 @@ export function TugPane({
             activeCardId={activeCardId}
             slotStack={slotStack}
             onRevealPane={onRevealPane}
+            spaces={spaces}
+            activeSpaceId={spacesActiveSpaceId}
+            onMoveToSpace={onMoveToSpace}
             bullseye={bullseye}
             onToggleBullseye={handleToggleBullseye}
             {...(sidebarStack !== undefined

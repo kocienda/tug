@@ -60,6 +60,7 @@ import { useDeckManager } from "@/deck-manager-context";
 import { getFocusManager } from "@/components/tugways/focus-manager";
 import { transferFocusForActivation } from "@/focus-transfer";
 import { installGestureInterpreter } from "@/gesture-interpreter";
+import { SHOWN_PANE_FRAMES } from "./space-layer";
 
 export function usePaneFocusController(
   deckRootRef: React.RefObject<HTMLDivElement | null>,
@@ -81,7 +82,7 @@ export function usePaneFocusController(
     const root = deckRootRef.current;
     if (!root) return;
     for (const pane of root.querySelectorAll<HTMLElement>(
-      ".tug-pane[data-pane-id]",
+      SHOWN_PANE_FRAMES,
     )) {
       pane.dataset.focused =
         pane.dataset.paneId === activePaneId ? "true" : "false";

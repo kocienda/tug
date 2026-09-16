@@ -49,15 +49,36 @@ export interface SpacesState {
 }
 
 /**
- * What React readers see: the list's identities and order, without the decks.
+ * What React readers see: the list's identities and order, which workspaces
+ * are mounted, and the parked decks of the mounted ones.
  *
- * The decks are deliberately absent. A subscriber that wants the spaces wants
- * to draw a list of names, and handing it every parked deck would make the
- * snapshot change on every mutation inside the active one.
+ * The ACTIVE workspace's deck is deliberately absent, and that is the whole
+ * of the old "no decks here" rule that survives: the live deck is the deck
+ * store's, it changes on every mutation inside it, and a copy cached here
+ * would go stale the moment a pane moved. A subscriber that wants the active
+ * deck reads `getSnapshot`.
+ *
+ * What IS here is every MOUNTED workspace's parked deck ([B06]). The canvas
+ * renders one wrapper per mounted workspace, and the inactive ones' panes
+ * have to come from somewhere a render body may read — [L02] is exact, and a
+ * `getSpaceDeck(id)` call in render is an external read outside a store hook.
+ * A parked deck is rewritten only by a park or a cross-workspace move, and
+ * both invalidate this snapshot, so the identities here are as stable as the
+ * names beside them.
  */
 export interface SpacesSnapshot {
   spaces: readonly { id: string; name: string }[];
   activeSpaceId: string;
+  /**
+   * The workspaces React is holding mounted — the active one and every one
+   * the user has visited this run ([P01]). In the list's order.
+   */
+  mountedSpaceIds: readonly string[];
+  /**
+   * The parked deck of every mounted workspace EXCEPT the active one, whose
+   * deck is the live one. A mounted id with no entry here is the active one.
+   */
+  mountedDecks: ReadonlyMap<string, DeckState>;
 }
 
 /**

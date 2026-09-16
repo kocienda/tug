@@ -5,11 +5,11 @@
  * that holds it.
  *
  * The list is three-level, and the outermost level is the workspace ([P09]).
- * The active workspace is expanded and wears the mark; each other one is one
- * row that says what it holds, opening to a READ-ONLY view of its rows — a
- * glance across the wall before deciding to go. The card's name is the noun
- * the whole suite uses; its component id, its class names and its ⌃⌘W are
- * unchanged ([P13]).
+ * One workspace wears the mark; every one of them — the marked one included —
+ * folds, and a parked workspace's rows open READ-ONLY, a glance across the
+ * wall before deciding to go ([B02]). Expanded is the default and the store
+ * holds the folds. The card's name is the noun the whole suite uses; its
+ * component id, its class names and its ⌃⌘W are unchanged ([P13]).
  *
  * The two inner levels are facts of the deck's data model rather than folders
  * the user opens:
@@ -72,11 +72,13 @@ import {
   GitBranch,
   LayoutGrid,
   MessageSquareText,
+  Plus,
   Wrench,
   X,
 } from "lucide-react";
 
 import { dispatchCommand } from "@/command-dispatch";
+import { useSpaceLayerShown } from "@/components/chrome/space-layer";
 import { BlockDropCaret } from "@/components/tugways/block-drop-caret";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { useBlockReorder } from "@/components/tugways/block-reorder";
@@ -115,6 +117,7 @@ import {
 } from "@/components/tugways/use-focusable";
 import { renderIcon } from "@/components/tugways/tug-tab-bar";
 import { getCardCloseGuard } from "@/lib/card-close-guard";
+import { closeGuardWalk } from "@/lib/close-guard-walk";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { useChangesetAll } from "@/lib/changeset-all-store";
 import { getDeckStore } from "@/lib/deck-store-registry";
@@ -131,7 +134,8 @@ import {
   type CardsRow,
   type CardsDataSource,
 } from "./cards-data-source";
-import { expandedSpacesStore } from "./cards-space-expansion";
+import { collapsedSpacesStore } from "./cards-space-expansion";
+import { cardsSpaceVerbRequest } from "./cards-space-verb-request";
 import {
   GROUP_TITLES,
   groupOfRunKey,
@@ -175,13 +179,6 @@ const GROUP_RUN_ATTR = "data-cards-group-run";
 // workspace travels with everything it holds, collapsed or open ([P10]).
 const SPACE_RUN_SELECTOR = "[data-cards-space-run]";
 const SPACE_RUN_ATTR = "data-cards-space-run";
-
-// A workspace HEADER as a drop target for a pane row: dragging a card's row
-// onto one moves the card into that workspace ([P10], [B07]). The header is
-// the one target that is unambiguous, works for a collapsed workspace, and
-// never interferes with the in-group FLIP.
-const SPACE_HEADER_SELECTOR = ".cards-space-header";
-const SPACE_HEADER_ATTR = "data-cards-space-id";
 
 /** Focus group for a row's close box. The rows render inside `TugListView`'s
  *  per-row `FocusModeContext`, so the button registers into its own row's
@@ -227,6 +224,70 @@ let lastSelectedRowId: string | null = null;
  */
 function askedBeforeClosing(cardId: string): boolean {
   return getCardCloseGuard(cardId)?.needsDecision() === true;
+}
+
+/**
+ * The delete confirm's sentence (Spec S03): the workspace by name, what will
+ * close, and — only when there are any — how many of those are live sessions.
+ *
+ * The sessions clause is parenthetical rather than a second sentence because
+ * it qualifies the card count rather than adding to it: a workspace of three
+ * cards two of which are sessions closes three things, not five. A workspace
+ * with no sessions says nothing about them, instead of "(0 sessions)", which
+ * reads as a warning about something that is not there.
+ */
+function deleteMessage(name: string, cards: number, sessions: number): string {
+  const cardsPhrase = cards === 1 ? "1 card" : `${cards} cards`;
+  const sessionsPhrase =
+    sessions === 0
+      ? ""
+      : sessions === 1
+        ? " (1 session)"
+        : ` (${sessions} sessions)`;
+  return `Delete ${name} and close ${cardsPhrase}${sessionsPhrase}?`;
+}
+
+/**
+ * How long a just-activated workspace is given to finish arriving before its
+ * cards are asked whether they hold unsaved work. Generous, because the cost
+ * of being early is silence where a sheet was owed; a workspace whose cards
+ * are all clean spends the whole of it and then deletes. That is a real pause,
+ * which is why it is only ever spent on a workspace that was not already
+ * mounted — see the delete's own gate.
+ */
+const ARRIVAL_SETTLE_MS = 2_000;
+
+/**
+ * Wait until one of `cardIds` holds unsaved work, or until the budget runs
+ * out — see {@link CardsContent}'s delete, its only caller, which states why
+ * the wait exists.
+ *
+ * Watching the guards rather than counting frames, because what is being
+ * waited for is not a render: a card restores its buffer from the bag the
+ * park left behind, and that read is asynchronous. A fixed number of frames
+ * is a guess about how long a disk read takes, and the first guess was wrong
+ * in the direction that loses work.
+ *
+ * Returning on the FIRST dirty card is not a race the walk can lose. The walk
+ * re-resolves every guard as it reaches it, and the cards after the first one
+ * are not reached until the user has answered a sheet — which is orders of
+ * magnitude longer than the restore this is waiting on.
+ */
+function awaitArrival(cardIds: readonly string[]): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const deadline = performance.now() + ARRIVAL_SETTLE_MS;
+    const poll = (): void => {
+      const dirty = cardIds.some(
+        (id) => getCardCloseGuard(id)?.needsDecision() === true,
+      );
+      if (dirty || performance.now() >= deadline) {
+        resolve();
+        return;
+      }
+      window.requestAnimationFrame(poll);
+    };
+    poll();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -785,7 +846,14 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // whether or not anything under it survived the filter, so `count` alone can
   // never read zero once there is a workspace ([P09]). Group headers still
   // count — a fully collapsed list is showing its headers and is not empty.
-  const hasContent = dataSource.innerRowCount() > 0;
+  //
+  // A FOLDED workspace header counts for the same reason ([B02]): it is the
+  // cue that put those rows away and the only way to get them back, and since
+  // the active workspace folds too, a person with one workspace can fold the
+  // whole list. Swapping it for the None label there would take the door with
+  // the rows.
+  const hasContent =
+    dataSource.innerRowCount() > 0 || dataSource.foldedSpaceCount() > 0;
   const hasItems = dataSource.unfilteredCount() > 0;
   // Every workspace emits a header whatever the filter does, so the rendered
   // header count IS the workspace count — what disables Delete on the last one.
@@ -907,16 +975,31 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     },
     selector: ROW_SELECTOR,
     kindAttr: ROW_KIND_ATTR,
-    // Dropping the row on another workspace's header moves the card there
-    // ([P10]). The row's own workspace is a no-op rather than an unavailable
-    // target: a header that lights up and then declines to move a card that is
-    // already where it was dropped reads as nothing happening, which is what
-    // happened.
+    // Dropping the row anywhere on another workspace's BLOCK moves the card
+    // there ([P10], [B03]). The target is the whole run — the header and every
+    // row filed under it, all wearing the same `data-cards-space-run` — rather
+    // than the header alone, because a workspace is a place and its rows are
+    // as much "over there" as its name is. Aiming at a header a person cannot
+    // see the bottom of is a thin target for no reason.
+    //
+    // A collapsed workspace is the degenerate case and needs nothing: with its
+    // rows folded away its header alone carries the run key, which is exactly
+    // the old target.
+    //
+    // `excludeKey` is what makes the run selector safe, and without it the
+    // in-group reorder is dead. `getVisibleOrder` above is scoped to one group
+    // in one workspace, so the dragged row's OWN workspace key is never in it
+    // — every sibling row the pointer passes would read as a drop-target hit,
+    // stand the reorder down, and commit nothing.
     dropTargets: {
-      selector: SPACE_HEADER_SELECTOR,
-      attr: SPACE_HEADER_ATTR,
+      selector: SPACE_RUN_SELECTOR,
+      attr: SPACE_RUN_ATTR,
+      excludeKey: () => dragGroupRef.current?.spaceId ?? null,
       onDrop: (orderKey, spaceId) => {
         const from = dataSource.groupByOrderKey().get(orderKey);
+        // Unreachable by the pointer now that `excludeKey` refuses the row's
+        // own workspace, and kept as the second line of defence — for the
+        // keyboard, and for any later caller that reaches `onDrop` another way.
         if (from === undefined || from.spaceId === spaceId) return;
         const cardId = dataSource.cardIdForOrderKey(orderKey);
         if (cardId === null) return;
@@ -1072,11 +1155,11 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     cardsStore.setCardGroupCollapsed(group, !collapsed.includes(group));
   }, []);
 
-  // The fold cue on an inactive workspace's header. The active one is expanded
-  // by the data source's own rule and its cue is drawn disabled, so nothing
-  // here has to special-case it.
+  // The fold cue on any workspace's header. Every workspace folds, the active
+  // one included ([B02]), so there is no case to special-case: the store holds
+  // collapsed ids and the toggle is the same gesture on every row.
   const onToggleSpace = useCallback((spaceId: string): void => {
-    expandedSpacesStore.toggle(spaceId);
+    collapsedSpacesStore.toggle(spaceId);
   }, []);
 
   // Which workspace's header is showing its rename field, and which delete is
@@ -1088,8 +1171,15 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     spaceId: string;
     name: string;
     sessions: number;
+    cards: number;
     anchor: HTMLElement | null;
   } | null>(null);
+
+  // The guard walk a confirmed delete runs is asynchronous — each dirty card
+  // gets its own sheet — and a second delete gesture while one stands would
+  // put two walks over the same cards. The pane guards its own walk with
+  // `guardRunningRef` for exactly this; this is that latch for the delete.
+  const deleteWalkRunningRef = useRef(false);
 
   const onCommitRename = useCallback(
     (spaceId: string, name: string): void => {
@@ -1136,6 +1226,136 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       return row !== undefined && row.type === "space-header" ? row.name : "";
     },
     [dataSource],
+  );
+
+  // A rename or a delete fired from somewhere this card's surfaces cannot be
+  // reached — the Window menu, or the `···` on a row while the chain root is
+  // what answers ([P02], [P03]). The handler revealed this card and left the
+  // verb in the request store; this is where the card picks it up ([P08]).
+  //
+  // `useLayoutEffect` rather than `useEffect` because of the delete: the
+  // confirm needs `anchorForSpace`, which queries the list for the header row,
+  // and on the frame the card first mounts that row is only laid out once the
+  // list's cells have committed — which is exactly what a layout effect runs
+  // after. The store clears on consumption, so a request fires once.
+  const verbRequest = useSyncExternalStore(
+    cardsSpaceVerbRequest.subscribe,
+    cardsSpaceVerbRequest.getSnapshot,
+    cardsSpaceVerbRequest.getSnapshot,
+  );
+  // Whether this card's workspace is the one on screen ([B06]). The gate on
+  // the broadcast below, and nothing else.
+  const layerShown = useSpaceLayerShown();
+  useLayoutEffect(() => {
+    if (verbRequest === null) return;
+    // A Workspaces card stands in every mounted workspace, and the request is
+    // a BROADCAST rather than a chain dispatch — so without this every one of
+    // them answers, and a Delete raises as many confirms as there are mounted
+    // workspaces, all but one anchored to a row nobody can see ([B06]).
+    if (!layerShown) return;
+    const { verb, spaceId } = verbRequest;
+    cardsSpaceVerbRequest.clear();
+    if (verb === "rename") {
+      setRenamingSpaceId(spaceId);
+      return;
+    }
+    const store = getDeckStore();
+    if (store === null) return;
+    // EVERY delete confirms ([P06]). The old gate — confirm only when the
+    // workspace holds live sessions — meant a workspace of ten Text cards,
+    // some with unsaved edits, went in one click of a menu item; a session
+    // can be resumed and an unsaved buffer cannot, so the case that skipped
+    // the confirm was the case that needed it most.
+    //
+    // Both counts come from the STORE rather than from the row. The row's
+    // count is filtered — a search narrows what the list shows — and the
+    // sentence must name what will actually be closed. `spaceHoldsLiveSessions`
+    // is the one definition of that ([P07]); `getSpaceDeck` answers with the
+    // live deck for the active workspace and the parked record for any other,
+    // so the pane count is right either way.
+    setPendingDelete({
+      spaceId,
+      name: spaceNameOf(spaceId),
+      sessions: store.spaceHoldsLiveSessions(spaceId),
+      cards: store.getSpaceDeck(spaceId)?.panes.length ?? 0,
+      anchor: anchorForSpace(spaceId),
+    });
+  }, [verbRequest, layerShown, anchorForSpace, spaceNameOf]);
+
+  /**
+   * A confirmed delete, in the order Spec S03 gives.
+   *
+   * Activate the workspace FIRST, and not as a courtesy: a workspace nobody
+   * has visited this run has no mounted cards, so their close guards are not
+   * registered and a walk over them would find nothing to ask about and take
+   * the unsaved work silently. Activation is also what puts each sheet over
+   * its own content.
+   *
+   * The card ids are read AFTER the activation for the same reason the count
+   * is read from the store: `getSpaceDeck` answers with the live deck for the
+   * active workspace and with the parked record for any other, and activation
+   * is what moves the deck between the two.
+   *
+   * A `null` walk means no card had anything to ask — the confirm the user
+   * already answered was the whole of the decision, so the delete proceeds. A
+   * `"cancel"` from any card abandons the delete entirely, and the workspace
+   * stays put AND stays active: the user is looking at the card they just
+   * declined to discard.
+   */
+  const runGuardedDelete = useCallback(
+    async (spaceId: string): Promise<void> => {
+      if (deleteWalkRunningRef.current) return;
+      const store = getDeckStore();
+      if (store === null) return;
+      deleteWalkRunningRef.current = true;
+      try {
+        const arriving = store.getSpacesSnapshot().activeSpaceId !== spaceId;
+        // Whether the workspace's cards are ALREADY standing. Since [B06] a
+        // workspace the user has visited stays mounted while the canvas hides
+        // it, so its guards are registered and there is nothing to wait for;
+        // only a workspace that has never been stood up this run has to be
+        // waited on below. Read before the activation, which is what would
+        // otherwise make every workspace look mounted.
+        const wasMounted = store
+          .getSpacesSnapshot()
+          .mountedSpaceIds.includes(spaceId);
+        if (arriving) store.activateSpace(spaceId);
+        const cardIds = (store.getSpaceDeck(spaceId)?.cards ?? []).map(
+          (card) => card.id,
+        );
+        // A workspace that was PARKED has to be given time to arrive before
+        // its cards are asked anything. `activateSpace` commits the deck
+        // synchronously, but a card mounts on the next render and restores its
+        // buffer from the bag the park left behind after that — so a walk run
+        // in this same tick asks a registry that has not heard of these cards,
+        // finds nothing dirty, and deletes the workspace in silence. That is
+        // the exact failure the activation exists to prevent, arriving a few
+        // frames too early.
+        //
+        // Only for a workspace that was not already MOUNTED, though: since
+        // [B06] a visited workspace's cards never came down, so their guards
+        // are live and the wait would be two seconds of silence charged to a
+        // gesture the user has already answered. What is left to wait on is a
+        // workspace being stood up for the first time this run — whose cards
+        // can still arrive dirty, restoring a buffer a previous run left
+        // unsaved.
+        if (arriving && !wasMounted) await awaitArrival(cardIds);
+        const decision = closeGuardWalk(
+          cardIds,
+          (id) => dispatchCommand("focus-session-card", { cardId: id }),
+          // Nothing here tracks which card is front, so every dirty card is
+          // fronted before its sheet. Fronting the card that is already front
+          // is a no-op the dispatch absorbs, which is cheaper than keeping a
+          // second answer to a question the deck already owns.
+          () => false,
+        );
+        if (decision !== null && (await decision()) === "cancel") return;
+        store.deleteSpace(spaceId);
+      } finally {
+        deleteWalkRunningRef.current = false;
+      }
+    },
+    [],
   );
 
   const cellContext = useMemo<CardsCellContextValue>(
@@ -1353,56 +1573,12 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       [TUG_ACTIONS.CANCEL_DIALOG]: () => {
         shrinkCardsState();
       },
-      // The workspace header's four verbs ([P11]). They land here rather than
-      // on the cell that opened the menu because everything they need outlives
-      // a cell: the deck store, the rename in flight, and the card's one
-      // confirm. Each reads its workspace out of the item's own payload, so a
-      // verb acts on the row the right-click landed on rather than on wherever
-      // the list cursor happens to be.
-      [TUG_ACTIONS.NEW_SPACE]: () => {
-        getDeckStore()?.createSpace();
-      },
-      [TUG_ACTIONS.RENAME_SPACE]: (event: ActionEvent) => {
-        const payload = event.value as
-          | { spaceId?: unknown; name?: unknown }
-          | undefined;
-        if (typeof payload?.spaceId !== "string") return;
-        // With a name it commits; without one it opens the header's field.
-        // The menu item sends no name, so the item IS the second form — the
-        // first is there for anything that already knows what to call it.
-        if (typeof payload.name === "string") {
-          onCommitRename(payload.spaceId, payload.name);
-          return;
-        }
-        setRenamingSpaceId(payload.spaceId);
-      },
-      [TUG_ACTIONS.DUPLICATE_SPACE]: (event: ActionEvent) => {
-        const spaceId = (event.value as { spaceId?: unknown } | undefined)
-          ?.spaceId;
-        if (typeof spaceId !== "string") return;
-        getDeckStore()?.duplicateSpace(spaceId);
-      },
-      [TUG_ACTIONS.DELETE_SPACE]: (event: ActionEvent) => {
-        const spaceId = (event.value as { spaceId?: unknown } | undefined)
-          ?.spaceId;
-        if (typeof spaceId !== "string") return;
-        const store = getDeckStore();
-        if (store === null) return;
-        // The confirm and the close loop read one definition of "holds live
-        // sessions" ([P07]) — this call is that definition, asked here so the
-        // number in the sentence is the number that will be closed.
-        const sessions = store.spaceHoldsLiveSessions(spaceId);
-        if (sessions > 0) {
-          setPendingDelete({
-            spaceId,
-            name: spaceNameOf(spaceId),
-            sessions,
-            anchor: anchorForSpace(spaceId),
-          });
-          return;
-        }
-        store.deleteSpace(spaceId);
-      },
+      // The workspace header's four verbs used to be answered here. They are
+      // answered at the chain root now ([P02]) — the Window menu can fire any
+      // of them while this card is not even open, and a handler here would
+      // make the menu row work only when the card happened to be focused. The
+      // two that need this card's surfaces come back through
+      // `cardsSpaceVerbRequest` below ([P03], [P08]).
     },
   });
 
@@ -1436,6 +1612,20 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           data-testid="cards-filter"
           focusGroup={CARDS_FOCUS_GROUP}
           focusOrder={CARDS_FILTER_FOCUS_ORDER}
+        />
+        {/* The card's own door to a new workspace ([B01]). It dispatches the
+            table command with NO payload, which is the verb's "the active
+            workspace" form — New needs no target at all, and sending one
+            would only say something the verb does not read. The chain root
+            answers it ([P02]), so the button works the same whether or not
+            this card holds focus. */}
+        <TugIconButton
+          icon={<Plus />}
+          aria-label="New Workspace"
+          title="New Workspace"
+          dispatch={{ action: TUG_ACTIONS.NEW_SPACE, phase: "discrete" }}
+          data-testid="cards-new-space"
+          size="2xs"
         />
       </div>
       {!hasContent ? (
@@ -1490,11 +1680,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
         message={
           pendingDelete === null
             ? ""
-            : `Delete ${pendingDelete.name} and close ${
-                pendingDelete.sessions === 1
-                  ? "1 session"
-                  : `${pendingDelete.sessions} sessions`
-              }?`
+            : deleteMessage(pendingDelete.name, pendingDelete.cards, pendingDelete.sessions)
         }
         confirmLabel="Delete"
         confirmRole="danger"
@@ -1503,7 +1689,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           const armed = pendingDelete;
           setPendingDelete(null);
           if (armed === null) return;
-          getDeckStore()?.deleteSpace(armed.spaceId);
+          void runGuardedDelete(armed.spaceId);
         }}
         onCancel={() => setPendingDelete(null)}
       />

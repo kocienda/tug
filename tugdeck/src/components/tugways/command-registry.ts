@@ -253,6 +253,14 @@ export interface CommandMenuFacts {
    * map is not a sidebar card, and its row's predicates read it as hidden.
    */
   readonly sidebars: Readonly<Record<string, SidebarMenuFact>>;
+  /**
+   * How many workspaces stand. The Window menu's Delete Workspace row is
+   * gated on it being more than one ([P07]) — the same rule the Workspaces
+   * card's `···` item and `DeckManager.deleteSpace` itself apply, so the
+   * three faces of "you cannot delete the last one" read one number rather
+   * than three counts of their own.
+   */
+  readonly spaceCount: number;
 }
 
 /**
@@ -292,6 +300,7 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   column: null,
   focusTravel: null,
   sidebars: {},
+  spaceCount: 0,
 };
 
 /**
@@ -1887,6 +1896,64 @@ export const COMMANDS: readonly CommandEntry[] = [
     routing: "first-responder",
     parameterized: true,
   },
+  // The four workspace verbs ([P02]). Each takes an OPTIONAL `spaceId`:
+  // present, it is the row a right-click or a `···` landed on; absent, the
+  // verb acts on the active workspace, which is the target the Window menu
+  // names. That optionality is the whole of why they can be table commands
+  // at all — they used to be outside-the-table because "the workspace this
+  // row is" is a sampled target no menu-bar item can name, and one verb with
+  // two doors beats two verbs with one door each, which is how a title and a
+  // behaviour come to disagree.
+  //
+  // They now carry `menuItemId`s as well: the Window menu stands all four
+  // above its workspace list, so the command table is the one place their
+  // titles live and the Swift side names the identifier rather than the
+  // words. `paneChrome` stays beside them, and it is the accurate word
+  // rather than a leftover: the door-coverage lint counts the two doors the
+  // HOST resolves, and these have a third the lint cannot see — New is the
+  // button in the Workspaces card's toolbar, and all four are on every
+  // header row's `···`.
+  //
+  // Only Delete is gated. The other three are always available: there is
+  // always an active workspace to rename or duplicate, and a new one can
+  // always be made. Delete reads `spaceCount > 1` ([P07]), the same rule the
+  // card's own item and `DeckManager.deleteSpace` apply — three faces of one
+  // number rather than three counts.
+  //
+  // So only Delete is `mirrored`. An entry with no answer of its own must
+  // not be — a published default-true gate is a claim, and the three
+  // ungated rows are enabled because nothing gates them rather than because
+  // this table said they were.
+  {
+    id: TUG_ACTIONS.NEW_SPACE,
+    title: "New Workspace",
+    routing: "first-responder",
+    menuItemId: "window.newWorkspace",
+    paneChrome: true,
+  },
+  {
+    id: TUG_ACTIONS.RENAME_SPACE,
+    title: "Rename Workspace…",
+    routing: "first-responder",
+    menuItemId: "window.renameWorkspace",
+    paneChrome: true,
+  },
+  {
+    id: TUG_ACTIONS.DUPLICATE_SPACE,
+    title: "Duplicate Workspace",
+    routing: "first-responder",
+    menuItemId: "window.duplicateWorkspace",
+    paneChrome: true,
+  },
+  {
+    id: TUG_ACTIONS.DELETE_SPACE,
+    title: "Delete Workspace",
+    routing: "first-responder",
+    menuItemId: "window.deleteWorkspace",
+    mirrored: true,
+    validate: (chain) => chain.menu.spaceCount > 1,
+    paneChrome: true,
+  },
   {
     id: TUG_ACTIONS.PREVIOUS_TAB,
     title: "Previous Card",
@@ -3017,14 +3084,12 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.UNBIND_ARC,
   TUG_ACTIONS.REQUEST_DISCARD_ARC,
   TUG_ACTIONS.REQUEST_REPLAY_ARC,
-  // The workspace header's four verbs. Each means "the workspace this row
-  // is" — the same sampled target that keeps every context-menu verb out of
-  // the table. Activating a workspace is NOT among them: that one names its
-  // target by id and is a parameterized command the Window menu fires ([P11]).
-  TUG_ACTIONS.NEW_SPACE,
-  TUG_ACTIONS.RENAME_SPACE,
-  TUG_ACTIONS.DUPLICATE_SPACE,
-  TUG_ACTIONS.DELETE_SPACE,
+  // The workspace header's four verbs used to be here, for the reason every
+  // other entry in this list is: "the workspace this row is" is a sampled
+  // target no chord and no menu-bar item can name. [P02] changed the premise
+  // rather than the rule — the verbs now take an optional `spaceId` and mean
+  // the ACTIVE workspace without one, which is a target every door can name,
+  // so they are table commands above.
   // Sent card-to-card by a surface showing that card's arc, never typed:
   // the reader already has ⌃⌘C for their own card's shade, and a chord that
   // meant "reveal somebody else's" would have no way to name whose.

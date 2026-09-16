@@ -1,0 +1,33 @@
+/*
+ * The workspace layers ([B06]).
+ *
+ * `DeckCanvas` renders one wrapper per MOUNTED workspace and shows exactly
+ * one of them. A switch is these two rules changing hands — not an unmount of
+ * every card on one side and a mount of every card on the other — which is
+ * what makes returning to a workspace the user has already visited cost a
+ * style recalculation rather than a rebuild of every transcript in it.
+ *
+ * `display: contents` is the load-bearing word in the shown rule. The wrapper
+ * generates no box at all, so its panes lay out against the canvas container
+ * exactly as they did when they were its direct children: same containing
+ * block for their absolute positions, and no new stacking context between
+ * them and the seams, caps and shadows they share a z-order with. A wrapper
+ * that drew a box would have changed every geometry on the canvas.
+ *
+ * The hidden rule is the ordinary one, and `display: none` is chosen over a
+ * visibility or opacity trick deliberately: a hidden workspace must cost no
+ * layout and no paint, and must not be reachable by the pointer. What it
+ * does cost is that its subtree has no boxes, so it can take no measurement
+ * while hidden — every canvas geometry is armed on the transition to shown.
+ *
+ * [L06]: the state is an attribute the canvas writes and a rule here, never
+ * an inline style computed in React.
+ */
+
+.tug-space-layer {
+  display: none;
+}
+
+.tug-space-layer[data-space-shown] {
+  display: contents;
+}

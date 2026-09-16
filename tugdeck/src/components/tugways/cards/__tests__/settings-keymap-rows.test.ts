@@ -297,11 +297,24 @@ describe("the shipped table", () => {
     // separate fields. A card's title-bar button already invokes these, so a reader
     // can meet one and come here asking what it is bound to; the honest
     // answer is "nothing yet", which is a row with no chord — not silence.
+    //
+    // `paneChrome` says nothing about which GROUP the row lands in, and the
+    // two are genuinely independent: the four workspace verbs are pane-chrome
+    // commands — New is a button in the Workspaces card's toolbar, all four
+    // are on its header rows' `···` — and they also stand in the Window menu,
+    // so they group there, which is where a reader who met one in the menu
+    // will look. A pane-chrome command with no menu item has nowhere to group
+    // and falls to Other Commands.
     const rows = buildKeymapRows(NONE);
     for (const entry of COMMANDS.filter((e) => e.paneChrome === true)) {
       const row = rows.find((r) => r.commandId === entry.id);
       expect(row, `${entry.id} is listed`).toBeDefined();
-      expect(row?.group, `${entry.id} groups under Other Commands`).toBe(UNGROUPED);
+      if (entry.menuItemId === undefined) {
+        expect(
+          row?.group,
+          `${entry.id} opens no menu item, so it groups under Other Commands`,
+        ).toBe(UNGROUPED);
+      }
       expect(row?.bindings.length, `${entry.id} shows no chord yet`).toBe(0);
     }
   });

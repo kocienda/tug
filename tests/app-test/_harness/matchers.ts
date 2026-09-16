@@ -255,6 +255,17 @@ export type DeckTraceEventShape = {
       event: string;
       fields: Record<string, unknown>;
     }
+  | {
+      kind: "space-switch-timing";
+      fromSpaceId: string;
+      toSpaceId: string;
+      outgoingCards: number;
+      incomingCards: number;
+      commitMs: number;
+      restoreMs: number;
+      totalMs: number;
+      paintMs: number;
+    }
 );
 
 /**
@@ -295,6 +306,7 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "settle-release",
   "opening-bid-mismatch",
   "session-lifecycle",
+  "space-switch-timing",
 ] as const;
 export type HarnessKnownTraceKind = (typeof HARNESS_KNOWN_TRACE_KINDS)[number];
 
@@ -553,6 +565,8 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return `session-lifecycle ${fmt(e.event)} ${Object.entries(e.fields)
         .map(([k, v]) => `${k}=${fmt(v)}`)
         .join(" ")}`;
+    case "space-switch-timing":
+      return `space-switch-timing ${fmt(e.fromSpaceId)}→${fmt(e.toSpaceId)} cards=${e.outgoingCards}/${e.incomingCards} commit=${e.commitMs.toFixed(1)} restore=${e.restoreMs.toFixed(1)} total=${e.totalMs.toFixed(1)} paint=${e.paintMs.toFixed(1)}`;
     default: {
       // Exhaustiveness pin: if a new kind is added to DeckTraceEventShape,
       // the assignment below fails because `e` is no longer `never`.

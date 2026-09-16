@@ -697,6 +697,35 @@ export type DeckTraceEvent = {
       event: string;
       fields: Record<string, unknown>;
     }
+  | {
+      // One completed `DeckManager.activateSpace`, with its numbered phases
+      // separated so a slow switch names the phase that was slow rather than
+      // the switch as a whole. Recorded once per switch, from inside the
+      // double `requestAnimationFrame` that follows phase 8, which is what
+      // lets `paintMs` mean "the first frame the user could have seen".
+      //
+      // Not always-recorded: this is a measurement under study rather than
+      // evidence of a defect, which is this module's stated criterion for
+      // that set. A developer opts in with `__deckTrace.enable(true)`.
+      kind: "space-switch-timing";
+      fromSpaceId: string;
+      toSpaceId: string;
+      // Card counts on each side, so a reading is comparable against another
+      // pair of workspaces rather than only against itself.
+      outgoingCards: number;
+      incomingCards: number;
+      // Phase 5 — the `_flipFirstResponder` commit, including the
+      // synchronous subscriber notification React renders from.
+      commitMs: number;
+      // Phase 7 — the `spaceRestoreHook` call.
+      restoreMs: number;
+      // Entry to the end of phase 8: the whole synchronous switch.
+      totalMs: number;
+      // Entry to the second `requestAnimationFrame` after phase 8. The
+      // difference `paintMs - totalMs` is the render-and-paint the
+      // synchronous span cannot see.
+      paintMs: number;
+    }
 );
 
 /**
@@ -738,7 +767,11 @@ export type DeckTraceEventInput =
       Extract<DeckTraceEvent, { kind: "opening-bid-mismatch" }>,
       StampedFields
     >
-  | Omit<Extract<DeckTraceEvent, { kind: "session-lifecycle" }>, StampedFields>;
+  | Omit<Extract<DeckTraceEvent, { kind: "session-lifecycle" }>, StampedFields>
+  | Omit<
+      Extract<DeckTraceEvent, { kind: "space-switch-timing" }>,
+      StampedFields
+    >;
 
 // ---------------------------------------------------------------------------
 // Utilities

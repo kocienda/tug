@@ -31,6 +31,11 @@
  *      other workspace's header. The header wears `data-drop-target` while
  *      the pointer is over it, and the release moves the card back — same id,
  *      same binding, no order committed ([P10]).
+ *   6. One more move, this time OUT of a mounted-but-hidden workspace. Since
+ *      [B06] a visited workspace's panes stay in the document, so a move out
+ *      of one rebuilds the card's pane just as a move out of the shown
+ *      workspace does — and the capture that feeds the replay is owed on
+ *      every such move rather than only when the source is on screen.
  *
  * Step 4 is what makes the move a move rather than a relocation of a record: a
  * card that arrived having forgotten where the reader was would have cost them
@@ -334,6 +339,30 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
             `document.querySelectorAll('[data-drop-target="true"]').length`,
           ),
         ).toBe(0);
+
+        // ---- 6. The move OUT of a mounted-but-hidden workspace captures too.
+        // `A` sits in Home now, and Home is mounted — it was the boot
+        // workspace and a visited workspace stays mounted ([B06]) — so its
+        // panes are live React trees the canvas is merely hiding. Moving the
+        // card out of one rebuilds its pane exactly as moving it out of the
+        // shown workspace does, which is why the capture is unconditional
+        // rather than gated on which side was on screen ([L23]).
+        const hiddenMark = await app.evalJS<number>(
+          `window.__deckTrace.mark()`,
+        );
+        expect(
+          await app.evalJS<boolean>(
+            `window.tugdeck.lab.moveCardToSpace("A", ${JSON.stringify(AWAY_SPACE)})`,
+          ),
+        ).toBe(true);
+        const captures = await app.evalJS<{ cardId?: string; source?: string }[]>(
+          `window.__deckTrace.since(${hiddenMark}).filter(function (e) {
+            return e.kind === "save-callback";
+          }).map(function (e) {
+            return { cardId: e.cardId, source: e.source };
+          })`,
+        );
+        expect(captures).toContainEqual({ cardId: "A", source: "space-switch" });
       } finally {
         await app.close().catch(() => undefined);
         rmTempTugbank(tugbankPath);

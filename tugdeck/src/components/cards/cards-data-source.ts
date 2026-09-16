@@ -74,7 +74,8 @@ import {
 } from "@/lib/text-card-open-registry";
 import { filterAndRank, filterQueryMatch } from "@/lib/text-match";
 
-import { expandedSpacesStore } from "./cards-space-expansion";
+import { collapsedSpacesStore } from "./cards-space-expansion";
+import { cardsSpaceVerbRequest } from "./cards-space-verb-request";
 
 import {
   GROUP_ORDER,
@@ -223,9 +224,9 @@ export type CardsRow =
       readonly type: "space-header";
       readonly spaceId: string;
       readonly name: string;
-      /** The workspace being rendered. Always expanded, and marked. */
+      /** The workspace being rendered. Marked; folds like any other. */
       readonly active: boolean;
-      /** Whether this workspace's rows follow. The active one: always. */
+      /** Whether this workspace's rows follow. */
       readonly expanded: boolean;
       /** Pane rows filed under this workspace, after filtering. */
       readonly count: number;
@@ -381,9 +382,11 @@ export interface SpaceRowsInput {
   /** The workspace being rendered. Exactly one entry is active. */
   readonly active: boolean;
   /**
-   * Whether this workspace's rows are shown. The caller passes `true` for the
-   * active one — it is always expanded — and the `expandedSpacesStore`'s
-   * answer for the rest.
+   * Whether this workspace's rows are shown, for EVERY workspace including
+   * the active one ([B02]). The caller reads it from `collapsedSpacesStore`,
+   * where expanded is the default and an id present means folded. There is no
+   * active-is-always-expanded rule any more: it made the one cue a person
+   * with a single workspace could reach a cue that did nothing.
    */
   readonly expanded: boolean;
   /** The active entry's LIVE deck; a parked record for the others. */
@@ -635,18 +638,17 @@ export function buildCardsRows(
   const rows: CardsRow[] = [];
   for (const space of inputs.spaces) {
     const { rows: inner, paneCount: count } = buildSpaceRows(space, inputs, r);
-    const expanded = space.active || space.expanded;
     rows.push({
       type: "space-header",
       spaceId: space.id,
       name: space.name,
       active: space.active,
-      expanded,
+      expanded: space.expanded,
       count,
       summary: count === 1 ? "1 card" : `${count} cards`,
       sessionsLive: countLiveSessions(space.deck, inputs, r),
     });
-    if (expanded) rows.push(...inner);
+    if (space.expanded) rows.push(...inner);
   }
   return rows;
 }
@@ -985,6 +987,29 @@ export class CardsDataSource implements TugListViewDataSource {
   }
 
   /**
+   * How many workspace headers are currently folded shut.
+   *
+   * The card adds this to {@link innerRowCount} to decide whether it has a
+   * list worth drawing, and the reason is the same one the group headers get:
+   * **a folded header is the way back.** Since [B02] the active workspace
+   * folds like any other, so a person with one workspace can fold the whole
+   * list — and if that read as "empty", the card would swap the list for its
+   * None label and take the fold cue away with it, leaving no door back to
+   * the rows they just put down.
+   *
+   * An EXPANDED workspace header over nothing is still the empty case ([P09])
+   * — that is a workspace with no cards, and its header offers no state to
+   * restore.
+   */
+  foldedSpaceCount(): number {
+    let n = 0;
+    for (const row of this.rows) {
+      if (row.type === "space-header" && !row.expanded) n += 1;
+    }
+    return n;
+  }
+
+  /**
    * Index of the first pane row, or -1 when the projection holds none.
    *
    * The section seeds the movement cursor here rather than letting the list
@@ -1131,7 +1156,12 @@ export class CardsDataSource implements TugListViewDataSource {
 const NOOP_SUBSCRIBE = (): (() => void) => () => {};
 
 /** The snapshot a deck store with nothing to say answers with. */
-const EMPTY_SPACES: SpacesSnapshot = { spaces: [], activeSpaceId: "" };
+const EMPTY_SPACES: SpacesSnapshot = {
+  spaces: [],
+  activeSpaceId: "",
+  mountedSpaceIds: [],
+  mountedDecks: new Map(),
+};
 
 /**
  * Hook — read the deck snapshot, the SPACES snapshot, the expansion set, the
@@ -1158,10 +1188,10 @@ export function useCardsDataSource(
     deckStore !== null ? deckStore.getSpacesSnapshot : () => EMPTY_SPACES,
     () => EMPTY_SPACES,
   );
-  const expandedSpaces = useSyncExternalStore(
-    expandedSpacesStore.subscribe,
-    expandedSpacesStore.getSnapshot,
-    expandedSpacesStore.getSnapshot,
+  const collapsedSpaces = useSyncExternalStore(
+    collapsedSpacesStore.subscribe,
+    collapsedSpacesStore.getSnapshot,
+    collapsedSpacesStore.getSnapshot,
   );
   // The workspace headers' `· N live` reads the bindings cache, so a frame
   // landing after the list is drawn has to re-run the projection.
@@ -1186,14 +1216,17 @@ export function useCardsDataSource(
   );
 
   const ref = useRef<CardsDataSource | null>(null);
-  // An id the list no longer holds would otherwise be inherited by a later
-  // workspace that reused it.
+  // A collapsed id the list no longer holds would otherwise be inherited by a
+  // later workspace that reused it.
   const liveSpaceIds = useMemo(
     () => new Set(spacesSnapshot.spaces.map((s) => s.id)),
     [spacesSnapshot],
   );
   useLayoutEffect(() => {
-    expandedSpacesStore.prune(liveSpaceIds);
+    collapsedSpacesStore.prune(liveSpaceIds);
+    // Same sweep, for the same reason: a rename field or a confirm opened
+    // over a workspace that is gone has nothing to act on ([P08]).
+    cardsSpaceVerbRequest.prune(liveSpaceIds);
   }, [liveSpaceIds]);
 
   const spaces = useMemo((): readonly SpaceRowsInput[] => {
@@ -1210,12 +1243,14 @@ export function useCardsDataSource(
         id: entry.id,
         name: entry.name,
         active,
-        expanded: active || expandedSpaces.has(entry.id),
+        // Expanded by default; folded exactly when the store says so, active
+        // workspace included ([B02]).
+        expanded: !collapsedSpaces.has(entry.id),
         deck: spaceDeck,
       });
     }
     return out;
-  }, [deckStore, deck, spacesSnapshot, expandedSpaces]);
+  }, [deckStore, deck, spacesSnapshot, collapsedSpaces]);
 
   const full: LensCardsInputs = {
     ...inputs,

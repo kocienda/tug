@@ -179,6 +179,47 @@ describe("routing matches the pre-migration mechanism", () => {
     ]);
   });
 
+  test("the four workspace verbs are table commands routed at the chain", () => {
+    // NOT in the pre-migration table and NOT in RE_HOMED_ONTO_THE_CHAIN:
+    // neither set fits, because these four were never registry commands. They
+    // were in ACTIONS_OUTSIDE_THE_TABLE — the declared escape for a verb whose
+    // target is "the thing the right-click landed on" — and that premise is
+    // what [P02] changed rather than the routing: each takes an OPTIONAL
+    // spaceId and means the ACTIVE workspace without one, which is a target
+    // the Window menu can name, so they are ordinary table commands answered
+    // at the chain root beside `activate-space`.
+    //
+    // What can drift is that shape: an entry going missing (back outside the
+    // table), a routing that stops reaching the root, or a title diverging
+    // from the one door that shows it.
+    const verbs: [string, string][] = [
+      [TUG_ACTIONS.NEW_SPACE, "New Workspace"],
+      [TUG_ACTIONS.RENAME_SPACE, "Rename Workspace…"],
+      [TUG_ACTIONS.DUPLICATE_SPACE, "Duplicate Workspace"],
+      [TUG_ACTIONS.DELETE_SPACE, "Delete Workspace"],
+    ];
+    for (const [id, title] of verbs) {
+      const entry = COMMANDS_BY_ID.get(id);
+      expect(entry, `${id} has a command entry`).toBeDefined();
+      expect(entry?.routing, `${id} routes to the chain`).toBe(
+        "first-responder",
+      );
+      expect(entry?.title, `${id}'s title`).toBe(title);
+      // Not parameterized: `activate-space` is, because its payload set is the
+      // runtime workspace list. These four take one optional id and have a
+      // default, so there is no per-value row to build.
+      expect(entry?.parameterized ?? false, `${id} is not parameterized`).toBe(
+        false,
+      );
+    }
+
+    // `activate-space` is their sibling and is unchanged — the one that DOES
+    // name its target by id every time, and is parameterized for it.
+    const activate = COMMANDS_BY_ID.get(TUG_ACTIONS.ACTIVATE_SPACE);
+    expect(activate?.routing).toBe("first-responder");
+    expect(activate?.parameterized).toBe(true);
+  });
+
   test("the per-value families inherit the mechanism their wire used", () => {
     // The slash bridges were one key-card re-dispatch each before they were
     // rows. The four permission-mode rows were the other such family; they
@@ -298,6 +339,15 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   // takes the card and the side out of one payload, and the Layout card's
   // own controls send exactly the same frame.
   "set-sidebar-side": "command",
+  // The Window menu's four workspace verbs. Each sends its wire with NO
+  // parameters, which is what makes it act on the active workspace ([P02]) —
+  // so they are plain commands rather than bridges, even though the same
+  // wires carry an optional `spaceId` when the Workspaces card's own doors
+  // send them.
+  "new-space": "command",
+  "rename-space": "command",
+  "duplicate-space": "command",
+  "delete-space": "command",
 };
 
 describe("SWIFT_WIRES is derived, not remembered", () => {

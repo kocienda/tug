@@ -523,6 +523,17 @@ const EVENT_FIXTURES: Record<
     bid: 618,
     report: 444,
   },
+  "space-switch-timing": {
+    kind: "space-switch-timing",
+    fromSpaceId: "space-a",
+    toSpaceId: "space-b",
+    outgoingCards: 3,
+    incomingCards: 2,
+    commitMs: 1.25,
+    restoreMs: 0.75,
+    totalMs: 7,
+    paintMs: 41,
+  },
 };
 
 describe("summarizeEvent — exhaustive per-kind coverage", () => {

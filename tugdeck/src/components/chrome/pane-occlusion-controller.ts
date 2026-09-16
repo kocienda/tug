@@ -62,6 +62,7 @@
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
 import { useDeckManager } from "@/deck-manager-context";
+import { SHOWN_PANE_FRAMES } from "./space-layer";
 
 /** Settle delay before a newly-covered pane is actually hidden. Restarted by
  *  every apply pass and re-deferred while any frame is animating; this is a
@@ -179,7 +180,7 @@ function coversOpaquely(c: PaneGeom, b: PaneGeom, cr: number): boolean {
 
 function paneFrames(root: HTMLElement): HTMLElement[] {
   return Array.from(
-    root.querySelectorAll<HTMLElement>(".tug-pane[data-pane-id]"),
+    root.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES),
   );
 }
 

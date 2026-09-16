@@ -20,6 +20,7 @@
  */
 
 import type { IDeckManagerStore } from "./deck-manager-store";
+import { SHOWN_PANE_FRAMES } from "./components/chrome/space-layer";
 import {
   captureFocusForDragStart,
   transferFocusAfterMove,
@@ -337,7 +338,7 @@ class CardDragCoordinator {
     });
 
     // Tier 2: single-card frames (not in the tab bar set).
-    const frameElements = document.querySelectorAll<HTMLElement>(".tug-pane[data-pane-id]");
+    const frameElements = document.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES);
     this.allPaneFrameRects = [];
 
     frameElements.forEach((el) => {

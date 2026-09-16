@@ -1444,6 +1444,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // The Workspaces slice takes its own anchor ahead of it, for the same
         // sectioned reason and in the order the levels nest: workspaces, then
         // the panes of the one on screen.
+        //
+        // The four verbs stand immediately above that anchor, and take NO
+        // separator of their own: `windowSpaceListAnchor` IS a separator, and
+        // `rebuildWindowSpaceList` inserts the workspace rows after it — so
+        // one of our own here would put two rules side by side every time the
+        // list is non-empty.
+        //
+        // None of these four identifiers begins `window.space.`, which is
+        // load-bearing rather than incidental: `rebuildWindowSpaceList`
+        // removes every item carrying that prefix on each menu open, and a
+        // static item caught by that sweep would disappear the first time
+        // anybody used the Window menu.
+        wMenu.addItem(NSMenuItem(title: "New Workspace", action: #selector(newWorkspaceFromMenu(_:)), keyEquivalent: "").identified("window.newWorkspace"))
+        wMenu.addItem(NSMenuItem(title: "Rename Workspace…", action: #selector(renameWorkspaceFromMenu(_:)), keyEquivalent: "").identified("window.renameWorkspace"))
+        wMenu.addItem(NSMenuItem(title: "Duplicate Workspace", action: #selector(duplicateWorkspaceFromMenu(_:)), keyEquivalent: "").identified("window.duplicateWorkspace"))
+        wMenu.addItem(NSMenuItem(title: "Delete Workspace", action: #selector(deleteWorkspaceFromMenu(_:)), keyEquivalent: "").identified("window.deleteWorkspace"))
         let spaceAnchor = NSMenuItem.separator()
         self.windowSpaceListAnchor = spaceAnchor
         wMenu.addItem(spaceAnchor)
@@ -1707,6 +1723,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func activateSpaceFromMenu(_ sender: NSMenuItem) {
         guard let spaceId = sender.representedObject as? String else { return }
         sendControl("activate-space", params: ["spaceId": spaceId])
+    }
+
+    // The four workspace verbs, each sent with NO parameters — and the
+    // absence is the whole design. Every one of these controls takes an
+    // optional `spaceId`: present, it is the row a right-click or a `···`
+    // landed on; absent, the verb acts on the ACTIVE workspace, which is the
+    // only workspace a menu-bar item can name. One verb with two doors,
+    // rather than two verbs whose titles drift apart.
+
+    @objc private func newWorkspaceFromMenu(_ sender: Any?) {
+        sendControl("new-space")
+    }
+
+    @objc private func renameWorkspaceFromMenu(_ sender: Any?) {
+        sendControl("rename-space")
+    }
+
+    @objc private func duplicateWorkspaceFromMenu(_ sender: Any?) {
+        sendControl("duplicate-space")
+    }
+
+    @objc private func deleteWorkspaceFromMenu(_ sender: Any?) {
+        sendControl("delete-space")
     }
 
     @objc private func newComponentGalleryCard(_ sender: Any?) {
