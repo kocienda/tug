@@ -1084,6 +1084,124 @@ describe.skipIf(!SHOULD_RUN)(
               `(window.__tug.takeCutRecords(), 0)`,
             ),
           ).toBe(0);
+
+          // ── The ghost's LIFETIME ────────────────────────────────────────
+          //
+          // "No ghost at rest" above is the claim for a close nobody
+          // interrupts. The cases below are the ones where the chain that
+          // planted the ghost does NOT reach its own landing, which is where
+          // a ghost used to be stranded: it is held by one ref now and taken
+          // away at every exit — the `depart` beat's landing, a retarget's
+          // `arm`, the window sweep, and the canvas unmount ([B05]).
+          //
+          // The retarget is the one a gesture can drive. The sweep and the
+          // unmount are the same removal on the same ref, reached from paths
+          // a deck at rest cannot be made to take: the sweep only fires for a
+          // settle whose completion never landed, and the unmount takes the
+          // whole canvas with it.
+          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `document.querySelector('.tug-pane[data-pane-id="p3"]') !== null`,
+            { timeoutMs: 8_000 },
+          );
+          await wait(AFTER_LAND_MS);
+
+          // A close retargeted at a spread of instants across the depart
+          // fade, because the window that stranded a ghost is the sliver
+          // between the Last pass planting it and the beat launching it — a
+          // single delay could miss it, and the whole point is that nothing is
+          // left behind whichever instant the second change lands on.
+          const stranded: string[] = [];
+          for (const afterMs of [0, 16, 50, 140]) {
+            await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+            await app.waitForCondition<boolean>(
+              `document.querySelector('.tug-pane[data-pane-id="p3"]') !== null`,
+              { timeoutMs: 8_000 },
+            );
+            await wait(AFTER_LAND_MS);
+            await app.evalJS<null>(`(window.__tug.closePane("p3"), null)`);
+            await wait(afterMs);
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("assign-slot", { cardId: "A", slot: 2 }), null)`,
+            );
+            await wait(AFTER_LAND_MS * 3);
+            const left = await app.evalJS<number>(
+              `document.querySelectorAll(".tug-pane-exit-ghost").length`,
+            );
+            if (left !== 0) {
+              stranded.push(
+                `a retarget ${afterMs}ms into the fade left ${left} ghost(s) standing`,
+              );
+            }
+          }
+          expect(
+            stranded,
+            "a close interrupted by a second arrangement change leaves no ghost behind",
+          ).toEqual([]);
+
+          // [B06]: one face, one ghost. Two panes closed back to back each get
+          // their own ghost wearing their own face — a face is taken at the
+          // last moment its pane exists and consumed by the pass that plants
+          // it, so neither can be planted in the other's ghost, and neither
+          // departure is cut short by the other landing beside it.
+          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `document.querySelector('.tug-pane[data-pane-id="p3"]') !== null`,
+            { timeoutMs: 8_000 },
+          );
+          await wait(AFTER_LAND_MS);
+          // Both closes in ONE call, so they land as one gesture; the reading
+          // is taken a frame later, because the ghosts are planted by the Last
+          // pass in a layout effect and nothing is in the document until the
+          // commit those closes arm has run.
+          await app.evalJS<null>(
+            `(function () {
+              window.__tug.closePane("p2");
+              window.__tug.closePane("p3");
+              return null;
+            })()`,
+          );
+          await wait(90);
+          const pair = await app.evalJS<{ ghosts: number; faces: number; shared: boolean }>(
+            `(function () {
+              var ghosts = document.querySelectorAll(".tug-pane-exit-ghost");
+              var faces = [];
+              for (var i = 0; i < ghosts.length; i += 1) {
+                var face = ghosts[i].querySelector(":scope > .tug-pane-exit-face");
+                if (face !== null) faces.push(face);
+              }
+              // The same NODE in two ghosts is the failure this pins: a face
+              // held past the pass that should have consumed it, planted a
+              // second time in a later departure's ghost.
+              var shared = false;
+              for (var a = 0; a < faces.length; a += 1) {
+                for (var b = a + 1; b < faces.length; b += 1) {
+                  if (faces[a] === faces[b]) shared = true;
+                }
+              }
+              return { ghosts: ghosts.length, faces: faces.length, shared: shared };
+            })()`,
+          );
+          note(
+            "two-card close",
+            `${pair.ghosts} ghost(s), ${pair.faces} face(s), shared face: ${pair.shared}`,
+          );
+          expect(
+            pair.ghosts,
+            "two panes closed back to back each leave their own ghost — neither is cut short by the other",
+          ).toBe(2);
+          expect(
+            pair.faces,
+            "and each ghost wears a face of its own ([B06])",
+          ).toBe(2);
+          expect(pair.shared, "no face is planted in two ghosts").toBe(false);
+          await wait(AFTER_LAND_MS * 3);
+          expect(
+            await app.evalJS<number>(
+              `document.querySelectorAll(".tug-pane-exit-ghost").length`,
+            ),
+            "and both are taken away when their fades land",
+          ).toBe(0);
         } finally {
           await app.close();
         }

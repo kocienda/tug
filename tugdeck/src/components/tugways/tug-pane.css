@@ -1587,10 +1587,27 @@ body {
 }
 
 /* The planted face fills the ghost that owns its position and size. It is a
-   detached clone with no layout of its own, so it is given one here rather
-   than inheriting whatever the live frame's inline geometry happened to say. */
+   detached clone stripped of every inline geometry property it cloned off the
+   live frame (FACE_GEOMETRY_PROPS, `departure-face.ts`), so this rule is the
+   ONLY thing that places it — and it wins by construction rather than by
+   specificity, which is the whole of [B02]. */
 .tug-pane-exit-ghost > .tug-pane-exit-face {
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+
+/* A ghost carrying a face shows the FACE's chrome, not a second copy of it.
+
+   The face is a clone of the whole `.tug-pane`, so it brings the pane's own
+   border, radius and ground with it. The ghost's are the blank tile's — what a
+   departure fades as when no face was taken — and drawing both puts the card's
+   contents one pixel inside a doubled border, which is a card that stands
+   somewhere the card never stood. So the tile's chrome stands down where a
+   face supplies it, and `inset: 0` then puts the face at exactly the rect the
+   departing frame was measured at ([B03], gated by at0582). */
+.tug-pane-exit-ghost:has(> .tug-pane-exit-face) {
+  background-color: transparent;
+  border-color: transparent;
+  border-width: 0;
 }

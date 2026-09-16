@@ -49,6 +49,7 @@ import {
   type SidebarStackStanding,
 } from "./tug-pane";
 import { CardHost } from "./card-host";
+import { takeDepartureFace } from "./departure-face";
 import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
@@ -701,27 +702,6 @@ function applyHolds(frame: HTMLElement, held: HeldTerms): void {
   if (held.width !== undefined) frame.style.width = `${held.width}px`;
   if (held.height !== undefined) frame.style.height = `${held.height}px`;
 }
-
-/**
- * Every attribute by which something addresses a LIVE node, stripped from a
- * departure face and from every node under it.
- *
- * `id` and `data-pane-id` keep the settle's own walks off the still. The other
- * four keep everything else off it: `data-card-id` is how the deck, the
- * harness and every app-test name a card; `data-testid` is how a test names
- * anything; `data-tug-focus-key` is how the focus machinery names a target;
- * `data-slot` is how both a stylesheet and a test name a part. A face that
- * answered any of them would be a card the document still says is there, for
- * the whole beat the ghost stands.
- */
-const FACE_IDENTITY_ATTRS = [
-  "id",
-  "data-pane-id",
-  "data-card-id",
-  "data-testid",
-  "data-tug-focus-key",
-  "data-slot",
-] as const;
 
 /**
  * How tall a seam's hit strip is. Wider than the 5px gap it sits in, because a
@@ -2822,6 +2802,60 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    */
   const settleTweensRef = useRef<Map<string, SettleTween>>(new Map());
   /**
+   * Every departure ghost standing right now, by the pane it stands for.
+   *
+   * The one owner of a ghost's lifetime, and the reason it exists is that
+   * there used not to be one. A ghost was held in the `departures` array of
+   * one Last pass's closure and taken away by that chain's `depart` beat
+   * landing — which is a guarantee only for a chain that reaches its beat. A
+   * retarget landing between the plant and the launch returns out of `runBeat`
+   * before anything is launched, so no completion ever runs, so the tile
+   * stands in the document for the life of the canvas. One per close
+   * interrupted at exactly the wrong moment, and nothing in the deck would
+   * ever notice: a ghost answers to nothing (`departure-face.ts`), which is
+   * what makes it safe and also what makes a stranded one invisible.
+   *
+   * So a ghost is registered the moment it is planted and removed BY NAME at
+   * every way out of a settle — the `depart` beat's landing, the window sweep,
+   * a retarget's `arm`, and the canvas unmount ([B05]). A ghost is in none of
+   * the records `arm` walks: it stands for a pane that has already left the
+   * deck, so it has no First rect, no frame, and no later pass will ever
+   * collect it again. This map is the only thing that can hand it back.
+   *
+   * `launched` is what makes the retarget's exit precise rather than blunt.
+   * A ghost whose `depart` fade is in flight already has a landing coming that
+   * runs UNCONDITIONAL on the generation, so `arm` leaves it to fade out as
+   * the reader is watching it do. A ghost whose fade never launched has
+   * nothing coming for it at all, and that is the one `arm` takes. Sweeping
+   * both would cut a departure's fade the instant a second close landed
+   * beside it — two cards closed in one gesture is an ordinary thing to do,
+   * and each of them is owed its own ghost for its own beat ([B06]).
+   */
+  const departureGhostsRef = useRef<
+    Map<string, { ghost: HTMLElement; launched: boolean }>
+  >(new Map());
+  /**
+   * Take standing ghosts away. Idempotent, and safe to call from a path that
+   * has already been swept — the map is the record, and an empty one is the
+   * answer that nothing is standing.
+   *
+   * `which` says how far it reaches. `"all"` is for the paths where nothing
+   * is coming for anything — the window sweep and the canvas unmount. `"unlaunched"`
+   * is the retarget's, and takes only the ghosts whose fade never started.
+   */
+  const removeDepartureGhosts = useCallback(
+    (which: "all" | "unlaunched"): void => {
+      for (const [paneId, entry] of [...departureGhostsRef.current]) {
+        if (which === "unlaunched" && entry.launched) continue;
+        entry.ghost.remove();
+        departureGhostsRef.current.delete(paneId);
+      }
+    },
+    [],
+  );
+  const removeDepartureGhostsRef = useRef(removeDepartureGhosts);
+  removeDepartureGhostsRef.current = removeDepartureGhosts;
+  /**
    * Which frames a rail mode flip fades rather than moves, computed when the
    * settle arms and consumed by the Last pass.
    *
@@ -2958,7 +2992,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * **The clone answers to nothing.** Every attribute by which anything —
    * the settle's own `.tug-pane[data-pane-id]` walk, the focus machinery, a
    * test waiting for a card to leave — addresses a LIVE thing is stripped from
-   * the face and from every node under it ({@link FACE_IDENTITY_ATTRS}). A
+   * the face and from every node under it ({@link takeDepartureFace}). A
    * still that still answers `[data-card-id="A"]` is a card that never closed
    * as far as anybody asking is concerned, and the ghost outlives the frame by
    * a whole beat. Appearance survives the strip because appearance rides on
@@ -3017,22 +3051,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         `.tug-pane[data-pane-id="${pane.id}"]`,
       );
       if (frame === null) return;
-      const face = frame.cloneNode(true) as HTMLElement;
-      for (const attr of FACE_IDENTITY_ATTRS) {
-        face.removeAttribute(attr);
-        for (const node of face.querySelectorAll(`[${attr}]`)) {
-          node.removeAttribute(attr);
-        }
-      }
-      face.setAttribute("aria-hidden", "true");
-      // A picture answers to nothing, and focus is the other way a node
-      // answers. `aria-hidden` takes it out of the accessibility tree but
-      // leaves its buttons and fields in the tab order, so a Tab pressed
-      // during the fade could land the ring inside a card that has already
-      // closed. `inert` is what takes the whole subtree out of both.
-      face.setAttribute("inert", "");
-      face.classList.add("tug-pane-exit-face");
-      departureFacesRef.current.set(pane.id, face);
+      departureFacesRef.current.set(pane.id, takeDepartureFace(frame));
     });
   }, [cardLifecycle, store]);
 
@@ -3160,6 +3179,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         }
         // After the frames, so the flush inside carries their hand-back.
         endSettleMarks(el);
+        // Every ghost this window was still carrying. The sweep is the net for
+        // a settle whose completion never landed, and a ghost is the one thing
+        // in a settle that no later pass can ever collect ([B05]).
+        removeDepartureGhostsRef.current("all");
         // Paired with the marks coming off, here as at every other point they
         // do: "the settle is over" and "the notice went out" are one
         // condition, and a sheet clamped against a frame this sweep just
@@ -3235,6 +3258,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // travels per second. Null when it interrupts nothing, which is the
       // ordinary case now that a release is one commit ([P01]).
       let interrupted: InterruptedBeat | null = null;
+
+      // A retarget: past the signature guard, so this runs only when the
+      // arrangement really moved. A ghost whose depart fade never launched has
+      // nothing coming for it — the chain that owned it returns out of
+      // `runBeat` on the generation check and no completion ever runs, so the
+      // tile would stand for the life of the canvas ([B05], [F04]). One whose
+      // fade IS in flight keeps it: its landing is unconditional, and cutting
+      // it would take the departure off the screen mid-fade.
+      removeDepartureGhostsRef.current("unlaunched");
 
       // First: where every frame the imposer may move is right now. A running
       // tween's transform is included in the rect, which is the point — a
@@ -3521,6 +3553,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       settleFirstRectsRef.current.clear();
       settleFirstFoldsRef.current.clear();
       settleFadePlanRef.current.clear();
+      // The canvas is coming down and a ghost is not React's to unmount — it
+      // was appended to the container outside the tree ([L06]), so it would
+      // otherwise go only when the container itself does.
+      removeDepartureGhostsRef.current("all");
       // Nothing is left to run an arrive beat, so nothing is left to clear a
       // mark. A caller still waiting would wait past the canvas itself.
       drainArrivalsRef.current();
@@ -4150,6 +4186,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         departureFacesRef.current.delete(paneId);
       }
       el.appendChild(ghost);
+      // Registered the instant it is planted, so every exit below can hand it
+      // back by name. A departure whose pane somehow departs twice replaces
+      // its own entry, which is the right record of one pane, one ghost.
+      departureGhostsRef.current.set(paneId, { ghost, launched: false });
       departures.push({ paneId, ghost });
     }
     // A destruction notification that did not lead to a departure leaves a face
@@ -4242,6 +4282,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
                 );
           if (fades.length === 0) return Promise.resolve();
           el.setAttribute("data-imposer-beat", kind);
+          if (kind === "depart") {
+            // The fades are running, so each of these ghosts now has a landing
+            // coming that is unconditional on the generation. That is what
+            // lets a retarget's `arm` leave them alone and take only the ones
+            // nothing will ever collect.
+            for (const { paneId } of departures) {
+              const entry = departureGhostsRef.current.get(paneId);
+              if (entry !== undefined) entry.launched = true;
+            }
+          }
           // What the fade leaves behind when it lands, once. A departure's
           // ghost stood in for a pane that no longer exists, so there is
           // nothing to hand anything back to: it goes. An arrival's opacity
@@ -4253,7 +4303,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             if (landed) return;
             landed = true;
             if (kind === "depart") {
-              for (const { ghost } of departures) ghost.remove();
+              // Through the ref rather than through this closure's array: the
+              // ref is the owner, and a removal that bypassed it would leave
+              // an entry naming a node no longer in the document.
+              for (const { paneId } of departures) {
+                const entry = departureGhostsRef.current.get(paneId);
+                if (entry === undefined) continue;
+                entry.ghost.remove();
+                departureGhostsRef.current.delete(paneId);
+              }
               return;
             }
             for (const { frame } of arrivals) {
