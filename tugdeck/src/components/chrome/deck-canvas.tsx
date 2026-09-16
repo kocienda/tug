@@ -2875,6 +2875,22 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     kind: BeatKind;
     launchedAt: number;
     initialVelocity: number;
+    /** Every tween this beat launched, so an arm can ask whether it is over. */
+    anims: readonly TugAnimation[];
+    /**
+     * Land the beat: take off what it held and leave every frame exactly
+     * where the beat put it. Idempotent, and the ONE place that work lives —
+     * the beat's own completion handler calls it a promise hop after the
+     * tweens end, and `arm` calls it first when it finds the tweens already
+     * over. That second door is load-bearing: under `fill: none` an effect
+     * stops contributing the instant its time is up, but the promise that
+     * takes the hold off lands in the NEXT rendering update. A commit landing
+     * in between — a close pressed as the arrival finishes — reads a frame
+     * whose screen shows the end pose and whose DOM says the start pose.
+     * `commitStyles()` writes what the DOM says, and the frame cuts a card's
+     * width to a place it was already standing ([P08]).
+     */
+    land: () => void;
   } | null>(null);
   /**
    * The open resize episode on each frame, by pane id — DOM zone, never React
@@ -3249,6 +3265,25 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // Read once: the custom property survives from the previous settle, and
       // falls back to the constant before the first one has written it.
       const episodeWindowMs = readSettleMs(el) * getTugTiming();
+      // A beat whose tweens are already over is landed HERE, before any
+      // frame is measured. Its effects stopped contributing the instant their
+      // time was up (`fill: none`), but the handler that takes the holds off
+      // runs a promise hop later, in the next rendering update — so a commit
+      // landing in that window finds every frame of the beat with the end
+      // pose on screen and the START pose in its inline style. Measured like
+      // that, First equals Last, the Last pass plans nothing, and the whole
+      // beat's worth of frames cut a card's width to where they already were.
+      // `playState` answers "finished" from the timeline alone, so the
+      // question is answerable synchronously and the record on
+      // `settleBeatRef` says what landing means for each kind of beat.
+      const beatUp = settleBeatRef.current;
+      if (
+        beatUp !== null &&
+        beatUp.anims.length > 0 &&
+        beatUp.anims.every((anim) => anim.raw.playState === "finished")
+      ) {
+        beatUp.land();
+      }
       // The frames this arm carries, in DOM order, each beside the settle it
       // interrupted — collected by a pass that HOLDS and MEASURES, and a
       // second pass below that hands the residue back.
@@ -4207,10 +4242,30 @@ export function DeckCanvas(_props: DeckCanvasProps) {
                 );
           if (fades.length === 0) return Promise.resolve();
           el.setAttribute("data-imposer-beat", kind);
+          // What the fade leaves behind when it lands, once. A departure's
+          // ghost stood in for a pane that no longer exists, so there is
+          // nothing to hand anything back to: it goes. An arrival's opacity
+          // hold comes off for the move and grow beats' reason: `fill: none`
+          // means the effect's end value is the underlying inline style, and
+          // a frame left wearing the hold would snap back to invisible.
+          let landed = false;
+          const land = (): void => {
+            if (landed) return;
+            landed = true;
+            if (kind === "depart") {
+              for (const { ghost } of departures) ghost.remove();
+              return;
+            }
+            for (const { frame } of arrivals) {
+              frame.style.removeProperty("opacity");
+            }
+          };
           settleBeatRef.current = {
             kind,
             launchedAt: performance.now(),
             initialVelocity: beatLaunchVelocity(kind, launch),
+            anims: fades,
+            land,
           };
           // An arriving frame's fade is registered on its own entry so a
           // retarget cancels what is actually in flight, exactly as a planned
@@ -4228,9 +4283,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           return Promise.allSettled(fades.map((anim) => anim.finished)).then(
             () => {
               if (kind === "depart") {
-                // The ghost stood in for a pane that no longer exists, so
-                // there is nothing to hand anything back to: it goes.
-                //
                 // Unconditional on the generation, and the only thing in this
                 // chain that is. Every other frame here is still on screen and
                 // still registered in `settleTweensRef`, so a retarget's `arm`
@@ -4241,30 +4293,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
                 // no First rect to be measured from. Returning here without
                 // removing it would strand the tile in the document for the
                 // life of the canvas, one per close interrupted mid-fade.
-                for (const { ghost } of departures) ghost.remove();
+                land();
                 return;
               }
               if (settleGenerationRef.current !== generation) return;
-              // The same rule the move and grow beats follow: `fill: none`
-              // means the effect's end value is the underlying inline style,
-              // and a frame left wearing the opacity hold would snap back to
-              // invisible the moment its tween ended.
-              for (const { frame } of arrivals) {
-                frame.style.removeProperty("opacity");
-              }
+              land();
             },
           );
         }
         if (launches.length === 0) return Promise.resolve();
         el.setAttribute("data-imposer-beat", kind);
         const curve = beatCurve(kind);
-        // The beat the settle is on, for the arm that may interrupt it: it
-        // reads the velocity off this recipe at the time since this launch.
-        settleBeatRef.current = {
-          kind,
-          launchedAt: performance.now(),
-          initialVelocity: beatLaunchVelocity(kind, launch),
-        };
         const anims: TugAnimation[] = [];
         const launchedBeats: Array<[Choreographed, SettleBeat]> = [];
         for (const c of launches) {
@@ -4288,6 +4327,66 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           c.anims.push(anim);
           anims.push(anim);
         }
+        // The hold this beat replaced comes off when the beat LANDS, not at
+        // the settle's completion. TugAnimator commits an effect's value at
+        // its end, and under `fill: none` that value is the underlying inline
+        // style — the opening pose — so a frame left wearing it would snap
+        // back to its hold for the length of the next beat.
+        //
+        // How it comes off differs by property, and that is the whole of the
+        // care here. A TRANSFORM is the imposer's own and nothing underlies
+        // it, so it is removed. An AXIS is not: React renders the frame's
+        // committed size into the same inline property the hold was written
+        // over, so removing it takes React's number away too and drops the
+        // frame to whatever its content makes of it — for a folded card, its
+        // OPEN floor, held there for every beat between its own and the
+        // settle's completion. So an axis is HANDED BACK (`handBack`) rather
+        // than removed: the beat ended at the committed size, which is
+        // exactly the value React rendered, so the write leaves the frame
+        // where the beat put it and the frame keeps a height for the rest of
+        // the settle.
+        //
+        // Idempotent, because it has two callers: the completion handler
+        // below, a promise hop after the tweens end, and `arm`, which lands
+        // the beat itself when a commit finds the tweens already over — the
+        // record on `settleBeatRef` says why that door exists.
+        let landed = false;
+        const land = (): void => {
+          if (landed) return;
+          landed = true;
+          for (const [c, beat] of launchedBeats) {
+            // Stated as a rule over what the beat ANIMATED rather than as a
+            // list of kinds: a beat ends at the value it animated to, which
+            // is identity for a transform and the committed size for an
+            // axis, so every property this beat carried can be settled here
+            // and leave the frame exactly where the beat put it. The fused
+            // `room` beat carries all three at once, which a per-kind list
+            // could only have covered by naming it in both branches.
+            if (
+              beat.terms.dx !== 0 ||
+              beat.terms.dy !== 0 ||
+              (beat.terms.sx ?? 1) !== 1
+            ) {
+              c.frame.style.removeProperty("transform");
+            }
+            if (beat.terms.width !== undefined) {
+              c.handBack.width?.();
+            }
+            if (beat.terms.height !== undefined) {
+              c.handBack.height?.();
+            }
+          }
+        };
+        // The beat the settle is on, for the arm that may interrupt it: it
+        // reads the velocity off this recipe at the time since this launch,
+        // and lands the beat itself if the launch is already over.
+        settleBeatRef.current = {
+          kind,
+          launchedAt: performance.now(),
+          initialVelocity: beatLaunchVelocity(kind, launch),
+          anims,
+          land,
+        };
         // `allSettled` because `finished` rejects under hold-at-current — the
         // retarget's cancel — and the generation check on the far side is
         // what tells that apart from a beat that landed. TugAnimator resolves
@@ -4296,46 +4395,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         return Promise.allSettled(anims.map((anim) => anim.finished)).then(
           () => {
             if (settleGenerationRef.current !== generation) return;
-            // The hold this beat replaced comes off NOW, not at the settle's
-            // completion. TugAnimator commits an effect's value at its end,
-            // and under `fill: none` that value is the underlying inline
-            // style — the opening pose — so a frame left wearing it would
-            // snap back to its hold for the length of the next beat.
-            //
-            // How it comes off differs by property, and that is the whole of
-            // the care here. A TRANSFORM is the imposer's own and nothing
-            // underlies it, so it is removed. An AXIS is not: React renders
-            // the frame's committed size into the same inline property the
-            // hold was written over, so removing it takes React's number away
-            // too and drops the frame to whatever its content makes of it —
-            // for a folded card, its OPEN floor, held there for every beat
-            // between its own and the settle's completion. So an axis is
-            // HANDED BACK (`handBack`) rather than removed: the beat ended at
-            // the committed size, which is exactly the value React rendered,
-            // so the write leaves the frame where the beat put it and the
-            // frame keeps a height for the rest of the settle.
-            for (const [c, beat] of launchedBeats) {
-              // Stated as a rule over what the beat ANIMATED rather than as a
-              // list of kinds: a beat ends at the value it animated to, which
-              // is identity for a transform and the committed size for an
-              // axis, so every property this beat carried can be settled here
-              // and leave the frame exactly where the beat put it. The fused
-              // `room` beat carries all three at once, which a per-kind list
-              // could only have covered by naming it in both branches.
-              if (
-                beat.terms.dx !== 0 ||
-                beat.terms.dy !== 0 ||
-                (beat.terms.sx ?? 1) !== 1
-              ) {
-                c.frame.style.removeProperty("transform");
-              }
-              if (beat.terms.width !== undefined) {
-                c.handBack.width?.();
-              }
-              if (beat.terms.height !== undefined) {
-                c.handBack.height?.();
-              }
-            }
+            land();
           },
         );
       };

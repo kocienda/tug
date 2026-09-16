@@ -25,6 +25,17 @@
  * resolves the animation's own current value into inline style, so the arm
  * HOLDS each frame before it measures it rather than after.
  *
+ * That closed the window INSIDE the tween and left the one just past it. A
+ * beat's effects stop contributing the instant their time is up (`fill:
+ * none`), but the handler that takes the holds off runs a promise hop later,
+ * in the next rendering update. A close landing in that sliver finds every
+ * frame of the beat with the end pose on screen and the START pose in its
+ * inline style — and `commitStyles()` on an animation whose time is up writes
+ * what the DOM says, not what the eye saw. First equals Last for the whole
+ * beat, and every survivor cuts at once. So the arm now LANDS a finished beat
+ * itself before measuring anything, through the same idempotent `land` the
+ * completion handler calls.
+ *
  * The claim here is the census's claim, narrowed to this one gesture and read
  * per frame: across a run of open-then-close-immediately gestures, no frame
  * ever changes place by more than a glide's worth in a single animation frame.
@@ -54,10 +65,18 @@ const TEST_TIMEOUT_MS = 240_000;
 
 /** The width each seeded card stands at. */
 const SLIM_PX = 560;
-/** How many open-then-close gestures the census runs. */
-const GESTURES = 4;
-/** How long after the open the close lands — inside the arrival's settle. */
-const CLOSE_AFTER_MS = 400;
+/**
+ * How long after the open each gesture's close lands, in ms.
+ *
+ * A spread rather than one instant, because the two defects this file gates
+ * live at different moments of the arrival: one anywhere inside the tween,
+ * the other in the sliver after the tween's time is up and before the
+ * promise that lands it has run. The arrival's own window is a few hundred
+ * ms, so these bracket it from well inside to well past, and the same
+ * instant is tried more than once because the first gesture on a fresh deck
+ * never cut — the hold a stale read comes from is a previous settle's.
+ */
+const CLOSE_AFTER_MS = [400, 250, 400, 600, 400, 1_200];
 /** How long the per-frame sampler watches each gesture. */
 const CENSUS_MS = 3_000;
 /**
@@ -201,7 +220,7 @@ async function gesture(
   await app.evalJS<null>(
     `(window.__tug.dispatchControlAction("show-card", { component: "session" }), null)`,
   );
-  await wait(CLOSE_AFTER_MS);
+  await wait(CLOSE_AFTER_MS[index - 1] ?? 400);
   const after = await paneIds(app);
   const newPane = after.find((id) => !before.includes(id));
   expect(newPane, `gesture ${index}: the Session card opened`).toBeDefined();
@@ -263,7 +282,7 @@ describe.skipIf(!SHOULD_RUN)("AT0576: a close during an arrival", () => {
       const app = await launchTugApp({ testName: "at0576-close-arrival" });
       try {
         const cuts: string[] = [];
-        for (let i = 1; i <= GESTURES; i += 1) {
+        for (let i = 1; i <= CLOSE_AFTER_MS.length; i += 1) {
           for (const step of await gesture(app, i)) {
             cuts.push(
               `gesture ${i}: ${step.paneId} jumped ${step.dx}px in one frame at ${step.t}ms (beat "${step.beat}")`,
