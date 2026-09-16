@@ -399,13 +399,32 @@ body {
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-/* The mark: the workspace on screen wears the accent, the parked ones the
-   label's own muted tone. One glyph, two tones, no second affordance ([L06]). */
+/* The mark, in two channels that say the same thing ([B03], [L06]): the
+   workspace on screen wears a check in the glyph column, and its NAME takes
+   the accent. The name is what carries the reading at a glance — the glyph is
+   small, and the row it sits on is already quiet — so the accent is not
+   decoration on top of the check but the half of the mark a reader actually
+   scans. A parked workspace renders nothing in the column, which is why there
+   is no parked rule here: the old one toned a hollow ring that no longer
+   exists. */
+.cards-space-header[data-cards-space-active="true"] .tug-list-row-title {
+  color: var(--tug7-element-global-text-accent-default-rest);
+}
 .cards-space-header[data-cards-space-active="true"] .cards-header-glyph {
   color: var(--tug7-element-global-text-accent-default-rest);
 }
-.cards-space-header[data-cards-space-active="false"] .cards-header-glyph {
-  color: var(--tug7-element-global-text-normal-subtle-rest);
+
+/* The column holds its width whether or not it holds the check, so a name
+   stands in the same place in every row and none of them move when the mark
+   moves. Same knobs the list row's own checkmark column reads, so the two
+   marks are the same size on the same surface. */
+.cards-space-header .cards-header-glyph {
+  inline-size: var(--tugx-list-row-glyph-column, 1rem);
+  justify-content: center;
+}
+.cards-space-header .cards-header-glyph svg {
+  inline-size: var(--tugx-list-row-glyph-size, 0.875rem);
+  block-size: var(--tugx-list-row-glyph-size, 0.875rem);
 }
 
 /* A workspace's summary is ink whether or not it is folded — unlike a group's,
@@ -413,8 +432,10 @@ body {
    workspace is still a place the reader is deciding about, and "3 cards · 1
    live" is the fact they are deciding on. */
 
-/* The rows of a workspace that is not on screen: a read-only view. Quieted a
-   step so the reading says so before any gesture has to refuse ([P09]). */
+/* The rows of a workspace that is not on screen. Quieted a step because the
+   deck does not hold those cards, not because the rows refuse anything: they
+   are picked, dragged and reordered like any other ([P09], [B01]). The tone is
+   a reading of where the user is. */
 .cards-list [data-cards-space-inactive="true"] .tug-list-row-content {
   opacity: 0.72;
 }

@@ -192,10 +192,11 @@ const ROW_ACTION_FOCUS_GROUP = "cards-row-actions";
  *
  * `data-cards-space-run` is the workspace reorder's block key — the header and
  * every row beneath it share it, so a workspace carries its contents ([P10]).
- * `data-cards-space-inactive` is the read-only mark: the rows of a workspace
- * that is not on screen name cards the rendered deck does not hold, so they
- * are shown but never picked, dragged or selected ([P09]). Appearance follows
- * from the attribute in CSS, never from React state ([L06]).
+ * `data-cards-space-inactive` is the where-you-are mark: the rows of a
+ * workspace that is not on screen name cards the rendered deck does not hold,
+ * so they are quieted a step. They are still picked, dragged and reordered
+ * ([P09], [B01]) — the tone reads where the user is, it refuses nothing.
+ * Appearance follows from the attribute in CSS, never from React state ([L06]).
  */
 function spaceRowAttrs(
   spaceId: string,
@@ -453,9 +454,7 @@ function OneLineRow({
       // it that is not the close box or the slot picker carries it. A subrow
       // has no handle: reordering tabs from the Cards card is not this section's job.
       onPointerDown={
-        rowId !== null && spaceActive
-          ? (e) => ctx.onRowPointerDown(rowId, e)
-          : undefined
+        rowId !== null ? (e) => ctx.onRowPointerDown(rowId, e) : undefined
       }
     >
       {/* The path is the row's hover, in the house file tip — a row shows a
@@ -1017,8 +1016,11 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     (orderKey: string, event: React.PointerEvent): void => {
       if (filtering) return;
       const at = dataSource.groupByOrderKey().get(orderKey) ?? null;
-      // A parked workspace's rows are a read-only view ([P09]).
-      if (at === null || at.spaceId !== dataSource.activeSpaceId()) return;
+      // A parked workspace's rows carry too ([P09], [B01]): `getVisibleOrder`
+      // is scoped to one group in one workspace, so a committed order can
+      // never span two, and the arm is what defers the press's selection to
+      // the click — which is what keeps a travelled press from switching.
+      if (at === null) return;
       dragGroupRef.current = at;
       beginRowReorder(orderKey, event);
     },
@@ -1062,15 +1064,15 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   const onGroupPointerDown = useCallback(
     (spaceId: string, group: CardsGroup, event: React.PointerEvent): void => {
       if (filtering) return;
-      // A parked workspace's rows are a read-only view ([P09]), and the group
-      // order this would commit is one arrangement shared by every deck.
-      if (spaceId !== dataSource.activeSpaceId()) return;
+      // A parked workspace's headers carry too ([P09], [B01]). The group order
+      // this commits is one arrangement shared by every deck, so which
+      // workspace it was arranged from does not enter into it.
       // Which workspace's run is being carried — the group reorder's visible
       // order and its keyboard landing are both scoped to it.
       dragSpaceRef.current = spaceId;
       beginGroupReorder(groupRunKey(spaceId, group), event);
     },
-    [filtering, beginGroupReorder, dataSource],
+    [filtering, beginGroupReorder],
   );
 
   // Reorder the WORKSPACES, by carrying a header. Same machinery one level

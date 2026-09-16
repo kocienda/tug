@@ -31,6 +31,22 @@
  *   5. Switch back, and the stamped scroller is the same node at the same
  *      pixel. at0578 asserts the same pixel from the replay side; this one
  *      asserts it from the side where there was nothing to replay.
+ *   6. And the switch is a CLICK rather than a press ([B01], [B02]). A press
+ *      on a parked workspace's row in the Workspaces card that travels a few
+ *      pixels is a drag, so it selects nothing and switches nothing: the
+ *      workspace on screen at the end of the gesture is the one that was on
+ *      screen when it began. The press used to commit the selection on the
+ *      pointerdown, which is why nothing in a parked workspace could be
+ *      dragged at all.
+ *   7. And the mark on those headers is a CHECK ([B03]): the workspace on
+ *      screen carries one and the parked one carries nothing, in a column
+ *      that holds its width either way so the names do not move when the
+ *      mark does.
+ *   8. The other half of [B02], and the reason the deferral is a deferral
+ *      rather than a refusal: a press on that same parked row that does NOT
+ *      travel is an ordinary click, and it switches the workspace exactly as
+ *      it did when the switch landed on the mousedown. Leg 6 alone would be
+ *      satisfied by a door that had simply stopped working.
  *
  * The second test is the other half of the same design, and it is the one
  * that keeps [B06] honest rather than merely cheap. A workspace hidden with
@@ -50,10 +66,17 @@
  * ratchet lets recorded debt be paid down rather than refinanced in place.
  * `space-layer.ts` is the new module the change turns on and this test is its
  * owner; `spaces.ts` carries the snapshot fields the canvas reads.
+ * `cards-card.tsx` joins them for leg 6: the arm that makes the switch a click
+ * is written there, and no narrower module holds it. `cards-space-header.tsx`
+ * and `cards-card.css` join them for leg 7 — the check is rendered in the one
+ * and the column that holds its width is stated in the other.
  *
  * @covers tugdeck/src/components/chrome/space-layer.ts
  * @covers tugdeck/src/spaces.ts
  * @covers tugdeck/src/components/chrome/space-layer.css
+ * @covers tugdeck/src/components/cards/cards-card.tsx
+ * @covers tugdeck/src/components/cards/cards-space-header.tsx
+ * @covers tugdeck/src/components/cards/cards-card.css
  */
 
 import { describe, expect, test } from "bun:test";
@@ -517,6 +540,113 @@ describe.skipIf(!SHOULD_RUN)(
             RESTORE_TOLERANCE_PX,
           );
           expect(await app.getActiveCardId()).toBe("A");
+
+          // ---- 6. A press on a parked workspace's row that travels switches
+          // nothing. The gesture runs in one pass because what it proves is
+          // true only while the pointer is down — and the reading that matters
+          // is taken immediately after the pointerdown, which is exactly where
+          // the switch used to land.
+          await app.dispatchControlAction("toggle-cards");
+          const PARKED_ROW = `.cards-list .cards-row[data-cards-space-run=${JSON.stringify(SPACE_TWO)}][data-cards-row-id]`;
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(PARKED_ROW)}) !== null`,
+            { timeoutMs: 15_000 },
+          );
+          const pressed = await app.evalJS<{
+            activeAfterPress: string;
+            engaged: boolean;
+            activeAfterTravel: string;
+          }>(
+            `(function(){
+              var row = document.querySelector(${JSON.stringify(PARKED_ROW)});
+              if (row === null) throw new Error("no parked row");
+              var r = row.getBoundingClientRect();
+              var opts = function (cx, cy) {
+                return { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 1, button: 0 };
+              };
+              var x = r.left + r.width / 2;
+              var y = r.top + r.height / 2;
+              row.dispatchEvent(new PointerEvent("pointerdown", opts(x, y)));
+              var activeAfterPress = window.tugdeck.diag.getSpaces().activeSpaceId;
+              window.dispatchEvent(new PointerEvent("pointermove", opts(x, y + 8)));
+              var engaged = row.getAttribute("data-dragging") === "true";
+              window.dispatchEvent(new PointerEvent("pointerup", opts(x, y + 8)));
+              return {
+                activeAfterPress: activeAfterPress,
+                engaged: engaged,
+                activeAfterTravel: window.tugdeck.diag.getSpaces().activeSpaceId
+              };
+            })()`,
+          );
+          note(`the parked press: ${JSON.stringify(pressed)}`);
+          // The press claimed the gesture rather than acting on it.
+          expect(pressed.engaged).toBe(true);
+          expect(pressed.activeAfterPress).toBe(SPACE_ONE);
+          expect(pressed.activeAfterTravel).toBe(SPACE_ONE);
+          // A drag swallows its own trailing click, so nothing arrives late.
+          await settle();
+          expect(
+            await app.evalJS<string>(
+              `window.tugdeck.diag.getSpaces().activeSpaceId`,
+            ),
+          ).toBe(SPACE_ONE);
+
+          // ---- 7. The mark. The Window menu checkmarks the active workspace
+          // and so does this list; a dot is the house's ACTIVITY mark and
+          // carries a phase, which being the workspace you are in is not.
+          const marks = await app.evalJS<
+            { id: string; active: string | null; check: number; column: number }[]
+          >(
+            `Array.prototype.map.call(
+              document.querySelectorAll("[data-space-layer][data-space-shown] .cards-space-header"),
+              function (el) {
+                var glyph = el.querySelector(".cards-header-glyph");
+                return {
+                  id: el.getAttribute("data-cards-space-id"),
+                  active: el.getAttribute("data-cards-space-active"),
+                  check: glyph === null ? -1 : glyph.querySelectorAll("svg").length,
+                  column: glyph === null ? -1 : Math.round(glyph.getBoundingClientRect().width)
+                };
+              },
+            )`,
+          );
+          note(`the workspace marks: ${JSON.stringify(marks)}`);
+          const active = marks.filter((m) => m.active === "true");
+          const parked = marks.filter((m) => m.active !== "true");
+          expect(active.map((m) => m.id)).toEqual([SPACE_ONE]);
+          expect(parked.length).toBeGreaterThan(0);
+          // One check, on the one workspace on screen, and nothing on the rest.
+          expect(active.every((m) => m.check === 1)).toBe(true);
+          expect(parked.every((m) => m.check === 0)).toBe(true);
+          // The column is the same width whether or not it holds the mark, so
+          // no name moves when the mark does.
+          expect(new Set(marks.map((m) => m.column)).size).toBe(1);
+          expect(marks[0].column).toBeGreaterThan(0);
+
+          // ---- 8. And the door still opens. The press moved to the click;
+          // it did not go away. A press on the same parked row that stays a
+          // click selects the row and fronts its card, and fronting a card
+          // that lives somewhere else is what takes the user there.
+          const parkedRow = `.cards-list .cards-row[data-cards-space-run=${JSON.stringify(SPACE_TWO)}][data-cards-row-id]`;
+          await app.evalJS<null>(
+            `(function(){
+              var row = document.querySelector(${JSON.stringify(parkedRow)});
+              if (row === null) throw new Error("no parked row");
+              var r = row.getBoundingClientRect();
+              var x = r.left + r.width / 2;
+              var y = r.top + r.height / 2;
+              var opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, button: 0 };
+              row.dispatchEvent(new PointerEvent("pointerdown", opts));
+              window.dispatchEvent(new PointerEvent("pointerup", opts));
+              row.dispatchEvent(new MouseEvent("click", opts));
+              return null;
+            })()`,
+          );
+          await app.waitForCondition<boolean>(
+            `window.tugdeck.diag.getSpaces().activeSpaceId === ${JSON.stringify(SPACE_TWO)}`,
+            { timeoutMs: 8_000 },
+          );
+          note("the untravelled press switched, as a click");
         } finally {
           await app.close();
           rmTempTugbank(tugbankPath);

@@ -36,6 +36,11 @@
  *      of one rebuilds the card's pane just as a move out of the shown
  *      workspace does — and the capture that feeds the replay is owed on
  *      every such move rather than only when the source is on screen.
+ *   7. The mirror of step 5, and the direction that used to be impossible:
+ *      the same drag by hand, but OUT of a workspace that is PARKED. A parked
+ *      workspace's rows arm the carry like any other ([B01]), so the press
+ *      defers to the click and a travel becomes a drag instead of switching
+ *      workspaces on mousedown.
  *
  * Step 4 is what makes the move a move rather than a relocation of a record: a
  * card that arrived having forgotten where the reader was would have cost them
@@ -59,7 +64,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp } from "./_harness";
+import { launchTugApp, note } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -363,6 +368,85 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
           })`,
         );
         expect(captures).toContainEqual({ cardId: "A", source: "space-switch" });
+
+        // ---- 7. The same gesture out of a PARKED workspace. Before [B01] a
+        // press here armed nothing, so `TugListView` committed the selection
+        // on the pointerdown, the card's own row switched the workspace out
+        // from under the pointer, and no drag could ever start.
+        expect(
+          await app.evalJS<boolean>(
+            `window.tugdeck.lab.moveCardToSpace("A", ${JSON.stringify(HOME_SPACE)})`,
+          ),
+        ).toBe(true);
+        const PARKED_ROW = `.cards-list .cards-row[data-cards-space-run=${JSON.stringify(HOME_SPACE)}][data-cards-row-id=${JSON.stringify(boundSessionId)}]`;
+        const AWAY_HEADER = `.cards-space-header[data-cards-space-id=${JSON.stringify(AWAY_SPACE)}]`;
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PARKED_ROW)}) !== null && document.querySelector(${JSON.stringify(AWAY_HEADER)}) !== null`,
+          { timeoutMs: 15_000 },
+        );
+
+        // One pass again, for leg 5's reason — and it reads the active
+        // workspace mid-gesture, which is where the old behaviour showed
+        // itself: the switch landed on the press, before any travel.
+        const outward = await app.evalJS<{
+          activeBefore: string;
+          activeAfterPress: string;
+          engaged: boolean;
+          lit: boolean;
+        }>(
+          `(function(){
+            var row = document.querySelector(${JSON.stringify(PARKED_ROW)});
+            var header = document.querySelector(${JSON.stringify(AWAY_HEADER)});
+            if (row === null || header === null) throw new Error("no parked row or header");
+            var activeBefore = window.tugdeck.diag.getSpaces().activeSpaceId;
+            var r = row.getBoundingClientRect();
+            var h = header.getBoundingClientRect();
+            var opts = function (cx, cy) {
+              return { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 1, button: 0 };
+            };
+            var x = r.left + r.width / 2;
+            var y = r.top + r.height / 2;
+            row.dispatchEvent(new PointerEvent("pointerdown", opts(x, y)));
+            var activeAfterPress = window.tugdeck.diag.getSpaces().activeSpaceId;
+            window.dispatchEvent(new PointerEvent("pointermove", opts(x, y + 10)));
+            var engaged = row.getAttribute("data-dragging") === "true";
+            var hx = h.left + h.width / 2;
+            var hy = h.top + h.height / 2;
+            window.dispatchEvent(new PointerEvent("pointermove", opts(hx, hy)));
+            var lit = header.getAttribute("data-drop-target") === "true";
+            window.dispatchEvent(new PointerEvent("pointerup", opts(hx, hy)));
+            return { activeBefore: activeBefore, activeAfterPress: activeAfterPress, engaged: engaged, lit: lit };
+          })()`,
+        );
+        // The press alone went nowhere: the workspace under the pointer is
+        // still the one the user was in.
+        note(`the parked drag: ${JSON.stringify(outward)}`);
+        expect(outward.activeBefore).toBe(AWAY_SPACE);
+        expect(outward.activeAfterPress).toBe(AWAY_SPACE);
+        expect(outward.engaged).toBe(true);
+        expect(outward.lit).toBe(true);
+
+        // And the release moved the card, out of the parked workspace and
+        // into the one on screen — the same card, with its binding intact.
+        await app.waitForCondition<boolean>(
+          `window.tugdeck.diag.listCardIds().indexOf("A") !== -1`,
+          { timeoutMs: 8_000 },
+        );
+        const returned = await app.evalJS<SpacesProbe>(
+          `window.tugdeck.diag.getSpaces()`,
+        );
+        expect(returned.activeSpaceId).toBe(AWAY_SPACE);
+        const landedAway = returned.spaces.find((s) => s.id === AWAY_SPACE);
+        expect((landedAway?.deck?.cards ?? []).map((c) => c.id)).toContain("A");
+        const stillHome = returned.spaces.find((s) => s.id === HOME_SPACE);
+        expect((stillHome?.deck?.cards ?? []).map((c) => c.id)).not.toContain(
+          "A",
+        );
+        expect(
+          await app.evalJS<string>(
+            `window.__tug.cardLineFacts("A").tugSessionId`,
+          ),
+        ).toBe(boundSessionId);
       } finally {
         await app.close().catch(() => undefined);
         rmTempTugbank(tugbankPath);

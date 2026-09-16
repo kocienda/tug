@@ -63,7 +63,7 @@ export interface CardsSessionRowProps {
   /** This row's card is in the layout selection. */
   selected: boolean;
   /** The workspace holding this row, and whether it is the one on screen —
-   *  the workspace run's block key and the read-only mark ([P09], [P10]). */
+   *  the workspace run's block key and the where-you-are mark ([P09], [P10]). */
   spaceId: string;
   spaceActive: boolean;
 }
@@ -145,11 +145,11 @@ export function CardsSessionRow({
           </>
         }
         // The row is its own reorder handle — a vertical drag from anywhere on
-        // it that is not the slot picker carries it. A row of a workspace that
-        // is not on screen is a read-only view and carries nothing ([P09]).
-        onPointerDown={
-          spaceActive ? (e) => onRowPointerDown(orderKey, e) : undefined
-        }
+        // it that is not the slot picker carries it — in every workspace,
+        // whether or not it is the one on screen ([P09], [B01]). The arm is
+        // also what defers the press's selection to the click, so a session
+        // row in a parked workspace no longer goes there on mousedown.
+        onPointerDown={(e) => onRowPointerDown(orderKey, e)}
         data-session-id={tugSessionId}
         data-cards-row-id={orderKey}
         data-cards-row-group="sessions"
