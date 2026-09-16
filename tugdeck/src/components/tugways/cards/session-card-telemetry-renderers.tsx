@@ -47,6 +47,7 @@ import { Archive, MessageCircleQuestion, ShieldAlert } from "lucide-react";
 import { TugArcGauge } from "@/components/tugways/tug-arc-gauge";
 import { createPortal } from "react-dom";
 import { TugPaneFrameContext } from "@/components/chrome/tug-pane";
+import { paneCanvasOf } from "@/components/chrome/space-layer";
 import { raisePaneAbovePeers } from "@/components/tugways/pane-raise";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import {
@@ -1706,7 +1707,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         growth={foldedForm ? "down" : "up"}
         // The visible canvas is what caps a downward panel, not the window top
         // the upward guard measures to ([B06]).
-        bottomBoundEl={foldedForm ? (paneFrameEl?.parentElement ?? null) : null}
+        bottomBoundEl={foldedForm && paneFrameEl !== null ? paneCanvasOf(paneFrameEl) : null}
         className="session-telemetry-status-placard"
         style={foldedPlacardStyle}
         title={PLACARD_TITLES[placard.key]}

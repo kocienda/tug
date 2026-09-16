@@ -322,6 +322,16 @@ export function deckSlotStrip(
   const occupied: FlowSlotExtent[] = [];
   for (const pane of state.panes) {
     if (pane.slot === undefined) continue;
+    // A pane still marked ARRIVING takes no place in the strip, for the same
+    // reason it takes no share of its column's run ([B08]): it is drawn
+    // hidden at the seat it will occupy, and nobody can see it. Counted, its
+    // render width became its slot's extent the instant the card was added —
+    // so a newcomer wider than the sitter it is joining slid every slot to its
+    // right across the deck on the HIDDEN commit, a motion with no cause on
+    // screen and a beat of its own before the arrival the reader watches.
+    // Its width arrives with the rest of it, at the reveal, inside the one
+    // settle that carries the room and the entrance.
+    if (state.arriving?.[pane.id] === true) continue;
     // Clamped to the kind, exactly as `resolvePlacement` clamps it, so the
     // strip is keyed by the slot a pane actually stands in. A stored slot past
     // the kind's last one pulls in rather than opening a place of its own —

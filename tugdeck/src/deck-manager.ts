@@ -2771,6 +2771,7 @@ export class DeckManager implements IDeckManagerStore {
               pane.slot,
               undefined,
               { openingBids, arriving },
+              true,
             ),
     };
     // The column's scroll is a term of THIS commit, not a later one. A
@@ -5501,15 +5502,25 @@ export class DeckManager implements IDeckManagerStore {
     slot: number,
     index?: number,
     session?: Pick<DeckState, "openingBids" | "arriving">,
+    weighSeated = false,
   ): DeckImposition {
     const state = {
       ...this.deckState,
       panes,
       imposition,
-      ...(session?.openingBids !== undefined
+      // Keyed on the key's PRESENCE, never on its value. Both records encode
+      // "empty" as the field GONE — `arrivingWith` drops `arriving` with its
+      // last mark, so the reveal's cleared record IS `undefined` — and a
+      // `!== undefined` test read that as "the caller passed nothing" and left
+      // the store's own record standing. At the reveal that record still
+      // carried the mark, so `columnMembersOf` went on leaving the newcomer
+      // out, `_arrivalShares` saw a column of one, and the weight the reveal
+      // exists to write was never written ([B05]). The two encodings are both
+      // right and they collide only here.
+      ...(session !== undefined && "openingBids" in session
         ? { openingBids: session.openingBids }
         : {}),
-      ...(session?.arriving !== undefined
+      ...(session !== undefined && "arriving" in session
         ? { arriving: session.arriving }
         : {}),
     };
@@ -5520,10 +5531,20 @@ export class DeckManager implements IDeckManagerStore {
       paneId,
       index,
     );
-    // Unchanged means nothing arrived anywhere the column can divide — no
+    // Unchanged means the ORDER did not move, which for a card crossing into a
+    // column means nothing arrived anywhere the column can divide — no
     // sitters, or a stacked column no drop asked to split — so there is no
     // division to write either.
-    if (seated === imposition) return seated;
+    //
+    // `weighSeated` is the one case where that reading is wrong. A card that
+    // arrived HIDDEN was seated in the order a commit ago and takes its weight
+    // at the reveal ([B04]/[B08]), so at the reveal the order is already right
+    // and this shortcut would skip the very write the reveal exists to make —
+    // leaving the newcomer unweighted, and the column's next division handing
+    // it the unnamed default's fraction instead of the room the eye just saw
+    // it take ([B05]). `_arrivalShares` refuses a stacked column and a column
+    // of one on its own, so nothing the shortcut guarded is lost by passing it.
+    if (seated === imposition && !weighSeated) return seated;
     return this._arrivalShares({ ...state, imposition: seated }, paneId, slot);
   }
 

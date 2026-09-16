@@ -99,6 +99,7 @@ import React, {
 import { createPortal } from "react-dom";
 import * as FocusScopeRadix from "@radix-ui/react-focus-scope";
 import { TugPaneFrameContext, TugPanePortalContext } from "@/components/chrome/tug-pane";
+import { paneCanvasOf, visibleCanvasBand } from "@/components/chrome/space-layer";
 import { raisePaneAbovePeers } from "@/components/tugways/pane-raise";
 import { isCardFolded, unfoldCardForBiddenSurface } from "@/lib/card-fold";
 import { CardIdContext } from "@/lib/card-id-context";
@@ -424,6 +425,32 @@ const SHADE_BOTTOM_MOTION: SheetPresentationMotion = {
  * the end. `ease-out` drops it fast, and the shorter exit clears it early.
  */
 const SHADE_SCRIM_EXIT_MS = 150;
+
+/**
+ * The mark that says a panel is PRESENTED — a state it is in, rather than the
+ * residue of an animation that happened to finish.
+ *
+ * Every presentation's CSS resting state is an "off" position, and until this
+ * existed the only thing that ever took a panel out of one was the enter
+ * animation committing its final values inline. `commitStyles()` throws when
+ * the target is not being rendered, which a `display: none` workspace layer
+ * makes routine, and the animator swallows that and cancels — leaving the
+ * panel at `opacity: 0` with its scrim up and nothing to ever put it back.
+ *
+ * So the component asserts the state when the entrance resolves, either way,
+ * and `tug-sheet.css` declares what it looks like. ([B04].)
+ */
+const SHEET_PRESENTED_ATTRIBUTE = "data-tug-sheet-presented";
+
+/** Assert the presented state on an element that has one. */
+function markPresented(el: Element | null): void {
+  el?.setAttribute(SHEET_PRESENTED_ATTRIBUTE, "");
+}
+
+/** Take it back off — the panel is leaving, and its resting state is the exit's target. */
+function clearPresented(el: Element | null): void {
+  el?.removeAttribute(SHEET_PRESENTED_ATTRIBUTE);
+}
 
 /**
  * The shade's resting translucency (`--tugx-shade-alpha`), read live so the fade
@@ -1433,8 +1460,21 @@ export function TugSheetContent({
   useLayoutEffect(() => {
     const clip = clipRef.current;
     if (clip === null || bottomAnchorEl === null || paneFrameEl === null) return;
-    const canvas = paneFrameEl.parentElement;
+    const canvas = paneCanvasOf(paneFrameEl);
     const measure = (): void => {
+      // The canvas box first, and REFUSE on a reading that is not one ([B03]).
+      // A hidden workspace layer generates no boxes and a deck mid-mount has
+      // not been laid out, so both answer a rect at the viewport origin; the
+      // floor below would then be computed from that origin and written as a
+      // cap over a panel standing somewhere else entirely. Writing nothing
+      // leaves the cap this effect wrote last pass standing, or the CSS
+      // fallback if it has not written one — either is a panel where it was,
+      // which is the correct answer to a question nobody can see to ask.
+      const band = visibleCanvasBand(
+        canvas?.getBoundingClientRect() ?? null,
+        window.innerHeight,
+      );
+      if (band === null) return;
       // Read the clip's RESTING top — the CSS `calc(chrome-height + 1px)` —
       // rather than whatever this effect wrote last pass, so the upward growth
       // below measures against a fixed origin and cannot walk itself off the
@@ -1443,16 +1483,8 @@ export function TugSheetContent({
       const frame = paneFrameEl.getBoundingClientRect();
       const anchor = bottomAnchorEl.getBoundingClientRect();
       const restingTop = clip.getBoundingClientRect().top;
-      // The visible canvas, in viewport coordinates: the canvas element's own
-      // box, but never past the window in either direction (the canvas can be
-      // taller than the window, and scrolled). The same reading the top-anchor
-      // clamp takes for its bottom limit, now taken for both edges.
-      const canvasBox = canvas?.getBoundingClientRect() ?? null;
-      const visibleBottom = Math.min(
-        canvasBox?.bottom ?? frame.bottom,
-        window.innerHeight,
-      );
-      const visibleTop = Math.max(canvasBox?.top ?? frame.top, 0);
+      const visibleBottom = band.bottom;
+      const visibleTop = band.top;
       // Where the panel would rest if the band above the anchor held it.
       const restInset = Math.max(0, frame.bottom - anchor.bottom);
       // The anchor is a PREFERENCE, not a ceiling. When the panel needs more
@@ -1555,15 +1587,19 @@ export function TugSheetContent({
     }
     const clip = clipRef.current;
     if (content === null || clip === null || paneFrameEl === null) return;
-    const canvas = paneFrameEl.parentElement;
+    const canvas = paneCanvasOf(paneFrameEl);
     if (canvas === null) return;
     const measure = (): void => {
-      // The visible bottom limit: the canvas rect bottom, but never below the
-      // viewport (the canvas element can be taller than the window).
-      const bottomLimit = Math.min(
-        canvas.getBoundingClientRect().bottom,
+      // The same refusal the bottom-anchor clamp above makes, for the same
+      // reason ([B03]): a canvas box of no area, or one with no part of it in
+      // the window, is not a measurement, and the cap standing on the panel is
+      // a better answer than one computed from the viewport origin.
+      const band = visibleCanvasBand(
+        canvas.getBoundingClientRect(),
         window.innerHeight,
       );
+      if (band === null) return;
+      const bottomLimit = band.bottom;
       const clipBox = clip.getBoundingClientRect();
       const cs0 = getComputedStyle(content);
       const marginTop = Number.parseFloat(cs0.marginTop) || 0;
@@ -1916,11 +1952,20 @@ export function TugSheetContent({
     // for. `sheetDidShow` fires here rather than off an animation's promise,
     // which is the same moment in the sequence: the sheet is fully presented.
     if (presentation === "none") {
+      markPresented(contentEl);
       if (cardIdForLifecycle !== null && sheetLifecycle !== null) {
         sheetLifecycle.notifySheetDidShow(cardIdForLifecycle);
       }
       return;
     }
+
+    // The entrance's outcome decides WHEN the panel is presented; it does not
+    // decide whether ([B04]). `live` goes false once this effect is torn down
+    // — the sheet closed, or the panel was rebuilt in another frame — and the
+    // exit effect has taken the mark off by then, so NEITHER arm of the
+    // entrance's resolution may put the mark back on a panel on its way out.
+    // Both arms settle in a microtask, so both can land after the teardown.
+    let live = true;
 
     const g = group({ duration: "--tug-motion-duration-moderate" });
     const isShade = presentation === "shade";
@@ -1950,15 +1995,44 @@ export function TugSheetContent({
     // capture pre-modal state ("what was focused before this sheet
     // took over?") has its signal.
     g.finished.then(() => {
+      // Guarded for the reason the `live` flag above states, and it is the
+      // resolution arm that needs it most: a sheet dismissed in the frame the
+      // entrance finished has already run the exit effect's `clearPresented`
+      // by the time this microtask does, and a mark written back here stands
+      // on a panel whose exit is under way — where an exit that is itself
+      // interrupted would leave it presented at full opacity with no
+      // animation holding it and nothing left to take it off.
+      if (live) {
+        markPresented(contentEl);
+        if (isShade) markPresented(shadeScrimRef.current);
+      }
+      // The notice is not guarded: the entrance genuinely completed, which is
+      // the fact `sheetDidShow` reports. What moved on is the panel's state,
+      // not the entrance's outcome.
       if (cardIdForLifecycle !== null && sheetLifecycle !== null) {
         sheetLifecycle.notifySheetDidShow(cardIdForLifecycle);
       }
     }).catch(() => {
-      // Animation interrupted (a rapid close-then-open or the sheet
-      // unmounting during enter). The transition to "fully shown"
-      // didn't complete; subscribers will hear about the next
-      // transition (will-hide / did-hide) instead.
+      // The entrance did not finish — cancelled by a rapid close-then-open, or
+      // ended uncommittable because the panel was not being rendered (a hidden
+      // workspace layer is `display: none`, which is exactly when
+      // `commitStyles()` throws). The panel is still open and still owed its
+      // presented geometry, so assert it here the way the exit effect's own
+      // catch asserts `setMounted(false)`. An interrupted animation costs the
+      // ANIMATION, never the panel; the asymmetry between these two catches
+      // was the defect in miniature.
+      //
+      // The lifecycle notice is a different question and still goes unsent:
+      // the transition to "fully shown" genuinely did not complete, and
+      // subscribers hear about the next one (will-hide / did-hide) instead.
+      if (!live) return;
+      markPresented(contentEl);
+      if (isShade) markPresented(shadeScrimRef.current);
     });
+
+    return () => {
+      live = false;
+    };
   }, [open, mounted, cardIdForLifecycle, sheetLifecycle, presentation, shadeAnchor, paneFrameEl]);
 
   // Exit animation: runs when !open && mounted (DOM still present for animation).
@@ -1969,6 +2043,13 @@ export function TugSheetContent({
       setMounted(false);
       return;
     }
+
+    // Off with the presented mark before the exit runs, so the panel's
+    // declared state is its resting one again and an exit that is itself
+    // interrupted leaves the panel hidden rather than presented. The running
+    // exit animation outranks both, so nothing jumps.
+    clearPresented(contentEl);
+    clearPresented(shadeScrimRef.current);
 
     // A `none` panel has no exit to run, so the unmount happens now rather than
     // on an animation's completion. The ORDER the state diagram below promises

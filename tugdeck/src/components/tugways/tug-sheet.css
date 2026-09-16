@@ -482,6 +482,30 @@ body {
   opacity: 1;
 }
 
+/* ---- The presented state ----
+ *
+ * Everything above this is an "off" position. Until this rule existed, so was
+ * everything: a panel was visible only while the enter animation's committed
+ * final values sat inline on it, which made VISIBILITY the residue of a
+ * completed animation rather than a state the panel could be in. An animation
+ * that is cancelled, or one whose `commitStyles()` throws because the element
+ * is not being rendered — routine now that a hidden workspace layer is
+ * `display: none` — left the panel at `opacity: 0` with its scrim up, and
+ * nothing ever put it back.
+ *
+ * So the presented geometry is declared here and the component asserts it by
+ * writing `data-tug-sheet-presented` when the entrance resolves, whether the
+ * entrance finished or was interrupted. A running animation still outranks
+ * this rule, so the entrance plays exactly as before; what changes is where
+ * the panel lands when the animation cannot. ([B04] of sheet-shade-placement.)
+ *
+ * It sits after the resting states and carries one attribute more than they
+ * do, so it wins on both counts.  */
+.tug-sheet-content[data-tug-sheet-presentation][data-tug-sheet-presented] {
+  transform: none;
+  opacity: 1;
+}
+
 /* ---- Reduced motion ----
  *
  * TugAnimator strips spatial properties (translate/scale) under
@@ -796,4 +820,18 @@ body[data-tug-motion="off"] .tug-sheet-shade-scrim {
 body[data-tug-motion="off"] .tug-sheet-shade[data-tug-sheet-presentation="shade"] {
   transform: none;
   opacity: var(--tugx-shade-alpha);
+}
+
+/* The shade's presented state, on the same terms as the panel's above — its
+   presented opacity is its own translucency rather than 1, which is why it
+   needs a rule of its own rather than inheriting the panel's. */
+.tug-sheet-shade[data-tug-sheet-presentation="shade"][data-tug-sheet-presented] {
+  transform: none;
+  opacity: var(--tugx-shade-alpha);
+}
+
+/* And the shade's scrim, which fades up on the JS enter alongside the roll and
+   is left transparent by exactly the same interrupted entrance. */
+.tug-sheet-shade-scrim[data-tug-sheet-presented] {
+  opacity: 1;
 }

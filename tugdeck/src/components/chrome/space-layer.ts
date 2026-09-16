@@ -77,3 +77,44 @@ export function useSpaceLayerShown(): boolean {
 export function paneCanvasOf(el: Element): HTMLElement | null {
   return el.closest<HTMLElement>(`[${CANVAS_BACKGROUND_ATTRIBUTE}]`);
 }
+
+/** The part of a box a clamp may measure against: a top and a bottom, in viewport coordinates. */
+export interface VisibleCanvasBand {
+  readonly top: number;
+  readonly bottom: number;
+}
+
+/**
+ * The stretch of the canvas a sheet clamp may size itself against — or `null`,
+ * which means REFUSE ([B03]).
+ *
+ * `paneCanvasOf` above answers which element the canvas is; this answers
+ * whether its box is worth reading. The two questions are separate because the
+ * element can be right and the reading still worthless: a canvas inside a
+ * hidden workspace layer has no boxes at all, a deck mid-mount has not been
+ * laid out yet, and a canvas scrolled entirely off the window has a box with
+ * nothing of it on screen. Every one of those reads as a rect at or near the
+ * viewport origin, and a clamp that believed it would compute a floor from
+ * that origin and write a cap with no relation to where the panel stands.
+ *
+ * So a box of no area, and a box with no part of it inside the window, both
+ * answer `null`. A caller that gets one writes nothing at all and leaves
+ * whatever cap it wrote last standing — or, having written none yet, leaves
+ * the CSS fallback. That is the whole of the rule: the next occurrence of this
+ * class is a no-op rather than a silent mis-placement, because a measurement
+ * taken in the dark reads zero and sticks.
+ *
+ * The band is the box clipped to the window, because the canvas can be taller
+ * than the window and scrolled, and what caps a panel is the part a person can
+ * actually see.
+ */
+export function visibleCanvasBand(
+  box: { top: number; bottom: number; width: number; height: number } | null,
+  windowHeight: number,
+): VisibleCanvasBand | null {
+  if (box === null || box.width <= 0 || box.height <= 0) return null;
+  const top = Math.max(box.top, 0);
+  const bottom = Math.min(box.bottom, windowHeight);
+  if (bottom <= top) return null;
+  return { top, bottom };
+}

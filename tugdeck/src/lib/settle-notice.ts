@@ -22,12 +22,14 @@
  * off, so "the settle is over" and "the notice went out" are one condition
  * rather than two that can disagree.
  *
- * The listener resolves the container as the pane frame's `parentElement`,
- * which is sound because every pane frame renders as a direct child of the
- * canvas container — the same resolution both of `tug-sheet.tsx`'s clamp
- * effects already make when they read the canvas box. The dispatch is
- * non-bubbling for that reason: there is no ancestor that would want it, and a
- * bubbling notice would reach the document for nobody's benefit.
+ * A listener resolves the container the way every other surface resolves it —
+ * by identity, through `paneCanvasOf` — rather than by walking a fixed number
+ * of levels up from a pane frame. A pane frame is not a direct child of the
+ * container: a workspace wrapper stands between them, and a listener bound to
+ * that wrapper never hears a non-bubbling dispatch made on the container. The
+ * dispatch stays non-bubbling because both ends name the same element: there
+ * is no ancestor that would want the notice, and a bubbling one would reach
+ * the document for nobody's benefit.
  */
 
 /** Dispatched on the canvas container when a settle ends. Not cancelable: the settle is already over. */

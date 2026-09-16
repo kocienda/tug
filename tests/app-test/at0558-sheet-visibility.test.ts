@@ -68,7 +68,12 @@ const MEASURE = `(function(){
   if (c === null) return null;
   var k = c.closest(".tug-sheet-clip");
   var frame = c.closest(".tug-pane");
-  var canvas = frame.parentElement;
+  // The canvas by IDENTITY, never by parentage: a workspace wrapper stands
+  // between a pane frame and the container, shown as display:contents, so
+  // parentElement answers with a rect of zeros. A probe reading that would be
+  // asking whether the panel fits inside a zero-height box at the viewport
+  // origin, which is a question about the probe rather than about the sheet.
+  var canvas = frame.closest("[data-deck-canvas-background]");
   var kr = k.getBoundingClientRect();
   var cr = c.getBoundingClientRect();
   var fr = frame.getBoundingClientRect();
@@ -427,6 +432,101 @@ describe.skipIf(!SHOULD_RUN)("AT0558: a pane-modal sheet is wholly visible", () 
         note("stacking-after-close", after);
         expect(after.a.sheetOpen).toBeNull();
         expect(after.a.z).toBeLessThan(8900);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // [B07]: the one case in this file that does NOT finish the animations.
+  //
+  // Every case above does, and has to — the harness window is occluded, the
+  // document timeline never advances, and a geometry read taken against a
+  // parked first frame is a read of the wrong box. But that force-finish is
+  // also precisely what hides the most likely way for a sheet to be
+  // invisible, so the file that exists to prove a panel is visible could not
+  // see the panel not be.
+  //
+  // What it reads instead is the state a panel is LEFT in when its entrance
+  // ends without committing, reached the way the app reaches it: the panel's
+  // pane is taken out of rendering while the entrance is in flight, which is
+  // what a workspace switch does to every card in the layer it leaves
+  // (`display: none`, `space-layer.css`). `commitStyles()` throws on a target
+  // that is not being rendered, `tug-animator` swallows that and cancels, and
+  // the panel comes back with no animation, nothing inline, and — until the
+  // presented state was a state — nothing to make it visible.
+  //
+  // Before the presented state was a state, this read `opacity: 0` on a panel
+  // whose scrim was up and whose geometry was correct: a sheet the user could
+  // not see and could not dismiss by looking at it.
+  test(
+    "a panel whose entrance never committed is presented anyway",
+    async () => {
+      const app = await launchTugApp({ testName: "at0558-entrance-interrupted" });
+      try {
+        await seedOne(app, { x: 40, y: 40, width: 675, height: 680 });
+
+        await app.nativeClickAtElement(PROMPT_INPUT);
+        await openAiSheet(app);
+        // Out of rendering, with the entrance still running. The animation
+        // keeps its own clock — it is the COMMIT at the end of it that a
+        // hidden target refuses.
+        const parked = await app.evalJS<{ anims: number }>(
+          `(function(){
+             var c = document.querySelector(${JSON.stringify(SHEET)});
+             var n = c.getAnimations().length;
+             c.closest(".tug-pane").style.display = "none";
+             return { anims: n };
+           })()`,
+        );
+        note("entrance-parked", parked);
+        // The premise: an entrance really was in flight when the pane went
+        // dark. Without this the reading below proves nothing.
+        expect(parked.anims).toBeGreaterThan(0);
+
+        // Long enough for it to have ended — thrown, been swallowed, and been
+        // cancelled — and then back into rendering to be looked at.
+        await new Promise((r) => setTimeout(r, 1500));
+        await app.evalJS<null>(
+          `(function(){
+             document.querySelector(${JSON.stringify(CARD)}).closest(".tug-pane").style.display = "";
+             return null;
+           })()`,
+        );
+        await new Promise((r) => setTimeout(r, 400));
+
+        const presented = await app.evalJS<{
+          opacity: string;
+          presented: boolean;
+          anims: number;
+          height: number;
+          inlineOpacity: string;
+        }>(
+          `(function(){
+             var c = document.querySelector(${JSON.stringify(SHEET)});
+             var s = getComputedStyle(c);
+             return {
+               opacity: s.opacity,
+               presented: c.hasAttribute("data-tug-sheet-presented"),
+               anims: c.getAnimations().length,
+               height: Math.round(c.getBoundingClientRect().height),
+               inlineOpacity: c.style.opacity,
+             };
+           })()`,
+        );
+        note("entrance-interrupted", presented);
+
+        // Visible, with no animation left to be holding it there and nothing
+        // committed inline — so the only thing that can be showing this panel
+        // is the state the component declared.
+        expect(presented.anims).toBe(0);
+        expect(presented.inlineOpacity).toBe("");
+        expect(presented.presented).toBe(true);
+        expect(presented.opacity).toBe("1");
+        // And a panel, not a sliver: an invisible sheet and a zero-height one
+        // are different defects and this case must not pass on the second.
+        expect(presented.height).toBeGreaterThan(100);
       } finally {
         await app.close();
       }

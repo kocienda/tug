@@ -569,20 +569,6 @@ async function heldFor(app: App, paneId: string): Promise<number> {
 }
 
 /**
- * How long the last opening-form measure took, in milliseconds, off the deck's
- * diag surface ([Risk R02]).
- *
- * Printed and never asserted on. Every app-test runs behind a machine-wide
- * gate with a whole `Tug.app` under it, so a threshold here would be a
- * measurement of the machine's load at the moment the gate opened.
- */
-async function measureCostMs(app: App): Promise<number | null> {
-  return app.evalJS<number | null>(
-    `(window.tugdeck.diag.lastOpeningFormMeasureMs() ?? null)`,
-  );
-}
-
-/**
  * Point the open picker at the seeded project, let the list reach its cap,
  * and print the panel's natural height as it then stands.
  */
@@ -690,13 +676,18 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         const last = samples[samples.length - 1];
         const sitterRest = last.heights[SITTER] ?? -1;
         const newcomerRest = last.heights[newcomer] ?? -1;
-        // The bid as the sampler caught it, on the first frame it appeared:
-        // the commit that appended the pane carried it, and the first live
-        // report hands it over and clears it.
+        // The bid the card was REVEALED on, which is the LAST one the deck
+        // held while the pane was hidden — not the first the sampler caught.
+        // A hidden pane's sheet reports more than once as its list settles
+        // (446 then 444, on this fixture), and the reveal spends the most
+        // recent report by construction, so the first is a superseded number
+        // and the claim below would be asked against a floor the allocator
+        // never saw. The first live report hands the bid over and clears it,
+        // so the last sample carrying one is the number the reveal used.
         const bidSamples = samples
           .map((s) => s.held[newcomer])
           .filter((v): v is number => typeof v === "number");
-        const bid = bidSamples[0] ?? -1;
+        const bid = bidSamples[bidSamples.length - 1] ?? -1;
         note(
           "arrival extent",
           `sitter travel=${sitterTravel.toFixed(2)} run before=${runBefore.toFixed(2)} at rest sitter=${sitterRest.toFixed(2)} newcomer=${newcomerRest.toFixed(2)} held=${bid.toFixed(2)} on ${bidSamples.length} sample(s)`,
@@ -789,17 +780,10 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         //    arc's whole claim in one comparison, and neither side of it is a
         //    number anybody wrote down. ──
         const liveNatural = await pickerPanelNaturalHeight(app);
-        const costMs = await measureCostMs(app);
         const held = await heldFor(app, newcomer);
         note(
           "bid vs first report",
           `bid=${bid.toFixed(1)} held=${held.toFixed(1)} live panel natural=${(liveNatural ?? -1).toFixed(1)} → member floor ${((liveNatural ?? -1) + SHEET_PANEL_TO_MEMBER_PX).toFixed(1)}`,
-        );
-        // A note(), never an assertion: a timing assertion on a serialized
-        // app-test measures contention rather than the measure ([Risk R02]).
-        note(
-          "measure cost",
-          `the last opening-form measure took ${costMs === null ? "n/a" : `${costMs.toFixed(2)}ms`}`,
         );
         expect(liveNatural, "the picker's panel is on screen").not.toBeNull();
         expect(

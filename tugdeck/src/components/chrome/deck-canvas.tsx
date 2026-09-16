@@ -557,6 +557,16 @@ let focusTravelRun: { cardId: string; goal: FocusTravelSpan } | null = null;
  */
 function arrangementSignature(state: DeckState, runs: PlaceRuns): string {
   const panes = state.panes
+    // A pane still marked ARRIVING is no term of the arrangement, on the same
+    // rule that keeps it out of its column's division ([B08]) and out of the
+    // strip: it is drawn hidden at the seat it will take, so nothing about it
+    // is on screen to cross to. With a term here the HIDDEN commit changed the
+    // signature and armed a settle of its own — a whole arm, with First rects
+    // measured and a beat launched over frames that had nowhere to go — a
+    // commit before the arrival the reader actually watches. Its term appears
+    // when its mark clears, which is the reveal, which is the one settle an
+    // arrival is.
+    .filter((pane) => state.arriving?.[pane.id] !== true)
     .map(
       (pane) =>
         `${pane.id}:${pane.slot ?? ""}:${pane.size.width}:${
