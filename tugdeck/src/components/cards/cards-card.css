@@ -400,24 +400,27 @@ body {
 }
 
 /* The mark, in two channels that say the same thing ([B03], [L06]): the
-   workspace on screen wears a check in the glyph column, and its NAME takes
-   the accent. The name is what carries the reading at a glance — the glyph is
-   small, and the row it sits on is already quiet — so the accent is not
-   decoration on top of the check but the half of the mark a reader actually
-   scans. A parked workspace renders nothing in the column, which is why there
-   is no parked rule here: the old one toned a hollow ring that no longer
-   exists. */
+   workspace on screen wears an open eye in the glyph column, and its NAME
+   takes the accent. The name is what carries the reading at a glance — the
+   glyph is small, and the row it sits on is already quiet — so the accent is
+   not decoration on top of the eye but the half of the mark a reader actually
+   scans. A parked workspace wears the closed eye at the label's own muted
+   tone: the pair reads as one fact in two states, which a mark that is
+   sometimes absent cannot. */
 .cards-space-header[data-cards-space-active="true"] .tug-list-row-title {
   color: var(--tug7-element-global-text-accent-default-rest);
 }
 .cards-space-header[data-cards-space-active="true"] .cards-header-glyph {
   color: var(--tug7-element-global-text-accent-default-rest);
 }
+.cards-space-header[data-cards-space-active="false"] .cards-header-glyph {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
 
-/* The column holds its width whether or not it holds the check, so a name
-   stands in the same place in every row and none of them move when the mark
-   moves. Same knobs the list row's own checkmark column reads, so the two
-   marks are the same size on the same surface. */
+/* The column holds its width whichever eye it holds, so a name stands in the
+   same place in every row and none of them move when the mark changes. Same
+   knobs the list row's own checkmark column reads, so the marks are the same
+   size on the same surface. */
 .cards-space-header .cards-header-glyph {
   inline-size: var(--tugx-list-row-glyph-column, 1rem);
   justify-content: center;

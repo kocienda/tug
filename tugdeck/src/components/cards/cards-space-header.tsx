@@ -37,7 +37,7 @@
  */
 
 import React from "react";
-import { Check, MoreHorizontal } from "lucide-react";
+import { Eye, EyeClosed, MoreHorizontal } from "lucide-react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
@@ -304,16 +304,17 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
       }
     >
       <span className="cards-header-line">
-        {/* The mark: which workspace is on screen. A CHECK, which is what the
-            Window menu already puts against the same fact, so one fact wears
-            one mark at both doors ([B03]). A dot is the house's activity mark
-            — it carries a phase and it pulses — and being the workspace you
-            are in is not a phase. A parked workspace shows nothing here; the
+        {/* The mark: which workspace is on screen. An OPEN EYE on the one you
+            are looking at, a CLOSED one on every workspace whose cards the
+            deck is not drawing — the fact this column reports is visibility,
+            and an eye says it in the glyph itself rather than by convention.
+            A dot is the house's activity mark — it carries a phase and it
+            pulses — and being the workspace you are in is not a phase. The
             column holds its width so the names do not shift when the mark
             moves, and the active name carries the accent so the row still
             reads at a glance without looking at this column at all. */}
         <span className="cards-header-glyph" aria-hidden="true">
-          {row.active ? <Check /> : null}
+          {row.active ? <Eye /> : <EyeClosed />}
         </span>
         {renaming ? (
           <SpaceRenameField

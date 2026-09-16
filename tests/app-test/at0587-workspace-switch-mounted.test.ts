@@ -38,10 +38,10 @@
  *      screen when it began. The press used to commit the selection on the
  *      pointerdown, which is why nothing in a parked workspace could be
  *      dragged at all.
- *   7. And the mark on those headers is a CHECK ([B03]): the workspace on
- *      screen carries one and the parked one carries nothing, in a column
- *      that holds its width either way so the names do not move when the
- *      mark does.
+ *   7. And the mark on those headers is an EYE ([B03]): the workspace on
+ *      screen carries an open one and the parked one a closed one, in a
+ *      column that holds its width either way so the names do not move when
+ *      the mark changes.
  *   8. The other half of [B02], and the reason the deferral is a deferral
  *      rather than a refusal: a press on that same parked row that does NOT
  *      travel is an ordinary click, and it switches the workspace exactly as
@@ -68,7 +68,7 @@
  * owner; `spaces.ts` carries the snapshot fields the canvas reads.
  * `cards-card.tsx` joins them for leg 6: the arm that makes the switch a click
  * is written there, and no narrower module holds it. `cards-space-header.tsx`
- * and `cards-card.css` join them for leg 7 — the check is rendered in the one
+ * and `cards-card.css` join them for leg 7 — the eye is rendered in the one
  * and the column that holds its width is stated in the other.
  *
  * @covers tugdeck/src/components/chrome/space-layer.ts
@@ -591,11 +591,12 @@ describe.skipIf(!SHOULD_RUN)(
             ),
           ).toBe(SPACE_ONE);
 
-          // ---- 7. The mark. The Window menu checkmarks the active workspace
-          // and so does this list; a dot is the house's ACTIVITY mark and
+          // ---- 7. The mark. What this column reports is visibility, so it
+          // reports it with an eye: open on the workspace being drawn, closed
+          // on the ones that are not. A dot is the house's ACTIVITY mark and
           // carries a phase, which being the workspace you are in is not.
           const marks = await app.evalJS<
-            { id: string; active: string | null; check: number; column: number }[]
+            { id: string; active: string | null; eye: string; column: number }[]
           >(
             `Array.prototype.map.call(
               document.querySelectorAll("[data-space-layer][data-space-shown] .cards-space-header"),
@@ -604,7 +605,13 @@ describe.skipIf(!SHOULD_RUN)(
                 return {
                   id: el.getAttribute("data-cards-space-id"),
                   active: el.getAttribute("data-cards-space-active"),
-                  check: glyph === null ? -1 : glyph.querySelectorAll("svg").length,
+                  eye: glyph === null
+                    ? "no-column"
+                    : glyph.querySelector(".lucide-eye") !== null
+                      ? "open"
+                      : glyph.querySelector(".lucide-eye-closed") !== null
+                        ? "closed"
+                        : "none",
                   column: glyph === null ? -1 : Math.round(glyph.getBoundingClientRect().width)
                 };
               },
@@ -615,9 +622,11 @@ describe.skipIf(!SHOULD_RUN)(
           const parked = marks.filter((m) => m.active !== "true");
           expect(active.map((m) => m.id)).toEqual([SPACE_ONE]);
           expect(parked.length).toBeGreaterThan(0);
-          // One check, on the one workspace on screen, and nothing on the rest.
-          expect(active.every((m) => m.check === 1)).toBe(true);
-          expect(parked.every((m) => m.check === 0)).toBe(true);
+          // The open eye on the one workspace on screen, the closed one on
+          // every other: the same fact in two states rather than a mark that
+          // is sometimes simply absent.
+          expect(active.every((m) => m.eye === "open")).toBe(true);
+          expect(parked.every((m) => m.eye === "closed")).toBe(true);
           // The column is the same width whether or not it holds the mark, so
           // no name moves when the mark does.
           expect(new Set(marks.map((m) => m.column)).size).toBe(1);
