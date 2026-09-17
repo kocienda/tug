@@ -183,12 +183,39 @@ const ROLE_TO_TOKEN_SUFFIX: Record<Exclude<TugProgressIndicatorRole, "inherit">,
 };
 
 /**
- * All variants resolve their fill from the same token family —
+ * Roles whose fill does NOT come from the toggle family.
+ *
+ * **`danger` is the system's one status red.** A stopped arc, a stopped
+ * step, and a stopped reading are one fact wearing one ink, and that ink is
+ * `--tug7-element-tone-icon-normal-danger-rest` — the status-ink slot the arc
+ * track, the lifecycle mark, the lifecycle line, the arc fold and the trouble
+ * notes already paint from. The indicator used to take `danger` off
+ * `--tug7-surface-toggle-primary-normal-danger-rest`, and the only reason was
+ * that the toggle family happened to carry a full role set: nothing about a
+ * status glyph is a toggle. The cost was visible — the Session card's Z2 ARC
+ * cell flanked the word "Stopped" with dots two ramp stops off the pills on
+ * the arc track directly above it, two reds for one fact.
+ *
+ * The stop BUTTON is deliberately not in here. A button is a control and
+ * paints from `filled-danger`; that difference is a difference of kind, not
+ * drift.
+ */
+const ROLE_FILL_TOKEN_OVERRIDES: Partial<
+  Record<Exclude<TugProgressIndicatorRole, "inherit">, string>
+> = {
+  danger: "--tug7-element-tone-icon-normal-danger-rest",
+};
+
+/**
+ * Most variants resolve their fill from one token family —
  * `--tug7-surface-toggle-primary-normal-{role}-rest` — so the role
  * tone reads identically across ring/bar/pie/spinner/pulsing-dot/wave.
  * This is the same family used for any control-surface tone
  * elsewhere in the system; switching to it makes the indicator's
  * "action" tone match every other active control — now the theme's Key.
+ *
+ * `danger` is the one role that leaves that family. See
+ * {@link ROLE_FILL_TOKEN_OVERRIDES}.
  */
 function buildFillStyle(
   _variant: TugProgressIndicatorVariant,
@@ -212,6 +239,8 @@ export function progressRoleFillToken(
   role: TugProgressIndicatorRole,
 ): string | null {
   if (role === "inherit") return null;
+  const override = ROLE_FILL_TOKEN_OVERRIDES[role];
+  if (override !== undefined) return override;
   return `--tug7-surface-toggle-primary-normal-${ROLE_TO_TOKEN_SUFFIX[role]}-rest`;
 }
 
