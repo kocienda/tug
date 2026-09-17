@@ -307,8 +307,16 @@ body {
      TWICE: once to set the group header in from the workspace header, and
      again to set the rows in from the group header. A subrow spends it twice
      over plus its own leading column, which is why its rule restates the sum
-     rather than adding to it. TUNE HERE. */
-  --tugx-cards-level-indent: 10px;
+     rather than adding to it.
+
+     Small on purpose: the cost of the step is paid twice over by the rows
+     that can least afford it, since a session monitor row carries a title, a
+     subtitle and a slot picker on one line and the indent comes straight off
+     the measure they share. What the step has to do is say which level a row
+     is on, and it is read against the level directly above it rather than
+     against the card's edge — so it needs to be legible, not generous.
+     TUNE HERE. */
+  --tugx-cards-level-indent: 3px;
 }
 
 /* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */

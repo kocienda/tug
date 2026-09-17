@@ -153,7 +153,27 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         expect(single.hasClose).toBe(true);
         expect(single.hasSlots).toBe(true);
         expect(single.foldControls).toBe(0);
-        expect(single.indent).toBe(0);
+        // Indent is NOT one of the things that would say "container" — it says
+        // which LEVEL the row is on, and that changed under this file rather
+        // than in it. Since `[B04]` of `workspaces-experience` the card states
+        // three levels — workspace, group, row — and every pane row wears two
+        // steps of `--tugx-cards-level-indent`, whether its pane holds one card
+        // or four. Read from the token for the reason the rule states it once:
+        // so tuning the step stays a one-file edit.
+        expect(single.indent).toBe(
+          await app.evalJS<number>(
+            `(function(){
+               var s = getComputedStyle(document.body);
+               var inset = parseFloat(
+                 s.getPropertyValue("--tugx-group-header-inset"),
+               ) || 0;
+               var step = parseFloat(
+                 s.getPropertyValue("--tugx-cards-level-indent"),
+               ) || 0;
+               return inset + 2 * step;
+             })()`,
+          ),
+        );
 
         // The file row sits under a Files header — one group, one header.
         expect(await app.evalJS<number>(count(HEADER))).toBe(1);

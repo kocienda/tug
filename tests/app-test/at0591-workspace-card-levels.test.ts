@@ -647,10 +647,29 @@ describe.skipIf(!SHOULD_RUN)(
             pads[0],
             "the level step is charged to a session monitor row and a one-line row alike",
           ).toBe(pads[1]);
+          // The arithmetic is pinned; the VALUE is the token's. `[B04]` states
+          // the step once, in `--tugx-cards-level-indent`, so the three levels
+          // cannot drift apart by hand — and a literal here would make tuning
+          // it a two-file edit and this leg the thing that refuses the tune.
+          // What it still catches is a rule that reaches one level or none,
+          // and leg 3 above is what keeps the step from being nothing at all.
+          const twoLevelStep = await app.evalJS<string>(
+            `(function(){
+               var s = getComputedStyle(document.body);
+               var inset = parseFloat(
+                 s.getPropertyValue("--tugx-group-header-inset"),
+               ) || 0;
+               var step = parseFloat(
+                 s.getPropertyValue("--tugx-cards-level-indent"),
+               ) || 0;
+               return inset + 2 * step + "px";
+             })()`,
+          );
+          note(`at0591 the two-level step, from the token: ${twoLevelStep}`);
           expect(
             pads[0],
             "and it is the two-level step, not one level or none",
-          ).toBe("24px");
+          ).toBe(twoLevelStep);
         } finally {
           await app.close().catch(() => undefined);
           rmTempTugbank(tugbankPath);
