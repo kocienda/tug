@@ -68,12 +68,26 @@ These cost real time the first time through. Read them before granting.
 
 3. **The Settings UI lies — trust the DB.** System Settings lists apps by display name, collapses identically-named/identically-iconed rows, and caches stale names. Every variant carries its own name — `Tug-apptest`, `Tug-debug`, `Tug` — but the list caches whatever name a bundle wore when it was first added, so a row can still read `Tug` long after the bundle behind it was renamed, and adding or removing one can *appear* to make another "disappear". None of that reflects the database. The system TCC store is readable (it needs Full Disk Access, which Terminal/iTerm usually have) — verify the real state directly:
    ```sh
-   sqlite3 -separator ' | ' "/Library/Application Support/com.apple.TCC/TCC.db" \
+   sqlite3 -readonly -separator ' | ' "/Library/Application Support/com.apple.TCC/TCC.db" \
      "select client, auth_value from access \
       where service='kTCCServiceAccessibility' and client like 'dev.tugapp%';"
-   # auth_value: 2 = allowed, 0 = denied. This is the source of truth.
+   # auth_value: 2 = allowed, 0 = denied.
    ```
    Writing to that DB requires SIP disabled (don't); `tccutil reset` + drag-to-grant is the supported path.
+
+   **But `auth_value` alone will lie to you too.** A row can read `2` while the grant is stone dead, because the field that decides whether a running bundle matches the row is `csreq` — the requirement blob TCC captured *at the moment of the grant*. It ought to be the structural Developer ID DR. When it is a bare `cdhash` instead, the grant is pinned to one single build, the next `build-app` orphans it, and the app re-prompts forever while the row goes on reading allowed. Decode it before believing anything:
+
+   ```sh
+   sqlite3 -readonly "/Library/Application Support/com.apple.TCC/TCC.db" \
+     "select hex(csreq) from access \
+      where service='kTCCServiceAccessibility' and client='dev.tugapp.app.apptest';" \
+     | xxd -r -p > /tmp/csreq.bin
+   csreq -r /tmp/csreq.bin -t
+   # want: identifier "dev.tugapp.app.apptest" and anchor apple generic and … leaf[subject.OU] = Z67582R5Y8
+   # bad:  cdhash H"…"   ← pinned to one build; reset and re-grant by DRAG
+   ```
+
+   That string must be byte-identical to the bundle's own `codesign -dr - <bundle>` output. And this is the whole reason the drag matters: **dragging the bundle into the list makes TCC read its designated requirement, while approving through the app's own prompt makes TCC record the running process by `cdhash`.** The two are indistinguishable in System Settings, and the second one rots on the next rebuild.
 
 4. **The identities and what each is for** (all granted independently, all persist by DR across rebuilds):
    | Bundle ID | Display name | Needs AX for |
@@ -90,7 +104,7 @@ These cost real time the first time through. Read them before granting.
 
 The app's reverse-DNS prefix used to be `dev.tugtool`, and this subsection is the one place in the tree where those identities are still typed on purpose: naming what is being cleared is the whole point of it. Everything below is optional. Nothing under the old prefix is consulted by anything any more, so a machine that never runs a line of it works exactly as well as one that does — the reason to bother is that the old TCC rows sit in the Accessibility list under the same display names as the new ones, which makes the list harder to read the next time you have to grant something.
 
-The TCC rows first. They are keyed on the bundle identifier, so the retired identities each hold their own entry, and a `reset` against one touches nothing else:
+The TCC rows first. They are keyed on the bundle identifier, so the retired identities each hold their own entry, and a `reset` against one touches nothing else — **but only while that bundle is still on disk.** `tccutil` resolves the identifier through LaunchServices before it will touch a row, so once the bundles are deleted every one of these exits `-10814` (`No such bundle identifier`) and the row survives untouched:
 
 ```sh
 tccutil reset Accessibility dev.tugtool.app.apptest
@@ -100,6 +114,8 @@ tccutil reset Accessibility dev.tugtool.app.dev
 ```
 
 The last of those is older than the prefix: `dev.tugtool.app.dev` was the `(development, main)` shorthand [D19] retired, and its row has been orphaned since. A machine that ever built an interactive bundle in a worktree also holds a `dev.tugtool.app.debug-<slug>` or `dev.tugtool.app.release-<slug>` row per branch, which nothing can enumerate for you — read the list and reset what you recognise.
+
+On a machine that has already deleted those bundles — which, this long after the rename, is every machine — nothing on the command line will clear the rows. Do it by hand: select each in System Settings → Privacy & Security → Accessibility and click **−**. It is worth the minute, because a stale row keeps the retired identity's display name (`Tug-apptest`, `Tug-debug`) in the list, and a duplicate `Tug-apptest` is precisely the ambiguity the drag-to-grant step cannot afford.
 
 Then the WebKit caches, which are per-bundle-identifier directories and are pure disk:
 
