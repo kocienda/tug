@@ -1347,7 +1347,23 @@ export class DeckManager implements IDeckManagerStore {
         // snapshot subscribers see already names the new arrangement.
         this.mountedSpaceIds.add(spaceId);
         this.invalidateSpacesSnapshot();
-        this.notify("activateSpace");
+        // `"cut"`, and that word is the whole of the fix ([P11], [B08]).
+        //
+        // A switch used to be spelled to the canvas as an ordinary
+        // arrangement change, which is a mass departure and a mass arrival:
+        // the settle minted a departure ghost for every pane of the workspace
+        // being left and held every incoming frame at `opacity: 0` for its
+        // arrive beat — so a reader crossing between two workspaces watched
+        // the canvas blank and rebuild itself. But the panes do not move
+        // across a switch. Both sets of frames are already drawn exactly
+        // where this commit puts them, and `"cut"` is the canvas's own word
+        // for that: `arm` takes the new arrangement as its baseline, records
+        // `outcome: "declined"`, and launches no settle at all.
+        //
+        // `deleteSpace` reaches here through `activateSpace(neighbour.id)`
+        // and inherits the `"cut"` correctly, for the same reason — the
+        // neighbour's frames are likewise already where the swap puts them.
+        this.notify("activateSpace", "cut");
         this.scheduleSave();
       },
       "activateSpace",

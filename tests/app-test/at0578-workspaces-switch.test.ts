@@ -50,10 +50,10 @@
  * The second test is the card's surface, and the same fixture shape one level
  * out: three workspaces, each standing its own Workspaces card, so a switch
  * never takes the surface under test off screen ([B02]). It drives the row
- * model and the four verbs through the real pointer and the real keyboard —
- * the mark, the click and the Return that switch, the fold cue that opens a
- * parked workspace read-only, the right-click menu, the inline rename, and the
- * delete confirm over live sessions with both of its answers.
+ * model and the row's three verbs through the real pointer and the real
+ * keyboard — the mark, the click and the Return that switch, the fold cue that
+ * opens a parked workspace read-only, the right-click menu, the inline rename,
+ * and the delete confirm over live sessions with both of its answers.
  *
  * `deck-manager.ts` is deliberately not in the `@covers` list, on at0506's
  * precedent and for at0579's reason: it is already among the widest fan-outs in
@@ -595,10 +595,12 @@ describe.skipIf(!SHOULD_RUN)(
             ),
           ).toBe(SURFACE_ONE);
 
-          // ---- 5. Right-click carries the four verbs.
+          // ---- 5. Right-click carries the row's three verbs. New Workspace
+          // is not among them: a menu opened on a row is about that row, and
+          // the card's `+` beside the filter field is the door for making one.
           await app.nativeRightClickAtElement(headerFor(SURFACE_THREE));
           await app.waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 4`,
+            `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 3`,
             { timeoutMs: 8_000 },
           );
           const actions = await app.evalJS<string[]>(
@@ -609,7 +611,6 @@ describe.skipIf(!SHOULD_RUN)(
           );
           note("at0578 the workspace verbs", JSON.stringify(actions));
           expect(actions).toEqual([
-            "new-space",
             "rename-space",
             "duplicate-space",
             "delete-space",

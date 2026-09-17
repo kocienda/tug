@@ -20,6 +20,17 @@
  * does cost is that its subtree has no boxes, so it can take no measurement
  * while hidden — every canvas geometry is armed on the transition to shown.
  *
+ * There is a third state, and it lasts one beat. A switch crossfades: the
+ * workspace being left is painted over the one arriving for the length of a
+ * `divide-join` window and fades out under it ([B09]). For that beat the
+ * OUTGOING wrapper carries `data-space-crossing`, which draws it exactly as
+ * the shown rule does — no box of its own, panes laying out against the
+ * canvas container at their own absolute positions — and makes it inert to
+ * the pointer, because two workspaces are on screen and only one of them is
+ * the one a click belongs to. `deck-canvas.tsx` writes the attribute and owes
+ * it back; `[L32]` is why that debt carries a deadline rather than only a
+ * completion handler.
+ *
  * [L06]: the state is an attribute the canvas writes and a rule here, never
  * an inline style computed in React.
  */
@@ -30,4 +41,22 @@
 
 .tug-space-layer[data-space-shown] {
   display: contents;
+}
+
+/*
+ * The crossing layer: shown-but-inert, for one beat ([B09]).
+ *
+ * Last of the three, in the order the states occur. The specificity is not in
+ * doubt either way — (0,2,0) against the resting rule's (0,1,0) — but a layer
+ * is hidden, then shown, then handed back, and the file reads in that order.
+ *
+ * `display: contents` for the shown rule's reason ([P07]): the wrapper
+ * generates no box, so the fading panes stay exactly where they were drawn
+ * rather than being re-laid-out against a new containing block on their way
+ * out. `pointer-events: none` inherits to the whole subtree, so the departing
+ * workspace takes no click, no hover and no drop while it is still painted.
+ */
+.tug-space-layer[data-space-crossing] {
+  display: contents;
+  pointer-events: none;
 }

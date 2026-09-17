@@ -524,7 +524,7 @@ const GroupHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
 }: TugListViewCellProps<CardsDataSource>) => {
   const row = dataSource.rowAt(index);
   const ctx = useCellContext();
-  if (row.type !== "group-header") return null;
+  if (row === undefined || row.type !== "group-header") return null;
   const title = GROUP_TITLES[row.group];
   return (
     <TugListRow
@@ -591,7 +591,7 @@ const SessionPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
 }: TugListViewCellProps<CardsDataSource>) => {
   const row = dataSource.rowAt(index);
   const ctx = useCellContext();
-  if (row.type !== "pane") return null;
+  if (row === undefined || row.type !== "pane") return null;
   const { identity } = row;
   if (identity.tugSessionId === null || identity.projectDir === null) {
     return (
@@ -633,7 +633,7 @@ const FilePaneCell: TugListViewCellRenderer<CardsDataSource> = ({
   selected,
 }: TugListViewCellProps<CardsDataSource>) => {
   const row = dataSource.rowAt(index);
-  if (row.type !== "pane") return null;
+  if (row === undefined || row.type !== "pane") return null;
   return (
     <OneLineRow
       selected={selected}
@@ -660,7 +660,7 @@ const ToolPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
   selected,
 }: TugListViewCellProps<CardsDataSource>) => {
   const row = dataSource.rowAt(index);
-  if (row.type !== "pane") return null;
+  if (row === undefined || row.type !== "pane") return null;
   return (
     <OneLineRow
       selected={selected}
@@ -694,7 +694,7 @@ const StackPaneCell: TugListViewCellRenderer<CardsDataSource> = ({
   selected,
 }: TugListViewCellProps<CardsDataSource>) => {
   const row = dataSource.rowAt(index);
-  if (row.type !== "pane") return null;
+  if (row === undefined || row.type !== "pane") return null;
   return (
     <OneLineRow
       selected={selected}
@@ -728,7 +728,7 @@ const SubcardCell: TugListViewCellRenderer<CardsDataSource> = ({
   selected,
 }: TugListViewCellProps<CardsDataSource>) => {
   const row = dataSource.rowAt(index);
-  if (row.type !== "card") return null;
+  if (row === undefined || row.type !== "card") return null;
   const glyph =
     row.group === "files"
       ? fileGlyph(row.identity)
@@ -750,11 +750,45 @@ const SubcardCell: TugListViewCellRenderer<CardsDataSource> = ({
   );
 };
 
+/**
+ * A workspace with nothing under it ([B07], [P06]).
+ *
+ * It is a stand-in for a list rather than a list, and two things follow from
+ * that. Its voice is `.cards-empty`'s — the very class the card uses one level
+ * up when it has nothing at all — so an empty workspace reads like an empty
+ * card rather than like a new invention, and it keeps the same
+ * `None` / `No matches` distinction. And it wears `spaceRowAttrs`, so it joins
+ * its workspace's `data-cards-space-run` block: the drop target an empty
+ * workspace would otherwise not have anywhere to be, since a header alone is
+ * a thin band to aim a card at.
+ *
+ * The cursor skips it — `roleForIndex` answers `"header"` for this kind — and
+ * a drag does not, because `useBlockReorder` resolves its target from the DOM
+ * attribute rather than from a role.
+ */
+const SpaceEmptyCell: TugListViewCellRenderer<CardsDataSource> = ({
+  index,
+  dataSource,
+}: TugListViewCellProps<CardsDataSource>) => {
+  const row = dataSource.rowAt(index);
+  if (row === undefined || row.type !== "space-empty") return null;
+  return (
+    <div
+      className="cards-space-empty"
+      data-testid="cards-space-empty"
+      {...spaceRowAttrs(row.spaceId, row.spaceId === dataSource.activeSpaceId())}
+    >
+      <span className="cards-empty">{row.filtered ? "No matches" : "None"}</span>
+    </div>
+  );
+};
+
 const CARDS_CELL_RENDERERS: Record<
   string,
   TugListViewCellRenderer<CardsDataSource>
 > = {
   "space-header": SpaceHeaderCell,
+  "space-empty": SpaceEmptyCell,
   "group-header": GroupHeaderCell,
   "session-pane": SessionPaneCell,
   "file-pane": FilePaneCell,
@@ -1209,8 +1243,19 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     );
   }, [focusManager, cardId]);
 
-  /** The header row's CELL, for a popover that must outlive the menu that
-   *  armed it — the anchor the Arcs card's confirm takes, for its reason. */
+  /**
+   * The header row's CELL, for a popover that must outlive the menu that
+   * armed it — the anchor the Arcs card's confirm takes, for its reason.
+   *
+   * **It reveals the row before returning it** ([P10]). An arrow answers the
+   * case where the header is on screen and the popover has shifted; it answers
+   * nothing when the header is scrolled out of the list, where a reader would
+   * get an arrow aimed off the edge of the card. `.cards-card` is the card's
+   * one scroller — the list is `inline` with `overflow: visible` — so every
+   * cell is mounted and the reveal is one call, with no windowing to reason
+   * about. `block: "nearest"` is what makes it a reveal rather than a jump: a
+   * header already in view does not move.
+   */
   const anchorForSpace = useCallback((spaceId: string): HTMLElement | null => {
     const root = listWrapRef.current;
     if (root === null) return null;
@@ -1218,7 +1263,10 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       `.cards-space-header[data-cards-space-id="${CSS.escape(spaceId)}"]`,
     );
     if (header === null) return null;
-    return (header.closest(".tug-list-view-cell") as HTMLElement | null) ?? header;
+    const cell =
+      (header.closest(".tug-list-view-cell") as HTMLElement | null) ?? header;
+    cell.scrollIntoView({ block: "nearest" });
+    return cell;
   }, []);
 
   /** What a workspace is called, read off the projection the rows came from. */
@@ -1419,6 +1467,11 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
         onToggleGroup(row.group);
         return;
       }
+      // The `None` row fronts no card, so there is nothing to activate. The
+      // primitive already skips it — its role is `"header"` ([P06]) — and this
+      // is the belt to that brace, since a delegate reached by any other route
+      // would read `row.identity` off a row that has none.
+      if (row.type === "space-empty") return;
       lastSelectedRowId = dataSource.idForIndex(index);
       dispatchCommand("focus-session-card", {
         cardId: row.identity.cardId,
@@ -1459,7 +1512,8 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       if (
         row === undefined ||
         row.type === "space-header" ||
-        row.type === "group-header"
+        row.type === "group-header" ||
+        row.type === "space-empty"
       ) {
         continue;
       }
@@ -1584,10 +1638,27 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     },
   });
 
+  // The card's own root, kept alongside the chain registration: the delete
+  // confirm names it as its collision boundary ([P09]). Anchored over a
+  // workspace header the popover sits inside a rail card, and an unbounded
+  // shift would let the floating layer slide it onto rows belonging to a
+  // DIFFERENT workspace — which leaves the one question the confirm asks,
+  // "which workspace", unanswered by the thing asking it. Bounded, it slides
+  // back inside the card and keeps its arrow on the header that armed it.
+  // `jots-card.tsx` carries the same three props for the same reason.
+  const cardRootRef = useRef<HTMLDivElement | null>(null);
+  const attachCardRoot = useCallback(
+    (el: HTMLDivElement | null): void => {
+      cardRootRef.current = el;
+      (responderRef as (node: HTMLDivElement | null) => void)(el);
+    },
+    [responderRef],
+  );
+
   return (
     <ResponderScope>
     <div
-      ref={responderRef as (el: HTMLDivElement | null) => void}
+      ref={attachCardRoot}
       className="cards-card"
       data-cards-card-id={cardId}
       // Focusable root so `transferFocusForActivation` → `applyBagFocus` has a
@@ -1675,7 +1746,15 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       </div>
       {/* The card's one confirm, anchored to whichever workspace header armed
           it. `confirmRole="danger"` puts default focus on Cancel, so a
-          reflexive Return can never take a workspace and its sessions. */}
+          reflexive Return can never take a workspace and its sessions.
+
+          The arrow and the boundary are one answer to one question ([P09]).
+          The boundary keeps the popover inside this card, so a shift can never
+          come to rest over another workspace's rows; the arrow names WHICH row
+          it is asking about once it has shifted within the card. Either alone
+          is half of it. `anchorForSpace` supplies the third part by revealing
+          the header first ([P10]) — an arrow aimed off the edge of the card is
+          worse than no arrow. */}
       <TugConfirmPopover
         open={pendingDelete !== null}
         anchorEl={pendingDelete?.anchor ?? null}
@@ -1687,6 +1766,10 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
         confirmLabel="Delete"
         confirmRole="danger"
         side="top"
+        align="center"
+        collisionBoundary={cardRootRef.current}
+        collisionPadding={6}
+        arrow
         onConfirm={() => {
           const armed = pendingDelete;
           setPendingDelete(null);

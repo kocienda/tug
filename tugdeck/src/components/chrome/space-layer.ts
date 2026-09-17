@@ -22,6 +22,26 @@ export const SPACE_LAYER_CLASS = "tug-space-layer";
 export const SPACE_SHOWN_ATTRIBUTE = "data-space-shown";
 
 /**
+ * The workspace a wrapper holds. Written on every layer, shown or not.
+ *
+ * `DeckCanvas` has always written it; nothing named it until the crossfade
+ * needed to find a layer BY workspace rather than by which one is on screen —
+ * the outgoing layer, the one thing `SPACE_SHOWN_ATTRIBUTE` cannot point at.
+ */
+export const SPACE_LAYER_ATTRIBUTE = "data-space-layer";
+
+/**
+ * Present on the OUTGOING wrapper for the length of one crossfade beat ([B09]).
+ *
+ * The third state of a layer, and the only one that is neither of the other
+ * two: shown enough to paint, inert to the pointer, and owed back. Written and
+ * removed by `deck-canvas.tsx` alone, never present on the shown layer, and
+ * never on any layer once the beat lands — see `space-layer.css` for the rule
+ * and `[L32]` for why the beat carries a deadline.
+ */
+export const SPACE_CROSSING_ATTRIBUTE = "data-space-crossing";
+
+/**
  * Every pane frame ON SCREEN — the shown workspace's, never a mounted-but-
  * hidden one's.
  *

@@ -279,11 +279,23 @@ export type CardsRow =
       readonly identity: CardIdentity;
       /** This card is its pane's active tab. */
       readonly active: boolean;
+    }
+  | {
+      /**
+       * A workspace with nothing under it. Not a list — a stand-in for one,
+       * inside the list, and the drop zone an empty workspace would otherwise
+       * not have ([B07]).
+       */
+      readonly type: "space-empty";
+      readonly spaceId: string;
+      /** A filter is live and this workspace does hold cards it is hiding. */
+      readonly filtered: boolean;
     };
 
 /** The cell renderer key `TugListView` dispatches on. */
 export function kindOfRow(row: CardsRow): string {
   if (row.type === "space-header") return "space-header";
+  if (row.type === "space-empty") return "space-empty";
   if (row.type === "group-header") return "group-header";
   if (row.type === "card") return "subcard";
   return row.rowKind;
@@ -302,6 +314,8 @@ export function idOfRow(row: CardsRow): string {
       return `pane:${row.paneId}`;
     case "card":
       return `card:${row.identity.cardId}`;
+    case "space-empty":
+      return `empty:${row.spaceId}`;
   }
 }
 
@@ -648,7 +662,25 @@ export function buildCardsRows(
       summary: count === 1 ? "1 card" : `${count} cards`,
       sessionsLive: countLiveSessions(space.deck, inputs, r),
     });
-    if (space.expanded) rows.push(...inner);
+    if (!space.expanded) continue;
+    if (inner.length > 0) {
+      rows.push(...inner);
+      continue;
+    }
+    // An expanded workspace showing nothing gets a row saying so, which is
+    // also the drop zone it would otherwise not have ([B07]). A COLLAPSED
+    // empty workspace emits nothing new: its header is the whole of what it
+    // is showing, exactly as a collapsed non-empty one is.
+    //
+    // `filtered` separates "this workspace is empty" from "the filter is
+    // hiding what it holds", the same distinction the card makes one level up.
+    // It costs a second `buildSpaceRows` over the one workspace, unfiltered —
+    // paid only when a filter is live AND that workspace came back with
+    // nothing, which is the one case where the answer is not already known.
+    const filtered =
+      inputs.filterQuery.trim().length > 0 &&
+      buildSpaceRows(space, { ...inputs, filterQuery: "" }, r).paneCount > 0;
+    rows.push({ type: "space-empty", spaceId: space.id, filtered });
   }
   return rows;
 }
@@ -875,20 +907,36 @@ export class CardsDataSource implements TugListViewDataSource {
   }
 
   idForIndex(index: number): string {
-    return idOfRow(this.rows[index]);
+    const row = this.rows[index];
+    // A stable id for an index the projection no longer holds. It has to be
+    // stable — React keys off it — and it has to be distinct per index, or two
+    // absent rows would collide on one key.
+    return row === undefined ? `absent:${index}` : idOfRow(row);
   }
 
   kindForIndex(index: number): string {
-    return kindOfRow(this.rows[index]);
+    const row = this.rows[index];
+    // A kind with no registered renderer, so the list primitive draws nothing
+    // rather than dispatching a cell at a row that is not there.
+    return row === undefined ? "absent" : kindOfRow(row);
   }
 
   /**
-   * Every row is a `"cell"`, headers included: `TugListView`'s `"header"` role
-   * is inert — skipped by the cursor and by click — and a group header here is
-   * a collapse toggle the arrow walk must reach.
+   * Every row is a `"cell"` but one, headers included: `TugListView`'s
+   * `"header"` role is inert — skipped by the cursor and by click — and a
+   * group header here is a collapse toggle the arrow walk must reach, as is a
+   * workspace header.
+   *
+   * The `None` row is the exception, and inert is what it is ([P06]). It
+   * toggles nothing and fronts nothing, so there is no reason for the cursor
+   * to stop on it and no reason for a click to land. Inert to the CURSOR is
+   * not inert to a drag: the drop target is resolved from
+   * `data-cards-space-run` in the DOM by `useBlockReorder`, which never reads
+   * a role — which is the whole of why this row can be skipped by the arrows
+   * and still be the thing a card is dropped onto.
    */
-  roleForIndex(_index: number): TugListViewCellRole {
-    return "cell";
+  roleForIndex(index: number): TugListViewCellRole {
+    return this.rows[index]?.type === "space-empty" ? "header" : "cell";
   }
 
   subscribe(listener: () => void): () => void {
@@ -902,8 +950,19 @@ export class CardsDataSource implements TugListViewDataSource {
     return this.version;
   }
 
-  /** Typed row access for the cell renderers. */
-  rowAt(index: number): CardsRow {
+  /**
+   * Typed row access for the cell renderers.
+   *
+   * **`| undefined` is the truth and it is load-bearing.** An array index is
+   * not a total function, and `tugdeck/tsconfig.json` sets `strict` without
+   * `noUncheckedIndexedAccess` — so an indexed read's `| undefined` is
+   * invisible to the compiler and a declaration promising a row for any
+   * integer stands unchallenged. This declaration is the only thing standing
+   * between a caller and a throw: a cell rendered against an index the
+   * projection no longer holds reads `undefined` here, and `row.type` on it
+   * is `undefined is not an object`.
+   */
+  rowAt(index: number): CardsRow | undefined {
     return this.rows[index];
   }
 
@@ -977,11 +1036,16 @@ export class CardsDataSource implements TugListViewDataSource {
    *
    * Group headers COUNT. A fully collapsed list is showing its headers and is
    * not empty: the header is the way back.
+   *
+   * A `None` row does NOT count ([R03]). This method answers "is there a list
+   * worth drawing", and a `None` row is not a list — counting it would make a
+   * card holding nothing but empty workspaces report a list and swap away the
+   * card-level empty label that says the same thing better.
    */
   innerRowCount(): number {
     let n = 0;
     for (const row of this.rows) {
-      if (row.type !== "space-header") n += 1;
+      if (row.type !== "space-header" && row.type !== "space-empty") n += 1;
     }
     return n;
   }

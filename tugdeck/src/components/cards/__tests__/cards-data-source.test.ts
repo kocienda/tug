@@ -148,13 +148,18 @@ function inputs(
  * expectations read exactly as they did before workspaces existed, which is
  * itself the claim: a one-space input reproduces the old projection whole. The
  * workspace block asserts over `buildCardsRows` directly.
+ *
+ * The `None` row goes with it, for the same reason: a workspace showing
+ * nothing now says so on a row of its own ([B07]), and that row is a fact
+ * about the workspace level rather than about the projection these cases
+ * describe. The workspace block below is where it is asserted.
  */
 function innerRows(
   ins: LensCardsInputs,
   over?: Parameters<typeof buildCardsRows>[1],
 ): CardsRow[] {
   return buildCardsRows(ins, over).filter(
-    (row) => row.type !== "space-header",
+    (row) => row.type !== "space-header" && row.type !== "space-empty",
   );
 }
 
@@ -168,6 +173,9 @@ function shape(rows: readonly CardsRow[]): string[] {
       return `header:${row.group}(${row.count})${row.collapsed ? "-collapsed" : ""}`;
     }
     if (row.type === "pane") return `pane:${row.rowKind}:${row.identity.title}`;
+    if (row.type === "space-empty") {
+      return `empty:${row.spaceId}${row.filtered ? "-filtered" : ""}`;
+    }
     return `  card:${row.identity.title}${row.active ? "*" : ""}`;
   });
 }
@@ -760,7 +768,9 @@ describe("filtering", () => {
       inputs(d, { bindings, filterQuery: "parser" }),
       r,
     );
-    expect(source.numberOfItems()).toBe(1); // the workspace header stands
+    // The workspace header stands, and under it the `None` row a workspace
+    // filtered down to nothing now draws ([B07]).
+    expect(source.numberOfItems()).toBe(2);
     title = "parser rewrite";
     expect(
       source.setInputsWithoutNotify(
@@ -771,7 +781,12 @@ describe("filtering", () => {
       shape(
         Array.from({ length: source.numberOfItems() }, (_, i) =>
           source.rowAt(i),
-        ).filter((row) => row.type !== "space-header"),
+        ).filter(
+          (row) =>
+            row !== undefined &&
+            row.type !== "space-header" &&
+            row.type !== "space-empty",
+        ),
       ),
     ).toEqual(["header:sessions(1)", "pane:session-pane:parser rewrite"]);
   });
@@ -891,7 +906,31 @@ describe("CardsDataSource", () => {
   it("firstPaneRowIndex skips the leading header", () => {
     const ds = source();
     expect(ds.firstPaneRowIndex()).toBeGreaterThan(0);
-    expect(ds.rowAt(ds.firstPaneRowIndex()).type).toBe("pane");
+    expect(ds.rowAt(ds.firstPaneRowIndex())?.type).toBe("pane");
+  });
+
+  // An index outside the projection is the case the declaration used to lie
+  // about: `rowAt` promised a row for any integer, the compiler believed it
+  // because `noUncheckedIndexedAccess` is off, and a cell rendered against a
+  // projection that had got shorter read `undefined` and threw on `.type`.
+  // Both ends are tested because they arrive differently — `-1` is what
+  // `indexForSpace` answers for a workspace that is gone, and `numberOfItems()`
+  // is what a cell holds when the list has shrunk under it.
+  it("rowAt is undefined outside the projection, and the index accessors still answer", () => {
+    const ds = source();
+    const past = ds.numberOfItems();
+
+    expect(ds.rowAt(-1)).toBeUndefined();
+    expect(ds.rowAt(past)).toBeUndefined();
+
+    // Neither accessor throws, and each answers something a list can use: a
+    // per-index id React can key on without two absent rows colliding, and a
+    // kind no renderer is registered for, so the cell draws nothing.
+    expect(ds.idForIndex(-1)).toBe("absent:-1");
+    expect(ds.idForIndex(past)).toBe(`absent:${past}`);
+    expect(ds.idForIndex(-1)).not.toBe(ds.idForIndex(past));
+    expect(ds.kindForIndex(-1)).toBe("absent");
+    expect(ds.kindForIndex(past)).toBe("absent");
   });
 
   it("firstPaneRowIndex is -1 when nothing projects", () => {
@@ -926,7 +965,8 @@ describe("CardsDataSource", () => {
 
   it("unfilteredCount holds while a filter narrows the visible rows", () => {
     const ds = source({ filterQuery: "zzz-no-match" });
-    expect(ds.numberOfItems()).toBe(1); // the workspace header stands
+    // The workspace header and the `None` row under it ([B07]).
+    expect(ds.numberOfItems()).toBe(2);
     expect(ds.unfilteredCount()).toBe(source().unfilteredCount());
   });
 
@@ -1215,6 +1255,63 @@ describe("workspaces as the outer level", () => {
     ]);
   });
 
+  /** A workspace holding nothing at all. */
+  const bareDeck = deck([], []);
+
+  function withBare(
+    over: Partial<LensCardsInputs> = {},
+    expanded = true,
+  ): LensCardsInputs {
+    return inputs(activeDeck, {
+      spaces: [
+        { id: "bare", name: "Bare", active: true, expanded, deck: bareDeck },
+      ],
+      ...over,
+    });
+  }
+
+  it("an expanded workspace holding nothing draws a None row under its header", () => {
+    expect(shape(buildCardsRows(withBare(), r))).toEqual([
+      "space:Bare(0)",
+      "empty:bare",
+    ]);
+  });
+
+  it("a COLLAPSED empty workspace draws no None row — its header is all it is showing", () => {
+    expect(shape(buildCardsRows(withBare({}, false), r))).toEqual([
+      "space:Bare(0)-collapsed",
+    ]);
+  });
+
+  it("a workspace emptied BY a filter says so — the None row is `filtered`", () => {
+    // Home holds alpha.txt and the query matches nothing in it, so the row
+    // that stands in for the list has to say the filter is hiding something
+    // rather than that there is nothing to hide.
+    const rows = buildCardsRows(twoSpaces({ filterQuery: "zzz-no-match" }), r);
+    const empty = rows.find((row) => row.type === "space-empty");
+    expect(empty?.type === "space-empty" && empty.spaceId).toBe("home");
+    expect(empty?.type === "space-empty" && empty.filtered).toBe(true);
+  });
+
+  it("a truly empty workspace is not `filtered`, query or no query", () => {
+    const bare = buildCardsRows(withBare({ filterQuery: "zzz-no-match" }), r).find(
+      (row) => row.type === "space-empty",
+    );
+    expect(bare?.type === "space-empty" && bare.filtered).toBe(false);
+  });
+
+  it("the None row is inert to the cursor and is not a list", () => {
+    // [P06]: `"header"` is the primitive's inert role — skipped by the cursor
+    // and by click — and [R03]: `innerRowCount` answers "is there a list worth
+    // drawing", which a stand-in for a list is not.
+    const ds = new CardsDataSource(withBare(), r);
+    expect(ds.kindForIndex(1)).toBe("space-empty");
+    expect(ds.roleForIndex(1)).toBe("header");
+    expect(ds.roleForIndex(0)).toBe("cell");
+    expect(ds.innerRowCount()).toBe(0);
+    expect(ds.idForIndex(1)).toBe("empty:bare");
+  });
+
   it("a collapsed workspace still reports what it holds", () => {
     const away = buildCardsRows(twoSpaces(), r).find(
       (row) => row.type === "space-header" && row.spaceId === "away",
@@ -1313,6 +1410,9 @@ describe("workspaces as the outer level", () => {
     // while the user was typing would read as a place that is gone.
     expect(shape(buildCardsRows(twoSpaces({ filterQuery: "beta" }, true), r))).toEqual([
       "space:Home(0)",
+      // Home is left showing nothing, so it says so — and says WHICH nothing:
+      // the filter is hiding a card it holds, rather than it being empty.
+      "empty:home-filtered",
       "space:Away(1)",
       "header:files(1)",
       "pane:file-pane:beta.txt",

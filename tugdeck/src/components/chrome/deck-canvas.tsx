@@ -159,7 +159,13 @@ import {
 import type { Rect } from "@/snap";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import "./slot-vacancy.css";
-import { SHOWN_PANE_FRAMES, SpaceLayerShownContext } from "./space-layer";
+import {
+  SHOWN_PANE_FRAMES,
+  SPACE_CROSSING_ATTRIBUTE,
+  SPACE_LAYER_ATTRIBUTE,
+  SPACE_LAYER_CLASS,
+  SpaceLayerShownContext,
+} from "./space-layer";
 import "./space-layer.css";
 import "./rail-vacancy.css";
 import "./margin-cap.css";
@@ -708,6 +714,18 @@ interface SettleTween {
   anims: TugAnimation[];
   restores: Array<() => void>;
 }
+
+/**
+ * How long after a crossfade's tweens should have finished the beat is torn
+ * down anyway ([L32] clause 2).
+ *
+ * A margin rather than the bare duration because the deadline is the net, not
+ * the clock: it must never fire while the fade is still on screen, and it must
+ * fire soon enough that a stranded layer is a blink rather than a state. One
+ * frame of slack at 60Hz is about 16ms; this is generous over that and still
+ * inside the length of the beat it guards.
+ */
+const SPACE_CROSSFADE_DEADLINE_MARGIN_MS = 120;
 
 /**
  * The recipe each beat of a settle plays on. The move beat IS the crossing —
@@ -5683,6 +5701,169 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       },
     };
   }, [store]);
+
+  // ---------------------------------------------------------------------------
+  // The switch is one crossfade
+  // ---------------------------------------------------------------------------
+  // A workspace switch lands as a cut ([P11]): both sets of frames are already
+  // drawn where the commit puts them, the settle declines it, and nothing
+  // moves. What is left is the JOIN between two still pictures, and this is
+  // it — the workspace being left painted over the one arriving for the length
+  // of one `divide-join` window, fading out under it ([P07]).
+  //
+  // Everything here is DOM: an attribute on the outgoing wrapper and two
+  // opacity tweens, no React state, nothing that renders ([L06]). The wrapper
+  // is `display: none` at rest, so the beat is a debt from the moment it is
+  // opened, and `[L32]` is the law that names what that debt costs if it is
+  // not paid: the departing workspace's panes painted over the arriving one's
+  // forever. Hence four separate ways for the beat to land, all of them the
+  // same idempotent `teardown` — the completion of the last tween, a deadline,
+  // the next switch, and the effect's own cleanup.
+  const crossfadeRef = useRef<{
+    generation: number;
+    anims: TugAnimation[];
+    restores: Array<() => void>;
+    deadline: number | null;
+  }>({ generation: 0, anims: [], restores: [], deadline: null });
+  /** The workspace the last commit was showing — the one a switch fades OUT. */
+  const previousSpaceIdRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const activeSpaceId = spacesSnapshot.activeSpaceId;
+    const previousSpaceId = previousSpaceIdRef.current;
+    previousSpaceIdRef.current = activeSpaceId;
+    const state = crossfadeRef.current;
+
+    /**
+     * End whatever beat is in flight, and leave no residue ([B09]).
+     *
+     * Unconditional and idempotent: it bumps the generation first, so any
+     * landing still to arrive for the beat it just ended is a no-op, and it
+     * strips the attribute by sweeping for it rather than by remembering which
+     * element wore it — the only reading that is still right after a layer has
+     * been unmounted underneath a beat.
+     *
+     * `hold-at-current` rather than `snap-to-end` is the load-bearing choice:
+     * it commits the interpolated value into `el.style` SYNCHRONOUSLY, so the
+     * restorers below run after the commit and take it off. `snap-to-end`
+     * commits in a microtask, which would land the baked opacity after the
+     * hand-back and freeze a frame at whatever the tween had reached.
+     */
+    const teardown = (): void => {
+      state.generation += 1;
+      if (state.deadline !== null) {
+        window.clearTimeout(state.deadline);
+        state.deadline = null;
+      }
+      const anims = state.anims;
+      state.anims = [];
+      for (const anim of anims) anim.cancel("hold-at-current");
+      const restores = state.restores;
+      state.restores = [];
+      for (const restore of restores) restore();
+      const el = containerRef.current;
+      if (el !== null) {
+        for (const layer of el.querySelectorAll<HTMLElement>(
+          `.${SPACE_LAYER_CLASS}[${SPACE_CROSSING_ATTRIBUTE}]`,
+        )) {
+          layer.removeAttribute(SPACE_CROSSING_ATTRIBUTE);
+        }
+      }
+    };
+    teardown();
+
+    const root = containerRef.current;
+    // Four ways there is nothing to fade, and every one of them writes nothing
+    // at all rather than opening a beat that would have to be closed. The last
+    // is a workspace that was DELETED rather than switched away from: its
+    // layer left with it, and there is no picture to cross from.
+    if (root === null || previousSpaceId === null) return;
+    if (previousSpaceId === activeSpaceId) return;
+    if (!isTugMotionEnabled()) return;
+    const layerOf = (spaceId: string): HTMLElement | null =>
+      root.querySelector<HTMLElement>(
+        `.${SPACE_LAYER_CLASS}[${SPACE_LAYER_ATTRIBUTE}="${CSS.escape(spaceId)}"]`,
+      );
+    const outgoing = layerOf(previousSpaceId);
+    if (outgoing === null) return;
+
+    // The wrapper's OWN subtree, scoped. `SHOWN_PANE_FRAMES` cannot answer
+    // here — it excludes anything inside a layer without `data-space-shown`,
+    // which is exactly the layer being faded — and widening it is not the
+    // answer either: its nine readers all mean "the panes on screen", and a
+    // layer on its way out is not one of them.
+    const framesUnder = (layer: HTMLElement): HTMLElement[] => [
+      ...layer.querySelectorAll<HTMLElement>(".tug-pane[data-pane-id]"),
+    ];
+    const outgoingFrames = framesUnder(outgoing);
+    const incoming = layerOf(activeSpaceId);
+    const incomingFrames = incoming === null ? [] : framesUnder(incoming);
+    if (outgoingFrames.length === 0 && incomingFrames.length === 0) return;
+
+    // Shown-but-inert. The panes under it have boxes again, at their own
+    // absolute positions against the canvas container, and take no pointer.
+    outgoing.setAttribute(SPACE_CROSSING_ATTRIBUTE, "");
+
+    // The deck's one clock. `divide-join` is the recipe every fade on this
+    // canvas already runs on — the mode flip's, and the settle's own depart
+    // and arrive beats — so a switch is a fade of the same length and shape
+    // rather than a curve this call site picked for itself.
+    const curve = motionKeyframes("divide-join", {
+      nominalMs: settleDurationRef.current,
+    });
+    const generation = state.generation;
+    let outstanding = 0;
+    const land = (): void => {
+      outstanding -= 1;
+      if (outstanding === 0 && state.generation === generation) teardown();
+    };
+    const fade = (
+      frame: HTMLElement,
+      from: number,
+      to: number,
+      key: string,
+    ): void => {
+      // Taken BEFORE the tween: TugAnimator commits a final value into
+      // `el.style` on completion, so the residue is owed back whichever way
+      // this beat ends.
+      state.restores.push(inlineRestorer(frame, "opacity"));
+      const anim = animate(
+        frame,
+        { opacity: [from, to] },
+        {
+          // Raw ms: TugAnimator scales by getTugTiming() itself.
+          duration: curve.durationMs,
+          easing: "ease-out",
+          // `fill: "none"` is where [P08] lives. The incoming frame's zero is
+          // in the KEYFRAME and nowhere else — there is no inline hide
+          // anywhere in this effect — so an animation that never launches
+          // leaves a visible frame rather than a hidden one.
+          fill: "none",
+          key,
+        },
+      );
+      state.anims.push(anim);
+      outstanding += 1;
+      anim.finished.then(land, land);
+    };
+    for (const frame of outgoingFrames)
+      fade(frame, 1, 0, "space-crossfade-out");
+    for (const frame of incomingFrames) fade(frame, 0, 1, "space-crossfade-in");
+
+    // The deadline [L32] clause 2 asks for. A completion handler is not on its
+    // own an end state: a layer unmounted mid-beat takes its animations with
+    // it and no `.finished` ever settles, which would strand the attribute —
+    // and with it a `display: contents` wrapper over the workspace the user is
+    // looking at. Scaled by the same factor TugAnimator scales the tween by,
+    // so a slowed-down deck is not cut short by its own safety net.
+    const deadlineMs =
+      curve.durationMs * getTugTiming() + SPACE_CROSSFADE_DEADLINE_MARGIN_MS;
+    state.deadline = window.setTimeout(() => {
+      state.deadline = null;
+      if (state.generation === generation) teardown();
+    }, deadlineMs);
+
+    return () => teardown();
+  }, [spacesSnapshot.activeSpaceId]);
 
   // ---------------------------------------------------------------------------
   // Scrolling the flow strip

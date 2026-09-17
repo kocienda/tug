@@ -32,9 +32,10 @@
  * The doors leg is the [B01] card half: New / Rename / Duplicate / Delete
  * used to open from a right-click and nowhere else, which makes a verb one a
  * person has to already know about. The card's toolbar now carries a New
- * button and every header row a `···` onto the same four-item menu, and all
- * four are answered at the chain root rather than on this card ([P02]) — so
- * the doors work whether or not the card holds focus.
+ * button and every header row a `···` onto the same three-item menu — New is
+ * the toolbar's alone, because a menu opened on a row is about that row — and
+ * every one of them is answered at the chain root rather than on this card
+ * ([P02]), so the doors work whether or not the card holds focus.
  *
  * @covers tugdeck/src/components/cards/cards-data-source.ts
  * @covers tugdeck/src/components/cards/cards-space-expansion.ts
@@ -351,7 +352,7 @@ describe.skipIf(!SHOULD_RUN)(
           // same one — so this is both assertions at once.
           await app.nativeClickAtElement(VERBS_BUTTON);
           await app.waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 4`,
+            `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 3`,
             { timeoutMs: 8_000 },
           );
           const menu = await app.evalJS<
@@ -370,12 +371,11 @@ describe.skipIf(!SHOULD_RUN)(
           );
           note("at0582 the ··· menu", JSON.stringify(menu));
           expect(menu.map((m) => m.action)).toEqual([
-            "new-space",
             "rename-space",
             "duplicate-space",
             "delete-space",
           ]);
-          const del = menu[3];
+          const del = menu[2];
           expect(del?.disabled).toBe(true);
           // The label carries the reason, so a dead row is not a mystery.
           expect(del?.label).toContain("last workspace");
@@ -417,7 +417,7 @@ describe.skipIf(!SHOULD_RUN)(
             `${headerFor(SPACE_ONE)} [data-testid="cards-space-verbs-button"]`,
           );
           await app.waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 4`,
+            `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 3`,
             { timeoutMs: 8_000 },
           );
           const second = await app.evalJS<
@@ -435,15 +435,15 @@ describe.skipIf(!SHOULD_RUN)(
              )`,
           );
           note("at0582 the ··· menu, two workspaces", JSON.stringify(second));
-          expect(second[3]?.disabled).toBe(false);
-          expect(second[3]?.label).not.toContain("last workspace");
+          expect(second[2]?.disabled).toBe(false);
+          expect(second[2]?.label).not.toContain("last workspace");
           await app.nativeKey("Escape");
 
           // ---- 4. The right-click still opens the same menu. The `···` is a
           // second door onto one menu, not a replacement for the first.
           await app.nativeRightClickAtElement(headerFor(SPACE_ONE));
           await app.waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 4`,
+            `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 3`,
             { timeoutMs: 8_000 },
           );
           expect(
@@ -454,7 +454,6 @@ describe.skipIf(!SHOULD_RUN)(
                )`,
             ),
           ).toEqual([
-            "new-space",
             "rename-space",
             "duplicate-space",
             "delete-space",

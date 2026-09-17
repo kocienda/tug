@@ -8,14 +8,17 @@
  * the delegate's and on this row means "go there" — `activate-space`, a no-op
  * on the workspace already showing.
  *
- * **The four verbs have a visible door as well as a right-click.** They used
+ * **The three verbs have a visible door as well as a right-click.** They used
  * to be right-click-only, on the argument that a person makes a workspace
  * once and deletes one almost never, so the row's whole job in between is to
  * be read and travelled through. That argument holds for how OFTEN they are
  * reached and says nothing about whether they can be FOUND: a verb with no
  * visible door is a verb a person has to already know about ([B01]). So the
  * row carries a `···` trigger in its trailing cluster which opens the same
- * four-item menu the right-click opens — one menu, one item list, two ways in.
+ * three-item menu the right-click opens — one menu, one item list, two ways
+ * in. Making a workspace is not among them: a menu opened on a row is about
+ * that row, and the card's `+` beside the filter field is the door for making
+ * one.
  * They are ordinary table commands now rather than outside-the-table escapes,
  * because each takes an optional `spaceId` and means the active workspace
  * without one ([P02]).
@@ -23,7 +26,7 @@
  * **The menu carries no responder of its own.** `TugEditorContextMenu`
  * dispatches each item to the responder that encloses it in the React tree,
  * and every one of those dispatches now travels the chain to its ROOT, which
- * is where the four verbs are answered ([P02]). Rename and Delete need this
+ * is where the three verbs are answered ([P02]). Rename and Delete need this
  * card's surfaces, so the root hands them back through
  * `cardsSpaceVerbRequest` ([P03], [P08]). Either way nothing is held on a
  * cell, which is recycled as the list changes.
@@ -63,8 +66,10 @@ import { CARDS_RENAME_FOCUS_ORDER, useCellContext } from "./cards-cell-context";
  *
  * Every item names its workspace in its own `value`, so the card body answers
  * for the row the right-click landed on rather than for whatever the list
- * cursor happens to be sitting on. New Workspace carries one too — harmless,
- * and it keeps every item's payload one shape.
+ * cursor happens to be sitting on. All three carry one, because all three are
+ * about the row the menu was opened on — which is why New Workspace is not
+ * among them: it has no row to be about, and the card's `+` beside the filter
+ * field is its door.
  *
  * Delete on the only workspace is disabled and says why in its own label:
  * a disabled item takes no pointer events, so a `title` on one can never be
@@ -96,7 +101,6 @@ export function useSpaceRowMenu(opts: {
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
     const last = spaceCount <= 1;
     return [
-      { action: TUG_ACTIONS.NEW_SPACE, label: "New Workspace", value: {} },
       {
         action: TUG_ACTIONS.RENAME_SPACE,
         label: "Rename",
@@ -228,14 +232,17 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
 }: TugListViewCellProps<CardsDataSource>) => {
   const row = dataSource.rowAt(index);
   const ctx = useCellContext();
-  const spaceId = row.type === "space-header" ? row.spaceId : "";
-  const name = row.type === "space-header" ? row.name : "";
+  // `row?.` rather than an early return: `useSpaceRowMenu` is a hook and may
+  // not sit behind one, so the absent row has to be spelled in the two
+  // ternaries that feed it. The guard below is what actually draws nothing.
+  const spaceId = row?.type === "space-header" ? row.spaceId : "";
+  const name = row?.type === "space-header" ? row.name : "";
   const menu = useSpaceRowMenu({
     spaceId,
     name,
     spaceCount: ctx.spaceCount,
   });
-  if (row.type !== "space-header") return null;
+  if (row === undefined || row.type !== "space-header") return null;
   const renaming = ctx.renamingSpaceId === row.spaceId;
   return (
     <TugListRow
@@ -258,7 +265,7 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
       }}
       trailing={
         <>
-          {/* The visible door to the same four verbs the right-click opens
+          {/* The visible door to the same three verbs the right-click opens
               ([B01]). It opens the menu at its own rect rather than at a
               pointer position, which is what makes it a button rather than a
               second right-click. It sits AHEAD of the fold cue so the cue

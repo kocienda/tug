@@ -437,6 +437,18 @@ describe.skipIf(!SHOULD_RUN)(
           // be the same defect wearing another name.
           expect(hostEvents).toEqual([]);
 
+          // A switch now crosses: the workspace being left is painted over the
+          // one arriving for one `divide-join` beat, wearing
+          // `data-space-crossing`, and during that beat it HAS boxes on
+          // purpose. Everything below reads the deck at rest, which is what
+          // "after the switch" has always meant here, so wait for the beat to
+          // land first. The invariant itself is unchanged: a hidden workspace
+          // costs no layout, and the crossing layer is not a hidden one.
+          await app.waitForCondition<boolean>(
+            `document.querySelectorAll('.tug-space-layer[data-space-crossing]').length === 0`,
+            { timeoutMs: 5_000 },
+          );
+
           // ---- 4. Mounted and hidden.
           const reading = await app.evalJS<LayerReading>(
             `(function(){

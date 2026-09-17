@@ -283,10 +283,18 @@
    whatever order the bundle lands the two files in; `!important` on the rule
    for the same reason the divider above uses it. */
 body {
-  /* How far the sub-header lifts off the well, as a percentage of the
-     surface's own foreground. The rows' bands are ±4%; below about 6 this
-     stops reading as a level and starts reading as a third stripe. */
-  --tugx-group-header-wash: 9%;
+  /* How far each header level stands off the well, as a percentage of the
+     surface's own foreground. A larger share is further from the well and
+     nearer the reader, in whichever direction the theme's foreground runs —
+     lighter on a dark theme, darker on a light one.
+
+     The container recedes and what it contains comes forward: a workspace is
+     the place the rows are IN, so it sits nearest the well, and the group
+     header naming what is in it sits furthest. The rows' own bands are ±4%;
+     below about 6 a header stops reading as a level and starts reading as a
+     third stripe. TUNE HERE. */
+  --tugx-group-header-wash: 16%;
+  --tugx-space-header-wash: 9%;
   /* The two lines that close the band. Subtle by default — the wash is what
      separates the levels, and the rules only draw where one ends; the strong
      border tone (`--tug7-element-global-border-normal-strong-rest`) is the
@@ -295,6 +303,12 @@ body {
   /* How far the sub-header's glyph and label stand off the row's leading edge,
      so the movement caret on that edge has room. TUNE HERE. */
   --tugx-group-header-inset: 4px;
+  /* The step between the card's three levels — workspace, group, row. Spent
+     TWICE: once to set the group header in from the workspace header, and
+     again to set the rows in from the group header. A subrow spends it twice
+     over plus its own leading column, which is why its rule restates the sum
+     rather than adding to it. TUNE HERE. */
+  --tugx-cards-level-indent: 10px;
 }
 
 /* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
@@ -303,7 +317,7 @@ body {
   background-color: color-mix(
     in oklab,
     var(--tug7-element-global-text-normal-default-rest)
-      var(--tugx-group-header-wash, 9%),
+      var(--tugx-group-header-wash, 16%),
     var(--tug7-surface-card-primary-normal-well-rest)
   );
   border-bottom-color: var(--tugx-group-header-rule) !important;
@@ -333,6 +347,27 @@ body {
      same nudge, for the same reason, that the session rows take. Leading only:
      the fold cue rides the row's trailing slot and does not move with it. */
   padding-inline-start: var(--tugx-group-header-inset);
+}
+
+/* The group header's step, one level in from the workspace header that holds
+   it. Scoped to `.cards-header` rather than the shared `.cards-header-line`,
+   which `SpaceHeaderCell` uses too — the workspace header is the level this
+   is measured FROM and must not take the step itself. */
+.cards-header .cards-header-line {
+  padding-inline-start: calc(
+    var(--tugx-group-header-inset) + var(--tugx-cards-level-indent)
+  );
+}
+
+/* The pane rows' step, one level in again. `data-cards-row-id` is the one
+   attribute every pane row wears and no header does, so this reaches the
+   session monitor rows and the one-line rows alike — which is what keeps
+   their leading edges equal to each other while both move in from the group
+   header. */
+.cards-list .tug-list-view-cell [data-cards-row-id] .tug-list-row-content {
+  padding-inline-start: calc(
+    var(--tugx-group-header-inset) + 2 * var(--tugx-cards-level-indent)
+  );
 }
 
 /* The group's kind glyph, in the column the rows' own glyphs stand in. It is
@@ -373,16 +408,17 @@ body {
 
 /* ── Workspace headers ────────────────────────────────────────────────────── */
 
-/* The outermost level, one surface step ABOVE the group header's wash — the
-   list has three levels now and the step between them is what says which is
-   which ([P09]). Same wash mechanism, a larger share of it. */
+/* The outermost level, and therefore the QUIETEST: a workspace is the place
+   its rows are in, so it recedes toward the well and what it contains comes
+   forward. Same wash mechanism as the group header, a smaller share of it —
+   the step between the three levels is what says which is which ([P09]). */
 /* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
 .tug-list-view.cards-list[data-row-striping]
   .tug-list-view-cell[data-tug-list-cell-kind="space-header"] {
   background-color: color-mix(
     in oklab,
     var(--tug7-element-global-text-normal-default-rest)
-      var(--tugx-space-header-wash, 16%),
+      var(--tugx-space-header-wash, 9%),
     var(--tug7-surface-card-primary-normal-well-rest)
   );
   border-bottom-color: var(--tugx-group-header-rule) !important;
@@ -465,6 +501,29 @@ body {
   box-shadow: inset 0 1px 0 var(--tug7-element-global-border-normal-accent-rest);
 }
 
+/* The height the rename field needs, stated here so the header's resting
+   height can be the same number ([B06], [L20]). Its twin is
+   `tug-input.css`'s `.tug-input-size-sm { height: 1.75rem }` — the size the
+   rename field below is rendered at — and neither may move alone: if the
+   input's `sm` height changes, this token changes with it, or the header row
+   will grow the moment a rename opens.
+
+   The floor goes on the header's CONTENT rather than on the row, so the row's
+   own `--tugx-list-row-padding-block` is still what sets its air; a floor on
+   the row would have to restate that padding to stay correct ([P05]). It is
+   the workspace header's alone — the group headers and the dense one-line
+   rows keep their own metrics. */
+.cards-space-header {
+  --tugx-cards-space-rename-size: 1.75rem;
+}
+.cards-space-header .tug-list-row-content {
+  min-block-size: var(--tugx-cards-space-rename-size);
+  /* The content column is a flex column, so the floor's spare height would
+     otherwise all fall below the name. Centred, the name sits where it sat
+     before the floor existed and where the field sits once one opens. */
+  justify-content: center;
+}
+
 /* The inline rename field takes the label's type rather than the input's, so
    the row does not change voice the moment it becomes editable ([P11]). */
 .cards-space-rename {
@@ -485,9 +544,20 @@ body {
 /* A card inside a multi-card pane. Indent is the ONLY thing that marks it as
    one — there is no disclosure affordance to align to, because the outline is
    always open. The step is one leading column, so a subrow's glyph starts where
-   its pane row's name does. */
+   its pane row's name does.
+
+   The sum is RESTATED rather than added to, and that is load-bearing ([P04]):
+   a subrow passes `rowId={null}` so it wears no `data-cards-row-id` and the
+   pane rows' rule above does not reach it — and the two rules set the same
+   property on the same element, so one would win outright rather than the two
+   adding even if it did. Left at a flat 20px a subrow would sit LEFT of the
+   pane row holding it at any step above 8px. The 20px is untouched; it is
+   still one leading column, now measured from where its pane row actually
+   starts. */
 .cards-subrow .tug-list-row-content {
-  padding-inline-start: 20px;
+  padding-inline-start: calc(
+    var(--tugx-group-header-inset) + 2 * var(--tugx-cards-level-indent) + 20px
+  );
 }
 
 /* The empty label stands in for the list's first row, at that row's height —
@@ -501,6 +571,15 @@ body {
   padding-inline: 10px;
   font-size: 12px;
   color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+/* The same label again, one level down: the `None` row an expanded workspace
+   with nothing in it draws ([B07]). The voice is `.cards-empty`'s and is not
+   restated here — all this rule does is let it fill the row it now sits in,
+   rather than the card, so the centring is the row's and a drop wash over the
+   workspace's block covers the whole band. */
+.cards-space-empty > .cards-empty {
+  inline-size: 100%;
 }
 
 /* The card's own chrome, where its old section band used to be: the filter field
