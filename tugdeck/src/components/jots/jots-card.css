@@ -208,14 +208,22 @@
   border-radius: 0 !important;
 }
 
-/* The writing floor: a well opens at a comfortable ≈6-line height (the
-   substrate's row formula, `N * 1lh` + the `.cm-content` block padding) — a
-   place to write, with room for a paste to land — instead of one cramped line.
+/* The writing floor: a well opens at exactly FOUR text rows — a place to
+   write, with room for a paste to land, instead of one cramped line.
    Content past the floor grows the well line-by-line, extending the stack
    downward into the card's free space. Overrides `TugMessageEditor`'s 3-row
-   composer floor at the same element it is set on. */
+   composer floor at the same element it is set on.
+
+   The row count is `--tug-text-editor-row-height` (CM6's measured
+   `defaultLineHeight`, written by the editor's React shell) plus the
+   `.cm-content` block padding — never `1lh`, which at this font is 18px
+   against a real row of 24px, so the old `6 * 1lh` floor stood at four and a
+   half rows and named six. TUNE HERE — the row count. */
 .jot-editor-well .tug-message-editor {
-  --tug-text-editor-min-height: calc(6 * 1lh + 16px);
+  --tugx-jot-well-min-rows: 4;
+  --tug-text-editor-min-height: calc(
+    var(--tugx-jot-well-min-rows) * var(--tug-text-editor-row-height, 1lh) + 16px
+  );
 }
 
 /* The well never scrolls on its own — it grows with its content, and the
