@@ -335,6 +335,17 @@ body {
      reason; the value is smaller here because the rail is narrower than a
      transcript and the row is one line rather than a paragraph. TUNE HERE. */
   --tugx-cards-tally-gap: var(--tug-space-sm);
+  /* The group header's voice, against the rows it stands over. A group header
+     is a SUB-section — the workspace header names the place, this names one
+     band inside it — so it is set BELOW the rows it introduces rather than
+     level with them. Uppercase and tracked out, a label reads smaller than its
+     size suggests, which is what makes a step this far down still legible.
+
+     In `em`, and that is load-bearing rather than tidy: the rail's own row
+     measure (`ROW_TEXT_SIZE` in `rail-list-presentation.ts`) is what this
+     resolves against, so the step follows the measure when the measure is
+     tuned instead of drifting away from it. TUNE HERE. */
+  --tugx-group-header-font-size: 0.84em;
 }
 
 /* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
@@ -351,15 +362,35 @@ body {
 }
 
 /* A group header is a row like any other — it takes the same chrome, the same
-   cursor ring, the same hover. What sets it apart is its voice: smaller, upper,
-   tracked out, so it reads as a label over the rows rather than as one of
-   them. */
+   cursor ring, the same hover. What sets it apart is its voice: upper, tracked
+   out, muted, so it reads as a label over the rows rather than as one of them.
+   Size is the fourth thing that voice is made of, and it is stated separately
+   below, for a reason worth reading. */
 .cards-header .tug-list-row-title {
-  font-size: 0.85em;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+/* And the size, which has to be stated at the rail measure's own weight.
+
+   Every rail list sets ONE text size for its rows — `rowTextSize`, written as
+   `--tugx-list-row-font-size` and applied by
+   `.tug-list-view[data-row-text-size] .tug-list-row-content .tug-label`, four
+   class-level terms deep. That rule is right about rows and says nothing about
+   headers, but it outranked the two-term rule above, so the group header's
+   size declaration was dead and a SUB-section rendered at exactly the size of
+   the rows under it. Matching its shape is what makes the exception legible as
+   an exception: a header is not a row, and this is the one place that says so.
+   (`.cards-space-header`'s and `.cards-row-headline`'s own `font-size` lines
+   below are dead for the same reason — left as they are, because both read
+   correctly at the rail measure and nobody asked for them to move.) */
+.tug-list-view.cards-list[data-row-text-size]
+  .cards-header
+  .tug-list-row-content
+  .tug-list-row-title {
+  font-size: var(--tugx-group-header-font-size);
 }
 
 .cards-header-line {

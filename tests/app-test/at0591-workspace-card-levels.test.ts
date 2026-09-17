@@ -670,6 +670,33 @@ describe.skipIf(!SHOULD_RUN)(
             pads[0],
             "and it is the two-level step, not one level or none",
           ).toBe(twoLevelStep);
+
+          // ---- The third channel: SIZE. A group header is a SUB-section, so
+          // its label is set below the rows it stands over. The rail's own row
+          // measure (`rowTextSize`, `rail-list-presentation.ts`) is one size
+          // for every row in every rail list and it is applied four
+          // class-terms deep, which silently outranked the group header's own
+          // two-term declaration — so the header rendered at exactly the size
+          // of its rows and the level said nothing. An ORDERING, not a value:
+          // both numbers are tuned, and what has to hold is which is smaller.
+          const typeSizes = await app.evalJS<{ group: number; row: number }>(
+            `(function () {
+               var px = function (sel) {
+                 var el = document.querySelector(sel);
+                 if (el === null) throw new Error("no element: " + sel);
+                 return parseFloat(getComputedStyle(el).fontSize);
+               };
+               return {
+                 group: px(${JSON.stringify(`${SHOWN}.cards-header .tug-list-row-title`)}),
+                 row: px(${JSON.stringify(ONELINE_CONTENT)}),
+               };
+             })()`,
+          );
+          note(`at0591 type sizes: ${JSON.stringify(typeSizes)}`);
+          expect(
+            typeSizes.group,
+            "the group header's label is set SMALLER than the rows it stands over",
+          ).toBeLessThan(typeSizes.row);
         } finally {
           await app.close().catch(() => undefined);
           rmTempTugbank(tugbankPath);

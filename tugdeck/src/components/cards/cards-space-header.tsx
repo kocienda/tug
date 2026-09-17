@@ -56,6 +56,7 @@ import { TugInput } from "@/components/tugways/tug-input";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugListRow } from "@/components/tugways/tug-list-row";
+import type { KeyViewBehavior } from "@/components/tugways/focus-manager";
 import type {
   TugListViewCellProps,
   TugListViewCellRenderer,
@@ -153,6 +154,16 @@ export function useSpaceRowMenu(opts: {
  * contract. The `cancelled` ref is what keeps Escape from committing through
  * the blur it causes.
  *
+ * **Escape is declared the field's own** (`focusBehavior.captures`). The
+ * engine arbitrates Escape for the whole deck, and a field that says nothing
+ * about it never sees the press: the chain answered it as `CANCEL_DIALOG`,
+ * which over this card means "shrink the filter, then the selection" — so
+ * Escape over an open rename cleared something else and left the edit
+ * standing. Capturing it is how a key view tells the ladder to stand down;
+ * `TugFilterField` claims Escape by the same mechanism while its query is
+ * non-empty. Unconditional here, because the field only exists while a rename
+ * is open and cancelling it is the only thing Escape can mean then.
+ *
  * **Uncontrolled.** The draft lives in the DOM rather than in React state, so
  * the field does not re-render the row it sits in on every keystroke — a cell
  * inside a list whose data source is recomputing underneath it is the one
@@ -173,6 +184,16 @@ function SpaceRenameField({
 }): React.ReactElement {
   const fieldRef = React.useRef<HTMLInputElement | null>(null);
   const cancelled = React.useRef(false);
+  // The pending blur-commit (see `onBlur`). Cleared on unmount so a field the
+  // card took down — a rail close, a workspace deleted underneath it — cannot
+  // land a rename a turn later.
+  const commitTimer = React.useRef<number | null>(null);
+  React.useEffect(
+    () => () => {
+      if (commitTimer.current !== null) window.clearTimeout(commitTimer.current);
+    },
+    [],
+  );
   const draft = (): string => fieldRef.current?.value ?? name;
   // Take the keyboard through the engine, then open with the whole name
   // selected so typing replaces it. The order is load-bearing: the field is
@@ -188,12 +209,20 @@ function SpaceRenameField({
     el.select();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const focusBehavior = React.useCallback(
+    (): KeyViewBehavior => ({
+      container: "none",
+      captures: (key) => key.key === "Escape",
+    }),
+    [],
+  );
   return (
     <TugInput
       ref={fieldRef}
       size="sm"
       focusGroup={focusGroup}
       focusOrder={CARDS_RENAME_FOCUS_ORDER}
+      focusBehavior={focusBehavior}
       className="cards-space-rename"
       data-testid="cards-space-rename"
       aria-label={`Rename workspace ${name}`}
@@ -222,8 +251,23 @@ function SpaceRenameField({
       }}
       onBlur={() => {
         if (cancelled.current) return;
-        cancelled.current = true;
-        onCommit(draft());
+        // **A blur is a click-away only if it STAYS one.** A click inside the
+        // field's own text blurs it for a moment: the gesture activates the
+        // card, the card's adoption realizes its retained key view — a
+        // `focus-key`, which is engine-routed — and realizing that parks the
+        // key sink before the engine grants the text surface back. Committing
+        // on the blur itself read that round trip as "the user clicked away",
+        // so clicking a word to put the caret in it ended the edit and put the
+        // draft in. One turn's delay is enough to tell the two apart: if the
+        // field has the keyboard again, nothing happened.
+        const el = fieldRef.current;
+        commitTimer.current = window.setTimeout(() => {
+          commitTimer.current = null;
+          if (cancelled.current) return;
+          if (el !== null && document.activeElement === el) return;
+          cancelled.current = true;
+          onCommit(draft());
+        }, 0);
       }}
     />
   );

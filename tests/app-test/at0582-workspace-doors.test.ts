@@ -47,6 +47,20 @@
  * every one of them is answered at the chain root rather than on this card
  * ([P02]), so the doors work whether or not the card holds focus.
  *
+ * The rename leg is about the edit ONCE it is open, and it pins the two
+ * gestures that were taken away from it by surfaces that had no business with
+ * them. **Escape** was the deck engine's: the engine is the single Escape
+ * arbiter and a key view that declares nothing about the key never sees it, so
+ * the press was answered as this card's `CANCEL_DIALOG` — clear the filter,
+ * then the selection — and the edit stood through it. **A click in the field's
+ * own text** was the focus engine's: the gesture activates the card, the
+ * card's adoption realizes its retained key view (engine-routed) and parks the
+ * key sink for a beat before granting the text surface back, and the field
+ * read that transient blur as "clicked away" and committed. So clicking a word
+ * to put the caret in it ended the rename and put the draft in. Both are
+ * asserted here against the real pointer and the real key, because both failed
+ * in exactly the layer a unit test does not have.
+ *
  * @covers tugdeck/src/components/cards/cards-data-source.ts
  * @covers tugdeck/src/components/cards/cards-space-expansion.ts
  * @covers tugdeck/src/components/cards/cards-space-header.tsx
@@ -98,6 +112,9 @@ const runUnder = (id: string): string =>
 const MENU_ITEM = "[data-item-action]";
 const NEW_BUTTON = `${SHOWN}[data-testid="cards-new-space"]`;
 const VERBS_BUTTON = `${SHOWN}[data-testid="cards-space-verbs-button"]`;
+/** The inline rename field. Portaled nowhere — it stands in the header row. */
+const RENAME_INPUT = '[data-testid="cards-space-rename"]';
+const NAME = `${SHOWN}[data-testid="cards-space-name"]`;
 
 /**
  * One workspace, standing its own Workspaces card beside two Text cards — so
@@ -501,6 +518,140 @@ describe.skipIf(!SHOULD_RUN)(
             "duplicate-space",
             "delete-space",
           ]);
+        } finally {
+          await app.close().catch(() => undefined);
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    test(
+      "an open rename owns Escape, and a click in its own text",
+      async () => {
+        const tugbankPath = mkTempTugbank();
+        seedTugbankForLaunch(tugbankPath);
+        tugbankWrite(
+          tugbankPath,
+          "dev.tugapp.deck.layout",
+          "layout",
+          "json",
+          JSON.stringify(oneSpaceBlob()),
+        );
+
+        const app = await launchTugApp({
+          testName: "at0582-workspace-doors-rename",
+          env: { TUGBANK_PATH: tugbankPath },
+          skipAccessibilityPreflight: true,
+          persistInTestMode: true,
+          restoreInTestMode: true,
+        });
+        try {
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(HEADER)}) !== null`,
+            { timeoutMs: 25_000 },
+          );
+
+          // ---- Open the rename through its own door.
+          await app.nativeClickAtElement(VERBS_BUTTON);
+          await app.waitForCondition<boolean>(
+            `document.querySelector('[data-item-action="rename-space"]') !== null`,
+            { timeoutMs: 8_000 },
+          );
+          await app.nativeClickAtElement('[data-item-action="rename-space"]');
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
+            { timeoutMs: 8_000 },
+          );
+          // The menu closes on its activation blink, which is a Web Animation
+          // and does not advance while the harness window is covered. Escape is
+          // the menu's own close and it consumes the press, so the field that
+          // just opened is untouched by it (at0578 and at0591 carry the same
+          // note for the same reason).
+          await app.nativeKey("Escape");
+          await app.waitForCondition<boolean>(
+            `document.querySelector(".tug-menu-content") === null`,
+            { timeoutMs: 8_000 },
+          );
+          await app.nativeType("Zork");
+
+          const fieldState = (): Promise<{
+            open: boolean;
+            value: string | null;
+            focused: boolean;
+            name: string | null;
+          }> =>
+            app.evalJS(
+              `(function () {
+                 var f = document.querySelector(${JSON.stringify(RENAME_INPUT)});
+                 var n = document.querySelector(${JSON.stringify(NAME)});
+                 return {
+                   open: f !== null,
+                   value: f === null ? null : f.value,
+                   focused: f !== null && document.activeElement === f,
+                   name: n === null ? null : n.textContent,
+                 };
+               })()`,
+            );
+
+          const typed = await fieldState();
+          note(`at0582 the draft: ${JSON.stringify(typed)}`);
+          expect(typed.value, "the field took the typing").toBe("Zork");
+
+          // ---- 1. A click in the field's own text is the FIELD's.
+          //
+          // It used to end the edit: the gesture activates the card, the card's
+          // adoption realizes its retained key view — engine-routed — and that
+          // parks the key sink for a beat before the engine grants the text
+          // surface back. The field committed on that transient blur, so
+          // clicking a word to put the caret in it closed the rename and put
+          // the draft in. Nothing about the gesture said "I am done".
+          const caretPoint = await app.evalJS<{ x: number; y: number }>(
+            `(function () {
+               var f = document.querySelector(${JSON.stringify(RENAME_INPUT)});
+               if (f === null) throw new Error("no rename field");
+               var r = f.getBoundingClientRect();
+               return {
+                 x: Math.round(r.left + 12),
+                 y: Math.round(r.top + r.height / 2),
+               };
+             })()`,
+          );
+          await app.nativeClick(caretPoint);
+          await new Promise<void>((r) => setTimeout(r, 600));
+          const afterClick = await fieldState();
+          note(`at0582 after a click in the field: ${JSON.stringify(afterClick)}`);
+          expect(
+            afterClick.open,
+            "a click inside the field's own text leaves the rename open",
+          ).toBe(true);
+          expect(
+            afterClick.value,
+            "and leaves the draft exactly as it was",
+          ).toBe("Zork");
+          expect(
+            afterClick.focused,
+            "and the field still holds the keyboard, so the next keystroke lands in it",
+          ).toBe(true);
+
+          // ---- 2. Escape cancels — the field's own key, not the card's.
+          //
+          // The engine is the deck's single Escape arbiter, and a key view that
+          // says nothing about Escape never sees it: the press was answered as
+          // `CANCEL_DIALOG`, which over this card means "clear the filter, then
+          // the selection". So Escape over an open rename cleared something
+          // else and the edit stood. The field captures it now.
+          await app.nativeKey("Escape");
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
+            { timeoutMs: 8_000 },
+          );
+          const afterEscape = await fieldState();
+          note(`at0582 after Escape: ${JSON.stringify(afterEscape)}`);
+          expect(
+            afterEscape.name,
+            "Escape cancels: the workspace keeps the name it had, not the draft",
+          ).toBe("Main");
         } finally {
           await app.close().catch(() => undefined);
           rmTempTugbank(tugbankPath);
