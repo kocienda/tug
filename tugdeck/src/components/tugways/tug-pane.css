@@ -1473,7 +1473,7 @@ body {
  * there is no case where the reader wants it partly under something else.
  *
  * Rails are excluded, and the `!important` is why. A sidebar pane's inline z is
- * the rail band (`SIDEBAR_PANE_ZINDEX_BASE` 8990 and the nine values above it),
+ * the rail band (`SIDEBAR_PANE_ZINDEX_BASE` 8990 and the eight values above it),
  * so on a rail this rule would not be a lift but a DROP — below the margin caps
  * at 8989, which would then paint canvas ground over a rail's own edge, and
  * below whichever band peer it was standing in front of. A rail already

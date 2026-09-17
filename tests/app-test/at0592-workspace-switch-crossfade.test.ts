@@ -1,6 +1,6 @@
 /**
  * at0592-workspace-switch-crossfade.test.ts — a workspace switch is not an
- * arrangement change.
+ * arrangement change, and it dissolves rather than crossfades.
  *
  * Crossing from one workspace to another used to blink through a blank canvas.
  * Not because anything was slow: because of one word. The switch commit landed
@@ -12,14 +12,26 @@
  * which is what `"cut"` means, and a `"cut"` arm takes the new arrangement as
  * its baseline and launches no settle at all.
  *
- * What replaces the blink is one crossfade. The workspace being left is
- * painted over the one arriving for the length of a `divide-join` window and
- * fades out under it: for that beat, and only that beat, the outgoing wrapper
- * carries `data-space-crossing` and is drawn `display: contents` with
- * `pointer-events: none`. The wrapper is `display: none` at rest, so the beat
- * is a debt, and `[L32]` is the law it is held to — one owner writes both
- * states, and the hand-back carries a deadline rather than resting on a
- * completion handler that a mid-beat unmount would never fire.
+ * What replaces the blink is one DISSOLVE — and the difference between that
+ * and a crossfade is the second thing this file is for. A crossfade dips both
+ * layers through partial opacity at once, so for the middle of the beat every
+ * pixel is part one workspace, part the other, and part canvas ground showing
+ * between them. Anything the two workspaces have in common — the same rail in
+ * the same place, the same card at the same seat — went translucent on its way
+ * to being itself again. A dissolve moves one layer: the workspace being left
+ * is painted OVER the one arriving, at `--tug-z-space-crossing`, and only its
+ * own opacity is tweened, 1 to 0. The arriving workspace is opaque underneath
+ * from the first frame and is never touched, so a pixel the same on both sides
+ * is `t·C + (1−t)·C` — which is `C`, at every instant of the beat.
+ *
+ * For that beat, and only that beat, the outgoing wrapper carries
+ * `data-space-crossing`: a box of its own (the canvas container's own box, so
+ * nothing under it moves), one z-index above every rail the arriving workspace
+ * owns, one opacity for the whole departing picture, and `pointer-events:
+ * none`. The wrapper is `display: none` at rest, so the beat is a debt, and
+ * `[L32]` is the law it is held to — one owner writes both states, and the
+ * hand-back carries a deadline rather than resting on a completion handler
+ * that a mid-beat unmount would never fire.
  *
  * The legs, in the order the test walks them. The first reads the decision out
  * of the trace — `landing: "cut"`, `outcome: "declined"`. The rest read the
@@ -27,10 +39,17 @@
  * because a covered harness window suspends rAF and a sampler that never runs
  * would report a clean switch no matter what happened: no ghost was minted;
  * no shown frame was ever held at an inline `opacity` of `"0"`; both layers
- * carried painted boxes at some sample; the crossing layer was inert to the
- * pointer at every sample it was seen; the attribute was gone inside a bound;
- * a beat interrupted by a second switch still landed and left no inline
- * residue; and with motion off the attribute is never written at all.
+ * carried painted boxes at some sample; the ARRIVING workspace computed a full
+ * opacity at every sample of the beat and the departing layer stood above it;
+ * the crossing layer was inert to the pointer at every sample it was seen; the
+ * attribute was gone inside a bound; a beat interrupted by a second switch
+ * still landed and left no inline residue; and with motion off the attribute
+ * is never written at all.
+ *
+ * The opaque-arrival leg is the dissolve's own. A crossfade passes this file's
+ * other legs unchanged — it too paints both layers, inertly, for a bounded
+ * beat — and fails only that one, because a crossfade's arriving frames are
+ * mid-tween and read back a computed opacity between zero and one.
  *
  * The held-at-zero leg is the one that says which of the two shapes is on
  * screen. A crossfade animates FROM zero with `fill: "none"` and writes no
@@ -73,6 +92,8 @@ const SHOWN_FRAMES =
 const GHOST = ".tug-pane-exit-ghost";
 /** The wrapper wearing the crossfade's one beat. */
 const CROSSING_LAYERS = ".tug-space-layer[data-space-crossing]";
+/** The wrapper the switch is arriving in — the one that must never fade. */
+const SHOWN_LAYER = "[data-space-layer][data-space-shown]";
 /** Every pane frame in the document, crossing layer included. */
 const ALL_FRAMES = ".tug-pane[data-pane-id]";
 
@@ -106,6 +127,16 @@ interface Sample {
   crossInert: number;
   /** Of those, the ones where a crossing layer's pane had a box with area. */
   crossPainted: number;
+  /**
+   * Of those, the ones where the ARRIVING workspace was fully opaque — every
+   * shown frame and the shown wrapper computing `opacity: 1`. The dissolve's
+   * own reading: a crossfade would have been mid-tween here.
+   */
+  crossOpaqueArrival: number;
+  /** Of those, the ones where the crossing layer's z stood over every shown frame's. */
+  crossAbove: number;
+  /** Of those, the ones where the crossing layer had actually begun to dissolve. */
+  crossFading: number;
   /** First and last sample times the attribute was seen, in ms. */
   firstCross: number;
   lastCross: number;
@@ -123,6 +154,7 @@ const SAMPLER_START = `(function () {
   var s = {
     samples: 0, ghosts: 0, zero: 0,
     crossing: 0, crossLive: 0, crossInert: 0, crossPainted: 0,
+    crossOpaqueArrival: 0, crossAbove: 0, crossFading: 0,
     firstCross: 0, lastCross: 0,
   };
   window.__at0592 = s;
@@ -156,6 +188,35 @@ const SAMPLER_START = `(function () {
     }
     if (inert) s.crossInert += 1;
     if (painted) s.crossPainted += 1;
+    // ---- The dissolve's own three readings. ------------------------------
+    // The arriving workspace is not animated at all, so every frame of it —
+    // and the wrapper over them — computes a flat 1 for the whole beat. A
+    // crossfade reads back a fraction here and nowhere else in this sampler.
+    var opaque = true;
+    if (getComputedStyle(document.querySelector(${JSON.stringify(SHOWN_LAYER)}) || document.body).opacity !== "1") {
+      opaque = false;
+    }
+    for (var m = 0; m < frames.length; m++) {
+      if (getComputedStyle(frames[m]).opacity !== "1") opaque = false;
+    }
+    if (opaque) s.crossOpaqueArrival += 1;
+    // Over, not under: the departing picture has to cover the arriving one's
+    // rails too, or the rail strip would cut while the rest dissolved.
+    var ceiling = -Infinity;
+    for (var n = 0; n < frames.length; n++) {
+      var fz = parseInt(getComputedStyle(frames[n]).zIndex, 10);
+      if (!isNaN(fz) && fz > ceiling) ceiling = fz;
+    }
+    var above = true;
+    var fading = false;
+    for (var p = 0; p < crossing.length; p++) {
+      var cs = getComputedStyle(crossing[p]);
+      var cz = parseInt(cs.zIndex, 10);
+      if (isNaN(cz) || cz <= ceiling) above = false;
+      if (parseFloat(cs.opacity) < 1) fading = true;
+    }
+    if (above) s.crossAbove += 1;
+    if (fading) s.crossFading += 1;
   }, 8);
   return null;
 })()`;
@@ -167,21 +228,30 @@ const SAMPLER_READ = `(function () {
     samples: s.samples, ghosts: s.ghosts, zero: s.zero,
     crossing: s.crossing, crossLive: s.crossLive,
     crossInert: s.crossInert, crossPainted: s.crossPainted,
+    crossOpaqueArrival: s.crossOpaqueArrival,
+    crossAbove: s.crossAbove, crossFading: s.crossFading,
     firstCross: s.firstCross, lastCross: s.lastCross,
   };
 })()`;
 
 /**
- * Every inline `opacity` residue on a pane frame, anywhere in the document.
+ * Every inline `opacity` residue on a layer wrapper or a pane frame, anywhere
+ * in the document.
  *
- * The crossfade takes an `inlineRestorer` per frame before it tweens, so the
- * value the animator commits on completion is owed back whichever way the beat
- * ends. This is the reading that says the debt was paid — and it sweeps every
- * frame, not the shown layer's, because the frames that would be left holding
- * a baked value are the departing workspace's.
+ * The dissolve takes an `inlineRestorer` on the departing WRAPPER before it
+ * tweens, so the value the animator commits on completion is owed back
+ * whichever way the beat ends. That wrapper is where the residue would now be,
+ * and it is what this reads. The frames are swept too, still: they are where
+ * the residue used to be, and a sweep that stopped looking there would stop
+ * reporting a regression to the shape this file just left.
  */
 const OPACITY_RESIDUE = `(function () {
   var out = [];
+  var layers = document.querySelectorAll("[data-space-layer]");
+  for (var j = 0; j < layers.length; j++) {
+    var lv = layers[j].style.opacity;
+    if (lv !== "") out.push(layers[j].getAttribute("data-space-layer") + "=" + lv);
+  }
   var frames = document.querySelectorAll(${JSON.stringify(ALL_FRAMES)});
   for (var i = 0; i < frames.length; i++) {
     var v = frames[i].style.opacity;
@@ -379,6 +449,29 @@ describe.skipIf(!SHOULD_RUN)(
             sample.crossing,
             "and exactly one layer crossed at a time — the shown one never wears it",
           ).toBe(1);
+
+          // ---- 4b. The arriving one was never faded. ----------------------
+          // The dissolve's own leg, and the only one a crossfade fails. One
+          // layer is animated; the workspace arriving stands opaque underneath
+          // it from the first frame, which is what makes a card in the same
+          // seat in both workspaces appear not to move at all.
+          expect(
+            sample.crossOpaqueArrival,
+            "the arriving workspace computed a full opacity at every sample of the beat",
+          ).toBe(sample.crossLive);
+          // And underneath: the departing picture covers the arriving one's
+          // rails as well as its cards, or the rail strip would cut while the
+          // rest of the canvas dissolved.
+          expect(
+            sample.crossAbove,
+            "the crossing layer stood above every shown frame at every sample",
+          ).toBe(sample.crossLive);
+          // A cut would pass both of the above by doing nothing. This is what
+          // says a dissolve actually ran.
+          expect(
+            sample.crossFading,
+            "and the crossing layer was seen part-way through its own dissolve",
+          ).toBeGreaterThan(0);
 
           // ---- 5. And inert the whole time. -------------------------------
           // Two workspaces are on screen and only one of them is the one a

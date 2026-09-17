@@ -309,9 +309,54 @@ function railTravelPx(rect: DOMRect, side: SidebarSide, canvas: DOMRect): number
     : canvas.right - rect.left;
 }
 
+/**
+ * A deck's pane z-order: focus order for the free panes, the band for the rails.
+ *
+ * Taken out of the shown workspace's memo because a HIDDEN workspace needs the
+ * same answer now. It used to need none — every pane of a workspace nobody was
+ * looking at could take one flat value, because `display: none` paints none of
+ * them. Then the switch dissolve put the departing workspace on screen, opaque
+ * and on top, for a beat ([B09]): flat, its own rail would have been painted
+ * over by whichever of its own cards happened to sort after it, and the first
+ * frame of the dissolve — the one that is supposed to be indistinguishable
+ * from the last frame before it — would have restacked the workspace the
+ * reader was looking at a moment ago.
+ */
+function buildZIndexMap(
+  panes: readonly { id: string }[],
+  sidebarPaneIds: ReadonlySet<string>,
+): Map<string, number> {
+  // Rails are ranked among themselves, in the deck's own array order, so a
+  // raise inside the band actually moves one in front of the other.
+  const railRank = new Map<string, number>();
+  for (const pane of panes) {
+    if (sidebarPaneIds.has(pane.id)) railRank.set(pane.id, railRank.size);
+  }
+  const map = new Map<string, number>();
+  panes.forEach((pane, i) => {
+    const rank = railRank.get(pane.id);
+    map.set(
+      pane.id,
+      rank === undefined
+        ? CARD_ZINDEX_BASE + i
+        : SIDEBAR_PANE_ZINDEX_BASE +
+          Math.min(rank, SIDEBAR_PANE_ZINDEX_MAX_RANK),
+    );
+  });
+  return map;
+}
+
 /** The most rails the band can order before it would collide with the overlay
- *  base. Far past any real deck; the clamp is here so it cannot ever collide. */
-const SIDEBAR_PANE_ZINDEX_MAX_RANK = 9;
+ *  base. Far past any real deck; the clamp is here so it cannot ever collide.
+ *
+ *  Eight rather than nine: 8999, the top of the ten values under the overlay
+ *  base, is `--tug-z-space-crossing` now — the tier the DEPARTING workspace
+ *  stands at for the length of one switch ([B09]). It has to clear the
+ *  ARRIVING workspace's rails, because a rail band that reached 8999 would
+ *  have painted the incoming rail strip over the departing one at the instant
+ *  of the commit, which is the pop the crossfade exists to remove. No deck has
+ *  ever stood two rails a side, let alone nine. */
+const SIDEBAR_PANE_ZINDEX_MAX_RANK = 8;
 
 /**
  * The seam between two split rail members, level with the frontmost rank a rail
@@ -1594,25 +1639,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // order), not from the stable render order.
 
   const { sortedStacks, zIndexMap } = useMemo(() => {
-    // Rails are ranked among themselves, in the deck's own array order, so a
-    // raise inside the band actually moves one in front of the other.
-    const railRank = new Map<string, number>();
-    for (const pane of panes) {
-      if (sidebarPaneIds.has(pane.id)) railRank.set(pane.id, railRank.size);
-    }
-    const map = new Map<string, number>();
-    panes.forEach((pane, i) => {
-      const rank = railRank.get(pane.id);
-      map.set(
-        pane.id,
-        rank === undefined
-          ? CARD_ZINDEX_BASE + i
-          : SIDEBAR_PANE_ZINDEX_BASE +
-            Math.min(rank, SIDEBAR_PANE_ZINDEX_MAX_RANK),
-      );
-    });
     const sorted = [...panes].sort((a, b) => a.id.localeCompare(b.id));
-    return { sortedStacks: sorted, zIndexMap: map };
+    return { sortedStacks: sorted, zIndexMap: buildZIndexMap(panes, sidebarPaneIds) };
   }, [panes, sidebarPaneIds]);
 
   // A slot is a stack: every pane holding it, the last one topmost ([D121]).
@@ -5703,22 +5731,37 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   }, [store]);
 
   // ---------------------------------------------------------------------------
-  // The switch is one crossfade
+  // The switch is one dissolve
   // ---------------------------------------------------------------------------
   // A workspace switch lands as a cut ([P11]): both sets of frames are already
   // drawn where the commit puts them, the settle declines it, and nothing
   // moves. What is left is the JOIN between two still pictures, and this is
-  // it — the workspace being left painted over the one arriving for the length
-  // of one `divide-join` window, fading out under it ([P07]).
+  // it — the workspace being left painted OVER the one arriving for the length
+  // of one `divide-join` window, and dissolved off it.
   //
-  // Everything here is DOM: an attribute on the outgoing wrapper and two
-  // opacity tweens, no React state, nothing that renders ([L06]). The wrapper
-  // is `display: none` at rest, so the beat is a debt from the moment it is
-  // opened, and `[L32]` is the law that names what that debt costs if it is
-  // not paid: the departing workspace's panes painted over the arriving one's
-  // forever. Hence four separate ways for the beat to land, all of them the
-  // same idempotent `teardown` — the completion of the last tween, a deadline,
-  // the next switch, and the effect's own cleanup.
+  // One layer moves, not two. The arriving workspace is opaque underneath from
+  // the first frame and is never touched; only the departing wrapper's own
+  // opacity is tweened, 1 to 0. That is what makes anything the two workspaces
+  // share appear not to move at all: where the picture is the same on both
+  // sides, `t·C + (1−t)·C` is `C` at every instant. Fading both at once — a
+  // true crossfade — put two partial pictures over canvas ground and showed
+  // the ground between them, which is the blank this replaced.
+  //
+  // The tween rides the WRAPPER rather than the frames under it, which is the
+  // other half of the same argument: one opacity composites the departing deck
+  // as a single picture, where N of them would have let its own overlapping
+  // panes show through each other on the way out. `space-layer.css` gives the
+  // wrapper the box and the z-index that makes that possible.
+  //
+  // Everything here is DOM: an attribute on the outgoing wrapper and one
+  // opacity tween on it, no React state, nothing that renders ([L06]). The
+  // wrapper is `display: none` at rest, so the beat is a debt from the moment
+  // it is opened, and `[L32]` is the law that names what that debt costs if it
+  // is not paid: the departing workspace painted over the arriving one forever,
+  // opaque, at the top of the canvas, taking no pointer. Hence four separate
+  // ways for the beat to land, all of them the same idempotent `teardown` — the
+  // completion of the tween, a deadline, the next switch, and the effect's own
+  // cleanup.
   const crossfadeRef = useRef<{
     generation: number;
     anims: TugAnimation[];
@@ -5788,24 +5831,25 @@ export function DeckCanvas(_props: DeckCanvasProps) {
 
     // The wrapper's OWN subtree, scoped. `SHOWN_PANE_FRAMES` cannot answer
     // here — it excludes anything inside a layer without `data-space-shown`,
-    // which is exactly the layer being faded — and widening it is not the
+    // which is exactly the layer being dissolved — and widening it is not the
     // answer either: its nine readers all mean "the panes on screen", and a
     // layer on its way out is not one of them.
-    const framesUnder = (layer: HTMLElement): HTMLElement[] => [
-      ...layer.querySelectorAll<HTMLElement>(".tug-pane[data-pane-id]"),
-    ];
-    const outgoingFrames = framesUnder(outgoing);
-    const incoming = layerOf(activeSpaceId);
-    const incomingFrames = incoming === null ? [] : framesUnder(incoming);
-    if (outgoingFrames.length === 0 && incomingFrames.length === 0) return;
+    //
+    // Only the OUTGOING side is counted now, because only it is animated: a
+    // departing workspace with no frames has no picture to dissolve, and
+    // opening a beat for it would put an empty box over the canvas for a few
+    // hundred ms and then take it away again.
+    const outgoingFrames = outgoing.querySelectorAll(".tug-pane[data-pane-id]");
+    if (outgoingFrames.length === 0) return;
 
-    // Shown-but-inert. The panes under it have boxes again, at their own
-    // absolute positions against the canvas container, and take no pointer.
+    // On top, painted, and inert. The panes under it have boxes again, at the
+    // same absolute positions they had a frame ago — the wrapper's box is the
+    // canvas container's box — and the whole layer takes no pointer.
     outgoing.setAttribute(SPACE_CROSSING_ATTRIBUTE, "");
 
     // The deck's one clock. `divide-join` is the recipe every fade on this
     // canvas already runs on — the mode flip's, and the settle's own depart
-    // and arrive beats — so a switch is a fade of the same length and shape
+    // and arrive beats — so a switch dissolves over the same length and shape
     // rather than a curve this call site picked for itself.
     const curve = motionKeyframes("divide-join", {
       nominalMs: settleDurationRef.current,
@@ -5816,38 +5860,30 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       outstanding -= 1;
       if (outstanding === 0 && state.generation === generation) teardown();
     };
-    const fade = (
-      frame: HTMLElement,
-      from: number,
-      to: number,
-      key: string,
-    ): void => {
-      // Taken BEFORE the tween: TugAnimator commits a final value into
-      // `el.style` on completion, so the residue is owed back whichever way
-      // this beat ends.
-      state.restores.push(inlineRestorer(frame, "opacity"));
-      const anim = animate(
-        frame,
-        { opacity: [from, to] },
-        {
-          // Raw ms: TugAnimator scales by getTugTiming() itself.
-          duration: curve.durationMs,
-          easing: "ease-out",
-          // `fill: "none"` is where [P08] lives. The incoming frame's zero is
-          // in the KEYFRAME and nowhere else — there is no inline hide
-          // anywhere in this effect — so an animation that never launches
-          // leaves a visible frame rather than a hidden one.
-          fill: "none",
-          key,
-        },
-      );
-      state.anims.push(anim);
-      outstanding += 1;
-      anim.finished.then(land, land);
-    };
-    for (const frame of outgoingFrames)
-      fade(frame, 1, 0, "space-crossfade-out");
-    for (const frame of incomingFrames) fade(frame, 0, 1, "space-crossfade-in");
+    // Taken BEFORE the tween: TugAnimator commits a final value into
+    // `el.style` on completion, so the residue is owed back whichever way this
+    // beat ends.
+    state.restores.push(inlineRestorer(outgoing, "opacity"));
+    const anim = animate(
+      outgoing,
+      { opacity: [1, 0] },
+      {
+        // Raw ms: TugAnimator scales by getTugTiming() itself.
+        duration: curve.durationMs,
+        easing: "ease-out",
+        // `fill: "none"` is where [P08] lives. Nothing in this effect writes
+        // an inline hide anywhere, so an animation that never launches leaves
+        // a visible layer rather than a hidden one — and the visible one is
+        // the DEPARTING workspace, which the teardown below takes off in the
+        // same turn. The arriving workspace is opaque underneath either way,
+        // so the worst a failed launch can do is a cut.
+        fill: "none",
+        key: "space-dissolve",
+      },
+    );
+    state.anims.push(anim);
+    outstanding += 1;
+    anim.finished.then(land, land);
 
     // The deadline [L32] clause 2 asks for. A completion handler is not on its
     // own an end state: a layer unmounted mid-beat takes its animations with
@@ -6117,6 +6153,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const layerSidebarPaneIds = layer.shown
           ? sidebarPaneIds
           : new Set(findSidebarPanes(layer.deck).map(({ pane }) => pane.id));
+        // A hidden workspace is ranked too — `buildZIndexMap` says why: it is
+        // painted, opaque and on top, for the beat it is being dissolved off.
+        const layerZIndexMap = layer.shown
+          ? zIndexMap
+          : buildZIndexMap(layer.deck.panes, layerSidebarPaneIds);
         const layerHostStackIdByCardId = layer.shown
           ? hostStackIdByCardId
           : new Map(
@@ -6208,9 +6249,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
                     },
                   )}
                   zIndex={
-                    layer.shown
-                      ? zIndexMap.get(stackState.id) ?? CARD_ZINDEX_BASE
-                      : CARD_ZINDEX_BASE
+                    layerZIndexMap.get(stackState.id) ?? CARD_ZINDEX_BASE
                   }
                   // Every placement below is the SHOWN workspace's. A hidden
                   // one has no imposition to stand in — its panes come back

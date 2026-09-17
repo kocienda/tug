@@ -20,16 +20,20 @@
  * does cost is that its subtree has no boxes, so it can take no measurement
  * while hidden — every canvas geometry is armed on the transition to shown.
  *
- * There is a third state, and it lasts one beat. A switch crossfades: the
- * workspace being left is painted over the one arriving for the length of a
- * `divide-join` window and fades out under it ([B09]). For that beat the
- * OUTGOING wrapper carries `data-space-crossing`, which draws it exactly as
- * the shown rule does — no box of its own, panes laying out against the
- * canvas container at their own absolute positions — and makes it inert to
- * the pointer, because two workspaces are on screen and only one of them is
- * the one a click belongs to. `deck-canvas.tsx` writes the attribute and owes
- * it back; `[L32]` is why that debt carries a deadline rather than only a
- * completion handler.
+ * There is a third state, and it lasts one beat. A switch dissolves: the
+ * workspace being left is painted OVER the one arriving, at full opacity, for
+ * the length of a `divide-join` window, and is dissolved off it ([B09]). The
+ * arriving workspace is never faded — it stands there opaque, underneath, from
+ * the first frame. That is the whole of the choreography, and it is what makes
+ * anything the two workspaces share stand perfectly still: a pixel the same in
+ * both is `t·C + (1−t)·C` at every instant of the beat, which is `C`. A true
+ * crossfade — both layers through partial opacity at once — could not say that,
+ * and the canvas ground showing between them was the blank a reader saw.
+ *
+ * For that beat the OUTGOING wrapper carries `data-space-crossing`, and the
+ * rule below is the one place a layer is allowed a box of its own.
+ * `deck-canvas.tsx` writes the attribute and owes it back; `[L32]` is why that
+ * debt carries a deadline rather than only a completion handler.
  *
  * [L06]: the state is an attribute the canvas writes and a rule here, never
  * an inline style computed in React.
@@ -44,19 +48,35 @@
 }
 
 /*
- * The crossing layer: shown-but-inert, for one beat ([B09]).
+ * The crossing layer: a box, on top, inert, for one beat ([B09]).
  *
  * Last of the three, in the order the states occur. The specificity is not in
  * doubt either way — (0,2,0) against the resting rule's (0,1,0) — but a layer
  * is hidden, then shown, then handed back, and the file reads in that order.
  *
- * `display: contents` for the shown rule's reason ([P07]): the wrapper
- * generates no box, so the fading panes stay exactly where they were drawn
- * rather than being re-laid-out against a new containing block on their way
- * out. `pointer-events: none` inherits to the whole subtree, so the departing
- * workspace takes no click, no hover and no drop while it is still painted.
+ * And it is the one rule that departs from `display: contents`, deliberately.
+ * The departing workspace needs two things a box-less wrapper cannot give it:
+ * ONE z-index, so the whole of it stands over the arriving workspace's cards
+ * AND rails rather than interleaving with them rank by rank; and ONE opacity,
+ * so it dissolves as a single picture rather than as N frames that show
+ * through each other wherever they overlap.
+ *
+ * The geometry survives the change because the box is the same box. The canvas
+ * container is `position: absolute; inset: 0` with no padding and no border,
+ * and so is this — so a pane's absolute position resolves against a padding
+ * box identical to the one it resolved against a frame ago, and nothing moves
+ * on the way out. `overflow` is left alone for the same reason: the wrapper
+ * must clip nothing the container did not.
+ *
+ * `pointer-events: none` inherits to the whole subtree, so the departing
+ * workspace takes no click, no hover and no drop while it is still painted —
+ * which matters more now that it is the layer on top.
  */
 .tug-space-layer[data-space-crossing] {
-  display: contents;
+  display: block;
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  z-index: var(--tug-z-space-crossing);
   pointer-events: none;
 }

@@ -67,6 +67,29 @@
   --tug-z-pane-sheet-open: 8900;
 }
 
+/* ---- Canvas tier: the workspace being left, for one switch ([B09]) ----
+ *
+ * A workspace switch moves nothing: both decks are already drawn where the
+ * commit puts them. So the join between the two still pictures is the
+ * departing workspace painted OVER the arriving one and dissolved off it —
+ * which means the departing layer has to outrank every box the arriving one
+ * owns, its rails included. Below the band, the strip a rail covers would
+ * change in a single frame while the rest of the canvas dissolved.
+ *
+ * 8999 is the one value above the rail band (`SIDEBAR_PANE_ZINDEX_BASE` 8990
+ * and the eight ranks above it) and still strictly below the overlay base, so
+ * a popup portaled out of either workspace stays reachable over the fade. The
+ * band gave the value up for this; `SIDEBAR_PANE_ZINDEX_MAX_RANK` says why it
+ * could afford to.
+ *
+ * Spent by `space-layer.css` on the crossing wrapper and nowhere else, and
+ * only while `data-space-crossing` stands — one `divide-join` window, owed
+ * back four ways.
+ */
+:root {
+  --tug-z-space-crossing: 8999;
+}
+
 /* ---- Canvas overlay root ----
  *
  * The single deck-level overlay container (one per <DeckCanvas />).
