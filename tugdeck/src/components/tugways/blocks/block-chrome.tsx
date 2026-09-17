@@ -207,7 +207,10 @@ export interface BlockChromeProps {
    * cluster inside the detail column, floated, so a wrapped identity line
    * runs the block's full width rather than stopping where the badges on the
    * first line stopped. Set by the receipt blocks, whose identity is a
-   * sentence rather than a command.
+   * sentence rather than a command. A wrapping-target header — one whose
+   * detail is a `command` row, or an `argsSummary` standing in for one —
+   * takes flow mode on its own, so this prop is only for a chip-identity
+   * header that wants it anyway.
    */
   flowTrailing?: boolean;
   /**
@@ -471,6 +474,23 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
         }
       : undefined;
 
+  // The header's detail column is one of two things, and they want opposite
+  // layouts. A chip identity (Read / Edit / Write) is a single-line cell: it
+  // ends where the trailing badges begin, and that edge is the row's own
+  // grid. A command row — a shell command, a grep pattern, an args summary —
+  // is a paragraph that wraps, and a wrapped line has no reason to stop where
+  // the badges on the FIRST line stopped; a line that does reads as a tab
+  // stop nobody set, and a heredoc ends up rendered down a narrow gutter with
+  // the block's whole right half empty beside it. So the wrapping-target
+  // headers take flow mode, where the cluster is floated inside the detail
+  // and shortens only the line it sits on. `target` picks the command first,
+  // so the test is: did the command row win, or is the args-summary fallback
+  // standing in for one?
+  const target = command ?? identity ?? argsSummary;
+  const wrappingTarget =
+    command !== undefined ||
+    (identity === undefined && argsSummary !== undefined);
+
   return (
     <div
       ref={rootRef}
@@ -485,12 +505,12 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
       <BlockHeader
         ref={headerRef}
         altitude={altitude}
-        flowTrailing={flowTrailing}
+        flowTrailing={flowTrailing || wrappingTarget}
         phase={phase ?? statusToPhase(status)}
         toolName={toolName}
         ariaName={ariaName}
         leading={leading}
-        target={command ?? identity ?? argsSummary}
+        target={target}
         summary={resultSummary}
         caution={caution}
         // The header owns Copy in both states. Prefer a wrapper's tailored
