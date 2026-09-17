@@ -852,6 +852,41 @@ describe.skipIf(!SHOULD_RUN)(
           // label.
           expect(empty.run).toBe(BARE);
 
+          // ---- 1b. And the card does not scroll SIDEWAYS. ----------------
+          // The `None` row is where this went wrong: `.cards-empty` carries
+          // 10px of inline padding and the row's rule gives it `inline-size:
+          // 100%`, which in a content box is the row's width plus twenty —
+          // so the card grew a horizontal bar along its bottom edge, and the
+          // bar cost a row's worth of height to offer a scroll nobody wants.
+          // The reading is the card's own scroller: a rail card's content is
+          // written to the rail's measure, so `scrollWidth` past
+          // `clientWidth` is a defect wherever it comes from and not only
+          // here.
+          const sideways = await app.evalJS<{
+            scrollWidth: number;
+            clientWidth: number;
+            overflowX: string;
+          }>(
+            `(function () {
+               var card = document.querySelector(${JSON.stringify(`${SHOWN}.cards-card`)});
+               if (card === null) throw new Error("no cards card");
+               return {
+                 scrollWidth: card.scrollWidth,
+                 clientWidth: card.clientWidth,
+                 overflowX: getComputedStyle(card).overflowX,
+               };
+             })()`,
+          );
+          note(`at0591 the card's inline axis: ${JSON.stringify(sideways)}`);
+          expect(
+            sideways.scrollWidth,
+            "nothing in the card stands wider than the card",
+          ).toBeLessThanOrEqual(sideways.clientWidth);
+          expect(
+            sideways.overflowX,
+            "and the card never offers a sideways scroll even if something did",
+          ).toBe("hidden");
+
           // ---- 2. The cursor walks past it. -------------------------------
           // Home lands on row 0, which is the empty workspace's own header;
           // one ArrowDown has to reach the NEXT workspace's header, because

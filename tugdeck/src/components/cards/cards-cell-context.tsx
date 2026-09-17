@@ -37,8 +37,10 @@ export const CARDS_RENAME_FOCUS_ORDER = -2;
 /** Row verbs the section body hands the module-level cells. */
 export interface CardsCellContextValue {
   onRowPointerDown: (orderKey: string, event: React.PointerEvent) => void;
-  onClose: (cardId: string) => void;
-  onClosePane: (paneId: string, activeCardId: string) => void;
+  /** The row's ×. It takes the row's WORKSPACE as well as its card, because a
+   *  card in a workspace that is not on screen is closed differently ([B06]). */
+  onClose: (cardId: string, spaceId: string) => void;
+  onClosePane: (paneId: string, activeCardId: string, spaceId: string) => void;
   onGroupPointerDown: (
     spaceId: string,
     group: CardsGroup,
@@ -49,6 +51,9 @@ export interface CardsCellContextValue {
   onSpacePointerDown: (spaceId: string, event: React.PointerEvent) => void;
   /** The fold cue on an inactive workspace's header ([P09]). */
   onToggleSpace: (spaceId: string) => void;
+  /** Go to a workspace — what a click anywhere in an inactive workspace's
+   *  block means, its group headers included. A no-op on the one showing. */
+  onActivateSpace: (spaceId: string) => void;
   /** The workspace whose header is showing its rename field, if any. */
   renamingSpaceId: string | null;
   /** Enter, or a blur that was not an Escape: rename and leave the field. */

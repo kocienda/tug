@@ -17,6 +17,16 @@
   min-block-size: 0;
   /* The bar's lane is always reserved, never `scrollbar-gutter` ([D182]). */
   overflow-y: scroll;
+  /* AND THE CARD NEVER SCROLLS SIDEWAYS. Stated rather than left to the
+     initial value, because `overflow-x: visible` beside a scrolling y computes
+     back to `auto` — so any row that overruns the rail by a pixel mints a
+     horizontal bar across the bottom of the card, and the bar eats a row's
+     worth of height to show something nobody can use. The rail's width is the
+     measure every row is written to fit: a name truncates, a run yields, a
+     picker holds its column. Nothing in this card is wider than the rail on
+     purpose, so anything that overruns is a defect and clipping it is the
+     right reading of one. */
+  overflow-x: hidden;
 }
 
 /* The content element: everything the card draws as one in-flow column, inside
@@ -588,6 +598,10 @@ body {
    workspace's block covers the whole band. */
 .cards-space-empty > .cards-empty {
   inline-size: 100%;
+  /* With the 10px inline padding it inherits from `.cards-empty`, a
+     content-box 100% stands twenty pixels wider than the row it fills — which
+     the card's scroller read as content to scroll to. */
+  box-sizing: border-box;
 }
 
 /* The card's own chrome, where its old section band used to be: the filter field

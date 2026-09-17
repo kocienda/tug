@@ -84,6 +84,43 @@ import {
   type CardsGroup,
 } from "./cards-groups";
 import { basename, dirname } from "@/lib/display-path";
+import { formatUntitledName } from "@/lib/untitled-naming";
+
+/**
+ * What a card's PERSISTED bag remembers about the file it holds — the answer
+ * for a card the open registries cannot answer for at all.
+ *
+ * A file card's name is read off the mounted card: the Text card and the
+ * viewer each register a live entry exposing `getPath()`, and an unmounted
+ * card has no entry. That is fine while every card in the list is standing,
+ * and it is wrong the moment a row draws a card in a workspace nobody has
+ * visited — dragging a file card onto a parked workspace unregisters it, and
+ * the row fell back to the registration's own `defaultMeta.title`, so the file
+ * the user had just moved was thereafter called "File".
+ *
+ * The bag is where that card's path already lives. `moveCardToSpace` captures
+ * every moving card before React takes its pane down ([L23]), and a workspace
+ * switch does the same — so by the time a row has to draw an unmounted card,
+ * `getCardState` holds the `{ path }` that card's
+ * `useCardStatePreservation.onSave` wrote. This reads it and nothing else, and
+ * it is the precedent [P08] already set for a session in an unvisited
+ * workspace: where the live map cannot answer, the durable record does.
+ */
+function parkedBagContent(cardId: string): {
+  path?: unknown;
+  untitled?: unknown;
+  untitledNumber?: unknown;
+} | null {
+  const content = getDeckStore()?.getCardState(cardId)?.content;
+  if (typeof content !== "object" || content === null) return null;
+  return content as { path?: unknown };
+}
+
+/** The path a parked card's bag remembers, or null when it holds none. */
+function parkedBagPath(cardId: string): string | null {
+  const path = parkedBagContent(cardId)?.path;
+  return typeof path === "string" && path.length > 0 ? path : null;
+}
 
 // ---------------------------------------------------------------------------
 // Path helpers — the display vocabulary shared by every file-kind row.
@@ -336,6 +373,15 @@ export interface CardsResolvers {
   textUnsaved: (cardId: string) => boolean;
   /** An open viewer card's bound path. */
   viewPath: (cardId: string) => string | null;
+  /**
+   * What a file card's persisted bag remembers it was holding, for a card no
+   * open registry can answer for — one in a workspace nobody has stood up.
+   * `null` when the card is mounted (the registries are the live truth), when
+   * it holds no file, or when no bag was ever written.
+   */
+  parkedFile: (
+    cardId: string,
+  ) => { path: string | null; name: string } | null;
   /** The title a bound session row displays — the identity's display title. */
   sessionLabel: (binding: CardSessionBinding) => string;
   /** That session's `<project>/<callsign>` Line, for the filter to match on. */
@@ -369,6 +415,19 @@ export const DEFAULT_RESOLVERS: CardsResolvers = {
   textDisplayName: (cardId) => getOpenTextCard(cardId)?.getDisplayName() ?? null,
   textUnsaved: (cardId) => getOpenTextCard(cardId)?.hasUnsavedMark() ?? false,
   viewPath: (cardId) => getOpenFileViewCard(cardId)?.getPath() ?? null,
+  parkedFile: (cardId) => {
+    const content = parkedBagContent(cardId);
+    if (content === null) return null;
+    const path = parkedBagPath(cardId);
+    if (path !== null) return { path, name: basename(path) };
+    // An untitled buffer has no path to take a name from, and the number it
+    // was allocated rides the bag beside one. Same call the card itself makes,
+    // so a parked `Untitled-2` is still called that in the list.
+    if (content.untitled !== true) return null;
+    const number =
+      typeof content.untitledNumber === "number" ? content.untitledNumber : null;
+    return { path: null, name: formatUntitledName(number) };
+  },
   // A projection, not a render: this recomputes when the identity stores'
   // version tokens move (they are inputs to the section's memo), which is the
   // sanctioned non-React path into the resolver.
@@ -526,13 +585,24 @@ function resolveCard(
 
   if (card.componentId === "text") {
     path = r.textPath(card.id);
-    title =
-      path !== null
-        ? basename(path)
-        : r.textDisplayName(card.id) ?? (card.title || "Untitled");
+    const name = path !== null ? basename(path) : r.textDisplayName(card.id);
+    if (name !== null) {
+      title = name;
+    } else {
+      // Nothing mounted answers for this card, so the bag does. Falling
+      // straight through to `card.title` here is what used to call a parked
+      // buffer by its registration's name.
+      const parked = r.parkedFile(card.id);
+      path = parked?.path ?? null;
+      title = parked?.name ?? (card.title || "Untitled");
+    }
     unsaved = r.textUnsaved(card.id);
   } else if (card.componentId === "file-view") {
     path = r.viewPath(card.id);
+    if (path === null) {
+      const parked = r.parkedFile(card.id);
+      path = parked?.path ?? null;
+    }
     title = path !== null ? basename(path) : card.title || "File";
   } else if (binding !== undefined) {
     title = r.sessionLabel(binding);

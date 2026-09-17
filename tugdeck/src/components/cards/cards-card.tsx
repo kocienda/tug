@@ -442,9 +442,9 @@ function OneLineRow({
               // Closing is not a row activation — stop it reaching the cell.
               e?.stopPropagation();
               if (closesPane !== undefined) {
-                ctx.onClosePane(closesPane.paneId, identity.cardId);
+                ctx.onClosePane(closesPane.paneId, identity.cardId, spaceId);
               } else {
-                ctx.onClose(identity.cardId);
+                ctx.onClose(identity.cardId, spaceId);
               }
             }}
           />
@@ -537,10 +537,19 @@ const GroupHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
       // The header IS the group's drag handle: a press arms the carry of the
       // whole run, and travel past the threshold engages it.
       onPointerDown={(e) => ctx.onGroupPointerDown(row.spaceId, row.group, e)}
-      // Below the threshold the press is still a click, and on a header a
-      // click is nothing — the fold cue is the only thing that folds. Swallowed
-      // so the cell wrapper never reads it as a pick.
-      onClick={(e) => e.stopPropagation()}
+      // Below the threshold the press is still a click, and what that click
+      // means depends on WHOSE group this is. In the workspace on screen it is
+      // nothing — the fold cue is the only thing that folds, so no part of a
+      // label the user is reading past can fold a group out from under them.
+      // In any other workspace it is "go there": the whole block belongs to a
+      // workspace that is not showing, and a reader who clicks inside it is
+      // pointing at the workspace, not asking to fold a band of it they cannot
+      // see. Either way the click is swallowed, so the cell wrapper never
+      // reads it as a pick and the fold state is untouched.
+      onClick={(e) => {
+        e.stopPropagation();
+        ctx.onActivateSpace(row.spaceId);
+      }}
       trailing={
         <BlockFoldCue
           className="cards-header-fold"
@@ -1145,26 +1154,76 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // named path also keeps the close guard attached to the card it concerns, so
   // a dirty Text buffer is activated before it raises its save sheet.
   const chain = useResponderChain();
+  // Which cards have a stand-up-and-close walk in flight. A second × on the
+  // same row while one is running would activate the workspace twice and send
+  // two closes at the card — the latch the delete keeps for its own walk, kept
+  // per card because these are per card.
+  const closeWalkRef = useRef<Set<string>>(new Set());
   const onClose = useCallback(
-    (cardId: string): void => {
-      // `sendToTarget` throws on an unregistered target, and a row can outlive
-      // its card by a frame (the deck snapshot the rows were built from is one
-      // render behind the unmount).
-      if (chain === null || !chain.hasResponder(cardId)) return;
-      // A card with unsaved work answers this × with a sheet, and the sheet
-      // comes up on the card — which may be behind another pane, or be a
-      // background tab nobody can see. So front it first, exactly as a plain
-      // click on this row would, flash and all: the question has to arrive
-      // somewhere the user is already looking. A close that simply happens
-      // gets no announcement; the row vanishing is the whole answer.
-      if (askedBeforeClosing(cardId)) {
-        dispatchCommand("focus-session-card", { cardId });
+    (cardId: string, spaceId: string): void => {
+      if (chain === null) return;
+      const send = (): void => {
+        // A card with unsaved work answers this × with a sheet, and the sheet
+        // comes up on the card — which may be behind another pane, or be a
+        // background tab nobody can see. So front it first, exactly as a plain
+        // click on this row would, flash and all: the question has to arrive
+        // somewhere the user is already looking. A close that simply happens
+        // gets no announcement; the row vanishing is the whole answer.
+        if (askedBeforeClosing(cardId)) {
+          dispatchCommand("focus-session-card", { cardId });
+        }
+        chain.sendToTarget(cardId, {
+          action: TUG_ACTIONS.CLOSE_TAB,
+          value: cardId,
+          phase: "discrete",
+        });
+      };
+      const store = getDeckStore();
+      const elsewhere =
+        store !== null && store.getSpacesSnapshot().activeSpaceId !== spaceId;
+
+      // The card is STANDING — in the workspace on screen, or in one [B06]
+      // left mounted behind it. Its close guard is registered either way, so
+      // the question "will this stop and ask" has an answer right here, and
+      // that answer is the whole of the difference: a close with nothing to
+      // ask just happens, wherever the card is, and the row going away is the
+      // report. Only a close that puts a QUESTION on screen has to go to the
+      // workspace holding it first — a sheet over a hidden layer is a sheet
+      // nobody can answer.
+      if (chain.hasResponder(cardId)) {
+        if (elsewhere && askedBeforeClosing(cardId)) {
+          store?.activateSpace(spaceId);
+        }
+        send();
+        return;
       }
-      chain.sendToTarget(cardId, {
-        action: TUG_ACTIONS.CLOSE_TAB,
-        value: cardId,
-        phase: "discrete",
-      });
+
+      // Nothing is standing. A row can outlive its card by a frame (the deck
+      // snapshot the rows were built from is one render behind the unmount),
+      // and in the workspace on screen that is the whole explanation — there
+      // is nothing left to close.
+      if (!elsewhere || store === null) return;
+
+      // So this is a card in a workspace nobody has stood up this run, and it
+      // cannot be ASKED without being stood up: its close guard is registered
+      // by the card at mount, and an unmounted card has none. That is the same
+      // wall the delete walk hits, and it is answered the same way — activate,
+      // wait for the cards to arrive, then let the pane's own close-tab flow
+      // read the guard it now has. The cost is the settle (see
+      // `ARRIVAL_SETTLE_MS`), spent so that a restored buffer with unsaved
+      // edits still gets to raise its sheet instead of being taken silently.
+      if (closeWalkRef.current.has(cardId)) return;
+      closeWalkRef.current.add(cardId);
+      void (async () => {
+        try {
+          store.activateSpace(spaceId);
+          await awaitArrival([cardId]);
+          if (!chain.hasResponder(cardId)) return;
+          send();
+        } finally {
+          closeWalkRef.current.delete(cardId);
+        }
+      })();
     },
     [chain],
   );
@@ -1175,8 +1234,33 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // always confirms, so this one always fronts and flashes: the popover it
   // opens is anchored to that pane's X, off in the deck.
   const onClosePane = useCallback(
-    (paneId: string, activeCardId: string): void => {
-      if (chain === null || !chain.hasResponder(paneId)) return;
+    (paneId: string, activeCardId: string, spaceId: string): void => {
+      if (chain === null) return;
+      const store = getDeckStore();
+      // A pane × always confirms, so it always has somewhere to arrive: a
+      // stack in a workspace that is not on screen is reached by going there
+      // first, whether its panes are merely hidden or have never stood up at
+      // all. The activation is what puts the popover over its own content.
+      if (store !== null && store.getSpacesSnapshot().activeSpaceId !== spaceId) {
+        if (closeWalkRef.current.has(paneId)) return;
+        closeWalkRef.current.add(paneId);
+        void (async () => {
+          try {
+            store.activateSpace(spaceId);
+            await awaitArrival([activeCardId]);
+            if (!chain.hasResponder(paneId)) return;
+            dispatchCommand("focus-session-card", { cardId: activeCardId });
+            chain.sendToTarget(paneId, {
+              action: TUG_ACTIONS.CLOSE_PANE,
+              phase: "discrete",
+            });
+          } finally {
+            closeWalkRef.current.delete(paneId);
+          }
+        })();
+        return;
+      }
+      if (!chain.hasResponder(paneId)) return;
       dispatchCommand("focus-session-card", { cardId: activeCardId });
       chain.sendToTarget(paneId, {
         action: TUG_ACTIONS.CLOSE_PANE,
@@ -1196,6 +1280,14 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // collapsed ids and the toggle is the same gesture on every row.
   const onToggleSpace = useCallback((spaceId: string): void => {
     collapsedSpacesStore.toggle(spaceId);
+  }, []);
+
+  // "Go there" — the meaning a click carries anywhere in an inactive
+  // workspace's block, not only on its own header row ([P09], Spec S05). The
+  // command is a no-op on the workspace already showing, so nothing has to
+  // guard the call.
+  const onActivateSpace = useCallback((spaceId: string): void => {
+    dispatchCommand("activate-space", { spaceId });
   }, []);
 
   // Which workspace's header is showing its rename field, and which delete is
@@ -1417,6 +1509,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       onToggleGroup,
       onSpacePointerDown,
       onToggleSpace,
+      onActivateSpace,
       renamingSpaceId,
       onCommitRename,
       onCancelRename,
@@ -1433,6 +1526,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       onToggleGroup,
       onSpacePointerDown,
       onToggleSpace,
+      onActivateSpace,
       renamingSpaceId,
       onCommitRename,
       onCancelRename,
