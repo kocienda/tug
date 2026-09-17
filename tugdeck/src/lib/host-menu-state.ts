@@ -39,6 +39,7 @@ import { getAllRegistrations, isSidebarCard } from "../card-registry";
 import {
   impositionLayout,
   slotCount,
+  isSidebarPinned,
   sidebarSide,
   type ContentWidth,
 } from "./layout-imposer";
@@ -811,6 +812,7 @@ export function projectDeckState(
     sidebars[componentId] = {
       showing: instance !== undefined,
       side: sidebarSide(state.imposition, componentId),
+      pinned: isSidebarPinned(state.imposition, componentId),
       focused:
         instance !== undefined &&
         state.activePaneId !== undefined &&

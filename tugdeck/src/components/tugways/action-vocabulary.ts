@@ -1051,20 +1051,29 @@ export const TUG_ACTIONS = {
   //                  the slot's vertical run is divided between them. Stack is
   //                  the default. Its doors are the title bar's stack badge
   //                  menu, the rail Layouts section's per-slot column row, and
-  //                  ⌃⌘S.
+  //                  ⌃⌘/.
   SET_COLUMN_MODE:        "set-column-mode",
   // EQUALIZE_COLUMN: payload — `{ slot }`. Divide a split column's run equally
   //                  again, keeping the slot's mode and member order. Its
   //                  door is the stack badge menu.
   EQUALIZE_COLUMN:        "equalize-column",
-  // RESIZE_SIDEBARS_TO_FIT: payload — none. ⌃⌥⌘R and Window ▸ Resize Sidebars
+  // RESIZE_SIDEBARS_TO_FIT: payload — none. ⌃⌥⌘S and Window ▸ Resize Sidebars
   //                         to Fit. Stand every rail's cards at the heights
   //                         their content asks for, once, and write the
   //                         result as the hand's own division. The only
   //                         automatic vertical arithmetic left on a rail, and
   //                         nothing but the user runs it.
   RESIZE_SIDEBARS_TO_FIT: "resize-sidebars-to-fit",
-  // TOGGLE_COLUMN_SPLIT: payload — none. ⌃⌘S. Split or re-stack the slot
+  // TOGGLE_SIDEBARS: payload — none. ⌃⌘S and Window ▸ Hide / Show Sidebars.
+  //                  Both rails at once, two-state: with anything standing on
+  //                  either side, hide every one of them and remember what
+  //                  stood where; with nothing standing, put back what the
+  //                  last hide took away. The whole-deck counterpart of
+  //                  TOGGLE_RAIL's one side, and it moves no focus on the way
+  //                  back — the rails return to where they were, and the
+  //                  keyboard stays where the reader left it.
+  TOGGLE_SIDEBARS:        "toggle-sidebars",
+  // TOGGLE_COLUMN_SPLIT: payload — none. ⌃⌘/. Split or re-stack the slot
   //                      holding the layout selection's first card (else the
   //                      first responder's). Resolved by the deck canvas, which
   //                      is the one responder that can name a slot, and refused

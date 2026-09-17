@@ -522,7 +522,9 @@ describe("computeCommandCapabilities", () => {
     // Hidden: the empty mark, the row still live (it has a card to show),
     // and the side pair dark, because there is nothing standing to move.
     const hidden = jots({
-      sidebars: { jots: { showing: false, side: "right", focused: false } },
+      sidebars: {
+        jots: { showing: false, side: "right", pinned: true, focused: false },
+      },
     });
     expect(hidden["window.sidebar.jots.show"].enabled).toBe(true);
     expect(hidden["window.sidebar.jots.show"].state).toBe(false);
@@ -533,7 +535,9 @@ describe("computeCommandCapabilities", () => {
     // Showing without the keyboard: the plain check, and the next click
     // brings the keyboard rather than taking the card away.
     const showing = jots({
-      sidebars: { jots: { showing: true, side: "right", focused: false } },
+      sidebars: {
+        jots: { showing: true, side: "right", pinned: true, focused: false },
+      },
     });
     expect(showing["window.sidebar.jots.show"].state).toBe(true);
     expect(showing["window.sidebar.jots.show"].title).toBe("Activate Jots");
@@ -544,7 +548,9 @@ describe("computeCommandCapabilities", () => {
     // Showing and holding it: the mixed mark — the reading a two-state check
     // could not tell from the one above, and the rung where a click hides.
     const focused = jots({
-      sidebars: { jots: { showing: true, side: "left", focused: true } },
+      sidebars: {
+        jots: { showing: true, side: "left", pinned: true, focused: true },
+      },
     });
     expect(focused["window.sidebar.jots.show"].state).toBe("mixed");
     expect(focused["window.sidebar.jots.show"].title).toBe("Hide Jots");
@@ -556,6 +562,44 @@ describe("computeCommandCapabilities", () => {
     const unknown = computeCommandCapabilities(source(chain));
     expect(unknown["window.sidebar.overview.show"].state).toBe(false);
     expect(unknown["window.sidebar.overview.left"].enabled).toBe(false);
+  });
+
+  test("the sidebars row names the verb the next press performs", () => {
+    const chain = new ResponderChainManager();
+    const rows = (facts: Parameters<typeof source>[1]) =>
+      computeCommandCapabilities(source(chain, facts));
+
+    // Nothing standing on either side: the next press brings the rails back,
+    // and the row says so. It is live either way — a deck with no rail
+    // standing still has the last hide to undo.
+    const none = rows({ sidebars: {} });
+    expect(none["window.toggleSidebars"].enabled).toBe(true);
+    expect(none["window.toggleSidebars"].title).toBe("Show Sidebars");
+
+    // One card standing on a rail is enough: the verb is about the edges as a
+    // whole, so any member on either side makes the next press a hide.
+    const standing = rows({
+      sidebars: {
+        jots: { showing: true, side: "right", pinned: true, focused: false },
+        overview: {
+          showing: false,
+          side: "left",
+          pinned: true,
+          focused: false,
+        },
+      },
+    });
+    expect(standing["window.toggleSidebars"].title).toBe("Hide Sidebars");
+
+    // A sidebar card dragged loose is showing without standing on a rail.
+    // Hide Sidebars would take nothing away from it, so the row must not
+    // promise a hide — this is what `pinned` is read for.
+    const loose = rows({
+      sidebars: {
+        jots: { showing: true, side: "right", pinned: false, focused: false },
+      },
+    });
+    expect(loose["window.toggleSidebars"].title).toBe("Show Sidebars");
   });
 
   test("the Go to Slot row lights for the arrangement, not for the selection", () => {

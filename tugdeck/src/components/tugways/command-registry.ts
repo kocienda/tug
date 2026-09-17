@@ -275,10 +275,16 @@ export interface CommandMenuFacts {
  * `side` is answered for a hidden card too, because `sidebarSide` is total:
  * it is where the card WOULD stand, which is what the radios would check if
  * they were live.
+ *
+ * `pinned` is the other half of "showing on a rail": a sidebar card dragged
+ * loose of the edge is a free pane, present on the deck and standing on
+ * neither side. Hide Sidebars reads `showing && pinned`, because the rails are
+ * what it takes away and a floating card is not one of them.
  */
 export interface SidebarMenuFact {
   readonly showing: boolean;
   readonly side: SidebarSide;
+  readonly pinned: boolean;
   readonly focused: boolean;
 }
 
@@ -755,14 +761,17 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
 }));
 
 /**
- * ⌃⌘S, and ⌃⌘↑/↓ with ⌃⇧⌘↑/↓ — the split family: divide the slot the selection
+ * ⌃⌘/, and ⌃⌘↑/↓ with ⌃⇧⌘↑/↓ — the split family: divide the slot the selection
  * stands in, and move a card within it.
  *
  * **The tier, derived** (tuglaws/chord-tiers.md): ⌃⌘ is Tug's own layout
  * vocabulary — ⌃⌘←/→ Show Rail, ⌃⌘B Bullseye, ⌃⌘1/2/3 card width — and a slot
  * dividing is a layout act, so it belongs there rather than on plain ⌘, which
- * R3 reserves for verbs hit many times an hour. Letter S is unoccupied in the
- * tier (only ⌘S and ⇧⌘S exist on KeyS) and is the obvious mnemonic.
+ * R3 reserves for verbs hit many times an hour. The slash is the DIVISION
+ * sign, which is what this verb does to a slot — a glyph rather than an
+ * initial, and the tier's ⌃⌘S seat went to Hide Sidebars, a verb of the same
+ * vocabulary whose S is an initial. Nothing else on the tier wants the key:
+ * only ⌘/ and ⌥⌘/ exist on Slash.
  *
  * The arrows are R1-exempt (rule R2), and ⌃⌘ arrows are unbound in Tug and
  * absent from the macOS never-bind list, which reserves plain ⌃-arrows for
@@ -787,11 +796,11 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
  * `disabledChord: "keep"`, matching the width family: a dimmed item holds its
  * key equivalent, so the beep is honest feedback that the user pressed the
  * right keys at a moment the column had no move to make. That is the ⌃⌘
- * arrows' case and not ⌃⌘S's: splitting is never refused for want of a second
+ * arrows' case and not ⌃⌘/'s: splitting is never refused for want of a second
  * member — a slot one card deep is a place, and arming it to split is a legal
- * act that the next arrival lands into. ⌃⌘S is dark only when the layout
+ * act that the next arrival lands into. ⌃⌘/ is dark only when the layout
  * selection resolves to no column at all. Nothing else in the
- * JS funnel wants ⌃⌘S or the ⌃⌘ arrows, so there is nothing for a detach to
+ * JS funnel wants ⌃⌘/ or the ⌃⌘ arrows, so there is nothing for a detach to
  * hand them back to.
  *
  * The refusal stays where the user can see it — on the pane's own border —
@@ -807,7 +816,7 @@ const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
     disabledChord: "keep",
     bindings: [
       chord(
-        { key: "KeyS", meta: true, ctrl: true, label: "s" },
+        { key: "Slash", meta: true, ctrl: true, label: "/" },
         { preventDefault: true, menuEligible: true },
       ),
     ],
@@ -1182,6 +1191,7 @@ function sidebarFact(
     chain.menu.sidebars[componentId] ?? {
       showing: false,
       side: DEFAULT_SIDEBAR_SIDE,
+      pinned: false,
       focused: false,
     }
   );
@@ -2062,14 +2072,63 @@ export const COMMANDS: readonly CommandEntry[] = [
   ...SLOT_COMMANDS,
   ...NUDGE_SLOT_COMMANDS,
   ...COLUMN_SPLIT_COMMANDS,
-  // ⌃⌥⌘R — Resize Sidebars to Fit: stand every rail's cards at the heights
+  // ⌃⌘S — Hide Sidebars / Show Sidebars: take both of the deck's edges away,
+  // or put back what the last press took ({@link toggleSidebars}).
+  //
+  // **The tier, derived** (tuglaws/chord-tiers.md): a rail is layout
+  // vocabulary, which is what ⌃⌘ carries — the ⌃⌘←/→ pair addresses ONE side
+  // and this addresses both — and S is *Sidebars*, an initial on a letter the
+  // tier had free once Split or Stack Column moved to ⌃⌘/.
+  //
+  // **It is the pair's whole-deck form, not its rival.** ⌃⌘←/→ is a summons:
+  // it brings a side back AND takes the keyboard to it, three-state. This one
+  // is about room to read in, so it is two-state and moves no focus at all.
+  //
+  // `menuEligible`, so the Window row's key equivalent preempts every scoped
+  // binding, the discipline Resize Sidebars to Fit below already holds for the
+  // same reason: the rails are the deck's own geometry and no focused surface
+  // should be able to decline a verb about them. The Swift item is built with
+  // an EMPTY key equivalent, so `applyCommandChords` writes the chord from
+  // this table and it stays rebindable end to end.
+  //
+  // Ungated. With a rail standing there is one to hide, and with none standing
+  // there is the last hide to undo — or, on a deck that has never hidden one,
+  // each side's default member, which is what the ⌃⌘ arrows would open.
+  {
+    id: TUG_ACTIONS.TOGGLE_SIDEBARS,
+    title: "Hide Sidebars",
+    routing: "registry",
+    menuItemId: "window.toggleSidebars",
+    mirrored: true,
+    bindings: [
+      chord(
+        { key: "KeyS", meta: true, ctrl: true, label: "s" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    validate: () => true,
+    // What the NEXT press does, the reading the per-card rows take: a row
+    // saying "Hide Sidebars" over a deck with no rail standing would promise a
+    // verb it has nothing to perform on. A sidebar card dragged loose is not a
+    // rail, which is why `pinned` is read alongside `showing`.
+    dynamicTitle: (chain: CommandValidationSource) =>
+      Object.values(chain.menu.sidebars).some(
+        (fact) => fact.showing && fact.pinned,
+      )
+        ? "Hide Sidebars"
+        : "Show Sidebars",
+  },
+  // ⌃⌥⌘S — Resize Sidebars to Fit: stand every rail's cards at the heights
   // their content asks for, once ([B07], [B08]).
   //
   // **The tier, and the anomaly it is recorded as** (tuglaws/chord-tiers.md):
-  // ⌃⌥⌘ is the advanced form of a Tug-tier command, and ⌃⌘R is the Arcs card
-  // rather than a base this varies — so the grant is the tier's second
-  // resident with a reading of its own, R for *Resize*, on the tier reserved
-  // for deck-shaping verbs a user reaches for deliberately.
+  // ⌃⌥⌘ is the advanced form of a Tug-tier command, and here the derivation
+  // lands honestly: ⌃⌘S is Hide Sidebars, and standing the rails' cards at
+  // their content heights is that subject taken one step further — the
+  // advanced form of the sidebar verb, on the tier reserved for deck-shaping
+  // verbs a user reaches for deliberately. It held ⌃⌥⌘R, R for *Resize*, as a
+  // grant with a reading rather than a derivation, until the ⌃⌘S seat gave it
+  // a base to vary.
   //
   // `menuEligible`, so the Window row's key equivalent preempts every scoped
   // binding: the rails are the deck's own geometry and no focused surface
@@ -2088,7 +2147,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     mirrored: true,
     bindings: [
       chord(
-        { key: "KeyR", meta: true, ctrl: true, alt: true, label: "r" },
+        { key: "KeyS", meta: true, ctrl: true, alt: true, label: "s" },
         { preventDefault: true, menuEligible: true },
       ),
     ],

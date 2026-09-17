@@ -644,22 +644,22 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         );
         await wait(AFTER_LAND_MS);
 
-        // ⌃⌘S on the focused card's slot. The chord resolves the layout
+        // ⌃⌘/ on the focused card's slot. The chord resolves the layout
         // selection, which with nothing picked in the Cards card is the first
         // responder — card A, in slot 0.
-        await app.nativeKey("s", SPLIT);
+        await app.nativeKey("/", SPLIT);
         await wait(AFTER_LAND_MS);
         expect(
           (await columnsRecord(app))["0"]?.mode,
-          "⌃⌘S divides the slot the focused card stands in",
+          "⌃⌘/ divides the slot the focused card stands in",
         ).toBe("split");
         expect(await splitFrameCount(app)).toBe(2);
         // And it is a TOGGLE: the second press re-stacks.
-        await app.nativeKey("s", SPLIT);
+        await app.nativeKey("/", SPLIT);
         await wait(AFTER_LAND_MS);
         expect((await columnsRecord(app))["0"]?.mode).toBe("stack");
         expect(await splitFrameCount(app)).toBe(0);
-        await app.nativeKey("s", SPLIT);
+        await app.nativeKey("/", SPLIT);
         await wait(AFTER_LAND_MS);
         expect(await splitFrameCount(app)).toBe(2);
 
@@ -709,7 +709,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         expect(await memberOrder()).toEqual(atEnd);
         note(`chord walk: ${before.join(",")} -> ${after.join(",")} -> ${atEnd.join(",")}`);
 
-        // ── ⌃⌘S on a slot with one card SPLITS it. ──
+        // ── ⌃⌘/ on a slot with one card SPLITS it. ──
         //
         // Slot 2 is empty in the fixture, so the card is moved there first.
         // A place one card deep is still a place, and arming it to split is a
@@ -727,18 +727,18 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
           slot: 2,
         });
         await wait(AFTER_LAND_MS);
-        await app.nativeKey("s", SPLIT);
+        await app.nativeKey("/", SPLIT);
         await wait(AFTER_LAND_MS);
         expect(
           (await columnsRecord(app))["2"]?.mode,
-          "⌃⌘S splits a slot holding one card, arming the place",
+          "⌃⌘/ splits a slot holding one card, arming the place",
         ).toBe("split");
         // And the toggle is a toggle there too: the way back is the same key.
-        await app.nativeKey("s", SPLIT);
+        await app.nativeKey("/", SPLIT);
         await wait(AFTER_LAND_MS);
         expect(
           (await columnsRecord(app))["2"]?.mode,
-          "⌃⌘S re-stacks the place it just split",
+          "⌃⌘/ re-stacks the place it just split",
         ).toBe("stack");
       } finally {
         await app.close();

@@ -325,6 +325,7 @@ describe("projectDeckState", () => {
     expect(projectDeckState(deck([], [])).sidebars["menu-state-rail"]).toEqual({
       showing: false,
       side: "right",
+      pinned: true,
       focused: false,
     });
 
@@ -340,6 +341,7 @@ describe("projectDeckState", () => {
     expect(projectDeckState(showing).sidebars["menu-state-rail"]).toEqual({
       showing: true,
       side: "right",
+      pinned: true,
       focused: false,
     });
 
@@ -355,6 +357,7 @@ describe("projectDeckState", () => {
     expect(projectDeckState(focused).sidebars["menu-state-rail"]).toEqual({
       showing: true,
       side: "right",
+      pinned: true,
       focused: true,
     });
 
@@ -364,6 +367,22 @@ describe("projectDeckState", () => {
       imposition: { sidebars: { "menu-state-rail": { side: "left" } } },
     };
     expect(projectDeckState(left).sidebars["menu-state-rail"].side).toBe("left");
+
+    // And `pinned` is the imposition's too: a card dragged loose of the edge
+    // is on the deck without standing on a rail, which is the difference Hide
+    // Sidebars reads — it takes rails away, and a free pane is not one.
+    const loose: DeckState = {
+      ...focused,
+      imposition: {
+        sidebars: { "menu-state-rail": { side: "right", pinned: false } },
+      },
+    };
+    expect(projectDeckState(loose).sidebars["menu-state-rail"]).toEqual({
+      showing: true,
+      side: "right",
+      pinned: false,
+      focused: true,
+    });
   });
 
   test("a deselected deck holds no sidebar card's keyboard", () => {
@@ -380,6 +399,7 @@ describe("projectDeckState", () => {
     expect(projectDeckState(deselected).sidebars["menu-state-rail"]).toEqual({
       showing: true,
       side: "right",
+      pinned: true,
       focused: false,
     });
   });

@@ -60,6 +60,8 @@ const LEFT = "window.sidebar.jots.left";
 const RIGHT = "window.sidebar.jots.right";
 /** The one verb that resizes the rails, above the five card rows ([B11]). */
 const RESIZE = "window.resizeSidebarsToFit";
+/** The one verb that takes both rails away, directly above the resize row. */
+const TOGGLE_SIDEBARS = "window.toggleSidebars";
 
 /** `NSEvent.ModifierFlags` as the snapshot reports them. */
 const CONTROL = 1 << 18;
@@ -147,6 +149,29 @@ async function waitMenuChord(
   let last = await app.menuItemState(identifier);
   while (Date.now() < deadline) {
     if (last.found && last.keyEquivalent === keyEquivalent) return last;
+    await new Promise((r) => setTimeout(r, 100));
+    last = await app.menuItemState(identifier);
+  }
+  return last;
+}
+
+/**
+ * Poll until the item's title matches, then return what it settled on. The
+ * title a gate rewrites arrives by the same coalesced push a mark does, so
+ * this is {@link waitMenuMark}'s accommodation over the other field.
+ */
+async function waitMenuTitle(
+  app: App,
+  identifier: string,
+  wantTitle: string,
+  timeoutMs = 8_000,
+): Promise<{ found: boolean; title?: string }> {
+  const deadline = Date.now() + timeoutMs;
+  let last: { found: boolean; title?: string } = await app.menuItemState(
+    identifier,
+  );
+  while (Date.now() < deadline) {
+    if (last.found && last.title === wantTitle) return last;
     await new Promise((r) => setTimeout(r, 100));
     last = await app.menuItemState(identifier);
   }
@@ -359,7 +384,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => 
   );
 
   test(
-    "Resize Sidebars to Fit stands above the card rows, carrying ⌃⌥⌘R",
+    "Resize Sidebars to Fit stands above the card rows, carrying ⌃⌥⌘S",
     async () => {
       const tugbankPath = mkTempTugbank();
       try {
@@ -380,10 +405,10 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => 
           // the chord below can only be here because `applyCommandChords`
           // wrote it from the frontend's registry, which is what keeps it
           // rebindable.
-          const row = await waitMenuChord(app, RESIZE, "r");
+          const row = await waitMenuChord(app, RESIZE, "s");
           expect(row.found, `${RESIZE} present in the Window menu`).toBe(true);
           if (!row.found) throw new Error(`${RESIZE} is not in the menu`);
-          expect(row.keyEquivalent, `${RESIZE} carries "r"`).toBe("r");
+          expect(row.keyEquivalent, `${RESIZE} carries "s"`).toBe("s");
           expect(row.modifierMask, `${RESIZE} is ⌃⌥⌘`).toBe(
             COMMAND | CONTROL | OPTION,
           );
@@ -399,6 +424,95 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => 
             `${RESIZE} stands above ${PARENT}`,
           ).toBeLessThan(rows.indexOf(PARENT));
           expect(rows.indexOf(RESIZE), `${RESIZE} is one of the rows`).toBeGreaterThanOrEqual(0);
+        } finally {
+          await app.close();
+        }
+      } finally {
+        rmTempTugbank(tugbankPath);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "Hide Sidebars stands above the resize row, carrying ⌃⌘S, and names the press",
+    async () => {
+      const tugbankPath = mkTempTugbank();
+      try {
+        seedTugbankForLaunch(tugbankPath);
+        const app = await launchTugApp({
+          testName: "at0511-hide-sidebars-row",
+          env: { TUGBANK_PATH: tugbankPath },
+          persistInTestMode: true,
+        });
+        try {
+          await app.seedDeckState({ state: priorCardDeck(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `window.__tug.assertHostRootRegistered("A")`,
+            { timeoutMs: 5_000 },
+          );
+
+          // Built with an EMPTY key equivalent like every row in this menu:
+          // the chord is here only because `applyCommandChords` wrote it from
+          // the registry, which is what keeps it rebindable.
+          const row = await waitMenuChord(app, TOGGLE_SIDEBARS, "s");
+          expect(row.found, `${TOGGLE_SIDEBARS} present`).toBe(true);
+          if (!row.found) throw new Error(`${TOGGLE_SIDEBARS} is not in the menu`);
+          expect(row.keyEquivalent, `${TOGGLE_SIDEBARS} carries "s"`).toBe("s");
+          expect(row.modifierMask, `${TOGGLE_SIDEBARS} is ⌃⌘`).toBe(
+            COMMAND | CONTROL,
+          );
+          // Ungated: with a rail standing there is one to hide, and with none
+          // standing there is the last hide to put back.
+          expect(row.enabled, `${TOGGLE_SIDEBARS} is live`).toBe(true);
+
+          // The two verbs about the rails as rails stand together, above the
+          // card rows they act on.
+          const rows = await windowRowOrder(app);
+          expect(
+            rows.indexOf(TOGGLE_SIDEBARS),
+            `${TOGGLE_SIDEBARS} stands directly above ${RESIZE}`,
+          ).toBe(rows.indexOf(RESIZE) - 1);
+          expect(
+            rows.indexOf(TOGGLE_SIDEBARS),
+            `${TOGGLE_SIDEBARS} stands above ${PARENT}`,
+          ).toBeLessThan(rows.indexOf(PARENT));
+
+          // Nothing standing yet: the row names the press that brings the
+          // rails back rather than one that would take nothing away.
+          expect(
+            (await waitMenuTitle(app, TOGGLE_SIDEBARS, "Show Sidebars")).title,
+            "with no rail standing the row says Show",
+          ).toBe("Show Sidebars");
+
+          // A card on a rail flips it, and the press takes that rail away —
+          // read off the card's OWN row, which is the deck answering rather
+          // than this row restating itself.
+          await app.dispatchControlAction("toggle-jots");
+          await expectRung(app, MIXED, "Hide Jots");
+          expect(
+            (await waitMenuTitle(app, TOGGLE_SIDEBARS, "Hide Sidebars")).title,
+            "a rail standing makes the next press a hide",
+          ).toBe("Hide Sidebars");
+
+          await app.dispatchControlAction("toggle-sidebars");
+          await expectRung(app, OFF, "Show Jots");
+          expect(
+            (await waitMenuTitle(app, TOGGLE_SIDEBARS, "Show Sidebars")).title,
+            "and the row turns around with the deck",
+          ).toBe("Show Sidebars");
+
+          // And it is a toggle: the same frame puts back what it took, which
+          // is the member the hide recorded rather than a default.
+          await app.dispatchControlAction("toggle-sidebars");
+          expect(
+            (await menuItem(app, TOGGLE)).state,
+            "the Jots card is back on its rail",
+          ).toBe(ON);
+          expect(
+            (await waitMenuTitle(app, TOGGLE_SIDEBARS, "Hide Sidebars")).title,
+            "and the row is a hide again",
+          ).toBe("Hide Sidebars");
         } finally {
           await app.close();
         }

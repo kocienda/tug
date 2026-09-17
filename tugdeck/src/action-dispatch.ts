@@ -26,7 +26,11 @@ import type { ResponderChainManager } from "./components/tugways/responder-chain
 import { FeedId } from "./protocol";
 import { BASE_THEME_NAME } from "./theme-constants";
 import { raiseCard } from "./focus-transfer";
-import { revealSidebarCard, toggleSidebarCard } from "./sidebar-toggle";
+import {
+  revealSidebarCard,
+  toggleSidebarCard,
+  toggleSidebars,
+} from "./sidebar-toggle";
 import { isSlotWindowSize, writeSlotWindow } from "@/lib/slot-window-pref";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { COMMANDS_BY_ID, isCommandId } from "@/components/tugways/command-registry";
@@ -798,7 +802,7 @@ export function initActionDispatch(
 
   // set-column-mode: stack or split the cards sharing one numbered slot.
   // Dispatched by the title bar's stack badge menu, the Layout card's
-  // per-slot column row, and ⌃⌘S. A slot is a stack or a split — all of its
+  // per-slot column row, and ⌃⌘/. A slot is a stack or a split — all of its
   // members participate, which is why the payload names a slot rather than a
   // pair of cards.
   registerAction(TUG_ACTIONS.SET_COLUMN_MODE, (payload) => {
@@ -828,11 +832,19 @@ export function initActionDispatch(
   });
 
   // resize-sidebars-to-fit: stand every rail's cards at the heights their
-  // content asks for, once. Dispatched by ⌃⌥⌘R and the Window menu row, and
+  // content asks for, once. Dispatched by ⌃⌥⌘S and the Window menu row, and
   // by nothing else — the result is a division like any the hand makes, and
   // no resize, content change or membership change re-runs it ([B07]).
   registerAction(TUG_ACTIONS.RESIZE_SIDEBARS_TO_FIT, () => {
     deckManager.resizeSidebarsToFit();
+  });
+
+  // toggle-sidebars: clear both of the deck's edges, or put back what the last
+  // clearing took away ({@link toggleSidebars}). Dispatched by ⌃⌘S and the
+  // Window row that stands above Resize Sidebars to Fit — the two verbs about
+  // the rails as a whole, next to each other.
+  registerAction(TUG_ACTIONS.TOGGLE_SIDEBARS, () => {
+    toggleSidebars(deckManager);
   });
 
   // assign-slot: put a card's pane at a numbered position in the active

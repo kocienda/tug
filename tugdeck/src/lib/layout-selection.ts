@@ -80,7 +80,7 @@ function contentCardsAmong(
  * What the column verbs could do to the card the layout selection resolves to,
  * as the menu's `column` fact ([P05]) — `null` when no content card resolves.
  *
- * The same ladder and the same first-card rule the ⌃⌘S / ⌃⌘↑↓ handlers use, so
+ * The same ladder and the same first-card rule the ⌃⌘/ / ⌃⌘↑↓ handlers use, so
  * a menu item is live exactly when its chord would act rather than merely when
  * a card happens to be fronted. That equivalence is the whole promotion: AppKit
  * resolves a key equivalent before the web view sees the keydown, so an item

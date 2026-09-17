@@ -341,7 +341,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             await chipText(app, BADGE),
             "and names the chord that splits without the mouse",
-          ).toBe("⌃⌘S");
+          ).toBe("⌃⌘/");
 
           // --- The slot badge: where the card is, and that it can move. ----
           // The chip's numeral says where the card stands and nothing on it

@@ -3236,7 +3236,7 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * Stack or split `slot`'s column, reached from the stack badge, the Layout
-   * card, and ⌃⌘S.
+   * card, and ⌃⌘/.
    *
    * Splitting materializes the slot's `order` in the same imposition for the
    * same reason a rail does: a split column's vertical order is stored state

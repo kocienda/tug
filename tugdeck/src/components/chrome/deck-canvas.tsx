@@ -1963,7 +1963,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           delta: event.value,
         });
       },
-      // ⌃⌘S — split or re-stack the slot the layout selection stands in. The
+      // ⌃⌘/ — split or re-stack the slot the layout selection stands in. The
       // canvas owns it because a slot is a fact about the arrangement and not
       // about a card: the chord resolves the same selection ⌘1..9 and the
       // nudge pair do, takes its FIRST card (a split names one place, and a

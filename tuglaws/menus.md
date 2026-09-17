@@ -163,6 +163,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⇧⌘A | `disclaim-all-changes` | Disclaim All Changes | JS, responder |
 | ⌃⇧⌘↑ | `move-in-column:top` | Move Card to Top of Column | menu bar (swept) |
 | ⌃⇧⌘↓ | `move-in-column:bottom` | Move Card to Bottom of Column | menu bar (swept) |
+| ⌃⌘/ | `toggle-column-split` | Split or Stack Column | menu bar (swept) |
 | ⌃⌘1 | `go-to-slot:1` | Go to Slot 1 | menu bar (swept) |
 | ⌃⌘2 | `go-to-slot:2` | Go to Slot 2 | menu bar (swept) |
 | ⌃⌘3 | `go-to-slot:3` | Go to Slot 3 | menu bar (swept) |
@@ -182,7 +183,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘O | `toggle-overview` | Show Overview | menu bar (swept) |
 | ⌃⌘P | `select-composer-route:prompt` | Prompt Route | JS, global |
 | ⌃⌘R | `toggle-arcs` | Show Arcs | menu bar (swept) |
-| ⌃⌘S | `toggle-column-split` | Split or Stack Column | menu bar (swept) |
+| ⌃⌘S | `toggle-sidebars` | Hide Sidebars | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
 | ⌃⌘W | `toggle-cards` | Show Workspaces | menu bar (swept) |
 | ⌃⌘Y | `toggle-session-fold` | Fold Session | menu bar (swept) |
@@ -195,7 +196,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘→ | `toggle-rail:right` | Show Right Rail | menu bar (swept) |
 | ⌃⌘↓ | `move-in-column:down` | Move Card Down in Column | menu bar (swept) |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
-| ⌃⌥⌘R | `resize-sidebars-to-fit` | Resize Sidebars to Fit | menu bar (swept) |
+| ⌃⌥⌘S | `resize-sidebars-to-fit` | Resize Sidebars to Fit | menu bar (swept) |
 | ⌘+ | `zoom-in` | Zoom In | menu bar (swept) |
 | ⌘, | `show-settings` | Settings… | JS, global |
 | ⌘- | `zoom-out` | Zoom Out | menu bar (swept) |
@@ -396,6 +397,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `window.sidebar.overview.left` | `set-sidebar-side:overview:left` | registered handler | registry gate |
 | `window.sidebar.overview.right` | `set-sidebar-side:overview:right` | registered handler | registry gate |
 | `window.sidebar.overview.show` | `toggle-overview` | registered handler | registry gate |
+| `window.toggleSidebars` | `toggle-sidebars` | registered handler | registry gate |
 | `window.zoom` | `zoom-window` | AppKit performs it | host tier |
 <!-- /generated:catalog -->
 

@@ -152,11 +152,11 @@ describe.skipIf(!SHOULD_RUN)("AT0181: the keymap drives the native key equivalen
         // registry asks it per command. This deck holds one pane in no
         // column, so all five column items validate dark; they hold their
         // chords anyway (`disabledChord: "keep"`), because nothing in the JS
-        // funnel wants ⌃⌘S or the ⌃⌘ arrows and there is nothing for a
+        // funnel wants ⌃⌘/ or the ⌃⌘ arrows and there is nothing for a
         // release to hand them back to. The two arrow conversions ride here
         // too: `NSUpArrowFunctionKey` and its ⇧ counterpart, written by the
         // sweep onto items built with no key equivalent at all.
-        await expectChord(app, "window.columnSplit", "s", COMMAND | CONTROL);
+        await expectChord(app, "window.columnSplit", "/", COMMAND | CONTROL);
         await expectChord(app, "window.columnMoveUp", "\u{F700}", COMMAND | CONTROL);
         await expectChord(app, "window.columnMoveDown", "\u{F701}", COMMAND | CONTROL);
         await expectChord(app, "window.columnMoveTop", "\u{F700}", COMMAND | CONTROL | SHIFT);

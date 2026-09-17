@@ -1,7 +1,8 @@
 /**
  * sidebar-toggle.ts — what a rail's shortcut means (⌃⌘← left, ⌃⌘→ right), and
  * what a sidebar card's own chord and menu row mean (⌃⌘R Arcs, ⌃⌘W Cards,
- * ⌃⌘J Jots, ⌃⌘L Layout, ⌃⌘O Overview).
+ * ⌃⌘J Jots, ⌃⌘L Layout, ⌃⌘O Overview) — and what ⌃⌘S means over BOTH sides at
+ * once.
  *
  * One key, three states, read off the deck:
  *
@@ -35,6 +36,7 @@
 import type { IDeckManagerStore } from "./deck-manager-store";
 import {
   isSidebarPinned,
+  railHiddenMembers,
   sidebarSide,
   type SidebarSide,
 } from "./lib/layout-imposer";
@@ -88,6 +90,62 @@ export function toggleSidebarRail(
     commitMutation: () => store.activateCard(incomingCardId),
     modality: "keyboard",
   });
+}
+
+/**
+ * Hide or show BOTH rails on one gesture — ⌃⌘S, and Window ▸ Hide / Show
+ * Sidebars.
+ *
+ * Two states rather than the pair's three, because the question this gesture
+ * asks is about the deck's edges rather than about a card: anything standing
+ * on either side means the next press clears them, and nothing standing means
+ * the next press brings them back. The middle rung the ⌃⌘ arrows have —
+ * showing but not holding the keyboard — has no reading here: the reader
+ * pressing this is asking for room to read in, not for the keyboard to go to
+ * a rail.
+ *
+ * **Showing puts back only what a hide took away.** `hideSidebarRail` records
+ * each side's members before it closes them, so the show branch reopens the
+ * sides that carry such a memory and leaves the others alone —
+ * `showSidebarRail` on a side with no memory falls back to that side's default
+ * member, which on a deck the user had never opened a right rail on would MINT
+ * one the gesture never hid. The fallback is right in exactly one case: no
+ * side remembers anything, which is a first press of Show with nothing to
+ * restore, and there the gesture means "open what each side would open".
+ *
+ * **The keyboard stays where the reader left it.** A hide's closes hand it on
+ * themselves, and a show has to hand it BACK: `showSidebarPane` mints its pane
+ * as the active one — right for ⌃⌘L, which is a summons — so without this the
+ * gesture that gives the reader room to read would take their caret out of the
+ * card they were typing in. The card the keyboard was on is re-activated when
+ * it is still on the deck, which is every case but the one where the reader
+ * was in a rail card the hide itself closed.
+ */
+export function toggleSidebars(store: IDeckManagerStore): void {
+  const state = store.getSnapshot();
+  const imposition = state.imposition;
+  const standing = findSidebarPanes(state).some(({ componentId }) =>
+    isSidebarPinned(imposition, componentId),
+  );
+  const sides: readonly SidebarSide[] = ["left", "right"];
+
+  if (standing) {
+    for (const side of sides) store.hideSidebarRail(side);
+    return;
+  }
+
+  const outgoingCardId = store.getFirstResponderCardId();
+  const remembered = sides.filter(
+    (side) => railHiddenMembers(imposition, side).length > 0,
+  );
+  for (const side of remembered.length > 0 ? remembered : sides) {
+    store.showSidebarRail(side);
+  }
+  if (outgoingCardId === null) return;
+  const survives = store
+    .getSnapshot()
+    .cards.some((card) => card.id === outgoingCardId);
+  if (survives) store.activateCard(outgoingCardId);
 }
 
 /**

@@ -1490,7 +1490,7 @@ function CardTitleBar({
           //
           // `TugActionTooltip`, so the chip is read from the keymap registry
           // and a rebind reaches the bubble rather than leaving an authored
-          // chord to go stale. ⌃⌘S is a TOGGLE, which is why the same chord is
+          // chord to go stale. ⌃⌘/ is a TOGGLE, which is why the same chord is
           // named whether the place is stacked or split — it is the way back
           // as much as the way in.
           <TugActionTooltip

@@ -1279,7 +1279,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // directly after the card-navigation rows because moving a card among
         // the panes of a place is the same kind of act as choosing one.
         //
-        // ⌃⌘S and the ⌃⌘ arrows, all with EMPTY key equivalents for the same
+        // ⌃⌘/ and the ⌃⌘ arrows, all with EMPTY key equivalents for the same
         // reason the width rows have them — `applyCommandChords` writes them
         // from the frontend's keymap, so the whole family stays rebindable.
         // Their gates hold the chord while the item is dark
@@ -1378,10 +1378,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             wMenu.addItem(item)
         }
         wMenu.addItem(NSMenuItem.separator())
-        // The one verb that resizes the rails, above the cards it resizes.
-        // Key equivalent left EMPTY as everywhere in this file:
-        // `applyCommandChords` writes ⌃⌥⌘R from the frontend's keymap, so the
-        // chord stays rebindable.
+        // The two verbs about the rails AS RAILS, above the card rows they
+        // act on: one takes both sides away and brings them back, the other
+        // stands the cards left on them at their content heights. They read as
+        // a pair on the keyboard too — ⌃⌘S and its ⌃⌥⌘S advanced form.
+        //
+        // "Hide Sidebars" is the BOOT title only: the registry gate rewrites
+        // it to "Show Sidebars" whenever no rail is standing, so the row never
+        // names a verb it cannot perform.
+        //
+        // Key equivalents left EMPTY as everywhere in this file:
+        // `applyCommandChords` writes both from the frontend's keymap, so the
+        // chords stay rebindable.
+        wMenu.addItem(NSMenuItem(title: "Hide Sidebars", action: #selector(toggleSidebars(_:)), keyEquivalent: "").identified("window.toggleSidebars"))
         wMenu.addItem(NSMenuItem(title: "Resize Sidebars to Fit", action: #selector(resizeSidebarsToFit(_:)), keyEquivalent: "").identified("window.resizeSidebarsToFit"))
         wMenu.addItem(NSMenuItem.separator())
         // The sidebar cards — one parent row each, in the panel-list manner
@@ -1675,6 +1684,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// for, and the result is kept as the hand's own division from there on.
     @objc private func resizeSidebarsToFit(_ sender: Any) {
         sendControl("resize-sidebars-to-fit")
+    }
+
+    /// Window ▸ Hide Sidebars / Show Sidebars. Both of the deck's edges on one
+    /// gesture: with anything standing on either side the frontend clears them
+    /// and remembers what stood where, and with nothing standing it puts that
+    /// memory back. The row's title says which of the two the next press is.
+    @objc private func toggleSidebars(_ sender: Any) {
+        sendControl("toggle-sidebars")
     }
 
     /// Create a jot and land the caret in it, revealing the Jots rail if it is
