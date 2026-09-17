@@ -345,10 +345,20 @@ body {
  * shape a rail has AT AN EDGE, not a property of the card. And a member
  * reordered within its own rail is afloat for the same reason while it keeps
  * its side, so the frame rules below are keyed on BOTH: pinned, and not in
- * the air. `data-gesture="true"` is the title-bar drag's mark on the frame,
- * from the lift until the landing animation finishes (`landZoneDrop`), which
- * is exactly the window in which the card is a thing being carried; the
- * rail's own width resize stamps `"resize"` and stays a panel. For that
+ * the air. Being in the air is `data-gesture="true"` AND `data-pointer-owned`
+ * TOGETHER, and the pair is the whole of the reason this is keyed on neither
+ * alone. `data-gesture` goes on at the PRESS, before anything is known about
+ * whether the hand will travel, so rules keyed on it took the card's frame
+ * the instant a title bar was touched: the panel's zeroed top and inner
+ * borders came back as 1px hairlines under a border-box chrome, which moved
+ * the card's whole content a pixel down and a pixel in and put it back on
+ * release. A click is not a carry, and that one moved the card.
+ * `data-pointer-owned` is the drag's LATCH — written only once the pointer
+ * has travelled past the threshold, taken off at the end of the landing
+ * animation (`landZoneDrop`) — which is exactly the window in which the card
+ * is a thing being carried. It is written by the rail's own width resize as
+ * well, and that one stamps `data-gesture="resize"` and stays a panel, so the
+ * conjunction names the carry and nothing else. For that
  * window the chrome takes a rule on every edge and the card's shadow — never
  * the card's radius, because a lifted panel is still a panel — and takes the
  * panel's rules back the moment it has landed. The afloat rail and the in-flight member are one
@@ -409,20 +419,20 @@ body {
   border-radius: 0;
 }
 
-[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side]:not([data-gesture="true"]) .tug-pane-chrome {
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side]:not([data-gesture="true"][data-pointer-owned]) .tug-pane-chrome {
   box-shadow: none;
   border-width: 0 1px 0 0;
 }
 
 /* Mirrored: the inner edge of a right-hand rail is its left. */
-[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side="right"]:not([data-gesture="true"]) .tug-pane-chrome {
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side="right"]:not([data-gesture="true"][data-pointer-owned]) .tug-pane-chrome {
   border-width: 0 0 0 1px;
 }
 
 /* A member with a member below it draws the seam's one hairline as its
    bottom rule. The last member borders the window's foot, which is no
    boundary, and draws none. */
-[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side][data-rail-member-index]:not([data-rail-member-last]):not([data-gesture="true"]) .tug-pane-chrome {
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side][data-rail-member-index]:not([data-rail-member-last]):not([data-gesture="true"][data-pointer-owned]) .tug-pane-chrome {
   border-bottom-width: 1px;
 }
 
@@ -436,7 +446,7 @@ body {
    Rather than compute which edge faces the vacancy, the seated members take
    the full rule set for the carry and give it back at the landing, when
    `data-carrying` clears. */
-[data-carrying="rail"] [data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side]:not([data-gesture="true"]) .tug-pane-chrome {
+[data-carrying="rail"] [data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side]:not([data-gesture="true"][data-pointer-owned]) .tug-pane-chrome {
   border-width: 1px;
 }
 

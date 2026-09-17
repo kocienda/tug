@@ -22,9 +22,19 @@
  * the strip runs off the window's foot, so the members at the bottom of it
  * stand clipped at rest.
  *
+ * The second test is the same law one level in. A press must not move the
+ * card's CONTENT either, and the panel livery used to move it: the rules that
+ * zero a pinned rail's top, bottom and outer borders were keyed on
+ * `data-gesture`, which goes on at the press, so touching a title bar handed
+ * the frame a 1px hairline on every edge under a border-box chrome and put
+ * everything in the card a pixel down. The carry is `data-gesture="true"` AND
+ * `data-pointer-owned` together, and a press that never travels writes only
+ * the first.
+ *
  * @covers tugdeck/src/components/chrome/pane-focus-controller.ts
  * @covers tugdeck/src/gesture-interpreter.ts
  * @covers tugdeck/src/lib/press-travel.ts
+ * @covers tugdeck/src/components/tugways/tug-pane.css
  */
 
 import { describe, expect, test } from "bun:test";
@@ -35,6 +45,9 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 const AFTER_LAND_MS = 900;
 const EPSILON = 1;
+/* A hairline coming and going is a whole pixel, so "did not move" is measured
+   against nothing rather than against a tolerance that would swallow it. */
+const SUBPIXEL = 0.01;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -114,6 +127,35 @@ async function railOffset(app: App): Promise<number> {
 async function top(app: App, paneId: string): Promise<number> {
   return app.evalJS<number>(
     `document.querySelector('${frame(paneId)}').getBoundingClientRect().top`,
+  );
+}
+
+/** The chrome's four border widths, as the browser resolves them. */
+async function chromeBorders(app: App, paneId: string): Promise<number[]> {
+  return app.evalJS<number[]>(
+    `(function () {
+      var s = getComputedStyle(
+        document.querySelector('${frame(paneId)} .tug-pane-chrome'),
+      );
+      return [
+        parseFloat(s.borderTopWidth),
+        parseFloat(s.borderRightWidth),
+        parseFloat(s.borderBottomWidth),
+        parseFloat(s.borderLeftWidth),
+      ];
+    })()`,
+  );
+}
+
+/** Where the card's own content starts, inside the chrome's borders. */
+async function barOrigin(app: App, paneId: string): Promise<{ x: number; y: number }> {
+  return app.evalJS<{ x: number; y: number }>(
+    `(function () {
+      var r = document
+        .querySelector('${frame(paneId)} .tug-pane-title-bar')
+        .getBoundingClientRect();
+      return { x: r.left, y: r.top };
+    })()`,
   );
 }
 
@@ -210,6 +252,64 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
         const between = tops.filter((t) => t < restTop - EPSILON && t > clickedTop + EPSILON);
         note(`release sampled ${tops.length} frames; ${between.length} strictly between rest and landed`);
         expect(between.length, "the member travelled through intermediate positions").toBeGreaterThanOrEqual(3);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a press on a seated member's title bar leaves the panel's frame alone",
+    async () => {
+      const app = await launchTugApp({ testName: "at0541-rail-press-livery" });
+      try {
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 5`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        // The rail's FIRST member: fully seated, not the last, so at rest it
+        // wears the panel's whole rule set — no top rule, the inner edge's
+        // hairline on its left, and the seam's hairline at its foot.
+        const paneId = PANES.layout as string;
+        const restBorders = await chromeBorders(app, paneId);
+        const restOrigin = await barOrigin(app, paneId);
+        note(`at rest: borders ${JSON.stringify(restBorders)}, bar origin ${restOrigin.x.toFixed(1)},${restOrigin.y.toFixed(1)}`);
+        expect(restBorders[0], "a panel draws no top rule").toBe(0);
+
+        const bar = await app.getElementBounds(`${frame(paneId)} .tug-pane-title-bar`);
+        const pt = { x: Math.round(bar.x + 40), y: Math.round(bar.y + bar.height / 2) };
+        await app.nativeMouseDown(pt);
+        await wait(AFTER_LAND_MS);
+        const heldBorders = await chromeBorders(app, paneId);
+        const heldOrigin = await barOrigin(app, paneId);
+        note(`held: borders ${JSON.stringify(heldBorders)}, bar origin ${heldOrigin.x.toFixed(1)},${heldOrigin.y.toFixed(1)}`);
+        expect(
+          await app.evalJS<string | null>(
+            `document.querySelector('${frame(paneId)}').getAttribute('data-gesture')`,
+          ),
+          "the press is a gesture the frame knows about",
+        ).toBe("true");
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector('${frame(paneId)}').hasAttribute('data-pointer-owned')`,
+          ),
+          "but one that never latched",
+        ).toBe(false);
+        expect(heldBorders, "so the panel keeps its borders under the hand").toEqual(restBorders);
+        expect(Math.abs(heldOrigin.y - restOrigin.y), "and nothing in the card moved down").toBeLessThanOrEqual(SUBPIXEL);
+        expect(Math.abs(heldOrigin.x - restOrigin.x), "or in").toBeLessThanOrEqual(SUBPIXEL);
+
+        await app.nativeMouseUp(pt);
+        await wait(AFTER_LAND_MS);
+        const doneBorders = await chromeBorders(app, paneId);
+        const doneOrigin = await barOrigin(app, paneId);
+        note(`released: borders ${JSON.stringify(doneBorders)}, bar origin ${doneOrigin.x.toFixed(1)},${doneOrigin.y.toFixed(1)}`);
+        expect(doneBorders, "and the release changes nothing either").toEqual(restBorders);
+        expect(Math.abs(doneOrigin.y - restOrigin.y), "the card is where it was").toBeLessThanOrEqual(SUBPIXEL);
       } finally {
         await app.close();
       }
