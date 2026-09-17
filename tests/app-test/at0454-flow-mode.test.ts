@@ -7,7 +7,7 @@
  * longer than the band, and activating a card slides the viewport the minimum
  * that brings it in.
  *
- * Five things are pinned here, and each of them failed in an obvious way while
+ * Seven things are pinned here, and each of them failed in an obvious way while
  * the mode was being built:
  *
  *  1. **Nothing overlaps.** Asserted pairwise over the occupied slots rather
@@ -48,6 +48,13 @@
  *     whose first appearance is already in view never shows the reader that
  *     the deck moved to find it. So the pin is where the card actually STOOD,
  *     sampled the whole way through.
+ *  7. **A CLOSE reveals the card it activates.** Closing a card empties its
+ *     slot and hands the first responder to another pane, which is an
+ *     activation like any other — and for a while it was the one activation
+ *     that revealed nothing, so the inheriting card came up wearing the
+ *     active livery while still standing off the band's near edge. The reveal
+ *     rides the close's own commit rather than the flip beside it, so the
+ *     slot emptying and the deck settling onto the survivor are one motion.
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
@@ -993,6 +1000,108 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
       } finally {
         await app.close();
         fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "closing a card brings the card it activates fully into the band",
+    async () => {
+      // A close is an activation: the card that inherits the first responder
+      // was raised by this gesture and the reader was taken there rather than
+      // going there, so it is owed the same minimal reveal a raise is owed.
+      // It did not get one — the close's own commit wrote the panes and the
+      // flip beside it wrote only the bit — so the survivor came up wearing
+      // the active livery while still standing off the band's near edge, which
+      // is the deck activating something it will not show.
+      //
+      // Pinned through the real X, because the close box is the gesture that
+      // found it. A `hello` card does not opt into `confirmClose`, so a click
+      // on a single-card pane's X closes it outright (at0040 case 1).
+      const app = await launchTugApp({ testName: "at0454-close-reveals" });
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
+        );
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+        await setLayout(app, "flow");
+        await wait(AFTER_LAND_MS);
+
+        // Raise A, then E. The raises are what order the deck's z-stack, and
+        // the order is what decides who inherits: closing E's pane hands the
+        // bit to the pane raised before it, which is A's — at the strip's
+        // origin, and by then carried off the band's near edge by E's own
+        // reveal. Without that first raise the inheritor is the Layout rail,
+        // which is pinned to its edge and reveals nothing.
+        await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
+        await wait(AFTER_LAND_MS);
+        await app.evalJS<null>(`(window.__tug.activateCard("E"), null)`);
+        await wait(AFTER_LAND_MS);
+
+        const bandBefore = await band(app);
+        const survivorBefore = (await slotRects(app)).find(
+          (r) => r.paneId === "p1",
+        );
+        note(
+          `before the close: offset ${await flowOffset(app)}, p1 left ${Math.round(
+            survivorBefore?.left ?? NaN,
+          )}, band left ${Math.round(bandBefore.left)}`,
+        );
+        expect(
+          survivorBefore?.left ?? NaN,
+          "the fixture must leave the inheriting card out of the band, or the close has nothing to reveal",
+        ).toBeLessThan(bandBefore.left - TOL);
+
+        await app.evalJS<null>(`(window.__tug.armCutDetector(), null)`);
+        await takeCuts(app);
+        await app.nativeClickAtElement(
+          `.tug-pane[data-pane-id="p5"] [data-testid="tug-pane-close-button"]`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector('.tug-pane[data-pane-id="p5"]') === null`,
+          { timeoutMs: 4_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        const activePaneId = await app.evalJS<string | null>(
+          `(window.tugdeck.diag.getDeckState().activePaneId || null)`,
+        );
+        expect(
+          activePaneId,
+          "the close hands the first responder to the pane raised before it",
+        ).toBe("p1");
+
+        const closeCuts = await takeCuts(app);
+        await app.evalJS<null>(`(window.__tug.disarmCutDetector(), null)`);
+        const bandAfter = await band(app);
+        const survivor = (await slotRects(app)).find((r) => r.paneId === "p1");
+        note(
+          `after the close: offset ${await flowOffset(app)}, p1 left ${Math.round(
+            survivor?.left ?? NaN,
+          )}, band left ${Math.round(bandAfter.left)}, cuts: ${
+            summarize(closeCuts) || "none"
+          }`,
+        );
+        expect(
+          survivor?.left ?? NaN,
+          "the card the close activates comes fully inside the band's near edge",
+        ).toBeGreaterThanOrEqual(bandAfter.left - TOL);
+        expect(
+          survivor?.left ?? NaN,
+          "and no further in than it had to come — the reveal is minimal, and p1 stands at the strip's origin",
+        ).toBeLessThanOrEqual(bandAfter.left + TOL);
+        expect(
+          closeCuts.length,
+          "and the slide is the close's own settle rather than a second move after it",
+        ).toBe(0);
+      } finally {
+        await app.close();
       }
     },
     TEST_TIMEOUT_MS,

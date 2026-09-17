@@ -4055,10 +4055,38 @@ export class DeckManager implements IDeckManagerStore {
     }
     const cardIdSet = new Set(win.cardIds);
     const remaining = this.deckState.panes.filter((s) => s.id !== paneId);
+    // The reveal the close owes ([P12]), spread into the SAME commit that
+    // empties the slot. A close is an activation like any other — the pane
+    // that inherits the first responder was raised by this gesture, and the
+    // reader was taken there rather than going there — so it is owed the
+    // minimal move that brings it fully into its band. Without it a card
+    // standing half under a rail stays half under it, now wearing the active
+    // livery, which reads as the deck having activated something it will not
+    // show.
+    //
+    // Here rather than in phase 1's flip, and over `remaining` rather than
+    // the panes standing: the strip the survivor is revealed INTO is the one
+    // the close leaves behind, and the offset that answers for it is only
+    // true once the closed pane's extent is out of the sum. Written into
+    // phase 1 it would also be a second arrangement change a beat before the
+    // one the reader is watching — two crossings for one gesture ([P10]),
+    // where a close is one motion: the slot empties and the deck settles
+    // onto the card it handed the reader.
+    //
+    // The rule is minimal and idempotent, so a close that leaves the active
+    // card whole in its band spreads nothing and this commit stays
+    // byte-identical. The active pane may be the one the flip above just
+    // named or the one that held the bit all along — a pane elsewhere in the
+    // strip closing still re-sums it, and the survivor is owed the same
+    // answer either way.
+    const revealPaneId = this.deckState.activePaneId;
     this.deckState = {
       ...this.deckState,
       cards: this.deckState.cards.filter((c) => !cardIdSet.has(c.id)),
       panes: remaining,
+      ...(revealPaneId !== undefined
+        ? this._revealTerms(revealPaneId, remaining)
+        : {}),
     };
     // Discard per-card component-state-preservation registries ([A9]) after
     // destruction notifications have fired — subscribers observing
@@ -6785,10 +6813,23 @@ export class DeckManager implements IDeckManagerStore {
       ...currentStack,
       cardIds: currentStack.cardIds.filter((id) => id !== cardId),
     };
+    const finalPanes = this.deckState.panes.map((s) =>
+      s.id === paneId ? finalStack : s,
+    );
+    // The same reveal `_closePane` owes, over the case where the slot keeps
+    // its pane: the card left standing was raised by this gesture, and a
+    // stack that loses a member can change the width its size policy asks for
+    // and the height its column allocates it — either of which can leave the
+    // survivor hanging past a band the reader is looking through. Minimal and
+    // idempotent, so a pane already whole spreads nothing.
+    const revealPaneId = this.deckState.activePaneId;
     this.deckState = {
       ...this.deckState,
       cards: this.deckState.cards.filter((c) => c.id !== cardId),
-      panes: this.deckState.panes.map((s) => (s.id === paneId ? finalStack : s)),
+      panes: finalPanes,
+      ...(revealPaneId !== undefined
+        ? this._revealTerms(revealPaneId, finalPanes)
+        : {}),
     };
     this.discardComponentStatePreservationRegistry(cardId);
     this.notify("_removeCard");
