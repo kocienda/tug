@@ -275,6 +275,34 @@ const MARGIN_CAP_ZINDEX = SIDEBAR_PANE_ZINDEX_BASE - 1;
  */
 const RAIL_SHADOW_ZINDEX = MARGIN_CAP_ZINDEX;
 
+/**
+ * The registry key a side's shadow strip settles under. The strip is not a
+ * pane, but it is held, measured, carried and handed back exactly as a frame
+ * is — it is the depth of the rail beside it, and a shadow that moves on any
+ * clock but its rail's has come away from the panel. The prefix is what lets
+ * `arm` find the strips' entries among the frames'.
+ */
+const RAIL_SHADOW_TWEEN_PREFIX = "rail-shadow:";
+function railShadowTweenKey(side: SidebarSide): string {
+  return `${RAIL_SHADOW_TWEEN_PREFIX}${side}`;
+}
+
+/**
+ * How far a rail standing at `rect` must travel to clear `side`'s edge of the
+ * canvas — negative for a left rail, positive for a right one.
+ *
+ * Measured to the CONTAINER's edge rather than taken as the frame's own width,
+ * because a rail stands one `RAIL_EDGE_INSET` in from that edge and a slide
+ * short by the inset would leave a sliver parked against the window. Past the
+ * edge it is clipped, which is what makes the disappearance the edge's doing
+ * rather than an opacity's.
+ */
+function railTravelPx(rect: DOMRect, side: SidebarSide, canvas: DOMRect): number {
+  return side === "left"
+    ? -(rect.right - canvas.left)
+    : canvas.right - rect.left;
+}
+
 /** The most rails the band can order before it would collide with the overlay
  *  base. Far past any real deck; the clamp is here so it cannot ever collide. */
 const SIDEBAR_PANE_ZINDEX_MAX_RANK = 9;
@@ -2945,6 +2973,30 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     Map<string, { folded: boolean; contentHeight: number | null }>
   >(new Map());
   /**
+   * Which edge each frame stood pinned to before the commit, by pane id —
+   * `data-rail-side`, read at arm and absent for every frame that is not a
+   * rail.
+   *
+   * Read by the depart beat alone, and read there because that is the one
+   * question a ghost cannot answer for itself: the pane it stands for has
+   * already left the deck, so the side it stood on is only knowable from the
+   * near side of the commit. An arriving rail is not in this map and does not
+   * need to be — its own frame is in the document and carries the attribute.
+   */
+  const settleFirstRailSidesRef = useRef<Map<string, SidebarSide>>(new Map());
+  /**
+   * Where each side's rail shadow stood before the commit, by side.
+   *
+   * The shadow strip is the canvas's, not the pane's ([D183]'s one-per-side
+   * rule), so a departing rail unmounts it and there is nothing left to
+   * animate — the same problem the pane ghost solves, one element over. This
+   * is what a shadow ghost is planted from, and it is read on the near side of
+   * the commit for the same reason every other First fact is.
+   */
+  const settleFirstRailShadowsRef = useRef<Map<SidebarSide, DOMRect>>(
+    new Map(),
+  );
+  /**
    * The tweens running on each frame, by pane id — DOM zone, never React
    * state. At most two per settle: the one effect carrying every geometry term
    * the frame crosses ([D135] — move and size share a clock or a pinned edge
@@ -3239,6 +3291,34 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // where it is hardest to see.
   useLayoutEffect(() => {
     const clearFlip = clearFlipRef.current;
+    // **A canvas inherits no residue.** An exit ghost stands outside React's
+    // tree and a rail shadow's slide writes an inline transform, so neither is
+    // anything a re-render can take back — and a canvas that comes up over a
+    // previous one's leavings shows them for the rest of its life. That is the
+    // ordinary case under HMR, where the module is replaced and the DOM is
+    // not: a stripe stranded by the code being edited stays on screen through
+    // every update that fixes it, which reads as the fix not working.
+    //
+    // Swept at MOUNT for that reason, against the document rather than against
+    // the records — the records belong to the instance that just went away.
+    {
+      const canvas = containerRef.current;
+      if (canvas !== null) {
+        for (const ghost of canvas.querySelectorAll(".tug-pane-exit-ghost")) {
+          ghost.remove();
+        }
+        for (const strip of canvas.querySelectorAll<HTMLElement>(
+          ".tug-rail-shadow",
+        )) {
+          if (strip.hasAttribute("data-exit-ghost-for")) {
+            strip.remove();
+          } else {
+            strip.style.removeProperty("transform");
+            strip.style.removeProperty("opacity");
+          }
+        }
+      }
+    }
     const releaseSettle = (
       source: "completion" | "sweep" | "unmount",
     ): void => {
@@ -3388,6 +3468,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       firstRects.clear();
       const firstFolds = settleFirstFoldsRef.current;
       firstFolds.clear();
+      const firstRailSides = settleFirstRailSidesRef.current;
+      firstRailSides.clear();
+      const firstRailShadows = settleFirstRailShadowsRef.current;
+      firstRailShadows.clear();
       // Open the episodes here, on the near side of the commit, because this
       // is the last moment the old layout is still on screen — a scroller
       // cannot say what the user is looking at once the content has already
@@ -3527,7 +3611,60 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             contentHeight: contentBoxHeight(frame),
           });
         }
+        // The edge, for the ghost this frame may leave behind. Read for every
+        // frame for `firstFolds`' reason — which ones depart is not knowable
+        // until the Last pass — and it is one attribute read.
+        if (motion) {
+          const side = frame.getAttribute("data-rail-side");
+          if (side === "left" || side === "right") {
+            firstRailSides.set(paneId, side);
+          }
+        }
         armed.push({ paneId, frame, running });
+      }
+
+      // The shadow strips, once rather than per frame: there is one per SIDE,
+      // and a rail's members all cast the same one.
+      //
+      // A strip is HELD BEFORE IT IS MEASURED, for the frames' reason above,
+      // and by the same hold: the strip is the depth of the rail beside it,
+      // so a rail caught mid-slide and re-planned from the pose the eye has
+      // needs its strip held and measured at the pose the eye has too, or the
+      // Last pass plans the two different journeys and the shadow comes away
+      // from its panel. A strip still HELD for an arrive beat that has not
+      // launched (no anims) is left exactly as a pending arrival is: not on
+      // screen, nothing to hand back, and the Last pass holds it again. An
+      // entry whose strip has left the document is a record of nothing.
+      const armedStrips: Array<{
+        key: string;
+        strip: HTMLElement;
+        running: SettleTween;
+      }> = [];
+      for (const [key, entry] of [...settleTweensRef.current]) {
+        if (!key.startsWith(RAIL_SHADOW_TWEEN_PREFIX)) continue;
+        if (!entry.el.isConnected) settleTweensRef.current.delete(key);
+      }
+      if (motion) {
+        for (const strip of el.querySelectorAll<HTMLElement>(
+          "[data-rail-shadow]",
+        )) {
+          const side = strip.getAttribute("data-rail-shadow");
+          if (side !== "left" && side !== "right") continue;
+          const running = settleTweensRef.current.get(railShadowTweenKey(side));
+          if (
+            running !== undefined &&
+            running.el === strip &&
+            running.anims.length > 0
+          ) {
+            for (const anim of running.anims) anim.cancel("hold-at-current");
+            armedStrips.push({
+              key: railShadowTweenKey(side),
+              strip,
+              running,
+            });
+          }
+          firstRailShadows.set(side, strip.getBoundingClientRect());
+        }
       }
 
       // Second pass: the episodes, and the frames caught mid-settle. Every
@@ -3546,6 +3683,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           for (const restore of running.restores) restore();
           clearFlip(paneId, frame, running.anims);
         }
+      }
+      // The strips' residue goes back on the same tick, after the last
+      // measurement, for the frames' reason.
+      for (const { key, strip, running } of armedStrips) {
+        for (const restore of running.restores) restore();
+        clearFlip(key, strip, running.anims);
       }
 
       // A rail whose mode flipped moves the one member the stack shows and
@@ -3683,6 +3826,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const el = containerRef.current;
     const firstRects = settleFirstRectsRef.current;
     const firstFolds = settleFirstFoldsRef.current;
+    const firstRailSides = settleFirstRailSidesRef.current;
+    const firstRailShadows = settleFirstRailShadowsRef.current;
     // Every episode this commit does not go on to hand a tween is finished
     // here: the new geometry is in the DOM, so ending lands each anchor
     // against the layout the user is about to see. The tweened ones are
@@ -3701,6 +3846,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     if (el === null || firstRects.size === 0) {
       firstRects.clear();
       firstFolds.clear();
+      firstRailSides.clear();
+      firstRailShadows.clear();
       endAllEpisodes();
       // A settle with nothing to carry is over the moment it is read: the
       // hold taken at arm comes off now, on the settle's own clock, rather
@@ -3731,6 +3878,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     if (!isTugMotionEnabled()) {
       firstRects.clear();
       firstFolds.clear();
+      firstRailSides.clear();
+      firstRailShadows.clear();
       endAllEpisodes();
       if (settleTweensRef.current.size === 0) {
         el.removeAttribute("data-imposer-settling");
@@ -3830,7 +3979,37 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       frame: HTMLElement;
       restores: Array<() => void>;
     }> = [];
-    const departures: Array<{ paneId: string; ghost: HTMLElement }> = [];
+    const departures: Array<{
+      paneId: string;
+      ghost: HTMLElement;
+    }> = [];
+    /**
+     * The rails that left, which do NOT ride the depart beat.
+     *
+     * A rail's exit is launched the moment its ghost is planted, on a clock of
+     * its own, because the beat is not reachable for it: hiding the sidebars
+     * is a run of commits in ONE turn — a record, then a close per member, per
+     * side — and every commit's `arm` sweeps the ghosts whose beat has not
+     * launched yet. A beat that launches on a microtask always loses that
+     * race, so every rail but the last one closed vanished without travelling.
+     * Launching at the plant is what makes each rail's exit its own, however
+     * many commits follow it.
+     */
+    const railDepartures: Array<{
+      paneId: string;
+      ghost: HTMLElement;
+      side: SidebarSide;
+    }> = [];
+    /**
+     * The shadow strips of the sides whose rails are ALL arriving, held
+     * invisible with their rails and slid in on the arrive beat.
+     */
+    const arrivingStrips: Array<{
+      key: string;
+      strip: HTMLElement;
+      side: SidebarSide;
+      restores: Array<() => void>;
+    }> = [];
     // This launch. Every completion below — a fade's, an entrance's, the
     // beat choreography's — checks it before touching anything, because a
     // retarget that landed in between has already cancelled, restored and
@@ -4261,6 +4440,75 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         settled();
       });
     }
+    // The shadow strips, planned AFTER every frame so the answer to "did this
+    // side's rail survive?" is in hand. A strip is the rail's depth, and it
+    // moves exactly as the rail does or it is not that — every case below is
+    // one way of keeping the two on one clock.
+    //
+    // A side whose rails are ALL arriving — none survived the commit with a
+    // First rect — is a rail sliding in from its edge. The commit drew the
+    // strip at home, where it would stand alone through every beat before the
+    // arrive while the rail is still held invisible: that is the stripe seen
+    // standing in the middle of a card a beat before the rail comes in. So
+    // the strip is held invisible WITH the rail, and slides in on the arrive
+    // beat on the rail's own number. A side whose strip moved between First
+    // and Last while a rail survived — the rail was caught mid-slide and
+    // re-planned from where it was — is a strip travelling with its rail's
+    // move, and it is choreographed like a frame: held at First, carried on
+    // the side's beat, its transform taken off when the beat lands. A side
+    // whose rails all left has no live strip; its ghost is planted below with
+    // the rail's. React writes neither opacity nor transform on a strip, so
+    // handing either back is taking it off.
+    const railArrivingSides = new Set<SidebarSide>();
+    for (const { frame } of arrivals) {
+      const side = frame.getAttribute("data-rail-side");
+      if (side === "left" || side === "right") railArrivingSides.add(side);
+    }
+    for (const frame of el.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
+      const paneId = frame.getAttribute("data-pane-id");
+      if (paneId === null || !firstRects.has(paneId)) continue;
+      const side = frame.getAttribute("data-rail-side");
+      if (side === "left" || side === "right") railArrivingSides.delete(side);
+    }
+    for (const strip of el.querySelectorAll<HTMLElement>("[data-rail-shadow]")) {
+      const side = strip.getAttribute("data-rail-shadow");
+      if (side !== "left" && side !== "right") continue;
+      const key = railShadowTweenKey(side);
+      const restores = [
+        (): void => {
+          strip.style.removeProperty("opacity");
+        },
+        (): void => {
+          strip.style.removeProperty("transform");
+        },
+      ];
+      if (railArrivingSides.has(side)) {
+        strip.style.opacity = "0";
+        settleTweensRef.current.set(key, { el: strip, anims: [], restores });
+        arrivingStrips.push({ key, strip, side, restores });
+        continue;
+      }
+      const firstRect = firstRailShadows.get(side);
+      if (firstRect === undefined) continue;
+      const dx = firstRect.left - strip.getBoundingClientRect().left;
+      if (Math.abs(dx) < 0.5) continue;
+      const beats = planSettleBeats({ dx, dy: 0, sx: 1 }, { fused });
+      if (beats.length === 0) continue;
+      const anims: TugAnimation[] = [];
+      strip.style.transformOrigin = "0 0";
+      applyHolds(strip, { transform: { dx, dy: 0, sx: 1 } });
+      settleTweensRef.current.set(key, { el: strip, anims, restores });
+      choreography.push({
+        paneId: key,
+        frame: strip,
+        beats,
+        next: 0,
+        anims,
+        restores,
+        handBack: {},
+        crossingId: null,
+      });
+    }
     // The departures. A pane `arm` measured that no longer has a frame closed
     // during this commit, and its last rect is the one thing still known about
     // it — so the ghost goes exactly there, fades, and is taken away. Planted
@@ -4285,8 +4533,99 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // Registered the instant it is planted, so every exit below can hand it
       // back by name. A departure whose pane somehow departs twice replaces
       // its own entry, which is the right record of one pane, one ghost.
-      departureGhostsRef.current.set(paneId, { ghost, launched: false });
-      departures.push({ paneId, ghost });
+      // A rail's ghost counts as launched from the instant it is planted,
+      // because it is: the slide below starts on this same tick, and the
+      // sweep must leave it to travel.
+      const railSide = firstRailSides.get(paneId);
+      departureGhostsRef.current.set(paneId, {
+        ghost,
+        launched: railSide !== undefined,
+      });
+      if (railSide === undefined) departures.push({ paneId, ghost });
+      else railDepartures.push({ paneId, ghost, side: railSide });
+    }
+    // A rail leaves by the edge it stands on, and it takes its SHADOW with
+    // it. The shadow is one strip per side drawn by the canvas rather than by
+    // any pane ([D183]), so a departing rail unmounts it outright and it would
+    // blink out while the panel it is the depth of slides away — a panel and
+    // its depth are one object as the eye reads them. The strip's ghost is
+    // planted only where the side is now EMPTY: a rail losing one of two
+    // members keeps its live strip, which must not be doubled.
+    //
+    // Every ghost on a side travels the RAIL's distance, never its own. The
+    // strip stands ten pixels inboard, so measuring it against the edge
+    // separately would give it a longer journey and the two would drift apart
+    // over the crossing.
+    if (railDepartures.length > 0) {
+      const canvasRect = el.getBoundingClientRect();
+      const travelBySide = new Map<SidebarSide, number>();
+      for (const { ghost, side } of railDepartures) {
+        if (travelBySide.has(side)) continue;
+        travelBySide.set(
+          side,
+          railTravelPx(ghost.getBoundingClientRect(), side, canvasRect),
+        );
+      }
+      const leaving: Array<{ key: string; node: HTMLElement; px: number }> =
+        railDepartures.map(({ paneId, ghost, side }) => ({
+          key: paneId,
+          node: ghost,
+          px: travelBySide.get(side) ?? 0,
+        }));
+      for (const [side, px] of travelBySide) {
+        if (el.querySelector(`[data-rail-shadow="${side}"]`) !== null) continue;
+        const rect = firstRailShadows.get(side);
+        if (rect === undefined) continue;
+        const ghost = document.createElement("div");
+        ghost.className = `tug-rail-shadow tug-rail-shadow--${side}`;
+        const key = `rail-shadow:${side}`;
+        ghost.setAttribute("data-exit-ghost-for", key);
+        ghost.style.position = "fixed";
+        ghost.style.left = `${rect.left}px`;
+        ghost.style.top = `${rect.top}px`;
+        ghost.style.width = `${rect.width}px`;
+        ghost.style.height = `${rect.height}px`;
+        ghost.style.zIndex = String(RAIL_SHADOW_ZINDEX);
+        el.appendChild(ghost);
+        // In the same registry the pane ghosts are in, so the canvas
+        // teardown's "take them all" sweep reaches these too — and launched,
+        // for the reason its rail's is.
+        departureGhostsRef.current.set(key, { ghost, launched: true });
+        leaving.push({ key, node: ghost, px });
+      }
+      // On its own clock and its own completion, unconditional on the settle
+      // generation: a ghost stands for a pane that has already left the deck,
+      // so nothing later will ever collect it and nothing it could interrupt
+      // is still watching.
+      //
+      // **`snap-to-end`, and a landing on BOTH outcomes.** The settle's own
+      // `hold-at-current` is wrong for a ghost twice over: it REJECTS
+      // `finished`, so a landing hung on the resolve alone never runs, and it
+      // commits the mid-slide pose to inline style — which strands the tile in
+      // the document, parked in the middle of the deck, wearing the transform
+      // it was cancelled at. A ghost has no restorer and no later pass, so
+      // that stripe would stand for the life of the canvas. Snapping to the
+      // end is also the honest answer: the end is off the edge.
+      for (const { key, node, px } of leaving) {
+        const slide = animate(
+          node,
+          { transform: ["translateX(0px)", `translateX(${px}px)`] },
+          {
+            ...settleOpts,
+            duration: fadeCurve.durationMs,
+            easing: "ease-out",
+            slotCancelMode: "snap-to-end",
+            key: `rail-exit:${key}`,
+          },
+        );
+        const collect = (): void => {
+          const entry = departureGhostsRef.current.get(key);
+          if (entry === undefined) return;
+          entry.ghost.remove();
+          departureGhostsRef.current.delete(key);
+        };
+        void slide.finished.then(collect, collect);
+      }
     }
     // The beats. Every frame's shrink tweens together; on their joint
     // completion every frame's move tweens; then every frame's grow tweens —
@@ -4348,28 +4687,83 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             duration: fadeCurve.durationMs,
             easing: "ease-out",
           } as const;
+          // A RAIL returns by the edge it stands on, and that is the one
+          // entrance in the deck that is a slide rather than a fade: a left
+          // rail is a panel pinned to the left edge, so it comes back in
+          // moving right, and the right rail is its mirror. A card in the band
+          // has no edge of its own and keeps the fade — it is not travelling
+          // from anywhere, it is beginning to be here ([D135]). The way OUT is
+          // not here at all: a rail's exit is launched where its ghost is
+          // planted, for the race the `railDepartures` comment states.
+          const canvasRect = el.getBoundingClientRect();
+          // **One travel per side, and the shadow takes the pane's** — the
+          // exit's rule, for the exit's reason.
+          const railTravelBySide = new Map<SidebarSide, number>();
+          const travelFor = (el2: HTMLElement, side: SidebarSide): number => {
+            const known = railTravelBySide.get(side);
+            if (known !== undefined) return known;
+            const px = railTravelPx(el2.getBoundingClientRect(), side, canvasRect);
+            railTravelBySide.set(side, px);
+            return px;
+          };
+          const slideIn = (px: number) => ({
+            // Opaque for the whole crossing, against the `opacity: 0` hold the
+            // Last pass wrote: the card is travelling in from outside the
+            // window rather than materializing, so there is nothing for a fade
+            // to say. `land` takes the hold off when the slide arrives.
+            opacity: [1, 1],
+            transform: [`translateX(${px}px)`, "translateX(0px)"],
+          });
           const fades: TugAnimation[] =
             kind === "depart"
               ? departures.map(({ ghost }) =>
-                  animate(
-                    ghost,
-                    { opacity: [1, 0] },
-                    { ...fadeOpts, key: "imposer-exit-ghost" },
-                  ),
+                  animate(ghost, { opacity: [1, 0] }, {
+                    ...fadeOpts,
+                    key: "imposer-exit-ghost",
+                  }),
                 )
-              : arrivals.map(({ frame }) =>
-                  animate(
+              : arrivals.map(({ frame }) => {
+                  const attr = frame.getAttribute("data-rail-side");
+                  const side = isSidebarSide(attr) ? attr : undefined;
+                  return animate(
                     frame,
-                    {
-                      opacity: [0, 1],
-                      transform: [
-                        `translateY(${PANE_ENTER_RISE_PX}px)`,
-                        "translateY(0px)",
-                      ],
-                    },
+                    side === undefined
+                      ? {
+                          opacity: [0, 1],
+                          transform: [
+                            `translateY(${PANE_ENTER_RISE_PX}px)`,
+                            "translateY(0px)",
+                          ],
+                        }
+                      : slideIn(travelFor(frame, side)),
                     { ...fadeOpts, key: "imposer-enter" },
-                  ),
-                );
+                  );
+                });
+          // The arriving sides' strips, after the frames so the positional
+          // pairing below — `arrivals[i]` to `fades[i]` — is untouched. Each
+          // is the LIVE strip the Last pass held invisible with its rail, and
+          // it rides the rail's own number — one travel per side, the exit's
+          // rule for the exit's reason — on the rail's own keyframes, so the
+          // two cannot be a pixel apart on any frame of the crossing.
+          //
+          // Registered on its own entry, as a frame's slide is on the frame's:
+          // a retarget's `arm` holds it where it is and measures it there, the
+          // sweep hands it back, and `land` takes the hold off with the rails'.
+          // Nothing here snaps to an end or lands on its own — a strip that
+          // snapped home while its rail was held mid-slide would be the shadow
+          // standing away from the panel that this whole passage forbids.
+          if (kind === "arrive") {
+            for (const { key, strip, side } of arrivingStrips) {
+              const px = railTravelBySide.get(side);
+              if (px === undefined) continue;
+              const slide = animate(strip, slideIn(px), {
+                ...fadeOpts,
+                key: "imposer-enter-rail-shadow",
+              });
+              settleTweensRef.current.get(key)?.anims.push(slide);
+              fades.push(slide);
+            }
+          }
           if (fades.length === 0) return Promise.resolve();
           el.setAttribute("data-imposer-beat", kind);
           if (kind === "depart") {
@@ -4406,6 +4800,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             }
             for (const { frame } of arrivals) {
               frame.style.removeProperty("opacity");
+            }
+            for (const { strip } of arrivingStrips) {
+              strip.style.removeProperty("opacity");
+              strip.style.removeProperty("transform");
             }
           };
           settleBeatRef.current = {
@@ -4576,6 +4974,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             for (const restore of restores) restore();
             clearFlip(paneId, frame, settleTweensRef.current.get(paneId)?.anims ?? []);
           }
+          for (const { key, strip, restores } of arrivingStrips) {
+            for (const restore of restores) restore();
+            clearFlip(key, strip, settleTweensRef.current.get(key)?.anims ?? []);
+          }
           for (const c of choreography) {
             if (c.crossingId !== null) endFoldCrossing(c.frame, c.crossingId);
           }
@@ -4591,6 +4993,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     if (outstanding === 0) finish();
     firstRects.clear();
     firstFolds.clear();
+    firstRailSides.clear();
+    firstRailShadows.clear();
     fadePlan.clear();
   }, [arrangement]);
 
