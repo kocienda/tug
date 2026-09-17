@@ -2,11 +2,14 @@
  * cards-space-header.tsx — the WORKSPACE header row and the verbs it carries
  * ([P09], [P11], Spec S05).
  *
- * The outermost row of the Workspaces card. What it draws is the reading: the
- * workspace's name, what it holds while collapsed, how many of its sessions
- * are live, and the mark that says which one is on screen. Click or Enter is
- * the delegate's and on this row means "go there" — `activate-space`, a no-op
- * on the workspace already showing.
+ * The outermost row of the Workspaces card, and it reads in TWO columns. The
+ * leading one is the identity — the mark that says which workspace is on
+ * screen, and the name — and it is what a reader scans a column of these rows
+ * for. The trailing one is the tally: how many cards the workspace holds and
+ * how many of its sessions are live, pipe-delimited in the tool-call block
+ * header's own idiom, which is what a reader checks once they have found the
+ * row. Click or Enter is the delegate's and on this row means "go there" —
+ * `activate-space`, a no-op on the workspace already showing.
  *
  * **The three verbs have a visible door as well as a right-click.** They used
  * to be right-click-only, on the argument that a person makes a workspace
@@ -43,6 +46,7 @@ import React from "react";
 import { Eye, EyeClosed, MoreHorizontal } from "lucide-react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { TugBadge } from "@/components/tugways/tug-badge";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import {
   TugEditorContextMenu,
@@ -265,6 +269,50 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
       }}
       trailing={
         <>
+          {/* What the workspace HOLDS, at the trailing edge, pipe-delimited —
+              the tool-call block header's trailing run, on a list row ([P09]).
+
+              It used to read as part of the name (`Main: 3 cards · 2 live`),
+              which made the tally something you had to read PAST to get to
+              the thing you were looking for. A workspace's name is what you
+              scan a column of these rows for; how much is in it is what you
+              check once you have found it. Two different readings want two
+              different columns, and the middle dot could not give them one
+              because it belonged to the name's own run of text.
+
+              So each tally is its own section with its own LEFT rule and
+              never a right one, which is the block header's composition rule
+              exactly: any subset of the sections composes with a single line
+              and equal air on both sides of it, and there are no adjacency
+              cases to write. `live` drops out at zero and the run closes up
+              behind it. */}
+          <span
+            className="cards-space-tally"
+            data-slot="cards-space-tally"
+            data-testid="cards-space-count"
+          >
+            <TugBadge emphasis="ghost" role="inherit" size="sm">
+              {row.summary}
+            </TugBadge>
+          </span>
+          {row.sessionsLive > 0 ? (
+            <span
+              className="cards-space-tally"
+              data-slot="cards-space-tally"
+              data-testid="cards-space-live"
+            >
+              <TugBadge emphasis="ghost" role="inherit" size="sm">
+                {`${row.sessionsLive} live`}
+              </TugBadge>
+            </span>
+          ) : null}
+          {/* The controls are the run's last section and take a rule of their
+              own, for the block header's reason: the jump from what the
+              workspace HOLDS to what you can DO to it is a bigger one than the
+              jump between two tallies, and without the rule it was the only
+              boundary in the row with less air than the boundaries either side
+              of it. */}
+          <span className="cards-space-tally cards-space-tally-controls">
           {/* The visible door to the same three verbs the right-click opens
               ([B01]). It opens the menu at its own rect rather than at a
               pointer position, which is what makes it a button rather than a
@@ -306,6 +354,7 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
             subtype="icon"
             data-slot="cards-space-fold"
           />
+          </span>
           {menu.menu}
         </>
       }
@@ -335,14 +384,6 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
         ) : (
           <TugLabel className="tug-list-row-title" size="sm" maxLines={1}>
             <span data-testid="cards-space-name">{row.name}</span>
-            <span className="cards-header-count" data-testid="cards-space-count">
-              {`: ${row.summary}`}
-            </span>
-            {row.sessionsLive > 0 ? (
-              <span className="cards-header-count" data-testid="cards-space-live">
-                {` · ${row.sessionsLive} live`}
-              </span>
-            ) : null}
           </TugLabel>
         )}
       </span>

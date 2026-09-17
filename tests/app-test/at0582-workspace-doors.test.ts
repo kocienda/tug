@@ -29,6 +29,16 @@
  * possible by letting the ACTIVE workspace, whose rows are the live deck's,
  * be the one that folds.
  *
+ * The tally leg rides the fold: the summary the folded header still reports
+ * is read where it now LIVES, which is the row's trailing edge rather than
+ * the run of the name. The counts moved out of the title and into their own
+ * pipe-delimited sections — the tool-call block header's trailing run, on a
+ * list row — so the name is what a column of these rows is scanned for and
+ * the tally is what is checked once a row is found. Two readings the middle
+ * dot could not separate, because it belonged to the name's own text. The
+ * assertions are the two things that make it a column: the section starts to
+ * the RIGHT of the name, and it carries a left rule of its own.
+ *
  * The doors leg is the [B01] card half: New / Rename / Duplicate / Delete
  * used to open from a right-click and nowhere else, which makes a verb one a
  * person has to already know about. The card's toolbar now carries a New
@@ -268,6 +278,39 @@ describe.skipIf(!SHOULD_RUN)(
           );
           note("at0582 folded summary", String(summary));
           expect(summary).toContain("cards");
+
+          // ---- 2b. And it reads as its own column, not as part of the name.
+          // The two facts that make it one: the section stands to the RIGHT of
+          // the name, and it carries the left rule that delimits it. Both come
+          // off the live box, so a rule deleted from the stylesheet or a
+          // tally that fell back inside the title label is a red here.
+          const tally = await app.evalJS<{
+            nameRight: number;
+            tallyLeft: number;
+            rule: string;
+          } | null>(
+            `(function () {
+               var el = document.querySelector(${JSON.stringify(headerFor(SPACE_ONE))});
+               var s = el.querySelector(${JSON.stringify(SUMMARY)});
+               var n = el.querySelector('[data-testid="cards-space-name"]');
+               if (s === null || n === null) return null;
+               return {
+                 nameRight: Math.round(n.getBoundingClientRect().right),
+                 tallyLeft: Math.round(s.getBoundingClientRect().left),
+                 rule: getComputedStyle(s).borderLeftWidth,
+               };
+             })()`,
+          );
+          note(`at0582 the tally column: ${JSON.stringify(tally)}`);
+          expect(tally, "the header draws both a name and a tally").not.toBeNull();
+          expect(
+            tally === null ? 0 : tally.tallyLeft,
+            "the tally stands to the right of the name rather than inside its run",
+          ).toBeGreaterThan(tally === null ? 1 : tally.nameRight);
+          expect(
+            tally?.rule,
+            "and carries the left rule that delimits it from the name",
+          ).toBe("1px");
 
           // ---- 3. The deck did not move. This is the assertion with teeth:
           // the fold reads a module store the deck knows nothing about, and

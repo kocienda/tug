@@ -327,6 +327,14 @@ body {
      against the card's edge — so it needs to be legible, not generous.
      TUNE HERE. */
   --tugx-cards-level-indent: 3px;
+  /* The air on each side of a tally's rule, at the workspace header's trailing
+     edge. Read twice — once as the margin that closes the gap the trailing
+     slot already opens, once as the padding from the rule to the figures — so
+     the line always has the same room on both sides of it. The block header
+     spends `--tugx-toolheader-sep-gap` exactly this way and for exactly this
+     reason; the value is smaller here because the rail is narrower than a
+     transcript and the row is one line rather than a paragraph. TUNE HERE. */
+  --tugx-cards-tally-gap: var(--tug-space-sm);
 }
 
 /* @tug-renders-on: --tug7-surface-card-primary-normal-well-rest */
@@ -484,10 +492,52 @@ body {
   block-size: var(--tugx-list-row-glyph-size, 0.875rem);
 }
 
-/* A workspace's summary is ink whether or not it is folded — unlike a group's,
-   which is the sole report of what a closed fold hides. An expanded parked
-   workspace is still a place the reader is deciding about, and "3 cards · 1
-   live" is the fact they are deciding on. */
+/* The tally run — what the workspace holds, at the row's trailing edge.
+
+   Ink whether or not the workspace is folded, unlike a group's summary, which
+   is the sole report of what a closed fold hides: an expanded parked workspace
+   is still a place the reader is deciding about, and "3 cards │ 1 live" is the
+   fact they are deciding on.
+
+   The rule is the tool-call block header's, restated in this card's own tokens
+   rather than reached for across the namespace ([L20]). Every section owns its
+   own LEFT rule and never a right one, so any subset of them composes into a
+   single line with equal air on both sides and there is no adjacency case to
+   write: the tally alone reads `name │ 3 cards`, the pair reads
+   `name │ 3 cards │ 1 live`, and nothing has to know which it is. The gap is
+   built from two halves for the same reason it is there — the trailing slot's
+   own `gap` already stands between this section and whatever precedes it, so
+   the margin adds only the remainder, and the padding matches it on the far
+   side of the line. */
+.cards-space-tally {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  margin-inline-start: calc(
+    var(--tugx-cards-tally-gap) - var(--tugx-list-row-trailing-gap)
+  );
+  padding-inline-start: var(--tugx-cards-tally-gap);
+  border-inline-start: 1px solid var(--tugx-group-header-rule);
+}
+
+/* The figures hold their own width, so a count changing under the reader does
+   not shift the run behind it — the same reason the group header's summary
+   takes tabular figures. The badge's own inline padding comes off: it is a
+   ghost badge, so it draws no box for the padding to hold open, and the run
+   already has the rule's gap doing that work on both sides. */
+.cards-space-tally .tug-badge {
+  padding-inline: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+/* The controls are the last section — `···` and the fold cue, behind the same
+   rule the tallies stand behind. They keep the trailing slot's own gap between
+   themselves, which is tighter than the rule's, because two icon buttons that
+   do different things to the same row are one cluster and should read as one. */
+.cards-space-tally-controls {
+  gap: var(--tugx-list-row-trailing-gap);
+}
 
 /* The rows of a workspace that is not on screen. Quieted a step because the
    deck does not hold those cards, not because the rows refuse anything: they
