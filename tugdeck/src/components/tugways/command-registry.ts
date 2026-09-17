@@ -2118,17 +2118,19 @@ export const COMMANDS: readonly CommandEntry[] = [
         ? "Hide Sidebars"
         : "Show Sidebars",
   },
-  // ⌃⌥⌘S — Resize Sidebars to Fit: stand every rail's cards at the heights
+  // ⌃⇧⌘S — Resize Sidebars to Fit: stand every rail's cards at the heights
   // their content asks for, once ([B07], [B08]).
   //
-  // **The tier, and the anomaly it is recorded as** (tuglaws/chord-tiers.md):
-  // ⌃⌥⌘ is the advanced form of a Tug-tier command, and here the derivation
-  // lands honestly: ⌃⌘S is Hide Sidebars, and standing the rails' cards at
-  // their content heights is that subject taken one step further — the
-  // advanced form of the sidebar verb, on the tier reserved for deck-shaping
-  // verbs a user reaches for deliberately. It held ⌃⌥⌘R, R for *Resize*, as a
-  // grant with a reading rather than a derivation, until the ⌃⌘S seat gave it
-  // a base to vary.
+  // **The tier** (tuglaws/chord-tiers.md): ⌃⇧⌘ is the counterpart of a
+  // Tug-tier command, on the same key — Disclaim All ⌃⇧⌘A against Claim All
+  // ⌃⌘A — and that is what this is against ⌃⌘S Hide Sidebars: the same
+  // subject and the same key, the opposite thing to do with a rail. One takes
+  // the rails away; this one stands what is on them at its content height.
+  //
+  // It sat on ⌃⌥⌘R, then ⌃⌥⌘S, and NEITHER ever arrived: Keyboard Maestro
+  // claims both on the user's Mac, so the chord was dead from the day it was
+  // granted and the menu row was its only door. ⌃⌥⌘ is closed to Tug and the
+  // "grandfathered" standing this row had there was standing, not function.
   //
   // `menuEligible`, so the Window row's key equivalent preempts every scoped
   // binding: the rails are the deck's own geometry and no focused surface
@@ -2147,7 +2149,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     mirrored: true,
     bindings: [
       chord(
-        { key: "KeyS", meta: true, ctrl: true, alt: true, label: "s" },
+        { key: "KeyS", meta: true, ctrl: true, shift: true, label: "s" },
         { preventDefault: true, menuEligible: true },
       ),
     ],
