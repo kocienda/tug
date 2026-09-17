@@ -25421,8 +25421,16 @@ mod tests {
             .position(|marker| marker == "arc-stop")
             .unwrap_or_else(|| panic!("the stop was recorded: {markers:?}"));
         assert!(stopping < stopped, "{markers:?}");
-        assert_eq!(stopped, stopping + 1, "nothing sits between them: {markers:?}");
-        assert_eq!(stopped, markers.len() - 1, "and nothing follows: {markers:?}");
+        assert_eq!(
+            stopped,
+            stopping + 1,
+            "nothing sits between them: {markers:?}"
+        );
+        assert_eq!(
+            stopped,
+            markers.len() - 1,
+            "and nothing follows: {markers:?}"
+        );
     }
 
     /// **A missed notify degrades to a late refusal, never a hang** (Risk

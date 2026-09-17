@@ -576,77 +576,82 @@ pub struct WakeWindow {
 /// nothing ([B07]).
 pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWindow> {
     let mut windows = Vec::new();
-    let mut buffer = SessionDigest::new(opts.max_frames, BUFFER_MAX_BYTES);
     // The production digester, run here exactly as the bridge runs it: the
     // window a wake is shown is digest lines, so a harness segmenting raw
     // payloads would be reporting a window nothing ships.
     let mut digester = SessionDigester::new();
     let mut muted: HashSet<String> = HashSet::new();
-    let mut armed_at: Option<i64> = None;
-    let mut tokens_since: i64 = 0;
     let mut assistant_activity = false;
     let mut session_id = String::new();
     let sitrep_ms = opts.sitrep_secs.saturating_mul(1000);
     let submission_arm_ms = opts.submission_arm_secs.max(0).saturating_mul(1000);
-    // Set while a submission's short arm is outstanding. It holds the arm and
-    // the wake's reason as one fact, exactly as the bridge's `short_arm` does.
-    let mut short_arm: Option<i64> = None;
 
-    /// Snapshot-and-clear, exactly as the bridge does before it hands the
-    /// window off: the buffer starts accumulating the next stretch
-    /// immediately, and the timer disarms until something new arrives.
-    fn wake(
-        buffer: &mut SessionDigest,
-        windows: &mut Vec<WakeWindow>,
-        armed_at: &mut Option<i64>,
-        tokens_since: &mut i64,
-        short_arm: &mut Option<i64>,
-        session_id: &str,
-        at_ms: i64,
-        reason: WakeReason,
-    ) {
-        let taken = buffer.take();
-        windows.push(WakeWindow {
-            at_ms,
-            reason,
-            session_id: session_id.to_string(),
-            frame_count: taken.len(),
-            byte_len: taken.byte_len(),
-            elided: taken.was_elided(),
-            rendered: taken.rendered(),
-        });
-        *armed_at = None;
-        *tokens_since = 0;
-        // The short arm is one turn's, so every wake gives the window back to
-        // the sitrep — which is what the bridge does and what makes a
-        // submission wake cost one extra wake rather than a faster cadence.
-        *short_arm = None;
+    // Everything a wake snapshots and clears, held as one: the window's
+    // frames and the two arms that decide when it closes. They move together
+    // or not at all, so they are one value rather than four locals a helper
+    // has to be handed back.
+    struct Pending {
+        buffer: SessionDigest,
+        armed_at: Option<i64>,
+        tokens_since: i64,
+        // Set while a submission's short arm is outstanding. It holds the arm
+        // and the wake's reason as one fact, exactly as the bridge's
+        // `short_arm` does.
+        short_arm: Option<i64>,
     }
+
+    impl Pending {
+        /// Snapshot-and-clear, exactly as the bridge does before it hands the
+        /// window off: the buffer starts accumulating the next stretch
+        /// immediately, and the timer disarms until something new arrives.
+        fn wake(
+            &mut self,
+            windows: &mut Vec<WakeWindow>,
+            session_id: &str,
+            at_ms: i64,
+            reason: WakeReason,
+        ) {
+            let taken = self.buffer.take();
+            windows.push(WakeWindow {
+                at_ms,
+                reason,
+                session_id: session_id.to_string(),
+                frame_count: taken.len(),
+                byte_len: taken.byte_len(),
+                elided: taken.was_elided(),
+                rendered: taken.rendered(),
+            });
+            self.armed_at = None;
+            self.tokens_since = 0;
+            // The short arm is one turn's, so every wake gives the window back
+            // to the sitrep — which is what the bridge does and what makes a
+            // submission wake cost one extra wake rather than a faster cadence.
+            self.short_arm = None;
+        }
+    }
+
+    let mut pending = Pending {
+        buffer: SessionDigest::new(opts.max_frames, BUFFER_MAX_BYTES),
+        armed_at: None,
+        tokens_since: 0,
+        short_arm: None,
+    };
 
     for frame in frames {
         // The deadline elapsed in the gap before this frame arrived, so the
         // wake belongs at the deadline rather than at the frame.
-        if let Some(armed) = armed_at
-            && let Some(arm_ms) = arm_for(short_arm, sitrep_ms)
+        if let Some(armed) = pending.armed_at
+            && let Some(arm_ms) = arm_for(pending.short_arm, sitrep_ms)
             && frame.at_ms >= armed + arm_ms
-            && !buffer.is_empty()
+            && !pending.buffer.is_empty()
         {
             let at = armed + arm_ms;
-            let reason = if short_arm.is_some() {
+            let reason = if pending.short_arm.is_some() {
                 WakeReason::Submission
             } else {
                 WakeReason::SitrepTimer
             };
-            wake(
-                &mut buffer,
-                &mut windows,
-                &mut armed_at,
-                &mut tokens_since,
-                &mut short_arm,
-                &session_id,
-                at,
-                reason,
-            );
+            pending.wake(&mut windows, &session_id, at, reason);
         }
 
         let tapped_session = if frame.via_tap {
@@ -681,8 +686,8 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
             continue;
         };
 
-        if buffer.is_empty() {
-            armed_at = Some(frame.at_ms);
+        if pending.buffer.is_empty() {
+            pending.armed_at = Some(frame.at_ms);
         }
         // Only a TAPPED frame is the session working. A submission-feed user
         // message rides along in the window (half of what makes a post
@@ -692,8 +697,8 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
         if frame.via_tap && counts_as_assistant_activity(&frame.msg_type) {
             assistant_activity = true;
         }
-        buffer.push(digested.line);
-        tokens_since += frame.tokens;
+        pending.buffer.push(digested.line);
+        pending.tokens_since += frame.tokens;
 
         // The submission trigger, on the same terms the bridge takes it: the
         // window re-arms from the submission's own moment, short.
@@ -702,8 +707,8 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
             && let Some((_, Some(text))) = submission_ask(&value)
             && counts_as_ask(&text)
         {
-            armed_at = Some(frame.at_ms);
-            short_arm = Some(submission_arm_ms);
+            pending.armed_at = Some(frame.at_ms);
+            pending.short_arm = Some(submission_arm_ms);
         }
 
         if frame.msg_type == "turn_complete" || frame.msg_type == "turn_cancelled" {
@@ -712,25 +717,12 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
             // IS the wake count, so a phantom wake is a wrong answer to the
             // only question being asked.
             if assistant_activity {
-                wake(
-                    &mut buffer,
-                    &mut windows,
-                    &mut armed_at,
-                    &mut tokens_since,
-                    &mut short_arm,
-                    &session_id,
-                    frame.at_ms,
-                    WakeReason::TurnEnd,
-                );
+                pending.wake(&mut windows, &session_id, frame.at_ms, WakeReason::TurnEnd);
             }
             assistant_activity = false;
-        } else if opts.token_wake_tokens > 0 && tokens_since >= opts.token_wake_tokens {
-            wake(
-                &mut buffer,
+        } else if opts.token_wake_tokens > 0 && pending.tokens_since >= opts.token_wake_tokens {
+            pending.wake(
                 &mut windows,
-                &mut armed_at,
-                &mut tokens_since,
-                &mut short_arm,
                 &session_id,
                 frame.at_ms,
                 WakeReason::TokenThreshold,
@@ -738,18 +730,9 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
         }
     }
 
-    if !buffer.is_empty() {
+    if !pending.buffer.is_empty() {
         let at = frames.last().map(|f| f.at_ms).unwrap_or_default();
-        wake(
-            &mut buffer,
-            &mut windows,
-            &mut armed_at,
-            &mut tokens_since,
-            &mut short_arm,
-            &session_id,
-            at,
-            WakeReason::SessionEnd,
-        );
+        pending.wake(&mut windows, &session_id, at, WakeReason::SessionEnd);
     }
     windows
 }

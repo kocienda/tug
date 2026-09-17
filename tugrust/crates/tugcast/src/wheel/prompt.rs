@@ -433,7 +433,14 @@ mod tests {
         // In a composed prompt it sits directly under the ask, above the
         // citations: what to do, then from where, then what to read.
         let place = where_clause(worktree, "s-1", "review", None);
-        let composed = compose(ASK, Some(&place), &["src/a.rs".to_string()], &[], None, None);
+        let composed = compose(
+            ASK,
+            Some(&place),
+            &["src/a.rs".to_string()],
+            &[],
+            None,
+            None,
+        );
         assert!(composed.starts_with(ASK));
         assert!(
             composed.find("where:").unwrap() < composed.find("citations:").unwrap(),

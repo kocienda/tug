@@ -834,8 +834,8 @@ mod tests {
         // only restate the ask ([B05]). It must also stay well under the
         // sitrep, since a short arm that is not short is not a trigger.
         assert_eq!(DEFAULT_SUBMISSION_ARM_SECS, 6);
-        assert!(DEFAULT_SUBMISSION_ARM_SECS > 0);
-        assert!(DEFAULT_SUBMISSION_ARM_SECS < DEFAULT_SITREP_SECS);
+        const { assert!(DEFAULT_SUBMISSION_ARM_SECS > 0) };
+        const { assert!(DEFAULT_SUBMISSION_ARM_SECS < DEFAULT_SITREP_SECS) };
         assert_eq!(DEFAULT_LAST_K_POSTS, 5);
         assert_eq!(DEFAULT_TOKEN_WAKE_TOKENS, 0, "threshold wake is opt-in");
         assert_eq!(

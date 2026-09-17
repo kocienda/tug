@@ -1738,7 +1738,7 @@ fn opening_prompt(
         .record
         .resume
         .is_some()
-        .then(|| reading.record.last_stop.as_ref())
+        .then_some(reading.record.last_stop.as_ref())
         .flatten()
         .map(|(stage, reason)| (stage.as_str(), reason.as_str()));
     Some(wheel::prompt::compose(
@@ -6449,8 +6449,6 @@ Some context.
             "and the stage is told what it is resuming from, which `stopped` no longer holds",
         );
     }
-
-
 
     /// **A rotated resume is told it is resuming** ([P08], [F12]). Every act
     /// that picks a stopped arc back up clears `stopped` before the runner
