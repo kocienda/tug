@@ -161,7 +161,6 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⇧⌘T | `next-theme` | Next Theme | menu bar (swept) |
 | ⇧⌘Z | `redo` | Redo | JS, global |
 | ⌃⇧⌘A | `disclaim-all-changes` | Disclaim All Changes | JS, responder |
-| ⌃⇧⌘S | `resize-sidebars-to-fit` | Resize Sidebars to Fit | menu bar (swept) |
 | ⌃⇧⌘↑ | `move-in-column:top` | Move Card to Top of Column | menu bar (swept) |
 | ⌃⇧⌘↓ | `move-in-column:bottom` | Move Card to Bottom of Column | menu bar (swept) |
 | ⌃⌘/ | `toggle-column-split` | Split or Stack Column | menu bar (swept) |
@@ -234,6 +233,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌘} | `next-tab` | Next Card | JS, global |
 | ⌥⇥ | `cycle-focus-mode` | Cycle Focus Mode | JS, global |
 | ⌥⇧⌘C | `copy-as-plain-text` | Copy as Plain Text | JS, global |
+| ⌥⇧⌘S | `resize-sidebars-to-fit` | Resize Sidebars to Fit | menu bar (swept) |
 | ⌥⇧⌘V | `paste-as-plain-text` | Paste as Plain Text | JS, global |
 | ⌥⌘/ | `show-devtools` | Show DevTools | menu bar (swept) |
 | ⌥⌘H | `hide-others` | Hide Others | menu bar (AppKit's own) |

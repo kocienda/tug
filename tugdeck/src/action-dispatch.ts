@@ -832,7 +832,7 @@ export function initActionDispatch(
   });
 
   // resize-sidebars-to-fit: stand every rail's cards at the heights their
-  // content asks for, once. Dispatched by ⌃⇧⌘S and the Window menu row, and
+  // content asks for, once. Dispatched by ⌥⇧⌘S and the Window menu row, and
   // by nothing else — the result is a division like any the hand makes, and
   // no resize, content change or membership change re-runs it ([B07]).
   registerAction(TUG_ACTIONS.RESIZE_SIDEBARS_TO_FIT, () => {

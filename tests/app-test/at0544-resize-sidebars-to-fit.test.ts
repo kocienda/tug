@@ -179,7 +179,7 @@ describe.skipIf(!SHOULD_RUN)(
             note(`left, equally divided: ${JSON.stringify(leftBefore)}`);
             note(`right, equally divided: ${JSON.stringify(rightBefore)}`);
 
-            // The verb, once — the same frame the Window row and ⌃⇧⌘S send.
+            // The verb, once — the same frame the Window row and ⌥⇧⌘S send.
             await app.dispatchControlAction("resize-sidebars-to-fit");
             await settled(app);
 

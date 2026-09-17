@@ -1057,7 +1057,7 @@ export const TUG_ACTIONS = {
   //                  again, keeping the slot's mode and member order. Its
   //                  door is the stack badge menu.
   EQUALIZE_COLUMN:        "equalize-column",
-  // RESIZE_SIDEBARS_TO_FIT: payload — none. ⌃⇧⌘S and Window ▸ Resize Sidebars
+  // RESIZE_SIDEBARS_TO_FIT: payload — none. ⌥⇧⌘S and Window ▸ Resize Sidebars
   //                         to Fit. Stand every rail's cards at the heights
   //                         their content asks for, once, and write the
   //                         result as the hand's own division. The only

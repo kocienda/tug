@@ -1381,7 +1381,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // The two verbs about the rails AS RAILS, above the card rows they
         // act on: one takes both sides away and brings them back, the other
         // stands the cards left on them at their content heights. They read as
-        // a pair on the keyboard too — ⌃⌘S and its ⌃⇧⌘S counterpart.
+        // a pair on the keyboard too — ⌃⌘S and ⌥⇧⌘S, the same key twice.
         //
         // "Hide Sidebars" is the BOOT title only: the registry gate rewrites
         // it to "Show Sidebars" whenever no rail is standing, so the row never

@@ -593,12 +593,12 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   ["⌃⌘→", `${TUG_ACTIONS.TOGGLE_RAIL}:right`],
   // The rails as rails, and the pair they make: ⌃⌘S takes both sides away and
   // brings them back — S for *Sidebars*, on the layout tier, in the seat Split
-  // or Stack Column vacated for ⌃⌘/ — and ⌃⇧⌘S is its counterpart on the same
-  // key, standing the cards left on a rail at their content heights. Resize
+  // or Stack Column vacated for ⌃⌘/ — and ⌥⇧⌘S stands the cards left on a
+  // rail at their content heights, the same key under a different set. Resize
   // held ⌃⌥⌘R and then ⌃⌥⌘S, neither of which a Keyboard Maestro machine ever
-  // delivered; ⌃⌥⌘ is closed to Tug.
+  // delivered, and ⌃⇧⌘S briefly, which the hand would not form.
   ["⌃⌘S", TUG_ACTIONS.TOGGLE_SIDEBARS],
-  ["⌃⇧⌘S", TUG_ACTIONS.RESIZE_SIDEBARS_TO_FIT],
+  ["⌥⇧⌘S", TUG_ACTIONS.RESIZE_SIDEBARS_TO_FIT],
 ];
 
 /** The map as it reads today: transcription, minus retirements, plus moves and additions. */

@@ -66,6 +66,7 @@ const TOGGLE_SIDEBARS = "window.toggleSidebars";
 /** `NSEvent.ModifierFlags` as the snapshot reports them. */
 const SHIFT = 1 << 17;
 const CONTROL = 1 << 18;
+const OPTION = 1 << 19;
 const COMMAND = 1 << 20;
 
 /**
@@ -384,7 +385,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => 
   );
 
   test(
-    "Resize Sidebars to Fit stands above the card rows, carrying ⌃⇧⌘S",
+    "Resize Sidebars to Fit stands above the card rows, carrying ⌥⇧⌘S",
     async () => {
       const tugbankPath = mkTempTugbank();
       try {
@@ -409,8 +410,8 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => 
           expect(row.found, `${RESIZE} present in the Window menu`).toBe(true);
           if (!row.found) throw new Error(`${RESIZE} is not in the menu`);
           expect(row.keyEquivalent, `${RESIZE} carries "s"`).toBe("s");
-          expect(row.modifierMask, `${RESIZE} is ⌃⇧⌘`).toBe(
-            COMMAND | CONTROL | SHIFT,
+          expect(row.modifierMask, `${RESIZE} is ⌥⇧⌘`).toBe(
+            COMMAND | OPTION | SHIFT,
           );
           // Ungated: the rails are the deck's geometry and no focused surface
           // declines a verb about them.

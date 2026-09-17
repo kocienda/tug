@@ -2118,19 +2118,19 @@ export const COMMANDS: readonly CommandEntry[] = [
         ? "Hide Sidebars"
         : "Show Sidebars",
   },
-  // ⌃⇧⌘S — Resize Sidebars to Fit: stand every rail's cards at the heights
+  // ⌥⇧⌘S — Resize Sidebars to Fit: stand every rail's cards at the heights
   // their content asks for, once ([B07], [B08]).
   //
-  // **The tier** (tuglaws/chord-tiers.md): ⌃⇧⌘ is the counterpart of a
-  // Tug-tier command, on the same key — Disclaim All ⌃⇧⌘A against Claim All
-  // ⌃⌘A — and that is what this is against ⌃⌘S Hide Sidebars: the same
-  // subject and the same key, the opposite thing to do with a rail. One takes
-  // the rails away; this one stands what is on them at its content height.
-  //
-  // It sat on ⌃⌥⌘R, then ⌃⌥⌘S, and NEITHER ever arrived: Keyboard Maestro
-  // claims both on the user's Mac, so the chord was dead from the day it was
-  // granted and the menu row was its only door. ⌃⌥⌘ is closed to Tug and the
-  // "grandfathered" standing this row had there was standing, not function.
+  // **The key is the constant; the tier is what was left** (see
+  // tuglaws/chord-tiers.md, "A chord has to be typable"). Every sidebar verb
+  // lives on S — ⌃⌘S hides the rails, this stands what is on them at its
+  // content height — and the modifier set is chosen from what the machine and
+  // the hand leave available, which on this key is neither of the two the
+  // algebra would reach for first. ⌃⌥⌘R and then ⌃⌥⌘S were dead on arrival
+  // (Keyboard Maestro claims both keys machine-wide), and ⌃⇧⌘S, the
+  // counterpart tier, is a hand shape the user will not form. ⌥⇧⌘S is a grant
+  // with a reading rather than a derivation: recorded as one, on the tier
+  // whose other residents are the "…as Plain Text" pair.
   //
   // `menuEligible`, so the Window row's key equivalent preempts every scoped
   // binding: the rails are the deck's own geometry and no focused surface
@@ -2149,7 +2149,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     mirrored: true,
     bindings: [
       chord(
-        { key: "KeyS", meta: true, ctrl: true, shift: true, label: "s" },
+        { key: "KeyS", meta: true, alt: true, shift: true, label: "s" },
         { preventDefault: true, menuEligible: true },
       ),
     ],
