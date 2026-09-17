@@ -1114,319 +1114,329 @@ function CardTitleBar({
             control's worth of space, showing one thing at a time. Grown in
             the flex flow instead, it would widen the cluster and
             `space-between` would re-truncate the card's title on every pass
-            of the pointer. */}
-        <div
-          className="tug-pane-title-bar-rollup"
-          data-slot="tug-pane-title-bar-rollup"
-          {...(rollupHeld ? { "data-held": "" } : {})}
-          data-testid="tug-pane-title-bar-rollup"
-        >
+            of the pointer.
+
+            NOT ON A RAIL, and that is the whole of a sidebar card's controls
+            cluster now: a close box, the rail's own place badge, and nothing
+            behind a `⋯`. A rail's rollup only ever held two verbs, and a rail
+            can do neither. It does not bullseye — it is pinned to an edge and
+            holding a place open, and a posture that centres it in the band
+            leaves that place behind. It does not move to another workspace —
+            it stands on the deck edge rather than in the imposition, and its
+            side is arrangement rather than filing. The row was therefore
+            empty of anything a rail could act on, and a `⋯` promising an
+            empty row is the resting lie this cluster is not allowed to tell. */}
+        {!sidebar && (
           <div
-            className="tug-pane-title-bar-rollup-row"
-            data-testid="tug-pane-title-bar-rollup-row"
+            className="tug-pane-title-bar-rollup"
+            data-slot="tug-pane-title-bar-rollup"
+            {...(rollupHeld ? { "data-held": "" } : {})}
+            data-testid="tug-pane-title-bar-rollup"
           >
-            {/* THE ROW READS RIGHT TO LEFT AS A FIXED SPINE, and everything
-                below is that ordering.
-
-                Trailing end first, because it is the end that holds still:
-                bullseye, card width, then Reveal in Finder — the three verbs
-                more than one kind of card offers. A reader who learns where
-                Reveal is on a Text card finds it at the same offset on a
-                Session card. Ahead of them, filling leftward, whatever this
-                particular card adds: Card Settings on a Text card, the session
-                summary on a Session card. Those are different glyphs meaning
-                different things, so those are the ones that should move
-                between card kinds.
-
-                Two mechanisms enforce it, because card verbs arrive by two
-                routes. `SHARED_VERB_RANK` sorts the items a card publishes
-                through the items store; the masthead orders its own portal by
-                hand, with the argument written at the site. */}
-            {/* The masthead's own chrome affordances — on a Session card, the
-                summary popover's trigger and then Reveal in Finder — mount
-                HERE, portaled in by the masthead that owns them. They are
-                verbs the card publishes about itself, so they belong in the
-                rollup with every other verb.
-
-                `display: contents` — an empty host contributes no box, so a
-                pane with no masthead accessory lays out exactly as before. */}
-            <span
-              ref={setControlsAccessoryEl}
-              className="tug-pane-title-bar-accessory"
-              data-slot="tug-pane-title-bar-accessory"
-            />
-        {/* A card's standing verbs, each as its own ghost icon button in the
-            rollup — the shape a verb the card offers every time it is open
-            wants. The glyph is the card's (a lucide NAME, resolved here, the
-            `cardTitleStore` rule); the phrase is the registry's, so a button
-            and the same command's menu item can never say different things.
-
-            A button that cannot act right now DIMS; it never disappears — a
-            row whose membership changes under the hand is one the hand cannot
-            learn, and that rule is what the rollup preserves rather than
-            breaks: the row's contents are constant, and it is the WHOLE row
-            that comes and goes, at one predictable place, on one predictable
-            gesture. Enablement is the registry's answer asked
-            of the chain, and for a key-card command that query is LIVE rather
-            than a snapshot, so sampling here is correct as long as this bar
-            re-renders when the fact turns — which it does, because the card
-            re-publishes its items when the fact that decides them changes.
-            What the card adds is only the PHRASE for the dimmed state, which
-            is the one part of it the registry cannot know.
-
-            The tooltip anchors a span rather than the button: a disabled
-            `.tug-button` takes `pointer-events: none`, so a bubble hung
-            directly on it would never open — and the dimmed state is exactly
-            when the reader most needs to be told why. */}
-        {titleBarButtonItems.map((item) => {
-          const entry = commandEntry(item.commandId);
-          const label = entry?.title ?? item.commandId;
-          const enabled =
-            entry !== undefined && validateCommand(entry, commandValidationSource());
-          const ItemIcon =
-            item.icon !== undefined &&
-            icons[item.icon as keyof typeof icons] !== undefined
-              ? icons[item.icon as keyof typeof icons]
-              : null;
-          if (ItemIcon === null) return null;
-          return (
-            <TugTooltip
-              key={item.commandId}
-              content={enabled ? label : (item.unavailableHint ?? label)}
+            <div
+              className="tug-pane-title-bar-rollup-row"
+              data-testid="tug-pane-title-bar-rollup-row"
             >
+              {/* THE ROW READS RIGHT TO LEFT AS A FIXED SPINE, and everything
+                  below is that ordering.
+
+                  Trailing end first, because it is the end that holds still:
+                  bullseye, card width, then Reveal in Finder — the three verbs
+                  more than one kind of card offers. A reader who learns where
+                  Reveal is on a Text card finds it at the same offset on a
+                  Session card. Ahead of them, filling leftward, whatever this
+                  particular card adds: Card Settings on a Text card, the session
+                  summary on a Session card. Those are different glyphs meaning
+                  different things, so those are the ones that should move
+                  between card kinds.
+
+                  Two mechanisms enforce it, because card verbs arrive by two
+                  routes. `SHARED_VERB_RANK` sorts the items a card publishes
+                  through the items store; the masthead orders its own portal by
+                  hand, with the argument written at the site. */}
+              {/* The masthead's own chrome affordances — on a Session card, the
+                  summary popover's trigger and then Reveal in Finder — mount
+                  HERE, portaled in by the masthead that owns them. They are
+                  verbs the card publishes about itself, so they belong in the
+                  rollup with every other verb.
+
+                  `display: contents` — an empty host contributes no box, so a
+                  pane with no masthead accessory lays out exactly as before. */}
+              <span
+                ref={setControlsAccessoryEl}
+                className="tug-pane-title-bar-accessory"
+                data-slot="tug-pane-title-bar-accessory"
+              />
+          {/* A card's standing verbs, each as its own ghost icon button in the
+              rollup — the shape a verb the card offers every time it is open
+              wants. The glyph is the card's (a lucide NAME, resolved here, the
+              `cardTitleStore` rule); the phrase is the registry's, so a button
+              and the same command's menu item can never say different things.
+
+              A button that cannot act right now DIMS; it never disappears — a
+              row whose membership changes under the hand is one the hand cannot
+              learn, and that rule is what the rollup preserves rather than
+              breaks: the row's contents are constant, and it is the WHOLE row
+              that comes and goes, at one predictable place, on one predictable
+              gesture. Enablement is the registry's answer asked
+              of the chain, and for a key-card command that query is LIVE rather
+              than a snapshot, so sampling here is correct as long as this bar
+              re-renders when the fact turns — which it does, because the card
+              re-publishes its items when the fact that decides them changes.
+              What the card adds is only the PHRASE for the dimmed state, which
+              is the one part of it the registry cannot know.
+
+              The tooltip anchors a span rather than the button: a disabled
+              `.tug-button` takes `pointer-events: none`, so a bubble hung
+              directly on it would never open — and the dimmed state is exactly
+              when the reader most needs to be told why. */}
+          {titleBarButtonItems.map((item) => {
+            const entry = commandEntry(item.commandId);
+            const label = entry?.title ?? item.commandId;
+            const enabled =
+              entry !== undefined && validateCommand(entry, commandValidationSource());
+            const ItemIcon =
+              item.icon !== undefined &&
+              icons[item.icon as keyof typeof icons] !== undefined
+                ? icons[item.icon as keyof typeof icons]
+                : null;
+            if (ItemIcon === null) return null;
+            return (
+              <TugTooltip
+                key={item.commandId}
+                content={enabled ? label : (item.unavailableHint ?? label)}
+              >
+                <span className="tug-pane-title-bar-tooltip-anchor">
+                  <TugButton
+                    subtype="icon"
+                    emphasis="ghost"
+                    role="action"
+                    size="sm"
+                    icon={<ItemIcon />}
+                    disabled={!enabled}
+                    aria-label={label}
+                    data-testid={`tug-pane-title-bar-item-${item.commandId}`}
+                    onClick={() => dispatchCommand(item.commandId)}
+                  />
+                </span>
+              </TugTooltip>
+            );
+          })}
+          {/* Move to Workspace. Authored in place in the spine rather than
+              published through the items store: the authored end of the row is
+              for the PANE's own verbs, and a card of any kind moves — so this is
+              the pane's verb rather than any card family's ([B08]).
+
+              It sits before card width in source order, which is further LEFT in
+              the right-to-left spine, so bullseye and width keep the two
+              positions the eye has already learned.
+
+              Choosing a row files the pane's active card into that workspace and
+              leaves the user exactly where they are ([B04]): a drag is a filing
+              gesture, not a travel one, and the menu is the same gesture wearing
+              a name. Drag remains the fast path; this is the named door. */}
+          {onMoveToSpace !== undefined && (
+            <TugTooltip
+              content={
+                spaces.length > 1
+                  ? "Move this card to another workspace"
+                  : "Move this card to another workspace — there is only one"
+              }
+            >
+              {/* The phrase rides the anchoring span rather than the button,
+                  because a disabled button takes no pointer events and would
+                  never raise the tooltip that explains why it is disabled
+                  ([L31]). The composition the width control already uses
+                  provides the span, so the one-workspace case needs nothing
+                  added. */}
               <span className="tug-pane-title-bar-tooltip-anchor">
-                <TugButton
-                  subtype="icon"
-                  emphasis="ghost"
-                  role="action"
-                  size="sm"
-                  icon={<ItemIcon />}
-                  disabled={!enabled}
-                  aria-label={label}
-                  data-testid={`tug-pane-title-bar-item-${item.commandId}`}
-                  onClick={() => dispatchCommand(item.commandId)}
+                <TugPopupMenu
+                  trigger={
+                    <TugButton
+                      subtype="icon"
+                      emphasis="ghost"
+                      role="action"
+                      size="sm"
+                      icon={<FolderInput />}
+                      aria-label="Move to workspace"
+                      disabled={spaces.length <= 1}
+                      data-testid="tug-pane-title-bar-move-space-button"
+                    />
+                  }
+                  align="end"
+                  // Controlled for the reason written at card width below: the
+                  // menu portals its rows outside the card, so the pointer
+                  // travelling to a row leaves the title bar and would collapse
+                  // the row this trigger stands in.
+                  open={moveMenuOpen}
+                  onOpenChange={setMoveMenuOpen}
+                  items={spaces
+                    .filter((space) => space.id !== activeSpaceId)
+                    .map((space) => ({ id: space.id, label: space.name }))}
+                  onSelect={(id) => onMoveToSpace(id)}
+                  data-testid="tug-pane-title-bar-move-space-menu"
                 />
               </span>
             </TugTooltip>
-          );
-        })}
-        {/* Move to Workspace. Authored in place in the spine rather than
-            published through the items store: the authored end of the row is
-            for the PANE's own verbs, and a card of any kind moves — so this is
-            the pane's verb rather than any card family's ([B08]).
+          )}
+          {/* Card width. A dedicated, persistent trigger rather than a row in
+              the `…` overflow above: width is reached often and carries state,
+              and a control whose current value is invisible until you open it
+              is the wrong shape for both. Composed as `TugPopupMenu` + a ghost
+              `TugButton`, matching the stack badge and section menu beside it —
+              pane chrome is one of that component's sanctioned composers.
 
-            It sits before card width in source order, which is further LEFT in
-            the right-to-left spine, so bullseye and width keep the two
-            positions the eye has already learned.
+              On EVERY pane that has a width, masthead-bearing ones included. It
+              was suppressed on those for a while, on the reasoning that the
+              masthead's first row is identity plus its own telemetry wave and
+              this control competed with the name for it. The Session card is the
+              pane whose width is retuned most often, so the one surface that most
+              needs the control was the one that did not have it — and a control
+              that appears on some panes and not others is a cluster the eye
+              cannot learn. It sits immediately before the close box, which is
+              where it lands on every other pane. */}
+          {onSetWidth !== undefined && (
+            // A plain bubble, not a `TugActionTooltip`: the width row is
+            // ⌃⌘1/2/3, one chord per preset, and this trigger is none of them —
+            // naming the current preset's chord would advertise the keystroke
+            // that changes nothing. The menu's rows are where those chords
+            // belong. The phrase carries the current width instead, which is the
+            // fact the closed control cannot show; at a custom width `widthPreset`
+            // is null and the phrase says nothing rather than claiming the
+            // nearest preset, the same rule the menu's check column follows.
+            <TugTooltip
+              content={
+                widthPreset === null || widthPreset === undefined
+                  ? "Set this card's width"
+                  : `Set this card's width — now ${CONTENT_WIDTH_LABELS[widthPreset]}`
+              }
+            >
+              <span className="tug-pane-title-bar-tooltip-anchor">
+                <TugPopupMenu
+                  trigger={
+                    <TugButton
+                      subtype="icon"
+                      emphasis="ghost"
+                      role="action"
+                      size="sm"
+                      icon={<MoveHorizontal />}
+                      aria-label="Card width"
+                      data-testid="tug-pane-title-bar-width-button"
+                    />
+                  }
+                  align="end"
+                  // Controlled, and only because the rollup needs the answer.
+                  // The menu portals its rows outside the card, so the pointer
+                  // travelling to a width row leaves the title bar, ends its
+                  // hover, and would collapse the row this trigger is standing
+                  // in — leaving an open menu hanging off an anchor that is no
+                  // longer painted. While it stands, the rollup is held.
+                  open={widthMenuOpen}
+                  onOpenChange={setWidthMenuOpen}
+                  items={CONTENT_WIDTH_PRESETS.map((preset) => ({
+                    id: preset,
+                    label: CONTENT_WIDTH_LABELS[preset],
+                    // No check at a custom width: `widthPreset` is null then, and
+                    // claiming the nearest preset would be a resting lie.
+                    selected: widthPreset === preset,
+                  }))}
+                  onSelect={(id) => onSetWidth(id as ContentWidth)}
+                  data-testid="tug-pane-title-bar-width-menu"
+                />
+              </span>
+            </TugTooltip>
+          )}
+          {/* LAST in the row, and the position is the design rather than an
+              ordering preference.
 
-            Choosing a row files the pane's active card into that workspace and
-            leaves the user exactly where they are ([B04]): a drag is a filing
-            gesture, not a travel one, and the menu is the same gesture wearing
-            a name. Drag remains the fast path; this is the named door. */}
-        {onMoveToSpace !== undefined && (
-          <TugTooltip
-            content={
-              spaces.length > 1
-                ? "Move this card to another workspace"
-                : "Move this card to another workspace — there is only one"
-            }
-          >
-            {/* The phrase rides the anchoring span rather than the button,
-                because a disabled button takes no pointer events and would
-                never raise the tooltip that explains why it is disabled
-                ([L31]). The composition the width control already uses
-                provides the span, so the one-workspace case needs nothing
-                added. */}
-            <span className="tug-pane-title-bar-tooltip-anchor">
-              <TugPopupMenu
-                trigger={
-                  <TugButton
-                    subtype="icon"
-                    emphasis="ghost"
-                    role="action"
-                    size="sm"
-                    icon={<FolderInput />}
-                    aria-label="Move to workspace"
-                    disabled={spaces.length <= 1}
-                    data-testid="tug-pane-title-bar-move-space-button"
-                  />
-                }
-                align="end"
-                // Controlled for the reason written at card width below: the
-                // menu portals its rows outside the card, so the pointer
-                // travelling to a row leaves the title bar and would collapse
-                // the row this trigger stands in.
-                open={moveMenuOpen}
-                onOpenChange={setMoveMenuOpen}
-                items={spaces
-                  .filter((space) => space.id !== activeSpaceId)
-                  .map((space) => ({ id: space.id, label: space.name }))}
-                onSelect={(id) => onMoveToSpace(id)}
-                data-testid="tug-pane-title-bar-move-space-menu"
+              The `⋯` mark this row replaces is three dots on a baseline, and its
+              middle dot is the mark's centre. The row is anchored to the same
+              trailing edge the mark is, with no padding on that side, so this
+              button's box lands exactly on the mark's box — and the target's
+              own centre dot lands exactly on the ellipsis's middle dot. Reveal
+              and conceal therefore read as one glyph resolving into another in
+              place, with nothing hopping sideways. Any other control here would
+              put a hole, a bar, or a folder where the dot was.
+
+              It is also the control the mark REPORTS for: bullseye is the one
+              rolled-up verb carrying a posture, and it is the mark's `data-on`
+              that says so at rest. The thing the dot lights for is the thing the
+              dot becomes.
+
+              A rail never reaches this button: the whole rollup is a content
+              pane's, for the reason written at the gate above.
+
+              The button reports its own state rather than only acting: `data-on`
+              while the pane holds the posture, which is what makes a second
+              press read as an exit instead of a no-op. */}
+          {onToggleBullseye !== undefined && (
+            // `TugActionTooltip`, not a plain bubble: ⌃⌘B does exactly what this
+            // button does, and the chip is read from the keymap registry so a
+            // rebind reaches the tooltip rather than leaving an authored chord
+            // behind to go stale. The phrase turns with the posture for the same
+            // reason the `aria-label` does — a control that acts one way and
+            // reads the other is the resting lie the label already avoids.
+            <TugActionTooltip
+              action={TUG_ACTIONS.TOGGLE_BULLSEYE}
+              content={
+                bullseye
+                  ? "Take this card out of bullseye"
+                  : "Center this card in bullseye"
+              }
+            >
+              <TugButton
+                subtype="icon"
+                emphasis="ghost"
+                role="action"
+                size="sm"
+                icon={<CircleDot />}
+                className="tug-pane-title-bar-bullseye-button"
+                {...(bullseye ? { "data-on": "" } : {})}
+                aria-pressed={bullseye}
+                aria-label={bullseye ? "Leave bullseye" : "Bullseye"}
+                data-testid="tug-pane-title-bar-bullseye-button"
+                onClick={onToggleBullseye}
               />
-            </span>
-          </TugTooltip>
-        )}
-        {/* Card width. A dedicated, persistent trigger rather than a row in
-            the `…` overflow above: width is reached often and carries state,
-            and a control whose current value is invisible until you open it
-            is the wrong shape for both. Composed as `TugPopupMenu` + a ghost
-            `TugButton`, matching the stack badge and section menu beside it —
-            pane chrome is one of that component's sanctioned composers.
+            </TugActionTooltip>
+          )}
+            </div>
+            {/* The rollup's MARK — the row's one visible trace at rest, standing
+                in the space the row itself occupies once it unfurls.
 
-            On EVERY pane that has a width, masthead-bearing ones included. It
-            was suppressed on those for a while, on the reasoning that the
-            masthead's first row is identity plus its own telemetry wave and
-            this control competed with the name for it. The Session card is the
-            pane whose width is retuned most often, so the one surface that most
-            needs the control was the one that did not have it — and a control
-            that appears on some panes and not others is a cluster the eye
-            cannot learn. It sits immediately before the close box, which is
-            where it lands on every other pane. */}
-        {onSetWidth !== undefined && (
-          // A plain bubble, not a `TugActionTooltip`: the width row is
-          // ⌃⌘1/2/3, one chord per preset, and this trigger is none of them —
-          // naming the current preset's chord would advertise the keystroke
-          // that changes nothing. The menu's rows are where those chords
-          // belong. The phrase carries the current width instead, which is the
-          // fact the closed control cannot show; at a custom width `widthPreset`
-          // is null and the phrase says nothing rather than claiming the
-          // nearest preset, the same rule the menu's check column follows.
-          <TugTooltip
-            content={
-              widthPreset === null || widthPreset === undefined
-                ? "Set this card's width"
-                : `Set this card's width — now ${CONTENT_WIDTH_LABELS[widthPreset]}`
-            }
-          >
-            <span className="tug-pane-title-bar-tooltip-anchor">
-              <TugPopupMenu
-                trigger={
-                  <TugButton
-                    subtype="icon"
-                    emphasis="ghost"
-                    role="action"
-                    size="sm"
-                    icon={<MoveHorizontal />}
-                    aria-label="Card width"
-                    data-testid="tug-pane-title-bar-width-button"
-                  />
-                }
-                align="end"
-                // Controlled, and only because the rollup needs the answer.
-                // The menu portals its rows outside the card, so the pointer
-                // travelling to a width row leaves the title bar, ends its
-                // hover, and would collapse the row this trigger is standing
-                // in — leaving an open menu hanging off an anchor that is no
-                // longer painted. While it stands, the rollup is held.
-                open={widthMenuOpen}
-                onOpenChange={setWidthMenuOpen}
-                items={CONTENT_WIDTH_PRESETS.map((preset) => ({
-                  id: preset,
-                  label: CONTENT_WIDTH_LABELS[preset],
-                  // No check at a custom width: `widthPreset` is null then, and
-                  // claiming the nearest preset would be a resting lie.
-                  selected: widthPreset === preset,
-                }))}
-                onSelect={(id) => onSetWidth(id as ContentWidth)}
-                data-testid="tug-pane-title-bar-width-menu"
-              />
-            </span>
-          </TugTooltip>
-        )}
-        {/* LAST in the row, and the position is the design rather than an
-            ordering preference.
+                A mark and not a button, and that is a decision rather than an
+                omission. Hovering the bar is what opens the row, and the row
+                covers this spot when it does, so a button here could be pressed
+                to open but never pressed again to close — its own contents would
+                be sitting on top of it. A control whose second press cannot
+                reach it is worse than no control. What the keyboard needs is
+                served by `:focus-within` on the row instead, which reveals it
+                for a walk arriving with no pointer at all.
 
-            The `⋯` mark this row replaces is three dots on a baseline, and its
-            middle dot is the mark's centre. The row is anchored to the same
-            trailing edge the mark is, with no padding on that side, so this
-            button's box lands exactly on the mark's box — and the target's
-            own centre dot lands exactly on the ellipsis's middle dot. Reveal
-            and conceal therefore read as one glyph resolving into another in
-            place, with nothing hopping sideways. Any other control here would
-            put a hole, a bar, or a folder where the dot was.
+                It reports, which is the other half of its job. `data-on` when a
+                verb hidden behind it is currently engaged — today that is
+                bullseye, the one rolled-up control carrying a posture rather
+                than an act. A card sitting in bullseye with its ⊙ tucked away
+                would show nothing about the posture it holds, which is the
+                resting lie this cluster is not allowed to tell. Popping ⊙ back
+                out would tell the truth by making the row's membership change
+                under the hand — so the mark lights instead, the geometry never
+                moves, and the fact is on the surface either way.
 
-            It is also the control the mark REPORTS for: bullseye is the one
-            rolled-up verb carrying a posture, and it is the mark's `data-on`
-            that says so at rest. The thing the dot lights for is the thing the
-            dot becomes.
-
-            A rail gets it for the same reason it gets the badge: bullseye
-            writes no geometry, so a bullseyed rail keeps its width and its
-            side in the store and the band keeps the inset it was already
-            taking. The rail is standing somewhere else for a moment, not
-            hidden, and it drops back onto its edge on exit.
-
-            The button reports its own state rather than only acting: `data-on`
-            while the pane holds the posture, which is what makes a second
-            press read as an exit instead of a no-op. */}
-        {onToggleBullseye !== undefined && (
-          // `TugActionTooltip`, not a plain bubble: ⌃⌘B does exactly what this
-          // button does, and the chip is read from the keymap registry so a
-          // rebind reaches the tooltip rather than leaving an authored chord
-          // behind to go stale. The phrase turns with the posture for the same
-          // reason the `aria-label` does — a control that acts one way and
-          // reads the other is the resting lie the label already avoids.
-          <TugActionTooltip
-            action={TUG_ACTIONS.TOGGLE_BULLSEYE}
-            content={
-              bullseye
-                ? "Take this card out of bullseye"
-                : "Center this card in bullseye"
-            }
-          >
-            <TugButton
-              subtype="icon"
-              emphasis="ghost"
-              role="action"
-              size="sm"
-              icon={<CircleDot />}
-              className="tug-pane-title-bar-bullseye-button"
+                `aria-hidden`: the row behind it is in the accessibility tree
+                whether or not it is painted, so a screen reader already reaches
+                every verb. Announcing a decorative ellipsis beside them would
+                add a stop that does nothing. */}
+            <span
+              className="tug-pane-title-bar-rollup-mark"
+              data-slot="tug-pane-title-bar-rollup-mark"
               {...(bullseye ? { "data-on": "" } : {})}
-              aria-pressed={bullseye}
-              aria-label={bullseye ? "Leave bullseye" : "Bullseye"}
-              data-testid="tug-pane-title-bar-bullseye-button"
-              onClick={onToggleBullseye}
-            />
-          </TugActionTooltip>
-        )}
+              aria-hidden="true"
+              data-testid="tug-pane-title-bar-rollup-mark"
+            >
+              <MoreHorizontal />
+            </span>
           </div>
-          {/* The rollup's MARK — the row's one visible trace at rest, standing
-              in the space the row itself occupies once it unfurls.
-
-              A mark and not a button, and that is a decision rather than an
-              omission. Hovering the bar is what opens the row, and the row
-              covers this spot when it does, so a button here could be pressed
-              to open but never pressed again to close — its own contents would
-              be sitting on top of it. A control whose second press cannot
-              reach it is worse than no control. What the keyboard needs is
-              served by `:focus-within` on the row instead, which reveals it
-              for a walk arriving with no pointer at all.
-
-              It reports, which is the other half of its job. `data-on` when a
-              verb hidden behind it is currently engaged — today that is
-              bullseye, the one rolled-up control carrying a posture rather
-              than an act. A card sitting in bullseye with its ⊙ tucked away
-              would show nothing about the posture it holds, which is the
-              resting lie this cluster is not allowed to tell. Popping ⊙ back
-              out would tell the truth by making the row's membership change
-              under the hand — so the mark lights instead, the geometry never
-              moves, and the fact is on the surface either way.
-
-              `aria-hidden`: the row behind it is in the accessibility tree
-              whether or not it is painted, so a screen reader already reaches
-              every verb. Announcing a decorative ellipsis beside them would
-              add a stop that does nothing. */}
-          <span
-            className="tug-pane-title-bar-rollup-mark"
-            data-slot="tug-pane-title-bar-rollup-mark"
-            {...(bullseye ? { "data-on": "" } : {})}
-            aria-hidden="true"
-            data-testid="tug-pane-title-bar-rollup-mark"
-          >
-            <MoreHorizontal />
-          </span>
-        </div>
+        )}
         {/* THE PLACE PAIR, pinned against the trailing edge behind only the
             close box. Two controls that report where you are, reading
             outward-in: the slot badge names the place the PANE stands in the
@@ -4722,9 +4732,15 @@ export function TugPane({
       {sidebarSide !== undefined ? (
         // A rail standing in bullseye exposes no edge at all. Its one handle
         // drags the RAIL's width — measured from the deck edge the rail is
-        // pinned to — and the frame is not standing there for the moment, so
-        // the drag would resize the place the rail is holding open from a
-        // grip nowhere near it. The handle comes back with the rail.
+        // pinned to — and the frame would not be standing there, so the drag
+        // would resize the place the rail is holding open from a grip nowhere
+        // near it.
+        //
+        // Defensive now rather than reachable: a rail no longer bullseyes —
+        // `DeckManager.toggleBullseye` refuses one, and neither of its doors
+        // offers the verb on a sidebar card. The guard stays because this is
+        // geometry reading a posture field, and a stale id it read as true
+        // would hand the user a handle onto nothing.
         bullseye ? null : (
           <div
             className={`tug-pane-resize tug-pane-resize-${sidebarSide === "left" ? "e" : "w"}`}
@@ -4770,9 +4786,18 @@ export function TugPane({
             onRevealPane={onRevealPane}
             spaces={spaces}
             activeSpaceId={spacesActiveSpaceId}
-            onMoveToSpace={onMoveToSpace}
-            bullseye={bullseye}
-            onToggleBullseye={handleToggleBullseye}
+            // Neither verb is a rail's, and the bar is told so by being handed
+            // neither handler — the same shape `onSetWidth` already takes
+            // above. The bar drops its whole rollup on a sidebar card, so this
+            // changes nothing it renders; what it changes is what the props
+            // SAY, which is the thing a later reader has to be able to trust.
+            {...(isRail
+              ? {}
+              : {
+                  onMoveToSpace,
+                  bullseye,
+                  onToggleBullseye: handleToggleBullseye,
+                })}
             {...(sidebarStack !== undefined
               ? {
                   // A rail is always divided, so the badge draws the band and

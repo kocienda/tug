@@ -1865,12 +1865,14 @@ export class DeckManager implements IDeckManagerStore {
   /**
    * Put `paneId` in bullseye, or take it out when it is already there.
    *
-   * Refuses a pane that does not exist, and nothing else. A RAIL takes the
-   * posture like any other pane: bullseye writes no geometry, so the rail's
-   * width and side stay in the store, the band keeps the inset it was already
-   * taking, and the rail drops back onto its edge on exit. Reserving the place
-   * rather than reclaiming it is what keeps a bullseyed rail from reading as a
-   * hidden one ([D131]).
+   * Refuses a pane that does not exist, and refuses a RAIL. A sidebar card is
+   * pinned to a deck edge and is holding a place open there; a posture that
+   * centres it in the band takes it off the edge it is the reason for, and the
+   * inset it leaves behind belongs to nothing. The rule lives here rather than
+   * only at the doors, because this is the one call every door reaches — the
+   * title bar's target button (which a rail's chrome no longer renders at all)
+   * and Window ▸ Bullseye (which `hostMenuState` reports as inapplicable on a
+   * rail, so the row is dim rather than a press that does nothing).
    *
    * The "already there" comparison is against the DERIVED value, so a raw id
    * left behind by a focus move reads as "not bullseyed" and the press turns
@@ -1882,6 +1884,10 @@ export class DeckManager implements IDeckManagerStore {
   public toggleBullseye = (paneId: string): void => {
     const pane = this.deckState.panes.find((p) => p.id === paneId);
     if (!pane) return;
+    const holdsRail = this.deckState.cards.some(
+      (c) => pane.cardIds.includes(c.id) && isSidebarCard(c.componentId),
+    );
+    if (holdsRail) return;
     const next = this.getBullseyePaneId() === paneId ? undefined : paneId;
     this.deckState = { ...this.deckState, bullseyePaneId: next };
     this.notify("toggleBullseye");

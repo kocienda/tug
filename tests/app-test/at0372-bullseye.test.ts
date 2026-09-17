@@ -37,14 +37,16 @@
  *  4. **An imposed pane returns to its slot.** Bullseye takes precedence
  *     over the imposition while it holds and hands the pane back to it on
  *     exit, which is the branch-ordering claim in `tug-pane.tsx`.
- *  5. **A rail bullseyes, and its place stays reserved.** The Layout card takes the
- *     posture like any other pane, and the assertion that separates that from
- *     a HIDE is the band's centre: read before entry, it is the same number
- *     the bullseyed rail is centred on and the same number the band still
- *     reports while it holds. A rail treated as gone would hand its inset
- *     back, the chain would re-impose wider, and both would move. The menu
- *     gate is read in the same breath, enabled and then checked, so the gate
- *     and the geometry answer from the same derived value.
+ *  5. **A rail does not bullseye at all, and says so at every door.** The
+ *     Layout card is pinned to a deck edge and is holding a place open there,
+ *     so the posture — which centres a pane in the band — has nowhere honest
+ *     to put it. All three doors are read in one breath, because a rule
+ *     enforced at one of them is a rule that comes back: Window ▸ Bullseye
+ *     reports the row INAPPLICABLE on a rail, ⌃⌘B on a focused rail leaves
+ *     its rect untouched to the pixel, and the rail's own chrome renders no
+ *     rollup and therefore no target button. The store is the one that
+ *     refuses ({@link DeckManager.toggleBullseye}); the other two are what
+ *     keep it from being a press that lands nowhere.
  *  6. **The other content panes leave, and the rails do not.** A card that
  *     is merely dimmed is still a card you can read, so every other content
  *     pane slides off the horizontal edge it was nearest — asserted as no
@@ -501,7 +503,7 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "a rail bullseyes with its place reserved, and an imposed pane returns to its slot",
+      "a rail refuses the posture, and an imposed pane returns to its slot",
       async () => {
         const app = await launchTugApp({ testName: "at0372-bullseye-imposed" });
         try {
@@ -512,39 +514,39 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(AFTER_LAND_MS);
 
-          // --- A rail takes the posture, and its edge stays reserved. -------
-          // The claim that separates this from a hide: while the Layout card stands
-          // in the middle of the band, the band is still inset by the rail's
-          // width on the right. A rail that had been treated as gone would
-          // hand that inset back, the chain would re-impose wider, and the
-          // Layout card would land somewhere else on exit. So the band centre is
-          // read BEFORE entry and asserted to be the same one the bullseyed
-          // rail is centred on — one number that can only agree if the place
-          // was held open.
+          // --- A rail refuses the posture, at all three doors. --------------
+          // The Layout card is pinned to the right edge and is the reason the
+          // band is inset there; centring it in that band would take it off
+          // the edge it is holding open. So the chord is a no-op on it, and
+          // the menu says so before the press rather than after.
           const railRect = await paneRect(app, "pRail");
           const railRecord = await paneRecord(app, "pRail");
           const bandBefore = await bandCentreX(app);
           await focusCard(app, "L");
-          expect((await menuItem(app, "window.bullseye")).enabled).toBe(true);
+          expect((await menuItem(app, "window.bullseye")).enabled).toBe(false);
 
           await bullseyeChord(app);
-          expect(await isBullseyed(app, "pRail")).toBe(true);
-          const railIn = await paneRect(app, "pRail");
-          expect(railIn.width).toBe(COMFY);
-          expect(
-            Math.abs(Math.round(railIn.left + railIn.width / 2) - bandBefore),
-          ).toBeLessThanOrEqual(1);
-          expect(await bandCentreX(app)).toBe(bandBefore);
-          // And nothing about the rail's record moved — the side and the
-          // width the band is inset by are exactly what they were.
-          expect(await paneRecord(app, "pRail")).toEqual(railRecord);
-          expect((await menuItem(app, "window.bullseye")).checked).toBe(true);
-
-          // Out again, to the pixel: the rail drops back onto the edge it
-          // never stopped holding.
-          await bullseyeChord(app);
-          expect(await paneRect(app, "pRail")).toEqual(railRect);
           expect(await isBullseyed(app, "pRail")).toBe(false);
+          // To the pixel, and in the store too: a press that landed and was
+          // then undone would pass a "not bullseyed" read on its own.
+          expect(await paneRect(app, "pRail")).toEqual(railRect);
+          expect(await paneRecord(app, "pRail")).toEqual(railRecord);
+          // And the band it insets is where it was — nothing re-imposed.
+          expect(await bandCentreX(app)).toBe(bandBefore);
+
+          // The pointer door is not there to press: a rail's title bar drops
+          // its whole rollup, so the `⋯` and the target inside it are both
+          // absent. The close box and the place badge are untouched.
+          expect(
+            await app.evalJS<number>(
+              `document.querySelectorAll('.tug-pane[data-pane-id="pRail"] [data-testid="tug-pane-title-bar-rollup"]').length`,
+            ),
+          ).toBe(0);
+          expect(
+            await app.evalJS<number>(
+              `document.querySelectorAll('.tug-pane[data-pane-id="pRail"] ${TARGET_BUTTON}').length`,
+            ),
+          ).toBe(0);
 
           // --- An imposed pane bullseyes and returns to its slot anchor. ----
           await focusCard(app, "A");
@@ -577,7 +579,7 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "the title bar's target button is a door of its own, on a card and on a rail",
+      "the title bar's target button is a door of its own, and no rail has one",
       async () => {
         // The button is PANE-ADDRESSED where the chord is selection-relative:
         // it names the pane it stands on. Pressing one on a background pane
@@ -602,12 +604,14 @@ describe.skipIf(!SHOULD_RUN)(
           const button = (paneId: string): string =>
             `.tug-pane[data-pane-id="${paneId}"] ${TARGET_BUTTON}`;
 
-          // Every pane has one, rails included.
+          // One per CONTENT pane, and none on the rail: a sidebar card's
+          // title bar renders no rollup at all, so there are two in a deck of
+          // three panes.
           expect(
             await app.evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(TARGET_BUTTON)}).length`,
             ),
-          ).toBe(3);
+          ).toBe(2);
 
           // --- On a BACKGROUND content pane. --------------------------------
           // The target rests inside p2's rollup, so pin p2's row open first —
@@ -661,25 +665,22 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await isBullseyed(app, "p2")).toBe(false);
           expect(await paneRect(app, "p2")).toEqual(restRect);
 
-          // --- On the RAIL, where the button is the only pointer door. ------
-          const railRect = await paneRect(app, "pRail");
-          await app.revealPaneControls('.tug-pane[data-pane-id="pRail"]');
-          await app.nativeClickAtElement(button("pRail"));
-          await wait(AFTER_LAND_MS);
-          expect(await isBullseyed(app, "pRail")).toBe(true);
-          expect((await paneRect(app, "pRail")).width).toBe(COMFY);
-          // A bullseyed rail exposes no edge: its one handle drags the RAIL's
-          // width from the deck edge, and the frame is not standing there.
+          // --- On the RAIL, where there is no button to press. --------------
+          // The rail keeps everything the posture would have disturbed: its
+          // one deck-facing resize handle, and the rect it was drawn at. The
+          // handle count is the tell that nothing put it in the posture
+          // behind the scenes — a bullseyed rail exposes no edge.
+          expect(
+            await app.evalJS<number>(
+              `document.querySelectorAll('.tug-pane[data-pane-id="pRail"] ${TARGET_BUTTON}').length`,
+            ),
+          ).toBe(0);
           expect(
             await app.evalJS<number>(
               `document.querySelectorAll('.tug-pane[data-pane-id="pRail"] .tug-pane-resize').length`,
             ),
-          ).toBe(0);
-
-          await app.nativeClickAtElement(button("pRail"));
-          await wait(AFTER_LAND_MS);
+          ).toBe(1);
           expect(await isBullseyed(app, "pRail")).toBe(false);
-          expect(await paneRect(app, "pRail")).toEqual(railRect);
         } finally {
           await app.close();
         }

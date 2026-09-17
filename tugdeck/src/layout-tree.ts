@@ -603,8 +603,10 @@ export function sweptArriving(state: DeckState): DeckState {
  *   7. no pane's `position.y` is above the deck's top edge — a title bar
  *      the user cannot reach is a trap, not a layout ({@link DECK_TOP_Y}).
  *   8. when `state.bullseyePaneId` is set, it references a real pane. A
- *      sidebar pane is allowed: a rail bullseyes like any other pane, and
- *      its place on the edge is reserved while it does ([D131]).
+ *      sidebar pane is not asserted against here even though a rail never
+ *      takes the posture ([D131], `DeckManager.toggleBullseye`): a raw id is
+ *      allowed to be residue, and an invariant that threw on one would turn a
+ *      stale field into a crash.
  *      Deliberately NOT asserted: that the pane still holds the first
  *      responder. The raw id is allowed to go stale when focus moves; the
  *      accessor derives it away, and asserting it here would throw on the

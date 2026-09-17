@@ -165,3 +165,26 @@ describe("the focus-shaped exit clears from the one flip funnel", () => {
     expect(calls.length).toBe(1);
   });
 });
+
+describe("a rail never enters the posture at all", () => {
+  // The entry-side rule, beside the two exit-side ones above. A sidebar card
+  // is pinned to a deck edge and is holding a place open there, so centering
+  // it in the band would leave that place behind — [D131] said so from the
+  // start ("precedence over pinned is defensive only, since a rail can never
+  // hold the posture") while the store still let one in.
+  //
+  // Stated over the store rather than over the doors, because the doors are
+  // where it goes stale: a rail's title bar renders no rollup and Window ▸
+  // Bullseye reports the row inapplicable on one, and a third door added
+  // later would know nothing about either.
+  test("toggleBullseye refuses a pane holding a sidebar card", () => {
+    const body = stripComments(bodyOf("  public toggleBullseye = "));
+    expect(body).toContain("isSidebarCard(");
+    // The refusal lands before the write — a rail that got as far as
+    // `bullseyePaneId` would be a posture the geometry then has to be
+    // defensive about.
+    expect(body.indexOf("if (holdsRail) return;")).toBeLessThan(
+      body.indexOf("bullseyePaneId: next"),
+    );
+  });
+});

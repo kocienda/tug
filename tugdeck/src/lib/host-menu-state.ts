@@ -780,14 +780,15 @@ export function projectDeckState(
       ? null
       : { preset: focusedStack.widthPreset ?? null };
 
-  // Bullseye rides ONE of the width row's gates — "is there a pane the
-  // selection is in" — and not the rail gate. A rail has no width preset to
-  // set, which is why `cardWidth` refuses it; it does have a posture, and it
-  // keeps its place on the edge while it holds one. `on` reads the DERIVED
-  // id, so the menu's check mark can never disagree with the geometry — one
-  // rule answers both.
+  // Bullseye rides BOTH of the width row's gates, and the rail one is the
+  // reason this row and that row now read alike: a sidebar card is pinned to a
+  // deck edge and is holding a place open there, so it no longer takes the
+  // posture at all ([D131]). `DeckManager.toggleBullseye` is where that refusal
+  // lives; answering `null` here is what keeps the menu from offering a press
+  // the store would swallow. `on` reads the DERIVED id, so the menu's check
+  // mark can never disagree with the geometry — one rule answers both.
   const bullseye =
-    state.activePaneId === undefined || focusedStack === null
+    state.activePaneId === undefined || focusedStack === null || focusedIsRail
       ? null
       : { on: bullseyePaneIdOf(state) === focusedStack.id };
 
