@@ -79,6 +79,7 @@ import { SessionTelemetryStatusRow } from "./session-card-telemetry-renderers";
 import { COMPACTION_CANCEL_FOCUS_KEY } from "./session-card-telemetry-renderers";
 import type { SessionTelemetryStatusRowHandle } from "./session-card-telemetry-renderers";
 import { formatPathChipText } from "../chrome/path-chip-format";
+import { useSpaceLayerShown } from "@/components/chrome/space-layer";
 import {
   SessionRouteIndicatorBadge,
   CC_VERSION_DOMAIN,
@@ -2109,8 +2110,16 @@ export function SessionCardBody({
   // and never re-runs. CardHost portals into the host pane and is
   // never remounted across cross-pane moves ([L23] minimal mutation),
   // so empty-deps semantics correctly maps to "once per fresh
-  // session bind."
+  // session bind." A WORKSPACE move is the exception and is [L23]'s
+  // third class: the pane changes React parent, so the body is rebuilt
+  // on the far side — inside a `display: none` layer, which is why the
+  // effect below reads `layerShown` before it plays anything.
   const sessionCardRootRef = useRef<HTMLDivElement | null>(null);
+
+  // Whether this card's workspace layer is the shown one. `DeckCanvas`
+  // provides it per layer; the fade effect below reads it at mount to
+  // decide whether there is an entrance to play at all ([L32]).
+  const layerShown = useSpaceLayerShown();
 
   const codeSnap = useSyncExternalStore(
     codeSessionStore.subscribe,
@@ -2735,12 +2744,16 @@ export function SessionCardBody({
   //       zone (opacity ramp); the WAAPI animation writes directly
   //       to the DOM, never round-tripping through React state ([L02]
   //       does not apply because this is appearance, not data).
-  //
-  // No cleanup is registered: if the body unmounts mid-fade, the
-  // WAAPI animation is garbage-collected with the detached element.
-  // `commitStyles()` inside tug-animator catches the
-  // `InvalidStateError` thrown when the element is no longer
-  // rendered, so the late `.finished` resolution is harmless.
+  // [L32] The fade owns BOTH its states. It writes the inline "0" and
+  //       it is the one that clears it — on the settle arm, on the
+  //       reject arm, and in the cleanup — so the element ends with no
+  //       inline opacity whichever way the beat went. Leaving the end
+  //       value to the animator's `commitStyles()` was the defect this
+  //       clause was written from: `commitStyles()` throws for an
+  //       element with no box, `tug-animator.ts` swallows the throw by
+  //       design, `cancel()` takes the animation away, and the
+  //       hand-written "0" becomes the card's inline style forever. A
+  //       Session card moved into a hidden workspace came back blank.
   useLayoutEffect(() => {
     const el = sessionCardRootRef.current;
     if (el === null) return;
@@ -2755,16 +2768,41 @@ export function SessionCardBody({
     // directly), the same predicate `replayHoldActive` derives.
     const snap = codeSessionStore.getSnapshot();
     if (snap.phase === "replaying" || deriveColdRestoreActive(snap)) return;
+    // No entrance in a workspace nobody is looking at. There is no
+    // picker exit to share a beat with in a hidden layer, and a mount
+    // that may land hidden plays no entrance ([L23]'s third class,
+    // [L32]) — the whole point of the fade is a handoff the user is
+    // watching, and the element has no box to animate against here.
+    if (!layerShown) return;
     // Set the start state inline so the first paint after commit
     // shows opacity:0 — WAAPI's pending-phase doesn't apply the
-    // first keyframe with the default `fill: forwards`. Cleared on
-    // animation completion via tug-animator's commitStyles() path.
+    // first keyframe with the default `fill: forwards`. Cleared by
+    // `restore` below, on every path out.
     el.style.opacity = "0";
+    const restore = (): void => {
+      el.style.opacity = "";
+    };
     const g = group({ duration: "--tug-motion-duration-moderate" });
     g.animate(el, [{ opacity: 0 }, { opacity: 1 }], {
       key: "session-card-enter",
       easing: "ease-out",
     });
+    // Both arms take the same `restore`. On the normal path the order
+    // is right: the group's `finished` resolves only after the
+    // animator's handler has run `commitStyles()`, so this clears the
+    // committed `opacity: 1` rather than being overwritten by it. The
+    // reject arm is reachable through the animator's other cancel
+    // modes.
+    g.finished.then(restore, restore);
+    // The release [L27] requires. `cancel()`'s default mode is
+    // "snap-to-end", which calls `wapiAnim.finish()` and so RESOLVES
+    // `finished` rather than rejecting it — so the synchronous
+    // `restore()` here is what clears the value at unmount, and the
+    // resolve arm a microtask later is redundant on this path.
+    return () => {
+      g.cancel();
+      restore();
+    };
     // Run once on first mount; never re-run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

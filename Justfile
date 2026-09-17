@@ -251,8 +251,10 @@ gen-session-tag-lexicon:
 fmt:
     cd tugrust && cargo fmt --all
 
-# Run clippy + fmt check
+# Run clippy + fmt check, plus the deck's own tripwires. audit:visibility is
+# [L32]'s: a mechanism that decides visibility must own the state it fails to.
 lint: tugplug-lint
+    cd tugdeck && bun run audit:visibility
     cd tugrust && cargo clippy --workspace --all-targets -- -D warnings
     cd tugrust && cargo fmt --all -- --check
 

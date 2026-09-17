@@ -88,7 +88,11 @@ import type {
 } from "./tug-text-editor/argument-hint-extension";
 import type { PastedCommandResolver } from "./tug-text-editor/clipboard-filters";
 import { landingMessageStructure } from "./tug-text-editor/landing-message-structure";
-import { lineBoxMetric } from "./tug-text-editor/line-box-metric";
+import {
+  lineBoxMetric,
+  lineBoxRemeasure,
+} from "./tug-text-editor/line-box-metric";
+import { useSpaceLayerShown } from "@/components/chrome/space-layer";
 import {
   dropOffsetAtCoords,
   insertSubstrateAt,
@@ -1186,6 +1190,26 @@ export const TugPromptEntry = React.forwardRef<
   useLayoutEffect(() => {
     if (deactivated) textEditorRef.current?.blur();
   }, [deactivated]);
+
+  // Re-arm the line-box metric when this composer's workspace becomes shown.
+  //
+  // `lineBoxMetric` measures one visual row off the DOM, and a composer that
+  // first mounted inside a hidden workspace layer had no row with a box to
+  // read: it fell back to `defaultLineHeight` and, having published something,
+  // never asked again — leaving the `max-height` that counts lines wrong for
+  // the life of the card. Declining to measure in the dark is right; this is
+  // the condition that lets the refusal try again ([L32]).
+  //
+  // On a composer whose first mount is already shown this dispatches once
+  // redundantly, and that costs nothing: the plugin re-measures, reads the
+  // same row, and the publish short-circuits on an unchanged value.
+  const layerShown = useSpaceLayerShown();
+  useLayoutEffect(() => {
+    if (!layerShown) return;
+    const view = textEditorRef.current?.view() ?? null;
+    if (view === null) return;
+    view.dispatch({ effects: lineBoxRemeasure.of(null) });
+  }, [layerShown]);
 
   // Editor-as-text-stop ([P10]/[P11]): the editor substrate registers itself
   // into the host's cycle (`focusGroup`/`focusOrder` on `TugTextEditor` below),

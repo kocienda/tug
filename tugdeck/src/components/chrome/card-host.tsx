@@ -114,6 +114,19 @@ import { deckTrace, type SaveCallbackSource } from "../../deck-trace";
 import { applyBagFocus } from "../../focus-transfer";
 import { CardIdContext } from "@/lib/card-id-context";
 
+/**
+ * How long the pre-restore opacity mask may wait for the child commit that
+ * normally lifts it, before it lifts itself.
+ *
+ * A deferred reveal carries a deadline ([L31], [L32]): the mask is written by
+ * `CardHost` and, without this, lifted only by a party that may never act. The
+ * value matches `ARRIVAL_REVEAL_BOUND_MS` (`lib/arrival-reveal.ts`), the deck's
+ * sibling bound on the same kind of wait — long enough that the ordinary commit
+ * always wins the race and the deadline never fires, short enough that a card
+ * which lost the race is not blank for a length of time a person would notice.
+ */
+export const CONTENT_READY_BOUND_MS = 250;
+
 export interface CardHostProps {
   /** Stable identity of this card — survives cross-pane moves. */
   cardId: string;
@@ -618,6 +631,8 @@ export function CardHost({ cardId, hostStackId, componentId, isActive = true }: 
   // element at fire time, not the mount-time capture. L07.
   const hostContentElRef = useRef<HTMLDivElement | null>(null);
   hostContentElRef.current = hostContentEl;
+  // The pre-restore mask's deadline timer, or null when none is armed.
+  const maskDeadlineRef = useRef<number | null>(null);
 
   // No `focusin` ref tracker here. The historical
   // `lastFocusedPersistKeyRef` fallback was retired in 8914b519 on
@@ -764,6 +779,19 @@ export function CardHost({ cardId, hostStackId, componentId, isActive = true }: 
     const bag = store.getCardState(cardId);
     if (!bag || bag.content === undefined) return;
 
+    // The one lifter, reached from both arms: the child's commit and the
+    // deadline. One owner writes the mask and one owner clears it ([L32]).
+    const liftMask = (): void => {
+      if (maskDeadlineRef.current !== null) {
+        window.clearTimeout(maskDeadlineRef.current);
+        maskDeadlineRef.current = null;
+      }
+      const el = hostContentElRef.current;
+      if (el && el.style.opacity === "0") {
+        el.style.opacity = "";
+      }
+    };
+
     // Install onContentReady so scroll is applied after the child
     // commits restored content — at that point the content's
     // dimensions are valid and scroll clamps correctly. This is
@@ -787,19 +815,37 @@ export function CardHost({ cardId, hostStackId, componentId, isActive = true }: 
           el.scrollLeft = bag.scroll.x;
           el.scrollTop = bag.scroll.y;
         }
-        // Un-mask the host content now that scroll has been
-        // re-applied.
-        if (el.style.opacity === "0") {
-          el.style.opacity = "";
-        }
       }
+      // Un-mask the host content now that scroll has been re-applied.
+      // Outside the `el` guard: a mask with no element to lift is still
+      // a deadline to disarm.
+      liftMask();
     };
     // Pre-mask the host to hide the pre-restore scroll position
     // while the child re-renders with restored content. `opacity: 0`
     // (not `visibility: hidden`) keeps the engine root focusable
     // during the restore window.
+    //
+    // The mask lifts on the child's commit or on `CONTENT_READY_BOUND_MS`,
+    // whichever comes first. The commit is not guaranteed: `onContentReady`
+    // fires from a no-deps `useLayoutEffect` in `useCardStatePreservation`
+    // on the CONTENT component's next commit, and a content component whose
+    // `onRestore` causes no render of its own — `tug-markdown-view.tsx`
+    // registers the literal `() => {}` — is waiting on a commit something
+    // else has to cause. A card rebuilt inside a hidden workspace layer has
+    // nothing to cause one. So the mask is a deferred reveal and carries a
+    // deadline ([L31], [L32]): when it expires the card is shown with its
+    // inner scroll un-replayed, which is the lesser harm — a reader who
+    // lost their place can find it again, and a reader looking at a blank
+    // pane has nothing to look for. The deadline path says so in the trace
+    // rather than passing silently.
     if (hostContentElRef.current && bag.scroll !== undefined) {
       hostContentElRef.current.style.opacity = "0";
+      maskDeadlineRef.current = window.setTimeout(() => {
+        maskDeadlineRef.current = null;
+        deckTrace.record({ kind: "card-host-mask-deadline", cardId });
+        liftMask();
+      }, CONTENT_READY_BOUND_MS);
     }
 
     // Diagnostic snapshot for the cold-boot / cross-pane-mount
@@ -864,6 +910,21 @@ export function CardHost({ cardId, hostStackId, componentId, isActive = true }: 
     hasAppliedContentRestoreRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardId, hostContentEl, store, callbacksVersion]);
+
+  // The mask's deadline never outlives the host ([L27]). Every acquisition
+  // returns its release, and a timer that fires into an unmounted component
+  // is an acquisition nobody released.
+  // `useLayoutEffect` rather than `useEffect` only because it is this file's
+  // one effect idiom; for a mount-empty cleanup the two are the same.
+  useLayoutEffect(
+    () => () => {
+      if (maskDeadlineRef.current !== null) {
+        window.clearTimeout(maskDeadlineRef.current);
+        maskDeadlineRef.current = null;
+      }
+    },
+    [],
+  );
 
   // Scroll / DOM-selection / form-control / region-scroll restore:
   // triggered by `hostContentEl` becoming available. Fires idempotently

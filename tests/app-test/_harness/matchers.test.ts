@@ -373,6 +373,10 @@ const EVENT_FIXTURES: Record<
     cardId: "c2",
     hostStackId: "s1",
   },
+  "card-host-mask-deadline": {
+    kind: "card-host-mask-deadline",
+    cardId: "c2",
+  },
   "focus-call": {
     kind: "focus-call",
     site: "focus-transfer",

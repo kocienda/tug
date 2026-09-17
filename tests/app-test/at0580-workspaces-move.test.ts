@@ -140,6 +140,13 @@ interface TraceEvent {
   event?: string;
 }
 
+/** The three derived-appearance readings leg 4's guard takes on arrival. */
+interface Arrival {
+  cardInline: string | null;
+  contentInline: string | null;
+  lineBox: number;
+}
+
 describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () => {
   test(
     "the moved session keeps its id, its binding and the reader's place",
@@ -272,6 +279,49 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
             `window.__tug.cardLineFacts("A").tugSessionId`,
           ),
         ).toBe(boundSessionId);
+
+        // And it arrived VISIBLE. A move rebuilds the card's subtree, and the
+        // mount-time mechanisms that write derived appearance — the entrance
+        // fade's inline opacity, `CardHost`'s pre-restore mask, the composer's
+        // published line box — have no boxes to work against when the rebuild
+        // lands in a hidden layer ([L32]). Here the destination was never
+        // visited, so `mountedSpaceIds` did not carry it and the rebuild
+        // landed in a layer that was already shown: this is the SOUND path,
+        // and these three are a regression guard on it. The hidden-mount case
+        // is at0589's alone.
+        //
+        // Read it SETTLED, not instantly: the entrance fade holds the card at
+        // an inline "0" for as long as it is playing, which is the mechanism
+        // working rather than the defect. What the guard is about is the value
+        // that stands once the beat has run.
+        const ARRIVAL_PROBE = `(function(){
+          var card = document.querySelector(".session-card");
+          var host = document.querySelector('[data-card-host][data-card-id="A"]');
+          var content = host === null ? null : host.closest(".tug-pane-content");
+          var editor = document.querySelector(".session-card .cm-editor");
+          var n = editor === null
+            ? -1
+            : parseFloat(getComputedStyle(editor).getPropertyValue("--tugx-editor-line-box").trim());
+          return {
+            cardInline: card === null ? null : card.style.opacity,
+            contentInline: content === null ? null : content.style.opacity,
+            lineBox: Number.isFinite(n) ? n : -1,
+          };
+        })()`;
+        await app
+          .waitForCondition<Arrival | false>(
+            `(function(){
+              var a = ${ARRIVAL_PROBE};
+              return a.cardInline !== "0" && a.contentInline !== "0" && a.lineBox > 0 ? a : false;
+            })()`,
+            { timeoutMs: 8_000 },
+          )
+          .catch(() => undefined);
+        const arrived = await app.evalJS<Arrival>(ARRIVAL_PROBE);
+        note(`the arrival's appearance: ${JSON.stringify(arrived)}`);
+        expect(arrived.cardInline).not.toBe("0");
+        expect(arrived.contentInline).not.toBe("0");
+        expect(arrived.lineBox).toBeGreaterThan(0);
 
         // ---- 5. The gesture: drag the card's row onto the other workspace's
         // header and it moves there — the same move by the user's own hand

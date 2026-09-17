@@ -22,10 +22,28 @@
 
 import { ViewPlugin } from "@codemirror/view";
 import type { EditorView, ViewUpdate } from "@codemirror/view";
+import { StateEffect } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 
 /** The published name — read it as `var(--tugx-editor-line-box, <fallback>)`. */
 export const LINE_BOX_PROPERTY = "--tugx-editor-line-box";
+
+/**
+ * Ask for a re-measurement: the third occasion, and the only one the plugin
+ * cannot see for itself.
+ *
+ * A composer that first mounted inside a hidden workspace layer had no row with
+ * a box to measure, so it published `defaultLineHeight` — a number that is
+ * wrong by one line in ten for a cap that means to count them — and, having
+ * published something, never asked again. Declining to measure in the dark is
+ * right; declining and never re-arming is what makes the estimate permanent, so
+ * the surface dispatches this when its workspace becomes shown ([L32]).
+ *
+ * Deliberately NOT `geometryChanged`, for the reason `update()` states: the
+ * publish IS a geometry change, and re-measuring on one drove the field between
+ * two sizes on alternating frames.
+ */
+export const lineBoxRemeasure = StateEffect.define<null>();
 
 export const lineBoxMetric: Extension = ViewPlugin.fromClass(
   class {
@@ -48,13 +66,30 @@ export const lineBoxMetric: Extension = ViewPlugin.fromClass(
       // frames. What a plain row measures depends on the face, the size, the
       // zoom and the theme; none of those is a geometry change, and every one
       // of them arrives here as a reconfigure (the substrate's typography
-      // revision) — so that, and a document edit that may have introduced the
-      // first plain row, are the only two things worth measuring for.
+      // revision) — so that, a document edit that may have introduced the
+      // first plain row, and an explicit `lineBoxRemeasure` from the surface
+      // are the only three things worth measuring for.
       const retyped = update.transactions.some((tr) => tr.reconfigured);
-      if (!retyped && !update.docChanged) return;
+      // The third occasion: the surface saying its workspace is visible now,
+      // which is a fact no update flag carries ([L32]).
+      const reshown = update.transactions.some((tr) =>
+        tr.effects.some((e) => e.is(lineBoxRemeasure)),
+      );
+      if (!retyped && !reshown && !update.docChanged) return;
       if (retyped) {
         this.published = 0;
         this.measured = false;
+      }
+      // The reshown reset is CONDITIONAL where the reconfigure's is not, and
+      // the asymmetry is the point. A reconfigure means the face itself
+      // changed, so every standing value is stale and a taller reading is
+      // legitimate. Being shown changes nothing about the type — it only means
+      // a real row can finally be read — so a value that already came off a
+      // real row keeps its standing, including its defence against a later,
+      // taller wrapped row. Only an ESTIMATE is cleared, because only an
+      // estimate is what this occasion exists to replace.
+      if (reshown && !this.measured) {
+        this.published = 0;
       }
       this.publish(update.view);
     }

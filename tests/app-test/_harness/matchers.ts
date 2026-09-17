@@ -100,6 +100,10 @@ export type DeckTraceEventShape = {
       hostStackId: string;
     }
   | {
+      kind: "card-host-mask-deadline";
+      cardId: string;
+    }
+  | {
       kind: "focus-call";
       site: string;
       cardId: string;
@@ -280,6 +284,7 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "destination-flip",
   "card-host-mount",
   "card-host-unmount",
+  "card-host-mask-deadline",
   "focus-call",
   "focusin",
   "focusout",
@@ -485,6 +490,8 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return `card-host-mount ${fmt(e.cardId)} stack=${fmt(e.hostStackId)}`;
     case "card-host-unmount":
       return `card-host-unmount ${fmt(e.cardId)} stack=${fmt(e.hostStackId)}`;
+    case "card-host-mask-deadline":
+      return `card-host-mask-deadline ${fmt(e.cardId)}`;
     case "focus-call": {
       const parts = [
         `focus-call ${fmt(e.cardId)}`,

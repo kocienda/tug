@@ -99,7 +99,11 @@ import React, {
 import { createPortal } from "react-dom";
 import * as FocusScopeRadix from "@radix-ui/react-focus-scope";
 import { TugPaneFrameContext, TugPanePortalContext } from "@/components/chrome/tug-pane";
-import { paneCanvasOf, visibleCanvasBand } from "@/components/chrome/space-layer";
+import {
+  paneCanvasOf,
+  useSpaceLayerShown,
+  visibleCanvasBand,
+} from "@/components/chrome/space-layer";
 import { raisePaneAbovePeers } from "@/components/tugways/pane-raise";
 import { isCardFolded, unfoldCardForBiddenSurface } from "@/lib/card-fold";
 import { CardIdContext } from "@/lib/card-id-context";
@@ -1401,6 +1405,10 @@ export function TugSheetContent({
   openRef.current = open;
   const sheetContentRef = useRef<HTMLDivElement | null>(null);
   const clipRef = useRef<HTMLDivElement | null>(null);
+  // Whether this sheet's workspace layer is the shown one. Both canvas clamps
+  // below refuse to measure while it is false and re-run when it flips — the
+  // re-arm [L32]'s third clause requires of a refusal.
+  const layerShown = useSpaceLayerShown();
   // The shade's own scrim element ([P17]); the enter/exit effects fade it in
   // step with the roll (out a beat sooner, so it reads as gone on landing).
   const shadeScrimRef = useRef<HTMLDivElement | null>(null);
@@ -1448,13 +1456,24 @@ export function TugSheetContent({
   // `tug-sheet.css` bottom-aligns the panel within it and caps its height to
   // that band.
   //
-  // Re-measured on three occasions and not one more ([B07], [P07]): on open,
-  // on window resize, and once when the deck's settle ends. The anchor keeps
-  // its own observer, because the Z2 telemetry row growing under the panel is
-  // a change the deck never hears about — so that case still lands on the
-  // frame it happens on. What came off is the observation of the pane frame
-  // and of the canvas: those are exactly the boxes a settle tweens, and
-  // watching them re-measured `max-height` on every frame of a resize beat
+  // Re-measured on four occasions and not one more ([B07], [P07]): on open,
+  // on window resize, once when the deck's settle ends, and when this pane's
+  // workspace becomes the shown one. The fourth is not a new appetite for
+  // measurement but the other side of the refusal below: a hidden workspace
+  // layer is `display: none`, so `visibleCanvasBand` correctly declines the
+  // box it is handed and this effect writes nothing. Declining is right;
+  // declining and never asking again is what turns a deferred measurement
+  // into a permanent staleness, so the refusal registers the condition that
+  // lets it try again ([L32]). The hide side needs nothing extra: the cleanup
+  // already clears the inline `bottom`/`top`, so the shown re-run measures
+  // fresh rather than against whatever the last visible layout left.
+  //
+  // The anchor keeps its own observer, because the Z2 telemetry row growing
+  // under the panel is a change the deck never hears about — so that case
+  // still lands on the frame it happens on. What came off is the observation
+  // of the pane frame and of the canvas: those are exactly the boxes a settle
+  // tweens, and watching them re-measured `max-height` on every frame of a
+  // resize beat
   // ([F06]) — a sheet flickering its own cap while the card under it
   // travelled. Their cases are not lost, only deferred to the end: a column
   // reflow and a sash drag both commit to the deck, which arms a settle, whose
@@ -1475,6 +1494,10 @@ export function TugSheetContent({
   useLayoutEffect(() => {
     const clip = clipRef.current;
     if (clip === null || bottomAnchorEl === null || paneFrameEl === null) return;
+    // Nothing to measure in a workspace nobody is looking at; the effect
+    // re-runs on the shown transition, which is what `layerShown` is in the
+    // dependency array for.
+    if (!layerShown) return;
     const canvas = paneCanvasOf(paneFrameEl);
     const measure = (): void => {
       // The canvas box first, and REFUSE on a reading that is not one ([B03]).
@@ -1573,7 +1596,7 @@ export function TugSheetContent({
       clip.style.bottom = "";
       clip.style.top = "";
     };
-  }, [bottomAnchorEl, paneFrameEl, mounted]);
+  }, [bottomAnchorEl, paneFrameEl, mounted, layerShown]);
 
   useLayoutEffect(() => {
     // The shade's height is fraction-driven CSS against its slot — no
@@ -1602,6 +1625,8 @@ export function TugSheetContent({
     }
     const clip = clipRef.current;
     if (content === null || clip === null || paneFrameEl === null) return;
+    // The same gate as the bottom-anchor clamp, for the same reason.
+    if (!layerShown) return;
     const canvas = paneCanvasOf(paneFrameEl);
     if (canvas === null) return;
     const measure = (): void => {
@@ -1708,7 +1733,7 @@ export function TugSheetContent({
       window.removeEventListener("resize", measure);
       canvas.removeEventListener(IMPOSER_SETTLE_END, measure);
     };
-  }, [paneFrameEl, mounted, maxHostFraction, aspectLockContent, presentation, bottomAnchorEl]);
+  }, [paneFrameEl, mounted, maxHostFraction, aspectLockContent, presentation, bottomAnchorEl, layerShown]);
 
   // Report the panel's NATURAL height to a caller that declared its content
   // bounds it ([B02]). The measure is the bottom-anchor effect's own —

@@ -314,6 +314,16 @@ export type DeckTraceEvent = {
       hostStackId: string;
     }
   | {
+      /**
+       * The pre-restore opacity mask was lifted by its deadline rather than by
+       * the child commit that normally lifts it — the content component never
+       * rendered, so `onContentReady` never fired. The card is visible; its
+       * inner scroll position was not replayed. [L31], [L32]
+       */
+      kind: "card-host-mask-deadline";
+      cardId: string;
+    }
+  | {
       kind: "focus-call";
       site: string;
       cardId: string;
@@ -739,6 +749,10 @@ export type DeckTraceEventInput =
   | Omit<Extract<DeckTraceEvent, { kind: "destination-flip" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "card-host-mount" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "card-host-unmount" }>, StampedFields>
+  | Omit<
+      Extract<DeckTraceEvent, { kind: "card-host-mask-deadline" }>,
+      StampedFields
+    >
   | Omit<Extract<DeckTraceEvent, { kind: "focus-call" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "focusin" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "focusout" }>, StampedFields>
