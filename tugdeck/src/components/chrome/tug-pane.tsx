@@ -115,6 +115,7 @@ import {
 } from "@/lib/card-title-store";
 import { SessionMasthead } from "@/components/tugways/session-masthead";
 import { CardMasthead } from "@/components/tugways/card-masthead";
+import { CommitMasthead } from "@/components/tugways/commit-masthead";
 import { CardSlotBadge } from "@/components/tugways/card-slot-badge";
 import {
   TugColumnBadge,
@@ -1067,6 +1068,12 @@ function CardTitleBar({
         // queue or open placard to carry across, so reconciling a new path
         // onto the same element is exactly right.
         <CardMasthead payload={masthead} />
+      ) : masthead.kind === "commit-masthead" ? (
+        // A commit's three lines — the pill, the subject, then author · date ·
+        // time. No key, for the document masthead's reason: a card re-seeded
+        // with a different sha has nothing to carry across, and reconciling
+        // the new record onto the same element is what should happen.
+        <CommitMasthead payload={masthead} />
       ) : (
         // Keyed by session, so a payload naming a DIFFERENT session remounts
         // rather than reconciling. A new session is a new entity, which is

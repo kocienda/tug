@@ -55,3 +55,26 @@
   color: var(--tugx-block-text-color-muted);
 }
 
+
+/* The pane box the Commit card's masthead sits in. The tier itself draws from
+   tug-pane.css / masthead-frame.css / commit-masthead.css; all this adds is
+   the pane-shaped frame those need, since the spike has no deck. Same box
+   spike-card-chrome.css states, for the same reason. */
+.gallery-commit-surfaces-pane {
+  border: 1px solid var(--tugx-pane-border);
+  border-radius: var(--tug-radius-md);
+  overflow: hidden;
+  background-color: var(--tugx-pane-bg);
+  box-shadow: var(--tugx-pane-shadow-active);
+  max-width: 620px;
+}
+
+/* A stand-in for the card's content, so the tier has something to sit on top
+   of and the band's lower edge is visible against a body. */
+.gallery-commit-surfaces-pane-body {
+  padding: var(--tug-space-md);
+  min-height: 44px;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tugx-block-text-color-muted);
+}

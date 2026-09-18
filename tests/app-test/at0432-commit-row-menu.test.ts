@@ -163,6 +163,11 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
           note("at0432 menu", JSON.stringify(rows));
           expect(rows.map((r) => r.action)).toEqual([
             "toggle-commit-detail",
+            // A commit's primary act is its own card, so the open group leads
+            // the copies. The row still offers NO Open Diff: its diff is the
+            // shade beneath it, and every file in its roster carries a
+            // pop-out.
+            "open-commit",
             "copy-commit-short-hash",
             "copy-commit-hash",
             "copy-commit-header",

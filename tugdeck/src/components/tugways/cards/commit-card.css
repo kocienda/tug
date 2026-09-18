@@ -1,0 +1,37 @@
+/* The Commit card frame. The record itself — the message body, the changed-file
+   roster and its per-file diffs — is the composed CommitRecordBody, shared with
+   the History shade's expanded row, which owns its own tokens and layout
+   ([L20]); this file styles only the card padding and the notice states.
+
+   The `.tugx-commit` scope class is what the record's whole type scale keys off
+   (`commit-presentation.css`), and the card wears it for the same reason the
+   History list does: a commit reads identically on every surface that shows
+   one. */
+
+.commit-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  padding: 0.75rem;
+}
+
+/* Single centered notice for the loading / missing / no-repo / error states. */
+.commit-card-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  margin: auto;
+  font-size: 0.875rem;
+  opacity: 0.7;
+  text-align: center;
+}
+
+/* The record body, standing alone rather than in a row's recessed well. The
+   well exists in the shade to drop an expansion off the list surface it is
+   inside; a card IS the surface, so the body simply runs its width. */
+.commit-card-body {
+  min-width: 0;
+}

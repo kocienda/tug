@@ -1,0 +1,56 @@
+/**
+ * commit-masthead.css — what a COMMIT masthead adds to the shared frame.
+ *
+ * The tier's geometry, the row's seating in it, and the ink ladder on the
+ * tinted band are `masthead-frame.css`, shared with the Session and document
+ * mastheads. The three lines' type is `tug-session-row.css`, because all three
+ * mount the same row. Neither is restated here — a mount site that re-types a
+ * component's type has already drifted, whatever numbers it writes.
+ *
+ * What is left is the two things a commit's tier genuinely owns: the ink the
+ * borrowed `CommitMetaCell` paints in, and the reserve the pane's control
+ * cluster needs back.
+ *
+ * @tug-pairings
+ * | Element                     | Surface                          | Role          | Context                        |
+ * |-----------------------------|----------------------------------|---------------|--------------------------------|
+ * | --tugx-pane-title-fg-active | --tugx-pane-title-bar-bg-active  | informational | the subject and metadata lines |
+ */
+
+/* ── Reserving the control cluster ─────────────────────────────────────────
+   `masthead-frame.css` pulls the whole frame out from under the pane's
+   controls with a negative trailing margin, because the cluster occupies only
+   the FIRST chrome band and the lines below it should have the full run. Its
+   comment ends "each line above reserves the cluster back for itself" — these
+   are that reserve, the same two lines the document tier reserves: the name
+   and the description. The third runs the full width. */
+.commit-masthead-row .tug-session-row-name-line,
+.commit-masthead-row .tug-session-row-description {
+  padding-inline-end: calc(
+    var(--tugx-pane-controls-width, 0px) + var(--tug-space-xs)
+  );
+}
+
+/* ── The metadata line ─────────────────────────────────────────────────────
+   `CommitMetaCell` is authored for a LIST ROW's trailing edge, where the
+   surface under it is the rail and the quiet gray stamp token is right. On the
+   tinted chrome band it is not: the tier's own ladder ends at 65% of the
+   chrome foreground, and the cell has to land on that rung rather than beside
+   it. So the cell's published ink token is re-pointed here and nothing else
+   about it is touched — the structure, the gaps, the tabular figures and the
+   date/time grain are all still the cell's.
+
+   Re-pointing the two custom properties does the whole job, cell and stamp
+   alike: the stamp inside reads the same two tokens, so one declaration lands
+   on both. The SIZE goes with the ink — the cell states a list row's stamp
+   size, and the masthead's third line has its own, stated once on the row.
+   The stamp's MONO face stays: tabular mono is what keeps a date and a time
+   from shifting under their own figures, and that is as true in chrome as in
+   a row. The cell's sans is the one literal left here, because it is the one
+   value with no token behind it. */
+/* @tug-renders-on var(--tugx-pane-title-bar-bg-active) */
+.commit-masthead-row .tugx-commit-meta {
+  --tugx-commit-stamp-color: inherit;
+  --tugx-commit-stamp-size: inherit;
+  font-family: inherit;
+}

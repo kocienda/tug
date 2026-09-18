@@ -94,8 +94,10 @@ export interface TugCommitAtomProps
    * did not answer the pointer at all would be the one entity in a History row
    * that went on looking the same as the pointer crossed it. What this flag
    * decides is the PROMISE: a sha in a transcript sentence or a receipt header
-   * is a copy target with no navigation to offer, while the Overview's ref
-   * opens a diff.
+   * whose host gives it an act shows the commit's card, and one whose host
+   * gives it none is a copy target with no navigation to offer. A commit
+   * atom's primary act IS its card, so most hosts now give it one; the flag
+   * stays because the pill cannot know which kind of host it landed in.
    */
   interactive?: boolean;
   /**

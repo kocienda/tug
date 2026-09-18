@@ -60,6 +60,7 @@ import { CommitShaText } from "@/components/tugways/commit-sha-text";
 import { CommitMessage } from "@/components/tugways/commit-presentation";
 import { markdownTextParts } from "@/components/tugways/tug-markdown-text";
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
+import { requestCommitCard } from "@/lib/open-commit-in-card";
 import { CommitChangesList } from "@/components/tugways/tug-changes-list";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
 import { SessionBoundary } from "@/components/tugways/cards/session-boundary";
@@ -331,6 +332,9 @@ function JoinCommitReceipt({
       files,
       paths: files.map((f) => f.path),
     },
+    // The base repo the join ran in — what lets the header's pill raise the
+    // commit's card.
+    root: cwd,
   });
   const identity = (
     <span className="commit-receipt-header">
@@ -339,7 +343,13 @@ function JoinCommitReceipt({
         ref={menu.ref}
         onContextMenu={menu.onContextMenu}
       >
-        <CommitShaText sha={sha} menu={false} />
+        <CommitShaText
+          sha={sha}
+          menu={false}
+          onActivate={() =>
+            requestCommitCard({ root: cwd, sha }, { subject: headline })
+          }
+        />
         {menu.contextMenu}
       </span>
       {" "}

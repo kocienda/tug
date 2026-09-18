@@ -182,3 +182,10 @@
   font-size: var(--tugx-commit-stamp-size);
   color: var(--tugx-commit-stamp-color);
 }
+
+/* A commit that touched no file still says so — otherwise the record reads as
+   one whose roster has not arrived. */
+.tugx-commit-files-empty {
+  font-size: 0.75rem;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}

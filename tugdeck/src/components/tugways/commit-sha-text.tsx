@@ -26,11 +26,20 @@
  *
  * This component survives the skin rather than being replaced by it, because
  * what it owns is not appearance: it owns every pointer gesture on the sha.
- * A commit atom is a copy target, not a link, and the gestures stop here so a
- * right-click in the History shade cannot fold the row out from under its own
- * menu. It therefore renders the skin **presentationally** — no annotation
- * dataset, no delegated click, and no `interactive`, so the pill takes no
- * pointer cursor and promises no navigation.
+ * The gestures stop here so a right-click in the History shade cannot fold the
+ * row out from under its own menu, and so a plain click on the pill is not
+ * also a click on whatever the pill is sitting in.
+ *
+ * **A placed pill answers a plain click when its host gives it an act.** The
+ * user's rule is that a click on a commit atom shows the commit's card, and a
+ * placed pill is still the atom — it is only the annotator's delegated click
+ * that does not reach here. So `onActivate` is the host's hook: given one, the
+ * pill takes the skin's pointer cursor and the click calls it INSTEAD of
+ * reaching the host's own surface, which is how a History row's remaining
+ * ground still folds while the eight characters in it do something else.
+ * Without one the pill stays what it was — a copy target with no navigation to
+ * promise, rendered presentationally with no annotation dataset and no
+ * delegated click.
  *
  * The complete 40-char hash comes from the row's Copy button, which writes
  * the whole commit record.
@@ -52,6 +61,7 @@ export function CommitShaText({
   sha,
   content,
   menu = true,
+  onActivate,
   className,
 }: {
   /** The full commit sha; displayed and copied truncated to the short form. */
@@ -66,6 +76,13 @@ export function CommitShaText({
    * @default true
    */
   menu?: boolean;
+  /**
+   * What a plain click on the pill does. Present → the pill takes the pointer
+   * cursor and the click calls this and goes no further; absent → the click is
+   * swallowed as before, so a host whose ground does something else is not
+   * triggered by a press on the hash.
+   */
+  onActivate?: () => void;
   /**
    * The short sha rendered with decoration — filter-match `<mark>`s, say.
    * MUST read as the same characters the plain form shows; it replaces how the
@@ -105,12 +122,21 @@ export function CommitShaText({
         onPointerDown={(event) => event.stopPropagation()}
         onMouseDown={(event) => event.stopPropagation()}
         onMouseUp={(event) => event.stopPropagation()}
-        onClick={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          // Stopped either way: the pill's click is never also the host's.
+          // What `onActivate` decides is whether it is anything at all.
+          event.stopPropagation();
+          onActivate?.();
+        }}
       >
         {/* The word is the pill's, so a decorated sha no longer has to
             reconstruct it: `content` is the HASH's characters and nothing
             else, which is what a filter matched and all it may paint. */}
-        <TugCommitAtom sha={sha} labelContent={content} />
+        <TugCommitAtom
+          sha={sha}
+          labelContent={content}
+          interactive={onActivate !== undefined}
+        />
       </span>
       {/* The copy menu's own gestures stop here. A React portal still bubbles
           through the REACT tree, so without this a click on the menu's Copy

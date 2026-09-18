@@ -17,9 +17,9 @@
  * ## The masthead sidecar
  *
  * A card may also ask for a taller chrome tier by publishing a
- * {@link CardMastheadPayload} beside its string. Which of the two
- * payload kinds it publishes decides where the displayed lines come
- * from, and the rule behind the split is one rule:
+ * {@link CardMastheadPayload} beside its string. Which payload kind
+ * it publishes decides where the displayed lines come from, and the
+ * rule behind the split is one rule:
  *
  * **A fact that lives in a store travels as a key; a fact the card
  * itself holds travels as a value.** A session's lines come from
@@ -29,7 +29,9 @@
  * notification path for identity, and there is exactly one. A
  * document card's path and summary have no store behind them, so
  * {@link DocumentMastheadPayload} carries the strings and the card's
- * own `set()` call is the notification.
+ * own `set()` call is the notification. A commit has no identity
+ * store behind a sha either, so {@link CommitMastheadPayload} carries
+ * its lines the same way.
  *
  * The string channel survives alongside it for **reader
  * compatibility**, not for notification: `get()` is what the tab bar,
@@ -102,8 +104,78 @@ export interface DocumentMastheadPayload {
   readonly icon?: string;
 }
 
+/** One changed file on a commit masthead's record — the copy's roster row. */
+export interface CommitMastheadFile {
+  readonly path: string;
+  readonly status: string;
+  readonly added: number;
+  readonly removed: number;
+}
+
+/**
+ * A Commit card's request for the masthead tier, carrying the lines to
+ * display, and the record its right-click menu states.
+ *
+ * A value payload rather than a key, for the document payload's reason: there
+ * is no identity store standing behind a sha the way one stands behind a
+ * session id, and the card's own publish on every snapshot change IS the
+ * notification. Its own kind rather than a document payload because the lead
+ * line is a PILL — `TugCommitAtom`, the mark every commit surface wears — and
+ * the document payload's title is a string, which cannot carry one.
+ *
+ * The last three fields are not drawn. The tier claims the right-click for the
+ * whole commit, and that menu's Copy Commit Record writes the message body,
+ * the attribution and the changed-file roster — the same bytes the History
+ * shade's row writes for the same commit. A payload carrying only the drawn
+ * lines left the card, the one surface that shows a commit whole, copying the
+ * least of it.
+ */
+export interface CommitMastheadPayload {
+  readonly kind: "commit-masthead";
+  /** Repository root the commit is read in — what its menu's Open Diff needs. */
+  readonly root: string;
+  /** The commit's sha. The pill abbreviates it for display. */
+  readonly sha: string;
+  /** Second line — the commit's subject. Empty until the record arrives. */
+  readonly subject: string;
+  /** Third line, with the date — the author's name. Empty until it arrives. */
+  readonly author: string;
+  /** Third line's stamp, strict ISO. Empty until the record arrives. */
+  readonly dateIso: string;
+  /** The message below the subject; what the menu's record copy states. */
+  readonly body: string;
+  /** The author's email, for the copied record's attribution line. */
+  readonly authorEmail: string;
+  /** The changed-file roster the copied record closes with. */
+  readonly files: readonly CommitMastheadFile[];
+}
+
 /** A card's request for the masthead chrome tier. */
-export type CardMastheadPayload = SessionMastheadPayload | DocumentMastheadPayload;
+export type CardMastheadPayload =
+  | SessionMastheadPayload
+  | DocumentMastheadPayload
+  | CommitMastheadPayload;
+
+/**
+ * Roster equality, by content. The card republishes on every snapshot change
+ * and a store delivers more snapshots than it does distinct records, so a
+ * reference comparison would notify on every one of them.
+ */
+function sameRoster(
+  a: readonly CommitMastheadFile[],
+  b: readonly CommitMastheadFile[],
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((file, i) => {
+    const other = b[i];
+    return (
+      file.path === other.path &&
+      file.status === other.status &&
+      file.added === other.added &&
+      file.removed === other.removed
+    );
+  });
+}
 
 /**
  * Payload equality, by kind. Guards the store's notify — see {@link
@@ -117,6 +189,19 @@ function sameMasthead(
   if (a.kind !== b.kind) return false;
   if (a.kind === "session-masthead") {
     return a.sessionId === (b as SessionMastheadPayload).sessionId;
+  }
+  if (a.kind === "commit-masthead") {
+    const commit = b as CommitMastheadPayload;
+    return (
+      a.root === commit.root &&
+      a.sha === commit.sha &&
+      a.subject === commit.subject &&
+      a.author === commit.author &&
+      a.dateIso === commit.dateIso &&
+      a.body === commit.body &&
+      a.authorEmail === commit.authorEmail &&
+      sameRoster(a.files, commit.files)
+    );
   }
   const other = b as DocumentMastheadPayload;
   return (

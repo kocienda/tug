@@ -51,10 +51,22 @@ export interface GitCommitFilesPayload {
   no_repo: boolean;
   /** The commit's subject line; empty when the sha resolved to nothing. */
   subject: string;
+  /**
+   * The commit message body — everything after the subject, verbatim, with
+   * trailing whitespace trimmed. Empty for a subject-only commit.
+   */
+  body: string;
   /** Author name; empty for the same reason. */
   author: string;
+  /** Author email, shown beside the author name. */
+  author_email: string;
   /** Author date, `YYYY-MM-DD`. */
   date: string;
+  /**
+   * Author date, strict ISO 8601 — the complete timestamp, carrying the time
+   * `date` drops.
+   */
+  author_date: string;
   files: GitCommitFile[];
 }
 
@@ -93,8 +105,11 @@ export function parseGitCommitFilesPayload(
     sha: typeof p.sha === "string" ? p.sha : "",
     no_repo: p.no_repo === true,
     subject: typeof p.subject === "string" ? p.subject : "",
+    body: typeof p.body === "string" ? p.body : "",
     author: typeof p.author === "string" ? p.author : "",
+    author_email: typeof p.author_email === "string" ? p.author_email : "",
     date: typeof p.date === "string" ? p.date : "",
+    author_date: typeof p.author_date === "string" ? p.author_date : "",
     files: p.files as GitCommitFile[],
   };
 }

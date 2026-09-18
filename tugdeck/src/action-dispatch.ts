@@ -37,6 +37,7 @@ import { COMMANDS_BY_ID, isCommandId } from "@/components/tugways/command-regist
 import { advanceKeyViewFocus, getFocusManager, BASE_FOCUS_MODE } from "@/components/tugways/focus-manager";
 import { dispatchCommand } from "./command-dispatch";
 import { openDiffInCard } from "@/lib/open-diff-in-card";
+import { openCommitInCard } from "@/lib/open-commit-in-card";
 import { neighborSlot } from "@/lib/neighbor-slot";
 import { isFocusDirection } from "@/lib/directional-focus";
 import { flashCardPane, flashPaneBorder } from "@/lib/flash-pane-border";
@@ -1138,6 +1139,41 @@ export function initActionDispatch(
       return;
     }
     openDiffInCard(deckManager, descriptor);
+  });
+
+  // open-commit: raise one commit's whole record in a Commit card. Sha-keyed
+  // reuse with a prefix match in either direction — a card opened from a
+  // `commit:<8>` pill in prose and one opened from a History row's full hash
+  // are the same commit under two spellings. Dispatched by a commit atom's
+  // plain click and by Open Commit in its menu.
+  registerAction(TUG_ACTIONS.OPEN_COMMIT, (payload) => {
+    const root = payload.root;
+    const sha = payload.sha;
+    if (typeof root !== "string" || typeof sha !== "string" || sha.length === 0) {
+      console.warn("open-commit: missing or invalid root/sha", payload);
+      return;
+    }
+    const raw = payload.hint;
+    const hint =
+      typeof raw === "object" && raw !== null
+        ? (raw as Record<string, unknown>)
+        : null;
+    const text = (key: string): string | undefined => {
+      const value = hint?.[key];
+      return typeof value === "string" && value.length > 0 ? value : undefined;
+    };
+    const subject = text("subject");
+    const author = text("author");
+    const dateIso = text("dateIso");
+    const seeded =
+      subject === undefined && author === undefined && dateIso === undefined
+        ? undefined
+        : {
+            ...(subject !== undefined ? { subject } : {}),
+            ...(author !== undefined ? { author } : {}),
+            ...(dateIso !== undefined ? { dateIso } : {}),
+          };
+    openCommitInCard(deckManager, { root, sha }, seeded);
   });
 
 

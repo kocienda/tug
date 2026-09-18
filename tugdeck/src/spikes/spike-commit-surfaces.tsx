@@ -11,6 +11,10 @@
  *      wrapping-subject and single-line fixtures `at0264` measures.
  *   3. The `git commit` bash receipt ({@link CommitBlock}), driven through the
  *      real {@link parseGitCommit} over real command + stdout strings.
+ *   4. The Commit card's masthead (`commit-masthead.tsx`), seated in a real
+ *      `.tug-pane` under the real `CardTitleBar` — the three lines a commit
+ *      wears when it is a card rather than a row: its pill, its subject, and
+ *      author · date · time.
  *
  * Every fixture drives a production parse / render path over real repo
  * content, so what the card shows is what the app renders.
@@ -37,6 +41,8 @@ import {
 } from "@/components/tugways/body-kinds/commit-block";
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { SessionCommitReceiptBlock } from "@/components/tugways/cards/session-commit-receipt-block";
+import { CardTitleBar } from "@/components/chrome/tug-pane";
+import type { CommitMastheadPayload } from "@/lib/card-title-store";
 import type { CommandBlockProps } from "@/components/tugways/cards/session-command-block-registry";
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import type { GitLogCommit } from "@/lib/git-log-store";
@@ -270,6 +276,72 @@ function BashCommitReceipt({ commit }: { commit: CommitData }): React.ReactEleme
 }
 
 // ---------------------------------------------------------------------------
+// The Commit card's masthead
+// ---------------------------------------------------------------------------
+
+/**
+ * What the Commit card publishes once its record lands — the same payload kind
+ * `cards/commit-card.tsx` writes into `cardTitleStore`, so the tier below is
+ * the shipping one rather than a drawing of it.
+ */
+function commitMastheadPayload(commit: GitLogCommit): CommitMastheadPayload {
+  return {
+    kind: "commit-masthead",
+    root: FIXTURE_ROOT,
+    sha: commit.sha,
+    subject: commit.subject,
+    author: commit.committer ?? commit.author,
+    dateIso: commit.committer_date ?? "",
+    // The record the tier's right-click menu states rather than draws. The
+    // spike is about the three lines, so a fixture commit's own body and an
+    // empty roster are enough to make the payload the shipping one.
+    body: commit.body ?? "",
+    authorEmail: commit.committer_email ?? "",
+    files: [],
+  };
+}
+
+/**
+ * The pane box the tier needs, the same one `spike-card-chrome` states and for
+ * the same reason: `.tug-pane` is where `data-masthead` publishes the chrome
+ * height and where `data-focused` picks the active token pair, so a fixture
+ * that skipped it would show the inactive palette and no control reserve at
+ * all. `data-masthead-kind` is left unset, which IS the 72px card tier — only
+ * a Session card asks for the taller one.
+ */
+function CommitCardPane({
+  commit,
+  body,
+}: {
+  commit: GitLogCommit;
+  body: string;
+}): React.ReactElement {
+  return (
+    <div
+      className="tug-pane gallery-commit-surfaces-pane"
+      data-focused="true"
+      data-masthead="true"
+    >
+      <div className="tug-pane-chrome">
+        <CardTitleBar
+          title="Commit"
+          masthead={commitMastheadPayload(commit)}
+          widthPreset="comfy"
+          onSetWidth={paneNoop}
+          onClose={paneNoop}
+        />
+        <div className="gallery-commit-surfaces-pane-body">{body}</div>
+      </div>
+    </div>
+  );
+}
+
+/** The spike is the chrome; the chrome's own verbs are not the subject. */
+function paneNoop(): void {
+  /* no-op */
+}
+
+// ---------------------------------------------------------------------------
 // The card
 // ---------------------------------------------------------------------------
 
@@ -326,6 +398,20 @@ export function SpikeCommitSurfaces(): React.ReactElement {
             items={META_ITEMS}
           />
         </div>
+
+        <TugSeparator />
+
+        <TugLabel size="lg">The Commit card's masthead</TugLabel>
+        <Caption>
+          The same record again, standing alone in a card: the lead line is the commit's own
+          pill rather than a title string, the second is the subject, and the third carries
+          author, date and time together — the line the card's body gives its trailing
+          attribution run up for. Real <code>CardTitleBar</code> inside a real
+          <code> .tug-pane</code>, so the control reserve and the tinted band are the shipping
+          ones. Right-clicking the tier offers the commit's own menu, Open Diff included.
+        </Caption>
+        <CommitCardPane commit={COMMITS[0]} body="(the commit record: message, then the file roster)" />
+        <CommitCardPane commit={COMMITS[1]} body="(the commit record: message, then the file roster)" />
 
         <TugSeparator />
 

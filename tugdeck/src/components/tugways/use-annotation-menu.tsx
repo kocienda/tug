@@ -411,6 +411,15 @@ export function useAnnotationMenu({
     });
   }, []);
 
+  const handleOpenAnnotatedCommit = useCallback((): ActionHandlerResult => {
+    const payload = contextAnnotationRef.current;
+    if (payload === null || payload.kind !== "commit-sha") return;
+    dispatchCommand(TUG_ACTIONS.OPEN_COMMIT, {
+      root: payload.root,
+      sha: payload.sha,
+    });
+  }, []);
+
   const handleOpenImagePreview = useCallback((): ActionHandlerResult => {
     const payload = contextAnnotationRef.current;
     if (payload === null || payload.kind !== "image") return;
@@ -435,6 +444,7 @@ export function useAnnotationMenu({
       [TUG_ACTIONS.REVEAL_IN_FINDER]: handleRevealAnnotatedFile,
       [TUG_ACTIONS.OPEN_IMAGE_PREVIEW]: handleOpenImagePreview,
       [TUG_ACTIONS.OPEN_DIFF]: handleOpenAnnotatedDiff,
+      [TUG_ACTIONS.OPEN_COMMIT]: handleOpenAnnotatedCommit,
       [TUG_ACTIONS.COPY_COMMIT_SHORT_HASH]: handleCopyCommitShortHash,
       [TUG_ACTIONS.COPY_COMMIT_HASH]: handleCopyCommitHash,
     }),
@@ -449,6 +459,7 @@ export function useAnnotationMenu({
       handleRevealAnnotatedFile,
       handleOpenImagePreview,
       handleOpenAnnotatedDiff,
+      handleOpenAnnotatedCommit,
       handleCopyCommitShortHash,
       handleCopyCommitHash,
     ],

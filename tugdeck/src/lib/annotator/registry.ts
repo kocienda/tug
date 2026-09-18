@@ -112,6 +112,14 @@ export type AnnotationMenuFacts =
       hasRecord: boolean;
       /** The surface can open a diff scoped to this commit. */
       canOpenDiff: boolean;
+      /**
+       * The surface can raise the commit's own card. False where there is no
+       * repository behind the mention — the same drop `canOpenDiff` makes,
+       * and for the same reason: a card with no root to read cannot resolve
+       * the sha. Unset reads as TRUE, so a prose mention offers the item
+       * without every caller having to say so.
+       */
+      canOpenCommit?: boolean;
     }
   | {
       kind: "slash-command";
@@ -476,6 +484,17 @@ function commitMenuEntries(
       label: known.expanded ? "Hide Detail" : "Show Detail",
     });
   }
+  // The commit's own card leads the open group: a commit atom's primary act
+  // is the commit itself, and its diff is the narrower question of what it
+  // changed. A History row offers this and still offers no Open Diff — the
+  // row's diff is the shade beneath it, and the card is somewhere else.
+  if (known === null || known.canOpenCommit !== false) {
+    entries.push({
+      action: TUG_ACTIONS.OPEN_COMMIT,
+      label: "Open Commit",
+      ...(entries.length > 0 ? { separatorBefore: true } : {}),
+    });
+  }
   // A sha alone can always open its diff; a surface that says it cannot —
   // a commit with no repository behind it — drops the row.
   if (known === null || known.canOpenDiff) {
@@ -510,18 +529,16 @@ function commitMenuEntries(
 }
 
 registerAnnotationKind("commit-sha", {
-  // The sha was verified by asking the repository which files the commit
-  // touched, so the descriptor is already scoped to exactly those files —
-  // the diff opens showing the commit, not the whole tree.
+  // A commit atom's primary act is the COMMIT — its own card, showing the
+  // whole record the History shade's expansion shows. It used to be the diff,
+  // which answered the narrower question of what the commit changed before a
+  // commit had a surface of its own; the menu still offers that one step down.
+  // The confirmed `paths` stay on the payload for it.
   primaryClick: (payload) => {
     if (payload.kind !== "commit-sha") return;
-    dispatchCommand(TUG_ACTIONS.OPEN_DIFF, {
-      descriptor: {
-        kind: "commit",
-        root: payload.root,
-        sha: payload.sha,
-        paths: payload.paths,
-      },
+    dispatchCommand(TUG_ACTIONS.OPEN_COMMIT, {
+      root: payload.root,
+      sha: payload.sha,
     });
   },
   menuEntries: commitMenuEntries,

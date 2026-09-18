@@ -289,8 +289,11 @@ pub async fn build_commit_files_snapshot(
             sha: sha.to_string(),
             no_repo: true,
             subject: String::new(),
+            body: String::new(),
             author: String::new(),
+            author_email: String::new(),
             date: String::new(),
+            author_date: String::new(),
             files: Vec::new(),
         };
     }
@@ -310,8 +313,11 @@ pub async fn build_commit_files_snapshot(
             sha: sha.to_string(),
             no_repo: false,
             subject: String::new(),
+            body: String::new(),
             author: String::new(),
+            author_email: String::new(),
             date: String::new(),
+            author_date: String::new(),
             files: Vec::new(),
         };
     }
@@ -353,7 +359,9 @@ pub async fn build_commit_files_snapshot(
     // The commit's own identity, for a reader that has to say what this sha
     // IS — a hover over a bare hash in prose. `-s` suppresses the diff, and
     // the unit separator cannot appear in a name or in `%s` (which strips
-    // newlines), so the split is unambiguous. A sha that resolves to nothing
+    // newlines), so the split is unambiguous. The body (`%b`) goes last,
+    // because it is the one field that carries newlines of its own and a
+    // trailing field needs no terminator. A sha that resolves to nothing
     // yields an empty capture and therefore empty fields, matching the empty
     // `files` the same sha produces above.
     let header = run_git_capture(
@@ -361,7 +369,9 @@ pub async fn build_commit_files_snapshot(
         &[
             "show",
             "-s",
-            &format!("--format=%s{LOG_FIELD_SEP}%an{LOG_FIELD_SEP}%ad"),
+            &format!(
+                "--format=%s{LOG_FIELD_SEP}%an{LOG_FIELD_SEP}%ae{LOG_FIELD_SEP}%ad{LOG_FIELD_SEP}%aI{LOG_FIELD_SEP}%b"
+            ),
             "--date=short",
             sha,
         ],
@@ -371,15 +381,25 @@ pub async fn build_commit_files_snapshot(
     let mut header_fields = header.trim_end_matches('\n').split(LOG_FIELD_SEP);
     let subject = header_fields.next().unwrap_or_default().to_string();
     let author = header_fields.next().unwrap_or_default().to_string();
+    let author_email = header_fields.next().unwrap_or_default().to_string();
     let date = header_fields.next().unwrap_or_default().to_string();
+    let author_date = header_fields.next().unwrap_or_default().to_string();
+    let body = header_fields
+        .next()
+        .unwrap_or_default()
+        .trim_end()
+        .to_string();
     GitCommitFilesSnapshot {
         request_id,
         workspace_key: workspace_key.to_string(),
         sha: sha.to_string(),
         no_repo: false,
         subject,
+        body,
         author,
+        author_email,
         date,
+        author_date,
         files,
     }
 }
@@ -1563,12 +1583,60 @@ index 1111111..2222222 100644
         assert!(missing.subject.is_empty());
         assert!(missing.author.is_empty());
         assert!(missing.date.is_empty());
+        assert!(missing.body.is_empty());
+        assert!(missing.author_email.is_empty());
+        assert!(missing.author_date.is_empty());
 
         // The same call on a real sha still describes it.
         let sha = run_git_line(&repo, &["rev-parse", "HEAD"]).await.unwrap();
         let found = build_commit_files_snapshot(&repo, "req-f".to_string(), "ws", &sha).await;
         assert!(!found.subject.is_empty());
         assert!(!found.files.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_commit_files_snapshot_carries_the_whole_message_and_identity() {
+        let temp = init_diff_fixture_repo().await;
+        let repo = temp.path().to_path_buf();
+
+        // A body with a blank line and a trailer — the shape a reader has to
+        // get back verbatim, and the one field in the header capture that
+        // carries newlines of its own.
+        fs::write(repo.join("keep.txt"), "v2\n").unwrap();
+        git_in(&repo, &["add", "-A"]).await;
+        git_in(
+            &repo,
+            &[
+                "commit",
+                "-m",
+                "widen the reply",
+                "-m",
+                "The card fills its masthead from the one round trip.",
+                "-m",
+                "Tug-Session: test (1a2b3c4d)",
+            ],
+        )
+        .await;
+
+        let sha = run_git_line(&repo, &["rev-parse", "HEAD"]).await.unwrap();
+        let snap = build_commit_files_snapshot(&repo, "req-w".to_string(), "ws", &sha).await;
+
+        assert_eq!(snap.subject, "widen the reply");
+        assert_eq!(
+            snap.body,
+            "The card fills its masthead from the one round trip.\n\nTug-Session: test (1a2b3c4d)",
+            "the body survives the unit-separator split with its newlines"
+        );
+        assert_eq!(snap.author, "test");
+        assert_eq!(snap.author_email, "test@test.com");
+        // `date` stays day-only; `author_date` carries the time beside it.
+        assert_eq!(snap.date.len(), 10, "YYYY-MM-DD");
+        assert!(
+            snap.author_date.starts_with(&snap.date) && snap.author_date.contains('T'),
+            "strict ISO 8601, not the short date: {}",
+            snap.author_date
+        );
+        assert_eq!(snap.files.len(), 1);
     }
 
     #[tokio::test]

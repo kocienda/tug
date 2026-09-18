@@ -82,6 +82,7 @@ const PRE_MIGRATION_MECHANISM: Readonly<Record<string, CommandRouting>> = {
   "new-text-card": "registry",
   [TUG_ACTIONS.OPEN_FILE]: "registry",
   [TUG_ACTIONS.OPEN_DIFF]: "registry",
+  [TUG_ACTIONS.OPEN_COMMIT]: "registry",
   "open-quickly": "registry",
   "clear-recent-documents": "registry",
   "next-theme": "registry",

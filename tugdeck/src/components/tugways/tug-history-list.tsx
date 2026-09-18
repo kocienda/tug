@@ -14,11 +14,13 @@
  * author / date / time each row carries, so a reader who wants the committer
  * and one who wants the clock both get the list they asked for.
  *
- * Expanding reveals the full commit message, the commit's changed files as a
- * {@link CommitChangesList} (its own single-shot `GIT_COMMIT_FILES` request,
- * hunks lazy per row), and the committer's full identity + complete date,
- * right-aligned at the bottom. Copy writes the whole record — the complete
- * 40-char hash, attribution, and message — whatever the fold state.
+ * Expanding mounts the shared {@link CommitRecordBody}: the full commit
+ * message, the commit's changed files (its own single-shot `GIT_COMMIT_FILES`
+ * request, hunks lazy per row), and — because this row's header shows only
+ * date and time — the committer's full identity + complete date, right-aligned
+ * at the bottom. The Commit card mounts the same component without that last
+ * line, so the two surfaces cannot drift. Copy writes the whole record — the
+ * complete 40-char hash, attribution, and message — whatever the fold state.
  *
  * Presentation carries no lifecycle dot — a landed commit has no lifecycle.
  * Per-commit collapse is UNCONTROLLED (local `useState`, like a receipt row);
@@ -40,16 +42,15 @@
  * claim that this text is why the row is here, so text the filter was told not
  * to read is left unmarked even when the query happens to appear in it.
  *
- * Laws: [L02] the commit-files store enters React through
- * `useSyncExternalStore`; [L06] tones and hover affordances paint via CSS,
- * never React state; [L26] the detail body collapses by unmount.
+ * Laws: [L06] tones and hover affordances paint via CSS, never React state;
+ * [L26] the detail body collapses by unmount.
  *
  * @module components/tugways/tug-history-list
  */
 
 import "./tug-history-list.css";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState } from "react";
 import type React from "react";
 
 import { TugListRow } from "@/components/tugways/tug-list-row";
@@ -57,17 +58,13 @@ import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-
 import {
   CommitCopyControl,
   CommitIdentityLine,
-  CommitMessage,
   CommitMetaCell,
+  CommitRecordBody,
   commitCopyText,
   formatCommitStamp,
   type CommitMetaField,
 } from "@/components/tugways/commit-presentation";
 import { SHA_DISPLAY_LEN } from "@/components/tugways/commit-sha-text";
-import {
-  CommitChangesList,
-  type CommitChangesFile,
-} from "@/components/tugways/tug-changes-list";
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
@@ -76,15 +73,12 @@ import { arcNameFromTrailer } from "@/lib/landing-receipt";
 import { resolveCitedSession } from "@/lib/session-identity";
 import {
   DEFAULT_COMMIT_FILTER_SCOPE,
+  scopedQuery,
   type CommitFilterScope,
 } from "@/lib/commit-filter-scope";
 import { filterHighlightRanges, filterQueryMatch } from "@/lib/text-match";
 import type { GitLogCommit } from "@/lib/git-log-store";
-import {
-  createCommitFilesStore,
-  EMPTY_COMMIT_FILES_SNAPSHOT,
-  type GitCommitFilesStoreSnapshot,
-} from "@/lib/git-commit-files-store";
+import { requestCommitCard } from "@/lib/open-commit-in-card";
 
 /**
  * How a commit that landed as an arc join names its arc on its row ([P09]) —
@@ -142,22 +136,6 @@ export function commitFilterFields(
     fields.push(...(commit.files ?? []));
   }
   return fields;
-}
-
-/**
- * The query as far as one surface is concerned — itself when the filter reads
- * that surface, empty when it does not.
- *
- * A mark says "this is what the filter found". A commit kept by its subject
- * while `files` is off must not paint its paths just because the word appears
- * there too; the reader turned that surface off and the row should not argue.
- */
-function scopedQuery(
-  query: string,
-  scope: readonly CommitFilterScope[],
-  surface: CommitFilterScope,
-): string {
-  return scope.includes(surface) ? query : "";
 }
 
 /** How many context lines a row names before it says "and N more". */
@@ -238,91 +216,6 @@ function matchedContext(
   return hits;
 }
 
-/** Read one expanded row's commit-files store reactively ([L02]). */
-function useCommitFilesSnapshot(
-  root: string,
-  sha: string,
-): GitCommitFilesStoreSnapshot {
-  // One store per expanded body: created on mount, disposed on
-  // collapse/unmount (the body unmounts while collapsed, so the store's
-  // lifetime tracks the expansion exactly).
-  const store = useMemo(() => createCommitFilesStore(), []);
-  const snapshot = useSyncExternalStore(
-    store?.subscribe ?? (() => () => {}),
-    store?.getSnapshot ?? (() => EMPTY_COMMIT_FILES_SNAPSHOT),
-    () => EMPTY_COMMIT_FILES_SNAPSHOT,
-  );
-  useEffect(() => {
-    store?.requestFiles(root, sha);
-    return () => store?.dispose();
-  }, [store, root, sha]);
-  return snapshot;
-}
-
-/**
- * The expanded detail: the message body at the shared `.tugx-commit-message`
- * scale, the commit's changed files, and finally the committer's full identity
- * + complete date, right-aligned at the bottom. The subject is NOT repeated
- * here — it leads the row above.
- */
-function CommitDetail({
-  commit,
-  projectDir,
-  filterQuery = "",
-  filterScope = DEFAULT_COMMIT_FILTER_SCOPE,
-}: {
-  commit: GitLogCommit;
-  projectDir: string;
-  filterQuery?: string;
-  filterScope?: readonly CommitFilterScope[];
-}): React.ReactElement {
-  const snapshot = useCommitFilesSnapshot(projectDir, commit.sha);
-  const body = commit.body ?? "";
-  const committer = commit.committer ?? commit.author;
-  const email = commit.committer_email ?? "";
-  const fullDate = formatCommitStamp(commit.committer_date ?? "", "full");
-  const identity = email.length > 0 ? `${committer} <${email}>` : committer;
-  const attribution = fullDate.length > 0 ? `${identity} · ${fullDate}` : identity;
-  const files: CommitChangesFile[] =
-    snapshot.payload?.files.map((f) => ({
-      path: f.path,
-      status: f.status,
-      added: f.added,
-      removed: f.removed,
-    })) ?? [];
-  return (
-    <div className="tug-history-list-commit-detail tugx-commit-detail">
-      {body.length > 0 ? (
-        <CommitMessage
-          body={body}
-          highlightQuery={scopedQuery(filterQuery, filterScope, "message")}
-          dataSlot="tug-history-list-message"
-        />
-      ) : null}
-      {files.length > 0 ? (
-        <CommitChangesList
-          root={projectDir}
-          sha={commit.sha}
-          files={files}
-          highlightQuery={scopedQuery(filterQuery, filterScope, "files")}
-        />
-      ) : snapshot.phase === "ready" ? (
-        <div className="tug-history-list-commit-files-empty">
-          No file changes.
-        </div>
-      ) : null}
-      {/* Attribution is one string so a query spanning the name and the email
-          (`ken kocienda@mac.com`) marks across the whole line, not per part. */}
-      <div className="tug-history-list-commit-meta tugx-commit-attribution">
-        {renderFilterHighlight(
-          attribution,
-          scopedQuery(filterQuery, filterScope, "detail"),
-        )}
-      </div>
-    </div>
-  );
-}
-
 /**
  * One commit's compact row + expandable detail: a `flush` `compact` `mono`
  * `TugListRow` (short sha ` : ` subject in the content column; author · date +
@@ -376,6 +269,10 @@ function CommitRow({
       dateIso: commit.committer_date,
       paths: commit.files,
     },
+    // The row knows which repository it is reading, so its menu can raise the
+    // commit's own card. Its Open Diff stays off: the row's diff is the shade
+    // beneath it, and every file in its roster carries a pop-out.
+    root: projectDir,
     expanded,
     onToggleDetail: () => setExpanded((e) => !e),
   });
@@ -442,6 +339,19 @@ function CommitRow({
           <CommitIdentityLine
             sha={commit.sha}
             shaMenu={false}
+            // A plain click on the row's own pill raises the commit's card;
+            // the rest of the row still folds. The row holds the whole header,
+            // so the card's masthead paints before its fetch lands.
+            onActivateSha={() =>
+              requestCommitCard(
+                { root: projectDir, sha: commit.sha },
+                {
+                  subject: commit.subject,
+                  author: commit.author,
+                  dateIso: commit.committer_date ?? "",
+                },
+              )
+            }
             subject={commit.subject}
             author={commit.committer ?? commit.author}
             dateIso={commit.committer_date}
@@ -522,9 +432,16 @@ function CommitRow({
         </div>
       ) : null}
       {expanded ? (
-        <CommitDetail
-          commit={commit}
-          projectDir={projectDir}
+        <CommitRecordBody
+          root={projectDir}
+          sha={commit.sha}
+          body={commit.body ?? ""}
+          attributionName={commit.committer ?? commit.author}
+          attributionEmail={commit.committer_email ?? ""}
+          attributionDateIso={commit.committer_date ?? ""}
+          className="tug-history-list-commit-detail"
+          messageSlot="tug-history-list-message"
+          attributionClassName="tug-history-list-commit-meta"
           filterQuery={filterQuery}
           filterScope={filterScope}
         />

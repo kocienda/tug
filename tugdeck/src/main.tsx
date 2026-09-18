@@ -72,6 +72,7 @@ import { registerArcsCard } from "./components/arcs/arcs-card-registration";
 import { registerTextCard } from "./components/tugways/cards/text-card-registration";
 import { registerFileViewCard } from "./components/tugways/cards/file-view-card-registration";
 import { registerDiffCard } from "./components/tugways/cards/diff-card";
+import { registerCommitCard } from "./components/tugways/cards/commit-card";
 import { registerGalleryCards } from "./components/tugways/cards/gallery-registrations";
 import { registerSpikeCards } from "./spikes/spike-registry";
 import { registerFixtureCards } from "./fixtures/fixture-registrations";
@@ -362,6 +363,7 @@ if (!container) {
   registerTextCard();
   registerFileViewCard();
   registerDiffCard();
+  registerCommitCard();
   registerGalleryCards();
   registerSpikeCards();
   registerFixtureCards();

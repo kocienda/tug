@@ -10,7 +10,11 @@
 
 import { describe, test, expect, afterEach } from "bun:test";
 
-import { cardTitleStore, type DocumentMastheadPayload } from "@/lib/card-title-store";
+import {
+  cardTitleStore,
+  type CommitMastheadPayload,
+  type DocumentMastheadPayload,
+} from "@/lib/card-title-store";
 
 const BASE: DocumentMastheadPayload = {
   kind: "card-masthead",
@@ -54,5 +58,78 @@ describe("the masthead equality guard", () => {
     for (const next of changed) {
       expect(notifiesFor([BASE, next]), JSON.stringify(next)).toBe(2);
     }
+  });
+});
+
+const COMMIT: CommitMastheadPayload = {
+  kind: "commit-masthead",
+  root: "/work/repo",
+  sha: "0123456789abcdef0123456789abcdef01234567",
+  subject: "Widen the commit-files reply",
+  author: "Ken Kocienda",
+  dateIso: "2026-09-18T09:31:04-07:00",
+  body: "The card fills its masthead from the one round trip.",
+  authorEmail: "kocienda@pobox.com",
+  files: [
+    { path: "tugrust/crates/tugcast/src/feeds/git.rs", status: "modified", added: 40, removed: 8 },
+  ],
+};
+
+/** The same two publishes, against the masthead-only channel a card uses. */
+function commitNotifiesFor(payloads: readonly CommitMastheadPayload[]): number {
+  let notifies = 0;
+  const unsubscribe = cardTitleStore.subscribe(() => {
+    notifies += 1;
+  });
+  for (const payload of payloads) cardTitleStore.setMasthead("commit", payload);
+  unsubscribe();
+  return notifies;
+}
+
+afterEach(() => cardTitleStore.clear("commit"));
+
+describe("the commit masthead's equality guard", () => {
+  test("an unchanged payload notifies once, not once per publish", () => {
+    // A Commit card publishes on EVERY snapshot change, and a store delivers
+    // more snapshots than it does distinct records.
+    expect(commitNotifiesFor([COMMIT, { ...COMMIT }, { ...COMMIT }])).toBe(1);
+  });
+
+  test("every displayed field is compared", () => {
+    const changed: readonly CommitMastheadPayload[] = [
+      { ...COMMIT, sha: "fedcba9876543210fedcba9876543210fedcba98" },
+      { ...COMMIT, subject: "Carve the expansion into CommitRecordBody" },
+      { ...COMMIT, author: "Grace Hopper" },
+      { ...COMMIT, dateIso: "2026-09-17T09:31:04-07:00" },
+      // Not a drawn line, but the descriptor the tier's Open Diff is scoped
+      // by — the same sha in two checkouts is two different diffs.
+      { ...COMMIT, root: "/work/other" },
+      // Nor are these drawn. They are what the tier's menu COPIES, and a
+      // record left out of the comparison is a menu still writing the last
+      // commit's message.
+      { ...COMMIT, body: "A different message." },
+      { ...COMMIT, authorEmail: "ken@example.com" },
+      { ...COMMIT, files: [] },
+      {
+        ...COMMIT,
+        files: [
+          { path: "tugrust/crates/tugcast/src/feeds/git.rs", status: "modified", added: 41, removed: 8 },
+        ],
+      },
+    ];
+    for (const next of changed) {
+      expect(commitNotifiesFor([COMMIT, next]), JSON.stringify(next)).toBe(2);
+    }
+  });
+
+  test("a kind change is never equal, whatever the fields say", () => {
+    let notifies = 0;
+    const unsubscribe = cardTitleStore.subscribe(() => {
+      notifies += 1;
+    });
+    cardTitleStore.setMasthead("commit", COMMIT);
+    cardTitleStore.setMasthead("commit", BASE);
+    unsubscribe();
+    expect(notifies).toBe(2);
   });
 });

@@ -1304,6 +1304,14 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
+    // Its doors are a commit atom's plain click and its right-click menu —
+    // no menu item and no chord, the same standing Open Diff has.
+    id: TUG_ACTIONS.OPEN_COMMIT,
+    title: "Open Commit",
+    routing: "registry",
+    internal: true,
+  },
+  {
     // Its door is an Overview post's arc chip — a link, not a menu item or
     // a chord. Distinct from Show Arcs on purpose: a link reveals the rail,
     // where the toggle would take it away from a reader who had it open.

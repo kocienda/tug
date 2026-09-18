@@ -17,15 +17,23 @@
  *    ({@link BlockCopyButton}), matched to the fold cue's scale.
  *  - {@link commitCopyText} — the copy payload: header line, full message,
  *    attribution, and the changed-file roster.
+ *  - {@link CommitRecordBody} — the commit's record below its header: the
+ *    message body, the changed-file roster, and an optional attribution line.
+ *    The History shade's expanded row and the Commit card are the same
+ *    component, so neither can drift from the other.
  *
  * The type scale and the layout skeleton live in `commit-presentation.css`
  * under the `.tugx-commit` scope class ([L06] appearance is CSS).
+ *
+ * Laws: [L02] the commit-files store enters React through
+ * `useSyncExternalStore`.
  *
  * @module components/tugways/commit-presentation
  */
 
 import "./commit-presentation.css";
 
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type React from "react";
 
 import { CommitShaText } from "@/components/tugways/commit-sha-text";
@@ -34,6 +42,20 @@ import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugMarkdownText } from "@/components/tugways/tug-markdown-text";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { BlockCopyButton } from "@/components/tugways/body-kinds/affordances/block-copy-button";
+import {
+  CommitChangesList,
+  type CommitChangesFile,
+} from "@/components/tugways/tug-changes-list";
+import {
+  DEFAULT_COMMIT_FILTER_SCOPE,
+  scopedQuery,
+  type CommitFilterScope,
+} from "@/lib/commit-filter-scope";
+import {
+  createCommitFilesStore,
+  EMPTY_COMMIT_FILES_SNAPSHOT,
+  type GitCommitFilesStoreSnapshot,
+} from "@/lib/git-commit-files-store";
 import {
   commitRoster,
   statLine,
@@ -163,6 +185,7 @@ export function CommitIdentityLine({
   subjectContent,
   badge,
   shaMenu = true,
+  onActivateSha,
   className,
 }: {
   sha: string;
@@ -192,6 +215,12 @@ export function CommitIdentityLine({
    * @default true
    */
   shaMenu?: boolean;
+  /**
+   * What a plain click on the sha's pill does — the commit's own card, on
+   * every surface that knows which repository the commit lives in. Omitted ⇒
+   * the pill is inert, which is what a line with no root behind it should be.
+   */
+  onActivateSha?: () => void;
   className?: string;
 }): React.ReactElement {
   return (
@@ -212,7 +241,12 @@ export function CommitIdentityLine({
         }
         data-slot="commit-identity"
       >
-        <CommitShaText sha={sha} content={shaContent} menu={shaMenu} />
+        <CommitShaText
+          sha={sha}
+          content={shaContent}
+          menu={shaMenu}
+          onActivate={onActivateSha}
+        />
         {" "}
         {subjectContent ?? subject}
         {badge}
@@ -326,4 +360,141 @@ export function commitCopyText(facts: CommitCopyFacts): string {
     }
   }
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Read one commit's changed-files store reactively ([L02]) — one store per
+ * mounted body, created on mount and disposed on unmount, so its lifetime
+ * tracks exactly the surface that asked for it (a History row's expansion,
+ * or a Commit card's life).
+ */
+export function useCommitFilesSnapshot(
+  root: string,
+  sha: string,
+): GitCommitFilesStoreSnapshot {
+  const store = useMemo(() => createCommitFilesStore(), []);
+  const snapshot = useSyncExternalStore(
+    store?.subscribe ?? (() => () => {}),
+    store?.getSnapshot ?? (() => EMPTY_COMMIT_FILES_SNAPSHOT),
+    () => EMPTY_COMMIT_FILES_SNAPSHOT,
+  );
+  useEffect(() => {
+    store?.requestFiles(root, sha);
+    return () => store?.dispose();
+  }, [store, root, sha]);
+  return snapshot;
+}
+
+/**
+ * The commit's record below whatever header states its subject: the message
+ * body at the shared `.tugx-commit-message` scale, the commit's changed files
+ * as a {@link CommitChangesList}, and — when the host asks for it — the
+ * attribution line, right-aligned at the bottom. The subject is NOT repeated
+ * here; the host's header leads with it.
+ *
+ * Two surfaces mount this: the History shade's expanded row, which asks for
+ * the attribution line because its row header shows only date and time, and
+ * the Commit card, which does not because its masthead's third line already
+ * carries author, date, and time.
+ *
+ * The body fetches its own files, so a host that knows nothing but a sha gets
+ * the same record as one that came from a log row. `body` and the attribution
+ * parts override what the fetch returns, which is how the shade keeps naming
+ * the COMMITTER — the reply carries the author.
+ */
+export function CommitRecordBody({
+  root,
+  sha,
+  body,
+  showAttribution = true,
+  attributionName,
+  attributionEmail,
+  attributionDateIso,
+  className,
+  messageSlot,
+  attributionClassName,
+  filterQuery = "",
+  filterScope = DEFAULT_COMMIT_FILTER_SCOPE,
+}: {
+  /** Repository root the commit is read in. */
+  root: string;
+  /** The commit's sha — eight characters or forty, either resolves. */
+  sha: string;
+  /** Message body; falls back to the fetched record's own. */
+  body?: string;
+  /** The trailing attribution line — on for the shade, off for the card. */
+  showAttribution?: boolean;
+  /** Who the attribution names; defaults to the fetched record's author. */
+  attributionName?: string;
+  attributionEmail?: string;
+  /** Strict-ISO stamp the attribution states; defaults to the record's. */
+  attributionDateIso?: string;
+  /** Host framing for the body's container — the shade's recessed well. */
+  className?: string;
+  /** `data-slot` the host pins the message body by. */
+  messageSlot?: string;
+  /** Host framing for the attribution line. */
+  attributionClassName?: string;
+  filterQuery?: string;
+  filterScope?: readonly CommitFilterScope[];
+}): React.ReactElement {
+  const snapshot = useCommitFilesSnapshot(root, sha);
+  const record = snapshot.payload;
+  const messageBody = body ?? record?.body ?? "";
+  const name = attributionName ?? record?.author ?? "";
+  const email = attributionEmail ?? record?.author_email ?? "";
+  const fullDate = formatCommitStamp(
+    attributionDateIso ?? record?.author_date ?? "",
+    "full",
+  );
+  const identity = email.length > 0 ? `${name} <${email}>` : name;
+  const attribution = fullDate.length > 0 ? `${identity} · ${fullDate}` : identity;
+  const files: CommitChangesFile[] =
+    record?.files.map((f) => ({
+      path: f.path,
+      status: f.status,
+      added: f.added,
+      removed: f.removed,
+    })) ?? [];
+  const wellClass =
+    className === undefined
+      ? "tugx-commit-detail"
+      : `${className} tugx-commit-detail`;
+  return (
+    <div className={wellClass}>
+      {messageBody.length > 0 ? (
+        <CommitMessage
+          body={messageBody}
+          highlightQuery={scopedQuery(filterQuery, filterScope, "message")}
+          dataSlot={messageSlot ?? "commit-record-message"}
+        />
+      ) : null}
+      {files.length > 0 ? (
+        <CommitChangesList
+          root={root}
+          sha={sha}
+          files={files}
+          highlightQuery={scopedQuery(filterQuery, filterScope, "files")}
+        />
+      ) : snapshot.phase === "ready" ? (
+        <div className="tugx-commit-files-empty">No file changes.</div>
+      ) : null}
+      {/* Attribution is one string so a query spanning the name and the email
+          (`ken kocienda@mac.com`) marks across the whole line, not per part. */}
+      {showAttribution ? (
+        <div
+          className={
+            attributionClassName === undefined
+              ? "tugx-commit-attribution"
+              : `${attributionClassName} tugx-commit-attribution`
+          }
+        >
+          {renderFilterHighlight(
+            attribution,
+            scopedQuery(filterQuery, filterScope, "detail"),
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
 }

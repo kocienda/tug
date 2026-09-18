@@ -28,6 +28,7 @@ import { CommitShaText } from "@/components/tugways/commit-sha-text";
 import { CommitMessage } from "@/components/tugways/commit-presentation";
 import { markdownTextParts } from "@/components/tugways/tug-markdown-text";
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
+import { requestCommitCard } from "@/lib/open-commit-in-card";
 import { CommitChangesList } from "@/components/tugways/tug-changes-list";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
 import { BlockChrome } from "../blocks/block-chrome";
@@ -185,6 +186,9 @@ function CommitReceipt({
   // Copy down in favor of this one.
   const menu = useCommitIdentityMenu({
     commit: { sha, subject, body, files, paths: files.map((f) => f.path) },
+    // The receipt knows the repo the commit landed in, so its header's pill
+    // can raise the commit's card and its menu can offer the same.
+    root: cwd,
   });
   // The commit atom stands where a tool block's verb would: the commit names
   // itself — `commit:<8>`, glyph and all — then a single space, then the
@@ -198,7 +202,11 @@ function CommitReceipt({
         ref={menu.ref}
         onContextMenu={menu.onContextMenu}
       >
-        <CommitShaText sha={sha} menu={false} />
+        <CommitShaText
+          sha={sha}
+          menu={false}
+          onActivate={() => requestCommitCard({ root: cwd, sha }, { subject })}
+        />
         {menu.contextMenu}
       </span>
       {" "}

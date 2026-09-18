@@ -11,6 +11,9 @@
  *
  *   Show Detail / Hide Detail   the row's own fold, named rather than remembered
  *   ─────
+ *   Open Commit                 the commit's own card, wherever there is a root
+ *   Open Diff                   where the surface has no diff of its own
+ *   ─────
  *   Copy Short Hash             `commit:<8>`, the form the app writes commits as
  *   Copy Full Hash              the complete 40 characters, bare, for a git verb
  *   Copy Commit Header          `commit:<8>` and the subject, one line
@@ -20,6 +23,21 @@
  * **The fold item says which way it goes.** `Show Detail` on a collapsed row,
  * `Hide Detail` on an expanded one — the same act the row's click performs,
  * spelled so the menu never asks the reader to recall the row's state.
+ *
+ * **Open Commit follows the root.** A commit's own card is its primary act,
+ * so every surface that knows which repository the commit lives in offers it;
+ * a receipt header, which knows a sha and nothing else, cannot resolve one and
+ * so does not. The Commit card's own masthead turns it off explicitly, because
+ * that card IS the commit's card and a menu item raising the card you are
+ * already looking at is a row that does nothing.
+ *
+ * **Open Diff is the surface's call, and it defaults off.** A History row's
+ * own diff is the shade beneath it and every file in its roster carries a
+ * pop-out, so the row offers no second door. The Commit card's masthead is
+ * the case that turns it on: the whole-commit diff is nowhere else on that
+ * card, and the tier's right-click is how it stays one gesture away without
+ * the body growing a button. A surface that says yes owes a `root`, because
+ * the descriptor the diff opens on is scoped to a repository.
  *
  * **Every item writes through `writeCopyClipboard`.** The four text forms used
  * to call `navigator.clipboard.writeText` directly, which carried no atom
@@ -44,6 +62,7 @@
 
 import React from "react";
 
+import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import {
   commitCopyText,
@@ -71,6 +90,24 @@ export interface CommitIdentityMenuOptions {
     /** The paths the commit changed, when the surface knows them. */
     paths?: readonly string[];
   };
+  /**
+   * The repository the commit was read in — what the diff descriptor is
+   * scoped by. Only {@link canOpenDiff} needs it; a surface that offers no
+   * Open Diff may leave it out.
+   */
+  root?: string;
+  /**
+   * Offer Open Diff. @default false — a History row's diff is the shade
+   * beneath it, which is the surface this hook was written for.
+   */
+  canOpenDiff?: boolean;
+  /**
+   * Offer Open Commit. @default true wherever a {@link root} was given, since
+   * that is exactly the condition under which the card can resolve the sha.
+   * The Commit card's masthead is the one surface that says no with a root in
+   * hand.
+   */
+  canOpenCommit?: boolean;
   /**
    * Whether the row's detail is open — the fold item states the direction it
    * will move. Omit on a surface with no fold, and the item is absent.
@@ -107,6 +144,9 @@ function commitAtomIn(host: HTMLElement): HTMLElement | null {
 
 export function useCommitIdentityMenu({
   commit,
+  root = "",
+  canOpenDiff = false,
+  canOpenCommit = root.length > 0,
   expanded,
   onToggleDetail,
 }: CommitIdentityMenuOptions): CommitIdentityMenuResult {
@@ -143,7 +183,7 @@ export function useCommitIdentityMenu({
     const payload = {
       kind: "commit-sha" as const,
       sha: commit.sha,
-      root: "",
+      root,
       paths: [...pathsRef.current],
     };
     const segment = atomSegmentFor(payload);
@@ -154,7 +194,37 @@ export function useCommitIdentityMenu({
       clipboardOriginFor(hostRef.current),
       { version: 1, text: TUG_ATOM_CHAR, atoms: [{ position: 0, segment }] },
     );
-  }, [commit.sha]);
+  }, [commit.sha, root]);
+
+  // The same dispatch the registry's own primary click makes, from the one
+  // place that holds the descriptor's parts. `dispatchCommand` rather than a
+  // direct call: opening a diff card is the app's act, and this hook is a
+  // menu — the action it names is the same one every other Open Diff names.
+  const openDiff = React.useCallback((): void => {
+    dispatchCommand(TUG_ACTIONS.OPEN_DIFF, {
+      descriptor: {
+        kind: "commit",
+        root,
+        sha: commit.sha,
+        paths: [...pathsRef.current],
+      },
+    });
+  }, [commit.sha, root]);
+
+  // The commit's own card, seeded with the header this surface already holds
+  // so its masthead paints before the round trip lands. A History row has the
+  // whole record; the Commit card's fetch is still the authority.
+  const openCommit = React.useCallback((): void => {
+    dispatchCommand(TUG_ACTIONS.OPEN_COMMIT, {
+      root,
+      sha: commit.sha,
+      hint: {
+        subject: commit.subject,
+        author: commit.author ?? "",
+        dateIso: commit.dateIso ?? "",
+      },
+    });
+  }, [commit.sha, commit.subject, commit.author, commit.dateIso, root]);
 
   const responderId = React.useId();
   const { responderRef, ResponderScope } = useOptionalResponder({
@@ -173,6 +243,11 @@ export function useCommitIdentityMenu({
       // button and the menu item can never write two different records.
       [TUG_ACTIONS.COPY_COMMIT_RECORD]: () => copy(commitCopyText(commit)),
       [TUG_ACTIONS.COPY_ANNOTATION_ATOM]: copyAtom,
+      // Registered only where the item is offered: an unclaimed action falls
+      // through to the responder above, which is where a surface that does
+      // not offer the row wants it to go.
+      ...(canOpenDiff ? { [TUG_ACTIONS.OPEN_DIFF]: openDiff } : {}),
+      ...(canOpenCommit ? { [TUG_ACTIONS.OPEN_COMMIT]: openCommit } : {}),
     },
   });
 
@@ -217,18 +292,17 @@ export function useCommitIdentityMenu({
     // that it holds the whole record, and which way its fold would move.
     const entries =
       annotationEntryFor("commit-sha")?.menuEntries(
-        { kind: "commit-sha", sha: commit.sha, root: "", paths: [...paths] },
+        { kind: "commit-sha", sha: commit.sha, root, paths: [...paths] },
         {
           kind: "commit-sha",
           ...(folds ? { expanded: expanded === true } : {}),
           hasRecord: true,
-          // A History row's own diff is the shade beneath it; the row does
-          // not open a second one from its menu.
-          canOpenDiff: false,
+          canOpenDiff,
+          canOpenCommit,
         },
       ) ?? [];
     return entityMenuItems(entries);
-  }, [commit.sha, folds, expanded, paths]);
+  }, [commit.sha, root, canOpenDiff, canOpenCommit, folds, expanded, paths]);
 
   // Inside this hook's own ResponderScope, so the menu's targeted dispatch
   // lands on the responder above rather than on whatever surrounds the row.

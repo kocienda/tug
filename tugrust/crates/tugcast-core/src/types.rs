@@ -312,12 +312,26 @@ pub struct GitCommitFilesSnapshot {
     /// shows what it has rather than asserting an empty commit message.
     #[serde(default)]
     pub subject: String,
+    /// The commit message body (`%b`) — everything after the subject, verbatim,
+    /// with trailing whitespace trimmed. Empty for a subject-only commit, and
+    /// on payloads written before the field existed.
+    #[serde(default)]
+    pub body: String,
     /// Author name (`%an`), for the same reason and with the same default.
     #[serde(default)]
     pub author: String,
+    /// Author email (`%ae`) — shown beside the author name on the record's
+    /// attribution line. Same default, same reason.
+    #[serde(default)]
+    pub author_email: String,
     /// Author date, `--date=short` (`YYYY-MM-DD`).
     #[serde(default)]
     pub date: String,
+    /// Author date, strict ISO 8601 (`%aI`) — the complete timestamp a reader
+    /// formats for display, carrying the time `date` drops. Independent of the
+    /// `--date` flag.
+    #[serde(default)]
+    pub author_date: String,
     /// One entry per changed file, in git's output order.
     pub files: Vec<GitCommitFile>,
 }
@@ -1719,8 +1733,11 @@ mod tests {
             sha: "0123456789abcdef0123456789abcdef01234567".to_string(),
             no_repo: false,
             subject: "overview(ref-annotation): summarize commits on hover".to_string(),
+            body: "The hover card reads the commit's own record.\n\nTug-Session: ken (1a2b3c4d)".to_string(),
             author: "Ken Kocienda".to_string(),
+            author_email: "kocienda@pobox.com".to_string(),
             date: "2026-08-12".to_string(),
+            author_date: "2026-08-12T09:31:04-07:00".to_string(),
             files: vec![
                 GitCommitFile {
                     path: "src/lib.rs".to_string(),

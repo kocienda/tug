@@ -57,6 +57,22 @@ export const COMMIT_FILTER_SCOPES: readonly CommitFilterScope[] = [
 export const DEFAULT_COMMIT_FILTER_SCOPE: readonly CommitFilterScope[] =
   COMMIT_FILTER_SCOPES;
 
+/**
+ * The query as far as one surface is concerned — itself when the filter reads
+ * that surface, empty when it does not.
+ *
+ * A mark says "this is what the filter found". A commit kept by its subject
+ * while `files` is off must not paint its paths just because the word appears
+ * there too; the reader turned that surface off and the row should not argue.
+ */
+export function scopedQuery(
+  query: string,
+  scope: readonly CommitFilterScope[],
+  surface: CommitFilterScope,
+): string {
+  return scope.includes(surface) ? query : "";
+}
+
 /** Parse a persisted scope list; `null` when nothing has ever been stored. */
 export function parseCommitFilterScope(
   entry: TaggedValue | undefined,

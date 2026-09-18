@@ -1106,6 +1106,18 @@ export const TUG_ACTIONS = {
   //                         descriptor. Registry handler in
   //                         `action-dispatch.ts`; both call `openDiffInCard`.
   OPEN_DIFF:              "open-diff",
+  // OPEN_COMMIT:            payload — `{ root: string, sha: string }`, plus
+  //                         an optional `hint` ({subject, author, dateIso})
+  //                         from a surface that already holds the commit's
+  //                         header. Open the commit in a Commit card: an
+  //                         existing card showing the same commit — matched
+  //                         with either sha a prefix of the other, since
+  //                         prose writes eight characters and the reply
+  //                         returns forty — is activated; otherwise a new
+  //                         Commit card is created seeded with it. Registry
+  //                         handler in `action-dispatch.ts`, which calls
+  //                         `openCommitInCard`.
+  OPEN_COMMIT:            "open-commit",
   REVEAL_IN_FINDER:       "reveal-in-finder",
   REVEAL_CARD_FILE:       "reveal-card-file",
   SHOW_CARD_SETTINGS:     "show-card-settings",

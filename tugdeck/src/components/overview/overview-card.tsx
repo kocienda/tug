@@ -412,8 +412,8 @@ function RefAtom({
   // also the spelling copy already uses, so selection and menu agree.
   //
   // A commit takes its own pill and reads the resolution itself. `actionable`
-  // is the state where this row's wrapper opens the diff, so that is the one
-  // that earns the pointer cursor; `inert` is a sha this repository does not
+  // is the state where this row's wrapper opens the commit's own card, so that
+  // is the one that earns the pointer cursor; `inert` is a sha this repository does not
   // have, and the pill answers it by keeping its shape and dashing its border
   // rather than degrading to a bare label — a reader still needs to know what
   // kind of thing failed to resolve. `pending` is neither: a probe in flight

@@ -97,3 +97,11 @@ The user's notes, from the spike:
 ## Exit {#exit}
 
 A plain **`/arc`**, with its task list written from this brief. The parts order themselves: the component and its strut ([B01], [B03]); `CommitShaText` and its three hosts ([B04].1); the Overview row and the prose portal ([B04].2–3); the composer bake with the face question answered first ([B04].4, Open Questions); the `TugAtomRef` arm and the label's move ([B04].5); doctrine, the decision entry, the spike's deletion and the pin ([B05]); the tests ([B06]).
+
+---
+
+## Amendment, 2026-09-18 — a commit atom's primary act is its card {#amendment-commit-card}
+
+[B07]'s gesture bullet said the pill "never claims a click of its own", and [F03] recorded that a prose mention's click opened the diff. Both have been superseded by the Commit card: a plain click on a commit atom now shows the commit's own card — the History shade's expanded record, mounted standalone under a masthead whose three lines are the pill, the subject, and author · date · time. It holds on written mentions and on placed pills alike, so the four surfaces this brief enumerated now answer the pointer the same way rather than three of them being copy targets and one a link.
+
+What survives unchanged is the ownership rule the bullet was actually protecting: `CommitShaText` still stops every pointer gesture on the sha, so a right-click cannot fold the History row out from under its own menu and a click on the hash is never also a click on the row. What changed is only whether the stopped click does anything — a host that hands the pill an act gets one, and with it the pointer cursor; a host that hands it none leaves the pill exactly as this brief left it. Open Diff is still reachable, one row below Open Commit on the atom's menu, because a diff is one view of a commit rather than the commit itself. The doctrine is `tuglaws/entity-presentation.md`.
