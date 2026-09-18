@@ -236,6 +236,17 @@ export interface IDeckManagerStore {
   revealCard: (cardId: string) => void;
 
   /**
+   * The pane's half of a drop's second move. A dropped frame is carried into
+   * its tile by the pane's own landing, which the settle skips; the reveal
+   * that shows the card whole must wait for that landing as well as for the
+   * settle, or the frame it skips jumps when the landing ends. `noteCardWillLand`
+   * is called at the release, before the commit; `noteCardDidLand` when the
+   * landing has finished, on every path out.
+   */
+  noteCardWillLand: (cardId: string) => void;
+  noteCardDidLand: (cardId: string) => void;
+
+  /**
    * Read the composite first-responder bit: the active pane's
    * active card id, or `null` when no pane is active. At any
    * moment, exactly zero or one card is the first responder.

@@ -1868,6 +1868,16 @@ export class DeckManager implements IDeckManagerStore {
     this.cardLifecycle.onceCardDidTravel(cardId, () => this.revealCard(cardId));
   }
 
+  /** See `IDeckManagerStore.noteCardWillLand`. */
+  public noteCardWillLand = (cardId: string): void => {
+    this.cardLifecycle.notifyCardWillLand(cardId);
+  };
+
+  /** See `IDeckManagerStore.noteCardDidLand`. */
+  public noteCardDidLand = (cardId: string): void => {
+    this.cardLifecycle.notifyCardDidLand(cardId);
+  };
+
   public deselectActiveCard = (): void => {
     if (this.deckState.activePaneId === undefined) return;
     this._flipFirstResponder(

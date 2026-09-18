@@ -2922,6 +2922,8 @@ export function TugPane({
   const pendingZoneDropRef = useRef<{
     el: HTMLElement;
     from: DOMRect;
+    /** The card whose landing mark the store is holding for this frame. */
+    cardId: string;
     /** The hand's speed at the release, in CSS px/s, for the landing to
      *  inherit. `{x: 0, y: 0}` for a release the hand had stopped moving on. */
     releaseVelocity: { x: number; y: number };
@@ -2969,7 +2971,7 @@ export function TugPane({
     const pending = pendingZoneDropRef.current;
     if (pending === null) return;
     pendingZoneDropRef.current = null;
-    const { el, from, releaseVelocity } = pending;
+    const { el, from, cardId, releaseVelocity } = pending;
     el.style.transform = "";
     const to = el.getBoundingClientRect();
     const zoom = getTugZoom() || 1;
@@ -2978,6 +2980,7 @@ export function TugPane({
     if (dx === 0 && dy === 0) {
       el.removeAttribute("data-gesture");
       el.removeAttribute("data-pointer-owned");
+      store.noteCardDidLand(cardId);
       return;
     }
     // The `landing` recipe, seeded with whatever the hand was still doing at
@@ -3013,9 +3016,12 @@ export function TugPane({
     const done = () => {
       el.removeAttribute("data-gesture");
       el.removeAttribute("data-pointer-owned");
+      // After the marks come off: the reveal this releases arms a settle,
+      // and the settle must see this frame as one it may carry.
+      store.noteCardDidLand(cardId);
     };
     landing.finished.then(done, done);
-  }, []);
+  }, [store]);
 
   /**
    * Land the drop on the commit that gave the frame its new place ([L03] — a
@@ -3938,6 +3944,13 @@ export function TugPane({
               return;
             }
           }
+          // The landing mark goes on BEFORE the commit, so the reveal the
+          // commit schedules waits for the landing as well as for the settle.
+          // Every path below lands — a taken drop on the commit's render, a
+          // drop onto its own place inline, a refusal inline — and the
+          // landing clears it on every path out.
+          const landingCardId = activeCardIdRef.current ?? id;
+          store.noteCardWillLand(landingCardId);
           const committed =
             live !== null && dropZonesRef.current?.commit(live, id) === true;
           if (committed && live !== null) {
@@ -3947,6 +3960,7 @@ export function TugPane({
             pendingZoneDropRef.current = {
               el: frame,
               from: frame.getBoundingClientRect(),
+              cardId: landingCardId,
               releaseVelocity: releaseVelocity(e),
             };
             // A drop onto the card's own position commits nothing, so nothing
@@ -3966,6 +3980,7 @@ export function TugPane({
             pendingZoneDropRef.current = {
               el: frame,
               from: frame.getBoundingClientRect(),
+              cardId: landingCardId,
               releaseVelocity: releaseVelocity(e),
             };
             landZoneDrop();

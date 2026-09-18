@@ -167,6 +167,19 @@ export class CardLifecycle {
    */
   private readonly arrivingCards: Set<string> = new Set();
 
+  /**
+   * Cards whose frame is being carried by its own drop LANDING — the pane's
+   * FLIP from where the hand released it to the tile the commit gave it.
+   *
+   * A landing frame is skipped by the settle, so a reveal committed while one
+   * is in flight would move every frame but that one, and the frame would jump
+   * by the reveal's distance when its landing ended. Marked by the pane at the
+   * release, cleared when the landing finishes; the two marks together are
+   * what {@link CardLifecycle.onceCardDidTravel} waits on.
+   */
+  private readonly landingCards: Set<string> = new Set();
+  private readonly landingSubs: Set<Subscription> = new Set();
+
   private manager: CardLifecycleManager | null;
 
   constructor(
@@ -323,6 +336,7 @@ export class CardLifecycle {
     // nothing will ever clear, and every later `onceCardDidArrive` for that id
     // would defer forever. The card is going; the arrival is moot.
     this.arrivingCards.delete(cardId);
+    this.landingCards.delete(cardId);
     // And so are the callers already waiting on it. A one-shot arrival waiter
     // unsubscribes itself when it fires, and this card will never fire: it is
     // leaving the deck, and a cardId is never reused. Nothing else drops the
@@ -580,14 +594,58 @@ export class CardLifecycle {
 
   /**
    * Run `callback` once `cardId` has finished travelling — AT ONCE when no
-   * settle is carrying it, and otherwise when the settle ends. The move's
-   * twin of {@link CardLifecycle.onceCardDidArrive}, with the same
-   * fire-at-once contract ([B05]) for the same reason: a host with no canvas
-   * never clears the mark, so it is never made there, and the caller writes
-   * one line either way.
+   * settle is carrying it and no landing is, and otherwise when the LAST of
+   * the two ends. The move's twin of {@link CardLifecycle.onceCardDidArrive},
+   * with the same fire-at-once contract ([B05]) for the same reason: a host
+   * with no canvas never clears the marks, so they are never made there, and
+   * the caller writes one line either way.
+   *
+   * Two marks rather than one because a dropped frame is carried twice over:
+   * the settle carries every other frame the commit moved and ends on its own
+   * clock, and the pane's landing carries the dropped frame and ends on its.
+   * Whichever ends second is the moment the deck is still.
    */
   onceCardDidTravel(cardId: string, callback: () => void): () => void {
-    return this.onceCardDidArrive(cardId, callback);
+    const ready = (): boolean =>
+      !this.arrivingCards.has(cardId) && !this.landingCards.has(cardId);
+    if (ready()) {
+      callback();
+      return () => {};
+    }
+    let fired = false;
+    const cancels: Array<() => void> = [];
+    const cancel = (): void => {
+      for (const c of cancels) c();
+    };
+    const check = (): void => {
+      if (fired || !ready()) return;
+      fired = true;
+      cancel();
+      callback();
+    };
+    cancels.push(this.subscribe(this.arrivalSubs, cardId, check));
+    cancels.push(this.subscribe(this.landingSubs, cardId, check));
+    return cancel;
+  }
+
+  /**
+   * Mark `cardId` as LANDING — its frame is about to be carried by the pane's
+   * own drop landing rather than by the settle. Made by the pane at the
+   * release, before the commit, so a reveal the commit schedules sees it.
+   */
+  notifyCardWillLand(cardId: string): void {
+    if (LIFECYCLE_LOG) console.log(`[CardLifecycle] cardWillLand id=${cardId}`);
+    this.landingCards.add(cardId);
+  }
+
+  /**
+   * The landing has ended and the frame is still. Cleared before the fire, as
+   * the arrival is, so a re-entrant waiter is answered at once. Idempotent.
+   */
+  notifyCardDidLand(cardId: string): void {
+    if (LIFECYCLE_LOG) console.log(`[CardLifecycle] cardDidLand id=${cardId}`);
+    this.landingCards.delete(cardId);
+    this.fire(this.landingSubs, cardId);
   }
 
   /**

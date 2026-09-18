@@ -247,4 +247,59 @@ describe("onceCardDidTravel", () => {
     lifecycle.notifyCardDidArrive("A");
     expect(fired).toBe(1);
   });
+
+  test("waits for a LANDING as well, whichever of the two ends last", () => {
+    // A dropped frame is carried by the pane's own landing, which the settle
+    // skips. A reveal fired at the settle's end while the landing is still in
+    // flight would move every frame but that one — so the waiter holds for
+    // both marks, in either order.
+    const lifecycle = makeLifecycle();
+    let fired = 0;
+    lifecycle.notifyCardWillLand("A");
+    lifecycle.notifyCardWillTravel("A");
+    lifecycle.onceCardDidTravel("A", () => {
+      fired += 1;
+    });
+    lifecycle.notifyCardDidArrive("A");
+    expect(fired, "the settle ended but the landing has not").toBe(0);
+    lifecycle.notifyCardDidLand("A");
+    expect(fired).toBe(1);
+
+    let firedAgain = 0;
+    lifecycle.notifyCardWillLand("B");
+    lifecycle.notifyCardWillTravel("B");
+    lifecycle.onceCardDidTravel("B", () => {
+      firedAgain += 1;
+    });
+    lifecycle.notifyCardDidLand("B");
+    expect(firedAgain, "the landing ended but the settle has not").toBe(0);
+    lifecycle.notifyCardDidArrive("B");
+    expect(firedAgain).toBe(1);
+    lifecycle.notifyCardDidArrive("B");
+    lifecycle.notifyCardDidLand("B");
+    expect(firedAgain, "exactly once").toBe(1);
+  });
+
+  test("a landing mark alone is enough to defer", () => {
+    const lifecycle = makeLifecycle();
+    let fired = 0;
+    lifecycle.notifyCardWillLand("A");
+    lifecycle.onceCardDidTravel("A", () => {
+      fired += 1;
+    });
+    expect(fired).toBe(0);
+    lifecycle.notifyCardDidLand("A");
+    expect(fired).toBe(1);
+  });
+
+  test("a card destroyed while landing leaves no mark behind", () => {
+    const lifecycle = makeLifecycle();
+    lifecycle.notifyCardWillLand("A");
+    lifecycle.notifyCardWillBeginDestruction("A");
+    let fired = 0;
+    lifecycle.onceCardDidTravel("A", () => {
+      fired += 1;
+    });
+    expect(fired, "answered at once: nothing is left to wait for").toBe(1);
+  });
 });
