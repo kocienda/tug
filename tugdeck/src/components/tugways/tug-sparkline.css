@@ -16,7 +16,12 @@
   display: block;
   flex: 0 0 auto;
   overflow: hidden;
-  color: var(--tug7-element-global-text-normal-muted-rest);
+  /* The instrument's ink is the surface's PLAIN text, not its muted text. A
+     tape is a reading, and a reading has to be legible at a glance from across
+     a rail — the muted token is the voice for prose you are not meant to stop
+     on, and a one-pixel line drawn in it disappears into the row wash it is
+     supposed to stand over. */
+  color: var(--tug7-element-global-text-normal-default-rest);
   /* `SPARKLINE_LINE_ALPHA` in `lib/sparkline-geometry.ts`. Declared as a
      property rather than written inline below so the two homes of the number
      are one grep apart and the test that ties them has one place to read. */
