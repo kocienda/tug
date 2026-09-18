@@ -86,8 +86,9 @@ body {
    * open and takes it off when the last layer UNMOUNTS. So a layer that never
    * unmounts leaves the WHOLE DOCUMENT click-dead with nothing on screen to
    * explain it — an app that answers no press and looks perfectly fine. That
-   * is what `at0486` had been failing on, and `at0559` carries a
-   * `clearStaleAppModal` helper that stands the same layer down by hand.
+   * is the failure `at0486` had been catching before it was retired on
+   * 2026-09-18, and `at0559` carries a `clearStaleAppModal` helper that
+   * stands the same layer down by hand.
    *
    * Naming no animation makes the unmount synchronous and the lock release
    * unconditional. The cost is that a dismissed alert vanishes rather than

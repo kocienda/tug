@@ -516,8 +516,8 @@ The harness verbs `menuSnapshot` / `menuItemState` report each item's *validated
 | Coverage | Where |
 |---|---|
 | Structure, deck tier, maker gate, session tier | `at0167`–`at0174` |
-| The registry gate: enablement, state, and titles from the mirror | `at0180` |
+| The registry gate: enablement, state, and titles from the mirror | unpinned — `at0180` left the suite in `b80947798` |
 | Native key equivalents derived from the keymap, including a rebuild | `at0181` |
-| A user override round trip, through the store and through the pane | `at0182` |
+| A user override round trip, through the store and through the pane | unpinned — `at0182` retired 2026-09-18 |
 
 Dynamic items rebuild in `menuNeedsUpdate`; the snapshot calls it, so they are visible without opening a menu by hand.

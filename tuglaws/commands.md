@@ -116,7 +116,7 @@ Chain-routed commands validate through `manager.validateAction` walked from the 
 
 The table lints itself. `lintCommandTable` reports duplicate ids, two commands claiming one menu item, chain routing with no resolvable action, and the load-bearing one — **door coverage**: a command with neither a menu item nor a binding, and no `parameterized` / `internal` / `paneMenu` declaration. `lintActionCoverage` requires every action name to be a command wire or explicitly excluded. `lintNativeLocked` requires every locked id to name a live command. All three run at import time in DEV and throw, and again in `command-registry.test.ts`.
 
-Beyond the lints it is review: a raw `sendToFirstResponder` at a call site whose action names a registry command, an authored chord string, a component matching a chord itself, or a hand-rolled shadowing comment are all the same defect wearing different clothes. `at0180-command-registry-gates`, `at0181-keymap-chord-sweep`, and `at0182-keymap-override` pin the menu gate, the chord sweep, and the override round-trip end to end.
+Beyond the lints it is review: a raw `sendToFirstResponder` at a call site whose action names a registry command, an authored chord string, a component matching a chord itself, or a hand-rolled shadowing comment are all the same defect wearing different clothes. `at0181-keymap-chord-sweep` pins the chord sweep end to end. The menu gate and the override round-trip are unpinned: `at0180-command-registry-gates` left the suite in `b80947798`, and `at0182-keymap-override` was retired on 2026-09-18 with a recorded override no longer reaching the menu bar.
 
 ---
 

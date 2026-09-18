@@ -138,7 +138,7 @@ const REL_PATH = "docs/narration-target.md";
  * in the temp project and does not need to: what is under test is that the
  * pipeline built a code run and ate the backticks.
  */
-const CODE_PATH = "tests/app-test/at0551-session-fold-form.test.ts";
+const CODE_PATH = "tests/app-test/at0294-imposer-flip-settle.test.ts";
 const FILE_BODY = ["alpha", "the-narration-target-body", "omega"].join("\n");
 
 /**

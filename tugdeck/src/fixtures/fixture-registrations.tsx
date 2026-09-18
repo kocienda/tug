@@ -160,7 +160,7 @@ export function registerFixtureCards(): void {
   // shipped card with a floor this tall is the Text card, and that one also
   // takes the deck's content width, which makes its panes wider than the slots
   // they stand in — geometry a drop-zone test cannot tell from a bug.
-  // Seeded by: at0456, at0457, at0463.
+  // Seeded by: at0456, at0463.
   registerCard({
     componentId: "fixture-tall-floor",
     hidden: true,

@@ -195,6 +195,12 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(railAtRest);
 
           // --- The second pane answers its own popup. -----------------------
+          // Focus it first: the width control lives in the pane's rollup, and
+          // an unfocused pane does not put one up for the hover to reveal.
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("focus-pane", { paneId: "p2" }), null)`,
+          );
+          await wait(AFTER_LAND_MS);
           await setWidth(app, "p2", "slim", SLIM);
           expect(
             await paneWidth(app, "p1"),
