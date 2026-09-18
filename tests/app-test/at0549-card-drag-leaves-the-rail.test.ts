@@ -42,6 +42,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { RAIL_GUTTER_PX } from "../../tugdeck/src/lib/layout-imposer";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -140,6 +141,139 @@ function deckShape() {
     hasFocus: true,
   };
 }
+
+/** Frames are device px and the offset is rounded; a pin is within a pixel or
+ *  two of the arithmetic. */
+const FLOW_TOL = 3;
+
+/** The flow strip's cards. Five 420px slots make a strip comfortably longer
+ *  than the band on any window this harness opens, so a slot always stands past
+ *  the band's inner (rail) edge — the slot a click reveals. */
+const FLOW_IDS = ["A", "B", "C", "D", "E"];
+const FLOW_PANE_WIDTH = 420;
+
+/** The same right rail and window as {@link deckShape}, but the content is a
+ *  FLOW strip rather than a three-up: five cards side by side, longer than the
+ *  band, with the Layout card standing the rail. Slot 0 is active and at the
+ *  strip's head, so the offset starts at rest. */
+function flowDeckShape() {
+  const content = (id: string, slot: number) => ({
+    id: `pf${slot}`,
+    position: { x: 40, y: 40 },
+    size: { width: FLOW_PANE_WIDTH, height: 400 },
+    cardIds: [id],
+    activeCardId: id,
+    title: "",
+    acceptsFamilies: ["maker"],
+    slot,
+  });
+  return {
+    cards: [
+      ...FLOW_IDS.map((id) => ({
+        id,
+        componentId: "hello",
+        title: `Card ${id}`,
+        closable: true,
+      })),
+      { id: "L", componentId: "layout", title: "Layout", closable: true },
+    ],
+    panes: [
+      ...FLOW_IDS.map((id, index) => content(id, index)),
+      {
+        id: "pRail",
+        position: { x: 0, y: 0 },
+        size: { width: RAIL_WIDTH, height: 900 },
+        cardIds: ["L"],
+        activeCardId: "L",
+        title: "Layout",
+        acceptsFamilies: [],
+      },
+    ],
+    activePaneId: "pf0",
+    imposition: {
+      kind: "six-up",
+      layout: "flow",
+      sidebars: { layout: { side: "right" } },
+    },
+    hasFocus: true,
+  };
+}
+
+/** The flow strip's offset as the canvas is DRAWING it — the custom property the
+ *  gesture writes each frame, read for the reason {@link railOffsetDrawn} is:
+ *  the store only commits at the release. */
+function flowOffsetDrawn(app: App): Promise<number> {
+  return app.evalJS<number>(
+    `parseFloat(getComputedStyle(
+       document.querySelector("[data-deck-canvas-background]")
+     ).getPropertyValue("--tug-imposer-flow-offset")) || 0`,
+  );
+}
+
+interface SlotRect {
+  slot: number;
+  left: number;
+  right: number;
+}
+
+/** Every content slot's painted frame in viewport px, in slot order — measured
+ *  BEFORE any drag, since a carried frame travels with the hand. */
+function flowSlotRects(app: App): Promise<SlotRect[]> {
+  return app.evalJS<SlotRect[]>(
+    `(function () {
+      var state = window.tugdeck.diag.getDeckState();
+      var out = [];
+      state.panes.forEach(function (pane) {
+        if (pane.slot === undefined) return;
+        var el = document.querySelector('.tug-pane[data-pane-id="' + pane.id + '"]');
+        if (el === null) return;
+        var box = el.getBoundingClientRect();
+        out.push({ slot: pane.slot, left: box.left, right: box.right });
+      });
+      out.sort(function (a, b) { return a.slot - b.slot; });
+      return out;
+    })()`,
+  );
+}
+
+interface FlowSample {
+  t: number;
+  offset: number;
+  indRight: number | null;
+  railLeft: number;
+}
+
+/** Start sampling, every 8ms, the drawn flow offset, the drop-zone indicator's
+ *  right edge (or null when none stands), and the rail's left edge. A timer
+ *  rather than rAF, which an occluded harness window suspends. */
+const startFlowSampler = (app: App): Promise<null> =>
+  app.evalJS<null>(
+    `(function () {
+      window.__flow = { samples: [] };
+      window.__flow.timer = setInterval(function () {
+        var bg = document.querySelector("[data-deck-canvas-background]");
+        var rail = document.querySelector('.tug-pane[data-pane-id="pRail"]');
+        if (bg === null || rail === null) return;
+        var ind = document.querySelector(".tug-drop-zone-indicator");
+        window.__flow.samples.push({
+          t: performance.now(),
+          offset: parseFloat(getComputedStyle(bg).getPropertyValue("--tug-imposer-flow-offset")) || 0,
+          indRight: ind === null ? null : ind.getBoundingClientRect().right,
+          railLeft: rail.getBoundingClientRect().left,
+        });
+      }, 8);
+      return null;
+    })()`,
+  );
+
+/** Stop the sampler and answer everything it saw, oldest first. */
+const stopFlowSampler = (app: App): Promise<FlowSample[]> =>
+  app.evalJS<FlowSample[]>(
+    `(function () {
+      clearInterval(window.__flow.timer);
+      return window.__flow.samples;
+    })()`,
+  );
 
 const RECT_JS = (selector: string): string =>
   `(function () {
@@ -262,6 +396,112 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(before);
 
           await app.nativeMouseUp(cardFoot);
+          await wait(SETTLE_TAIL_MS);
+          expect(
+            await app.evalJS<boolean>(
+              `document.querySelector("[data-carrying]") !== null`,
+            ),
+            "the drag is over, so nothing is carrying",
+          ).toBe(false);
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    test(
+      "a content card carried to the rail's inner edge clicks the strip one slot, and never draws behind the rail",
+      async () => {
+        const app = await launchTugApp({
+          testName: "at0549-card-drag-leaves-the-rail-flow",
+        });
+        try {
+          await app.seedDeckState({ state: flowDeckShape(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `document.querySelector('.tug-pane[data-pane-id="pf0"]') !== null &&
+             document.querySelector('.tug-pane[data-pane-id="pRail"]') !== null`,
+            { timeoutMs: 8_000 },
+          );
+          await settled(app);
+
+          // The band's inner edge is the rail's, one gutter in from its frame —
+          // the same arithmetic the imposer does, read off the rail's painted
+          // left edge, the way at0454 reads it.
+          const rail = (await rectOf(app, frame("pRail"))) as Rect;
+          const bandRight = rail.left - RAIL_GUTTER_PX;
+          const before = await flowOffsetDrawn(app);
+          const slots = await flowSlotRects(app);
+
+          // The slot a click toward the rail names: the first whose right edge
+          // stands past the band's inner edge. Its reveal brings that edge flush
+          // to the band's, so the offset advances by exactly its overhang — one
+          // slot, and no more.
+          const straddler = slots.find((s) => s.right > bandRight + FLOW_TOL);
+          expect(
+            straddler,
+            "the fixture's strip overflows the band, so a slot stands past its inner edge",
+          ).toBeDefined();
+          const target = straddler as SlotRect;
+          const expectedOffset = target.right - bandRight + before;
+
+          // A point just past the band's inner edge, on the rail's own near edge
+          // — outboard of the trigger, where a parked hand fires one click.
+          const seated = (await rectOf(app, frame("pf1"))) as Rect;
+          const hold = {
+            x: Math.round(bandRight + 20),
+            y: Math.round((seated.top + seated.bottom) / 2),
+          };
+
+          await startFlowSampler(app);
+          await app.nativeDragElementWithoutRelease(titleBar("pf0"), hold);
+          await wait(HOLD_MS);
+          const drawn = await flowOffsetDrawn(app);
+          const samples = await stopFlowSampler(app);
+          const withIndicator = samples.filter((s) => s.indRight !== null);
+
+          note(
+            `flow click held at the rail's inner edge (${hold.x}, ${hold.y}): ` +
+              `offset ${before.toFixed(1)} → ${drawn.toFixed(1)} ` +
+              `(one slot's reveal ${expectedOffset.toFixed(1)}); ` +
+              `${samples.length} samples, ${withIndicator.length} with an indicator`,
+          );
+
+          // 1. One slot's reveal, exactly — the click fired, and did not run on
+          //    at a rate to some larger accumulated offset.
+          expect(
+            drawn - before,
+            "the strip advanced, so the click fired",
+          ).toBeGreaterThan(FLOW_TOL);
+          expect(
+            Math.abs(drawn - expectedOffset),
+            "and it advanced by exactly one slot's reveal",
+          ).toBeLessThanOrEqual(FLOW_TOL);
+
+          // 2. It HELD under the parked hand: the hold's last frames sit on one
+          //    offset, where a rate would still be climbing, and the 400ms hold
+          //    is inside the slow repeat's window so no second click fired.
+          const tail = samples.slice(-4).map((s) => s.offset);
+          expect(
+            Math.max(...tail) - Math.min(...tail),
+            "the strip is at rest under the parked hand, not scrolling at a rate",
+          ).toBeLessThanOrEqual(FLOW_TOL);
+
+          // 3. No indicator ever drew behind the rail: every frame that offered
+          //    the card a landing offered one clipped to the band's inner edge.
+          expect(
+            withIndicator.length,
+            "the drag offered the card a landing at some frame",
+          ).toBeGreaterThan(0);
+          const worst = Math.max(
+            ...withIndicator.map((s) => (s.indRight as number) - s.railLeft),
+          );
+          expect(
+            worst,
+            "and no indicator rect crossed the rail's near edge",
+          ).toBeLessThanOrEqual(FLOW_TOL);
+
+          await app.nativeMouseUp(hold);
           await wait(SETTLE_TAIL_MS);
           expect(
             await app.evalJS<boolean>(

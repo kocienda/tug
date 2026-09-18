@@ -969,6 +969,44 @@ export function railSpanInsetPx(width: number): number {
   return RAIL_EDGE_INSET_PX + width + RAIL_GUTTER_PX - IMPOSITION_GAP_PX;
 }
 
+/** The flow band's two edges in canvas layout px — where the strip is seen
+ *  through, and so where a hand carrying a card reaches the deck's edge. */
+export interface FlowBandEdges {
+  /** The band's left edge: the left rail's inset when one stands, plus the
+   *  chain's own gap. */
+  start: number;
+  /** The band's right edge: the canvas less the right rail's inset and the
+   *  gap. `end - start` is the band's width. */
+  end: number;
+}
+
+/**
+ * The flow band's edges, from the canvas width and the widest pane standing
+ * on each side — the numeric twin of the flow `style.left` expression in
+ * {@link imposeStyle}, `INSET_LEFT + GAP`, and of the band identity
+ * {@link resolveSpan} states.
+ *
+ * One function answers both the band's width and its edges, so the trigger a
+ * drag fires at and the pins the strip is measured against cannot drift: a
+ * standing rail contributes {@link railSpanInsetPx} to its side, and the band
+ * spends one gap at each end of what is left. A side with no rail passes
+ * `undefined` and contributes nothing — a closed rail is not a rail of width
+ * zero, which would still cost the edge inset and the gutter.
+ */
+export function flowBandEdges(
+  canvasWidth: number,
+  railWidths: { left?: number; right?: number },
+): FlowBandEdges {
+  const leftInset =
+    railWidths.left === undefined ? 0 : railSpanInsetPx(railWidths.left);
+  const rightInset =
+    railWidths.right === undefined ? 0 : railSpanInsetPx(railWidths.right);
+  return {
+    start: leftInset + IMPOSITION_GAP_PX,
+    end: canvasWidth - rightInset - IMPOSITION_GAP_PX,
+  };
+}
+
 /**
  * The **rail treatment**: the one name every appearance rule for a pinned
  * rail and the margin it stands in is keyed on. It is written once, as

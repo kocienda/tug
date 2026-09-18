@@ -5426,6 +5426,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           slots,
           panes,
           tabBars,
+          // The band's edges, so a content card's places are clipped to
+          // what the reader can see: a slot tile that has slid under a rail
+          // measures at its true rect and would otherwise be offered there.
+          band: store.getBandEdges(),
           // The runs are the deck's own measurement rather than a sum of the
           // frames above: a frame in flight is one of those frames, and the
           // store is the one reader a hand cannot move.
@@ -5682,16 +5686,21 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           }
         }
 
-        const band = store.getBandWidth();
+        // The band's true edges rather than the bare gap: under a left rail
+        // the band begins past the rail's inset, and a trigger measured from
+        // the gap fires in the middle of the deck.
+        const edges = store.getBandEdges();
         const strip = deckFlowStrip(state);
-        if (band === null || strip === null) return null;
+        if (edges === null || strip === null) return null;
+        const band = edges.end - edges.start;
         return {
           kind: "flow",
           axis: "x",
-          bandStart: IMPOSITION_GAP_PX,
-          bandEnd: IMPOSITION_GAP_PX + band,
+          bandStart: edges.start,
+          bandEnd: edges.end,
           offset: state.flowOffset ?? 0,
           maxOffset: Math.max(0, strip.width - band),
+          strip,
         };
       },
 

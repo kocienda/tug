@@ -140,6 +140,8 @@ import {
   effectiveRailOrder,
   centerVisibleFlowSlot,
   flowRevealOffset,
+  flowBandEdges,
+  type FlowBandEdges,
   wallRevealOffset,
   impositionLayout,
   FLOW_OFFSET_PROPERTY,
@@ -148,7 +150,6 @@ import {
   RAIL_EDGE_INSET_PX,
   railGapBottomPx,
   RAIL_SEAM_PX,
-  railSpanInsetPx,
   stripRevealOffset,
   RESIZE_RETUNE_QUIET_MS,
   withRailOrder,
@@ -4325,6 +4326,24 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
+   * The band's two edges in canvas layout px, or `null` when there is no band
+   * to report — the same measurement as {@link getBandWidth}, answered as
+   * where the band is rather than only how wide.
+   *
+   * Public for the drag: a card carried across a flow deck steps the strip
+   * when the hand crosses the rail's inner edge, or the canvas edge when no
+   * rail stands there, and the trigger has to agree with the pins the strip
+   * is measured against. Both come from {@link flowBandEdges} over the same
+   * rail widths, so they agree by construction rather than by two readings
+   * of the rails.
+   */
+  getBandEdges(): FlowBandEdges | null {
+    const state = this.deckState;
+    const edges = this._flowBandEdges(state.panes, state.imposition);
+    return edges.end - edges.start > 0 ? edges : null;
+  }
+
+  /**
    * The slot a card arriving from nowhere opens into: the arrangement's
    * centermost slot in fit, and in flow the centermost slot the band is
    * currently showing.
@@ -5044,17 +5063,30 @@ export class DeckManager implements IDeckManagerStore {
     panes: readonly TugPaneState[],
     imposition: DeckImposition,
   ): number {
+    const edges = this._flowBandEdges(panes, imposition);
+    return edges.end - edges.start;
+  }
+
+  /**
+   * The band's edges, from the widest pane standing on each side — the one
+   * reading of the rails that {@link _flowBandWidth} and
+   * {@link getBandEdges} both answer from.
+   */
+  private _flowBandEdges(
+    panes: readonly TugPaneState[],
+    imposition: DeckImposition,
+  ): FlowBandEdges {
     const { panesBySide } = this._sidebarRails(panes, imposition);
     const state = { ...this.deckState, panes: [...panes] };
-    let inset = 0;
-    for (const [, sidePanes] of panesBySide) {
+    const railWidths: { left?: number; right?: number } = {};
+    for (const [side, sidePanes] of panesBySide) {
       let width = 0;
       for (const pane of sidePanes) {
         width = Math.max(width, paneRenderWidthOf(state, pane));
       }
-      inset += railSpanInsetPx(width);
+      railWidths[side] = width;
     }
-    return this.container.clientWidth - inset - IMPOSITION_GAP_PX * 2;
+    return flowBandEdges(this.container.clientWidth, railWidths);
   }
 
   /**

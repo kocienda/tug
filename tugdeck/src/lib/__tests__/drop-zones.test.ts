@@ -13,22 +13,30 @@ import type { Rect } from "../../snap";
 import {
   allocatePlaceHeights,
   IMPOSITION_GAP_PX,
+  flowRevealOffset,
+  type FlowStrip,
   type PlaceMember,
   RAIL_SEAM_PX,
 } from "../layout-imposer";
 import {
   AUTOSCROLL_MARGIN_PX,
   AUTOSCROLL_RATE_PX_PER_SEC,
+  FLOW_STEP_REARM_PX,
+  FLOW_STEP_REPEAT_MS,
   ZONE_HYSTERESIS_PX,
   autoscrollDelta,
   autoscrollKey,
   dropZoneKey,
   enumerateDropZones,
+  flowStepArmed,
+  flowStepDecision,
+  flowStepTarget,
   hitRectOf,
   pickLiveZone,
   type AutoscrollTarget,
   type DropZone,
   type DropZoneMeasurements,
+  type FlowStepState,
 } from "../drop-zones";
 
 // ---- Fixtures ----
@@ -1089,5 +1097,297 @@ describe("a strip advances while the pointer holds at its edge", () => {
     expect(autoscrollKey(column)).toBe("column:2");
     expect(autoscrollKey(flow)).toBe("flow");
     expect(autoscrollKey({ ...column, slot: 0 })).not.toBe(autoscrollKey(column));
+  });
+});
+
+// ---- The band clip ----
+
+describe("a content card's zones are clipped to the band", () => {
+  // Three slots at x 0, 400 and 800, each 380 wide. A band ending at 700
+  // shows slot 0 whole, cuts slot 1 at its right edge, and hides slot 2
+  // entirely — the shape a flow deck with a right rail leaves behind once
+  // the strip has slid under it.
+  const BAND = { start: 0, end: 700 };
+  const threeSlots = () =>
+    new Map([
+      [0, slotRect(0)],
+      [1, slotRect(1)],
+      [2, slotRect(2)],
+    ]);
+
+  it("a tile wholly behind the rail is not offered, and a straddling one is cut at the edge", () => {
+    const state = deck([pane("p1", 0)]);
+    const { zones, origin } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: threeSlots(),
+        panes: new Map([["p1", slotRect(0)]]),
+        band: BAND,
+      }),
+    );
+    expect(keys(zones)).toEqual(["slot:0", "slot:1"]);
+    const straddler = zones.find((z) => dropZoneKey(z) === "slot:1")!;
+    expect(straddler.rect).toEqual({
+      x: SLOT_X[1],
+      y: RUN_TOP,
+      width: BAND.end - SLOT_X[1],
+      height: RUN_HEIGHT,
+    });
+    // The card's own slot is in band and untouched, and it is still the origin.
+    expect(origin).not.toBeNull();
+    expect(dropZoneKey(origin!)).toBe("slot:0");
+    expect(origin!.rect).toEqual(slotRect(0));
+  });
+
+  it("a straddling position's hit rect is cut with its tile", () => {
+    // p2 stands alone in slot 1, so slot 1 divides into two positions whose
+    // hit bands widen across the run. Both the tile and the hit stop at the
+    // band's edge; neither reaches under the rail.
+    const state = deck([pane("p1", 0), pane("p2", 1)]);
+    const { zones } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: threeSlots(),
+        panes: new Map([
+          ["p1", slotRect(0)],
+          ["p2", slotRect(1)],
+        ]),
+        band: BAND,
+      }),
+    );
+    const halves = zones.filter((z) => z.kind === "column-index" && z.slot === 1);
+    expect(halves.length).toBe(2);
+    for (const half of halves) {
+      expect(half.rect.x + half.rect.width).toBe(BAND.end);
+      expect(hitRectOf(half).x + hitRectOf(half).width).toBe(BAND.end);
+    }
+  });
+
+  it("without a band nothing is clipped", () => {
+    const state = deck([pane("p1", 0)]);
+    const bare = enumerateDropZones(
+      state,
+      "p1",
+      measured({ slots: threeSlots(), panes: new Map([["p1", slotRect(0)]]) }),
+    );
+    expect(keys(bare.zones)).toEqual(["slot:0", "slot:1", "slot:2"]);
+    expect(bare.zones[2].rect).toEqual(slotRect(2));
+  });
+
+  it("a rail card's zones are not clipped — its places are the rails", () => {
+    // A right rail standing at slot 2's x, entirely outboard of the band. A
+    // content card would be offered nothing there; the rail card is offered
+    // both its positions exactly as it would be with no band at all.
+    const state = deck([pane("dashes"), pane("notes")]);
+    const railRects = splitRects(2, [RUN_HEIGHT / 2, RUN_HEIGHT / 2], RAIL_SEAM_PX);
+    const shape = (band?: typeof BAND) =>
+      measured({
+        panes: new Map([
+          ["dashes", railRects[0]],
+          ["notes", railRects[1]],
+        ]),
+        rails: [{ side: "right", members: ["dashes", "notes"] }],
+        ...(band === undefined ? {} : { band }),
+      });
+    const clipped = enumerateDropZones(state, "dashes", shape(BAND));
+    const bare = enumerateDropZones(state, "dashes", shape());
+    expect(keys(clipped.zones)).toEqual(["rail:right:0", "rail:right:1"]);
+    expect(clipped).toEqual(bare);
+  });
+
+  it("a pointer outboard of the band keeps the incumbent instead of the tile under it", () => {
+    // Unclipped, the pointer over the rail stands INSIDE slot 2's true rect
+    // and the indication jumps there. Clipped, slot 2 is gone and every
+    // remaining tile is at least the same distance away along x, so the
+    // incumbent holds.
+    const state = deck([pane("p1", 0)]);
+    const shape = (band?: typeof BAND) =>
+      measured({
+        slots: threeSlots(),
+        panes: new Map([["p1", slotRect(0)]]),
+        ...(band === undefined ? {} : { band }),
+      });
+    const pointer = { x: 900, y: RUN_TOP + RUN_HEIGHT / 2 };
+    const bare = enumerateDropZones(state, "p1", shape());
+    const bareIncumbent = bare.zones.find((z) => dropZoneKey(z) === "slot:1")!;
+    expect(dropZoneKey(pickLiveZone(bare.zones, pointer, bareIncumbent)!)).toBe("slot:2");
+
+    const clipped = enumerateDropZones(state, "p1", shape(BAND));
+    const incumbent = clipped.zones.find((z) => dropZoneKey(z) === "slot:1")!;
+    expect(dropZoneKey(pickLiveZone(clipped.zones, pointer, incumbent)!)).toBe("slot:1");
+  });
+});
+
+// ---- The flow click ----
+
+describe("crossing a band edge clicks the strip once, with hysteresis", () => {
+  const band = { bandStart: 100, bandEnd: 700 };
+  const decide = (
+    pointer: number,
+    state: FlowStepState,
+    now: number,
+    repeatMs?: number,
+  ) => flowStepDecision({ ...band, pointer, state, now, repeatMs });
+
+  it("the middle of the band decides nothing and stays armed", () => {
+    const { direction, state } = decide(400, flowStepArmed(), 0);
+    expect(direction).toBe(0);
+    expect(state).toEqual(flowStepArmed());
+  });
+
+  it("the first frame outboard of the end fires one step toward the end and disarms it", () => {
+    const { direction, state } = decide(band.bandEnd + 1, flowStepArmed(), 1000);
+    expect(direction).toBe(1);
+    expect(state.end).toEqual({ armed: false, firedAt: 1000 });
+    expect(state.start).toEqual({ armed: true, firedAt: null });
+  });
+
+  it("the start edge fires the other way", () => {
+    const { direction, state } = decide(band.bandStart - 1, flowStepArmed(), 1000);
+    expect(direction).toBe(-1);
+    expect(state.start.armed).toBe(false);
+    expect(state.end.armed).toBe(true);
+  });
+
+  it("the edge itself is inside: a pointer standing on it fires nothing", () => {
+    expect(decide(band.bandEnd, flowStepArmed(), 0).direction).toBe(0);
+    expect(decide(band.bandStart, flowStepArmed(), 0).direction).toBe(0);
+  });
+
+  it("a hand parked outboard does not refire before the repeat interval", () => {
+    const fired = decide(band.bandEnd + 10, flowStepArmed(), 1000).state;
+    for (const dt of [16, 100, FLOW_STEP_REPEAT_MS - 1]) {
+      const { direction, state } = decide(band.bandEnd + 10, fired, 1000 + dt);
+      expect(direction).toBe(0);
+      expect(state).toEqual(fired);
+    }
+  });
+
+  it("trembling across the edge without coming back in by the re-arm distance fires nothing", () => {
+    let state = decide(band.bandEnd + 5, flowStepArmed(), 1000).state;
+    // Back in by less than the re-arm distance, then out again.
+    let next = decide(band.bandEnd - FLOW_STEP_REARM_PX + 1, state, 1016);
+    expect(next.direction).toBe(0);
+    expect(next.state.end.armed).toBe(false);
+    state = next.state;
+    next = decide(band.bandEnd + 5, state, 1032);
+    expect(next.direction).toBe(0);
+  });
+
+  it("coming back inside by the re-arm distance arms the edge, and the next crossing fires again", () => {
+    let state = decide(band.bandEnd + 5, flowStepArmed(), 1000).state;
+    let next = decide(band.bandEnd - FLOW_STEP_REARM_PX, state, 1016);
+    expect(next.direction).toBe(0);
+    expect(next.state.end).toEqual({ armed: true, firedAt: null });
+    state = next.state;
+    next = decide(band.bandEnd + 5, state, 1032);
+    expect(next.direction).toBe(1);
+    expect(next.state.end.firedAt).toBe(1032);
+  });
+
+  it("a hand held outboard fires again once the repeat interval has passed, and again after the next", () => {
+    let state = decide(band.bandEnd + 10, flowStepArmed(), 1000).state;
+    let next = decide(band.bandEnd + 10, state, 1000 + FLOW_STEP_REPEAT_MS);
+    expect(next.direction).toBe(1);
+    expect(next.state.end.firedAt).toBe(1000 + FLOW_STEP_REPEAT_MS);
+    state = next.state;
+    next = decide(band.bandEnd + 10, state, 1000 + FLOW_STEP_REPEAT_MS + 100);
+    expect(next.direction).toBe(0);
+    next = decide(band.bandEnd + 10, state, 1000 + 2 * FLOW_STEP_REPEAT_MS);
+    expect(next.direction).toBe(1);
+  });
+
+  it("an infinite repeat interval makes every click a crossing", () => {
+    // The value the constant documents for a tuning round: no clock ever
+    // reaches it, so the only way back to a second click is out and in.
+    const fired = decide(band.bandEnd + 10, flowStepArmed(), 0, Infinity).state;
+    expect(
+      decide(band.bandEnd + 10, fired, Number.MAX_SAFE_INTEGER, Infinity).direction,
+    ).toBe(0);
+    // The crossing still works: back inside by the re-arm distance, then out.
+    const rearmed = decide(band.bandEnd - FLOW_STEP_REARM_PX, fired, 16, Infinity).state;
+    expect(decide(band.bandEnd + 10, rearmed, 32, Infinity).direction).toBe(1);
+    // And the shipped interval is finite, which is what the repeat above reads.
+    expect(Number.isFinite(FLOW_STEP_REPEAT_MS)).toBe(true);
+  });
+
+  it("a pointer that is not a number decides nothing and changes nothing", () => {
+    const state = flowStepArmed();
+    const next = decide(Number.NaN, state, 0);
+    expect(next.direction).toBe(0);
+    expect(next.state).toBe(state);
+  });
+});
+
+describe("a click names the slot beside the edge and reveals it whole", () => {
+  // Five 400px slots at a 5px gap: a 2020px strip seen through a 1000px band.
+  const GAP = 5;
+  const EXTENT = 400;
+  const positions = new Map<number, number>();
+  const extents = new Map<number, number>();
+  for (let slot = 0; slot < 5; slot++) {
+    positions.set(slot, slot * (EXTENT + GAP));
+    extents.set(slot, EXTENT);
+  }
+  const strip: FlowStrip = {
+    positions,
+    extents,
+    width: 5 * EXTENT + 4 * GAP,
+  };
+  const BAND = 1000;
+
+  it("toward the end, the first slot whose right edge lies past the band, revealed by the least travel", () => {
+    // At offset 0 the band shows slots 0 and 1 whole and cuts slot 2 at
+    // 810..1000. The click names slot 2 and slides just far enough to show it.
+    const target = flowStepTarget({ strip, band: BAND, offset: 0, direction: 1 });
+    expect(target).not.toBeNull();
+    expect(target!.slot).toBe(2);
+    expect(target!.offset).toBe(positions.get(2)! + EXTENT - BAND);
+    expect(target!.offset).toBe(
+      flowRevealOffset({
+        stripLeft: positions.get(2)!,
+        extent: EXTENT,
+        stripWidth: strip.width,
+        band: BAND,
+        offset: 0,
+      }),
+    );
+  });
+
+  it("toward the start, the last slot whose left edge lies before the band", () => {
+    // At offset 500 slot 0 is hidden and slot 1 (405..805) is cut at the
+    // band's left edge; the click names slot 1 — the nearer one — and
+    // reveals it, so slot 0 stays out of view.
+    const offset = 500;
+    const target = flowStepTarget({ strip, band: BAND, offset, direction: -1 });
+    expect(target!.slot).toBe(1);
+    expect(target!.offset).toBe(positions.get(1)!);
+  });
+
+  it("at the strip's end there is nothing to name that way", () => {
+    const end = strip.width - BAND;
+    expect(flowStepTarget({ strip, band: BAND, offset: end, direction: 1 })).toBeNull();
+    expect(flowStepTarget({ strip, band: BAND, offset: 0, direction: -1 })).toBeNull();
+  });
+
+  it("the offset is clamped to the strip, so the last click lands flush", () => {
+    // From the offset that shows slot 3 whole, one more click names slot 4
+    // and the reveal is the strip's end, not past it.
+    const offset = positions.get(3)! + EXTENT - BAND;
+    const target = flowStepTarget({ strip, band: BAND, offset, direction: 1 });
+    expect(target!.slot).toBe(4);
+    expect(target!.offset).toBe(strip.width - BAND);
+  });
+
+  it("a slot with no extent is not a place and is skipped", () => {
+    const holey: FlowStrip = {
+      positions: new Map([[0, 0], [1, 405], [2, 810]]),
+      extents: new Map([[0, 400], [2, 400]]),
+      width: 1210,
+    };
+    const target = flowStepTarget({ strip: holey, band: 1000, offset: 0, direction: 1 });
+    expect(target!.slot).toBe(2);
   });
 });

@@ -19,10 +19,11 @@
  *
  * What this file pins, with a real pointer on a flow deck whose strip overflows:
  *
- *   1. **The band scrolls for a content card.** The control, run first and on
- *      the same fixture: a content card held at the band's right edge advances
- *      the flow offset, and every held-open slot shows its number. Without it
- *      the assertions below would pass on a deck that never scrolled at all.
+ *   1. **The band clicks for a content card.** The control, run first and on
+ *      the same fixture: a content card held just past the band's right edge
+ *      clicks the flow offset one slot toward the hand, and every held-open
+ *      slot shows its number. Without it the assertions below would pass on a
+ *      deck that never moved at all.
  *   2. **The band is inert for a rail card.** The same hold, at the same point,
  *      with the rail's own card under the hand: the flow offset stays where it
  *      was for the whole hold, and no slot badge is shown. The canvas says
@@ -49,18 +50,20 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { RAIL_GUTTER_PX } from "../../tugdeck/src/lib/layout-imposer";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
 /** Room past the settle attribute clearing for the tween's own tail. */
 const SETTLE_TAIL_MS = 900;
-/** How long the hand holds at the band's edge. The strip advances on the
- *  gesture's own rAF while the pointer does nothing, so this is the whole of
- *  the scroll either phase gets. */
+/** How long the hand holds at the band's edge — inside the click's slow-repeat
+ *  window, so a parked hand fires exactly one click. The strip advances on the
+ *  gesture's own rAF while the pointer does nothing. */
 const HOLD_MS = 400;
-/** Inside `AUTOSCROLL_MARGIN_PX` of the band's far edge, with room to spare. */
-const INSIDE_MARGIN_PX = 20;
+/** How far PAST the band's inner edge the hold sits — outboard of the trigger,
+ *  where a content card's click fires and a rail card is still inert. */
+const PAST_EDGE_PX = 20;
 
 const RAIL_WIDTH = 420;
 /** Wide enough that five of them make a strip longer than any band this
@@ -180,10 +183,10 @@ async function settled(app: App): Promise<void> {
   await wait(SETTLE_TAIL_MS);
 }
 
-/** Seed the fixture and answer the point at the band's right edge — inside the
- *  autoscroll margin, where a hold advances whatever strip is askable there.
- *  Measured BEFORE any drag: the rail's frame travels with the hand in the
- *  second phase, and its resting left edge is where the band ends. */
+/** Seed the fixture and answer a point just PAST the band's right edge —
+ *  outboard of the click's trigger, where a hold fires whatever strip is
+ *  askable there. Measured BEFORE any drag: the rail's frame travels with the
+ *  hand in the second phase, and its resting left edge is where the band ends. */
 async function seedAndFindTheBandsEdge(app: App): Promise<{ x: number; y: number }> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
@@ -194,7 +197,7 @@ async function seedAndFindTheBandsEdge(app: App): Promise<{ x: number; y: number
   const rail = (await rectOf(app, frame(RAIL_PANE))) as Rect;
   const canvas = (await rectOf(app, "[data-deck-canvas-background]")) as Rect;
   return {
-    x: Math.round(rail.left - INSIDE_MARGIN_PX),
+    x: Math.round(rail.left - RAIL_GUTTER_PX + PAST_EDGE_PX),
     y: Math.round((canvas.top + canvas.bottom) / 2),
   };
 }
@@ -224,7 +227,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(withCard.carrying, "the canvas says a content card is in the air").toBe("card");
           expect(withCard.badgeOpacity, "so the empty slot shows its number").toBe("1");
-          expect(cardOffset, "and the band it could land in scrolls under the hold").toBeGreaterThan(0);
+          expect(cardOffset, "and the band it could land in clicks under the hold").toBeGreaterThan(0);
 
           await app.nativeMouseUp(edge);
           await wait(SETTLE_TAIL_MS);

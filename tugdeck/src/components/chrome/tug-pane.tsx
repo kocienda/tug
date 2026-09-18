@@ -47,19 +47,32 @@ import { DEFAULT_SIZE_POLICY, getRegistration } from "@/card-registry";
 import { computeSnap, computeResizeSnap } from "@/snap";
 import type { Rect, GuidePosition, SnapResult } from "@/snap";
 import {
+  FLOW_STEP_TWEEN_MS,
   autoscrollDelta,
   autoscrollKey,
   dropZoneKey,
+  flowStepArmed,
+  flowStepDecision,
+  flowStepTarget,
   pickLiveZone,
   type AutoscrollTarget,
   type DropZone,
   type DropZoneHost,
+  type FlowStepState,
 } from "@/lib/drop-zones";
 
 /** One strip a drag has scrolled, and where it left it. */
 interface AutoscrollRun {
   target: AutoscrollTarget;
   offset: number;
+}
+
+/** A click in flight: the flow offset travelling from `from` to `to` over
+ *  `FLOW_STEP_TWEEN_MS`, one write per frame on the gesture's own rAF. */
+interface FlowStepTween {
+  from: number;
+  to: number;
+  startedAt: number;
 }
 import { flashCardPane } from "@/lib/flash-pane-border";
 import { getTugTiming, getTugZoom } from "@/components/tugways/scale-timing";
@@ -2915,6 +2928,11 @@ export function TugPane({
   // gestures. Elapsed time is what makes the travel the same for a given hold
   // however the frames happen to fall.
   const autoscrollClockRef = useRef<number | null>(null);
+  // The flow click's memory: which trigger edge is armed and when each last
+  // fired, and the click in flight if one is. Both are cleared with the runs
+  // in `commitAutoscroll`, which every path that ends the gesture reaches.
+  const flowStepRef = useRef<FlowStepState>(flowStepArmed());
+  const flowTweenRef = useRef<FlowStepTween | null>(null);
   // The tab-bar rects the gesture snapshotted at its latch, kept so a
   // re-enumeration mid-autoscroll can be handed the same ones. Re-querying them
   // would be a different snapshot in the middle of one gesture.
@@ -3294,7 +3312,9 @@ export function TugPane({
         const last = autoscrollClockRef.current;
         autoscrollClockRef.current = now;
         const target = host.autoscrollTargetFor(pointer, id);
-        if (target === null || last === null) return false;
+        if (target === null) return false;
+        if (target.kind === "flow") return advanceFlowClick(target, pointer, now);
+        if (last === null) return false;
 
         const key = autoscrollKey(target);
         const running = autoscrolledRef.current.get(key);
@@ -3318,6 +3338,80 @@ export function TugPane({
         return true;
       }
 
+      /**
+       * The flow strip's own branch: a click, not a rate.
+       *
+       * Crossing the band's trigger edge — the rail's inner edge when a rail
+       * stands there, the canvas edge otherwise — steps the strip one slot
+       * toward the hand, with hysteresis (`flowStepDecision`), and the step
+       * names the first slot past that edge and the least travel that shows
+       * it whole (`flowStepTarget`). The travel is interpolated here, on the
+       * same rAF the rate used ([D135]), one `applyScroll` per frame, so
+       * `autoscrollCompensation` reads the moving offset and the card stays
+       * in hand. A CSS transition on the property would move the strip on a
+       * clock the compensation cannot see.
+       *
+       * A click that fires while one is in flight names its slot from where
+       * the flight LANDS, so a slow repeat under a held hand walks the strip
+       * a slot at a time rather than re-naming the slot already on its way.
+       * The tween then restarts from where the strip is drawn this frame.
+       */
+      function advanceFlowClick(
+        target: AutoscrollTarget,
+        pointer: { x: number; y: number },
+        now: number,
+      ): boolean {
+        const host = dropZonesRef.current;
+        if (host === undefined) return false;
+        const key = autoscrollKey(target);
+        const running = autoscrolledRef.current.get(key);
+        const standing = running?.offset ?? target.offset;
+
+        const decided = flowStepDecision({
+          pointer: pointer.x,
+          bandStart: target.bandStart,
+          bandEnd: target.bandEnd,
+          state: flowStepRef.current,
+          now,
+        });
+        flowStepRef.current = decided.state;
+        if (decided.direction !== 0 && target.strip !== undefined) {
+          const landing = flowTweenRef.current?.to ?? standing;
+          const named = flowStepTarget({
+            strip: target.strip,
+            band: target.bandEnd - target.bandStart,
+            offset: landing,
+            direction: decided.direction,
+          });
+          if (named !== null && named.offset !== landing) {
+            flowTweenRef.current = { from: standing, to: named.offset, startedAt: now };
+          }
+        }
+
+        // Keep the frames coming while the hand is outboard of an edge or a
+        // click is in flight: the drag's frames are otherwise driven by
+        // pointermove, and a hand that has stopped moving posts none — so the
+        // slow repeat and the tween's remaining frames need the schedule.
+        const outboard = pointer.x > target.bandEnd || pointer.x < target.bandStart;
+        const tween = flowTweenRef.current;
+        if (outboard || tween !== null) scheduleDragFrame();
+        if (tween === null) return false;
+
+        const progress = Math.min(1, (now - tween.startedAt) / FLOW_STEP_TWEEN_MS);
+        // Ease out: the strip leaves quickly and settles, the way a click
+        // reads rather than a slide.
+        const eased = 1 - (1 - progress) ** 3;
+        const next = Math.min(
+          Math.max(0, tween.from + (tween.to - tween.from) * eased),
+          target.maxOffset,
+        );
+        if (progress >= 1) flowTweenRef.current = null;
+        if (next === standing) return false;
+        autoscrolledRef.current.set(key, { target, offset: next });
+        host.applyScroll(target, next);
+        return true;
+      }
+
       /** Commit every strip this gesture scrolled — one store write each, at
        *  the end. Real state, so a cancel commits them too: the card goes home
        *  and the view stays where the hand took it. */
@@ -3328,6 +3422,8 @@ export function TugPane({
         }
         autoscrolledRef.current.clear();
         autoscrollClockRef.current = null;
+        flowStepRef.current = flowStepArmed();
+        flowTweenRef.current = null;
       }
 
       /** The tab bar element a tab-bar zone names, for the indication it has

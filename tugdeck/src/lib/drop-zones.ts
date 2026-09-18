@@ -36,8 +36,11 @@ import {
   IMPOSITION_GAP_PX,
   RAIL_SEAM_PX,
   clampSlot,
+  flowRevealOffset,
   railWeightOf,
   slotCount,
+  type FlowBandEdges,
+  type FlowStrip,
   type PlaceMember,
   type SidebarSide,
 } from "./layout-imposer";
@@ -67,17 +70,43 @@ export const ZONE_HYSTERESIS_PX = 24;
  * How close to a scrollable strip's edge the pointer must hold before the strip
  * starts advancing under it, in layout px.
  *
- * The band this is measured against is the run (a column) or the band (the flow
- * strip), so the margin has to be small enough that the middle of the band is
- * comfortably still, and wide enough that the user does not have to find a
- * hairline.
+ * A vertical rule only: the run a column overflows, or a rail's ([B07]). The
+ * flow band clicks at its own edge instead ({@link flowStepDecision}) and
+ * reads nothing here. The margin has to be small enough that the middle of
+ * the run is comfortably still, and wide enough that the user does not have
+ * to find a hairline.
  */
 export const AUTOSCROLL_MARGIN_PX = 56;
 
-/** How fast a strip advances while the pointer holds inside the margin, in
- *  layout px per second. Constant rather than ramped by proximity: one number
- *  to tune ([Q01]), and a rate that does not change under a held hand. */
+/** How fast a vertical strip advances while the pointer holds inside the
+ *  margin, in layout px per second. Constant rather than ramped by proximity:
+ *  one number to tune ([Q01]), and a rate that does not change under a held
+ *  hand. */
 export const AUTOSCROLL_RATE_PX_PER_SEC = 900;
+
+/**
+ * How far back inside the band the pointer must come, in layout px, before a
+ * side that has fired a click is armed again.
+ *
+ * The click has hysteresis so that one crossing is one click: a hand parked
+ * at the trigger edge, or trembling across it, fires nothing more until it
+ * has come back in by this much. Zero would make the edge a rate again in
+ * coarser units.
+ */
+export const FLOW_STEP_REARM_PX = 28;
+
+/**
+ * How long a hand held outboard of a fired edge waits for the next click, in
+ * ms — the concession to a long strip, so six slots can be crossed without
+ * pumping the hand. `Infinity` makes every click a crossing. The one of these
+ * numbers most expected to move in tuning.
+ */
+export const FLOW_STEP_REPEAT_MS = 700;
+
+/** How long a click takes to travel from the standing offset to the slot it
+ *  names, in ms — interpolated on the gesture's own rAF, one write per
+ *  frame, so the card in hand compensates for free. */
+export const FLOW_STEP_TWEEN_MS = 180;
 
 // ---- The vocabulary ([P10]) ----
 
@@ -205,6 +234,19 @@ export interface DropZoneMeasurements {
    * neither advertises nothing.
    */
   railVacancies: Partial<Record<SidebarSide, Rect>>;
+  /**
+   * The flow band's edges in canvas layout px — the store's
+   * `getBandEdges()` — or absent when the deck has none to report.
+   *
+   * A content card's places are clipped to it: a slot tile that has slid
+   * wholly under a rail is not offered, and one straddling the band's edge
+   * keeps only its in-band portion, for its landing `rect` and its `hit`
+   * alike. The band is occlusion rather than clipping for the strip's ink,
+   * so an off-band tile's DOM frame is intact and measures at its true
+   * rect — which is how a content drag came to outline a tile behind the
+   * sidebar. Rail zones are not clipped: a rail card's places are the rails.
+   */
+  band?: FlowBandEdges | null;
 }
 
 /** The zones a gesture may land in, and the one it starts indicating. */
@@ -246,6 +288,10 @@ export interface AutoscrollTarget {
   offset: number;
   /** How far it may travel: the strip's length less the band's. */
   maxOffset: number;
+  /** The flow strip's positions and extents, for the click to name a slot
+   *  by ({@link flowStepTarget}). Present on the flow target only; a column
+   *  or a rail scrolls at a rate and names nothing. */
+  strip?: FlowStrip;
 }
 
 /** A strip's identity, for keeping one running offset per strip across a drag
@@ -267,8 +313,11 @@ export function autoscrollKey(target: AutoscrollTarget): string {
  *
  * A rate times an elapsed time, so the travel is the same for a given hold
  * however the frames fall. `pointer` and the band are read along the strip's
- * own axis, which is what lets one rule serve both the column's run and the
- * flow band ([P08]'s bargain, again: an axis-free rule read twice).
+ * own axis, which is what lets one rule serve both a column's run and a
+ * rail's ([P08]'s bargain, again: an axis-free rule read twice). The flow
+ * band is not one of its readers — it clicks at its edge ([B07]) — but the
+ * rule stays axis-free, so a vertical click later is a second reading of
+ * {@link flowStepDecision} rather than a third rule.
  */
 export function autoscrollDelta(input: {
   pointer: number;
@@ -282,6 +331,152 @@ export function autoscrollDelta(input: {
   if (pointer > bandEnd - AUTOSCROLL_MARGIN_PX) return travel;
   if (pointer < bandStart + AUTOSCROLL_MARGIN_PX) return -travel;
   return 0;
+}
+
+// ---- The flow click ----
+
+/** One trigger edge's memory: whether it will fire on the next frame the
+ *  pointer is outboard of it, and when it last did. */
+export interface FlowStepSideState {
+  armed: boolean;
+  /** When this side last fired, in the caller's clock, or `null` when it has
+   *  not fired since it was last armed. */
+  firedAt: number | null;
+}
+
+/** Both edges' memory, carried by the gesture and cleared with the rest of
+ *  the drag's state on every path that ends it. */
+export interface FlowStepState {
+  start: FlowStepSideState;
+  end: FlowStepSideState;
+}
+
+/** The state a gesture starts with: both edges armed, neither fired. */
+export function flowStepArmed(): FlowStepState {
+  return {
+    start: { armed: true, firedAt: null },
+    end: { armed: true, firedAt: null },
+  };
+}
+
+/** What one frame of the click decides: a step toward the strip's end (`1`),
+ *  toward its start (`-1`), or nothing, and the memory to carry forward. */
+export interface FlowStepDecision {
+  direction: 1 | -1 | 0;
+  state: FlowStepState;
+}
+
+function decideSide(
+  outboard: boolean,
+  rearmed: boolean,
+  side: FlowStepSideState,
+  now: number,
+  repeatMs: number,
+): { fire: boolean; side: FlowStepSideState } {
+  if (outboard) {
+    if (side.armed) return { fire: true, side: { armed: false, firedAt: now } };
+    if (side.firedAt !== null && now - side.firedAt >= repeatMs) {
+      return { fire: true, side: { armed: false, firedAt: now } };
+    }
+    return { fire: false, side };
+  }
+  if (rearmed && !side.armed) {
+    return { fire: false, side: { armed: true, firedAt: null } };
+  }
+  return { fire: false, side };
+}
+
+/**
+ * The click's decision for one frame, as a pure function of the pointer, the
+ * two trigger edges, the per-side memory and the clock.
+ *
+ * Three rules, one per feel constant. **Fire at the edge**: the first frame
+ * the pointer is outboard of an armed edge fires one step on that side and
+ * disarms it. **Re-arm inboard**: the side arms again only once the pointer
+ * is back inside the band by {@link FLOW_STEP_REARM_PX}, so a hand parked
+ * on the edge fires once. **Repeat slowly while held**: a hand that stays
+ * outboard of a disarmed edge fires again every {@link FLOW_STEP_REPEAT_MS}.
+ *
+ * Axis-free by construction — `pointer` and the edges are one coordinate,
+ * so a column's vertical run could be read through it unchanged. A pointer
+ * that is not a finite number decides nothing and changes nothing.
+ *
+ * `repeatMs` defaults to the shipped {@link FLOW_STEP_REPEAT_MS}; nothing in
+ * the gesture passes it. It is here so the `Infinity` the constant documents
+ * — the value that makes every click a crossing — is a value the rule can be
+ * held to, rather than a claim only a tuning round could disprove.
+ */
+export function flowStepDecision(input: {
+  pointer: number;
+  bandStart: number;
+  bandEnd: number;
+  state: FlowStepState;
+  now: number;
+  repeatMs?: number;
+}): FlowStepDecision {
+  const { pointer, bandStart, bandEnd, state, now } = input;
+  const repeatMs = input.repeatMs ?? FLOW_STEP_REPEAT_MS;
+  if (!Number.isFinite(pointer)) return { direction: 0, state };
+  // Named rather than written inline at the call: `a < b, c >= d` reads to
+  // the TypeScript parser as a generic instantiation `a<b, c>` being assigned.
+  const pastEnd = pointer > bandEnd;
+  const insideEnd = pointer <= bandEnd - FLOW_STEP_REARM_PX;
+  const pastStart = pointer < bandStart;
+  const insideStart = pointer >= bandStart + FLOW_STEP_REARM_PX;
+  const end = decideSide(pastEnd, insideEnd, state.end, now, repeatMs);
+  const start = decideSide(pastStart, insideStart, state.start, now, repeatMs);
+  const next = { start: start.side, end: end.side };
+  if (end.fire) return { direction: 1, state: next };
+  if (start.fire) return { direction: -1, state: next };
+  return { direction: 0, state: next };
+}
+
+/** The slot a click names, and the offset that reveals it. */
+export interface FlowStepTarget {
+  slot: number;
+  offset: number;
+}
+
+/**
+ * Which slot a click in `direction` names, and where the band lands to show
+ * it — the strip's positions read against the standing offset, and the
+ * least travel that shows the named slot whole ({@link flowRevealOffset}).
+ *
+ * Toward the end, the click names the first slot whose right edge lies past
+ * the band's right edge; toward the start, the last slot whose left edge
+ * lies before the band's left edge. Reveal rather than centre: the hand is
+ * reaching for the slot beside the rail, and everything else on screen
+ * should move as little as possible. `null` when no slot lies that way — the
+ * strip is already showing everything it has in that direction.
+ */
+export function flowStepTarget(input: {
+  strip: FlowStrip;
+  band: number;
+  offset: number;
+  direction: 1 | -1;
+}): FlowStepTarget | null {
+  const { strip, band, offset, direction } = input;
+  let named: { slot: number; left: number; extent: number } | null = null;
+  for (const [slot, left] of strip.positions) {
+    const extent = strip.extents.get(slot);
+    if (extent === undefined) continue;
+    if (direction === 1) {
+      if (left + extent - offset <= band) continue;
+      if (named === null || left < named.left) named = { slot, left, extent };
+    } else {
+      if (left - offset >= 0) continue;
+      if (named === null || left > named.left) named = { slot, left, extent };
+    }
+  }
+  if (named === null) return null;
+  const next = flowRevealOffset({
+    stripLeft: named.left,
+    extent: named.extent,
+    stripWidth: strip.width,
+    band,
+    offset,
+  });
+  return { slot: named.slot, offset: next };
 }
 
 /**
@@ -819,7 +1014,56 @@ export function enumerateDropZones(
     zones.push({ kind: "tab-bar", paneId, rect });
   }
 
-  return { zones, origin };
+  return clipZonesToBand(zones, origin, measured.band);
+}
+
+// ---- The band clip ----
+
+/** `rect` cut to the band's edges along x, or `null` when nothing is left. */
+function clipRectToBand(rect: Rect, band: FlowBandEdges): Rect | null {
+  const left = Math.max(rect.x, band.start);
+  const right = Math.min(rect.x + rect.width, band.end);
+  if (right <= left) return null;
+  return { x: left, y: rect.y, width: right - left, height: rect.height };
+}
+
+/**
+ * A content card's zones, clipped to the band.
+ *
+ * The flow strip is longer than the band and slides under the rails with
+ * its frames intact, so a tile measured off the DOM can lie partly or
+ * wholly outboard of where the reader can see it, and a drop-zone at that
+ * rect is a promise the deck cannot show. The cut is the same for the
+ * landing tile and the hit rect: a zone whose tile is wholly outboard is
+ * not offered at all, and a straddling one is offered for the part in
+ * view. With no band there is nothing to clip against and every zone
+ * stands as measured.
+ *
+ * The origin is clipped with the rest so the initial indication draws
+ * inside the band too; a card whose own place has no in-band portion —
+ * which a hand cannot reach to grab — keeps its unclipped origin rather
+ * than losing it, since a null origin means "not arrangeable at all".
+ */
+function clipZonesToBand(
+  zones: readonly DropZone[],
+  origin: DropZone | null,
+  band: FlowBandEdges | null | undefined,
+): DropZoneSet {
+  if (band === null || band === undefined) return { zones, origin };
+  const clipped: DropZone[] = [];
+  let clippedOrigin: DropZone | null = null;
+  for (const zone of zones) {
+    const rect = clipRectToBand(zone.rect, band);
+    if (rect === null) continue;
+    // A hit that clips to nothing falls back to the tile, which is what an
+    // absent hit already means.
+    const hit = zone.hit === undefined ? undefined : clipRectToBand(zone.hit, band);
+    const next: DropZone =
+      hit === null ? { ...zone, rect, hit: undefined } : { ...zone, rect, hit };
+    clipped.push(next);
+    if (zone === origin) clippedOrigin = next;
+  }
+  return { zones: clipped, origin: clippedOrigin ?? origin };
 }
 
 // ---- Indication ----

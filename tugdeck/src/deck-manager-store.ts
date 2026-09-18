@@ -16,6 +16,7 @@ import type { SpacesSnapshot } from "./spaces";
 import type {
   ColumnMoveTarget,
   ContentWidth,
+  FlowBandEdges,
   SidebarSide,
 } from "./lib/layout-imposer";
 import type { CardLifecycleObserver } from "./lib/card-lifecycle";
@@ -97,6 +98,14 @@ export interface IDeckManagerStore {
    * the snapshot.
    */
   getBandWidth: () => number | null;
+  /**
+   * The same band as its two edges in canvas layout px, or `null` when there
+   * is none — the left edge is the left rail's inset plus the gap when a rail
+   * stands there and the bare gap otherwise, and the right edge likewise.
+   * The drag's flow trigger reads these; the width alone cannot say where
+   * the band begins under a left rail.
+   */
+  getBandEdges: () => FlowBandEdges | null;
   getColumnRunHeight: () => number | null;
   /** The same run under the other place's name — a rail and a column divide
    *  one vertical extent. */
