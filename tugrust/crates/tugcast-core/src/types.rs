@@ -1733,7 +1733,8 @@ mod tests {
             sha: "0123456789abcdef0123456789abcdef01234567".to_string(),
             no_repo: false,
             subject: "overview(ref-annotation): summarize commits on hover".to_string(),
-            body: "The hover card reads the commit's own record.\n\nTug-Session: ken (1a2b3c4d)".to_string(),
+            body: "The hover card reads the commit's own record.\n\nTug-Session: ken (1a2b3c4d)"
+                .to_string(),
             author: "Ken Kocienda".to_string(),
             author_email: "kocienda@pobox.com".to_string(),
             date: "2026-08-12".to_string(),

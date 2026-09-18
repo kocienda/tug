@@ -410,6 +410,7 @@ describe("a session is offered only the copies its surface can perform", () => {
 describe("a commit's menu grows with what the surface holds", () => {
   test("a sha alone opens its diff and copies either hash form", () => {
     expect(bareEntries("commit-sha").map((e) => e.label)).toEqual([
+      "Open Commit",
       "Open Diff",
       "Copy Short Hash",
       "Copy Full Hash",
@@ -430,6 +431,7 @@ describe("a commit's menu grows with what the surface holds", () => {
     );
     expect(items?.map((e) => e.label)).toEqual([
       "Show Detail",
+      "Open Commit",
       "Copy Short Hash",
       "Copy Full Hash",
       "Copy Commit Header",

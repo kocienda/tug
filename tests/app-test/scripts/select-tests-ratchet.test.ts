@@ -47,6 +47,19 @@ function makeRepo(prefix: string): string {
 /** An entry that exists in the real ACCEPTED_FANOUT, so the committed side has it too. */
 const KNOWN_KEY = "tugdeck/src/components/chrome/deck-canvas.tsx";
 
+/**
+ * Its accepted number, read from the real script rather than written down here. A
+ * literal would rot the moment the corpus moved the entry: the rewrites below would
+ * silently match nothing, every case would check an unedited script, and the ratchet
+ * would look green while testing nothing at all.
+ */
+const KNOWN_N = (() => {
+    const src = readFileSync(join(REAL_APP_TEST_DIR, "scripts", "select-tests.ts"), "utf8");
+    const at = src.indexOf(`"${KNOWN_KEY}": `);
+    if (at === -1) throw new Error(`ACCEPTED_FANOUT has no entry for ${KNOWN_KEY}`);
+    return Number.parseInt(src.slice(at + KNOWN_KEY.length + 4), 10);
+})();
+
 let root: string;
 let script: string;
 
@@ -73,6 +86,15 @@ function restoreScript(): void {
     git("checkout", "--", SCRIPT_REL);
 }
 
+/** Move KNOWN_KEY's accepted number to `n`, failing loudly if the entry isn't there. */
+function setKnownFanout(n: number): void {
+    setFanout((s) => {
+        const from = `"${KNOWN_KEY}": ${KNOWN_N}`;
+        if (!s.includes(from)) throw new Error(`script no longer holds ${from}`);
+        return s.replace(from, `"${KNOWN_KEY}": ${n}`);
+    });
+}
+
 beforeAll(() => {
     root = makeRepo("select-tests-ratchet-");
     script = join(root, SCRIPT_REL);
@@ -93,12 +115,12 @@ describe("the accepted-fan-out ratchet", () => {
     });
 
     test("raising an entry fails, and the message names the key and both numbers", () => {
-        setFanout((s) => s.replace(`"${KNOWN_KEY}": 21`, `"${KNOWN_KEY}": 22`));
+        setKnownFanout(KNOWN_N + 1);
         const r = check();
         restoreScript();
         expect(r.code).toBe(1);
         expect(r.err).toContain(KNOWN_KEY);
-        expect(r.err).toContain("21 raised to 22");
+        expect(r.err).toContain(`${KNOWN_N} raised to ${KNOWN_N + 1}`);
         expect(r.err).toContain("delete the entry and re-add it");
     });
 
@@ -115,7 +137,7 @@ describe("the accepted-fan-out ratchet", () => {
         expect(files.length).toBeGreaterThan(1);
         for (const f of files.slice(0, 2)) rmSync(join(root, "tests", "app-test", f));
 
-        setFanout((s) => s.replace(`"${KNOWN_KEY}": 21`, `"${KNOWN_KEY}": 20`));
+        setKnownFanout(KNOWN_N - 1);
         const r = check();
         restoreScript();
         git("checkout", "--", "tests/app-test");
