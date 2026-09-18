@@ -4,6 +4,8 @@
 
 **Purpose:** Tug.app's only menu route to a sidebar card is six Show ⟨card⟩ rows in the Maker menu, which a release build hides. Move them to the Window menu as a panel list in the Illustrator manner — one row per sidebar card, marked for presence, with a submenu that arranges the card left or right and is live only while the card shows. The rows read the three-rung ladder the shortcuts already run and show it back as three marks: nothing, a check, a checked square.
 
+> **The rows are in View now, not Window.** `briefs/menu-bar-relocation-brief.md` moved the whole sidebar family — the five card parents with their Show/Left/Right submenus, Hide Sidebars, and Resize Sidebars to Fit — into the View menu under `view.sidebar.*`, `view.toggleSidebars` and `view.resizeSidebarsToFit`, on the HIG's reading that Show Sidebar is a View verb. Everything this brief decided about the rows themselves stands unchanged: the panel-list shape, the three-rung ladder, the mixed-state square, the submenu's toggle-then-sides order. The one mechanism that moved with them is [B09]'s mark copy — `refreshSidebarParentMarks` now runs in the **View** branch of `menuNeedsUpdate` and matches the `view.sidebar.` prefix, and because View is rebuilt whole on every open it must run **after** `rebuildViewMenu` rather than before, or it writes the marks onto the previous open's discarded parent items. Read every `Window ▸ ⟨Card⟩` below as `View ▸ ⟨Card⟩`.
+
 ---
 
 ## Purpose {#purpose}

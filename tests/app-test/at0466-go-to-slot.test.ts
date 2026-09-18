@@ -186,7 +186,7 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N takes the reader to slot N", () => {
         await openDeck(app, { cards: 5, layout: "flow" });
 
         for (let n = 1; n <= 6; n += 1) {
-          const item = await menuItem(app, `window.goToSlot.${n}`);
+          const item = await menuItem(app, `go.goToSlot.${n}`);
           expect(
             item.keyEquivalent,
             `Go to Slot ${n} carries its digit`,
@@ -202,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N takes the reader to slot N", () => {
         // see: a width row that kept its digit would be resolved by AppKit
         // first and eat the press before the centering ever heard of it.
         for (const preset of ["slim", "comfy", "wide"]) {
-          const item = await menuItem(app, `window.cardWidth.${preset}`);
+          const item = await menuItem(app, `view.cardWidth.${preset}`);
           expect(
             item.keyEquivalent,
             `the ${preset} row gave its digit up`,
@@ -228,7 +228,7 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N takes the reader to slot N", () => {
         await openDeck(app, { cards: 3, layout: "flow" });
         const flow = await Promise.all(
           [1, 2, 3, 4, 5, 6].map((n) =>
-            menuItem(app, `window.goToSlot.${n}`).then((i) => i.enabled),
+            menuItem(app, `go.goToSlot.${n}`).then((i) => i.enabled),
           ),
         );
         note(`three-up flow: ${flow.map((e) => (e ? "on" : "off")).join(" ")}`);
@@ -247,7 +247,7 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N takes the reader to slot N", () => {
         await openDeck(app, { cards: 3, layout: "fit" });
         const fit = await Promise.all(
           [1, 2, 3].map((n) =>
-            menuItem(app, `window.goToSlot.${n}`).then((i) => i.enabled),
+            menuItem(app, `go.goToSlot.${n}`).then((i) => i.enabled),
           ),
         );
         note(`three-up fit: ${fit.map((e) => (e ? "on" : "off")).join(" ")}`);

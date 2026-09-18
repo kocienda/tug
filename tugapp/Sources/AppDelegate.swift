@@ -1118,9 +1118,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sessionMenu.addItem(NSMenuItem(title: "Stop", action: #selector(stopSession(_:)), keyEquivalent: "").identified("session.stop"))
         sessionMenu.addItem(NSMenuItem.separator())
 
-        // The composer's two affordances and transcript navigation. These were
-        // chord-only until now — working commands with no discoverable door —
-        // so the menu is what makes them findable.
+        // The composer's two affordances. These were chord-only until now —
+        // working commands with no discoverable door — so the menu is what
+        // makes them findable.
         //
         // They are built WITHOUT key equivalents on purpose. Their chords
         // belong to the command registry, which publishes them per item in
@@ -1134,17 +1134,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sessionMenu.addItem(NSMenuItem(title: "Insert File…", action: #selector(insertFile(_:)), keyEquivalent: "").identified("session.insertFile"))
         sessionMenu.addItem(NSMenuItem(title: "Open Command Picker", action: #selector(openCommandPicker(_:)), keyEquivalent: "").identified("session.commandPicker"))
 
-        // Go in Transcript ▸ — the four turn-navigation verbs, submenued so
-        // they read as one axis rather than four rows competing with the
-        // session's own verbs for the reader's attention.
-        let goItem = NSMenuItem(title: "Go in Transcript", action: nil, keyEquivalent: "").identified("session.go")
-        let goMenu = NSMenu(title: "Go in Transcript")
-        goItem.submenu = goMenu
-        goMenu.addItem(NSMenuItem(title: "Previous Turn", action: #selector(previousTurn(_:)), keyEquivalent: "").identified("session.previousTurn"))
-        goMenu.addItem(NSMenuItem(title: "Next Turn", action: #selector(nextTurn(_:)), keyEquivalent: "").identified("session.nextTurn"))
-        goMenu.addItem(NSMenuItem(title: "First Turn", action: #selector(firstTurn(_:)), keyEquivalent: "").identified("session.firstTurn"))
-        goMenu.addItem(NSMenuItem(title: "Last Turn", action: #selector(lastTurn(_:)), keyEquivalent: "").identified("session.lastTurn"))
-        sessionMenu.addItem(goItem)
         sessionMenu.addItem(NSMenuItem.separator())
 
         func sessionCommandItem(_ title: String, _ command: String, _ id: String) -> NSMenuItem {
@@ -1174,21 +1163,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let toggleHistoryItem = NSMenuItem(title: "Show Commit History", action: #selector(toggleShadeView(_:)), keyEquivalent: "h", modifierMask: [.command, .control]).identified("session.toggleHistory")
         toggleHistoryItem.representedObject = "history"
         sessionMenu.addItem(toggleHistoryItem)
-
-        // Fold Session — the CARD's fold, on ⌃⌘Y. Window ▸ Minimize keeps
-        // ⌘M and is untouched, and so is ⌃⌘M: the chord moved out of the
-        // ⌥ tier because AppKit claims ⌥⌘M, and Y is read as the shape of a
-        // fold drawn. The title's verb rides
-        // the registry gate's dynamic title on the menuState push ("Unfold
-        // Session" once the card is folded), the same way the two shade
-        // toggles above take theirs.
-        sessionMenu.addItem(NSMenuItem(title: "Fold Session", action: #selector(toggleSessionFold(_:)), keyEquivalent: "y", modifierMask: [.command, .control]).identified("session.fold"))
         sessionMenu.addItem(NSMenuItem.separator())
 
+        // The lifecycle group: what a session is, from resuming one to
+        // clearing it and folding the card it lives on.
         sessionMenu.addItem(sessionCommandItem("Resume Session…", "resume", "session.resume"))
         sessionMenu.addItem(sessionCommandItem("Rename Session…", "rename", "session.rename"))
         sessionMenu.addItem(sessionCommandItem("Unname Session", "unname", "session.unname"))
         sessionMenu.addItem(sessionCommandItem("Clear Session", "clear", "session.new"))
+        // Fold Session — the CARD's fold, on ⌃⌘Y. A posture of the card, kin
+        // to Resume and Clear rather than to Commit Changes, which is why it
+        // ends this group instead of the changes one above. Window ▸ Minimize
+        // keeps ⌘M and is untouched, and so is ⌃⌘M: the chord moved out of
+        // the ⌥ tier because AppKit claims ⌥⌘M, and Y is read as the shape of
+        // a fold drawn. The title's verb rides the registry gate's dynamic
+        // title on the menuState push ("Unfold Session" once the card is
+        // folded), the same way the two shade toggles above take theirs.
+        sessionMenu.addItem(NSMenuItem(title: "Fold Session", action: #selector(toggleSessionFold(_:)), keyEquivalent: "y", modifierMask: [.command, .control]).identified("session.fold"))
         sessionMenu.addItem(NSMenuItem.separator())
 
         // One door for model, reasoning effort, and permission mode — and a
@@ -1225,9 +1216,102 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         configureMenu.addItem(sessionCommandItem("Memory…", "memory", "session.memory"))
         sessionMenu.addItem(configureItem)
 
-        // View Menu - position 4.
-        // Appearance and page zoom; rebuilt on every open in
-        // menuNeedsUpdate (theme submenu + zoom enablement).
+        // Go Menu - position 4. Every verb that takes the reader somewhere,
+        // in one place and on four axes: which card, which direction, which
+        // slot, which turn. The rows were spread across Window and a Session
+        // submenu before, which made a reader look in two menus for one kind
+        // of act; Xcode's Navigate and VS Code's Go are the precedent, and Go
+        // is the shorter word and Finder's. Everything here is built exactly
+        // as it was built where it came from — same selectors, same
+        // `representedObject` payloads, same key equivalents, same registry
+        // gates — with only the identifier namespace changed to `go.`.
+        let goMenuItem = NSMenuItem()
+        mainMenu.addItem(goMenuItem)
+        let gMenu = NSMenu(title: "Go")
+        goMenuItem.submenu = gMenu
+
+        // Card navigation — one relationship, two axes. Previous/Next Card
+        // walk the deck's visible cards side to side (every tab of every
+        // front pane, one ring); Previous/Next Card in Stack rotate the
+        // focused pane's slot stack front to back. The chords say the same
+        // thing: ⇧⌘[/] for the lateral pair (macOS tab convention), ⌥⌘[/]
+        // for the depth pair — ⌥ as the variant operator, same keys, other
+        // axis. All four are chain round-trips for chords AppKit swallows
+        // at the menu bar.
+        gMenu.addItem(NSMenuItem(title: "Previous Card", action: #selector(previousCard(_:)), keyEquivalent: "[", modifierMask: [.command, .shift]).identified("go.previousCard"))
+        gMenu.addItem(NSMenuItem(title: "Next Card", action: #selector(nextCard(_:)), keyEquivalent: "]", modifierMask: [.command, .shift]).identified("go.nextCard"))
+        gMenu.addItem(NSMenuItem(title: "Previous Card in Stack", action: #selector(previousCardInStack(_:)), keyEquivalent: "[", modifierMask: [.command, .option]).identified("go.previousCardInStack"))
+        gMenu.addItem(NSMenuItem(title: "Next Card in Stack", action: #selector(nextCardInStack(_:)), keyEquivalent: "]", modifierMask: [.command, .option]).identified("go.nextCardInStack"))
+        // Reveal Stack is the depth pair's readable counterpart: it opens
+        // the focused pane's picker to be read before choosing, where the
+        // pair switches without looking. ⌘R rides the JS keymap sweep, and
+        // detaches when the stack has nowhere to go.
+        gMenu.addItem(NSMenuItem(title: "Reveal Stack", action: #selector(revealStack(_:)), keyEquivalent: "").identified("go.revealStack"))
+        gMenu.addItem(NSMenuItem.separator())
+        // Focus Card Left / Right / Above / Below — move the KEYBOARD to the
+        // card that is spatially in that direction, which is the other half of
+        // the pair Window's column rows are one of: those move the card, these
+        // move the reader through the arrangement the card stands in. Its own
+        // group for that reason, and because it is the one family here that is
+        // not selection-relative — the frontend reads the first responder, since
+        // the gesture moves the keyboard and where the keyboard is IS the
+        // source.
+        //
+        // ⌥⌘←/→/↑/↓, all four with EMPTY key equivalents like everything else in
+        // this menu: `applyCommandChords` writes them from the frontend's
+        // keymap, so the family stays rebindable. Each row is gated per
+        // direction by its registry entry on the menuState push, so an item is
+        // live exactly when its chord would act — and the gates hold the chord
+        // while dark (`disabledChord: "keep"`), because nothing else in the JS
+        // funnel wants ⌥⌘ arrows and there is nothing for a release to hand
+        // them to. A dark row does not eat the press: AppKit declines to fire a
+        // disabled item and leaves the keydown alone, so it reaches the web
+        // view, where the same command's own binding still stands and answers
+        // the refusal with a border flash on the pane that is not moving.
+        for (title, direction, id) in [
+            ("Focus Card Left", "left", "go.focusCardLeft"),
+            ("Focus Card Right", "right", "go.focusCardRight"),
+            ("Focus Card Above", "above", "go.focusCardAbove"),
+            ("Focus Card Below", "below", "go.focusCardBelow"),
+        ] {
+            let item = NSMenuItem(title: title, action: #selector(focusCardFromMenu(_:)), keyEquivalent: "").identified(id)
+            item.representedObject = direction
+            gMenu.addItem(item)
+        }
+        gMenu.addItem(NSMenuItem.separator())
+        // Go to Slot 1…6 — take the reader to that slot: the band travels to
+        // put it as near the middle as the strip allows, which at either end
+        // is flush against it. The digit row's other reading: ⌘n sends the
+        // card to a place,
+        // ⌃⌘n sends the reader to one, and nothing in the arrangement moves.
+        // Six rows because six-up is the largest arrangement; each is dark
+        // under fit and dark past the current kind's slot count, both gated by
+        // its registry entry on the menuState push.
+        for n in 1...6 {
+            let item = NSMenuItem(title: "Go to Slot \(n)", action: #selector(goToSlotFromMenu(_:)), keyEquivalent: "").identified("go.goToSlot.\(n)")
+            item.representedObject = n
+            gMenu.addItem(item)
+        }
+        gMenu.addItem(NSMenuItem.separator())
+        // The four turn-navigation verbs, flat rather than submenued: in a
+        // menu that is entirely about movement they are one axis among four
+        // and read as a group, where under Session they had to be folded away
+        // so they would not compete with the session's own verbs. They keep
+        // their empty key equivalents — `applyCommandChords` writes the ⌃⌘
+        // bracket family from the frontend's keymap — and they still validate
+        // to disabled without a frontmost session card, which is the registry
+        // gate's doing and not the menu's.
+        gMenu.addItem(NSMenuItem(title: "Previous Turn", action: #selector(previousTurn(_:)), keyEquivalent: "").identified("go.previousTurn"))
+        gMenu.addItem(NSMenuItem(title: "Next Turn", action: #selector(nextTurn(_:)), keyEquivalent: "").identified("go.nextTurn"))
+        gMenu.addItem(NSMenuItem(title: "First Turn", action: #selector(firstTurn(_:)), keyEquivalent: "").identified("go.firstTurn"))
+        gMenu.addItem(NSMenuItem(title: "Last Turn", action: #selector(lastTurn(_:)), keyEquivalent: "").identified("go.lastTurn"))
+
+        // View Menu - position 5.
+        // How the content is shown: appearance, page zoom, card width and
+        // posture, the sidebars, keyboard focus, and full screen. Rebuilt
+        // WHOLE on every open in menuNeedsUpdate — this menu is not
+        // NSApp.windowsMenu, so AppKit adds nothing to it and there is
+        // nothing to manage by section.
         let viewMenuItem = NSMenuItem()
         mainMenu.addItem(viewMenuItem)
         let vMenu = NSMenu(title: "View")
@@ -1242,7 +1326,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         dynamicThemeMenu.delegate = self
         self.themeMenu = dynamicThemeMenu
 
-        // Window Menu - position 5. Static items are built once here and
+        // Window Menu - position 6. Static items are built once here and
         // never touched by the delegate; only the dynamic `window.pane.*`
         // slice (between paneListAnchor and the following separator) churns
         // in menuNeedsUpdate. NSApp.windowsMenu keeps AppKit's automatic
@@ -1256,28 +1340,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         wMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m").identified("window.minimize"))
         wMenu.addItem(NSMenuItem(title: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "").identified("window.zoom"))
         wMenu.addItem(NSMenuItem.separator())
-        // Card navigation — one relationship, two axes. Previous/Next Card
-        // walk the deck's visible cards side to side (every tab of every
-        // front pane, one ring); Previous/Next Card in Stack rotate the
-        // focused pane's slot stack front to back. The chords say the same
-        // thing: ⇧⌘[/] for the lateral pair (macOS tab convention), ⌥⌘[/]
-        // for the depth pair — ⌥ as the variant operator, same keys, other
-        // axis. All four are chain round-trips for chords AppKit swallows
-        // at the menu bar.
-        wMenu.addItem(NSMenuItem(title: "Previous Card", action: #selector(previousCard(_:)), keyEquivalent: "[", modifierMask: [.command, .shift]).identified("window.previousCard"))
-        wMenu.addItem(NSMenuItem(title: "Next Card", action: #selector(nextCard(_:)), keyEquivalent: "]", modifierMask: [.command, .shift]).identified("window.nextCard"))
-        wMenu.addItem(NSMenuItem(title: "Previous Card in Stack", action: #selector(previousCardInStack(_:)), keyEquivalent: "[", modifierMask: [.command, .option]).identified("window.previousCardInStack"))
-        wMenu.addItem(NSMenuItem(title: "Next Card in Stack", action: #selector(nextCardInStack(_:)), keyEquivalent: "]", modifierMask: [.command, .option]).identified("window.nextCardInStack"))
-        // Reveal Stack is the depth pair's readable counterpart: it opens
-        // the focused pane's picker to be read before choosing, where the
-        // pair switches without looking. ⌘R rides the JS keymap sweep, and
-        // detaches when the stack has nowhere to go.
-        wMenu.addItem(NSMenuItem(title: "Reveal Stack", action: #selector(revealStack(_:)), keyEquivalent: "").identified("window.revealStack"))
-        wMenu.addItem(NSMenuItem.separator())
         // The column family — how the panes standing in one slot arrange
         // themselves, and where this card stands among them. Its own group
-        // directly after the card-navigation rows because moving a card among
-        // the panes of a place is the same kind of act as choosing one.
+        // because moving a card among the panes of a place is arrangement —
+        // Window's business — where choosing which card to look at is
+        // movement, and lives in Go.
         //
         // ⌃⌘/ and the ⌃⌘ arrows, all with EMPTY key equivalents for the same
         // reason the width rows have them — `applyCommandChords` writes them
@@ -1309,142 +1376,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             wMenu.addItem(item)
         }
         wMenu.addItem(NSMenuItem.separator())
-        // Focus Card Left / Right / Above / Below — move the KEYBOARD to the
-        // card that is spatially in that direction, which is the other half of
-        // the pair the column rows above are one of: those move the card, these
-        // move the reader through the arrangement the card stands in. Its own
-        // group for that reason, and because it is the one family here that is
-        // not selection-relative — the frontend reads the first responder, since
-        // the gesture moves the keyboard and where the keyboard is IS the
-        // source.
-        //
-        // ⌥⌘←/→/↑/↓, all four with EMPTY key equivalents like everything else in
-        // this menu: `applyCommandChords` writes them from the frontend's
-        // keymap, so the family stays rebindable. Each row is gated per
-        // direction by its registry entry on the menuState push, so an item is
-        // live exactly when its chord would act — and the gates hold the chord
-        // while dark (`disabledChord: "keep"`), because nothing else in the JS
-        // funnel wants ⌥⌘ arrows and there is nothing for a release to hand
-        // them to. A dark row does not eat the press: AppKit declines to fire a
-        // disabled item and leaves the keydown alone, so it reaches the web
-        // view, where the same command's own binding still stands and answers
-        // the refusal with a border flash on the pane that is not moving.
-        for (title, direction, id) in [
-            ("Focus Card Left", "left", "window.focusCardLeft"),
-            ("Focus Card Right", "right", "window.focusCardRight"),
-            ("Focus Card Above", "above", "window.focusCardAbove"),
-            ("Focus Card Below", "below", "window.focusCardBelow"),
-        ] {
-            let item = NSMenuItem(title: title, action: #selector(focusCardFromMenu(_:)), keyEquivalent: "").identified(id)
-            item.representedObject = direction
-            wMenu.addItem(item)
-        }
-        wMenu.addItem(NSMenuItem.separator())
-        // Bullseye — the focused card's POSTURE rather than its size: a
-        // temporary reading stance, centred in the band at comfy with every
-        // other surface receded, reversible by pressing again. Its own group
-        // because the width rows below set a number that persists and this
-        // sets a stance that does not. ⌃⌘B, same Tug tier as the width row,
-        // and the key equivalent is left EMPTY for the same reason theirs
-        // are — `applyCommandChords` writes it from the frontend's keymap, so
-        // it stays rebindable end to end.
-        wMenu.addItem(NSMenuItem(title: "Bullseye", action: #selector(toggleBullseye(_:)), keyEquivalent: "").identified("window.bullseye"))
-        wMenu.addItem(NSMenuItem.separator())
-        // Go to Slot 1…6 — take the reader to that slot: the band travels to
-        // put it as near the middle as the strip allows, which at either end
-        // is flush against it. The digit row's other reading: ⌘n sends the
-        // card to a place,
-        // ⌃⌘n sends the reader to one, and nothing in the arrangement moves.
-        // Six rows because six-up is the largest arrangement; each is dark
-        // under fit and dark past the current kind's slot count, both gated by
-        // its registry entry on the menuState push.
-        for n in 1...6 {
-            let item = NSMenuItem(title: "Go to Slot \(n)", action: #selector(goToSlotFromMenu(_:)), keyEquivalent: "").identified("window.goToSlot.\(n)")
-            item.representedObject = n
-            wMenu.addItem(item)
-        }
-        wMenu.addItem(NSMenuItem.separator())
-        // Card width — the focused card's own width, as one of the three
-        // named presets, check-marked like the title bar's width popup it
-        // duplicates. No key equivalents: the ⌃⌘ digits these held went to
-        // Go to Slot, a verb of the reading hour, where a width is set once
-        // and read at. Construction still leaves them EMPTY rather than
-        // absent, because `applyCommandChords` writes whatever the frontend's
-        // keymap says — so a user who binds them in the keymap pane gets the
-        // rows marked without a change here.
-        for (title, preset) in [("Slim", "slim"), ("Comfy", "comfy"), ("Wide", "wide")] {
-            let item = NSMenuItem(title: title, action: #selector(setCardWidthFromMenu(_:)), keyEquivalent: "").identified("window.cardWidth.\(preset)")
-            item.representedObject = preset
-            wMenu.addItem(item)
-        }
-        wMenu.addItem(NSMenuItem.separator())
-        // The two verbs about the rails AS RAILS, above the card rows they
-        // act on: one takes both sides away and brings them back, the other
-        // stands the cards left on them at their content heights. They read as
-        // a pair on the keyboard too — ⌃⌘S and ⌥⇧⌘S, the same key twice.
-        //
-        // "Hide Sidebars" is the BOOT title only: the registry gate rewrites
-        // it to "Show Sidebars" whenever no rail is standing, so the row never
-        // names a verb it cannot perform.
-        //
-        // Key equivalents left EMPTY as everywhere in this file:
-        // `applyCommandChords` writes both from the frontend's keymap, so the
-        // chords stay rebindable.
-        wMenu.addItem(NSMenuItem(title: "Hide Sidebars", action: #selector(toggleSidebars(_:)), keyEquivalent: "").identified("window.toggleSidebars"))
-        wMenu.addItem(NSMenuItem(title: "Resize Sidebars to Fit", action: #selector(resizeSidebarsToFit(_:)), keyEquivalent: "").identified("window.resizeSidebarsToFit"))
-        wMenu.addItem(NSMenuItem.separator())
-        // The sidebar cards — one parent row each, in the panel-list manner
-        // every drawing app uses: the row stands for the card, its mark says
-        // where the card stands, and its submenu holds the verbs.
-        //
-        // Three marks rather than two, because the toggle is a three-rung
-        // ladder: empty for a card with no instance, a check for one that
-        // shows without holding the keyboard, and the mixed mark for the one
-        // that shows and has it. The toggle cannot be the parent's own click
-        // — an item that owns a submenu opens it — so the toggle is the
-        // submenu's first row and the parent only carries the mark, copied
-        // across in `refreshSidebarParentMarks` because AppKit never asks the
-        // validator about a submenu's parent.
-        //
-        // Key equivalents left EMPTY, as everywhere in this file:
-        // `applyCommandChords` recurses into submenus and writes whatever the
-        // frontend's keymap says — the table gives each toggle a ⌃⌘⟨letter⟩
-        // and every one of them stays rebindable. The Arcs card's component
-        // id is `dashes` — the persistence key [D141], not a stale name,
-        // which is also why this list is ordered by the NOUN it displays:
-        // sorting by id would put Cards before Arcs and look alphabetical.
-        for (noun, componentId, toggleAction) in [
-            ("Arcs", "dashes", #selector(showArcs(_:))),
-            ("Jots", "jots", #selector(showJots(_:))),
-            ("Layout", "layout", #selector(showLayout(_:))),
-            ("Overview", "overview", #selector(showOverview(_:))),
-            ("Workspaces", "cards", #selector(showCards(_:))),
-        ] as [(String, String, Selector)] {
-            let parent = NSMenuItem(title: noun, action: nil, keyEquivalent: "")
-                .identified("window.sidebar.\(componentId)")
-            parent.mixedStateImage = Self.mixedStateGlyph
-            let cardMenu = NSMenu(title: noun)
-            // The toggle's title is dynamic — Show / Activate / Hide — and
-            // arrives with the gate, so the construction literal is only what
-            // the row reads before the first push.
-            let toggle = NSMenuItem(title: "Show \(noun)", action: toggleAction, keyEquivalent: "")
-                .identified("window.sidebar.\(componentId).show")
-            toggle.mixedStateImage = Self.mixedStateGlyph
-            cardMenu.addItem(toggle)
-            cardMenu.addItem(NSMenuItem.separator())
-            // Left / Right — a radio pair, dark while the card is hidden.
-            // Both halves of the address ride `representedObject` together,
-            // the shape the column-move rows use with one value instead of
-            // two.
-            for (label, side) in [("Left", "left"), ("Right", "right")] {
-                let item = NSMenuItem(title: label, action: #selector(setSidebarSideFromMenu(_:)), keyEquivalent: "")
-                    .identified("window.sidebar.\(componentId).\(side)")
-                item.representedObject = ["componentId": componentId, "side": side]
-                cardMenu.addItem(item)
-            }
-            parent.submenu = cardMenu
-            wMenu.addItem(parent)
-        }
         // Anchor separator for the dynamic pane-list slice: pane items are
         // inserted directly after it (and removed by identifier prefix) on
         // every menu open. macOS hides the redundant separator pair when
@@ -1476,11 +1407,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         self.windowPaneListAnchor = paneAnchor
         wMenu.addItem(paneAnchor)
         wMenu.addItem(NSMenuItem.separator())
-        wMenu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f", modifierMask: [.command, .control]).identified("window.enterFullScreen"))
         wMenu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "").identified("window.bringAllToFront"))
         NSApp.windowsMenu = wMenu
 
-        // Maker Menu - position 6. Tooling for makers *of* the app —
+        // Maker Menu - position 7. Tooling for makers *of* the app —
         // "session" stays free to mean the Session card's domain. Hidden (not
         // disabled) behind the maker-mode gate: a *mode*, not a focus
         // state, so hide-on-gate is the right shape here.
@@ -1498,14 +1428,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // the menu is hidden then, and a hidden menu's key equivalents fall
         // through to the web view.
         mMenu.addItem(NSMenuItem(title: "Show DevTools", action: #selector(showDevTools(_:)), keyEquivalent: "").identified("maker.devTools"))
-        // The per-card sidebar rows live under Window ▸ ⟨Card⟩, not here: a
+        // The per-card sidebar rows live under View ▸ ⟨Card⟩, not here: a
         // release build hides this menu, and the only menu route to a sidebar
         // card must not be one most users never see. The rail pair below
         // belongs here — it addresses the deck's SIDES rather than its cards,
         // which is a maker's reading of the same geometry.
         // Show Left Rail (⌃⌘←) and Show Right Rail (⌃⌘→) — the deck's two
         // sides as keyboard entities, three-state like the card rows in the
-        // Window menu:
+        // View menu:
         // show and focus, focus, hide. The side rides `representedObject`, the
         // shape the column-move rows use. Key equivalents left EMPTY for the
         // reason every row here leaves them empty — `applyCommandChords` writes
@@ -1536,7 +1466,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mMenu.addItem(NSMenuItem(title: "Source Tree...", action: #selector(sourceTree(_:)), keyEquivalent: "").identified("maker.sourceTree"))
         makerMenu.isHidden = !makerModeEnabled
 
-        // Help Menu - position 7
+        // Help Menu - position 8
         let helpMenuItem = NSMenuItem()
         mainMenu.addItem(helpMenuItem)
         let helpMenu = NSMenu(title: "Help")
@@ -1679,14 +1609,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("toggle-rail", params: ["value": side])
     }
 
-    /// Window ▸ Resize Sidebars to Fit. One run of the rails' only remaining
+    /// View ▸ Resize Sidebars to Fit. One run of the rails' only remaining
     /// vertical algorithm: each card is stood at the height its content asks
     /// for, and the result is kept as the hand's own division from there on.
     @objc private func resizeSidebarsToFit(_ sender: Any) {
         sendControl("resize-sidebars-to-fit")
     }
 
-    /// Window ▸ Hide Sidebars / Show Sidebars. Both of the deck's edges on one
+    /// View ▸ Hide Sidebars / Show Sidebars. Both of the deck's edges on one
     /// gesture: with anything standing on either side the frontend clears them
     /// and remembers what stood where, and with nothing standing it puts that
     /// memory back. The row's title says which of the two the next press is.
@@ -2065,7 +1995,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("find-selection")
     }
 
-    // Window ▸ card / pane navigation — chain-action round-trips for the
+    // Go ▸ card navigation — chain-action round-trips for the
     // chords the menu bar now swallows.
     @objc private func previousCard(_ sender: Any?) {
         sendControl("previous-tab")
@@ -2087,7 +2017,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("next-stack-card")
     }
 
-    /// Window ▸ Slim / Comfy / Wide. The preset rides `representedObject`;
+    /// View ▸ Slim / Comfy / Wide. The preset rides `representedObject`;
     /// enablement and the check mark ride each item's registry gate on the
     /// menuState push, exactly as the Permission Mode radio group does.
     @objc private func setCardWidthFromMenu(_ sender: NSMenuItem) {
@@ -2095,7 +2025,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("set-pane-width", params: ["preset": preset])
     }
 
-    /// Window ▸ Go to Slot N. The slot number rides `representedObject`.
+    /// Go ▸ Go to Slot N. The slot number rides `representedObject`.
     /// Unlike every other item in this group it is NOT selection-relative —
     /// centering moves the band, not a card — so the payload is the whole
     /// question and the frontend resolves nothing. Enablement rides the item's
@@ -2106,7 +2036,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("go-to-slot", params: ["value": slot])
     }
 
-    /// Window ▸ ⟨Card⟩ ▸ Left / Right. Both halves of the address ride
+    /// View ▸ ⟨Card⟩ ▸ Left / Right. Both halves of the address ride
     /// `representedObject` together, the shape the column-move rows use with
     /// one value instead of two. Enablement and the radio mark ride each
     /// item's registry gate on the menuState push: the pair is dark while the
@@ -2121,7 +2051,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("set-sidebar-side", params: ["componentId": componentId, "side": side])
     }
 
-    /// Window ▸ Bullseye. No payload — the command is selection-relative, and
+    /// View ▸ Bullseye. No payload — the command is selection-relative, and
     /// the frontend's deck canvas is the one responder that can name which
     /// pane the selection is in. The check mark and the enablement both ride
     /// this item's registry gate on the menuState push, so the mark can never
@@ -2150,7 +2080,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("move-in-column", params: ["value": target])
     }
 
-    /// Window ▸ Focus Card Left / Right / Above / Below. The direction rides
+    /// Go ▸ Focus Card Left / Right / Above / Below. The direction rides
     /// `representedObject`, the shape the column-move rows use. NOT
     /// selection-relative, unlike those: the frontend reads the first responder,
     /// because the verb moves the keyboard rather than a card. Enablement rides
@@ -2694,10 +2624,14 @@ extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         if menu === viewMenu {
             rebuildViewMenu(menu)
+            // After the rebuild, never before: `rebuildViewMenu` constructs a
+            // fresh parent item per sidebar card on every open, so a mark
+            // copied first would land on the previous open's discarded
+            // objects.
+            refreshSidebarParentMarks(menu)
             return
         }
         if menu === windowMenu {
-            refreshSidebarParentMarks(menu)
             rebuildWindowSpaceList(menu)
             rebuildWindowPaneList(menu)
             return
@@ -2787,7 +2721,11 @@ extension AppDelegate: NSMenuDelegate {
         applyCommandChords(in: menu)
     }
 
-    /// Rebuild the View menu: the theme submenu and page-zoom commands.
+    /// Rebuild the View menu: every verb about how the content is shown —
+    /// the theme submenu, page zoom, card width, Bullseye, the sidebar pair
+    /// and the five sidebar cards, the keyboard-focus trio, and Enter Full
+    /// Screen.
+    ///
     /// Zoom enablement is not computed here — `autoenablesItems` is on, so a
     /// stored `isEnabled` is overridden by the validator's permissive
     /// default. The zoom predicates live in `validateMenuItem`, which reads
@@ -2822,6 +2760,104 @@ extension AppDelegate: NSMenuDelegate {
         menu.addItem(zoomInAliasItem)
         menu.addItem(NSMenuItem(title: "Zoom Out", action: #selector(zoomOut(_:)), keyEquivalent: "-").identified("view.zoomOut"))
 
+        // Card width — the focused card's own width, as one of the three
+        // named presets, check-marked like the title bar's width popup it
+        // duplicates. Directly under the page-zoom rows because both answer
+        // "how big is this", one for the page and one for the card. No key
+        // equivalents: the ⌃⌘ digits these held went to Go to Slot, a verb of
+        // the reading hour, where a width is set once and read at.
+        // Construction still leaves them EMPTY rather than absent, because
+        // `applyCommandChords` writes whatever the frontend's keymap says —
+        // so a user who binds them in the keymap pane gets the rows marked
+        // without a change here.
+        menu.addItem(NSMenuItem.separator())
+        for (title, preset) in [("Slim", "slim"), ("Comfy", "comfy"), ("Wide", "wide")] {
+            let item = NSMenuItem(title: title, action: #selector(setCardWidthFromMenu(_:)), keyEquivalent: "").identified("view.cardWidth.\(preset)")
+            item.representedObject = preset
+            menu.addItem(item)
+        }
+        // Bullseye — the focused card's POSTURE rather than its size: a
+        // temporary reading stance, centred in the band at comfy with every
+        // other surface receded, reversible by pressing again. It follows the
+        // width rows because those set a number that persists and this sets a
+        // stance that does not. ⌃⌘B, same Tug tier as the width row, and the
+        // key equivalent is left EMPTY for the same reason theirs are —
+        // `applyCommandChords` writes it from the frontend's keymap, so it
+        // stays rebindable end to end.
+        menu.addItem(NSMenuItem(title: "Bullseye", action: #selector(toggleBullseye(_:)), keyEquivalent: "").identified("view.bullseye"))
+
+        // The two verbs about the rails AS RAILS, above the card rows they
+        // act on: one takes both sides away and brings them back, the other
+        // stands the cards left on them at their content heights. They read as
+        // a pair on the keyboard too — ⌃⌘S and ⌥⇧⌘S, the same key twice.
+        //
+        // "Hide Sidebars" is the BOOT title only: the registry gate rewrites
+        // it to "Show Sidebars" whenever no rail is standing, so the row never
+        // names a verb it cannot perform.
+        //
+        // Key equivalents left EMPTY as everywhere in this file:
+        // `applyCommandChords` writes both from the frontend's keymap, so the
+        // chords stay rebindable.
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Hide Sidebars", action: #selector(toggleSidebars(_:)), keyEquivalent: "").identified("view.toggleSidebars"))
+        menu.addItem(NSMenuItem(title: "Resize Sidebars to Fit", action: #selector(resizeSidebarsToFit(_:)), keyEquivalent: "").identified("view.resizeSidebarsToFit"))
+        // The sidebar cards — one parent row each, in the panel-list manner
+        // every drawing app uses: the row stands for the card, its mark says
+        // where the card stands, and its submenu holds the verbs. This is the
+        // HIG's Show Sidebar family and Xcode's Navigators, which is why it
+        // reads in View rather than in Window.
+        //
+        // Three marks rather than two, because the toggle is a three-rung
+        // ladder: empty for a card with no instance, a check for one that
+        // shows without holding the keyboard, and the mixed mark for the one
+        // that shows and has it. The toggle cannot be the parent's own click
+        // — an item that owns a submenu opens it — so the toggle is the
+        // submenu's first row and the parent only carries the mark, copied
+        // across in `refreshSidebarParentMarks` because AppKit never asks the
+        // validator about a submenu's parent. This menu is rebuilt whole on
+        // every open, so that copy has to run AFTER this loop has made the
+        // parents it writes to — see `menuNeedsUpdate`.
+        //
+        // Key equivalents left EMPTY, as everywhere in this file:
+        // `applyCommandChords` recurses into submenus and writes whatever the
+        // frontend's keymap says — the table gives each toggle a ⌃⌘⟨letter⟩
+        // and every one of them stays rebindable. The Arcs card's component
+        // id is `dashes` — the persistence key [D141], not a stale name,
+        // which is also why this list is ordered by the NOUN it displays:
+        // sorting by id would put Cards before Arcs and look alphabetical.
+        for (noun, componentId, toggleAction) in [
+            ("Arcs", "dashes", #selector(showArcs(_:))),
+            ("Jots", "jots", #selector(showJots(_:))),
+            ("Layout", "layout", #selector(showLayout(_:))),
+            ("Overview", "overview", #selector(showOverview(_:))),
+            ("Workspaces", "cards", #selector(showCards(_:))),
+        ] as [(String, String, Selector)] {
+            let parent = NSMenuItem(title: noun, action: nil, keyEquivalent: "")
+                .identified("view.sidebar.\(componentId)")
+            parent.mixedStateImage = Self.mixedStateGlyph
+            let cardMenu = NSMenu(title: noun)
+            // The toggle's title is dynamic — Show / Activate / Hide — and
+            // arrives with the gate, so the construction literal is only what
+            // the row reads before the first push.
+            let toggle = NSMenuItem(title: "Show \(noun)", action: toggleAction, keyEquivalent: "")
+                .identified("view.sidebar.\(componentId).show")
+            toggle.mixedStateImage = Self.mixedStateGlyph
+            cardMenu.addItem(toggle)
+            cardMenu.addItem(NSMenuItem.separator())
+            // Left / Right — a radio pair, dark while the card is hidden.
+            // Both halves of the address ride `representedObject` together,
+            // the shape the column-move rows use with one value instead of
+            // two.
+            for (label, side) in [("Left", "left"), ("Right", "right")] {
+                let item = NSMenuItem(title: label, action: #selector(setSidebarSideFromMenu(_:)), keyEquivalent: "")
+                    .identified("view.sidebar.\(componentId).\(side)")
+                item.representedObject = ["componentId": componentId, "side": side]
+                cardMenu.addItem(item)
+            }
+            parent.submenu = cardMenu
+            menu.addItem(parent)
+        }
+
         // Keyboard focus — the ring's two directions. Built WITHOUT key
         // equivalents and left that way: ⇥ / ⇧⇥ are what perform these, but
         // AppKit scans key equivalents before the web view sees a keydown, so a
@@ -2840,6 +2876,11 @@ extension AppDelegate: NSMenuDelegate {
         menu.addItem(NSMenuItem(title: "Keyboard Focus\t⌥⇥", action: #selector(keyboardFocus(_:)), keyEquivalent: "").identified("view.keyboardFocus"))
         menu.addItem(NSMenuItem(title: "Previous Keyboard Focus", action: #selector(previousKeyboardFocus(_:)), keyEquivalent: "").identified("view.previousKeyboardFocus"))
         menu.addItem(NSMenuItem(title: "Next Keyboard Focus", action: #selector(nextKeyboardFocus(_:)), keyEquivalent: "").identified("view.nextKeyboardFocus"))
+
+        // Enter Full Screen, last, where the HIG places it. AppKit performs
+        // it; the dynamic title is AppKit's too.
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f", modifierMask: [.command, .control]).identified("view.enterFullScreen"))
 
         // The sweep writes `keyEquivalent` and the modifier mask only, so the
         // alias item's `allowsKeyEquivalentWhenHidden` survives it.
@@ -2895,7 +2936,7 @@ extension AppDelegate: NSMenuDelegate {
         for item in menu.items {
             guard item.submenu != nil,
                   let id = item.identifier?.rawValue,
-                  id.hasPrefix("window.sidebar.") else { continue }
+                  id.hasPrefix("view.sidebar.") else { continue }
             item.state = menuState.commands["\(id).show"]?.state ?? .off
         }
     }

@@ -386,7 +386,7 @@ export const TUG_ACTIONS = {
   //                 to put it as near its middle as the strip allows, which
   //                 for the first and last slot is flush against that end.
   //                 Named for the arrival rather than the geometry for that
-  //                 reason. Used by ⌃⌘1..6 (Window ▸ Go to Slot N), handled
+  //                 reason. Used by ⌃⌘1..6 (Go ▸ Go to Slot N), handled
   //                 by the deck canvas beside MOVE_TO_SLOT — the two are the
   //                 digit row's two readings, and the tier says which: ⌘n
   //                 sends the CARD to a place, ⌃⌘n sends the READER there.
@@ -399,7 +399,7 @@ export const TUG_ACTIONS = {
   //                 spatially in that direction — a reckoning over the
   //                 arrangement rather than a walk of a ring, which is what
   //                 lets a reader standing in a split column reach the card
-  //                 ABOVE them ([D184]). Used by ⌥⌘←/→/↑/↓ (Window ▸ Focus
+  //                 ABOVE them ([D184]). Used by ⌥⌘←/→/↑/↓ (Go ▸ Focus
   //                 Card Left / Right / Above / Below), handled by the deck
   //                 canvas beside PREVIOUS_TAB, because only that root sees
   //                 every pane. It reads the FIRST RESPONDER rather than the
@@ -414,7 +414,7 @@ export const TUG_ACTIONS = {
   //                 moves, exactly as GO_TO_SLOT moves the band.
   // SET_PANE_WIDTH: payload — `value: string` (a `ContentWidth`: slim /
   //                 comfy / wide). Deck-level: put the SELECTED card's pane
-  //                 at that named width. Its doors are Window ▸ Slim / Comfy
+  //                 at that named width. Its doors are View ▸ Slim / Comfy
   //                 / Wide and the title bar's width popup — no chord: the
   //                 ⌃⌘ digits it held went to GO_TO_SLOT, which is the
   //                 hourly verb of the two. Handled by the deck canvas,
@@ -426,7 +426,7 @@ export const TUG_ACTIONS = {
   // TOGGLE_BULLSEYE: payload — none. Deck-level: put the SELECTED card's
   //                 pane in bullseye — centered in the band at the comfy
   //                 width, with every other pane receded — or take it out
-  //                 when it is already there. Used by ⌃⌘B (Window ▸
+  //                 when it is already there. Used by ⌃⌘B (View ▸
   //                 Bullseye), handled by the deck canvas, which owns the
   //                 layout tree and is the one responder that can name
   //                 which pane the selection is in. Selection-relative: it
@@ -436,7 +436,7 @@ export const TUG_ACTIONS = {
   //                 place on the edge is reserved while it holds it.
   // REVEAL_STACK:   payload — none. Open the focused pane's slot-stack
   //                 picker — the title-bar menu listing every pane sharing
-  //                 its slot. Used by ⌘R (Window ▸ Reveal Stack), answered
+  //                 its slot. Used by ⌘R (Go ▸ Reveal Stack), answered
   //                 by the pane, which delegates to its title bar's
   //                 `revealStack()` handle. The handle toggles: this very
   //                 dispatch reaches an open menu's `observeDispatch`
@@ -448,7 +448,7 @@ export const TUG_ACTIONS = {
   // NEXT_STACK_CARD: payload — none. Bring the pane that has been buried
   //                 longest in the focused pane's slot to the front — the
   //                 depth axis of card navigation, the no-look counterpart
-  //                 to REVEAL_STACK. ⌥⌘] (Window ▸ Next Card in Stack);
+  //                 to REVEAL_STACK. ⌥⌘] (Go ▸ Next Card in Stack);
   //                 answered by the pane, which raises the LAST entry of
   //                 the `slotStack` it already renders its badge from.
   //                 Raising the bottom-most is what makes repeated presses
@@ -459,7 +459,7 @@ export const TUG_ACTIONS = {
   //                 press never reaches here.
   // PREVIOUS_STACK_CARD: payload — none. The exact inverse: send the
   //                 focused pane to the back of its slot's stack, fronting
-  //                 the pane beneath it. ⌥⌘[ (Window ▸ Previous Card in
+  //                 the pane beneath it. ⌥⌘[ (Go ▸ Previous Card in
   //                 Stack); answered by the pane, which demotes itself via
   //                 `sendPaneBehind` and activates the next entry — a true
   //                 rotation, so NEXT undoes PREVIOUS at every depth
@@ -1057,14 +1057,14 @@ export const TUG_ACTIONS = {
   //                  again, keeping the slot's mode and member order. Its
   //                  door is the stack badge menu.
   EQUALIZE_COLUMN:        "equalize-column",
-  // RESIZE_SIDEBARS_TO_FIT: payload — none. ⌥⇧⌘S and Window ▸ Resize Sidebars
+  // RESIZE_SIDEBARS_TO_FIT: payload — none. ⌥⇧⌘S and View ▸ Resize Sidebars
   //                         to Fit. Stand every rail's cards at the heights
   //                         their content asks for, once, and write the
   //                         result as the hand's own division. The only
   //                         automatic vertical arithmetic left on a rail, and
   //                         nothing but the user runs it.
   RESIZE_SIDEBARS_TO_FIT: "resize-sidebars-to-fit",
-  // TOGGLE_SIDEBARS: payload — none. ⌃⌘S and Window ▸ Hide / Show Sidebars.
+  // TOGGLE_SIDEBARS: payload — none. ⌃⌘S and View ▸ Hide / Show Sidebars.
   //                  Both rails at once, two-state: with anything standing on
   //                  either side, hide every one of them and remember what
   //                  stood where; with nothing standing, put back what the

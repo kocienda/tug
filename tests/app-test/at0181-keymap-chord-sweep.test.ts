@@ -135,7 +135,7 @@ describe.skipIf(!SHOULD_RUN)("AT0181: the keymap drives the native key equivalen
 
         // Absent. Nothing in the table states these, so the literals stand.
         await expectChord(app, "edit.copyAsPlainText", "c", COMMAND | SHIFT | OPTION);
-        await expectChord(app, "window.previousCardInStack", "[", COMMAND | OPTION);
+        await expectChord(app, "go.previousCardInStack", "[", COMMAND | OPTION);
 
         // Detach. Save As… claims ⇧⌘S only while a Text card is frontmost,
         // and a gallery card is not one — so the chord comes off rather than
@@ -145,8 +145,8 @@ describe.skipIf(!SHOULD_RUN)("AT0181: the keymap drives the native key equivalen
         // Same rule, reached through the disabled-state gate instead: the
         // transcript-navigation items need a session card, so their chords
         // are released here and remain shadowable by whatever wants them.
-        await expectChord(app, "session.previousTurn", "", 0);
-        await expectChord(app, "session.firstTurn", "", 0);
+        await expectChord(app, "go.previousTurn", "", 0);
+        await expectChord(app, "go.firstTurn", "", 0);
 
         // Keep — the other answer to the same question, and the reason the
         // registry asks it per command. This deck holds one pane in no
@@ -173,11 +173,11 @@ describe.skipIf(!SHOULD_RUN)("AT0181: the keymap drives the native key equivalen
         // nothing in the JS funnel wants ⌥⌘ arrows either. The horizontal pair
         // is the conversion this adds to the two vertical ones above:
         // `NSLeftArrowFunctionKey` and its twin.
-        await expectChord(app, "window.focusCardLeft", "\u{F702}", COMMAND | OPTION);
-        await expectChord(app, "window.focusCardRight", "\u{F703}", COMMAND | OPTION);
-        await expectChord(app, "window.focusCardAbove", "\u{F700}", COMMAND | OPTION);
-        await expectChord(app, "window.focusCardBelow", "\u{F701}", COMMAND | OPTION);
-        const focusLeft = await app.menuItemState("window.focusCardLeft");
+        await expectChord(app, "go.focusCardLeft", "\u{F702}", COMMAND | OPTION);
+        await expectChord(app, "go.focusCardRight", "\u{F703}", COMMAND | OPTION);
+        await expectChord(app, "go.focusCardAbove", "\u{F700}", COMMAND | OPTION);
+        await expectChord(app, "go.focusCardBelow", "\u{F701}", COMMAND | OPTION);
+        const focusLeft = await app.menuItemState("go.focusCardLeft");
         expect(
           focusLeft.found ? focusLeft.enabled : true,
           "a focus row is dark when the arrangement has nothing that way",

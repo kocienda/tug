@@ -33,7 +33,7 @@
  *      band, that is a measurable fact about where the arriving pane stands.
  *
  * **The arrangement's edge answers TWICE, and both answers are real** ([B09]).
- * `focusTravel` answers per direction, so the Window row for a direction with
+ * `focusTravel` answers per direction, so the Go row for a direction with
  * nothing that way is dark — at0181 reads that on a deck where all four are.
  * A dark row does not swallow the keystroke, though: `disabledChord: "keep"`
  * leaves AppKit uninterested in it, the keydown reaches the web view's own
@@ -250,10 +250,10 @@ describe.skipIf(!SHOULD_RUN)(
               return null;
             })()`,
           );
-          const atEdge = await app.menuItemState("window.focusCardRight");
+          const atEdge = await app.menuItemState("go.focusCardRight");
           expect(
             atEdge.found ? atEdge.enabled : true,
-            "the Window row for a direction with nothing that way is dark",
+            "the Go row for a direction with nothing that way is dark",
           ).toBe(false);
           await move(app, "right");
           expect(

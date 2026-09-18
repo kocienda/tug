@@ -14,8 +14,9 @@
  * shape — a row in a shared `⋮` popup — stood here until it was cut. A card's
  * verb the reader has to open a menu to see, inside a row that is itself
  * revealed on hover, was two gestures deep before it was a verb, and the one
- * family that ever used it (Go in Transcript) has its chords and its native
- * submenu. A card that wants a verb on its title bar gives it a glyph.
+ * family that ever used it (the transcript's turn verbs) has its chords and
+ * its own rows in the Go menu. A card that wants a verb on its title bar
+ * gives it a glyph.
  *
  * The exact precedent is `card-title-store.ts`: a card publishes into a
  * per-card store, the pane subscribes and renders — no card coupling in

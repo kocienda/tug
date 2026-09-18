@@ -62,7 +62,7 @@ Posted by the aggregator; parsed by `AppDelegate`'s `MenuState` struct. **Keep b
     "find": false, "findNext": false, "findPrevious": false
   },
   "commands": {                    // THE mirror — one gate per menu item
-    "session.nextTurn": {
+    "go.nextTurn": {
       "enabled": true,             // absent → the host's own tier still owns it
       "state": false,              // absent → no check-column participation
       "title": "Hide Changes",     // absent → keep the constructed title
@@ -308,6 +308,25 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `file.save` | `save` | first responder | registry gate |
 | `file.saveACopy` | `save-a-copy` | first responder | registry gate |
 | `file.saveAs` | `save-as` | first responder | registry gate |
+| `go.firstTurn` | `first-turn` | key card | registry gate |
+| `go.focusCardAbove` | `focus-card:above` | first responder | registry gate |
+| `go.focusCardBelow` | `focus-card:below` | first responder | registry gate |
+| `go.focusCardLeft` | `focus-card:left` | first responder | registry gate |
+| `go.focusCardRight` | `focus-card:right` | first responder | registry gate |
+| `go.goToSlot.1` | `go-to-slot:1` | first responder | registry gate |
+| `go.goToSlot.2` | `go-to-slot:2` | first responder | registry gate |
+| `go.goToSlot.3` | `go-to-slot:3` | first responder | registry gate |
+| `go.goToSlot.4` | `go-to-slot:4` | first responder | registry gate |
+| `go.goToSlot.5` | `go-to-slot:5` | first responder | registry gate |
+| `go.goToSlot.6` | `go-to-slot:6` | first responder | registry gate |
+| `go.lastTurn` | `last-turn` | key card | registry gate |
+| `go.nextCard` | `next-tab` | first responder | registry gate |
+| `go.nextCardInStack` | `next-stack-card` | first responder | registry gate |
+| `go.nextTurn` | `next-turn` | key card | registry gate |
+| `go.previousCard` | `previous-tab` | first responder | registry gate |
+| `go.previousCardInStack` | `previous-stack-card` | first responder | registry gate |
+| `go.previousTurn` | `previous-turn` | key card | registry gate |
+| `go.revealStack` | `reveal-stack` | first responder | registry gate |
 | `help.shortcuts` | `run-slash-command:help` | key card | registry gate |
 | `maker.devTools` | `show-devtools` | first responder | registry gate |
 | `maker.galleryCard` | `show-component-gallery` | first responder | host tier |
@@ -323,18 +342,14 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.compact` | `run-slash-command:compact` | key card | registry gate |
 | `session.context` | `run-slash-command:context` | key card | registry gate |
 | `session.diff` | `run-slash-command:diff` | key card | registry gate |
-| `session.firstTurn` | `first-turn` | key card | registry gate |
 | `session.focusPrompt` | `focus-prompt` | key card | registry gate |
 | `session.fold` | `toggle-session-fold` | key card | registry gate |
 | `session.hooks` | `run-slash-command:hooks` | key card | registry gate |
 | `session.insertFile` | `insert-file` | first responder | registry gate |
-| `session.lastTurn` | `last-turn` | key card | registry gate |
 | `session.memory` | `run-slash-command:memory` | key card | registry gate |
 | `session.new` | `run-slash-command:clear` | key card | registry gate |
-| `session.nextTurn` | `next-turn` | key card | registry gate |
 | `session.permissionMode.cycle` | `cycle-permission-mode` | key card | registry gate |
 | `session.permissionRules` | `run-slash-command:permissions` | key card | registry gate |
-| `session.previousTurn` | `previous-turn` | key card | registry gate |
 | `session.rename` | `run-slash-command:rename` | key card | registry gate |
 | `session.resume` | `run-slash-command:resume` | key card | registry gate |
 | `session.rewind` | `run-slash-command:rewind` | key card | registry gate |
@@ -345,16 +360,34 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.unname` | `run-slash-command:unname` | key card | registry gate |
 | `session.usage` | `run-slash-command:usage` | key card | registry gate |
 | `view.actualSize` | `zoom-actual` | first responder | host tier |
+| `view.bullseye` | `toggle-bullseye` | first responder | registry gate |
+| `view.cardWidth.comfy` | `set-pane-width:comfy` | first responder | registry gate |
+| `view.cardWidth.slim` | `set-pane-width:slim` | first responder | registry gate |
+| `view.cardWidth.wide` | `set-pane-width:wide` | first responder | registry gate |
+| `view.enterFullScreen` | `toggle-full-screen` | AppKit performs it | host tier |
 | `view.keyboardFocus` | `cycle-focus-mode` | registered handler | host tier |
 | `view.nextKeyboardFocus` | `next-keyboard-focus` | registered handler | host tier |
 | `view.nextTheme` | `next-theme` | registered handler | host tier |
 | `view.previousKeyboardFocus` | `previous-keyboard-focus` | registered handler | host tier |
+| `view.resizeSidebarsToFit` | `resize-sidebars-to-fit` | registered handler | registry gate |
+| `view.sidebar.cards.left` | `set-sidebar-side:cards:left` | registered handler | registry gate |
+| `view.sidebar.cards.right` | `set-sidebar-side:cards:right` | registered handler | registry gate |
+| `view.sidebar.cards.show` | `toggle-cards` | registered handler | registry gate |
+| `view.sidebar.dashes.left` | `set-sidebar-side:dashes:left` | registered handler | registry gate |
+| `view.sidebar.dashes.right` | `set-sidebar-side:dashes:right` | registered handler | registry gate |
+| `view.sidebar.dashes.show` | `toggle-arcs` | registered handler | registry gate |
+| `view.sidebar.jots.left` | `set-sidebar-side:jots:left` | registered handler | registry gate |
+| `view.sidebar.jots.right` | `set-sidebar-side:jots:right` | registered handler | registry gate |
+| `view.sidebar.jots.show` | `toggle-jots` | registered handler | registry gate |
+| `view.sidebar.layout.left` | `set-sidebar-side:layout:left` | registered handler | registry gate |
+| `view.sidebar.layout.right` | `set-sidebar-side:layout:right` | registered handler | registry gate |
+| `view.sidebar.layout.show` | `toggle-layout` | registered handler | registry gate |
+| `view.sidebar.overview.left` | `set-sidebar-side:overview:left` | registered handler | registry gate |
+| `view.sidebar.overview.right` | `set-sidebar-side:overview:right` | registered handler | registry gate |
+| `view.sidebar.overview.show` | `toggle-overview` | registered handler | registry gate |
+| `view.toggleSidebars` | `toggle-sidebars` | registered handler | registry gate |
 | `view.zoomIn` | `zoom-in` | first responder | host tier |
 | `view.zoomOut` | `zoom-out` | first responder | host tier |
-| `window.bullseye` | `toggle-bullseye` | first responder | registry gate |
-| `window.cardWidth.comfy` | `set-pane-width:comfy` | first responder | registry gate |
-| `window.cardWidth.slim` | `set-pane-width:slim` | first responder | registry gate |
-| `window.cardWidth.wide` | `set-pane-width:wide` | first responder | registry gate |
 | `window.columnMoveBottom` | `move-in-column:bottom` | first responder | registry gate |
 | `window.columnMoveDown` | `move-in-column:down` | first responder | registry gate |
 | `window.columnMoveTop` | `move-in-column:top` | first responder | registry gate |
@@ -362,42 +395,9 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `window.columnSplit` | `toggle-column-split` | first responder | registry gate |
 | `window.deleteWorkspace` | `delete-space` | first responder | registry gate |
 | `window.duplicateWorkspace` | `duplicate-space` | first responder | host tier |
-| `window.enterFullScreen` | `toggle-full-screen` | AppKit performs it | host tier |
-| `window.focusCardAbove` | `focus-card:above` | first responder | registry gate |
-| `window.focusCardBelow` | `focus-card:below` | first responder | registry gate |
-| `window.focusCardLeft` | `focus-card:left` | first responder | registry gate |
-| `window.focusCardRight` | `focus-card:right` | first responder | registry gate |
-| `window.goToSlot.1` | `go-to-slot:1` | first responder | registry gate |
-| `window.goToSlot.2` | `go-to-slot:2` | first responder | registry gate |
-| `window.goToSlot.3` | `go-to-slot:3` | first responder | registry gate |
-| `window.goToSlot.4` | `go-to-slot:4` | first responder | registry gate |
-| `window.goToSlot.5` | `go-to-slot:5` | first responder | registry gate |
-| `window.goToSlot.6` | `go-to-slot:6` | first responder | registry gate |
 | `window.minimize` | `minimize` | AppKit performs it | host tier |
 | `window.newWorkspace` | `new-space` | first responder | host tier |
-| `window.nextCard` | `next-tab` | first responder | registry gate |
-| `window.nextCardInStack` | `next-stack-card` | first responder | registry gate |
-| `window.previousCard` | `previous-tab` | first responder | registry gate |
-| `window.previousCardInStack` | `previous-stack-card` | first responder | registry gate |
 | `window.renameWorkspace` | `rename-space` | first responder | host tier |
-| `window.resizeSidebarsToFit` | `resize-sidebars-to-fit` | registered handler | registry gate |
-| `window.revealStack` | `reveal-stack` | first responder | registry gate |
-| `window.sidebar.cards.left` | `set-sidebar-side:cards:left` | registered handler | registry gate |
-| `window.sidebar.cards.right` | `set-sidebar-side:cards:right` | registered handler | registry gate |
-| `window.sidebar.cards.show` | `toggle-cards` | registered handler | registry gate |
-| `window.sidebar.dashes.left` | `set-sidebar-side:dashes:left` | registered handler | registry gate |
-| `window.sidebar.dashes.right` | `set-sidebar-side:dashes:right` | registered handler | registry gate |
-| `window.sidebar.dashes.show` | `toggle-arcs` | registered handler | registry gate |
-| `window.sidebar.jots.left` | `set-sidebar-side:jots:left` | registered handler | registry gate |
-| `window.sidebar.jots.right` | `set-sidebar-side:jots:right` | registered handler | registry gate |
-| `window.sidebar.jots.show` | `toggle-jots` | registered handler | registry gate |
-| `window.sidebar.layout.left` | `set-sidebar-side:layout:left` | registered handler | registry gate |
-| `window.sidebar.layout.right` | `set-sidebar-side:layout:right` | registered handler | registry gate |
-| `window.sidebar.layout.show` | `toggle-layout` | registered handler | registry gate |
-| `window.sidebar.overview.left` | `set-sidebar-side:overview:left` | registered handler | registry gate |
-| `window.sidebar.overview.right` | `set-sidebar-side:overview:right` | registered handler | registry gate |
-| `window.sidebar.overview.show` | `toggle-overview` | registered handler | registry gate |
-| `window.toggleSidebars` | `toggle-sidebars` | registered handler | registry gate |
 | `window.zoom` | `zoom-window` | AppKit performs it | host tier |
 <!-- /generated:catalog -->
 
@@ -491,13 +491,15 @@ Every `NSMenuItem` — including dynamically built ones — carries a stable `NS
 
 ```
 app.about        file.newSessionCard      edit.findNext        session.stop
-view.theme.<name>  window.pane.<n>        maker.devTools       help.shortcuts
-session.permissionMode.<mode>             view.zoomInAlias (hidden ⌘= alias)
+go.nextCard      go.goToSlot.<n>          view.theme.<name>    window.pane.<n>
+maker.devTools   help.shortcuts           session.permissionMode.<mode>
+view.zoomInAlias (hidden ⌘= alias)
 ```
 
 Rules:
 
 - **Identity never rides the title.** Titles localize and (for dynamic items) carry runtime data; the identifier never does. Tests, the harness, and the registry's `menuItemId` join address items by identifier only.
+- **The namespace is the menu, and the set of them is the menu bar's own order**: `app`, `file`, `edit`, `session`, `go`, `view`, `window`, `maker`, `help`. `GROUP_TITLES` in `tugdeck/src/components/tugways/cards/settings-keymap-rows.ts` is the one table that spells that mapping, and the Keyboard pane's group order derives from it — so a menu added to the bar is added there in the same position, and a row that moves between menus is renamed into its new namespace rather than keeping its old one.
 - Dynamic items mint identifiers at build time (`view.theme.<name>`, `window.pane.<n>` by position, since pane ids are session-random).
 - AppKit injects its own identified items (dictation, emoji palette) and may clone the fullscreen item into its managed window-tiling section — uniqueness is guaranteed only within our `<menu>.` namespaces.
 

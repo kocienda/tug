@@ -264,7 +264,7 @@ export interface CommandMenuFacts {
 }
 
 /**
- * One sidebar card's standing, as the Window menu's rows need to read it.
+ * One sidebar card's standing, as the View menu's rows need to read it.
  *
  * The three fields are the three rungs of the ladder `sidebar-toggle.ts`
  * runs, taken apart: `showing` is presence (which IS the open state, [P02]),
@@ -922,7 +922,7 @@ const CARD_WIDTH_COMMANDS: readonly CommandEntry[] = CONTENT_WIDTH_PRESETS.map(
     routing: "first-responder" as const,
     action: TUG_ACTIONS.SET_PANE_WIDTH,
     payload: preset,
-    menuItemId: `window.cardWidth.${preset}`,
+    menuItemId: `view.cardWidth.${preset}`,
     mirrored: true,
     bindings: [],
     // Both predicates read the published fact rather than walking the
@@ -966,7 +966,7 @@ const MAX_SLOTS = Math.max(...IMPOSITION_KINDS.map(slotCount));
  * out-of-range digit is inert rather than beeping, but these are MENU rows, and
  * a row for a slot no arrangement can have is a permanently dark row.
  *
- * **Promoted to the Window menu**, for the reason the width row was and the
+ * **Promoted to the Go menu**, for the reason the width row was and the
  * slot row was not ([Q02]): ⌘1–⌘9 stay chord-only because surfaces like
  * `pdf-view.tsx` decline them by hand to leave the digits with the deck, and a
  * menu item takes that choice away — AppKit's key-equivalent scan runs first
@@ -987,7 +987,7 @@ const GO_TO_SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
       routing: "first-responder" as const,
       action: TUG_ACTIONS.GO_TO_SLOT,
       payload: n,
-      menuItemId: `window.goToSlot.${n}`,
+      menuItemId: `go.goToSlot.${n}`,
       mirrored: true,
       bindings: [
         chord(
@@ -1020,7 +1020,7 @@ const GO_TO_SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
  * all four of its chords, so Focus Topmost / Bottommost are not commands and
  * ⌥⇧⌘↑/↓ stays free rather than being spent in the change that vacated it.
  *
- * **Promoted to the Window menu with empty Swift key equivalents** ([B10]).
+ * **Promoted to the Go menu with empty Swift key equivalents** ([B10]).
  * R6 makes the placement half the grant, and the preemption is the point rather
  * than a cost: ⌥⌘ arrows are not text currency in any Tug surface (plain ⌥
  * arrows are word motion; the ⌘ composition is not), and deck-level focus is not
@@ -1057,7 +1057,7 @@ const FOCUS_CARD_COMMANDS: readonly CommandEntry[] = (
   routing: "first-responder" as const,
   action: TUG_ACTIONS.FOCUS_CARD,
   payload: direction,
-  menuItemId: `window.focusCard${word}`,
+  menuItemId: `go.focusCard${word}`,
   mirrored: true,
   bindings: [
     chord(
@@ -1117,7 +1117,7 @@ const RAIL_TOGGLE_COMMANDS: readonly CommandEntry[] = (
 }));
 
 /**
- * The five sidebar cards, in the order the Window menu lists them: the
+ * The five sidebar cards, in the order the View menu lists them: the
  * component id the deck knows them by, the noun the rows name them with, the
  * toggle command each row sends, and the chord that runs it.
  *
@@ -1198,7 +1198,7 @@ function sidebarFact(
 }
 
 /**
- * Window ▸ ⟨Card⟩ — the toggle row and the Left / Right pair, per sidebar card.
+ * View ▸ ⟨Card⟩ — the toggle row and the Left / Right pair, per sidebar card.
  *
  * **The mark is the ladder read back** ([P07]). `sidebar-toggle.ts` runs three
  * rungs on one gesture, and the row shows which rung the next click is on: off
@@ -1227,7 +1227,7 @@ const SIDEBAR_CARD_COMMANDS: readonly CommandEntry[] =
       id: toggle,
       title: `Show ${noun}`,
       routing: "registry",
-      menuItemId: `window.sidebar.${componentId}.show`,
+      menuItemId: `view.sidebar.${componentId}.show`,
       mirrored: true,
       // ⌃⌘⟨letter⟩, one per card. `menuEligible` with an EMPTY Swift key
       // equivalent, the discipline every row in this menu follows:
@@ -1259,7 +1259,7 @@ const SIDEBAR_CARD_COMMANDS: readonly CommandEntry[] =
       routing: "registry",
       action: TUG_ACTIONS.SET_SIDEBAR_SIDE,
       payload: { componentId, side },
-      menuItemId: `window.sidebar.${componentId}.${side}`,
+      menuItemId: `view.sidebar.${componentId}.${side}`,
       mirrored: true,
       bindings: [],
       validate: (chain: CommandValidationSource) =>
@@ -1968,7 +1968,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.PREVIOUS_TAB,
     title: "Previous Card",
     routing: "first-responder",
-    menuItemId: "window.previousCard",
+    menuItemId: "go.previousCard",
     bindings: [
       chord({ key: "BracketLeft", meta: true, shift: true, label: "[" }),
     ],
@@ -1979,7 +1979,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.NEXT_TAB,
     title: "Next Card",
     routing: "first-responder",
-    menuItemId: "window.nextCard",
+    menuItemId: "go.nextCard",
     bindings: [
       chord({ key: "BracketRight", meta: true, shift: true, label: "]" }),
     ],
@@ -1995,7 +1995,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.PREVIOUS_STACK_CARD,
     title: "Previous Card in Stack",
     routing: "first-responder",
-    menuItemId: "window.previousCardInStack",
+    menuItemId: "go.previousCardInStack",
     bindings: [
       chord({ key: "BracketLeft", meta: true, alt: true, label: "[" }),
     ],
@@ -2006,7 +2006,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.NEXT_STACK_CARD,
     title: "Next Card in Stack",
     routing: "first-responder",
-    menuItemId: "window.nextCardInStack",
+    menuItemId: "go.nextCardInStack",
     bindings: [
       chord({ key: "BracketRight", meta: true, alt: true, label: "]" }),
     ],
@@ -2020,7 +2020,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.REVEAL_STACK,
     title: "Reveal Stack",
     routing: "first-responder",
-    menuItemId: "window.revealStack",
+    menuItemId: "go.revealStack",
     bindings: [
       chord(
         { key: "KeyR", meta: true, label: "r" },
@@ -2046,7 +2046,7 @@ export const COMMANDS: readonly CommandEntry[] = [
   // because there is no ⌘B base for this to be a variant or counterpart of
   // (⌘B is held in reserve for bold, and Tug renders markdown).
   //
-  // **Promoted to the Window menu**, which under R6 makes the grant total:
+  // **Promoted to the View menu**, which under R6 makes the grant total:
   // the item preempts every scoped binding on ⌃⌘B, and that is intended —
   // bullseye is a deck-level posture, so no surface should be able to
   // decline it. The Swift item is constructed with an EMPTY key equivalent
@@ -2057,7 +2057,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     title: "Bullseye",
     routing: "first-responder",
     action: TUG_ACTIONS.TOGGLE_BULLSEYE,
-    menuItemId: "window.bullseye",
+    menuItemId: "view.bullseye",
     mirrored: true,
     bindings: [
       chord({ key: "KeyB", meta: true, ctrl: true }, { menuEligible: true }),
@@ -2098,7 +2098,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.TOGGLE_SIDEBARS,
     title: "Hide Sidebars",
     routing: "registry",
-    menuItemId: "window.toggleSidebars",
+    menuItemId: "view.toggleSidebars",
     mirrored: true,
     bindings: [
       chord(
@@ -2145,7 +2145,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.RESIZE_SIDEBARS_TO_FIT,
     title: "Resize Sidebars to Fit",
     routing: "registry",
-    menuItemId: "window.resizeSidebarsToFit",
+    menuItemId: "view.resizeSidebarsToFit",
     mirrored: true,
     bindings: [
       chord(
@@ -2379,7 +2379,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: "toggle-full-screen",
     title: "Enter Full Screen",
     routing: "native",
-    menuItemId: "window.enterFullScreen",
+    menuItemId: "view.enterFullScreen",
     bindings: [chord({ key: "KeyF", ctrl: true, meta: true, label: "f" })],
   },
   {
@@ -2782,7 +2782,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.PREVIOUS_TURN,
     title: "Previous Turn",
     routing: "key-card",
-    menuItemId: "session.previousTurn",
+    menuItemId: "go.previousTurn",
     bindings: [
       chord(
         { key: "BracketLeft", ctrl: true, meta: true, label: "[" },
@@ -2797,7 +2797,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.NEXT_TURN,
     title: "Next Turn",
     routing: "key-card",
-    menuItemId: "session.nextTurn",
+    menuItemId: "go.nextTurn",
     bindings: [
       chord(
         { key: "BracketRight", ctrl: true, meta: true, label: "]" },
@@ -2812,7 +2812,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.FIRST_TURN,
     title: "First Turn",
     routing: "key-card",
-    menuItemId: "session.firstTurn",
+    menuItemId: "go.firstTurn",
     bindings: [
       chord(
         {
@@ -2833,7 +2833,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.LAST_TURN,
     title: "Last Turn",
     routing: "key-card",
-    menuItemId: "session.lastTurn",
+    menuItemId: "go.lastTurn",
     bindings: [
       chord(
         {

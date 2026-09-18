@@ -174,7 +174,7 @@ describe("a rail never enters the posture at all", () => {
   // hold the posture") while the store still let one in.
   //
   // Stated over the store rather than over the doors, because the doors are
-  // where it goes stale: a rail's title bar renders no rollup and Window ▸
+  // where it goes stale: a rail's title bar renders no rollup and View ▸
   // Bullseye reports the row inapplicable on one, and a third door added
   // later would know nothing about either.
   test("toggleBullseye refuses a pane holding a sidebar card", () => {

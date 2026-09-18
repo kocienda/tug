@@ -832,7 +832,7 @@ export function initActionDispatch(
   });
 
   // resize-sidebars-to-fit: stand every rail's cards at the heights their
-  // content asks for, once. Dispatched by ⌥⇧⌘S and the Window menu row, and
+  // content asks for, once. Dispatched by ⌥⇧⌘S and the View menu row, and
   // by nothing else — the result is a division like any the hand makes, and
   // no resize, content change or membership change re-runs it ([B07]).
   registerAction(TUG_ACTIONS.RESIZE_SIDEBARS_TO_FIT, () => {
@@ -1182,7 +1182,7 @@ export function initActionDispatch(
     }
   });
 
-  // set-pane-width: the Window ▸ Slim / Comfy / Wide round-trip. The bare
+  // set-pane-width: the View ▸ Slim / Comfy / Wide round-trip. The bare
   // wire name carries the preset as a param; the three commands the user
   // actually invokes are the parameterized ids, so this hands off to them
   // rather than reaching `setPaneWidth` itself — same shape as the
@@ -1198,7 +1198,7 @@ export function initActionDispatch(
     dispatchCommand(`${TUG_ACTIONS.SET_PANE_WIDTH}:${preset}`);
   });
 
-  // go-to-slot: the Window ▸ Go to Slot N round-trip, the same bare-name /
+  // go-to-slot: the Go ▸ Go to Slot N round-trip, the same bare-name /
   // parameterized-id shape as the width row above. The six commands the user
   // invokes are `go-to-slot:1`…`go-to-slot:6`, so the host's one wire name
   // hands off to them rather than reaching the deck itself — which is what
@@ -1212,7 +1212,7 @@ export function initActionDispatch(
     dispatchCommand(`${TUG_ACTIONS.GO_TO_SLOT}:${slot}`);
   });
 
-  // focus-card: the Window ▸ Focus Card Left/Right/Above/Below round-trip, and
+  // focus-card: the Go ▸ Focus Card Left/Right/Above/Below round-trip, and
   // — because those four items are `menuEligible` — the ⌥⌘ arrow chords too.
   // AppKit resolves the key equivalent before the web view sees a keydown
   // ([P15]), fires the item's action, and the host sends this one wire with the
@@ -1229,7 +1229,7 @@ export function initActionDispatch(
     dispatchCommand(`${TUG_ACTIONS.FOCUS_CARD}:${direction}`);
   });
 
-  // toggle-bullseye: the Window ▸ Bullseye round-trip. No payload — the
+  // toggle-bullseye: the View ▸ Bullseye round-trip. No payload — the
   // command is selection-relative, so the round-trip through
   // `dispatchCommand` is what keeps the "which pane am I in" answer on the
   // canvas, where the chord lands too.

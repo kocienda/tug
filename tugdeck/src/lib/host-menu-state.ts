@@ -589,12 +589,12 @@ export interface MenuStateDeckProjection {
   /**
    * Panes sharing the focused pane's slot. 0 when the focused pane holds no
    * slot (free pane or rail) and when nothing is selected. Gates the
-   * Window menu's three stack items, enabled iff this exceeds 1.
+   * Go menu's three stack items, enabled iff this exceeds 1.
    */
   stackDepth: number;
   /**
    * Cards in the deck's lateral ring — every tab of every visible pane,
-   * sidebars included (see `lib/card-ring.ts`). Gates Window ▸
+   * sidebars included (see `lib/card-ring.ts`). Gates Go ▸
    * Previous/Next Card.
    */
   visibleCardCount: number;
@@ -605,7 +605,7 @@ export interface MenuStateDeckProjection {
    */
   focusedActiveCardId: string | null;
   /**
-   * The focused pane's named width, gating and check-marking Window ▸
+   * The focused pane's named width, gating and check-marking View ▸
    * Slim / Comfy / Wide. Null when the commands do not apply; a null
    * `preset` inside means a hand-dragged width (see
    * {@link CommandMenuFacts.cardWidth}). Module-internal: the mirror
@@ -614,14 +614,14 @@ export interface MenuStateDeckProjection {
   cardWidth: { preset: ContentWidth | null } | null;
   /**
    * Whether the focused pane stands in bullseye, gating and check-marking
-   * Window ▸ Bullseye. Null when the command does not apply — the same two
+   * View ▸ Bullseye. Null when the command does not apply — the same two
    * gates {@link MenuStateDeckProjection.cardWidth} uses. Module-internal:
    * the mirror carries the gates, so this never rides the wire.
    */
   bullseye: { on: boolean } | null;
   /**
    * How many slots the deck can travel to — `slotCount(kind)` under flow, and 0
-   * otherwise. Gates Window ▸ Go to Slot 1…6: a slot the arrangement does not
+   * otherwise. Gates Go ▸ Go to Slot 1…6: a slot the arrangement does not
    * have is nothing to travel to, and under FIT nothing travels at all, since
    * every slot's anchor is already inside the band. Module-internal: the
    * mirror carries the gates, so this never rides the wire.
@@ -629,7 +629,7 @@ export interface MenuStateDeckProjection {
   reachableSlots: number;
   /**
    * Every registered sidebar card, keyed by component id. Gates and marks the
-   * Window menu's per-card rows. Module-internal: the mirror carries the
+   * View menu's per-card rows. Module-internal: the mirror carries the
    * gates, so this never rides the wire.
    */
   sidebars: Record<string, SidebarMenuFact>;

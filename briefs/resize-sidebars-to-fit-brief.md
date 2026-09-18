@@ -4,6 +4,8 @@
 
 **Purpose:** Four arcs have tried to make a sidebar rail arrange its own height — a stack that hides members, a flow that stands them at measured heights, a fit that seeds itself from appetites and re-seeds on every membership change — and none of it has produced a rail the user can trust to stay where they put it. This brief removes every automatic vertical resize from the rails. A rail is always divided, the sashes belong to the hand and survive relaunch, and the one algorithm left is a verb the user runs: **Resize Sidebars to Fit**.
 
+> **The row is in View now, not Window.** `briefs/menu-bar-relocation-brief.md` moved the sidebar family into the View menu, so the row this brief adds is `view.resizeSidebarsToFit` and it stands in View directly above the sidebar card rows, exactly the placement [B11] asked for. The chord ⌃⌥⌘R, the empty construction-time key equivalent, the `resize-sidebars-to-fit` control frame and the algorithm itself are all unchanged.
+
 ---
 
 ## Purpose {#purpose}

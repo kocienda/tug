@@ -424,9 +424,9 @@ describe("computeCommandCapabilities", () => {
     );
     expect(single["file.closeCard"].enabled).toBe(true);
     expect(single["file.closeAllCardTabs"].enabled).toBe(false);
-    expect(single["window.nextCard"].enabled).toBe(false);
-    expect(single["window.nextCardInStack"].enabled).toBe(false);
-    expect(single["window.revealStack"].enabled).toBe(false);
+    expect(single["go.nextCard"].enabled).toBe(false);
+    expect(single["go.nextCardInStack"].enabled).toBe(false);
+    expect(single["go.revealStack"].enabled).toBe(false);
 
     // Same deck, deselected by a canvas click: navigation stays live so the
     // user can re-enter a card without the mouse.
@@ -439,12 +439,12 @@ describe("computeCommandCapabilities", () => {
         stackDepth: 0,
       }),
     );
-    expect(deselected["window.nextCard"].enabled).toBe(true);
+    expect(deselected["go.nextCard"].enabled).toBe(true);
     // The stack items take no such hatch: they act on a specific pane's
     // stack, and there is no such pane.
-    expect(deselected["window.nextCardInStack"].enabled).toBe(false);
-    expect(deselected["window.previousCardInStack"].enabled).toBe(false);
-    expect(deselected["window.revealStack"].enabled).toBe(false);
+    expect(deselected["go.nextCardInStack"].enabled).toBe(false);
+    expect(deselected["go.previousCardInStack"].enabled).toBe(false);
+    expect(deselected["go.revealStack"].enabled).toBe(false);
   });
 
   test("the split row names the verb the next press performs", () => {
@@ -491,27 +491,27 @@ describe("computeCommandCapabilities", () => {
 
     // A rail, or nothing selected: no pane has a preset to set.
     const unsettable = computeCommandCapabilities(source(chain, { cardWidth: null }));
-    expect(unsettable["window.cardWidth.slim"].enabled).toBe(false);
-    expect(unsettable["window.cardWidth.comfy"].enabled).toBe(false);
-    expect(unsettable["window.cardWidth.wide"].enabled).toBe(false);
+    expect(unsettable["view.cardWidth.slim"].enabled).toBe(false);
+    expect(unsettable["view.cardWidth.comfy"].enabled).toBe(false);
+    expect(unsettable["view.cardWidth.wide"].enabled).toBe(false);
 
     const comfy = computeCommandCapabilities(
       source(chain, { cardWidth: { preset: "comfy" } }),
     );
-    expect(comfy["window.cardWidth.slim"].enabled).toBe(true);
-    expect(comfy["window.cardWidth.slim"].state).toBe(false);
-    expect(comfy["window.cardWidth.comfy"].state).toBe(true);
-    expect(comfy["window.cardWidth.wide"].state).toBe(false);
+    expect(comfy["view.cardWidth.slim"].enabled).toBe(true);
+    expect(comfy["view.cardWidth.slim"].state).toBe(false);
+    expect(comfy["view.cardWidth.comfy"].state).toBe(true);
+    expect(comfy["view.cardWidth.wide"].state).toBe(false);
 
     // Dragged to a width of its own: still settable, but no row claims the
     // check — the settled control shows what the geometry holds.
     const custom = computeCommandCapabilities(
       source(chain, { cardWidth: { preset: null } }),
     );
-    expect(custom["window.cardWidth.comfy"].enabled).toBe(true);
-    expect(custom["window.cardWidth.slim"].state).toBe(false);
-    expect(custom["window.cardWidth.comfy"].state).toBe(false);
-    expect(custom["window.cardWidth.wide"].state).toBe(false);
+    expect(custom["view.cardWidth.comfy"].enabled).toBe(true);
+    expect(custom["view.cardWidth.slim"].state).toBe(false);
+    expect(custom["view.cardWidth.comfy"].state).toBe(false);
+    expect(custom["view.cardWidth.wide"].state).toBe(false);
   });
 
   test("a sidebar row's mark is the toggle's three-rung ladder, read back", () => {
@@ -526,11 +526,11 @@ describe("computeCommandCapabilities", () => {
         jots: { showing: false, side: "right", pinned: true, focused: false },
       },
     });
-    expect(hidden["window.sidebar.jots.show"].enabled).toBe(true);
-    expect(hidden["window.sidebar.jots.show"].state).toBe(false);
-    expect(hidden["window.sidebar.jots.show"].title).toBe("Show Jots");
-    expect(hidden["window.sidebar.jots.left"].enabled).toBe(false);
-    expect(hidden["window.sidebar.jots.right"].enabled).toBe(false);
+    expect(hidden["view.sidebar.jots.show"].enabled).toBe(true);
+    expect(hidden["view.sidebar.jots.show"].state).toBe(false);
+    expect(hidden["view.sidebar.jots.show"].title).toBe("Show Jots");
+    expect(hidden["view.sidebar.jots.left"].enabled).toBe(false);
+    expect(hidden["view.sidebar.jots.right"].enabled).toBe(false);
 
     // Showing without the keyboard: the plain check, and the next click
     // brings the keyboard rather than taking the card away.
@@ -539,11 +539,11 @@ describe("computeCommandCapabilities", () => {
         jots: { showing: true, side: "right", pinned: true, focused: false },
       },
     });
-    expect(showing["window.sidebar.jots.show"].state).toBe(true);
-    expect(showing["window.sidebar.jots.show"].title).toBe("Activate Jots");
-    expect(showing["window.sidebar.jots.left"].enabled).toBe(true);
-    expect(showing["window.sidebar.jots.left"].state).toBe(false);
-    expect(showing["window.sidebar.jots.right"].state).toBe(true);
+    expect(showing["view.sidebar.jots.show"].state).toBe(true);
+    expect(showing["view.sidebar.jots.show"].title).toBe("Activate Jots");
+    expect(showing["view.sidebar.jots.left"].enabled).toBe(true);
+    expect(showing["view.sidebar.jots.left"].state).toBe(false);
+    expect(showing["view.sidebar.jots.right"].state).toBe(true);
 
     // Showing and holding it: the mixed mark — the reading a two-state check
     // could not tell from the one above, and the rung where a click hides.
@@ -552,16 +552,16 @@ describe("computeCommandCapabilities", () => {
         jots: { showing: true, side: "left", pinned: true, focused: true },
       },
     });
-    expect(focused["window.sidebar.jots.show"].state).toBe("mixed");
-    expect(focused["window.sidebar.jots.show"].title).toBe("Hide Jots");
-    expect(focused["window.sidebar.jots.left"].state).toBe(true);
-    expect(focused["window.sidebar.jots.right"].state).toBe(false);
+    expect(focused["view.sidebar.jots.show"].state).toBe("mixed");
+    expect(focused["view.sidebar.jots.show"].title).toBe("Hide Jots");
+    expect(focused["view.sidebar.jots.left"].state).toBe(true);
+    expect(focused["view.sidebar.jots.right"].state).toBe(false);
 
     // A fact that names no sidebar card at all reads as hidden rather than
     // throwing, so a row is never left with no answer.
     const unknown = computeCommandCapabilities(source(chain));
-    expect(unknown["window.sidebar.overview.show"].state).toBe(false);
-    expect(unknown["window.sidebar.overview.left"].enabled).toBe(false);
+    expect(unknown["view.sidebar.overview.show"].state).toBe(false);
+    expect(unknown["view.sidebar.overview.left"].enabled).toBe(false);
   });
 
   test("the sidebars row names the verb the next press performs", () => {
@@ -573,8 +573,8 @@ describe("computeCommandCapabilities", () => {
     // and the row says so. It is live either way — a deck with no rail
     // standing still has the last hide to undo.
     const none = rows({ sidebars: {} });
-    expect(none["window.toggleSidebars"].enabled).toBe(true);
-    expect(none["window.toggleSidebars"].title).toBe("Show Sidebars");
+    expect(none["view.toggleSidebars"].enabled).toBe(true);
+    expect(none["view.toggleSidebars"].title).toBe("Show Sidebars");
 
     // One card standing on a rail is enough: the verb is about the edges as a
     // whole, so any member on either side makes the next press a hide.
@@ -589,7 +589,7 @@ describe("computeCommandCapabilities", () => {
         },
       },
     });
-    expect(standing["window.toggleSidebars"].title).toBe("Hide Sidebars");
+    expect(standing["view.toggleSidebars"].title).toBe("Hide Sidebars");
 
     // A sidebar card dragged loose is showing without standing on a rail.
     // Hide Sidebars would take nothing away from it, so the row must not
@@ -599,7 +599,7 @@ describe("computeCommandCapabilities", () => {
         jots: { showing: true, side: "right", pinned: false, focused: false },
       },
     });
-    expect(loose["window.toggleSidebars"].title).toBe("Show Sidebars");
+    expect(loose["view.toggleSidebars"].title).toBe("Show Sidebars");
   });
 
   test("the Go to Slot row lights for the arrangement, not for the selection", () => {
@@ -611,7 +611,7 @@ describe("computeCommandCapabilities", () => {
       source(chain, { reachableSlots: 0 }),
     );
     for (let n = 1; n <= 6; n += 1) {
-      expect(still[`window.goToSlot.${n}`].enabled).toBe(false);
+      expect(still[`go.goToSlot.${n}`].enabled).toBe(false);
     }
 
     // A three-up flow deck lights exactly its own three. Slot 4 is not a place
@@ -620,19 +620,19 @@ describe("computeCommandCapabilities", () => {
     const threeUp = computeCommandCapabilities(
       source(chain, { reachableSlots: 3 }),
     );
-    expect(threeUp["window.goToSlot.1"].enabled).toBe(true);
-    expect(threeUp["window.goToSlot.3"].enabled).toBe(true);
-    expect(threeUp["window.goToSlot.4"].enabled).toBe(false);
-    expect(threeUp["window.goToSlot.6"].enabled).toBe(false);
+    expect(threeUp["go.goToSlot.1"].enabled).toBe(true);
+    expect(threeUp["go.goToSlot.3"].enabled).toBe(true);
+    expect(threeUp["go.goToSlot.4"].enabled).toBe(false);
+    expect(threeUp["go.goToSlot.6"].enabled).toBe(false);
 
-    // And it takes NONE of the selection gates the rest of the Window menu
-    // takes: centering moves the band, so a deselected deck can still be sent
+    // And it takes NONE of the selection gates the rows it used to stand
+    // among take: centering moves the band, so a deselected deck can still be sent
     // to slot 3. This is the assertion that would catch someone "fixing" the
     // row by pairing it with `cardWidth`.
     const deselected = computeCommandCapabilities(
       source(chain, { reachableSlots: 3, selectionActive: false, cardWidth: null }),
     );
-    expect(deselected["window.goToSlot.3"].enabled).toBe(true);
+    expect(deselected["go.goToSlot.3"].enabled).toBe(true);
   });
 
   test("the save family follows the frontmost Text card's gates", () => {
@@ -657,14 +657,14 @@ describe("computeCommandCapabilities", () => {
       id: TUG_ACTIONS.NEXT_TURN,
       title: "Next Turn",
       routing: "first-responder",
-      menuItemId: "session.nextTurn",
+      menuItemId: "go.nextTurn",
       mirrored: true,
       validate: (chain) => chain.menu.session?.hasTurns ?? false,
       disabledChord: "detach",
     };
     const kept: CommandEntry = { ...gated, disabledChord: "keep" };
     const spec = { keyEquivalent: "\u{F701}", command: true, option: true };
-    const chords = { "session.nextTurn": spec };
+    const chords = { "go.nextTurn": spec };
 
     test("an item the keymap has not claimed keeps the host's literal", () => {
       const gates = computeCommandCapabilities(
@@ -673,7 +673,7 @@ describe("computeCommandCapabilities", () => {
         {},
       );
       // Absent, not null: null would clear a key equivalent the host chose.
-      expect("chord" in gates["session.nextTurn"]).toBe(false);
+      expect("chord" in gates["go.nextTurn"]).toBe(false);
     });
 
     test("a claimed item carries the chord while its command is applicable", () => {
@@ -699,7 +699,7 @@ describe("computeCommandCapabilities", () => {
         [gated],
         chords,
       );
-      expect(gates["session.nextTurn"].chord).toEqual(spec);
+      expect(gates["go.nextTurn"].chord).toEqual(spec);
     });
 
     test("a detaching command releases the chord when it dims", () => {
@@ -710,8 +710,8 @@ describe("computeCommandCapabilities", () => {
         [gated],
         chords,
       );
-      expect(gates["session.nextTurn"].enabled).toBe(false);
-      expect(gates["session.nextTurn"].chord).toBeNull();
+      expect(gates["go.nextTurn"].enabled).toBe(false);
+      expect(gates["go.nextTurn"].chord).toBeNull();
     });
 
     test("a keeping command holds the chord even when it dims", () => {
@@ -720,8 +720,8 @@ describe("computeCommandCapabilities", () => {
         [kept],
         chords,
       );
-      expect(gates["session.nextTurn"].enabled).toBe(false);
-      expect(gates["session.nextTurn"].chord).toEqual(spec);
+      expect(gates["go.nextTurn"].enabled).toBe(false);
+      expect(gates["go.nextTurn"].chord).toEqual(spec);
     });
 
     test("chordActive releases the chord without dimming the item", () => {

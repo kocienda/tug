@@ -2092,11 +2092,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           flashCardPane(store, cardIds[0]);
         }
       },
-      // Window ▸ Slim / Comfy / Wide — put the selected card's pane at a named
+      // View ▸ Slim / Comfy / Wide — put the selected card's pane at a named
       // width. The canvas owns this for the same reason it owns ⌘1..9: the
       // command walks past the focused card and its pane to the one responder
       // that can name which pane the selection is in. `set-card-width` does the
-      // work, so the Window menu and the title bar's width popup share one path
+      // work, so the View menu and the title bar's width popup share one path
       // (clamp to the stack's bounds, stamp the preset). The row no longer
       // carries a chord — ⌃⌘1..6 centers a slot now.
       // Silent returns throughout — a rail has no preset to set, and a
@@ -2117,7 +2117,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // named it, it hands off to the pane-addressed `set-bullseye` rather
       // than reaching the store itself — the shape SET_PANE_WIDTH →
       // SET_CARD_WIDTH already has, and what lets the title bar's target
-      // button, this chord, and Window ▸ Bullseye land on one path.
+      // button, this chord, and View ▸ Bullseye land on one path.
       // Silent returns throughout, matching the width handler: a chord on a
       // deselected deck should do nothing, not warn and not beep. A rail is
       // no longer among the returns — it takes the posture like any other

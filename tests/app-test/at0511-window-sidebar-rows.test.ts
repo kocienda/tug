@@ -1,5 +1,5 @@
 /**
- * at0511-window-sidebar-rows.test.ts — Window ▸ ⟨Card⟩ says where a sidebar
+ * at0511-window-sidebar-rows.test.ts — View ▸ ⟨Card⟩ says where a sidebar
  * card stands, and its submenu moves it.
  *
  * The row is the only menu route to a sidebar card, and it is a three-rung
@@ -54,14 +54,14 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
 /** The Jots card's rows. One card is enough: the five are one generated group. */
-const PARENT = "window.sidebar.jots";
-const TOGGLE = "window.sidebar.jots.show";
-const LEFT = "window.sidebar.jots.left";
-const RIGHT = "window.sidebar.jots.right";
+const PARENT = "view.sidebar.jots";
+const TOGGLE = "view.sidebar.jots.show";
+const LEFT = "view.sidebar.jots.left";
+const RIGHT = "view.sidebar.jots.right";
 /** The one verb that resizes the rails, above the five card rows ([B11]). */
-const RESIZE = "window.resizeSidebarsToFit";
+const RESIZE = "view.resizeSidebarsToFit";
 /** The one verb that takes both rails away, directly above the resize row. */
-const TOGGLE_SIDEBARS = "window.toggleSidebars";
+const TOGGLE_SIDEBARS = "view.toggleSidebars";
 
 /** `NSEvent.ModifierFlags` as the snapshot reports them. */
 const SHIFT = 1 << 17;
@@ -180,11 +180,11 @@ async function waitMenuTitle(
 }
 
 /**
- * Where `identifier` stands in the Window menu, top to bottom — the fact an
+ * Where `identifier` stands in the View menu, top to bottom — the fact an
  * item's own state cannot answer, and the only way to say that one row is
  * above another.
  */
-async function windowRowOrder(app: App): Promise<(string | undefined)[]> {
+async function viewRowOrder(app: App): Promise<(string | undefined)[]> {
   // Found by looking for the row list the Jots parent is in rather than by
   // the menu's title: the snapshot's top level is the menu BAR, whose items
   // carry the submenus, and which of the two levels holds the title is not
@@ -196,7 +196,7 @@ async function windowRowOrder(app: App): Promise<(string | undefined)[]> {
     for (const item of items) if (item.submenu) walk(item.submenu);
   };
   walk(tree);
-  expect(rows, "the Window menu's rows are in the snapshot").toBeDefined();
+  expect(rows, "the View menu's rows are in the snapshot").toBeDefined();
   return (rows ?? []).map((item) => item.identifier);
 }
 
@@ -227,7 +227,7 @@ function priorCardDeck() {
   };
 }
 
-describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => {
+describe.skipIf(!SHOULD_RUN)("at0511 — the View menu's sidebar rows", () => {
   test(
     "the row's mark walks the toggle's three rungs and back",
     async () => {
@@ -357,7 +357,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => 
 
           // ⌃⌘J. Nothing dispatches a frame here: AppKit matches the key
           // equivalent `applyCommandChords` wrote onto the toggle two levels
-          // into the Window menu, and fires that item. A chord the sweep had
+          // into the View menu, and fires that item. A chord the sweep had
           // not reached would leave the mark exactly where it was.
           await app.nativeKey("j", ["cmd", "ctrl"]);
           await expectRung(app, MIXED, "Hide Jots");
@@ -407,7 +407,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => 
           // wrote it from the frontend's registry, which is what keeps it
           // rebindable.
           const row = await waitMenuChord(app, RESIZE, "s");
-          expect(row.found, `${RESIZE} present in the Window menu`).toBe(true);
+          expect(row.found, `${RESIZE} present in the View menu`).toBe(true);
           if (!row.found) throw new Error(`${RESIZE} is not in the menu`);
           expect(row.keyEquivalent, `${RESIZE} carries "s"`).toBe("s");
           expect(row.modifierMask, `${RESIZE} is ⌥⇧⌘`).toBe(
@@ -419,7 +419,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => 
 
           // Above the card rows it resizes, which is the placement the row
           // was given rather than one AppKit would arrive at ([B11]).
-          const rows = await windowRowOrder(app);
+          const rows = await viewRowOrder(app);
           expect(
             rows.indexOf(RESIZE),
             `${RESIZE} stands above ${PARENT}`,
@@ -469,7 +469,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the Window menu's sidebar rows", () => 
 
           // The two verbs about the rails as rails stand together, above the
           // card rows they act on.
-          const rows = await windowRowOrder(app);
+          const rows = await viewRowOrder(app);
           expect(
             rows.indexOf(TOGGLE_SIDEBARS),
             `${TOGGLE_SIDEBARS} stands directly above ${RESIZE}`,

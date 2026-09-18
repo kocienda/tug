@@ -1888,7 +1888,7 @@ export class DeckManager implements IDeckManagerStore {
    * inset it leaves behind belongs to nothing. The rule lives here rather than
    * only at the doors, because this is the one call every door reaches — the
    * title bar's target button (which a rail's chrome no longer renders at all)
-   * and Window ▸ Bullseye (which `hostMenuState` reports as inapplicable on a
+   * and View ▸ Bullseye (which `hostMenuState` reports as inapplicable on a
    * rail, so the row is dim rather than a press that does nothing).
    *
    * The "already there" comparison is against the DERIVED value, so a raw id

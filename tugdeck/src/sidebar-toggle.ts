@@ -21,7 +21,7 @@
  * is the shape of the decision rather than any of its steps.
  *
  * Every door runs these performers: the Swift menu items dispatching through
- * `action-dispatch` — Window ▸ ⟨Card⟩ ▸ Show for the cards, Maker for the rail
+ * `action-dispatch` — View ▸ ⟨Card⟩ ▸ Show for the cards, Maker for the rail
  * pair — the chords those items carry, which AppKit resolves at the menu layer
  * so they arrive by the same route, and the deck-canvas key handlers. A tier
  * sited at one door is a gesture that means something different from the other
@@ -93,7 +93,7 @@ export function toggleSidebarRail(
 }
 
 /**
- * Hide or show BOTH rails on one gesture — ⌃⌘S, and Window ▸ Hide / Show
+ * Hide or show BOTH rails on one gesture — ⌃⌘S, and View ▸ Hide / Show
  * Sidebars.
  *
  * Two states rather than the pair's three, because the question this gesture

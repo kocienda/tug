@@ -4,11 +4,11 @@
  * The deck-state tier of `AppDelegate.validateMenuItem` is driven by
  * the `menuState` push's pane projection:
  *
- *   - `window.previousCard` / `window.nextCard` (⇧⌘[ / ⇧⌘]) — enabled
+ *   - `go.previousCard` / `go.nextCard` (⇧⌘[ / ⇧⌘]) — enabled
  *     when the deck's lateral card ring holds more than one position
  *     (every tab of every visible pane).
- *   - `window.previousCardInStack` / `window.nextCardInStack` (⌥⌘[ /
- *     ⌥⌘]) and `window.revealStack` (⌘R) — enabled when the focused
+ *   - `go.previousCardInStack` / `go.nextCardInStack` (⌥⌘[ /
+ *     ⌥⌘]) and `go.revealStack` (⌘R) — enabled when the focused
  *     pane's slot stack is deeper than one.
  *
  * (`maker.newCardInPane`, ⌘T, also rides this tier, but lives in the
@@ -150,19 +150,19 @@ describe.skipIf(!SHOULD_RUN)("AT0169: deck-tier menu validation", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("C0")`,
         );
 
-        await expectEnabled(app, "window.previousCard", false);
-        await expectEnabled(app, "window.nextCard", false);
+        await expectEnabled(app, "go.previousCard", false);
+        await expectEnabled(app, "go.nextCard", false);
 
         // The slot stack has nowhere to go, so the stack items validate
         // disabled — and Reveal Stack may not keep ⌘R. A chord on a disabled
         // item is eaten at the menu bar with a beep instead of falling
         // through to the web view, so leaving it attached would make ⌘R dead
         // rather than merely inapplicable.
-        await expectEnabled(app, "window.previousCardInStack", false);
-        await expectEnabled(app, "window.nextCardInStack", false);
-        await expectEnabled(app, "window.revealStack", false);
+        await expectEnabled(app, "go.previousCardInStack", false);
+        await expectEnabled(app, "go.nextCardInStack", false);
+        await expectEnabled(app, "go.revealStack", false);
         expect(
-          await waitMenuKeyEquivalent(app, "window.revealStack", ""),
+          await waitMenuKeyEquivalent(app, "go.revealStack", ""),
           "Reveal Stack drops ⌘R at depth ≤ 1",
         ).toBe("");
       } catch (err) {
@@ -186,9 +186,9 @@ describe.skipIf(!SHOULD_RUN)("AT0169: deck-tier menu validation", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("C0") && window.__tug.assertHostRootRegistered("C1")`,
         );
 
-        await expectEnabled(app, "window.previousCard", true);
-        await expectEnabled(app, "window.nextCard", true);
-        await expectEnabled(app, "window.nextCardInStack", false);
+        await expectEnabled(app, "go.previousCard", true);
+        await expectEnabled(app, "go.nextCard", true);
+        await expectEnabled(app, "go.nextCardInStack", false);
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") process.stderr.write(`\n[at0169-multicard] log tail:\n${tail}\n`);
@@ -213,8 +213,8 @@ describe.skipIf(!SHOULD_RUN)("AT0169: deck-tier menu validation", () => {
         // Both panes are visible, so both cards are on the lateral ring —
         // Next Card is how the keyboard crosses a pane boundary now that
         // Cycle Panes is retired.
-        await expectEnabled(app, "window.nextCard", true);
-        await expectEnabled(app, "window.previousCard", true);
+        await expectEnabled(app, "go.nextCard", true);
+        await expectEnabled(app, "go.previousCard", true);
 
         // Card-type tier, negative half: the active card is a
         // gallery-input, so every session-card command surface is disabled.
@@ -246,16 +246,16 @@ describe.skipIf(!SHOULD_RUN)("AT0169: deck-tier menu validation", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("C1")`,
         );
 
-        await expectEnabled(app, "window.previousCardInStack", true);
-        await expectEnabled(app, "window.nextCardInStack", true);
-        await expectEnabled(app, "window.revealStack", true);
-        const reveal = await waitMenuKeyEquivalent(app, "window.revealStack", "r");
+        await expectEnabled(app, "go.previousCardInStack", true);
+        await expectEnabled(app, "go.nextCardInStack", true);
+        await expectEnabled(app, "go.revealStack", true);
+        const reveal = await waitMenuKeyEquivalent(app, "go.revealStack", "r");
         expect(reveal, "Reveal Stack re-attaches ⌘R once the stack is deep").toBe("r");
 
         // Two panes, one slot: only the front pane's card is visible, so the
         // lateral ring holds one position and the lateral pair dims — the
         // buried card is the depth axis's to reach, not the lateral one's.
-        await expectEnabled(app, "window.nextCard", false);
+        await expectEnabled(app, "go.nextCard", false);
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") process.stderr.write(`\n[at0169-stack] log tail:\n${tail}\n`);

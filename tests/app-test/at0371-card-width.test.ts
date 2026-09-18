@@ -6,7 +6,7 @@
  * retired: setting a card's width is a once-a-session act, and the Tug tier's
  * digits went to Go to Slot, which is a verb of the reading hour. What remains
  * is the title bar's own width popup — the door width was designed around
- * ([D130]) — and the Window ▸ Slim / Comfy / Wide rows beside it, which carry
+ * ([D130]) — and the View ▸ Slim / Comfy / Wide rows beside it, which carry
  * no key equivalent of their own now.
  *
  * So this file drives the popup, and the claim worth pinning end to end is

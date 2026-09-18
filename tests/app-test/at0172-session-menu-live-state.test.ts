@@ -178,8 +178,8 @@ describe.skipIf(!SHOULD_RUN)("AT0172: Session-menu live-state validation", () =>
         await expectEnabled(app, "session.rewind", false);
         // Transcript navigation shares Rewind's "there is a turn to move
         // to" gate: an empty transcript offers nowhere to step.
-        await expectEnabled(app, "session.previousTurn", false);
-        await expectEnabled(app, "session.lastTurn", false);
+        await expectEnabled(app, "go.previousTurn", false);
+        await expectEnabled(app, "go.lastTurn", false);
 
         const frame = (decoded: Record<string, unknown>) =>
           app.driveSession("A", {
@@ -211,10 +211,10 @@ describe.skipIf(!SHOULD_RUN)("AT0172: Session-menu live-state validation", () =>
         await expectEnabled(app, "session.permissionMode.cycle", true);
         await expectEnabled(app, "edit.copyLastResponse", true);
         await expectEnabled(app, "session.rewind", true);
-        await expectEnabled(app, "session.previousTurn", true);
-        await expectEnabled(app, "session.nextTurn", true);
-        await expectEnabled(app, "session.firstTurn", true);
-        await expectEnabled(app, "session.lastTurn", true);
+        await expectEnabled(app, "go.previousTurn", true);
+        await expectEnabled(app, "go.nextTurn", true);
+        await expectEnabled(app, "go.firstTurn", true);
+        await expectEnabled(app, "go.lastTurn", true);
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") process.stderr.write(`\n[at0172-live-state] log tail:\n${tail}\n`);

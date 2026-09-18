@@ -247,7 +247,7 @@ describe("menuChords", () => {
   const chords = registry.menuChords();
 
   test("publishes the promoted rows' converted chords", () => {
-    expect(chords["session.previousTurn"]).toEqual({
+    expect(chords["go.previousTurn"]).toEqual({
       keyEquivalent: "[",
       command: true,
       control: true,
@@ -411,7 +411,7 @@ describe("commandShortcut", () => {
 describe("the stack chord", () => {
   test("⌘R sits on Reveal Stack, in the menu bar and in the JS funnel", () => {
     const local = new KeymapRegistry(COMMANDS);
-    expect(local.menuChords()["window.revealStack"]).toEqual({
+    expect(local.menuChords()["go.revealStack"]).toEqual({
       keyEquivalent: "r",
       command: true,
     });

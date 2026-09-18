@@ -269,10 +269,10 @@ describe("promoted commands", () => {
    * kind of thing that drifts silently.
    */
   const PROMOTED: ReadonlyArray<[id: string, menuItemId: string, disabled: "keep" | "detach"]> = [
-    [TUG_ACTIONS.PREVIOUS_TURN, "session.previousTurn", "detach"],
-    [TUG_ACTIONS.NEXT_TURN, "session.nextTurn", "detach"],
-    [TUG_ACTIONS.FIRST_TURN, "session.firstTurn", "detach"],
-    [TUG_ACTIONS.LAST_TURN, "session.lastTurn", "detach"],
+    [TUG_ACTIONS.PREVIOUS_TURN, "go.previousTurn", "detach"],
+    [TUG_ACTIONS.NEXT_TURN, "go.nextTurn", "detach"],
+    [TUG_ACTIONS.FIRST_TURN, "go.firstTurn", "detach"],
+    [TUG_ACTIONS.LAST_TURN, "go.lastTurn", "detach"],
     [TUG_ACTIONS.OPEN_COMMAND_PICKER, "session.commandPicker", "detach"],
     [TUG_ACTIONS.SHOW_DEVTOOLS, "maker.devTools", "keep"],
     [TUG_ACTIONS.TOGGLE_COLUMN_SPLIT, "window.columnSplit", "keep"],

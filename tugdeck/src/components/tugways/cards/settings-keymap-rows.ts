@@ -67,6 +67,7 @@ const GROUP_TITLES: Readonly<Record<string, string>> = {
   file: "File",
   edit: "Edit",
   session: "Session",
+  go: "Go",
   view: "View",
   window: "Window",
   maker: "Maker",

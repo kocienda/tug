@@ -41,7 +41,7 @@
  *     Layout card is pinned to a deck edge and is holding a place open there,
  *     so the posture — which centres a pane in the band — has nowhere honest
  *     to put it. All three doors are read in one breath, because a rule
- *     enforced at one of them is a rule that comes back: Window ▸ Bullseye
+ *     enforced at one of them is a rule that comes back: View ▸ Bullseye
  *     reports the row INAPPLICABLE on a rail, ⌃⌘B on a focused rail leaves
  *     its rect untouched to the pixel, and the rail's own chrome renders no
  *     rollup and therefore no target button. The store is the one that
@@ -425,20 +425,20 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await paneRect(app, "pRail")).toEqual(railRect);
 
           // The Window item reports checked while the posture holds.
-          expect(await menuItem(app, "window.bullseye")).toEqual({
+          expect(await menuItem(app, "view.bullseye")).toEqual({
             enabled: true,
             checked: true,
           });
 
           // The [P03] tell, in the UI: the frame is painted at comfy, and
-          // Window ▸ Comfy is NOT checked — because the STORE never took
+          // View ▸ Comfy is NOT checked — because the STORE never took
           // comfy, and a settled control shows what the store holds. An
           // implementation that centred the pane by writing width would tick
           // this row, which is the visible face of the same bug the store
           // read above catches.
-          expect((await menuItem(app, "window.cardWidth.comfy")).checked).toBe(false);
-          expect((await menuItem(app, "window.cardWidth.slim")).checked).toBe(false);
-          expect((await menuItem(app, "window.cardWidth.wide")).checked).toBe(false);
+          expect((await menuItem(app, "view.cardWidth.comfy")).checked).toBe(false);
+          expect((await menuItem(app, "view.cardWidth.slim")).checked).toBe(false);
+          expect((await menuItem(app, "view.cardWidth.wide")).checked).toBe(false);
 
           // --- Exit door 1: the chord again. --------------------------------
           await bullseyeChord(app);
@@ -448,7 +448,7 @@ describe.skipIf(!SHOULD_RUN)(
           // was written on the way out, so there is nothing to restore
           // wrongly — this is what that claim looks like from outside.
           expect(await paneRect(app, "p2")).toEqual(otherRect);
-          expect((await menuItem(app, "window.bullseye")).checked).toBe(false);
+          expect((await menuItem(app, "view.bullseye")).checked).toBe(false);
 
           // --- Exit door 2: focus moves to another pane. --------------------
           // A derivation, not a handler: nothing clears the field, the
@@ -469,7 +469,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await paneRect(app, "p1")).toEqual(restRect);
           expect(await isBullseyed(app, "p1")).toBe(false);
           // With nothing selected the command does not apply at all.
-          expect((await menuItem(app, "window.bullseye")).enabled).toBe(false);
+          expect((await menuItem(app, "view.bullseye")).enabled).toBe(false);
 
           // --- Exit door 4: an explicit width (the `movePane` clear). -------
           // Choosing Slim must land the pane at slim AT ITS STORED POSITION,
@@ -523,7 +523,7 @@ describe.skipIf(!SHOULD_RUN)(
           const railRecord = await paneRecord(app, "pRail");
           const bandBefore = await bandCentreX(app);
           await focusCard(app, "L");
-          expect((await menuItem(app, "window.bullseye")).enabled).toBe(false);
+          expect((await menuItem(app, "view.bullseye")).enabled).toBe(false);
 
           await bullseyeChord(app);
           expect(await isBullseyed(app, "pRail")).toBe(false);

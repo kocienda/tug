@@ -197,7 +197,7 @@ describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck",
   );
 
   test(
-    "Window ▸ Next Card is live once the ring has a second position",
+    "Go ▸ Next Card is live once the ring has a second position",
     async () => {
       // The gate reads `visibleCardCount` off the same function that
       // computes the step, so a Layout card that is on the ring for the walk must
@@ -240,8 +240,8 @@ describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck",
         });
         await new Promise<void>((r) => setTimeout(r, AFTER_LAND_MS));
 
-        const state = await app.menuItemState("window.nextCard");
-        if (!state.found) throw new Error("window.nextCard is not in the Window menu");
+        const state = await app.menuItemState("go.nextCard");
+        if (!state.found) throw new Error("go.nextCard is not in the Go menu");
         expect(
           state.enabled,
           "one content card + the Layout card is a two-position ring",
