@@ -1,0 +1,287 @@
+{
+  "captured_at": "{{iso}}",
+  "claude_version": "2.1.276",
+  "probes": [
+    {
+      "event_count": 17,
+      "name": "test-01-basic-round-trip",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 61,
+      "name": "test-02-longer-response-streaming",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 11,
+      "name": "test-03-slash-cost",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 11,
+      "name": "test-04-slash-status",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 34,
+      "name": "test-05-tool-use-read",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 16,
+      "name": "test-06-interrupt-mid-stream",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 37,
+      "name": "test-07-multiple-tool-calls",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 48,
+      "name": "test-08-tool-error-nonexistent",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 25,
+      "name": "test-09-bash-auto-approved",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 0,
+      "name": "test-10-long-streaming-300-words",
+      "runtime_ms": "{{i64}}",
+      "skip_reason": "collect_code_output: collect_code_output: timed out — 22 event(s) before the stall, tail: [\"thinking_text\", \"thinking_text\", \"thinking_text\", \"thinking_text\", \"thinking_text\", \"thinking_text\", \"content_block_start\", \"tool_use\", \"content_block_start\", \"tool_use\", \"streaming_usage\", \"control_request_forward\"]",
+      "status": "failed"
+    },
+    {
+      "event_count": 59,
+      "name": "test-11-permission-deny-roundtrip",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 11,
+      "name": "test-12-slash-compact-model",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 0,
+      "name": "test-13-session-command-new",
+      "runtime_ms": "{{i64}}",
+      "skip_reason": "blocked on dev.md §T0.5 P16 — session_command routing bug",
+      "status": "skipped"
+    },
+    {
+      "event_count": 122,
+      "name": "test-14-message-during-turn",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 11,
+      "name": "test-15-slash-btw",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 20,
+      "name": "test-16-model-change-roundtrip",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 0,
+      "name": "test-17-session-command-continue",
+      "runtime_ms": "{{i64}}",
+      "skip_reason": "blocked on dev.md §T0.5 P16 — session_command routing bug",
+      "status": "skipped"
+    },
+    {
+      "event_count": 20,
+      "name": "test-18-message-during-turn-detailed",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 15,
+      "name": "test-19-slash-compact",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 0,
+      "name": "test-20-session-command-fork",
+      "runtime_ms": "{{i64}}",
+      "skip_reason": "blocked on dev.md §T0.5 P16 — session_command routing bug",
+      "status": "skipped"
+    },
+    {
+      "event_count": 67,
+      "name": "test-21-glob-tool",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 125,
+      "name": "test-22-subagent-spawn",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 21,
+      "name": "test-23-image-attachment",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 20,
+      "name": "test-24-at-file-references",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 0,
+      "name": "test-25-tugplug-plan-invocation",
+      "runtime_ms": "{{i64}}",
+      "skip_reason": "probe script incomplete — /tugplug:devise asks clarifying questions the script never answers; needs redesign (not P19)",
+      "status": "skipped"
+    },
+    {
+      "event_count": 68,
+      "name": "test-26-slash-arc",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 33,
+      "name": "test-27-at-file-references-variant",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 15,
+      "name": "test-28-system-metadata-deep-dive",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 45,
+      "name": "test-29-tugplug-ping",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 63,
+      "name": "test-30-tugplug-arc-status",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 11,
+      "name": "test-31-slash-cost-classification",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 11,
+      "name": "test-32-slash-compact-classification",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 11,
+      "name": "test-33-slash-model-classification",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 15,
+      "name": "test-34-plugin-agent-enumeration",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 0,
+      "name": "test-35-askuserquestion-flow",
+      "runtime_ms": "{{i64}}",
+      "skip_reason": "first-run flake at stability>=2 — probe returns 0 events intermittently; needs root-cause investigation separate from P19",
+      "status": "skipped"
+    },
+    {
+      "event_count": 11,
+      "name": "test-36-slash-rewind",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 0,
+      "name": "test-37-rewind-files-roundtrip",
+      "runtime_ms": "{{i64}}",
+      "skip_reason": "2.1.197: Write-tool turn does not complete through tugcode in acceptEdits mode (raw claude + the Auto-mode Session card are fine); pending frame-level root-cause",
+      "status": "skipped"
+    },
+    {
+      "event_count": 28,
+      "name": "test-38-rewind-conversation-fork",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 0,
+      "name": "test-39-rewind-both-composition",
+      "runtime_ms": "{{i64}}",
+      "skip_reason": "2.1.197: Write-tool setup turn never completes (see test-37); healthy at 2.1.158 — pending root-cause",
+      "status": "skipped"
+    },
+    {
+      "event_count": 26,
+      "name": "test-40-rewind-conversation-in-place",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 29,
+      "name": "test-41-bg-bash-clean",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 30,
+      "name": "test-42-bg-agent-progress",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 0,
+      "name": "test-43-schedulewakeup-wake",
+      "runtime_ms": "{{i64}}",
+      "skip_reason": "ScheduleWakeup re-init wake is not deterministic over stream-json; shape pinned at v2.1.173-jobs-spike",
+      "status": "skipped"
+    },
+    {
+      "event_count": 41,
+      "name": "test-44-monitor-timeout",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 0,
+      "name": "test-45-bg-agent-resume",
+      "runtime_ms": "{{i64}}",
+      "skip_reason": "resume-replay restore needs a launch->await->resume capture the recurring single-session harness does not model, and awaiting bg-agent completion is nondeterministic; deterministic coverage is the tugcode/tugdeck real-fixture tests (subagent-resume*.test)",
+      "status": "skipped"
+    }
+  ],
+  "stability_runs": 1
+}
