@@ -39,6 +39,7 @@
 
 import { describe, expect, test } from "bun:test";
 
+import { flowBandEdges } from "../../tugdeck/src/lib/layout-imposer";
 import { launchTugApp, note, type App } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -529,15 +530,23 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live", () => {
         const offset = await app.evalJS<number>(
           `(window.tugdeck.diag.getDeckState().flowOffset || 0)`,
         );
-        const band = await app.evalJS<number>(
-          `(function () {
-            var box = document.querySelector("[data-deck-canvas-background]")
-              .getBoundingClientRect();
-            var rail = document.querySelector('.tug-pane[data-pane-id="pRail"]')
-              .getBoundingClientRect();
-            return (rail.left - 5) - (box.left + 5);
-          })()`,
+        // The band through the deck's OWN function, from the canvas width and
+        // the standing rail's width — not re-derived from the two elements'
+        // edges here. A second reading agrees with `getBandWidth()` only by
+        // luck, as its own docstring says: a rail contributes
+        // `railSpanInsetPx`, which spends the rail gutter as well as the
+        // imposition gap, so a hand-written `rail.left - 5` ran 7px wide from
+        // the moment `flowBandEdges` became the one answer (`4aef806c3`).
+        const canvasWidth = await app.evalJS<number>(
+          `document.querySelector("[data-deck-canvas-background]")
+             .getBoundingClientRect().width`,
         );
+        const railWidth = await app.evalJS<number>(
+          `document.querySelector('.tug-pane[data-pane-id="pRail"]')
+             .getBoundingClientRect().width`,
+        );
+        const edges = flowBandEdges(canvasWidth, { right: railWidth });
+        const band = edges.end - edges.start;
         const published = await gauge(app, "--gauge-flow-offset");
         note(
           `flow: offset ${Math.round(offset)}px / band ${Math.round(band)}px = ` +

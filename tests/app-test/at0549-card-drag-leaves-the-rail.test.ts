@@ -241,11 +241,16 @@ interface FlowSample {
   offset: number;
   indRight: number | null;
   railLeft: number;
+  indZ: number | null;
+  railZ: number;
 }
 
 /** Start sampling, every 8ms, the drawn flow offset, the drop-zone indicator's
- *  right edge (or null when none stands), and the rail's left edge. A timer
- *  rather than rAF, which an occluded harness window suspends. */
+ *  right edge (or null when none stands), the rail's left edge, and the two
+ *  elements' computed stacking ranks. The ranks are what say which of them the
+ *  reader sees where they overlap, and they are read per frame because the
+ *  indicator's own rule is keyed on what is in the air. A timer rather than
+ *  rAF, which an occluded harness window suspends. */
 const startFlowSampler = (app: App): Promise<null> =>
   app.evalJS<null>(
     `(function () {
@@ -260,6 +265,8 @@ const startFlowSampler = (app: App): Promise<null> =>
           offset: parseFloat(getComputedStyle(bg).getPropertyValue("--tug-imposer-flow-offset")) || 0,
           indRight: ind === null ? null : ind.getBoundingClientRect().right,
           railLeft: rail.getBoundingClientRect().left,
+          indZ: ind === null ? null : parseInt(getComputedStyle(ind).zIndex, 10),
+          railZ: parseInt(getComputedStyle(rail).zIndex, 10),
         });
       }, 8);
       return null;
@@ -411,7 +418,7 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "a content card carried to the rail's inner edge clicks the strip one slot, and never draws behind the rail",
+      "a content card carried to the rail's inner edge clicks the strip one slot, and the rail paints over the part of the outline that runs behind it",
       async () => {
         const app = await launchTugApp({
           testName: "at0549-card-drag-leaves-the-rail-flow",
@@ -464,7 +471,13 @@ describe.skipIf(!SHOULD_RUN)(
             `flow click held at the rail's inner edge (${hold.x}, ${hold.y}): ` +
               `offset ${before.toFixed(1)} → ${drawn.toFixed(1)} ` +
               `(one slot's reveal ${expectedOffset.toFixed(1)}); ` +
-              `${samples.length} samples, ${withIndicator.length} with an indicator`,
+              `${samples.length} samples, ${withIndicator.length} with an indicator; ` +
+              `worst overhang past the rail ${Math.max(
+                0,
+                ...withIndicator.map((s) => (s.indRight as number) - s.railLeft),
+              ).toFixed(1)}px, ranks indicator ${withIndicator[0]?.indZ ?? "—"} vs rail ${
+                withIndicator[0]?.railZ ?? "—"
+              }`,
           );
 
           // 1. One slot's reveal, exactly — the click fired, and did not run on
@@ -487,19 +500,35 @@ describe.skipIf(!SHOULD_RUN)(
             "the strip is at rest under the parked hand, not scrolling at a rate",
           ).toBeLessThanOrEqual(FLOW_TOL);
 
-          // 3. No indicator ever drew behind the rail: every frame that offered
-          //    the card a landing offered one clipped to the band's inner edge.
+          // 3. The outline traces the WHOLE tile and the rail paints over the
+          //    part of it that runs behind the panel. Its box crossing the
+          //    rail's near edge is the promise being kept, not the defect it
+          //    once was ([B01]); what has to hold instead is the occlusion
+          //    every card on this deck already lives under ([B02]).
+          //
+          //    The reading is the two elements' computed stacking rank, NOT
+          //    `document.elementFromPoint`: the indicator is `pointer-events:
+          //    none`, so that call answers what the POINTER would hit and
+          //    returns the rail whether the outline is above it or below — a
+          //    probe that ranked the outline over the whole band still got the
+          //    rail back from it. The two ranks compare directly because
+          //    nothing between them opens a stacking context: the workspace
+          //    wrapper they share is `display: contents`.
           expect(
             withIndicator.length,
             "the drag offered the card a landing at some frame",
           ).toBeGreaterThan(0);
-          const worst = Math.max(
-            ...withIndicator.map((s) => (s.indRight as number) - s.railLeft),
+          const behind = withIndicator.filter(
+            (s) => (s.indRight as number) - s.railLeft > FLOW_TOL,
           );
           expect(
-            worst,
-            "and no indicator rect crossed the rail's near edge",
-          ).toBeLessThanOrEqual(FLOW_TOL);
+            behind.length,
+            "the outline traced the whole tile, so its box ran on behind the rail",
+          ).toBeGreaterThan(0);
+          expect(
+            behind.every((s) => (s.indZ as number) < s.railZ),
+            "and the rail outranked it at every one of those frames, so the reader sees panel rather than outline",
+          ).toBe(true);
 
           await app.nativeMouseUp(hold);
           await wait(SETTLE_TAIL_MS);

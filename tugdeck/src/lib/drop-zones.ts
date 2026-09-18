@@ -1032,17 +1032,21 @@ function clipRectToBand(rect: Rect, band: FlowBandEdges): Rect | null {
  *
  * The flow strip is longer than the band and slides under the rails with
  * its frames intact, so a tile measured off the DOM can lie partly or
- * wholly outboard of where the reader can see it, and a drop-zone at that
- * rect is a promise the deck cannot show. The cut is the same for the
- * landing tile and the hit rect: a zone whose tile is wholly outboard is
- * not offered at all, and a straddling one is offered for the part in
- * view. With no band there is nothing to clip against and every zone
- * stands as measured.
+ * wholly outboard of where the reader can see it. Only the hit is cut
+ * ([B01]): the rect is the promise — the frame the commit will give the
+ * card — so the outline and the miniature trace the whole tile even where
+ * it runs on under a rail, and the rail paints over the part that is not
+ * the reader's to see. The hit is what a hand can ask for, so it stays cut
+ * to the band and a pointer over a rail finds nothing under it. A zone
+ * whose hit clips away to nothing is one whose tile is wholly outboard —
+ * the hit shares the tile's x span — and it is not offered at all, since a
+ * landing nobody can see is not an offer. With no band there is nothing to
+ * clip against and every zone stands as measured.
  *
- * The origin is clipped with the rest so the initial indication draws
- * inside the band too; a card whose own place has no in-band portion —
- * which a hand cannot reach to grab — keeps its unclipped origin rather
- * than losing it, since a null origin means "not arrangeable at all".
+ * The origin is clipped with the rest; a card whose own place has no
+ * in-band portion — which a hand cannot reach to grab — keeps its
+ * unclipped origin rather than losing it, since a null origin means "not
+ * arrangeable at all".
  */
 function clipZonesToBand(
   zones: readonly DropZone[],
@@ -1053,13 +1057,11 @@ function clipZonesToBand(
   const clipped: DropZone[] = [];
   let clippedOrigin: DropZone | null = null;
   for (const zone of zones) {
-    const rect = clipRectToBand(zone.rect, band);
-    if (rect === null) continue;
-    // A hit that clips to nothing falls back to the tile, which is what an
-    // absent hit already means.
-    const hit = zone.hit === undefined ? undefined : clipRectToBand(zone.hit, band);
-    const next: DropZone =
-      hit === null ? { ...zone, rect, hit: undefined } : { ...zone, rect, hit };
+    // A zone with no hit of its own gains one cut from its tile, so a hand
+    // over the rail asks for nothing there either.
+    const hit = clipRectToBand(hitRectOf(zone), band);
+    if (hit === null) continue;
+    const next: DropZone = { ...zone, hit };
     clipped.push(next);
     if (zone === origin) clippedOrigin = next;
   }

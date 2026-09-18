@@ -1115,7 +1115,7 @@ describe("a content card's zones are clipped to the band", () => {
       [2, slotRect(2)],
     ]);
 
-  it("a tile wholly behind the rail is not offered, and a straddling one is cut at the edge", () => {
+  it("a tile wholly behind the rail is not offered, and a straddling one keeps its whole tile", () => {
     const state = deck([pane("p1", 0)]);
     const { zones, origin } = enumerateDropZones(
       state,
@@ -1128,22 +1128,42 @@ describe("a content card's zones are clipped to the band", () => {
     );
     expect(keys(zones)).toEqual(["slot:0", "slot:1"]);
     const straddler = zones.find((z) => dropZoneKey(z) === "slot:1")!;
-    expect(straddler.rect).toEqual({
-      x: SLOT_X[1],
-      y: RUN_TOP,
-      width: BAND.end - SLOT_X[1],
-      height: RUN_HEIGHT,
-    });
+    // The landing rect is the whole tile — the frame the drop will give the
+    // card, which runs on under the rail and is painted over there.
+    expect(straddler.rect).toEqual(slotRect(1));
     // The card's own slot is in band and untouched, and it is still the origin.
     expect(origin).not.toBeNull();
     expect(dropZoneKey(origin!)).toBe("slot:0");
     expect(origin!.rect).toEqual(slotRect(0));
   });
 
-  it("a straddling position's hit rect is cut with its tile", () => {
+  it("a straddling slot gains a hit cut at the band while its tile stands", () => {
+    // A plain slot zone carries no hit of its own, so unclipped a hand over
+    // the rail would land inside its tile. The clip gives it one.
+    const state = deck([pane("p1", 0)]);
+    const { zones } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: threeSlots(),
+        panes: new Map([["p1", slotRect(0)]]),
+        band: BAND,
+      }),
+    );
+    const straddler = zones.find((z) => dropZoneKey(z) === "slot:1")!;
+    expect(straddler.rect).toEqual(slotRect(1));
+    expect(hitRectOf(straddler)).toEqual({
+      x: SLOT_X[1],
+      y: RUN_TOP,
+      width: BAND.end - SLOT_X[1],
+      height: RUN_HEIGHT,
+    });
+  });
+
+  it("a straddling position's hit rect is cut and its tile is not", () => {
     // p2 stands alone in slot 1, so slot 1 divides into two positions whose
-    // hit bands widen across the run. Both the tile and the hit stop at the
-    // band's edge; neither reaches under the rail.
+    // hit bands widen across the run. The hit stops at the band's edge; the
+    // tile runs on under the rail, because it is where the card will land.
     const state = deck([pane("p1", 0), pane("p2", 1)]);
     const { zones } = enumerateDropZones(
       state,
@@ -1160,7 +1180,7 @@ describe("a content card's zones are clipped to the band", () => {
     const halves = zones.filter((z) => z.kind === "column-index" && z.slot === 1);
     expect(halves.length).toBe(2);
     for (const half of halves) {
-      expect(half.rect.x + half.rect.width).toBe(BAND.end);
+      expect(half.rect.x + half.rect.width).toBe(SLOT_X[1] + SLOT_WIDTH);
       expect(hitRectOf(half).x + hitRectOf(half).width).toBe(BAND.end);
     }
   });

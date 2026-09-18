@@ -32,6 +32,14 @@
   border: 1px solid var(--tug7-element-global-divider-normal-separator-rest);
   border-radius: 2px;
   background-color: var(--tug7-surface-global-primary-normal-sunken-rest);
+  /* And the drawing is the canvas at another scale, so it clips where the
+     canvas clips. A drop zone's landing rect is the whole tile now, which on a
+     slid flow strip runs past the canvas box at either end — the deck root
+     clips that overhang at the window, and without this the mirrored highlight
+     would paint it outside the drawing instead. Clipped at the PADDING box, so
+     the flow window's two proud pixels — which sit one pixel inside it — still
+     stand. */
+  overflow: clip;
 }
 
 /* The run the cards are drawn across — everything the rail has not taken. It

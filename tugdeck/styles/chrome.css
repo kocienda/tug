@@ -67,6 +67,41 @@
   --tug-z-pane-sheet-open: 8900;
 }
 
+/* ---- Chrome tier: the drop-zone indicator ([B02]) ----
+ *
+ * The outline is the PLACE a release would land the card in, so it lives under
+ * the same occlusion the card itself lives under: a tile that runs on under a
+ * rail is traced whole and the rail paints over the part that is not the
+ * reader's to see (`tuglaws/pane-model.md`, "the rails occlude and the margin
+ * is capped"). That is what fixes the value's ceiling — strictly below the
+ * margin caps and the rail shadow (`MARGIN_CAP_ZINDEX`, 8989, in
+ * `deck-canvas.tsx`) and so below the rail band above them
+ * (`SIDEBAR_PANE_ZINDEX_BASE`, 8990). Its floor is the free panes' array-order
+ * z (`CARD_ZINDEX_BASE + i`, 1..N): the outline has to be readable over the
+ * deck it is drawn on, including a pane raised to `--tug-z-pane-sheet-open`.
+ * 8950 clears both with room to spare.
+ *
+ * Flat rather than ranked, like the tier above it: one outline stands at a
+ * time, and the deck's focus-order map is neither consulted nor changed.
+ *
+ * The RAIL value is the other half of the same argument, and the reason there
+ * are two. [B02] reads "the outline lives under the same occlusion its place
+ * lives under", and a RAIL card's places are the rails themselves ([B01] leaves
+ * rail zones unclipped for that reason) — a member's run inside the panel,
+ * drawn over the members already standing there at `SIDEBAR_PANE_ZINDEX_BASE`
+ * and the eight ranks above it. Ranked under the band the outline would be
+ * painted over by the very panel it is tracing a place in, which is not
+ * occlusion but erasure. 99960 is the value the indicator carried before the
+ * tier split, kept for the rail case unchanged: above the whole band, and below
+ * the snap guides at 99970, which belong to the other half of the same gesture.
+ * The canvas already says which hand is in the air — `data-carrying` is written
+ * on the indicator's own parent — so no third channel is needed.
+ */
+:root {
+  --tug-z-drop-zone-indicator: 8950;
+  --tug-z-drop-zone-indicator-rail: 99960;
+}
+
 /* ---- Canvas tier: the workspace being left, for one switch ([B09]) ----
  *
  * A workspace switch moves nothing: both decks are already drawn where the
@@ -200,15 +235,18 @@
 /* ---- Drop-zone indicator ----
  *
  * The outline standing in the zone a release would land in. Positioned
- * imperatively by `drop-zone-indicator.ts`; above every pane, because it has to
- * be readable over the frame being dragged across it, and below the snap
- * guides, which belong to the other half of the same gesture. Square: the
- * outline marks a PLACE — a slot in the band, a member's run in a rail — and a
- * place has the arrangement's corners, not a card's. */
+ * imperatively by `drop-zone-indicator.ts`; above every pane but under the
+ * rails and the margin caps, so the part of the outline standing where they
+ * stand is painted over rather than cut away ([B02] — the tier is declared
+ * above with the argument). The card in hand may cover it: the outline is the
+ * place, not the card. Below the snap guides, which belong to the other half
+ * of the same gesture. Square: the outline marks a PLACE — a slot in the band,
+ * a member's run in a rail — and a place has the arrangement's corners, not a
+ * card's. */
 .tug-drop-zone-indicator {
   position: absolute;
   pointer-events: none;
-  z-index: 99960;
+  z-index: var(--tug-z-drop-zone-indicator);
   /* The style writes the tile's own width and height; the border must draw
      INSIDE them, or the box grows by two borders and the outline overshoots
      the place it is tracing on every edge. */
@@ -216,6 +254,12 @@
   border: 2px solid var(--tug7-element-global-fill-normal-accent-rest);
   border-radius: 0;
   background: var(--tug7-surface-highlight-primary-normal-snap-hover);
+}
+
+/* A rail card in the air: its places are the rails, so the outline stands over
+   the band rather than under it. See the tier's own comment above. */
+[data-carrying="rail"] .tug-drop-zone-indicator {
+  z-index: var(--tug-z-drop-zone-indicator-rail);
 }
 
 /* ---- Virtual sash ---- */
