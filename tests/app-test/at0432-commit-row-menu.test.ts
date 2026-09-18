@@ -167,6 +167,7 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
             "copy-commit-hash",
             "copy-commit-header",
             "copy-commit-record",
+            "copy-annotation-atom",
           ]);
           // The fold item SAYS which way it goes — the row is collapsed.
           expect(rows[0].label).toBe("Show Detail");

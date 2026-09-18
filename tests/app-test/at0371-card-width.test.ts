@@ -68,8 +68,8 @@ const WIDE = 1230;
 /** Seeded widths chosen so no preset resolves to them: a pane that moved
  *  because something reached every pane is unmistakable from one that did
  *  not move at all. */
-const SEEDED_WIDTH = 511;
-const RAIL_WIDTH = 412;
+const SEEDED_WIDTH = 420;
+const RAIL_WIDTH = 260;
 
 /** The settle window (`IMPOSITION_SETTLE_MS`), with room for the tween. */
 const AFTER_LAND_MS = 900;
@@ -155,18 +155,35 @@ describe.skipIf(!SHOULD_RUN)(
 
           expect(await paneWidth(app, "p1")).toBe(SEEDED_WIDTH);
           expect(await paneWidth(app, "p2")).toBe(SEEDED_WIDTH);
+          note(
+            "at0371 viewport",
+            await app.evalJS<string>(
+              `window.innerWidth + "x" + window.innerHeight`,
+            ),
+          );
+          // The rail's resting width is the ALLOCATOR's answer, not the seed:
+          // seeded below its ceiling it fills to the ceiling, and seeded at
+          // the ceiling this fixture no longer fits the window. Either way the
+          // claim below is the same one — a card's width never moves it — so
+          // read where it came to rest and hold it to that.
+          const railAtRest = await paneWidth(app, "pRail");
+          note("at0371 rail at rest", railAtRest);
+
 
           // --- Each row is its own preset. ----------------------------------
           // Chosen in an order that is not the picker's, so a handler that
-          // ignored the payload and cycled would land on the wrong one.
+          // ignored the payload and cycled would land on the wrong one. WIDE
+          // is held back to the last gesture in the file: it spends enough of
+          // the band that the frames past it leave the window, and a popup on
+          // a frame nobody can see is a coordinate the harness refuses. That
+          // is this fixture's window, not a claim about width — so the widest
+          // preset is still driven, once nothing needs clicking after it.
           await setWidth(app, "p1", "comfy", COMFY);
           await setWidth(app, "p1", "slim", SLIM);
-          await setWidth(app, "p1", "wide", WIDE);
-          note(`p1 walked comfy -> slim -> wide, landing at ${await paneWidth(app, "p1")}`);
 
           // --- Per-card, not deck-wide. -------------------------------------
           // The deck's Card Width default reaches every content pane at once
-          // (at0357). Three choices later, the other pane has not moved.
+          // (at0357). Two choices later, the other pane has not moved.
           expect(
             await paneWidth(app, "p2"),
             "the pane the popup did not open on keeps its seeded width",
@@ -175,15 +192,26 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             await paneWidth(app, "pRail"),
             "a card's width is not spent out of the rail's",
-          ).toBe(RAIL_WIDTH);
+          ).toBe(railAtRest);
 
           // --- The second pane answers its own popup. -----------------------
           await setWidth(app, "p2", "slim", SLIM);
           expect(
             await paneWidth(app, "p1"),
             "and the first pane keeps the width it had",
-          ).toBe(WIDE);
-          expect(await paneWidth(app, "pRail")).toBe(RAIL_WIDTH);
+          ).toBe(SLIM);
+          expect(await paneWidth(app, "pRail")).toBe(railAtRest);
+
+          // --- The widest preset, driven last. ------------------------------
+          // Still the picker's third row landing on its own pane and nobody
+          // else's — only the order moved, for the window's sake.
+          await setWidth(app, "p1", "wide", WIDE);
+          note(`p1 walked comfy -> slim -> wide, landing at ${await paneWidth(app, "p1")}`);
+          expect(
+            await paneWidth(app, "p2"),
+            "the widest preset still reaches one pane only",
+          ).toBe(SLIM);
+          expect(await paneWidth(app, "pRail")).toBe(railAtRest);
 
           // --- A rail has no width to set, so it draws no affordance. -------
           // Absence, not a disabled control: a sidebar's width is the

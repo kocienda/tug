@@ -76,12 +76,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
+import { flowBandEdges } from "../../tugdeck/src/lib/layout-imposer";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
-/** The imposition gaps (`lib/layout-imposer.ts`). */
-const GAP = 5;
 /** The widest a rail may stand (the slim content width). The fixture stands
  *  the Layout card here AND seeds it as the durable chosen width, which pins the
  *  allocator ([D136]) out of the picture for the settles below: this deck's
@@ -333,13 +332,16 @@ function expectedLeft(
   railWidth: number,
   paneWidth: number = PANE_WIDTH,
 ): number {
-  const inset = railWidth + GAP;
-  const spanX = railSide === "left" ? inset : 0;
-  const spanWidth = viewport - inset;
-  const band = spanWidth - GAP * 2;
-  const travel = Math.max(0, band - paneWidth);
+  // The band's edges are the PRODUCT's answer, not a second reading of it.
+  // This used to take the inset as `railWidth + GAP`, which is only right
+  // when the rail gutter equals the imposition gap — RAIL_GUTTER_PX is 12
+  // against a 5px gap, so every pin here ran 2px shy of the imposer's.
+  const railWidths =
+    railSide === "left" ? { left: railWidth } : { right: railWidth };
+  const edges = flowBandEdges(viewport, railWidths);
+  const travel = Math.max(0, edges.end - edges.start - paneWidth);
   const fraction = count < 2 ? 0.5 : slot / (count - 1);
-  return spanX + GAP + fraction * travel;
+  return edges.start + fraction * travel;
 }
 
 async function railWidth(app: App): Promise<number> {

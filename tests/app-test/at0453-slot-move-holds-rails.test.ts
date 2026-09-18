@@ -46,6 +46,16 @@ const AFTER_LAND_MS = 900;
 const TOL = 1.5;
 const LAYOUT_WIDTH = 420;
 const PANE_WIDTH = 420;
+/**
+ * The Overview rail's seeded width — deliberately BELOW its default, which is
+ * where the allocator's ceiling sits on this deck. Seeded at the default the
+ * rail starts already at the ceiling, so a licensed solve has nothing to
+ * spend and the guard at the end of this test can never fire, whatever the
+ * allocator does. Starting it narrow is what leaves width on the table for
+ * the licensed retune to take.
+ */
+const SEEDED_OVERVIEW_WIDTH = Math.round(DEFAULT_OVERVIEW_WIDTH_PX * 0.6);
+
 const KIND_TILES = '[data-testid="layout-card-kind"] [data-choice-value]';
 
 const wait = (ms: number): Promise<void> =>
@@ -88,7 +98,7 @@ function deckShape() {
       {
         id: "pGaz",
         position: { x: 0, y: 0 },
-        size: { width: DEFAULT_OVERVIEW_WIDTH_PX, height: 900 },
+        size: { width: SEEDED_OVERVIEW_WIDTH, height: 900 },
         cardIds: ["G"],
         activeCardId: "G",
         title: "Overview",

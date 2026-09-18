@@ -82,8 +82,12 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 import { chooseWidth } from "./fixtures/card-width";
+import {
+  CONTENT_WIDTH_WIDE_PX,
+  IMPOSITION_GAP_PX,
+} from "../../tugdeck/src/lib/layout-imposer";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -293,6 +297,37 @@ async function bandCentreX(app: App): Promise<number> {
 }
 
 /**
+ * The band's width in px, from the same LIVE `--tug-imposer-inset-*` probe
+ * {@link bandCentreX} uses — the span less the gap the band spends at each
+ * end. A card may not be wider than this, so it is the ceiling a width preset
+ * is clamped against.
+ */
+async function bandWidth(app: App): Promise<number> {
+  return app.evalJS<number>(
+    `(function () {
+      var host = document.querySelector("[data-deck-canvas-background]");
+      if (host === null) throw new Error("frames container not found");
+      function inset(side) {
+        var probe = document.createElement("div");
+        probe.style.position = "absolute";
+        probe.style.top = "0px";
+        probe.style.left = "0px";
+        probe.style.height = "1px";
+        probe.style.visibility = "hidden";
+        probe.style.pointerEvents = "none";
+        probe.style.width = "var(--tug-imposer-inset-" + side + ", 0px)";
+        host.appendChild(probe);
+        var w = probe.getBoundingClientRect().width;
+        probe.remove();
+        return w;
+      }
+      var r = host.getBoundingClientRect();
+      return r.width - inset("left") - inset("right") - ${IMPOSITION_GAP_PX} * 2;
+    })()`,
+  );
+}
+
+/**
  * The canvas-background deselect, driven as the gesture it is: a pointerdown
  * on the background surface, which `pane-focus-controller.ts` answers with
  * `deselectActiveCard()`. There is no control-action door for it, and there
@@ -494,7 +529,16 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(AFTER_LAND_MS);
           expect(await isBullseyed(app, "p1")).toBe(false);
-          expect((await paneRect(app, "p1")).width).toBe(1230);
+          // The preset is the ASK; the band is the ceiling. This fixture's
+          // band is two px short of wide — the rail gutter is 12px against
+          // the card gap's 5 — so the card takes the band and that is right.
+          // What this door pins is that `set-content-width` reached the pane
+          // at all, so read the preset and the clamp from the product.
+          const band = await bandWidth(app);
+          note("at0372 band width vs wide preset", `${band} / ${CONTENT_WIDTH_WIDE_PX}`);
+          expect((await paneRect(app, "p1")).width).toBe(
+            Math.min(CONTENT_WIDTH_WIDE_PX, band),
+          );
         } finally {
           await app.close();
         }
