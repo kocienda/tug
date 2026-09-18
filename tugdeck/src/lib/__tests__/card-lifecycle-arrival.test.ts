@@ -217,3 +217,34 @@ describe("observeCardDidArrive", () => {
     expect(seen).toEqual([]);
   });
 });
+
+describe("onceCardDidTravel", () => {
+  // The move's twin of the arrival channel, over the same mark: a dropped card
+  // is marked TRAVELLING by `movePaneToSlot`, the canvas's drain clears it at
+  // the settle's end, and the deck's second move — the slide that shows the
+  // card whole — waits on that rather than on a clock.
+  test("fires SYNCHRONOUSLY for a card nothing marked", () => {
+    const lifecycle = makeLifecycle();
+    let fired = 0;
+    lifecycle.onceCardDidTravel("A", () => {
+      fired += 1;
+    });
+    expect(fired).toBe(1);
+  });
+
+  test("defers for a travelling card, and fires when the settle drains it", () => {
+    const lifecycle = makeLifecycle();
+    let fired = 0;
+    lifecycle.notifyCardWillTravel("A");
+    lifecycle.onceCardDidTravel("A", () => {
+      fired += 1;
+    });
+    expect(fired).toBe(0);
+    // The drain fires ARRIVAL for every card the deck holds, arrival or
+    // crossing alike — the one mark is what it clears.
+    lifecycle.notifyCardDidArrive("A");
+    expect(fired).toBe(1);
+    lifecycle.notifyCardDidArrive("A");
+    expect(fired).toBe(1);
+  });
+});

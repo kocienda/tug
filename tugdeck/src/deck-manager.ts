@@ -1849,6 +1849,25 @@ export class DeckManager implements IDeckManagerStore {
     );
   }
 
+  /**
+   * The second of a drop's two moves: the slide that shows a card whole in
+   * the band it was just dropped into, one beat after the crossing that put
+   * it there. The move's twin of {@link _revealAfterArrival}, and it waits the
+   * same way — on the settle's own end rather than on a clock guessing at it.
+   *
+   * The mark is made here rather than in the commit because the commit does
+   * not know the drop is owed a second beat; and it is guarded on a window for
+   * the reason `addCard`'s is: the clearing half lives in the canvas's settle,
+   * and a manager driven with no DOM would hold the mark forever. There the
+   * reveal runs at once, which is the one-commit answer such a host wants.
+   */
+  private _revealAfterTravel(cardId: string): void {
+    if (typeof window !== "undefined") {
+      this.cardLifecycle.notifyCardWillTravel(cardId);
+    }
+    this.cardLifecycle.onceCardDidTravel(cardId, () => this.revealCard(cardId));
+  }
+
   public deselectActiveCard = (): void => {
     if (this.deckState.activePaneId === undefined) return;
     this._flipFirstResponder(
@@ -3564,8 +3583,12 @@ export class DeckManager implements IDeckManagerStore {
        * exception: `moveInColumn` can carry a member the Cards card resolved rather
        * than the one holding focus, and it is that member the user just sent
        * somewhere and now wants to see.
+       *
+       * `null` means this commit owes NOBODY a reveal: the caller is holding
+       * the reveal back for a commit of its own, one beat later, so the card
+       * crosses first and the strip slides second ({@link movePaneToSlot}).
        */
-      readonly revealPaneId?: string;
+      readonly revealPaneId?: string | null;
       /**
        * A column reveal this caller worked out for itself, in place of the
        * derived one.
@@ -3643,7 +3666,10 @@ export class DeckManager implements IDeckManagerStore {
     // did not move the active card past the band's edge returns the offset
     // standing and this is nothing. ([P10]; in fit `deckFlowStrip` is null and
     // it is nothing always.)
-    const activePaneId = opts?.revealPaneId ?? this.deckState.activePaneId;
+    const activePaneId =
+      opts?.revealPaneId === null
+        ? undefined
+        : (opts?.revealPaneId ?? this.deckState.activePaneId);
     const flowOffset =
       activePaneId === undefined
         ? undefined
@@ -5721,11 +5747,21 @@ export class DeckManager implements IDeckManagerStore {
     // The raise goes ahead of the geometry for the reason it does in
     // `assignCardsToSlots`: a pane crossing to its new place must travel over
     // the panes it is about to sit in front of, not under them.
+    //
+    // The raise reveals nothing and neither does the move: a drop is TWO
+    // MOVES, on the rule `_revealAfterArrival` states. The first commit puts
+    // the card in the slot the hand released it over, at the offset standing,
+    // so the crossing lands the card under the hand. The slide that shows it
+    // whole is a second commit, after the crossing has ended. Spread into
+    // this one, the slide and the crossing rode one settle — the card flew to
+    // where it would stand AFTER the slide while the strip slid under it —
+    // and the release read as the card hopping backwards.
     transferFocusForActivation({
       outgoingCardId: this.getFirstResponderCardId(),
       incomingCardId: pane.activeCardId,
       store: this,
-      commitMutation: () => this.activateCard(pane.activeCardId),
+      commitMutation: () =>
+        this.activateCard(pane.activeCardId, { reveal: false }),
     });
     this._clearBullseyeFor(paneId);
 
@@ -5742,8 +5778,9 @@ export class DeckManager implements IDeckManagerStore {
         ? this.deckState.imposition
         : this._impositionSeating(this.deckState.imposition, panes, paneId, placed, index),
       panes,
-      { retuneRails: joinsChain, revealPaneId: paneId },
+      { retuneRails: joinsChain, revealPaneId: null },
     );
+    this._revealAfterTravel(pane.activeCardId);
     return { ok: true };
   }
 

@@ -564,6 +564,33 @@ export class CardLifecycle {
   }
 
   /**
+   * Mark `cardId` as TRAVELLING — its frame is crossing to a new place and the
+   * settle carrying it has not ended.
+   *
+   * The move's twin of {@link CardLifecycle.notifyCardWillArrive}, over the
+   * same mark: what the mark records is "a settle is still carrying this
+   * frame", and the canvas's unconditional drain clears it at every settle end
+   * whether the beat was an arrival or a crossing. A moved card gets its own
+   * name so a call site reads as what it is — a drop is not an arrival.
+   */
+  notifyCardWillTravel(cardId: string): void {
+    if (LIFECYCLE_LOG) console.log(`[CardLifecycle] cardWillTravel id=${cardId}`);
+    this.arrivingCards.add(cardId);
+  }
+
+  /**
+   * Run `callback` once `cardId` has finished travelling — AT ONCE when no
+   * settle is carrying it, and otherwise when the settle ends. The move's
+   * twin of {@link CardLifecycle.onceCardDidArrive}, with the same
+   * fire-at-once contract ([B05]) for the same reason: a host with no canvas
+   * never clears the mark, so it is never made there, and the caller writes
+   * one line either way.
+   */
+  onceCardDidTravel(cardId: string, callback: () => void): () => void {
+    return this.onceCardDidArrive(cardId, callback);
+  }
+
+  /**
    * Subscribe to WILL-DEACTIVATE events. No initial-sync — will-
    * deactivate is strictly a pre-transition event.
    */
