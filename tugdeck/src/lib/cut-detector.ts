@@ -55,6 +55,21 @@ export interface PaneSample {
    * below says so.
    */
   readonly visible: boolean;
+  /**
+   * Whether the settle had committed the frame BEHIND another that covers it
+   * — `data-imposer-covered`, which a column mode flip puts on every member
+   * but its survivor, from the commit until the survivor's release.
+   *
+   * A revealed member is committed at its tile in the same layout pass that
+   * holds the survivor at the stacked full run every member shared; a
+   * retiring member holds its old tile inline and snaps to the full run
+   * when the survivor, in front, has grown over it. Either way the move
+   * begins or ends where it cannot be seen, so a frame covered at EITHER
+   * sample has not been seen moving. That is the invisible-arrival rule's
+   * other face: a move nobody could see is not a cut, and requiring an
+   * animation for it would be requiring one for the eye to miss.
+   */
+  readonly covered: boolean;
 }
 
 /**
@@ -148,7 +163,13 @@ export function classifySamples(
   for (const [paneId, after] of next) {
     const before = prev.get(paneId);
     if (before === undefined) {
-      if (after.gesture || after.animations > 0 || !after.visible) continue;
+      if (
+        after.gesture ||
+        after.animations > 0 ||
+        !after.visible ||
+        after.covered
+      )
+        continue;
       records.push({
         kind: "appeared",
         paneId,
@@ -162,6 +183,11 @@ export function classifySamples(
       continue;
     }
     if (before.animations > 0 || after.animations > 0) continue;
+    // A move that began or landed behind a cover was not seen. The cover goes
+    // on in the commit that moves a revealed frame and comes off in the
+    // release that snaps a retiring one, so either sample may be the one
+    // that wears it.
+    if (before.covered || after.covered) continue;
     const dx = after.x - before.x;
     const dy = after.y - before.y;
     const dw = after.width - before.width;
@@ -210,6 +236,7 @@ export function sampleFrames(root: ParentNode): Map<string, PaneSample> {
       // settle writes is inline, but a frame hidden any other way has equally
       // not appeared, and the question is what the reader can see.
       visible: Number.parseFloat(getComputedStyle(frame).opacity) > 0,
+      covered: frame.hasAttribute("data-imposer-covered"),
     });
   }
   return samples;

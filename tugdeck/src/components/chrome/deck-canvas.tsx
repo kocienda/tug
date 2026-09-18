@@ -777,10 +777,12 @@ const SPACE_CROSSFADE_DEADLINE_MARGIN_MS = 120;
  * the settle the whole choreography is measured against — and the two resize
  * beats have recipes of their own in `lib/imposer-motion.ts`.
  *
- * The two outer beats are fades and share `divide-join`, the recipe the mode-
- * flip fade already uses: a frame appearing in a place or leaving one is
- * carried by opacity rather than by travel, so what it needs from a recipe is a
- * window rather than a spring.
+ * The two outer beats are fades and share `divide-join`: a frame appearing in
+ * a place or leaving one is carried by opacity rather than by travel, so what
+ * it needs from a recipe is a window rather than a spring. A column mode flip
+ * is not one of them — it is a cover, not a fade ([B02] of
+ * `briefs/column-flip-cover-brief.md`), so its survivor rides the fused beat
+ * and its other members hold still.
  */
 const BEAT_RECIPE: Record<BeatKind, MotionRecipe> = {
   depart: "divide-join",
@@ -3046,7 +3048,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * The tweens running on each frame, by pane id — DOM zone, never React
    * state. At most two per settle: the one effect carrying every geometry term
    * the frame crosses ([D135] — move and size share a clock or a pinned edge
-   * is not pinned), and a fade when a rail mode flip reveals or retires it.
+   * is not pinned), and a hold when a column mode flip commits it behind the
+   * survivor.
    */
   /**
    * The tweens a settle has in flight, by pane.
@@ -3117,19 +3120,32 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   const removeDepartureGhostsRef = useRef(removeDepartureGhosts);
   removeDepartureGhostsRef.current = removeDepartureGhosts;
   /**
-   * Which frames a rail mode flip fades rather than moves, computed when the
-   * settle arms and consumed by the Last pass.
+   * The hold plan for the columns whose mode flipped this settle, computed
+   * when the settle arms and consumed by the Last pass.
    *
-   * A faded frame is **never** also a moved one. Exactly one member survives a
-   * mode flip on screen, and it is the only frame that moves; every other one
-   * is arriving somewhere it has never been (split) or leaving for somewhere it
-   * will not be seen (stack). There is no path between those two places worth
-   * watching, and animating one is a card sliding across the rail for no
-   * reason. So they fade, and hold still while they do.
+   * A column mode flip is a cover, not a fade ([B02] of
+   * `briefs/column-flip-cover-brief.md`). Exactly one member — the
+   * **survivor** — moves, and it moves as one fused beat, because its
+   * translate and its height change are the same edge (Stack Column from the
+   * bottom tile: the top edge rises to the column top and the bottom edge
+   * stays), and playing them in sequence opens an interval in which the
+   * survivor has left one tile and not yet claimed the other ([B01]). Every
+   * other member is **covered**: committed behind the survivor, animating
+   * nothing, wearing `data-imposer-covered` so the cut census can read a move
+   * it could not see. On a stack the covered members are also **held**:
+   * each keeps its old tile inline until the survivor has grown over it,
+   * because the commit has already moved it to the full run and letting that
+   * landing show would be the card sliding across the column. On a split
+   * nothing is held — a revealed member is simply at its tile behind the
+   * survivor, uncovered as the survivor retreats ([F06]).
    *
-   * The survivor is the rail's **z-frontmost** member, because that is the one
+   * Every hold and every cover is released at the beat chain's one completion
+   * and never on a clock of its own ([B03]): a hold that ends before the
+   * survivor has covered the frame is the frame reappearing.
+   *
+   * The survivor is the column's **z-frontmost** member, because that is the one
    * a stack actually shows: stacked members all draw the same rect and z-order
-   * alone decides which of them you see. Picking by rail order instead would
+   * alone decides which of them you see. Picking by column order instead would
    * animate the top tile into the full run while the card the stack goes on to
    * display is a different one entirely — the growth would belong to a frame
    * that ends up hidden, and the visible card would arrive by a cut.
@@ -3140,7 +3156,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * no smear either way ([D135]) — so the correct card being the moving one
    * costs nothing but the motion the eye was already expecting.
    */
-  const settleFadePlanRef = useRef<Map<string, "in" | "out">>(new Map());
+  const settleHoldPlanRef = useRef<{
+    /** One per flipped column: plans a fused beat. */
+    survivors: Set<string>;
+    /** Every other member of a flipped column: covered until the chain's end. */
+    covered: Set<string>;
+    /** The covered members leaving a tile (a stack): held at it inline. */
+    held: Set<string>;
+  }>({ survivors: new Set(), covered: new Set(), held: new Set() });
   /** Each column's mode as of the last settle, keyed by slot, so a mode flip is
    *  detectable when the next one arms. A rail keeps no such record: it is
    *  always divided ([B01]), so its mode never flips. */
@@ -3325,6 +3348,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       }
       el.style.removeProperty("transform");
       el.style.removeProperty("transform-origin");
+      // The cover a column mode flip put on a revealed member — committed
+      // behind its survivor, uncovered as the survivor retreats. It comes
+      // off with the survivor's release, and here so that every path that
+      // ends a settle (the sweep, a retarget's cancel, teardown) takes it
+      // off too: a mark that outlived its settle would blind the cut census
+      // to that frame for good.
+      el.removeAttribute("data-imposer-covered");
     },
   );
 
@@ -3737,19 +3767,22 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         clearFlip(key, strip, running.anims);
       }
 
-      // A rail whose mode flipped moves the one member the stack shows and
-      // fades every other one — `settleFadePlanRef` says why the survivor is
-      // the z-frontmost rather than the top tile. Skipped under reduced motion
-      // with the rest of the choreography, but the mode record always
-      // advances — a stale record would read the next flip against the wrong
-      // shore.
-      const fadePlan = settleFadePlanRef.current;
-      fadePlan.clear();
-      // A COLUMN whose mode flipped gets the fade choreography: the frame the
+      // A column whose mode flipped moves the one member the stack shows and
+      // holds every other one behind it — `settleHoldPlanRef` says why the
+      // survivor is the z-frontmost rather than the top tile. Skipped under
+      // reduced motion with the rest of the choreography, but the mode record
+      // always advances — a stale record would read the next flip against
+      // the wrong shore.
+      const holdPlan = settleHoldPlanRef.current;
+      holdPlan.survivors.clear();
+      holdPlan.covered.clear();
+      holdPlan.held.clear();
+      // A COLUMN whose mode flipped gets the cover choreography: the frame the
       // stack actually shows is the z-frontmost member, not the top of the
       // column's order, so that is the one that moves and every other one
-      // fades. Picking the top member instead would grow a frame that ends up
-      // hidden while the card the stack goes on to display arrived by a cut.
+      // is covered. Picking the top member instead would grow a frame that
+      // ends up hidden while the card the stack goes on to display arrived by
+      // a cut.
       //
       // A rail has no such flip — it is always divided ([B01]).
       const columns = deckColumnsOf(state, null);
@@ -3764,9 +3797,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           for (const pane of state.panes) {
             if (members.has(pane.id)) survivor = pane.id;
           }
+          if (survivor !== undefined) holdPlan.survivors.add(survivor);
           for (const paneId of column.members) {
             if (paneId === survivor) continue;
-            fadePlan.set(paneId, column.mode === "split" ? "in" : "out");
+            holdPlan.covered.add(paneId);
+            if (column.mode === "stack") holdPlan.held.add(paneId);
           }
         }
       }
@@ -3845,7 +3880,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       settleEpisodesRef.current.clear();
       settleFirstRectsRef.current.clear();
       settleFirstFoldsRef.current.clear();
-      settleFadePlanRef.current.clear();
+      settleHoldPlanRef.current.survivors.clear();
+      settleHoldPlanRef.current.covered.clear();
+      settleHoldPlanRef.current.held.clear();
       // The canvas is coming down and a ghost is not React's to unmount — it
       // was appended to the container outside the tree ([L06]), so it would
       // otherwise go only when the container itself does.
@@ -3941,16 +3978,22 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     }
     const clearFlip = clearFlipRef.current;
     const duration = settleDurationRef.current;
-    const fadePlan = settleFadePlanRef.current;
-    // Shared by every effect a frame can carry: the one that holds each
-    // geometry term it is crossing, the fade a mode flip gives it, and the
-    // entrance an arriving frame plays. They stay apart rather than merging
-    // because a faded frame never moves and an arriving one has nothing to
-    // move from, so there is no sum between them to keep honest; opacity is
-    // accelerable on its own, and merging it would cost that for nothing.
+    const holdPlan = settleHoldPlanRef.current;
+    /**
+     * The frames this settle committed behind a flipped column's survivor —
+     * the hold plan's `covered`, with what each one holds and hands back.
+     * Released together at the chain's one completion ([B03]); the doc on
+     * `settleHoldPlanRef` says why.
+     */
+    const covered: Array<{
+      paneId: string;
+      frame: HTMLElement;
+      anims: TugAnimation[];
+      restores: Array<() => void>;
+    }> = [];
     // The choreography, for this settle. The move beat IS the crossing;
     // `shrink` and `grow` are the resize beats' shorter windows, and
-    // `divide-join` is the one a mode flip's fade runs on. All are stated
+    // `divide-join` is the one the outer fades run on. All are stated
     // relative to `duration` — the one tunable — in `lib/imposer-motion.ts`,
     // and no call site here picks a curve of its own ([P02] of
     // arc/layout-imposer-polish.md).
@@ -4228,7 +4271,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         lastY: Math.round(lastRect.top),
         lastH: Math.round(lastRect.height),
       });
-      const fade = fadePlan.get(paneId);
       const anims: TugAnimation[] = [];
       const restores: Array<() => void> = [];
       // The fold crossing this frame opened, if it is crossing at all. Read by
@@ -4236,64 +4278,40 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // only by this id: a cancelled tween's handler lands after a replacement
       // settle has already re-marked the frame.
       let crossingId: number | null = null;
-      if (fade !== undefined) {
-        // A member a mode flip revealed or retired. It does not travel:
-        // opacity is the only thing that animates, and the frame holds one
-        // pose for the whole fade.
+      if (holdPlan.covered.has(paneId)) {
+        // A member a column mode flip committed behind its survivor. It does
+        // not travel and it does not fade ([B02] of
+        // `briefs/column-flip-cover-brief.md`): a stack is the survivor
+        // covering its neighbours and a split is the survivor uncovering
+        // them, and z-order already puts the survivor in front. Nothing on
+        // the frame animates; it wears the cover, and the mark rides the
+        // settle's own registry so a retarget cancels it through the same
+        // door as everything else.
         //
-        // Revealed (`in`), that pose is its final tile, which the commit has
-        // already put it at — the stacked full-run rect it was measured at
-        // was never a pose the user saw. Retired (`out`), it is the tile it
-        // is leaving, and holding it takes a static inverse: the commit has
-        // already moved the frame to the full run it will occupy invisibly
-        // behind the top member, and letting that landing show would be the
-        // card sliding across the rail that this branch exists to prevent.
-        // The transform is one keyframe repeated, so nothing interpolates.
-        if (fade === "out") {
+        // On a split the frame is at its tile, which the commit has already
+        // put it at behind the survivor's held full run — the stacked rect it
+        // was measured at was never a pose the user saw — so there is nothing
+        // to hold. On a stack it is HELD: the commit has already moved it to
+        // the full run it will occupy behind the survivor, and letting that
+        // landing show would be the card sliding across the column, so it
+        // keeps the tile it is leaving as a static inverse. One inline write,
+        // so nothing interpolates, for exactly the survivor's crossing: the
+        // chain's completion takes it off with the cover. The snap to the
+        // full run at release lands under the survivor, which is what the
+        // cover tells the census.
+        if (holdPlan.held.has(paneId)) {
           const { dx, dy } = flipDelta(firstRect, lastRect);
           frame.style.transformOrigin = "0 0";
           restores.push(inlineRestorer(frame, "height"));
-          frame.style.height = `${firstRect.height}px`;
-          const held = `translate(${dx}px, ${dy}px)`;
-          anims.push(
-            animate(
-              frame,
-              [
-                { transform: held, offset: 0 },
-                { transform: held, offset: 1 },
-              ],
-              {
-                ...settleOpts,
-                // The held pose lasts exactly as long as the fade it holds
-                // still for — one clock for the pair ([D135]).
-                duration: fadeCurve.durationMs,
-                easing: "linear",
-                key: "imposer-flip",
-              },
-            ),
-          );
+          applyHolds(frame, {
+            transform: { dx, dy, sx: 1 },
+            height: firstRect.height,
+          });
         }
-        restores.push(inlineRestorer(frame, "opacity"));
-        anims.push(
-          animate(
-            frame,
-            fade === "in"
-              ? [
-                  { opacity: 0, offset: 0 },
-                  { opacity: 1, offset: 1 },
-                ]
-              : [
-                  { opacity: 1, offset: 0 },
-                  { opacity: 0, offset: 1 },
-                ],
-            {
-              ...settleOpts,
-              duration: fadeCurve.durationMs,
-              easing: "ease",
-              key: "imposer-fade",
-            },
-          ),
-        );
+        frame.setAttribute("data-imposer-covered", "");
+        settleTweensRef.current.set(paneId, { el: frame, anims, restores });
+        covered.push({ paneId, frame, anims, restores });
+        continue;
       } else {
         const { dx, dy, sx } = flipDelta(firstRect, lastRect);
         // Whether the width change is small enough to ride the transform
@@ -4385,7 +4403,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               ? [firstRect.height, lastRect.height]
               : undefined,
           },
-          { fused },
+          // Fused per frame, not per settle: a column mode flip's survivor
+          // rides one `room` beat because its move and its height change are
+          // one edge ([B01] of `briefs/column-flip-cover-brief.md`), while every
+          // other frame this settle carries keeps its shrink/move/grow plan.
+          { fused: fused || holdPlan.survivors.has(paneId) },
         );
         if (beats.length === 0) {
           endEpisode(paneId);
@@ -4460,31 +4482,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         });
         continue;
       }
-      if (anims.length === 0) {
-        endEpisode(paneId);
-        continue;
-      }
-      settleTweensRef.current.set(paneId, { el: frame, anims, restores });
-      outstanding += 1;
-      // A fade's completion, after every tween's own commit has landed —
-      // TugAnimator resolves `finished` after committing, so the restorers
-      // here always run on the far side of the residue they exist to take
-      // back. `allSettled` because `finished` rejects under hold-at-current,
-      // the retarget's cancel.
-      void Promise.allSettled(anims.map((anim) => anim.finished)).then(() => {
-        for (const restore of restores) restore();
-        clearFlip(paneId, frame, anims);
-        // The crossing ends with the tween that carried it: the mark and the
-        // held height come off, and the end is announced on the frame so the
-        // card can land what CSS cannot write ([B05]). Guarded by the id, so a
-        // settle that was interrupted does not close the one that replaced it.
-        if (crossingId !== null) endFoldCrossing(frame, crossingId);
-        // After the restorers, so the final anchor is read against the
-        // geometry the frame actually keeps rather than the baked pixel
-        // width the tween committed on its way out.
-        endEpisode(paneId);
-        settled();
-      });
     }
     // The shadow strips, planned AFTER every frame so the answer to "did this
     // side's rail survive?" is in hand. A strip is the rail's depth, and it
@@ -5024,14 +5021,31 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             for (const restore of restores) restore();
             clearFlip(key, strip, settleTweensRef.current.get(key)?.anims ?? []);
           }
+          // The covered members' holds and marks come off here and nowhere
+          // earlier: the survivor has covered a retiring member, or retreated
+          // off a revealed one, only when the chain is done ([B03]).
+          for (const c of covered) {
+            for (const restore of c.restores) restore();
+            clearFlip(c.paneId, c.frame, c.anims);
+          }
           for (const c of choreography) {
             if (c.crossingId !== null) endFoldCrossing(c.frame, c.crossingId);
           }
           for (const c of choreography) endEpisode(c.paneId);
           for (const { paneId } of arrivals) endEpisode(paneId);
+          for (const { paneId } of covered) endEpisode(paneId);
           settleBeatRef.current = null;
           settled();
         });
+    } else {
+      // No chain to ride, so nothing is coming to release these: the survivor
+      // never moved, and a hold with no release would be a frame left standing
+      // at a tile the deck no longer has.
+      for (const c of covered) {
+        for (const restore of c.restores) restore();
+        clearFlip(c.paneId, c.frame, c.anims);
+        endEpisode(c.paneId);
+      }
     }
     // Nothing this pass launched is left to finish — a settle whose every
     // frame was gesture-owned, or moved nowhere — so the hold comes off now
@@ -5041,7 +5055,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     firstFolds.clear();
     firstRailSides.clear();
     firstRailShadows.clear();
-    fadePlan.clear();
+    holdPlan.survivors.clear();
+    holdPlan.covered.clear();
+    holdPlan.held.clear();
   }, [arrangement]);
 
   // Where each imposed pane sits.
@@ -5857,8 +5873,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     outgoing.setAttribute(SPACE_CROSSING_ATTRIBUTE, "");
 
     // The deck's one clock. `divide-join` is the recipe every fade on this
-    // canvas already runs on — the mode flip's, and the settle's own depart
-    // and arrive beats — so a switch dissolves over the same length and shape
+    // canvas already runs on — the settle's own depart and arrive beats — so
+    // a switch dissolves over the same length and shape
     // rather than a curve this call site picked for itself.
     const curve = motionKeyframes("divide-join", {
       nominalMs: settleDurationRef.current,

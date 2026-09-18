@@ -18,6 +18,7 @@ function sample(
     animations: 0,
     gesture: false,
     visible: true,
+    covered: false,
     ...over,
   };
 }
@@ -132,6 +133,33 @@ describe("classifySamples", () => {
     const before = frame(sample("p1"), sample("p2", { x: 900 }));
     const after = frame(sample("p1"));
     expect(classifySamples(before, after)).toEqual([]);
+  });
+
+  test("a move that lands behind a cover was not seen, and is not a cut", () => {
+    // A column mode flip commits a revealed member at its tile behind the
+    // survivor, which is held at the stacked full run they shared. The frame
+    // wears the cover from that commit, so the later sample says so, and the
+    // move nobody could see is not the promise broken.
+    const before = frame(sample("p1", { y: 0, height: 600 }));
+    const after = frame(sample("p1", { y: 0, height: 300, covered: true }));
+    expect(classifySamples(before, after)).toEqual([]);
+  });
+
+  test("and a snap AS the cover comes off landed under it, and is not one either", () => {
+    // A retiring member holds its old tile until the survivor has grown over
+    // it, then snaps to the full run the survivor now occupies in front of
+    // it. The cover comes off in the same release, so only the earlier
+    // sample wears it — and the move it saw begin was one nobody could see
+    // end.
+    const before = frame(sample("p1", { y: 0, covered: true }));
+    const after = frame(sample("p1", { y: 300, covered: false }));
+    expect(classifySamples(before, after)).toEqual([]);
+  });
+
+  test("a frame covered at neither sample is judged as before", () => {
+    const before = frame(sample("p1", { y: 0, covered: false }));
+    const after = frame(sample("p1", { y: 300, covered: false }));
+    expect(classifySamples(before, after)[0]?.kind).toBe("jump");
   });
 
   test("a jump is labelled as one", () => {

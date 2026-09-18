@@ -184,7 +184,16 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // (the handler that turns the chord into a committed band offset is one of
     // its action cases) and at0371 stopped naming it in the same change, since
     // the width verb it drives no longer reaches the canvas through a chord.
-    "tugdeck/src/components/chrome/deck-canvas.tsx": 21,
+    //
+    // Re-recorded at 22, deleted and re-added rather than raised in place, for
+    // at0594: a column mode flip is a cover, not a fade — the survivor's fused
+    // beat, the retiring member's hold released at the chain's completion,
+    // and the cover mark the cut census reads all live in this file's settle,
+    // and no other app-test samples a flip frame by frame. The one narrower
+    // module it also names, `lib/cut-detector.ts`, covers the census rule but
+    // not the settle that writes the mark; naming only it would leave the
+    // hold's release — the defect the file exists to pin — covered by nothing.
+    "tugdeck/src/components/chrome/deck-canvas.tsx": 22,
 
     // The transcript. Every row kind a session can paint — user, assistant,
     // shell, refs, ghost — renders through this one host, so a test that
