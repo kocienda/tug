@@ -16,6 +16,7 @@ import {
   compareVersions,
   isLoginOnlyWizard,
   hostToolsCopy,
+  returnHomeStepKey,
   COMMAND_LINE_TOOLS_SIZE,
 } from "../configure-tug-copy";
 
@@ -232,5 +233,37 @@ describe("hostToolsCopy", () => {
       gitFloor: "2.30",
     });
     expect(copy.detail).toContain("2.30");
+  });
+});
+
+describe("returnHomeStepKey", () => {
+  const row = (key: string, status: string, hasAction = true) => ({ key, status, hasAction });
+
+  test("the active row's button is Return's home, not Done", () => {
+    expect(
+      returnHomeStepKey([row("install", "done"), row("signin", "done"), row("project-dir", "active")]),
+    ).toBe("project-dir");
+  });
+
+  test("an error row's retry is the home too", () => {
+    expect(returnHomeStepKey([row("install", "error"), row("signin", "pending", false)])).toBe(
+      "install",
+    );
+  });
+
+  test("the first row that wants something wins, so there is only ever one", () => {
+    expect(
+      returnHomeStepKey([row("host-tools", "active"), row("install", "active"), row("signin", "pending", false)]),
+    ).toBe("host-tools");
+  });
+
+  test("a settled row's Update offer is never the home, so Done keeps the ring", () => {
+    expect(returnHomeStepKey([row("install", "done"), row("signin", "done", false)])).toBeNull();
+  });
+
+  test("busy rows and a buttonless error row are not the home", () => {
+    expect(
+      returnHomeStepKey([row("install", "busy"), row("host-tools", "error", false)]),
+    ).toBeNull();
   });
 });

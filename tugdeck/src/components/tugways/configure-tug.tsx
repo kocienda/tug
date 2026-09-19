@@ -59,7 +59,9 @@
  * shell-PATH edit. There is no realistic "installed but unreachable" state.)
  *
  * Each step is a bespoke pulsing-dot row ([D106]): the dot encodes lifecycle,
- * a CTA (or a success check) hangs on the right. The unhappy paths are
+ * and it breathes only while work is in flight — a row waiting on the user
+ * shows a still blue dot, because the pulse means activity, not the user's
+ * turn. A CTA (or a success check) hangs on the right. The unhappy paths are
  * first-class designed states, not fallthroughs ([P10], arc/archive/onboarding-and-install.md#tugsetup-states):
  *   - install failed → `authStore.installError` → an error row + Retry;
  *   - sign-in cancelled / browser never returned → `authStore.signInFailed`
@@ -109,6 +111,7 @@ import {
   useConfigureTugOnDemand,
   closeConfigureTugOnDemand,
 } from "@/lib/configure-tug-request-store";
+import { requestLogout } from "@/lib/logout-store";
 import { useDeckManager } from "@/deck-manager-context";
 import { countWorkCards } from "@/deck-store-selectors";
 import {
@@ -122,6 +125,7 @@ import {
   claudeInstalledCopy,
   isLoginOnlyWizard,
   hostToolsCopy,
+  returnHomeStepKey,
 } from "./configure-tug-copy";
 import { TugPushButton } from "./tug-push-button";
 import { TugFileChooser } from "./tug-file-chooser";
@@ -172,7 +176,9 @@ function dotVisual(status: StepStatus): {
     case "pending":
       return { role: "inherit", state: "stopped" };
     case "active":
-      return { role: "action", state: "running" };
+      // The user's turn is not activity: a full, still blue dot. Only `busy`
+      // breathes.
+      return { role: "action", state: "paused" };
     case "busy":
       return { role: "agent", state: "running" };
     case "error":
@@ -190,14 +196,17 @@ function StepRow({
   body,
   cta,
   secondaryCta,
+  returnHome,
 }: {
   stepKey: string;
   status: StepStatus;
   label: string;
   detail?: string;
-  body?: ReactElement;
+  body?: (returnHome: boolean) => ReactElement;
   cta?: { label: string; onClick: () => void };
   secondaryCta?: { label: string; onClick: () => void };
+  /** This row's button is Return's home and wears the double ring. */
+  returnHome: boolean;
 }): ReactElement {
   const { role, state } = dotVisual(status);
   return (
@@ -215,14 +224,21 @@ function StepRow({
           <span className="configure-tug-step-label">{label}</span>
         </div>
         {detail && <span className="configure-tug-step-detail">{detail}</span>}
-        {body && <div className="configure-tug-step-body">{body}</div>}
+        {body && <div className="configure-tug-step-body">{body(returnHome)}</div>}
       </div>
       {/* A settled step normally shows the green check. When it carries a CTA
           anyway — the installed-but-updatable row — the offer takes the slot:
           the dot already says "done", and a check next to an Update button
-          would be two answers to the same question. */}
+          would be two answers to the same question. A secondary CTA is not an
+          answer — the logged-in row's Log Out… — so it rides to the left of
+          the check. */}
       {status === "done" && !cta ? (
         <div className="configure-tug-step-action">
+          {secondaryCta && (
+            <TugPushButton size="sm" emphasis="ghost" onClick={secondaryCta.onClick}>
+              {secondaryCta.label}
+            </TugPushButton>
+          )}
           <CircleCheck className="configure-tug-step-check" size={28} aria-hidden="true" />
         </div>
       ) : cta || secondaryCta ? (
@@ -240,6 +256,8 @@ function StepRow({
               emphasis={status === "error" || status === "done" ? "outlined" : "filled"}
               role={status === "error" ? "danger" : "action"}
               disabled={status === "busy"}
+              persistentDefaultRing={returnHome}
+              neverDefaultButton={!returnHome}
               onClick={cta.onClick}
             >
               {cta.label}
@@ -511,8 +529,8 @@ export function ConfigureTug(): ReactElement {
     status: StepStatus;
     label: string;
     detail?: string;
-    /** Extra content under the detail line — the download's progress bar. */
-    body?: ReactElement;
+    /** Extra content under the detail line — the project directory's chooser. */
+    body?: (returnHome: boolean) => ReactElement;
     cta?: { label: string; onClick: () => void };
     /** A quieter alternative to the primary CTA, e.g. declining an offer. */
     secondaryCta?: { label: string; onClick: () => void };
@@ -634,6 +652,12 @@ export function ConfigureTug(): ReactElement {
             status: "done",
             label: account?.email ? `Logged in as ${account.email}` : "Logged in to Claude",
             detail: subscriptionLabel(account?.subscriptionType),
+            // The on-demand visit is the gesture for changing an answer, so it
+            // offers the way out of a login; a first run just made this one.
+            // TugLogout owns the confirm and everything after it.
+            ...(showingOnDemand
+              ? { secondaryCta: { label: "Log Out…", onClick: requestLogout } }
+              : {}),
           }
         : signInFailed
           ? {
@@ -675,7 +699,7 @@ export function ConfigureTug(): ReactElement {
     // slot. The action slot would take a fixed column out of the row's width,
     // and the field — the thing this step is actually about — would get what
     // was left. On its own line it gets the whole row.
-    const chooser = (label: string): ReactElement => (
+    const chooser = (label: string) => (returnHome: boolean): ReactElement => (
       <>
         <TugFileChooser
           value={projectPathValue}
@@ -692,6 +716,8 @@ export function ConfigureTug(): ReactElement {
           emphasis={projectDirError !== null ? "outlined" : "filled"}
           role={projectDirError !== null ? "danger" : "action"}
           disabled={projectDirBusy}
+          persistentDefaultRing={returnHome}
+          neverDefaultButton={!returnHome}
           onClick={handleConfirmProjectDir}
         >
           {label}
@@ -792,6 +818,17 @@ export function ConfigureTug(): ReactElement {
             ...(dismissible ? [] : [openStep]),
           ];
 
+  // One Return home per render: the first row that wants something from the
+  // user, or Done when none does. Every other button opts out, so the button
+  // Return presses and the button wearing the ring are the same one.
+  const homeKey = returnHomeStepKey(
+    steps.map((step) => ({
+      key: step.key,
+      status: step.status,
+      hasAction: step.cta !== undefined || step.body !== undefined,
+    })),
+  );
+
   return (
     <AlertDialog.Root open={open}>
       <AlertDialog.Portal container={overlayRoot}>
@@ -843,6 +880,7 @@ export function ConfigureTug(): ReactElement {
                 body={step.body}
                 cta={step.cta}
                 secondaryCta={step.secondaryCta}
+                returnHome={step.key === homeKey}
               />
             ))}
           </ol>
@@ -853,7 +891,8 @@ export function ConfigureTug(): ReactElement {
                 size="sm"
                 emphasis="primary"
                 role="action"
-                persistentDefaultRing
+                persistentDefaultRing={homeKey === null}
+                neverDefaultButton={homeKey !== null}
                 onClick={closeConfigureTugOnDemand}
               >
                 Done

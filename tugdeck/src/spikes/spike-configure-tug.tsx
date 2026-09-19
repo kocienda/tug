@@ -34,7 +34,7 @@ import {
   type TugProgressIndicatorRole,
   type TugProgressIndicatorState,
 } from "@/components/tugways/tug-progress-indicator";
-import { pendingOpenStepCopy } from "@/components/tugways/configure-tug-copy";
+import { pendingOpenStepCopy, returnHomeStepKey } from "@/components/tugways/configure-tug-copy";
 
 
 /** The prefill the projects-folder scenarios show. */
@@ -72,8 +72,8 @@ interface SetupStepModel {
   label: string;
   /** State / progress / completion message under the label. */
   detail?: string;
-  /** Extra content under the detail line — a download's progress bar. */
-  body?: React.ReactElement;
+  /** Extra content under the detail line — the project directory's chooser. */
+  body?: (returnHome: boolean) => React.ReactElement;
   status: StepStatus;
   cta?: StepCta;
   /** A quieter alternative to the primary CTA, e.g. declining an offer. */
@@ -89,7 +89,8 @@ function dotVisual(status: StepStatus): {
     case "pending":
       return { role: "inherit", state: "stopped" };
     case "active":
-      return { role: "action", state: "running" };
+      // The user's turn is not activity: a still blue dot. Only `busy` breathes.
+      return { role: "action", state: "paused" };
     case "busy":
       return { role: "agent", state: "running" };
     case "error":
@@ -105,7 +106,14 @@ const DOT_SIZE = 14;
 // SetupStepRow — the bespoke spike row
 // ---------------------------------------------------------------------------
 
-function SetupStepRow({ step }: { step: SetupStepModel }): React.ReactElement {
+function SetupStepRow({
+  step,
+  returnHome = false,
+}: {
+  step: SetupStepModel;
+  /** This row's button is Return's home and wears the double ring. */
+  returnHome?: boolean;
+}): React.ReactElement {
   const { role, state } = dotVisual(step.status);
   return (
     <li className="sp-configure-tug-step" data-step={step.key} data-status={step.status}>
@@ -124,12 +132,18 @@ function SetupStepRow({ step }: { step: SetupStepModel }): React.ReactElement {
         {step.detail && (
           <span className="sp-configure-tug-step-detail">{step.detail}</span>
         )}
-        {step.body && <div className="sp-configure-tug-step-body">{step.body}</div>}
+        {step.body && <div className="sp-configure-tug-step-body">{step.body(returnHome)}</div>}
       </div>
       {/* A settled step shows the check — unless it carries a CTA anyway (the
-          installed-but-updatable row), where the offer takes the slot. */}
+          installed-but-updatable row), where the offer takes the slot. A
+          secondary CTA (Log Out…) rides to the left of the check. */}
       {step.status === "done" && !step.cta ? (
         <div className="sp-configure-tug-step-action">
+          {step.secondaryCta && (
+            <TugPushButton size="sm" emphasis="ghost" onClick={step.secondaryCta.onClick}>
+              {step.secondaryCta.label}
+            </TugPushButton>
+          )}
           <CircleCheck className="sp-configure-tug-step-check" size={28} aria-hidden />
         </div>
       ) : step.cta || step.secondaryCta ? (
@@ -147,6 +161,8 @@ function SetupStepRow({ step }: { step: SetupStepModel }): React.ReactElement {
               }
               role={step.status === "error" ? "danger" : "action"}
               disabled={step.status === "busy"}
+              persistentDefaultRing={returnHome}
+              neverDefaultButton={!returnHome}
               onClick={step.cta.onClick}
             >
               {step.cta.label}
@@ -195,6 +211,8 @@ const ISOLATED_STEPS: SetupStepModel[] = [
     label: "Logged in as ken@example.com",
     detail: "Claude Max plan",
     status: "done",
+    // The on-demand wizard's shape: the way out of a login beside the check.
+    secondaryCta: { label: "Log Out…" },
   },
 ];
 
@@ -281,7 +299,7 @@ function buildFlow(
   const projectDirChooser = (
     label: string,
     failed = false,
-  ): React.ReactElement => (
+  ) => (returnHome: boolean): React.ReactElement => (
     <>
       <TugFileChooser
         value={PROJECT_DIR}
@@ -295,6 +313,8 @@ function buildFlow(
         size="sm"
         emphasis={failed ? "outlined" : "filled"}
         role={failed ? "danger" : "action"}
+        persistentDefaultRing={returnHome}
+        neverDefaultButton={!returnHome}
       >
         {label}
       </TugPushButton>
@@ -571,6 +591,14 @@ function WizardPreview({
 }: {
   flow: FlowModel;
 }): React.ReactElement {
+  // One Return home per preview, by the wizard's own rule.
+  const homeKey = returnHomeStepKey(
+    flow.steps.map((step) => ({
+      key: step.key,
+      status: step.status,
+      hasAction: step.cta !== undefined || step.body !== undefined,
+    })),
+  );
   return (
     <div className="sp-configure-tug-preview-panel" data-slot="setup-preview">
       <div className="sp-configure-tug-header">
@@ -579,7 +607,7 @@ function WizardPreview({
       </div>
       <ol className="sp-configure-tug-steps">
         {flow.steps.map((step) => (
-          <SetupStepRow key={step.key} step={step} />
+          <SetupStepRow key={step.key} step={step} returnHome={step.key === homeKey} />
         ))}
       </ol>
     </div>

@@ -111,6 +111,25 @@ export function isLoginOnlyWizard(
 }
 
 /**
+ * The key of the row whose button is Return's home, or `null` when Done is.
+ *
+ * The wizard names one Return home per render, and that button wears the
+ * double ring — the ring is a promise about Return, and only one button can
+ * keep it. A row wants the user when it is `active` (their turn) or `error`
+ * (its retry is its only forward move), and only if it has a button to press;
+ * the first such row wins. With no row wanting anything, Done keeps the ring.
+ * A settled row's optional offer (Update) is never the home.
+ */
+export function returnHomeStepKey(
+  steps: ReadonlyArray<{ key: string; status: string; hasAction: boolean }>,
+): string | null {
+  const home = steps.find(
+    (step) => (step.status === "active" || step.status === "error") && step.hasAction,
+  );
+  return home?.key ?? null;
+}
+
+/**
  * Copy for the third setup step while it is still *pending* (the user isn't
  * logged in yet). When the deck already has open cards — the logout-with-work
  * case — the step previews the return to that work ("Continue working") rather
