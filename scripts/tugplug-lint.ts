@@ -67,7 +67,13 @@ const ABSENCE_CLAUSE = /(has no|without|absent)[^\n]{0,40}`tuglaws\/|`tuglaws\/`
  * the absence-clause rule above: a file that may not name tuglaws/ at all has
  * nothing an absence clause could excuse.
  */
-const SHIPPED_FORMAT = new Set(["work-grammar.md", "skills/brief/brief-skeleton.md"]);
+const SHIPPED_FORMAT = new Set([
+  "work-grammar.md",
+  "file-editing.md",
+  "transcript-prose.md",
+  "ask-user-question.md",
+  "skills/brief/brief-skeleton.md",
+]);
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

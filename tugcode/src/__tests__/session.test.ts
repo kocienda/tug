@@ -174,22 +174,35 @@ describe("buildClaudeArgs", () => {
     expect(args[idx + 1].endsWith("/Tug")).toBe(true);
   });
 
-  test("carries the work grammar in the one --append-system-prompt", () => {
-    const args = buildClaudeArgs({ ...defaultConfig, workGrammar: "GRAMMAR" });
+  test("carries the nudge, then every plugin prompt in order, in the one --append-system-prompt", () => {
+    const args = buildClaudeArgs({
+      ...defaultConfig,
+      pluginPrompts: ["GRAMMAR", "CONTRACT", "PROSE", "QUESTIONS"],
+    });
     // One flag, not two: the option is a string and repeating it is not
-    // documented to concatenate, so both texts ride one value.
+    // documented to concatenate, so every text rides one value.
     expect(args.filter((a) => a === "--append-system-prompt").length).toBe(1);
     const value = args[args.indexOf("--append-system-prompt") + 1];
     expect(value.startsWith("The user is reading this conversation in Dev")).toBe(true);
-    expect(value.endsWith("GRAMMAR")).toBe(true);
+    expect(
+      value.endsWith("the next step you're about to take).\n\nGRAMMAR\n\nCONTRACT\n\nPROSE\n\nQUESTIONS"),
+    ).toBe(true);
   });
 
-  test("with no work grammar the appended prompt is the nudge alone", () => {
-    const args = buildClaudeArgs(defaultConfig);
-    expect(args.filter((a) => a === "--append-system-prompt").length).toBe(1);
+  test("with no plugin prompt the appended prompt is the nudge alone, byte for byte", () => {
+    for (const config of [defaultConfig, { ...defaultConfig, pluginPrompts: [] }]) {
+      const args = buildClaudeArgs(config);
+      expect(args.filter((a) => a === "--append-system-prompt").length).toBe(1);
+      const value = args[args.indexOf("--append-system-prompt") + 1];
+      expect(value.startsWith("The user is reading this conversation in Dev")).toBe(true);
+      expect(value.endsWith("the next step you're about to take).")).toBe(true);
+    }
+  });
+
+  test("one absent plugin prompt leaves the others in place", () => {
+    const args = buildClaudeArgs({ ...defaultConfig, pluginPrompts: ["CONTRACT"] });
     const value = args[args.indexOf("--append-system-prompt") + 1];
-    expect(value.startsWith("The user is reading this conversation in Dev")).toBe(true);
-    expect(value.endsWith("the next step you're about to take).")).toBe(true);
+    expect(value.endsWith("the next step you're about to take).\n\nCONTRACT")).toBe(true);
   });
 
   test("with sessionId includes --resume", () => {

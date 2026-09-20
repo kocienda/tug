@@ -891,41 +891,53 @@ export interface ClaudeSpawnConfig {
    */
   additionalDirectories?: readonly string[];
   /**
-   * The work grammar's text, appended to the system prompt after the nudge.
-   * Read from the plugin at every (re)spawn; null when the file is absent,
-   * which leaves the appended prompt byte-identical to what it was before the
-   * grammar shipped.
+   * The plugin's prompt texts, appended to the system prompt after the nudge
+   * in the order {@link PLUGIN_PROMPT_FILES} names them. Read from the plugin
+   * at every (re)spawn; an absent file contributes nothing, and with none the
+   * appended prompt is the nudge alone, byte for byte.
    */
-  workGrammar?: string | null;
+  pluginPrompts?: readonly string[];
   sessionId: string | null;
   continue?: boolean;
   forkSession?: boolean;
   sessionIdOverride?: string;
 }
 
-/** The plugin-root markdown carrying the work grammar. */
-export const WORK_GRAMMAR_FILE = "work-grammar.md";
+/**
+ * The plugin-root markdown files whose text rides the system prompt, in the
+ * order they are appended: what passes between user and model first (the work
+ * grammar), then how to edit a project's files so the change stays attributed,
+ * then the two rules about what the Session card does with the model's output
+ * — how its prose is rendered, and the shape a question must have to arrive.
+ */
+export const PLUGIN_PROMPT_FILES: readonly string[] = [
+  "work-grammar.md",
+  "file-editing.md",
+  "transcript-prose.md",
+  "ask-user-question.md",
+];
 
 /**
- * Read the work grammar shipped beside the plugin, or null when it is not
- * there.
+ * Read the prompt files shipped beside the plugin, in order, skipping any that
+ * are not there.
  *
- * The grammar is prose the bundle carries — the four words the user and the
- * model share for a unit of work — and the system prompt is the one channel
- * that reaches every project the app opens, including those with no
- * documentation of ours in them at all. Its absence is a state rather than an
- * error: a session spawns with the nudge alone and says so once.
+ * Each is prose the bundle carries — something the model must know to drive
+ * the app correctly — and the system prompt is the one channel that reaches
+ * every project the app opens, including those with no documentation of ours
+ * in them at all. Each file is read independently, and its absence is a state
+ * rather than an error: the session spawns without that text and says so once.
  */
-export function readWorkGrammar(pluginDir: string): string | null {
-  const path = join(pluginDir, WORK_GRAMMAR_FILE);
-  try {
-    return readFileSync(path, "utf8").trim();
-  } catch (err) {
-    console.log(
-      `Work grammar: ${path} not readable (${err}); spawning with the nudge alone`,
-    );
-    return null;
+export function readPluginPrompts(pluginDir: string): string[] {
+  const texts: string[] = [];
+  for (const file of PLUGIN_PROMPT_FILES) {
+    const path = join(pluginDir, file);
+    try {
+      texts.push(readFileSync(path, "utf8").trim());
+    } catch (err) {
+      console.log(`Plugin prompt: ${path} not readable (${err}); spawning without it`);
+    }
   }
+  return texts;
 }
 
 /**
@@ -1005,11 +1017,12 @@ export function buildClaudeArgs(config: ClaudeSpawnConfig): string[] {
 
   // One flag, one value. The CLI option is a string and a repeated
   // `--append-system-prompt` is not documented to concatenate, so joining is
-  // the only spelling that reliably carries both texts. With no grammar the
-  // value is the nudge alone, byte for byte what it was before.
-  const systemPromptAppend = config.workGrammar
-    ? `${SESSION_SYSTEM_PROMPT_NUDGE}\n\n${config.workGrammar}`
-    : SESSION_SYSTEM_PROMPT_NUDGE;
+  // the only spelling that reliably carries every text. With no plugin prompt
+  // the value is the nudge alone, byte for byte.
+  const systemPromptAppend = [
+    SESSION_SYSTEM_PROMPT_NUDGE,
+    ...(config.pluginPrompts ?? []).filter((text) => text !== ""),
+  ].join("\n\n");
 
   const args: string[] = [
     "--output-format", "stream-json",
@@ -3910,7 +3923,7 @@ export class SessionManager {
     | "effort"
     | "model"
     | "additionalDirectories"
-    | "workGrammar"
+    | "pluginPrompts"
   > {
     return {
       pluginDir: this.getPluginDir(),
@@ -3919,8 +3932,8 @@ export class SessionManager {
       model: this.currentModel,
       additionalDirectories: this.additionalDirectories,
       // Read per spawn rather than per session, so an edit to the shipped
-      // grammar takes effect on the next respawn.
-      workGrammar: readWorkGrammar(this.getPluginDir()),
+      // prompt file takes effect on the next respawn.
+      pluginPrompts: readPluginPrompts(this.getPluginDir()),
     };
   }
 

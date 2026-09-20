@@ -70,6 +70,11 @@ pub enum ParseOutcome {
         /// would otherwise have to guess — steering a refused `perl -i` at
         /// `rm|mv|cp` teaches the wrong lesson.
         suggest: Suggestion,
+        /// The project file the refused command would have written, as the
+        /// command spelled it, when the grammar found one. The gate shows it
+        /// in the example it steers with, so the shape shown is one that
+        /// exists where it is shown.
+        path: Option<String>,
     },
 }
 
@@ -96,10 +101,11 @@ pub fn parse_shell_ops(command: &str, base_dir: &Path) -> ParseOutcome {
     // the line would otherwise mint — notably the `mv` row a `/tmp` round trip
     // produces, which names the destination but nothing about where the
     // content came from.
-    if let Some(reason) = program_steer(&stripped, &heredocs, base_dir) {
+    if let Some((reason, path)) = program_steer(&stripped, &heredocs, base_dir) {
         return ParseOutcome::Unparseable {
             reason,
             suggest: Suggestion::Program,
+            path: Some(path),
         };
     }
     let tokens = tokenize(&stripped);
@@ -111,7 +117,11 @@ pub fn parse_shell_ops(command: &str, base_dir: &Path) -> ParseOutcome {
             SegmentOutcome::Ops(mut segment_ops) => ops.append(&mut segment_ops),
             SegmentOutcome::Nothing => {}
             SegmentOutcome::Refuse(reason, suggest) => {
-                return ParseOutcome::Unparseable { reason, suggest };
+                return ParseOutcome::Unparseable {
+                    reason,
+                    suggest,
+                    path: None,
+                };
             }
         }
     }
@@ -1065,7 +1075,9 @@ fn lexical_normalize(path: &Path) -> PathBuf {
 /// Interpreters the steer watches, when their program text arrives **inline** —
 /// a heredoc body, a `-c`/`-e` argument, or (for `awk`) the program operand.
 /// A head invoked with a script *file* is never considered: the program is not
-/// in the command at all, so there is nothing to read and nothing to steer.
+/// in the command at all, so there is nothing to read and nothing to steer —
+/// except a temp script this same command wrote from a heredoc, whose program
+/// is in the command after all.
 const WATCHED_INTERPRETERS: [&str; 8] = [
     "python", "python3", "perl", "ruby", "bun", "node", "deno", "awk",
 ];
@@ -1094,11 +1106,18 @@ const EXCLUDED_COMPONENTS: [&str; 5] = ["target", "node_modules", ".git", ".tug"
 /// so the soundness axioms the proof path holds are untouched. Two independent
 /// signals are required, a write-shaped call *and* a repo-shaped path literal,
 /// because either alone is ordinary read-only analysis.
-fn program_steer(stripped: &str, heredocs: &[Heredoc], base_dir: &Path) -> Option<String> {
+fn program_steer(
+    stripped: &str,
+    heredocs: &[Heredoc],
+    base_dir: &Path,
+) -> Option<(String, String)> {
     let root = checkout_root(base_dir)?;
     let tokens = tokenize(stripped);
     let mut unclaimed: Vec<&Heredoc> = heredocs.iter().collect();
     let mut temp_writes: Vec<String> = Vec::new();
+    // Heredoc bodies a non-interpreter head redirected to a temp path, by that
+    // path: a script this command wrote, which a later segment may run.
+    let mut temp_scripts: Vec<(String, String)> = Vec::new();
 
     for segment in split_segments(&tokens) {
         let words: Vec<&Word> = segment
@@ -1132,34 +1151,41 @@ fn program_steer(stripped: &str, heredocs: &[Heredoc], base_dir: &Path) -> Optio
                 mine.push(inline);
             }
             for program in &mine {
-                let targets = write_targets(program, &head);
-                if targets.is_empty() {
-                    continue;
-                }
-                // A write whose target is spelled out is judged on that target
-                // alone: `Path('/tmp/x').write_text(Path('repo').read_text())`
-                // writes nothing the ledger cares about. Only a write to a
-                // variable falls back to the program's path literals at large.
-                let named = targets
-                    .iter()
-                    .flatten()
-                    .find(|t| is_repo_shaped(t, base_dir, &root))
-                    .cloned();
-                let unknown = targets.iter().any(|t| t.is_none());
-                let path = named.or_else(|| {
-                    if !unknown {
-                        return None;
-                    }
-                    quoted_pieces(program)
-                        .into_iter()
-                        .find(|literal| is_repo_shaped(literal, base_dir, &root))
-                });
-                if let Some(path) = path {
-                    return Some(format!(
-                        "this {head} writes `{path}` from a program the change ledger cannot read, \
-                         so the edit would land unattributed"
+                if let Some(path) = repo_write(program, &head, base_dir, &root) {
+                    return Some((
+                        format!(
+                            "this {head} writes `{path}` from a program the change ledger cannot \
+                             read, so the edit would land unattributed"
+                        ),
+                        path,
                     ));
                 }
+            }
+            // A script file is never read — unless this same command wrote
+            // it. Then the program *is* in the command, one segment back, and
+            // routing it through a temp file changes nothing about what it
+            // does.
+            for word in words.iter().skip(1).filter(|w| w.literal) {
+                let staged = temp_scripts.iter().filter(|(path, _)| *path == word.text);
+                for (script, program) in staged {
+                    if let Some(path) = repo_write(program, &head, base_dir, &root) {
+                        return Some((
+                            format!(
+                                "this {head} runs `{script}`, a script this same command wrote, \
+                                 which writes `{path}` from a program the change ledger cannot \
+                                 read, so the edit would land unattributed"
+                            ),
+                            path,
+                        ));
+                    }
+                }
+            }
+        } else if !mine.is_empty() {
+            for target in redirect_targets(&segment)
+                .into_iter()
+                .filter(|t| is_temp(t))
+            {
+                temp_scripts.extend(mine.iter().map(|body| (target.clone(), body.clone())));
             }
         }
 
@@ -1187,9 +1213,13 @@ fn program_steer(stripped: &str, heredocs: &[Heredoc], base_dir: &Path) -> Optio
                     && temp_writes.iter().any(|t| t == source)
                     && is_repo_shaped(destination, base_dir, &root)
                 {
-                    return Some(format!(
-                        "this stages `{destination}` through a temp file written by a program the change \
-                         ledger cannot read, so only the move would be attributed and not the content"
+                    return Some((
+                        format!(
+                            "this stages `{destination}` through a temp file written by a program \
+                             the change ledger cannot read, so only the move would be attributed \
+                             and not the content"
+                        ),
+                        (*destination).to_string(),
                     ));
                 }
             }
@@ -1197,6 +1227,32 @@ fn program_steer(stripped: &str, heredocs: &[Heredoc], base_dir: &Path) -> Optio
     }
 
     None
+}
+
+/// The repo path a program writes, when it writes one. A write whose target is
+/// spelled out is judged on that target alone:
+/// `Path('/tmp/x').write_text(Path('repo').read_text())` writes nothing the
+/// ledger cares about. Only a write to a variable falls back to the program's
+/// path literals at large.
+fn repo_write(program: &str, head: &str, base_dir: &Path, root: &Path) -> Option<String> {
+    let targets = write_targets(program, head);
+    if targets.is_empty() {
+        return None;
+    }
+    let named = targets
+        .iter()
+        .flatten()
+        .find(|t| is_repo_shaped(t, base_dir, root))
+        .cloned();
+    if named.is_some() {
+        return named;
+    }
+    if !targets.iter().any(|t| t.is_none()) {
+        return None;
+    }
+    quoted_pieces(program)
+        .into_iter()
+        .find(|literal| is_repo_shaped(literal, base_dir, root))
 }
 
 /// The program text a watched head carries inline: a `-c`/`-e` argument, or
@@ -1276,16 +1332,20 @@ fn write_targets(program: &str, head: &str) -> Vec<Option<String>> {
         let window = &text[start..limit];
         let end = window.find(')').unwrap_or(window.len());
         let args = &window[..end];
+        // A literal target is the first quoted piece, and is not a mode. A
+        // variable target leaves the mode as the first quoted piece there is,
+        // so nothing is skipped.
+        let target = leading_literal(args);
         let writes = quoted_pieces(args)
             .into_iter()
-            .skip(1)
+            .skip(usize::from(target.is_some()))
             .any(|mode| mode.len() <= 3 && (mode.contains('w') || mode.contains('a')))
             || args.contains("mode='w")
             || args.contains("mode=\"w")
             || args.contains("mode='a")
             || args.contains("mode=\"a");
         if writes {
-            targets.push(leading_literal(args));
+            targets.push(target);
         }
         from = start;
     }
@@ -1678,6 +1738,7 @@ mod tests {
             ParseOutcome::Unparseable {
                 reason,
                 suggest: Suggestion::Program,
+                ..
             } => Some(reason),
             _ => None,
         }
@@ -1755,10 +1816,90 @@ mod tests {
     }
 
     #[test]
+    fn an_open_whose_target_is_a_variable_is_read_as_a_write() {
+        let dir = checkout();
+        let body = "import re\np=\"Research_Master.md\"\ns=open(p,encoding=\"utf-8\").read()\ns=s.replace(\"a\",\"b\")\nopen(p,\"w\",encoding=\"utf-8\").write(s)";
+        let reason =
+            steered(dir.path(), &format!("python3 - <<'EOF'\n{body}\nEOF")).expect("steered");
+        assert!(reason.contains("Research_Master.md"), "{reason}");
+        // The same program behind a `cd`, with a command after the heredoc.
+        assert_steered(
+            dir.path(),
+            &format!(
+                "cd {} && python3 - <<'EOF'\n{body}\nEOF\ngrep -c b Research_Master.md",
+                dir.path().display()
+            ),
+        );
+        // Append mode, spelled with the other quote.
+        assert_steered(
+            dir.path(),
+            "python3 - <<'EOF'\np='docs/notes.md'\nopen(p,'a').write(line)\nEOF",
+        );
+    }
+
+    #[test]
+    fn an_open_that_reads_through_a_variable_passes() {
+        let dir = checkout();
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\np=\"Research_Master.md\"\nprint(open(p,encoding=\"utf-8\").read())\nEOF",
+        );
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\np=\"Research_Master.md\"\nprint(open(p,\"r\",encoding=\"utf-8\").read())\nEOF",
+        );
+    }
+
+    #[test]
     fn an_interpreter_running_a_script_file_is_never_steered() {
         let dir = checkout();
         assert_not_steered(dir.path(), "python3 tools/analyze.py");
         assert_not_steered(dir.path(), "python3 tools/analyze.py tugdeck/src/main.tsx");
+    }
+
+    #[test]
+    fn a_temp_script_the_same_command_wrote_and_ran_is_steered() {
+        let dir = checkout();
+        let script = "import re\np=\"Research_Master.md\"\ns=open(p,encoding=\"utf-8\").read()\ns=s.replace(\"a\",\"b\")\nopen(p,\"w\",encoding=\"utf-8\").write(s)\nprint(\"ok\")";
+        let reason = steered(
+            dir.path(),
+            &format!("cat > /tmp/eucit/upd.py <<'EOF'\n{script}\nEOF\npython3 /tmp/eucit/upd.py"),
+        )
+        .expect("steered");
+        assert!(reason.contains("Research_Master.md"), "{reason}");
+        assert!(reason.contains("/tmp/eucit/upd.py"), "{reason}");
+        // Joined with `&&`, behind a `cd`, and with the script's own arguments.
+        assert_steered(
+            dir.path(),
+            &format!(
+                "cd {} && cat > /tmp/eucit/upd.py <<'EOF'\n{script}\nEOF\npython3 /tmp/eucit/upd.py --verbose && grep -c b Research_Master.md",
+                dir.path().display()
+            ),
+        );
+    }
+
+    #[test]
+    fn a_temp_script_that_reads_or_writes_only_scratch_passes() {
+        let dir = checkout();
+        assert_not_steered(
+            dir.path(),
+            "cat > /tmp/eucit/count.py <<'EOF'\np=\"Research_Master.md\"\nprint(len(open(p,encoding=\"utf-8\").read()))\nEOF\npython3 /tmp/eucit/count.py",
+        );
+        assert_not_steered(
+            dir.path(),
+            "cat > /tmp/eucit/dump.py <<'EOF'\ns=open(\"Research_Master.md\").read()\nopen(\"/tmp/eucit/out.txt\",\"w\").write(s)\nEOF\npython3 /tmp/eucit/dump.py",
+        );
+    }
+
+    #[test]
+    fn a_temp_script_the_command_did_not_write_is_never_steered() {
+        let dir = checkout();
+        // A different script from the one written: its program is not here.
+        assert_not_steered(
+            dir.path(),
+            "cat > /tmp/eucit/upd.py <<'EOF'\nopen(\"Research_Master.md\",\"w\").write(s)\nEOF\npython3 /tmp/eucit/other.py",
+        );
+        assert_not_steered(dir.path(), "python3 /tmp/eucit/upd.py");
     }
 
     #[test]

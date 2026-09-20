@@ -73,6 +73,16 @@ The **kind is the door's decision, not the user's spelling**. It reads the user'
 
 ---
 
+## Where knowledge lives
+
+The standalone contract ([tugplug/CLAUDE.md](../tugplug/CLAUDE.md#the-standalone-contract)) says which *files* the plugin may depend on. This is its other half, about *knowledge*: **anything the model must know to drive Tug correctly ships in the bundle, and reaches the session through the system prompt or a skill.**
+
+Tug is distributed to people whose projects have nothing to do with this checkout — no `tuglaws/`, no `CLAUDE.md` of ours, no source tree. A rule written only in this checkout's `CLAUDE.md` therefore holds only here, which for a rule about how to drive the app is the same as not holding at all. The channel that reaches every project is the system prompt: `tugcode` appends the plugin's root prompt files to it at every spawn, and `tugplug/CLAUDE.md` names them.
+
+**The test for any new paragraph in this checkout's `CLAUDE.md` is one question: would this be true in a project that is not Tug?** A yes means it is in the wrong file — it belongs in a plugin prompt file, and the checkout keeps only the residue, the crate or path or recipe that is true here alone, plus a pointer at the prompt file as the source. One contract, one home, and no second copy to drift.
+
+---
+
 ## Retired names
 
 Per the retirement doctrine, the designs go and the spellings stay findable — here, with what replaced them:

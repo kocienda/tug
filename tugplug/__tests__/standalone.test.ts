@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { buildClaudeArgs, PLUGIN_PROMPT_FILES, readPluginPrompts } from "../../tugcode/src/session.ts";
 
 const ROOT = join(import.meta.dir, "../..");
 const PLUGIN_SRC = join(ROOT, "tugplug");
@@ -187,6 +188,38 @@ describe("the hook script, from the bundle alone", () => {
     );
     expect(new Set(commands)).toEqual(new Set(["${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use.sh"]));
     expect(readdirSync(join(pluginRoot, "hooks")).sort()).toEqual(["hooks.json", "pre-tool-use.sh"]);
+  });
+});
+
+describe("what a session must know rides the system prompt, from the bundle alone", () => {
+  test("every prompt file ships at the plugin root", () => {
+    expect(PLUGIN_PROMPT_FILES).toContain("file-editing.md");
+    for (const file of PLUGIN_PROMPT_FILES) {
+      expect(statSync(join(pluginRoot, file)).size).toBeGreaterThan(0);
+    }
+  });
+
+  test("a spawn on the scratch project carries every prompt file, in the list's order", () => {
+    const args = buildClaudeArgs({
+      pluginDir: pluginRoot,
+      model: "claude-opus-4-6",
+      permissionMode: "acceptEdits",
+      sessionId: null,
+      pluginPrompts: readPluginPrompts(pluginRoot),
+    });
+    expect(args.filter((a) => a === "--append-system-prompt").length).toBe(1);
+    const value = args[args.indexOf("--append-system-prompt") + 1];
+    const at = [
+      "# The work grammar",
+      "# Editing project files",
+      "# Writing prose the Session card renders",
+      "# AskUserQuestion — shape and affordances",
+    ].map((heading) => value.indexOf(heading));
+    expect(at[0]).toBeGreaterThan(0);
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+    expect(value).toContain("tugtool file edit <<'EDIT'");
+    // Nothing the project lacks is named to it.
+    expect(value).not.toContain("tuglaws/");
   });
 });
 

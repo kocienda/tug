@@ -170,6 +170,7 @@ fn the_hook_renders_the_steer_with_its_example_intact() {
         .as_str()
         .expect("a reason");
     assert!(reason.contains("tugtool file edit <<'EDIT'"), "{reason}");
-    assert!(reason.contains("\n  file tugdeck/src/main.tsx"), "{reason}");
+    // The example names the file the refused command would have written.
+    assert!(reason.contains("\n  file src/main.tsx\n"), "{reason}");
     assert!(reason.contains("--preview"), "{reason}");
 }

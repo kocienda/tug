@@ -49,6 +49,15 @@ The lifecycle skills run in the seated session and ride the `tugtool arc` CLI (`
 
 The old multi-agent orchestration — a swarm of clarifier/author/critic/conformance/overviewer/architect/coder/committer/reviewer/auditor/arc agents — has been fully retired: no sub-agents, no per-step tugstate database, no inter-agent JSON contracts. Every agent is gone.
 
-## Plan Mode Policy
+## The prompt files
 
-The policy now ships in `work-grammar.md` beside this file, which tugcode appends to every session's system prompt — so it is enforced on every project the bundle opens rather than only where this file happens to be read.
+Four markdown files at the plugin's root are not documentation — they are **prompt**. `tugcode` reads them at every spawn, in the order `PLUGIN_PROMPT_FILES` names them, and appends each to the session's system prompt after the dev nudge. An absent file is a logged state rather than an error, and with none present the appended prompt is the nudge alone, byte for byte.
+
+- **`work-grammar.md`** — what passes between the user and the model: the artifact ladder (idea → sketch → brief → plan), the rule that "plan" names only the document, and the plan-mode policy that used to live in this file.
+- **`file-editing.md`** — how to edit a project's files so the change ledger can attribute the edit: the order of preference, the edit program, and the `edit`/`probe`/`run` verbs.
+- **`transcript-prose.md`** — how the Session card renders the model's prose: backtick every path, write a commit sha bare.
+- **`ask-user-question.md`** — the shape a question must have to arrive: 1–4 questions per call, 2–4 options each.
+
+**The rule they exist to serve: anything the model must know to drive Tug correctly ships in the bundle, and reaches the session through the system prompt or a skill.** The system prompt is the one channel that reaches every project the app opens, including the ones with no documentation of ours in them at all — so a rule that lives only in this checkout's `CLAUDE.md` is a rule that holds only here, which is the same as not holding. The test for any new paragraph in that file is one question: *would this be true in a project that is not Tug?* A yes means it belongs in a prompt file, and the checkout keeps only its residue — the crate, the path, the recipe that is true here alone — plus a pointer at the prompt file as the source. One contract, one home, and no second copy to drift.
+
+The doctrine is recorded in `tuglaws/work-grammar.md`, beside the standalone contract this extends: that contract is about the *files* the plugin may depend on, and this is about the *knowledge* a session may depend on.

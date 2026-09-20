@@ -325,9 +325,13 @@ pub(crate) struct GateDecision {
 /// The gate's verdict on one command: deny only when the grammar refuses.
 pub(crate) fn gate_decision(command: &str, base: &Path) -> GateDecision {
     match parse_shell_ops(command, base) {
-        ParseOutcome::Unparseable { reason, suggest } => GateDecision {
+        ParseOutcome::Unparseable {
+            reason,
+            suggest,
+            path,
+        } => GateDecision {
             decision: "deny",
-            reason: Some(format!("{reason}. {}", steering(suggest))),
+            reason: Some(format!("{reason}. {}", steering(suggest, path.as_deref()))),
         },
         ParseOutcome::Ops(_) | ParseOutcome::NoFileOps => GateDecision {
             decision: "allow",
@@ -339,40 +343,51 @@ pub(crate) fn gate_decision(command: &str, base: &Path) -> GateDecision {
 /// Where a refusal points. The grammar decides which verb covers what it could
 /// not read; this only spells it out, so a denied `perl -i` is never steered at
 /// `rm|mv|cp`.
-fn steering(suggest: Suggestion) -> &'static str {
+///
+/// The gate runs in whatever project the app opened, so nothing here names a
+/// file or a tool that project may not have: the edit-program example names
+/// `path` — the file the refused command itself would have written — and the
+/// rest are placeholders.
+fn steering(suggest: Suggestion, path: Option<&str>) -> String {
     match suggest {
         Suggestion::Lifecycle => {
             "Use `tugtool file rm|mv|cp` instead — it expands the operands itself and reports \
              exactly which files it touched, so the change stays attributed."
+                .to_string()
         }
         Suggestion::Edit => {
             "Use `tugtool file edit` instead — it applies the edit program itself and reports \
              exactly which files changed, so the change stays attributed. For a patch-run-revert \
              cycle, `tugtool file probe` does the whole thing and records nothing."
+                .to_string()
         }
         // The model copies the shape it is shown, so the steer shows one.
         Suggestion::Program => {
-            r#"Write it as an edit program instead — `tugtool file edit` applies the program itself and reports
+            let file = path.unwrap_or("path/to/file");
+            format!(
+                r#"Write it as an edit program instead — `tugtool file edit` applies the program itself and reports
 exactly which files changed, so the edit stays attributed:
 
   tugtool file edit <<'EDIT'
-  file tugdeck/src/main.tsx
-    replace 'attachDigestStore(connection);' with 'attachLocalModelStore(connection);'
+  file {file}
+    replace 'the text as it is now' with 'the text as it should be'
     delete 166
   EDIT
 
 Preview first with `tugtool file edit --preview`. If the edit is computed, run the program
 read-only to print the result, then put that output in a `write` or `replace` op."#
+            )
         }
         Suggestion::Run => {
             r#"Run it through `tugtool file run` instead — it watches the command and reports
 exactly which files it rewrote, so the change stays attributed:
 
-  tugtool file run -- cargo fmt -p tugedit-core
-  tugtool file run --scope tugdeck/src -- bunx prettier --write 'tugdeck/src/**/*.ts'
+  tugtool file run -- <the command, exactly as you wrote it>
+  tugtool file run --scope <dir> -- <the command>    # when you know where the writes land
 
-It fingerprints the repo's files by content before and after, so a file the command
+It fingerprints the project's files by content before and after, so a file the command
 merely touched is never claimed. The command's own output and exit status pass through."#
+                .to_string()
         }
     }
 }
@@ -778,7 +793,7 @@ mod tests {
     fn a_refusal_steers_at_the_verb_that_covers_it() {
         let base = PathBuf::from("/repo");
         let reason = |command: &str| match parse_shell_ops(command, &base) {
-            ParseOutcome::Unparseable { suggest, .. } => steering(suggest).to_string(),
+            ParseOutcome::Unparseable { suggest, path, .. } => steering(suggest, path.as_deref()),
             other => panic!("expected a refusal for `{command}`, got {other:?}"),
         };
 
@@ -803,13 +818,49 @@ mod tests {
             "python3 - <<'PY'\nopen('src/x.ts','w').write('y')\nPY",
             checkout.path(),
         ) {
-            ParseOutcome::Unparseable { suggest, .. } => steering(suggest).to_string(),
+            ParseOutcome::Unparseable { suggest, path, .. } => steering(suggest, path.as_deref()),
             other => panic!("expected a refusal, got {other:?}"),
         };
         assert!(steer.contains("tugtool file edit"), "{steer}");
         assert!(steer.contains("--preview"), "{steer}");
-        assert!(steer.contains("file tugdeck/src/main.tsx"), "{steer}");
+        assert!(steer.contains("\n  file src/x.ts\n"), "{steer}");
         assert!(!steer.contains("rm|mv|cp"), "{steer}");
+    }
+
+    #[test]
+    fn no_refusal_names_a_path_or_a_tool_of_this_checkout() {
+        for suggest in [
+            Suggestion::Lifecycle,
+            Suggestion::Edit,
+            Suggestion::Program,
+            Suggestion::Run,
+        ] {
+            for path in [None, Some("Research_Master.md")] {
+                let steer = steering(suggest, path);
+                for ours in ["tugdeck/", "tugrust/", "cargo"] {
+                    assert!(!steer.contains(ours), "{suggest:?} names `{ours}`: {steer}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_steered_command_is_shown_its_own_file_in_the_example() {
+        let checkout = tempfile::tempdir().expect("temp");
+        std::fs::write(checkout.path().join(".git"), "gitdir: elsewhere").expect("write .git");
+        for command in [
+            "python3 - <<'EOF'\np=\"Research_Master.md\"\nopen(p,\"w\",encoding=\"utf-8\").write(s)\nEOF",
+            "cat > /tmp/eucit/upd.py <<'EOF'\np=\"Research_Master.md\"\nopen(p,\"w\",encoding=\"utf-8\").write(s)\nEOF\npython3 /tmp/eucit/upd.py",
+            "python3 - > /tmp/eucit/out.md <<'EOF'\nprint(text)\nEOF\nmv /tmp/eucit/out.md Research_Master.md",
+        ] {
+            let decision = gate_decision(command, checkout.path());
+            assert_eq!(decision.decision, "deny", "`{command}`");
+            let reason = decision.reason.expect("a denial says why");
+            assert!(
+                reason.contains("\n  file Research_Master.md\n"),
+                "`{command}`: {reason}"
+            );
+        }
     }
 
     // ── stage ([P13]) ──────────────────────────────────────────────────────

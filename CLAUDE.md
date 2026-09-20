@@ -17,9 +17,7 @@ The `/tugplug:draft` skill **never commits** — it authors the session's landin
 
 ## Writing prose the Session card renders
 
-**Backtick every file path you write, every time.** Your transcript prose is rendered markdown, and a path in backticks and the same path bare are one reference wearing two faces — the reader has to work out that the difference means nothing. Backticks are the author's own emphasis and the renderer may not invent them, so consistency is yours to supply. The same goes for commands and symbols. A commit sha is the one thing you write **bare** in backticks — `` `63de5762a` ``, never `commit 63de5762a` — because the app supplies the word and displays it as `commit:63de5762a`.
-
-Clickability is not what backticks are for: the resolver confirms a path and rules it whether or not you formatted it as code. This is about the sentence reading as one voice. The doctrine is [tuglaws/entity-presentation.md](tuglaws/entity-presentation.md#the-house-voices-backtick-every-path).
+The rule — backtick every path you write, and write a commit sha bare in backticks — ships in `tugplug/transcript-prose.md` and rides every session's system prompt, so it holds on every project Tug opens. That file is the source; this checkout keeps no second copy. The doctrine behind it, and the resolver that rules a confirmed reference, are in [tuglaws/entity-presentation.md](tuglaws/entity-presentation.md#the-house-voices-backtick-every-path).
 
 ## The standalone contract
 
@@ -98,51 +96,11 @@ Never point the `sqlite3` CLI (or any non-Tug SQLite build) at the live database
 
 ## Editing repo files from the shell
 
-`Edit`/`MultiEdit`/`Write` name their file in the tool input, so the change is attributed with certainty, and for a single-file edit they stay the first choice. This section is about the residue — the edit that does not fit them, and reaches for the shell instead.
+The contract — the order of preference, the edit program, and the `edit`/`probe`/`run` verbs — ships in `tugplug/file-editing.md` and rides every session's system prompt. That file is the source, and it is written for any project. What is true of this checkout alone:
 
-A shell command is only attributed when the grammar in `tugchanges-core::shell_ops` can read which files it names — and **a `python3` heredoc that writes a repo file cannot be read at all.** Heredoc bodies are stripped before parsing (a body is data, not commands), so nothing inside one is evidence of anything. Same for `python3 -c`, `perl -e`, `bun -e`. **The PreToolUse gate now denies those**: an interpreter handed its program inline whose text carries both a write-shaped call and a repo path is refused, and the refusal shows you the edit program to write instead. A heredoc that only reads, or that writes under `/tmp` or `target/`, passes untouched.
-
-So write the multi-line edit as an **edit program** — a small program `tugtool` executes itself, which prints the same `TUG-FILE-RECEIPT` an `Edit` would have earned:
-
-```bash
-tugtool file edit <<'EDIT'
-file tugdeck/src/deck-manager.ts
-  replace "  // The strip's own stop, one past the picture's." with "  // One stop for the whole strip."
-  patch <<
-     return (
--      this.container.clientHeight -
--      IMPOSITION_GAP_PX -
--      IMPOSITION_GAP_BOTTOM_PX
-+      this.container.clientHeight - IMPOSITION_GAP_PX - impositionGapBottomPx()
-     );
->>
-  delete 166 .. 178
-files tugdeck/src/lib/digest-store.ts tugdeck/src/lib/local-model-store.ts
-  sub /\bdigest_(\w+)/ 'local_model_$1' all
-EDIT
-```
-
-Three rules carry nearly every refusal an edit program has ever earned. **A body is the file's bytes, verbatim** — indent every line exactly as the file does, keeping the structure *inside* the block, never squared off under the op line; it is the same thing an `Edit`'s `old_string` is. **A block that replaces a block is a `patch` hunk** — one prefix byte per line (` ` context, `-` out, `+` in) and the file's own indentation after it, which is how the indentation stays visible instead of being reconstructed. **A literal that contains `'` goes in `"…"`** — never `'"'"'` or `'\''`, which are the shell's idiom, and an edit-program literal is not a shell string.
-
-A `<<` body is also an **address**, wherever an address goes — so `after << … >> insert << … >>` anchors past a whole block when no single line in it is worth naming, and beats a line number, which goes stale the moment anything above it moves. `before` takes the block's first line, `after` its last.
-
-Every address resolves against the file's **original** bytes before anything is written, so `delete 166 .. 178` means the lines you just read in `grep -n` however many lines another op inserts above them, ops go in any order, and a program that cannot resolve writes nothing and reports *every* stale address at once — its last line says so, counting the ops that did resolve, and every one of them is still to do. `replace` and `sub` default to `expect 1` — say `all` for a rename campaign. Preview with `tugtool file edit --preview`, which touches no bytes and no mtime and emits no receipt. `tugedit` is the same verb under its own name. The language is specified in [tuglaws/tugedit.md](tuglaws/tugedit.md).
-
-The rest of the verbs:
-
-```bash
-tugtool file edit --patch changes.diff          # a unified diff you already have; --patch - reads it from stdin
-tugtool file probe --patch p.diff -- just app-test at0287-….test.ts   # patch, run, restore
-tugtool file run -- cargo fmt -p tugedit-core   # run a rewriter, receipt what it moved
-```
-
-- **`edit`** is the whole of file editing from the shell: the program shape above for the shapes the interpreters were reached for — several literal pairs on one file, a count guard per pair, a block replaced by a block as a `patch` hunk, a region between two markers, the same rename across several files, a numeric line-range delete, a block appended, a span cut — and `--patch` for a diff you already hold. Either way it prints the same receipt, and a no-match exits non-zero rather than succeeding quietly.
-- **`probe`** is the patch → run → revert cycle in one command: it restores the bytes afterwards and records nothing, which is strictly better than doing it by hand (a hand-rolled probe leaves a spurious hint on the file it touched). Use it instead of `git checkout --` to revert, which would also destroy any uncommitted work already on those paths. It restores bytes only and **advances the mtime**, printing `TUG-FILE-RECEIPT: {"ops":[],"restored":[…]}` so the relay drops the bracket row that move would otherwise mint. A probe that rewound the mtime kept the ledger quiet by lying to the filesystem, and a source reading older than the artifact built from it is the one staleness direction cargo cannot see — so a build inside the probe used to leave stale artifacts behind a clean-looking tree. **The corollary still holds for anything else that puts bytes back**: if you revert by hand, `touch` the files, or the next `cargo build` will print `Finished` having compiled nothing.
-- **`run`** is for the tool that writes files you did not author: a formatter, a linter's `--fix`, a codegen step. `cargo fmt` names none of its files at all, so nothing can read it — `file run` watches the command instead, fingerprints the repo by content before and after, and receipts exactly what moved. A file the command merely touched is never claimed, and the command's own output and exit status pass straight through. Narrow it with `--scope <path>` when you know where the writes land.
-- `sed -i`, `perl -i`, and `ruby -i` are readable **when every file operand is a literal path**. With a glob or a variable they are denied by the PreToolUse gate and steered here — the gate denies only what the grammar proves it cannot resolve.
-- `rustfmt`, `prettier --write`, `eslint --fix`, and `biome` are readable on the same terms. A glob is *not* one: a formatter expands its own, so `'src/**/*.ts'` names a set even though the shell left it alone. Those, a bare directory, and `cargo fmt` are steered at `file run`. A `--check` run writes nothing and is never touched.
-
-If the edit is genuinely *computed* — a replacement each match decides for itself — run the program **read-only** to print the result, then put that output into a `write` or `replace` op. The read is a heredoc the gate never minds; the write is a receipt.
+- The grammar that decides whether a shell command can be attributed is `tugchanges-core::shell_ops` (`tugrust/crates/tugchanges-core/src/shell_ops.rs`), and the gate that denies the shapes it proves unreadable is `tugtool hook pre-tool-use`. The edit-program language is specified in [tuglaws/tugedit.md](tuglaws/tugedit.md).
+- The probe shape this repository reaches for is an app-test behind a patch: `tugtool file probe --patch p.diff -- just app-test at0287-….test.ts`.
+- **`file probe` advances the mtime, and the corollary is yours to keep.** A source reading older than the artifact built from it is the one staleness direction cargo cannot see, so a build inside a hand-rolled revert leaves stale artifacts behind a clean-looking tree. If you put bytes back by hand, `touch` the files, or the next `cargo build` prints `Finished` having compiled nothing.
 
 ## Tugdeck — Theme Token Files
 
@@ -150,15 +108,7 @@ Theme tokens live in `tugdeck/styles/themes/*.css` — `brio`/`nocturne`/`bravur
 
 ## AskUserQuestion — shape and affordances
 
-`AskUserQuestion`'s shape is fixed **upstream by Claude Code's own schema**, not by Tug: **1–4 questions per call, 2–4 options per question** (a hard minimum of 2 and maximum of 4 options). A call outside those bounds fails with an `InputValidationError` inside Claude Code *before* the request is ever forwarded to the Session card — so this is not a constraint Tug can relax by editing anything here.
-
-When generating an `AskUserQuestion` call:
-- Give each question **2–4 options**.
-- If you have more candidate choices, split them across multiple questions (up to 4 questions per call) — the per-question cap is real, the per-call question count gives you room.
-
-Two rows the terminal renders below the options — **`Type something`** (a free-text answer) and **`Chat about this`** (dismiss the questions and reply in prose) — are harness *affordances*, not options, and don't count against the 2–4 cap. On the answer side they come back as the free-text answer value and the optional top-level `response` field respectively. The Session card's `QuestionDialog` is where Tug renders these (see `chrome/session-question-dialog.tsx`).
-
-Tug-side handling: the `QuestionDialog` renders **any** number of options with no cap of its own — the 2–4 limit lives only in Claude Code upstream. If a call somehow exceeds 4 (e.g. a drifted or hand-crafted payload), `AskUserQuestionToolBlock` detects the `InputValidationError` and mounts a salvage path so the user can still answer. Overflow is therefore graceful, but generate within 2–4 so the round-trip isn't wasted.
+The shape — 1–4 questions per call, 2–4 options per question, fixed upstream by Claude Code's own schema — ships in `tugplug/ask-user-question.md` and rides every session's system prompt. What is true of this checkout alone is the Tug-side handling: the Session card's question dialog (`tugdeck/src/components/tugways/chrome/session-question-dialog.tsx`) renders any number of options with no cap of its own, and `AskUserQuestionToolBlock` (`tugdeck/src/components/tugways/cards/blocks/ask-user-question-tool-block.tsx`) detects the upstream `InputValidationError` and mounts a salvage path so an overflowing call can still be answered.
 
 ## Tugdeck — Tuglaws
 
