@@ -530,7 +530,8 @@ export interface CodeSessionState {
       | "wire_error"
       | "session_unknown"
       | "session_not_owned"
-      | "resume_failed";
+      | "resume_failed"
+      | "replay_stalled";
     message: string;
     at: number;
     /**
@@ -888,10 +889,65 @@ export interface CodeSessionState {
  *   dismisses on its own at this mark instead of hanging forever.
  *   Sized large enough to easily cover a normal cold boot's 5–10s
  *   wait while still bounding the worst case.
+ * - `REPLAY_SILENCE_DEADLINE_MS` — how long `phase === "replaying"` may
+ *   go without a wire frame before the card gives up on the bracket and
+ *   raises `lastError` on itself (see {@link replaySilenceEffect}). It
+ *   measures silence, never duration: every frame restarts it, and it is
+ *   re-armed *after* a frame's ingest, so the deck's own synchronous work
+ *   on a large `replay_batch` is never counted against it. What it has to
+ *   clear is therefore the longest wait for tugcode's *next* frame. Chosen
+ *   from `elapsed_ms` on `[dev::replay::complete]` across 3,907 recorded
+ *   replays — the whole bracket, so an upper bound on any gap inside one:
+ *   p99 579 ms, max 1,451 ms. 15 s is ten times the worst bracket ever
+ *   seen and still inside a user's patience for a modal that cannot be
+ *   dismissed.
  */
 export const REPLAY_SOFT_BUDGET_MS = 2000;
 export const REPLAY_TIMEOUT_DWELL_MS = 1500;
 export const REPLAY_PREFLIGHT_TIMEOUT_MS = 12_000;
+export const REPLAY_SILENCE_DEADLINE_MS = 15_000;
+
+/** Copy for the `replay_stalled` error the silence deadline raises. */
+export const REPLAY_STALLED_MESSAGE =
+  "The session stopped responding while it was being restored.";
+
+/**
+ * The silence deadline's arming rule, as a pure function of one
+ * dispatch: the phase before it, the phase after it, and whether the
+ * event came off the wire.
+ *
+ * - entering `replaying` arms the timer;
+ * - a wire frame ingested while `replaying` restarts it;
+ * - leaving `replaying` — `replay_complete`, an error, the tick itself —
+ *   disarms it;
+ * - anything else (a local action or a timer tick inside the window, any
+ *   event outside it) leaves it alone, so only evidence that the relay is
+ *   still talking can buy more time.
+ *
+ * An event-armed timer on the thing being watched, not a poll. It depends
+ * on no frame arriving: the case it exists for is the one where tugcast
+ * never says anything again.
+ */
+export function replaySilenceEffect(
+  prevPhase: CodeSessionState["phase"],
+  nextPhase: CodeSessionState["phase"],
+  fromWire: boolean,
+): Effect | null {
+  if (nextPhase !== "replaying") {
+    return prevPhase === "replaying"
+      ? { kind: "cancel_timer", name: "replay_silence" }
+      : null;
+  }
+  if (prevPhase !== "replaying" || fromWire) {
+    return {
+      kind: "schedule_timer",
+      name: "replay_silence",
+      ms: REPLAY_SILENCE_DEADLINE_MS,
+      fire: { type: "tick_replay_silence" },
+    };
+  }
+  return null;
+}
 
 /** Build the initial state for a freshly constructed store. */
 export function createInitialState(
@@ -5877,6 +5933,54 @@ function handleTickPreflightDone(
   };
 }
 
+/**
+ * `tick_replay_silence` — `REPLAY_SILENCE_DEADLINE_MS` passed inside a
+ * replay bracket with no wire frame. The bracket is abandoned: the card
+ * errors on itself, which drops it out of the app-modal restore gate
+ * (`deriveColdRestoreActive` is false under any `lastError`) and mounts
+ * the body so the banner shows. Whatever the bracket had staged goes with
+ * it — a half-built cycle in scratch, a load-previous batch that will
+ * never be flushed. Turns the bracket already committed stay.
+ *
+ * Dropped outside `replaying`: the timer is cancelled on phase exit, and
+ * this guards the stale tick that races the cancel.
+ */
+function handleTickReplaySilence(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (state.phase !== "replaying") {
+    return { state, effects: [] };
+  }
+  const effects: Effect[] = [{ kind: "cancel_timer", name: "soft_budget" }];
+  if (state.replayPrependActive) {
+    effects.push({ kind: "discard-prepend" });
+  }
+  return {
+    state: {
+      ...state,
+      phase: "errored",
+      activeMsgId: null,
+      scratch: new Map(),
+      toolUseStartedAt: new Map(),
+      pendingApproval: null,
+      pendingQuestion: null,
+      prevPhase: null,
+      pendingTurn: null,
+      wakeTrigger: null,
+      replayPrependActive: false,
+      replayPreflightActive: false,
+      replaySoftBudgetElapsed: false,
+      replayTimeoutDwellActive: false,
+      lastError: {
+        cause: "replay_stalled",
+        message: REPLAY_STALLED_MESSAGE,
+        at: Date.now(),
+      },
+    },
+    effects,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Snapshot derivation helpers ([D07])
 // ---------------------------------------------------------------------------
@@ -6624,6 +6728,8 @@ export function reduce(
       return handleTickTimeoutDwellDone(state);
     case "tick_preflight_done":
       return handleTickPreflightDone(state);
+    case "tick_replay_silence":
+      return handleTickReplaySilence(state);
     case "prompt_anchor":
       return handlePromptAnchor(state, event);
     case "rewind_preview_result":

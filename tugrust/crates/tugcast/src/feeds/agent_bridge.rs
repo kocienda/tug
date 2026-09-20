@@ -16,8 +16,10 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use futures::FutureExt;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines};
 use tokio::process::Command;
 use tokio::sync::{Mutex, broadcast, mpsc};
@@ -600,7 +602,11 @@ pub async fn run_session_bridge(
         // `crash_budget_exhausted`. Probe on respawn and surface an actionable
         // auth state instead; a mid-session logout is caught on the next
         // respawn, exactly as before.
-        let probe_auth = is_respawn;
+        //
+        // Not when the budget is already spent, though: that iteration spawns
+        // nothing, so there is no instant exit left to explain, and the
+        // verdict below is the same whoever is logged in.
+        let probe_auth = is_respawn && !ledger_entry.lock().await.crash_budget.is_exhausted();
         is_respawn = true;
         let auth_detail = if probe_auth {
             match crate::feeds::claude_auth::probe().await {
@@ -742,7 +748,7 @@ pub async fn run_session_bridge(
 
         // Run one relay iteration.
         let lines = BufReader::new(child.stdout).lines();
-        let outcome = relay_session_io(
+        let (outcome, relay_panic) = run_relay_contained(
             &tug_session_id,
             &ledger_entry,
             &mut input_rx,
@@ -783,6 +789,11 @@ pub async fn run_session_bridge(
             // coming back from one that is not.
             entry.child_gone_at = Some(std::time::Instant::now());
             entry.turn_active = false;
+            // No relay, no bracket. The in-band close above settles the
+            // count for a merger still working through its queue; this
+            // settles it for one that had already counted the open, and for
+            // a bridge that ends here and never respawns.
+            entry.replay_brackets_open = 0;
             // Whatever it had backgrounded died with it; a job that will never
             // report must not leave the session permanently unfinished. That
             // covers the provisional `launch:` entries too, and for the same
@@ -813,7 +824,11 @@ pub async fn run_session_bridge(
                 // flushed after stdout closed, then snapshot the tail as the
                 // failure reason for a possible budget exhaustion next round.
                 sleep(STDERR_DRAIN_GRACE).await;
-                if let Ok(buf) = stderr_tail.lock() {
+                if let Some(panic) = relay_panic {
+                    // The relay died, not tugcode: its stderr has nothing to
+                    // say about why. The panic is the failure reason.
+                    last_failure_reason = Some(format!("bridge {panic}"));
+                } else if let Ok(buf) = stderr_tail.lock() {
                     if !buf.is_empty() {
                         last_failure_reason =
                             Some(buf.iter().cloned().collect::<Vec<_>>().join("\n"));
@@ -872,6 +887,119 @@ pub async fn run_session_bridge(
             }
         }
     }
+}
+
+/// How long a replay bracket may stay open before the relay declares it
+/// wedged, forces live capture back on, and closes the bracket itself (the
+/// watchdog arm of the relay's `select!`). A real replay completes in
+/// milliseconds-to-seconds; one open this long is not coming back.
+pub(crate) const REPLAY_BRACKET_DEADLINE: Duration = Duration::from_secs(120);
+
+/// A `replay_complete` the relay writes itself, for a bracket tugcode will
+/// not close. The deck's phase and the merger's bracket counter both end a
+/// bracket on this frame and on nothing else, so every way a bracket can be
+/// orphaned closes through it rather than each reader growing a private
+/// timeout: `replay_timeout` when the watchdog fires on a bracket left open,
+/// `replay_exception` — the kind tugcode uses for a bracket that ended by
+/// throwing — when the relay itself ends inside one.
+///
+/// It travels the merger channel, behind the `replay_started` it answers, so
+/// the two are counted in order however far behind the merger is running.
+fn synthetic_replay_complete(tug_session_id: &TugSessionId, kind: &str, message: &str) -> Frame {
+    let line = serde_json::json!({
+        "type": "replay_complete",
+        "count": 0,
+        "error": { "kind": kind, "message": message },
+    })
+    .to_string();
+    Frame::new(
+        FeedId::CODE_OUTPUT,
+        splice_tug_session_id(line.as_bytes(), tug_session_id.as_str()),
+    )
+}
+
+/// One relay iteration with its unwind caught at the boundary.
+///
+/// A panic anywhere under [`relay_session_io`] used to unwind the whole
+/// bridge task, whose `JoinHandle` nobody holds: no outcome, no crash-budget
+/// tick, no respawn, no `SESSION_STATE` frame, and a card waiting forever on
+/// a `replay_complete` that could no longer come. Caught here instead, a
+/// panic is a [`RelayOutcome::Crashed`] like any other relay death — the
+/// caller ticks the budget, retries, and at exhaustion publishes `errored`
+/// with the panic as its reason — and a bracket the relay had opened is
+/// closed with an error frame before anything else happens.
+///
+/// The second value is the panic's description when there was one, so the
+/// caller can name it as the failure reason rather than reading a stderr
+/// tail that belongs to a child that did nothing wrong.
+///
+/// `AssertUnwindSafe`: everything the relay borrows is either behind a tokio
+/// `Mutex` (no poisoning; a guard held across the panic drops with the
+/// unwind) or a channel handle, and the caller discards this iteration's
+/// child either way.
+#[allow(clippy::too_many_arguments)]
+async fn run_relay_contained(
+    tug_session_id: &TugSessionId,
+    ledger_entry: &Arc<Mutex<LedgerEntry>>,
+    input_rx: &mut mpsc::Receiver<Frame>,
+    merger_tx: &mpsc::Sender<Frame>,
+    state_tx: &broadcast::Sender<Frame>,
+    control_tx: Option<&broadcast::Sender<Frame>>,
+    stdin: Box<dyn AsyncWrite + Send + Unpin>,
+    lines: Lines<BufReader<Box<dyn AsyncRead + Send + Unpin>>>,
+    project_dir: &str,
+    sessions_recorder: &dyn SessionsRecorder,
+    session_ledger: Option<&crate::session_ledger::SessionLedger>,
+    changeset_bumper: &crate::feeds::changeset::ChangesetBumper,
+    cancel: &CancellationToken,
+) -> (RelayOutcome, Option<String>) {
+    let bracket_open = AtomicBool::new(false);
+    let caught = std::panic::AssertUnwindSafe(relay_session_io_tracked(
+        tug_session_id,
+        ledger_entry,
+        input_rx,
+        merger_tx,
+        state_tx,
+        control_tx,
+        stdin,
+        lines,
+        project_dir,
+        sessions_recorder,
+        session_ledger,
+        changeset_bumper,
+        cancel,
+        &bracket_open,
+    ))
+    .catch_unwind()
+    .await;
+    let mid_bracket = bracket_open.load(Ordering::Relaxed);
+    let (outcome, panic) = match caught {
+        Ok(outcome) => (outcome, None),
+        Err(payload) => {
+            // Before any await: the hook's report is thread-local.
+            let panic = crate::panic_hook::describe_caught(payload.as_ref());
+            error!(
+                session = %tug_session_id,
+                mid_bracket,
+                "session relay {panic}; treating as a crash"
+            );
+            (RelayOutcome::Crashed, Some(panic))
+        }
+    };
+    // However the relay ended — tugcode crashed, the relay panicked, the
+    // session was cancelled — a bracket it left open has no one else to close
+    // it. A send that fails means the merger is gone, and the counter with it.
+    if mid_bracket {
+        let close = synthetic_replay_complete(
+            tug_session_id,
+            "replay_exception",
+            "The session stopped unexpectedly during the restore.",
+        );
+        if merger_tx.send(close).await.is_err() {
+            debug!(session = %tug_session_id, "merger receiver closed before the bracket close");
+        }
+    }
+    (outcome, panic)
 }
 
 /// Resolve (and cache) the canonical repo root for the canonical
@@ -1395,8 +1523,56 @@ async fn mint_receipt_rows(
 ///
 /// Generic over the stdin/stdout concrete types so tests can drive this
 /// directly with [`tokio::io::duplex`] streams instead of a real subprocess.
+///
+/// This spelling is the tests' entry point. The bridge runs the same body
+/// through [`run_relay_contained`], which also needs to see the bracket flag.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub async fn relay_session_io(
+    tug_session_id: &TugSessionId,
+    ledger_entry: &Arc<Mutex<LedgerEntry>>,
+    input_rx: &mut mpsc::Receiver<Frame>,
+    merger_tx: &mpsc::Sender<Frame>,
+    state_tx: &broadcast::Sender<Frame>,
+    control_tx: Option<&broadcast::Sender<Frame>>,
+    stdin: Box<dyn AsyncWrite + Send + Unpin>,
+    lines: Lines<BufReader<Box<dyn AsyncRead + Send + Unpin>>>,
+    project_dir: &str,
+    sessions_recorder: &dyn SessionsRecorder,
+    session_ledger: Option<&crate::session_ledger::SessionLedger>,
+    changeset_bumper: &crate::feeds::changeset::ChangesetBumper,
+    cancel: &CancellationToken,
+) -> RelayOutcome {
+    let bracket_open = AtomicBool::new(false);
+    relay_session_io_tracked(
+        tug_session_id,
+        ledger_entry,
+        input_rx,
+        merger_tx,
+        state_tx,
+        control_tx,
+        stdin,
+        lines,
+        project_dir,
+        sessions_recorder,
+        session_ledger,
+        changeset_bumper,
+        cancel,
+        &bracket_open,
+    )
+    .await
+}
+
+/// [`relay_session_io`], publishing whether a replay bracket is open.
+///
+/// `bracket_open` mirrors the relay's own `in_replay` — true from the
+/// `replay_started` it forwards to the `replay_complete` that closes it. It
+/// lives outside the future so it outlives it: when the relay unwinds
+/// mid-bracket, its locals are gone, and the flag is how
+/// [`run_relay_contained`] knows a bracket is still open downstream and owes
+/// a close.
+#[allow(clippy::too_many_arguments)]
+async fn relay_session_io_tracked(
     tug_session_id: &TugSessionId,
     ledger_entry: &Arc<Mutex<LedgerEntry>>,
     input_rx: &mut mpsc::Receiver<Frame>,
@@ -1418,16 +1594,13 @@ pub async fn relay_session_io(
     // workspace registry.
     changeset_bumper: &crate::feeds::changeset::ChangesetBumper,
     cancel: &CancellationToken,
+    bracket_open: &AtomicBool,
 ) -> RelayOutcome {
     // Captured when tugcode emits `resume_failed`. tugcode then
     // exits cleanly (no silent fresh-spawn fallback); we promote the
     // subsequent EOF from `Crashed` (would retry) to `ResumeFailed`
     // (terminal).
     let mut resume_failed: Option<(String, String)> = None;
-
-    // How long a replay bracket may stay open before the relay declares it
-    // wedged and forces live capture back on (see the watchdog below).
-    const REPLAY_BRACKET_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
 
     // Replay-window flag. Set when tugcode emits `replay_started`,
     // cleared on `replay_complete`. Gates `record_turn` so replayed
@@ -1551,6 +1724,15 @@ pub async fn relay_session_io(
         }
     }
 
+    // Replay-bracket watchdog. Armed at `replay_started`, disarmed at
+    // `replay_complete` (the arm below is guarded on `in_replay`), and its own
+    // arm of the select — so it fires on the clock whether or not tugcode
+    // ever writes another line. The case it exists for is a bracket opened
+    // and never closed, which is exactly the case in which no further line
+    // arrives to run a check that lived in the line arm.
+    let replay_deadline = sleep(REPLAY_BRACKET_DEADLINE);
+    tokio::pin!(replay_deadline);
+
     // Relay loop.
     loop {
         tokio::select! {
@@ -1558,6 +1740,35 @@ pub async fn relay_session_io(
             _ = cancel.cancelled() => {
                 info!(session = %tug_session_id, "relay cancelled");
                 return RelayOutcome::Cancelled;
+            }
+            // tugcode guarantees a `replay_complete` for every
+            // `replay_started`, but a latched bracket is too expensive to
+            // leave to one process's good behavior: while `in_replay` is stuck
+            // true the relay opens no Bash brackets, never closes the turn
+            // bracket, and mislabels exact rows — a standing attribution
+            // outage (the 2026-07-25 blackout class) — and downstream the
+            // deck sits in `replaying` and the merger's counter sits above
+            // zero. Force live mode, say so, and close the bracket for both of
+            // them through the frame they already end one on.
+            _ = &mut replay_deadline, if in_replay => {
+                warn!(
+                    session = %tug_session_id,
+                    open_secs = REPLAY_BRACKET_DEADLINE.as_secs(),
+                    "replay bracket open past deadline; forcing live capture and closing it (bash/turn attribution was suppressed while open)"
+                );
+                in_replay = false;
+                bracket_open.store(false, Ordering::Relaxed);
+                replay_telemetry = None;
+                replay_forward_started = None;
+                let close = synthetic_replay_complete(
+                    tug_session_id,
+                    "replay_timeout",
+                    "The restore stopped making progress.",
+                );
+                if merger_tx.send(close).await.is_err() {
+                    warn!(session = %tug_session_id, "merger receiver closed; ending relay");
+                    return RelayOutcome::Cancelled;
+                }
             }
             line_result = lines.next_line() => {
                 match line_result {
@@ -1967,34 +2178,12 @@ pub async fn relay_session_io(
                         // events between those markers are persisted
                         // history, not new turns, and must not re-bump
                         // the ledger's `turn_count`.
-                        // Replay-bracket watchdog. tugcode now guarantees a
-                        // `replay_complete` for every `replay_started` (the
-                        // bracket close is exception-proofed), but a latched
-                        // bracket is too expensive to leave to one process's
-                        // good behavior: while `in_replay` is stuck true the
-                        // relay opens no Bash brackets, never closes the turn
-                        // bracket, and mislabels exact rows — a standing
-                        // attribution outage (the 2026-07-25 blackout class).
-                        // A real replay completes in milliseconds-to-seconds;
-                        // one open this long is wedged. Force live mode and
-                        // say so.
-                        if in_replay {
-                            if let Some(t0) = replay_forward_started {
-                                if t0.elapsed() > REPLAY_BRACKET_DEADLINE {
-                                    warn!(
-                                        session = %tug_session_id,
-                                        open_secs = t0.elapsed().as_secs(),
-                                        "replay bracket open past deadline; forcing live capture (bash/turn attribution was suppressed while open)"
-                                    );
-                                    in_replay = false;
-                                    replay_telemetry = None;
-                                    replay_forward_started = None;
-                                }
-                            }
-                        }
-
                         if line.contains("\"type\":\"replay_started\"") {
                             in_replay = true;
+                            bracket_open.store(true, Ordering::Relaxed);
+                            replay_deadline
+                                .as_mut()
+                                .reset(tokio::time::Instant::now() + REPLAY_BRACKET_DEADLINE);
                             replay_forward_started = Some(std::time::Instant::now());
                             replay_frames_forwarded = 0;
                             // Lazily populate the per-replay-window
@@ -2142,6 +2331,7 @@ pub async fn relay_session_io(
                         let mut replay_complete_emit: Option<Vec<u8>> = None;
                         if line.contains("\"type\":\"replay_complete\"") {
                             in_replay = false;
+                            bracket_open.store(false, Ordering::Relaxed);
                             replay_telemetry = None;
                             if let Some(t0) = replay_forward_started.take() {
                                 tracing::info!(

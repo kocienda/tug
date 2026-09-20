@@ -1379,7 +1379,8 @@ export interface ReplayCompleteEvent {
       | "jsonl_missing"
       | "jsonl_unreadable"
       | "jsonl_malformed"
-      | "replay_timeout";
+      | "replay_timeout"
+      | "replay_exception";
     message: string;
   };
   /**
@@ -1469,6 +1470,16 @@ export interface TickPreflightDoneEvent {
   type: "tick_preflight_done";
 }
 
+/**
+ * Internal action dispatched by the replay silence timer
+ * (`REPLAY_SILENCE_DEADLINE_MS` after the last wire frame inside a
+ * replay bracket). The reducer abandons the bracket and raises a
+ * `replay_stalled` `lastError`. Dropped outside the `replaying` phase.
+ */
+export interface TickReplaySilenceEvent {
+  type: "tick_replay_silence";
+}
+
 /** Discriminated union of events the reducer accepts. */
 export type CodeSessionEvent =
   | SendActionEvent
@@ -1531,6 +1542,7 @@ export type CodeSessionEvent =
   | TickSoftBudgetEvent
   | TickTimeoutDwellDoneEvent
   | TickPreflightDoneEvent
+  | TickReplaySilenceEvent
   | PromptAnchorEvent
   | RewindPreviewResultEvent
   | RewindResultEvent

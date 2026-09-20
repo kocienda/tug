@@ -24,6 +24,7 @@ mod host;
 mod ink_backfill;
 mod jots;
 mod ledger_integrity;
+mod panic_hook;
 /// Crate-root path utilities (firmlink/synthetic/symlink resolution). Lives
 /// at the root, not under `feeds/`, because both `feeds` (file watching) and
 /// `session_ledger` (storage) depend on it — keeping it a leaf avoids a
@@ -85,6 +86,11 @@ use crate::session_ledger::SessionLedger;
 #[tokio::main]
 async fn main() {
     let _log_guard = tuglog::init("tugcast");
+
+    // Every panic from here on reaches `tugcast.log`, whichever thread or
+    // task it happens on. Installed straight after tracing so nothing the
+    // server does runs without it.
+    panic_hook::install();
 
     // Write the per-instance bundle-path marker. When Swift launched
     // us it passed TUG_INSTANCE_ID and TUG_BUNDLE_PATH; the marker

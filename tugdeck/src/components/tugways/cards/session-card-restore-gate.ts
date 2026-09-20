@@ -46,13 +46,19 @@ export interface ColdRestoreSignals {
  * It spans the cold-boot preflight beat (`replayPreflightActive`,
  * opened by `notifyResumeBindingLanded` and cleared by the first
  * `replay_started` / outcome / 12s tick) and the `phase === "replaying"`
- * window that follows, gated to `sessionMode === "resume"` so a fresh
+ * window that follows (closed by `replay_complete`, or by the silence
+ * deadline below), gated to `sessionMode === "resume"` so a fresh
  * new-mode binding's brief JSONL-missing round-trip is not gated.
  *
  * A non-null `lastError` forces the predicate false: any error must
  * mount the body so its error banner shows and `useSessionCardObserver`
  * can route a `resume_failed` back to the picker — the placeholder
  * never swallows a failure.
+ *
+ * That clause is also what bounds the `replaying` window. Nothing on the
+ * wire is guaranteed to end it, so the store ends it on silence: past
+ * `REPLAY_SILENCE_DEADLINE_MS` with no frame it raises a `replay_stalled`
+ * `lastError`, and the predicate falls here.
  */
 export function deriveColdRestoreActive(s: ColdRestoreSignals): boolean {
   if (s.lastError !== null) return false;

@@ -117,11 +117,14 @@ export interface DiscardPrependEffect {
  * reducer. The reducer is pure — only the store wrapper sees real
  * `setTimeout` calls.
  *
- * The three names used today are `"preflight"` (cleared by the first
+ * The four names used today are `"preflight"` (cleared by the first
  * of `replay_started` / `replay_complete` / `transport_close` /
  * 12s tick), `"soft_budget"` (cleared by `replay_started` /
- * `replay_complete`), and `"timeout_dwell"` (cleared by the dwell
- * tick itself or by `replay_started` opening the next window).
+ * `replay_complete`), `"timeout_dwell"` (cleared by the dwell
+ * tick itself or by `replay_started` opening the next window), and
+ * `"replay_silence"` (restarted by every wire frame inside a replay
+ * bracket, cleared on leaving it — armed by the store wrapper through
+ * `replaySilenceEffect`, since only the wrapper knows a frame's origin).
  */
 export interface ScheduleTimerEffect {
   kind: "schedule_timer";

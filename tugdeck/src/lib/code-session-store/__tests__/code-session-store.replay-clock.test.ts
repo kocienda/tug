@@ -14,6 +14,10 @@
  *     replay_timeout}`, closes `REPLAY_TIMEOUT_DWELL_MS` (1.5s)
  *     later or on the next `replay_started`.
  *
+ * and one deadline with no field of its own: a replay bracket that
+ * hears nothing from the wire for `REPLAY_SILENCE_DEADLINE_MS` is
+ * abandoned with a `replay_stalled` `lastError`.
+ *
  * Tests use an injected `TimerSource` so the store can be advanced
  * deterministically without racing real wall-clock delays. Each
  * scheduled timer lands in a captured table keyed by the order of
@@ -29,7 +33,9 @@ import { describe, it, expect } from "bun:test";
 import {
   CodeSessionStore,
   REPLAY_PREFLIGHT_TIMEOUT_MS,
+  REPLAY_SILENCE_DEADLINE_MS,
   REPLAY_SOFT_BUDGET_MS,
+  REPLAY_STALLED_MESSAGE,
   REPLAY_TIMEOUT_DWELL_MS,
   type TimerSource,
 } from "@/lib/code-session-store";
@@ -38,6 +44,9 @@ import type { TugConnection } from "@/connection";
 import { TestFrameChannel } from "@/lib/code-session-store/testing/mock-feed-store";
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 import { FeedId } from "@/protocol";
+import { replaySilenceEffect } from "@/lib/code-session-store/reducer";
+import type { Effect } from "@/lib/code-session-store/effects";
+import { deriveColdRestoreActive } from "@/components/tugways/cards/session-card-restore-gate";
 
 const TUG = FIXTURE_IDS.TUG_SESSION_ID;
 const IPC_VERSION = 2;
@@ -394,5 +403,110 @@ describe("CodeSessionStore — dispose cancels all replay-clock timers", () => {
     store.dispose();
     timers.advance(REPLAY_PREFLIGHT_TIMEOUT_MS * 2);
     expect(notifyCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// replay silence deadline
+// ---------------------------------------------------------------------------
+
+describe("replaySilenceEffect — the arming rule", () => {
+  const schedule: Effect = {
+    kind: "schedule_timer",
+    name: "replay_silence",
+    ms: REPLAY_SILENCE_DEADLINE_MS,
+    fire: { type: "tick_replay_silence" },
+  };
+  const cancel: Effect = { kind: "cancel_timer", name: "replay_silence" };
+
+  it("arms on entering replaying, from the wire or not", () => {
+    expect(replaySilenceEffect("idle", "replaying", true)).toEqual(schedule);
+    expect(replaySilenceEffect("errored", "replaying", false)).toEqual(schedule);
+  });
+
+  it("restarts on a wire frame inside the bracket, and only on one", () => {
+    expect(replaySilenceEffect("replaying", "replaying", true)).toEqual(schedule);
+    // A local action or a timer tick is not the relay talking.
+    expect(replaySilenceEffect("replaying", "replaying", false)).toBeNull();
+  });
+
+  it("disarms on leaving replaying by any exit", () => {
+    expect(replaySilenceEffect("replaying", "idle", true)).toEqual(cancel);
+    expect(replaySilenceEffect("replaying", "streaming", true)).toEqual(cancel);
+    expect(replaySilenceEffect("replaying", "errored", false)).toEqual(cancel);
+  });
+
+  it("is silent outside a bracket", () => {
+    expect(replaySilenceEffect("idle", "idle", true)).toBeNull();
+    expect(replaySilenceEffect("idle", "streaming", false)).toBeNull();
+  });
+});
+
+describe("CodeSessionStore — replay silence deadline", () => {
+  const gateSignals = (store: CodeSessionStore) => {
+    const snap = store.getSnapshot();
+    return {
+      phase: snap.phase,
+      sessionMode: snap.sessionMode,
+      replayPreflightActive: snap.replayPreflightActive,
+      lastError: snap.lastError,
+    };
+  };
+
+  it("a bracket that opens and then hears nothing errors the card and drops it out of the restore gate", () => {
+    const { store, conn, timers } = makeStore();
+    emit(conn, replayStarted());
+    expect(deriveColdRestoreActive(gateSignals(store))).toBe(true);
+
+    timers.advance(REPLAY_SILENCE_DEADLINE_MS - 1);
+    expect(store.getSnapshot().phase).toBe("replaying");
+    expect(deriveColdRestoreActive(gateSignals(store))).toBe(true);
+
+    timers.advance(1);
+    const snap = store.getSnapshot();
+    expect(snap.phase).toBe("errored");
+    expect(snap.lastError?.cause).toBe("replay_stalled");
+    expect(snap.lastError?.message).toBe(REPLAY_STALLED_MESSAGE);
+    expect(snap.replaySoftBudgetElapsed).toBe(false);
+    expect(deriveColdRestoreActive(gateSignals(store))).toBe(false);
+    // Nothing is left running on the abandoned bracket.
+    expect(timers.pendingCount()).toBe(0);
+  });
+
+  it("measures silence, not duration: every frame ingested restarts it", () => {
+    const { store, conn, timers } = makeStore();
+    emit(conn, replayStarted());
+    // Three times the deadline in total, never a full deadline of quiet.
+    for (let i = 0; i < 6; i += 1) {
+      timers.advance(REPLAY_SILENCE_DEADLINE_MS / 2);
+      emit(conn, {
+        type: "add_user_message",
+        text: `turn ${i}`,
+        ipc_version: IPC_VERSION,
+      });
+      expect(store.getSnapshot().phase).toBe("replaying");
+    }
+    // …and then the frames stop.
+    timers.advance(REPLAY_SILENCE_DEADLINE_MS);
+    expect(store.getSnapshot().lastError?.cause).toBe("replay_stalled");
+  });
+
+  it("the soft-budget tick inside the bracket does not buy more time", () => {
+    const { store, conn, timers } = makeStore();
+    emit(conn, replayStarted());
+    timers.advance(REPLAY_SOFT_BUDGET_MS);
+    expect(store.getSnapshot().replaySoftBudgetElapsed).toBe(true);
+    timers.advance(REPLAY_SILENCE_DEADLINE_MS - REPLAY_SOFT_BUDGET_MS);
+    expect(store.getSnapshot().lastError?.cause).toBe("replay_stalled");
+  });
+
+  it("replay_complete disarms it", () => {
+    const { store, conn, timers } = makeStore();
+    emit(conn, replayStarted());
+    emit(conn, replayComplete(0));
+    expect(timers.pendingCount()).toBe(0);
+    timers.advance(REPLAY_SILENCE_DEADLINE_MS * 2);
+    expect(store.getSnapshot().phase).toBe("idle");
+    expect(store.getSnapshot().lastError).toBeNull();
   });
 });

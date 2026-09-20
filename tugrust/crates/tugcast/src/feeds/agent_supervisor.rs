@@ -28,12 +28,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
+use futures::FutureExt;
 use thiserror::Error;
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 
 use super::agent_bridge::{
@@ -586,16 +587,22 @@ pub struct LedgerEntry {
     /// [Step 5.10](arc/tugplan-dev-mid-turn-replay.md#step-5) is the
     /// post-Step-5.9 fix for the HMR-mid-stream regression.
     ///
-    /// Counter (not bool) because a bridge that dies between emitting
-    /// `replay_started` and emitting `replay_complete` (kill -9, panic,
-    /// OOM before the `finally` runs) would, with a bool, leave the gate
-    /// stuck-open forever. Using `u32::saturating_sub(1)` on
-    /// `replay_complete` means stray closes are no-ops rather than
-    /// underflowing into an enormous u32. tugcode's `runReplay`
-    /// re-entrancy guard prevents legitimate overlapping brackets, so
-    /// in healthy operation the counter is 0 between brackets and 1
-    /// during a bracket; the counter shape is purely defense-in-depth
-    /// against bridge-crash-mid-replay leaving stale state.
+    /// It cannot latch. Every bracket is closed by a `replay_complete`,
+    /// and where tugcode will not send one the relay does: its watchdog
+    /// closes a bracket left open past `REPLAY_BRACKET_DEADLINE`, and a
+    /// relay that ends inside one — tugcode crashed, the relay panicked,
+    /// the session was cancelled — closes it on the way out. Behind both,
+    /// every end of a relay zeroes the counter outright, as does a bridge
+    /// task that unwinds, so a dead bridge never leaves a count for the
+    /// next one to nest into.
+    ///
+    /// Counter (not bool) so a stray close is a no-op:
+    /// `u32::saturating_sub(1)` at zero stays zero, where a bool would
+    /// need every close to be matched. The relay's own close and a late
+    /// one from tugcode can both arrive for one bracket, and that is the
+    /// case the shape is for. tugcode's `runReplay` re-entrancy guard
+    /// prevents legitimate overlapping brackets, so in healthy operation
+    /// the counter is 0 between brackets and 1 during one.
     pub replay_brackets_open: u32,
     /// The resident context window after this session's latest turn, in
     /// tokens — the four-token sum of `cost_update.usage`, which tugcode
@@ -11688,17 +11695,23 @@ impl AgentSupervisor {
     /// smoke surfaced this. The gate suppresses the intercept while the
     /// counter is non-zero.
     ///
-    /// Counter (not bool) for defense-in-depth against bridge-crash-mid-
-    /// replay: a bridge that emits `replay_started` and dies (kill -9,
-    /// panic, OOM before `runReplay`'s `finally` runs) would, with a
-    /// bool, leave the gate stuck-open forever and silently drop every
-    /// future live journal-pop. The counter shape doesn't fix that
-    /// directly — a stuck-non-zero counter has the same effect — but it
-    /// makes a stray `replay_complete` on a closed bracket a no-op
-    /// (saturating-decrement at 0) instead of underflowing a bool into
-    /// "open" state. tugcode's `runReplay` re-entrancy guard prevents
-    /// legitimate overlapping brackets, so in healthy operation the
-    /// counter is 0 between brackets and 1 during a bracket.
+    /// The gate cannot stick. A bracket whose `replay_complete` tugcode
+    /// never sends — it went quiet, it died, the relay reading it died —
+    /// used to leave the counter above zero for good, silently dropping
+    /// every later live journal-pop, turn-end edge, and context-window
+    /// retire for the session. Now the relay closes every such bracket
+    /// itself, in band, with a synthetic `replay_complete { error }` that
+    /// arrives here like any other and is counted like any other; and
+    /// every end of a relay zeroes the counter as well (see
+    /// [`LedgerEntry::replay_brackets_open`]). So the frame this function
+    /// already understands is the only mechanism, and it always comes.
+    ///
+    /// Counter (not bool) so that a stray `replay_complete` on a closed
+    /// bracket — the relay's close followed by tugcode's late one — is a
+    /// no-op (saturating-decrement at 0). tugcode's `runReplay`
+    /// re-entrancy guard prevents legitimate overlapping brackets, so in
+    /// healthy operation the counter is 0 between brackets and 1 during
+    /// a bracket.
     async fn process_outbound_frame_journal_gate(&self, session_id: &TugSessionId, frame: &Frame) {
         let Some(inspected) =
             super::payload_inspector::InspectedPayload::from_slice(&frame.payload)
@@ -11901,16 +11914,12 @@ impl AgentSupervisor {
         // cancellation token. Do **not** drain the queue or transition to
         // Live — that's the bridge's job on `session_init` (see above).
         //
-        // Reset `replay_brackets_open` to zero on every bridge respawn.
-        // The counter tracks `replay_started` / `replay_complete` markers
-        // emitted by the bridge's `runReplay`. A bridge that died between
-        // emitting `replay_started` and `replay_complete` would leave
-        // the counter stuck non-zero — the new bridge's brackets would
-        // then nest into the stale outer bracket and the gate would
-        // skip live `turn_complete`s indefinitely. Reset here closes
-        // the stuck-state risk: each fresh bridge starts with a clean
-        // gate, regardless of whether the previous bridge crashed
-        // mid-replay.
+        // A fresh bridge starts from a zero bracket count. The teardown of
+        // the one before it already left zero — every end of a relay does,
+        // and so does a bridge task that unwinds — so this is the second of
+        // two hands on the same fact rather than the only one: it costs
+        // nothing, and it holds even for an entry that reached here by a
+        // path no bridge ever tore down.
         let cancel_for_bridge = {
             let mut entry = entry_arc.lock().await;
             if entry.spawn_state != SpawnState::Spawning {
@@ -11960,8 +11969,13 @@ impl AgentSupervisor {
         let session_ledger_for_bridge = self.session_ledger.clone();
         let changeset_bumper_for_bridge =
             crate::feeds::changeset::ChangesetBumper::new(Arc::clone(&self.registry));
+        // Kept outside the bridge future so they survive its unwind.
+        let panic_session_id = tug_session_id.clone();
+        let panic_entry = entry_arc.clone();
+        let panic_state_tx = state_tx.clone();
+        let panic_recorder = self.sessions_recorder.clone();
         tokio::spawn(async move {
-            run_session_bridge(
+            let bridge = run_session_bridge(
                 tug_session_id_owned,
                 entry_arc_bridge,
                 input_rx,
@@ -11977,8 +11991,25 @@ impl AgentSupervisor {
                 changeset_bumper_for_bridge,
                 cancel_for_bridge,
                 DEFAULT_RETRY_DELAY,
-            )
-            .await;
+            );
+            // The handle to this task is dropped, so an unwind out of the
+            // bridge would end the session in silence. The relay — where a
+            // panic is likeliest, since it parses whatever a transcript
+            // holds — contains its own and retries through the crash budget.
+            // This is the boundary for everything else in the bridge: there
+            // is no loop left to retry in, so the session ends `errored`,
+            // out loud.
+            if let Err(payload) = std::panic::AssertUnwindSafe(bridge).catch_unwind().await {
+                let panic = crate::panic_hook::describe_caught(payload.as_ref());
+                end_session_after_bridge_panic(
+                    &panic_session_id,
+                    &panic_entry,
+                    &panic_state_tx,
+                    panic_recorder.as_ref(),
+                    &panic,
+                )
+                .await;
+            }
         });
     }
 
@@ -12391,6 +12422,48 @@ pub(crate) fn test_minimal_supervisor_with_recorder_reading(
         cancel,
     );
     (Arc::new(sup), register_rx)
+}
+
+/// Terminal handling for a bridge task that unwound: the same `errored`
+/// ending a spent crash budget gets, with the panic as its reason. A session
+/// `close_session` already closed stays closed and publishes nothing, for the
+/// reason the budget path gives — a client seeing both would see a
+/// conflicting lifecycle.
+pub(crate) async fn end_session_after_bridge_panic(
+    tug_session_id: &TugSessionId,
+    ledger_entry: &Arc<Mutex<LedgerEntry>>,
+    state_tx: &broadcast::Sender<Frame>,
+    sessions_recorder: &dyn SessionsRecorder,
+    panic: &str,
+) {
+    let (already_closed, claude_id) = {
+        let mut entry = ledger_entry.lock().await;
+        let already_closed = entry.spawn_state == SpawnState::Closed;
+        if !already_closed {
+            entry.spawn_state = SpawnState::Errored;
+        }
+        entry.input_tx = None;
+        entry.child_pid = None;
+        entry.child_start_time = None;
+        entry.turn_active = false;
+        entry.open_jobs.clear();
+        // The relay that would have closed an open bracket is gone with the
+        // task, and nothing will respawn it.
+        entry.replay_brackets_open = 0;
+        (already_closed, entry.claude_session_id.clone())
+    };
+    error!(session = %tug_session_id, "session bridge {panic}; session ended");
+    if let Some(id) = claude_id {
+        sessions_recorder.mark_failed(&id);
+    }
+    if !already_closed {
+        let detail = format!("bridge_panicked\n{panic}");
+        let _ = state_tx.send(build_session_state_frame(
+            tug_session_id,
+            "errored",
+            Some(detail.as_str()),
+        ));
+    }
 }
 
 /// Test helper: insert a bare ledger entry for `tug_session_id` and hand back
@@ -25491,5 +25564,429 @@ mod tests {
             sent.iter().any(|frame| frame == "stop_all_work"),
             "and the rest of the work ends all the same: {sent:?}",
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A panic in the bridge costs one session, out loud
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod bridge_panic_tests {
+    use super::super::agent_bridge::{CrashBudget, SessionChild, SpawnFuture};
+    use super::*;
+    use std::collections::VecDeque;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncRead, ReadBuf};
+
+    /// A scripted tugcode stdout that serves its lines and then panics in
+    /// the read — inside the relay's own poll, which is where a panic on a
+    /// transcript's contents happens.
+    struct PanicsAfterScript {
+        script: Vec<u8>,
+        served: usize,
+    }
+
+    impl AsyncRead for PanicsAfterScript {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            if self.served == self.script.len() {
+                panic!("scripted relay panic");
+            }
+            let n = buf.remaining().min(self.script.len() - self.served);
+            let from = self.served;
+            buf.put_slice(&self.script[from..from + n]);
+            self.served += n;
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    /// Every spawn hands back a child that opens a replay bracket and dies
+    /// in the relay before closing it.
+    struct PanicMidBracketSpawner;
+
+    impl ChildSpawner for PanicMidBracketSpawner {
+        fn spawn_child(
+            &self,
+            _project_dir: &std::path::Path,
+            _session_id: &str,
+            _session_mode: SessionMode,
+            _resume_claude_session_id: Option<&str>,
+            _permission_mode: Option<&str>,
+        ) -> SpawnFuture {
+            Box::pin(async {
+                let (bridge_stdin, child_stdin_read) = tokio::io::duplex(8192);
+                let script = concat!(
+                    "{\"type\":\"protocol_ack\",\"version\":1}\n",
+                    "{\"type\":\"session_init\",\"session_id\":\"claude-panics\"}\n",
+                    "{\"type\":\"replay_started\"}\n",
+                );
+                Ok(SessionChild {
+                    stdin: Box::new(bridge_stdin),
+                    stdout: Box::new(PanicsAfterScript {
+                        script: script.as_bytes().to_vec(),
+                        served: 0,
+                    }),
+                    pid: None,
+                    // The read half stays open so the relay's handshake
+                    // write lands somewhere.
+                    _keepalive: Box::new(child_stdin_read),
+                    stderr_tail: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+                })
+            })
+        }
+    }
+
+    /// Collects what `tracing` wrote, so the test can read the log line.
+    #[derive(Clone, Default)]
+    struct LogSink(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for LogSink {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn entry_with_budget(tug_id: &TugSessionId, max_crashes: usize) -> Arc<Mutex<LedgerEntry>> {
+        Arc::new(Mutex::new(LedgerEntry::new(
+            tug_id.clone(),
+            WorkspaceKey::from_test_str(env!("CARGO_MANIFEST_DIR")),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            SessionMode::Resume,
+            CrashBudget::new(max_crashes, Duration::from_secs(60)),
+        )))
+    }
+
+    #[tokio::test]
+    async fn a_relay_panic_mid_bracket_is_a_crash_with_a_closed_bracket_and_a_visible_error() {
+        crate::panic_hook::install();
+        let sink = LogSink::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer({
+                let sink = sink.clone();
+                move || sink.clone()
+            })
+            .with_ansi(false)
+            .finish();
+        let _log = tracing::subscriber::set_default(subscriber);
+
+        let tug_id = TugSessionId::new("sess-relay-panics");
+        // One crash spends the budget, so the bridge ends on its second pass
+        // without spawning again.
+        let entry = entry_with_budget(&tug_id, 1);
+        let (_input_tx, input_rx) = mpsc::channel::<Frame>(4);
+        let (merger_tx, mut merger_rx) = mpsc::channel::<Frame>(16);
+        let (state_tx, mut state_rx) = broadcast::channel::<Frame>(16);
+
+        run_session_bridge(
+            tug_id.clone(),
+            entry.clone(),
+            input_rx,
+            merger_tx,
+            state_tx,
+            None,
+            Arc::new(PanicMidBracketSpawner),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            SessionMode::Resume,
+            None,
+            Arc::new(NoopSessionsRecorder),
+            None,
+            crate::feeds::changeset::ChangesetBumper::disconnected(),
+            CancellationToken::new(),
+            Duration::from_millis(1),
+        )
+        .await;
+
+        // The bracket the relay opened is closed, with an error, by the frame
+        // the deck and the merger already end a bracket on.
+        let mut types: Vec<String> = Vec::new();
+        let mut close: Option<serde_json::Value> = None;
+        while let Ok(frame) = merger_rx.try_recv() {
+            let parsed: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            let kind = parsed["type"].as_str().unwrap_or("").to_string();
+            if kind == "replay_complete" {
+                close = Some(parsed);
+            }
+            types.push(kind);
+        }
+        let started = types.iter().position(|t| t == "replay_started");
+        let completed = types.iter().position(|t| t == "replay_complete");
+        assert!(
+            started.is_some() && completed > started,
+            "replay_started then replay_complete, got {types:?}"
+        );
+        let close = close.unwrap();
+        assert_eq!(close["error"]["kind"], "replay_exception");
+        assert_eq!(close["tug_session_id"], tug_id.as_str());
+
+        // The panic went through the crash budget like any relay death.
+        assert!(entry.lock().await.crash_budget.is_exhausted());
+        assert_eq!(entry.lock().await.spawn_state, SpawnState::Errored);
+
+        // The session-state frame the deck turns into the card's error names
+        // the panic as the reason.
+        let mut errored_detail: Option<String> = None;
+        while let Ok(frame) = state_rx.try_recv() {
+            let parsed: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            if parsed["state"] == "errored" {
+                errored_detail = parsed["detail"].as_str().map(str::to_string);
+            }
+        }
+        let detail = errored_detail.expect("an errored SESSION_STATE frame");
+        assert!(
+            detail.starts_with("crash_budget_exhausted\nbridge panicked at "),
+            "detail was {detail:?}"
+        );
+        assert!(detail.contains("scripted relay panic"));
+        assert!(
+            detail.contains("agent_supervisor.rs"),
+            "location in {detail:?}"
+        );
+
+        // And the log says so, at error, with message and location.
+        let log = String::from_utf8(sink.0.lock().unwrap().clone()).unwrap();
+        let line = log
+            .lines()
+            .find(|l| l.contains("session relay panicked at "))
+            .unwrap_or_else(|| panic!("no relay panic line in log:\n{log}"));
+        assert!(line.contains("ERROR"));
+        assert!(line.contains("scripted relay panic"));
+        assert!(line.contains("agent_supervisor.rs"));
+        assert!(line.contains("mid_bracket=true"));
+    }
+
+    #[tokio::test]
+    async fn a_bridge_panic_outside_the_relay_ends_the_session_errored() {
+        let tug_id = TugSessionId::new("sess-bridge-panics");
+        let entry = entry_with_budget(&tug_id, 3);
+        let (state_tx, mut state_rx) = broadcast::channel::<Frame>(4);
+
+        end_session_after_bridge_panic(
+            &tug_id,
+            &entry,
+            &state_tx,
+            &NoopSessionsRecorder,
+            "panicked at src/x.rs:1:2: boom (thread main)",
+        )
+        .await;
+
+        let guard = entry.lock().await;
+        assert_eq!(guard.spawn_state, SpawnState::Errored);
+        assert!(guard.input_tx.is_none());
+        drop(guard);
+        let frame = state_rx.try_recv().expect("an errored frame");
+        let parsed: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(parsed["state"], "errored");
+        assert_eq!(
+            parsed["detail"],
+            "bridge_panicked\npanicked at src/x.rs:1:2: boom (thread main)"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_session_already_closed_publishes_nothing_when_its_bridge_panics() {
+        let tug_id = TugSessionId::new("sess-closed-then-panics");
+        let entry = entry_with_budget(&tug_id, 3);
+        entry.lock().await.spawn_state = SpawnState::Closed;
+        let (state_tx, mut state_rx) = broadcast::channel::<Frame>(4);
+
+        end_session_after_bridge_panic(&tug_id, &entry, &state_tx, &NoopSessionsRecorder, "boom")
+            .await;
+
+        assert_eq!(entry.lock().await.spawn_state, SpawnState::Closed);
+        assert!(state_rx.try_recv().is_err());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A replay bracket always closes
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod replay_bracket_close_tests {
+    use super::super::agent_bridge::{
+        CrashBudget, REPLAY_BRACKET_DEADLINE, RelayOutcome, SessionChild, SpawnFuture,
+        relay_session_io,
+    };
+    use super::*;
+    use std::collections::VecDeque;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    const OPENING: &[u8] = concat!(
+        "{\"type\":\"protocol_ack\",\"version\":1}\n",
+        "{\"type\":\"session_init\",\"session_id\":\"claude-bracket\"}\n",
+        "{\"type\":\"replay_started\"}\n",
+    )
+    .as_bytes();
+
+    /// A tugcode that opens a replay bracket and then goes quiet without
+    /// closing its stdout: no further line, and no EOF, ever arrives. The
+    /// watchdog has only the clock to go on.
+    #[tokio::test(start_paused = true)]
+    async fn a_bracket_left_open_by_a_quiet_stream_is_closed_by_the_watchdog() {
+        let (sup, _register_rx) =
+            test_minimal_supervisor_with_recorder(Arc::new(NoopSessionsRecorder));
+        let tug_id = TugSessionId::new("sess-quiet-bracket");
+        let entry = insert_ledger_entry_for_tests(&sup, &tug_id).await;
+
+        let (bridge_stdin, mut child_stdin_read) = tokio::io::duplex(8192);
+        let (mut child_stdout_write, bridge_stdout) = tokio::io::duplex(8192);
+        let child = tokio::spawn(async move {
+            let mut line = String::new();
+            BufReader::new(&mut child_stdin_read)
+                .read_line(&mut line)
+                .await
+                .unwrap();
+            child_stdout_write.write_all(OPENING).await.unwrap();
+            // Hold both pipes open and say nothing more.
+            std::future::pending::<()>().await;
+            drop((child_stdout_write, child_stdin_read));
+        });
+
+        let (_input_tx, mut input_rx) = mpsc::channel::<Frame>(4);
+        let (merger_tx, mut merger_rx) = mpsc::channel::<Frame>(16);
+        let state_tx = sup.session_state.sender();
+        let cancel = CancellationToken::new();
+        let relay = {
+            let (tug_id, entry, cancel) = (tug_id.clone(), entry.clone(), cancel.clone());
+            tokio::spawn(async move {
+                let stdout: Box<dyn tokio::io::AsyncRead + Send + Unpin> = Box::new(bridge_stdout);
+                relay_session_io(
+                    &tug_id,
+                    &entry,
+                    &mut input_rx,
+                    &merger_tx,
+                    &state_tx,
+                    None,
+                    Box::new(bridge_stdin),
+                    BufReader::new(stdout).lines(),
+                    "/tmp/test-quiet-bracket",
+                    &NoopSessionsRecorder,
+                    None,
+                    &crate::feeds::changeset::ChangesetBumper::disconnected(),
+                    &cancel,
+                )
+                .await
+            })
+        };
+
+        // Play the merger: count each frame as it would, and stop at the
+        // close. Nothing but the relay's own timer can produce one.
+        let opened_at = tokio::time::Instant::now();
+        let close = loop {
+            let frame = merger_rx.recv().await.expect("the relay is still running");
+            sup.process_outbound_frame_journal_gate(&tug_id, &frame)
+                .await;
+            let parsed: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            match parsed["type"].as_str() {
+                Some("replay_started") => {
+                    assert_eq!(entry.lock().await.replay_brackets_open, 1);
+                }
+                Some("replay_complete") => break parsed,
+                _ => {}
+            }
+        };
+        assert!(opened_at.elapsed() >= REPLAY_BRACKET_DEADLINE);
+        assert_eq!(close["error"]["kind"], "replay_timeout");
+        assert_eq!(close["tug_session_id"], tug_id.as_str());
+        assert_eq!(entry.lock().await.replay_brackets_open, 0);
+
+        // The relay outlived its bracket: it is still serving the session.
+        assert!(!relay.is_finished());
+        cancel.cancel();
+        assert_eq!(relay.await.unwrap(), RelayOutcome::Cancelled);
+        child.abort();
+    }
+
+    /// Opens a bracket and exits: stdout reaches EOF with the bracket open.
+    struct DiesMidBracketSpawner;
+
+    impl ChildSpawner for DiesMidBracketSpawner {
+        fn spawn_child(
+            &self,
+            _project_dir: &std::path::Path,
+            _session_id: &str,
+            _session_mode: SessionMode,
+            _resume_claude_session_id: Option<&str>,
+            _permission_mode: Option<&str>,
+        ) -> SpawnFuture {
+            Box::pin(async {
+                let (bridge_stdin, child_stdin_read) = tokio::io::duplex(8192);
+                Ok(SessionChild {
+                    stdin: Box::new(bridge_stdin),
+                    stdout: Box::new(OPENING),
+                    pid: None,
+                    _keepalive: Box::new(child_stdin_read),
+                    stderr_tail: Arc::new(std::sync::Mutex::new(VecDeque::new())),
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_bridge_that_ends_mid_bracket_leaves_the_bracket_closed_and_the_counter_zero() {
+        let tug_id = TugSessionId::new("sess-dies-mid-bracket");
+        // One crash spends the budget, so the bridge tears down for good.
+        let entry = Arc::new(Mutex::new(LedgerEntry::new(
+            tug_id.clone(),
+            WorkspaceKey::from_test_str(env!("CARGO_MANIFEST_DIR")),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            SessionMode::Resume,
+            CrashBudget::new(1, Duration::from_secs(60)),
+        )));
+        // The merger had already counted the open when the child died.
+        entry.lock().await.replay_brackets_open = 1;
+        let (_input_tx, input_rx) = mpsc::channel::<Frame>(4);
+        let (merger_tx, mut merger_rx) = mpsc::channel::<Frame>(16);
+        let (state_tx, _state_rx) = broadcast::channel::<Frame>(16);
+
+        run_session_bridge(
+            tug_id.clone(),
+            entry.clone(),
+            input_rx,
+            merger_tx,
+            state_tx,
+            None,
+            Arc::new(DiesMidBracketSpawner),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            SessionMode::Resume,
+            None,
+            Arc::new(NoopSessionsRecorder),
+            None,
+            crate::feeds::changeset::ChangesetBumper::disconnected(),
+            CancellationToken::new(),
+            Duration::from_millis(1),
+        )
+        .await;
+
+        assert_eq!(entry.lock().await.replay_brackets_open, 0);
+
+        // And the bracket was closed in band, so a merger that had NOT yet
+        // counted the open nets to zero too, and the deck leaves `replaying`.
+        let mut kinds: Vec<(String, serde_json::Value)> = Vec::new();
+        while let Ok(frame) = merger_rx.try_recv() {
+            let parsed: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            kinds.push((parsed["type"].as_str().unwrap_or("").to_string(), parsed));
+        }
+        let brackets: Vec<&str> = kinds
+            .iter()
+            .map(|(t, _)| t.as_str())
+            .filter(|t| t.starts_with("replay_"))
+            .collect();
+        assert_eq!(brackets, ["replay_started", "replay_complete"]);
+        let close = &kinds
+            .iter()
+            .find(|(t, _)| t == "replay_complete")
+            .unwrap()
+            .1;
+        assert_eq!(close["error"]["kind"], "replay_exception");
     }
 }

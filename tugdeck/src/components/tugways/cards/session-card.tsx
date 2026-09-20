@@ -485,6 +485,7 @@ const CAUSE_LABELS: Record<BannerErrorCause, string> = {
   wire_error: "Protocol error",
   session_unknown: "Session unknown",
   session_not_owned: "Session not owned",
+  replay_stalled: "Restore stalled",
 };
 
 // ---------------------------------------------------------------------------

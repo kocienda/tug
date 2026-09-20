@@ -62,6 +62,7 @@ import {
   createInitialState,
   deriveActiveTurnSnapshot,
   reduce,
+  replaySilenceEffect,
   truncateTranscriptAtAnchor,
   upsertInkTurn,
   appendTurnInterleavingInk,
@@ -115,7 +116,9 @@ export type {
 
 export {
   REPLAY_PREFLIGHT_TIMEOUT_MS,
+  REPLAY_SILENCE_DEADLINE_MS,
   REPLAY_SOFT_BUDGET_MS,
+  REPLAY_STALLED_MESSAGE,
   REPLAY_TIMEOUT_DWELL_MS,
 } from "./code-session-store/reducer";
 
@@ -2130,6 +2133,17 @@ export class CodeSessionStore {
     const reduceMs = performance.now() - reduceStart;
     this.state = state;
     this.processEffects(effects);
+    // Replay silence deadline: armed on entering `replaying`, restarted
+    // by every wire frame ingested inside it, disarmed on leaving. It is
+    // armed here rather than in the reducer because only the wrapper
+    // knows an event's origin — and after `processEffects`, so the
+    // deck's own ingest work never counts as the relay's silence.
+    const silence = replaySilenceEffect(
+      prev.phase,
+      state.phase,
+      origin === "wire",
+    );
+    if (silence !== null) this.processEffects([silence]);
     this.maybePersistStateChange(prev, state);
     // Turn boundary (send or commit): the live usage path clears so the
     // status cells never read a stale frame across turns — the old

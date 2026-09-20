@@ -24,6 +24,16 @@
  * No dismiss: there is nothing behind it to interact with. It closes
  * when the app can answer again.
  *
+ * What makes "busy" checkable is the replay silence deadline
+ * (`REPLAY_SILENCE_DEADLINE_MS`, `code-session-store/reducer.ts`). A
+ * card counts toward this gate only while its restore is still being
+ * fed: one that has sat in `replaying` for the deadline with no frame
+ * arriving raises an error on itself, which drops it out of the fold
+ * and shows the failure on that card alone. So the gate can outlast
+ * the work by at most the deadline, and one card's lost frame can
+ * never hold every other card behind a modal with no way out — which,
+ * with no dismiss, is the only way out there is.
+ *
  * @module components/tugways/tug-restore-gate
  */
 

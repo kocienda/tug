@@ -1245,7 +1245,8 @@ export interface CodeSessionSnapshot {
       | "wire_error"
       | "session_unknown"
       | "session_not_owned"
-      | "resume_failed";
+      | "resume_failed"
+      | "replay_stalled";
     message: string;
     at: number;
     /**
@@ -1456,7 +1457,8 @@ export interface LastReplayResult {
     | "jsonl_missing"
     | "jsonl_unreadable"
     | "jsonl_malformed"
-    | "replay_timeout";
+    | "replay_timeout"
+    | "replay_exception";
   /** Human-readable detail; empty string on the success path. */
   message: string;
   /** Number of turns committed during this replay window. */
