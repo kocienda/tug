@@ -1267,7 +1267,13 @@ fn write_targets(program: &str, head: &str) -> Vec<Option<String>> {
     let mut from = 0;
     while let Some(at) = text[from..].find("open(") {
         let start = from + at + "open(".len();
-        let window = &text[start..text.len().min(start + 200)];
+        // A byte budget, floored to a char boundary: the program is the
+        // user's text, and a cut inside a multi-byte char panics the slice.
+        let mut limit = text.len().min(start + 200);
+        while !text.is_char_boundary(limit) {
+            limit -= 1;
+        }
+        let window = &text[start..limit];
         let end = window.find(')').unwrap_or(window.len());
         let args = &window[..end];
         let writes = quoted_pieces(args)
@@ -1881,6 +1887,19 @@ mod tests {
     fn a_heredoc_body_is_data_not_commands() {
         assert_no_file_ops("python3 - <<'EOF'\nimport os\nos.remove('x')\nEOF");
         assert_no_file_ops("cat <<'EOF' > /dev/null\nrm -rf /\nEOF");
+    }
+
+    /// The `open(` scan reads a 200-byte window, and a window is a byte
+    /// budget over the user's own text. Every offset of a two-byte char past
+    /// the call puts the cut inside one for half of them; the slice used to
+    /// panic there, which killed the relay task mid-replay and left the
+    /// restore gate up forever.
+    #[test]
+    fn an_open_window_ending_inside_a_multibyte_char_does_not_panic() {
+        for pad in 0..4 {
+            let program = format!("t=open(p).read()\n{}{}", "a".repeat(pad), "ł".repeat(200));
+            assert!(write_targets(&program, "python3").is_empty());
+        }
     }
 
     #[test]
