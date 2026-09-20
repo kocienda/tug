@@ -127,7 +127,6 @@ import type {
 import {
   allocateSidebarWidths,
   clampSlot,
-  centerSlot,
   slotCount,
   isSidebarPinned,
   sidebarSide,
@@ -138,7 +137,6 @@ import {
   columnModeOf,
   type PlaceAllocation,
   effectiveRailOrder,
-  centerVisibleFlowSlot,
   flowRevealOffset,
   flowBandEdges,
   type FlowBandEdges,
@@ -182,6 +180,11 @@ import {
   type SidebarEntry,
   type SidebarSide,
 } from "./lib/layout-imposer";
+import {
+  chooseOpeningSlot,
+  readOpeningDeck,
+  type OpeningChoice,
+} from "./lib/opening-placement";
 import { getTugTiming, getTugZoom } from "./components/tugways/scale-timing";
 import { DeckManagerContext } from "./deck-manager-context";
 import { BASE_THEME_NAME } from "./theme-constants";
@@ -2458,16 +2461,18 @@ export class DeckManager implements IDeckManagerStore {
    * how parameterized openers (e.g. `open-file` seeding a path) hand
    * initial state to a card without a side channel.
    *
-   * `options.slot` names the slot the new card joins under a multi-slot
-   * arrangement, clamped to the arrangement. Openers that have a card to open
-   * *near* — a file link naming the slot beside its own — pass it; everything
-   * else omits it and takes the first slot.
+   * `options.origin` names the card the gesture was made in. Under a
+   * multi-slot arrangement the deck chooses the new card's slot itself
+   * ({@link openingSlotFor}), ranked from that card when it holds a slot, from
+   * the first responder when it does not, and from the deck otherwise. A
+   * caller says where the gesture came from, never which slot to take.
    */
   addCard(
     componentId: string,
     initialContent?: unknown,
     options?: {
-      slot?: number;
+      /** The card the gesture was made in, when there is one. */
+      origin?: string | null;
       /**
        * `"bound"` when the caller binds the card in the same gesture — a
        * resume, a command run in a new session — so the card never shows
@@ -2560,6 +2565,20 @@ export class DeckManager implements IDeckManagerStore {
     if (initialContent !== undefined) {
       this.cardStateCache.set(firstCardId, { content: initialContent });
     }
+    // Under a multi-slot arrangement a new card joins it at a slot rather
+    // than walking the cascade — the arrangement is the user's stated intent
+    // for the whole deck, and a fresh card landing askew across it would be
+    // the deck ignoring it. Which slot is the deck's one rule to answer
+    // ({@link openingSlotFor}), from the card the gesture came from. One-up is
+    // the deck's resting state rather than a chosen arrangement, so it claims
+    // nothing: a new card cascades as it always did and takes the single slot
+    // only by being put there. Centered dialog cards stay centered under
+    // every kind; they are not part of the arrangement.
+    const opening =
+      slotCount(this.deckState.imposition.kind ?? DEFAULT_IMPOSITION_KIND) > 1 &&
+      registration.placement !== "center"
+        ? this.openingSlotFor(options?.origin ?? null)
+        : null;
     const win: TugPaneState = {
       id: paneId,
       position,
@@ -2574,26 +2593,7 @@ export class DeckManager implements IDeckManagerStore {
       ...(openingPreset !== undefined && cappedPreferredWidth === openingWidth
         ? { widthPreset: openingPreset }
         : {}),
-      // Under a multi-slot arrangement a new card joins it at a slot rather
-      // than walking the cascade — the arrangement is the user's stated intent
-      // for the whole deck, and a fresh card landing askew across it would be
-      // the deck ignoring it. Which slot is the caller's to say (`options.slot`
-      // — an opener with an originating card names the slot beside it); a card
-      // arriving from nowhere takes whichever slot the deck is SHOWING
-      // ({@link _openingSlot}). One-up is the
-      // deck's resting state rather than a chosen arrangement, so it claims
-      // nothing: a new card cascades as it always did and takes the single slot
-      // only by being put there. Centered dialog cards stay centered under
-      // every kind; they are not part of the arrangement.
-      ...(slotCount(this.deckState.imposition.kind ?? DEFAULT_IMPOSITION_KIND) > 1 &&
-      registration.placement !== "center"
-        ? {
-            slot: clampSlot(
-              this.deckState.imposition.kind ?? DEFAULT_IMPOSITION_KIND,
-              options?.slot ?? this._openingSlot(),
-            ),
-          }
-        : {}),
+      ...(opening !== null ? { slot: opening.slot } : {}),
     };
 
     // Whether the card ARRIVES HIDDEN ([B01]): a card type whose card at the
@@ -2623,7 +2623,16 @@ export class DeckManager implements IDeckManagerStore {
     // `activePaneId = paneId` (which would make a post-commit
     // state-derived read return `firstCardId`).
     const commit = () => {
-      const arrived = [...this.deckState.panes, win];
+      // An arrival into a WALL folds the sitters in this same commit, so the
+      // wall keeps its one open card ([P06]) — the fold an unfold into a wall
+      // already makes, owed equally by a card that arrives there.
+      const arrived = opening?.wall
+        ? panesWithWallFolded(
+            [...this.deckState.panes, win],
+            paneId,
+            [...opening.members, paneId],
+          )
+        : [...this.deckState.panes, win];
       this.deckState = {
         ...this.deckState,
         cards: [...this.deckState.cards, ...seededCards],
@@ -4380,38 +4389,50 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * The slot a card arriving from nowhere opens into: the arrangement's
-   * centermost slot in fit, and in flow the centermost slot the band is
-   * currently showing.
+   * The slot a fresh card opens into, and whether it lands in a wall — the
+   * deck's one answer to where a new card goes, for every opener.
    *
-   * In fit every slot is on screen, so the answer is a question of where the
-   * eye already is rather than of what is visible: the middle of the
-   * arrangement, which is where a reader looking at the whole deck is looking.
-   * Flow narrows the same rule to what the band is showing — the strip is
-   * longer than the band, so the middle of the ARRANGEMENT is routinely
-   * scrolled off screen, and a new card taking it would open somewhere the user
-   * could not see and say nothing about it. The band is what "where the deck
-   * is" means in flow, so the card opens in the middle of it.
+   * The anchor is resolved here rather than by the caller: `origin` when that
+   * card holds a slot, else the first responder when IT holds one, else the
+   * deck itself. A rail card, a free pane, and a card that is gone all hold
+   * no slot, and fall through. The ranking is {@link chooseOpeningSlot}'s,
+   * over {@link readOpeningDeck}'s reading of the deck with the two
+   * measurements this manager owns: the column run and the flow band.
    *
-   * Both cheat LEFT when there is no exact middle ({@link centerSlot}).
-   *
-   * An explicit `options.slot` outranks this; an opener that names a slot has
-   * said something about placement that a measurement should not overrule.
+   * `null` when nothing is imposed, which callers under a multi-slot kind
+   * never see.
    */
-  private _openingSlot(): number {
+  openingSlotFor(origin: string | null): OpeningChoice | null {
     const state = this.deckState;
-    const strip = deckFlowStrip(state);
-    const center = centerSlot(
-      (state.imposition.kind ?? DEFAULT_IMPOSITION_KIND) as ImpositionKind,
-    );
-    if (strip === null) return center;
+    const run = this._placeRunHeight("column");
+    const deck = readOpeningDeck(state, {
+      run: run > 0 ? run : null,
+      band: this._flowBandWidth(state.panes, state.imposition),
+    });
+    if (deck === null) return null;
+    const anchorSlot =
+      this._openingAnchorSlot(origin) ??
+      this._openingAnchorSlot(this.getFirstResponderCardId());
     return (
-      centerVisibleFlowSlot({
-        strip,
-        band: this._flowBandWidth(state.panes, state.imposition),
-        offset: state.flowOffset ?? 0,
-      }) ?? center
+      chooseOpeningSlot(
+        deck,
+        anchorSlot === undefined
+          ? { kind: "deck" }
+          : { kind: "origin", slot: anchorSlot },
+      ) ?? chooseOpeningSlot(deck, { kind: "deck" })
     );
+  }
+
+  /** The slot `cardId` stands in, when it stands in one: not a rail card,
+   *  not a free pane, not a card no longer on the deck. */
+  private _openingAnchorSlot(cardId: string | null): number | undefined {
+    if (cardId === null) return undefined;
+    const kind = this.deckState.imposition.kind;
+    if (kind === undefined) return undefined;
+    const pane = this.deckState.panes.find((p) => p.cardIds.includes(cardId));
+    if (pane === undefined || pane.slot === undefined) return undefined;
+    if (this._sidebarComponentIdOfPane(pane.id) !== undefined) return undefined;
+    return clampSlot(kind, pane.slot);
   }
 
   /**

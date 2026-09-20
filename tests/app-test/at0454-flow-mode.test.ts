@@ -37,11 +37,11 @@
  *     card still answers inside the band, and that what answers there is the
  *     cap, carrying the canvas-background marker so the press it takes still
  *     deselects.
- *  6. **A card that ARRIVES is revealed too, and in TWO MOVES.** An opener
- *     that names a slot — a file link naming the one beside the card that
- *     cited it — can name a slot the band is only half showing. The raise
- *     reveals; for a while the arrival did not, and the file the reader had
- *     just clicked landed with its near edge under the rail. And the two are
+ *  6. **A card that ARRIVES is revealed too, and in TWO MOVES.** A card
+ *     opened from another lands in the nearest slot that will take it, and
+ *     that can be a slot the band is not showing. The raise reveals; for a
+ *     while the arrival did not, and the file the reader had just clicked
+ *     landed somewhere off the band with nothing to say where. And the two are
  *     SEQUENTIAL: the card lands, stands on screen for a beat where it landed,
  *     and only then does the deck cross to it. Two store commits do not make
  *     two moves — batched into one render they are a single frame, and a card
@@ -61,6 +61,7 @@
  * @covers tugdeck/src/components/chrome/margin-cap.css
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/deck-manager.ts
+ * @covers tugdeck/src/lib/opening-placement.ts
  * @covers tugdeck/src/components/layout/layout-card.tsx
  * @covers tugdeck/src/components/layout/layout-miniature.tsx
  */
@@ -858,16 +859,16 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
 
   // ── 6. A card that arrives is revealed too ─────────────────────────────────
   //
-  // The strip is parked at its far end, which leaves the slot BESIDE the
-  // active card straddling the band's near edge — the arrangement a reader
-  // gets whenever the band is wider than one card and narrower than two, which
-  // is most of them. A file opened from that card lands in that slot, and the
-  // question is whether the deck brings it in.
+  // The strip is scrolled to show the last card, E in slot 4, which leaves the
+  // empty slot 5 beside it past the band's far edge. A file opened from E
+  // takes that slot — the nearest, the empty one, and the one to the right —
+  // so it lands where the reader cannot see it, and the question is whether
+  // the deck brings it in.
   //
-  // The pin is the card's NEAR edge against the band's, because that is what
-  // the reader lost: a card wider than the band cannot come wholly in, and the
-  // reveal pins the edge reading starts at instead. A card narrower than the
-  // band lands flush there too, having been slid in from the same side.
+  // The pin is that the card ends up readable: its near edge is not under the
+  // band's, and it is either wholly in the band or, when it is wider than the
+  // band, pinned at the edge reading starts at. And no further in than it had
+  // to come — the move is minimal.
   test(
     "a card that arrives is revealed, not merely placed",
     async () => {
@@ -892,32 +893,21 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         await setLayout(app, "flow");
         await wait(AFTER_LAND_MS);
 
-        // Park the strip at its far end by raising the last card.
+        // Bring the last card into view by raising it; the empty slot beside
+        // it is left beyond the band.
         await app.evalJS<null>(`(window.__tug.activateCard("E"), null)`);
         await wait(AFTER_LAND_MS);
 
-        // The fixture earns its assertion: the slot the open is about to name
-        // is half off the band's near edge before the open runs.
         const bandBefore = await band(app);
-        const neighbor = (await slotRects(app))[SLOTS - 2];
+        const origin = (await slotRects(app))[SLOTS - 1];
         note(
-          `before the open: slot 4 spans ${Math.round(
-            neighbor.left,
-          )}..${Math.round(neighbor.right)}, band starts ${Math.round(
-            bandBefore.left,
-          )}`,
+          `before the open: slot 4 spans ${Math.round(origin.left)}..${Math.round(
+            origin.right,
+          )}, band ${Math.round(bandBefore.left)}..${Math.round(bandBefore.right)}`,
         );
-        expect(
-          neighbor.left,
-          "the fixture must leave the neighbouring slot straddling the band",
-        ).toBeLessThan(bandBefore.left - TOL);
-        expect(
-          neighbor.right,
-          "and still partly showing, or the open would be off-screen entirely",
-        ).toBeGreaterThan(bandBefore.left + TOL);
 
-        // Open a file from the active card. `neighborSlot` names the slot to
-        // its left — the straddling one — and the arrival owes the reveal.
+        // Open a file from the active card. The deck places it in the empty
+        // slot to its right, and the arrival owes the reveal.
         const before = await textCardIds(app);
         // What the reader would have seen, sampled the whole way through.
         // Started before the gesture so the very first frame the card is on
@@ -939,6 +929,8 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
 
         const bandAfter = await band(app);
         const arrived = await cardRect(app, fresh[0]);
+        const width = arrived.right - arrived.left;
+        const bandWidth = bandAfter.right - bandAfter.left;
         note(
           `after the open: card spans ${Math.round(arrived.left)}..${Math.round(
             arrived.right,
@@ -947,13 +939,33 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
           )}, offset ${await flowOffset(app)}`,
         );
         expect(
+          await app.evalJS<number | null>(
+            `(function () {
+              var pane = window.tugdeck.diag.getDeckState().panes.find(function (p) {
+                return p.cardIds.indexOf(${JSON.stringify(fresh[0])}) !== -1;
+              });
+              return pane === undefined || pane.slot === undefined ? null : pane.slot;
+            })()`,
+          ),
+          "the file takes the empty slot beside the card that opened it",
+        ).toBe(SLOTS);
+        expect(
           arrived.left,
           "the arrived card's near edge is not under the rail",
         ).toBeGreaterThanOrEqual(bandAfter.left - TOL);
-        expect(
-          arrived.left,
-          "and no further in than it had to come — the move is minimal",
-        ).toBeLessThanOrEqual(bandAfter.left + TOL);
+        // Minimal: a card that fits comes in until its far edge meets the
+        // band's; one wider than the band stops at the edge reading starts at.
+        if (width <= bandWidth + TOL) {
+          expect(
+            Math.abs(arrived.right - bandAfter.right),
+            "and no further in than it had to come — flush with the far edge",
+          ).toBeLessThanOrEqual(TOL);
+        } else {
+          expect(
+            Math.abs(arrived.left - bandAfter.left),
+            "and no further in than it had to come — pinned at the near edge",
+          ).toBeLessThanOrEqual(TOL);
+        }
 
         // ── TWO MOVES, NOT ONE ──────────────────────────────────────────────
         //
@@ -963,10 +975,11 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         // in view. So the pin is the sampled run of positions.
         expect(seen.length, "the card was on screen to be sampled").toBeGreaterThan(0);
         const landed = seen[0].left;
+        const settled = seen[seen.length - 1].left;
         const stillLanded = seen.filter((s) => Math.abs(s.left - landed) <= TOL);
         const heldMs = stillLanded[stillLanded.length - 1].t - stillLanded[0].t;
         const travelling = seen.filter(
-          (s) => s.left > landed + TOL && s.left < bandAfter.left - TOL,
+          (s) => s.left < landed - TOL && s.left > settled + TOL,
         );
         note(
           `${seen.length} samples: landed at ${Math.round(landed)}, held ${Math.round(
@@ -977,11 +990,11 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         );
 
         // 1. The file opens FIRST — the reader sees the card where it landed,
-        //    which is out past the band's near edge.
+        //    which is out past the band's far edge.
         expect(
-          landed,
+          landed + width,
           "the card is first seen where it landed, not already in view",
-        ).toBeLessThan(bandAfter.left - TOL);
+        ).toBeGreaterThan(bandAfter.right + TOL);
 
         // 2. And it is left there long enough to be read as its own event.
         //    Half the beat is the floor, so a sampler the harness throttles

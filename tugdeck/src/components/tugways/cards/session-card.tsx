@@ -3405,6 +3405,7 @@ export function SessionCardBody({
       if (binding === undefined) return;
       dispatchCommand(TUG_ACTIONS.OPEN_DIFF, {
         descriptor: { kind: "head", root: binding.projectDir },
+        originCardId: cardId,
       });
     },
     context: () => statusRowRef.current?.openContext(),
@@ -3883,8 +3884,10 @@ export function SessionCardBody({
       if (targets.length === 0) return;
       // One dispatch for the whole spec: each open re-seats the first
       // responder, so a per-ref dispatch would open the first and lose the
-      // rest to a chain that has moved on.
-      dispatchCommand(TUG_ACTIONS.OPEN_FILE, { targets });
+      // rest to a chain that has moved on. And one origin for the whole spec:
+      // this card, so the batch fans out from it rather than each card
+      // opening beside the card the previous reference just opened.
+      dispatchCommand(TUG_ACTIONS.OPEN_FILE, { targets, originCardId: cardId });
     },
   };
 

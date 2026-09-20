@@ -304,8 +304,9 @@ export interface IDeckManagerStore {
    * through the restore path with the payload in hand (parameterized
    * openers like `open-file`).
    *
-   * `options.slot` names the slot the card joins under a multi-slot
-   * arrangement (clamped to it); omitted, the card takes the first slot.
+   * `options.origin` names the card the gesture was made in; under a
+   * multi-slot arrangement the deck ranks the new card's slot from it, from
+   * the first responder when it holds no slot, and from the deck otherwise.
    * `options.opening: "bound"` says the caller binds the card in the same
    * gesture, so the form its registration declares for an unbound opening
    * is neither readied nor measured and the card lands in the call.
@@ -317,7 +318,7 @@ export interface IDeckManagerStore {
   addCard: (
     componentId: string,
     initialContent?: unknown,
-    options?: { slot?: number; opening?: "bound" },
+    options?: { origin?: string | null; opening?: "bound" },
   ) => string | null;
 
   /**

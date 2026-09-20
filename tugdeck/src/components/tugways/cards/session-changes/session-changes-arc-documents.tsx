@@ -39,6 +39,7 @@ import {
 import { arcReviewPaints } from "@/lib/arc-review";
 import { useDeckManager } from "@/deck-manager-context";
 import { openFileInCard } from "@/lib/open-file-in-card";
+import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import type { ArcDocuments } from "@/lib/changeset-types";
 
 /** One document's row content, derived before render so the JSX stays flat. */
@@ -125,6 +126,8 @@ export function SessionChangesArcDocuments({
   steps,
 }: SessionChangesArcDocumentsProps): React.ReactElement | null {
   const store = useDeckManager();
+  // The card this list stands in, which a document's card opens beside.
+  const hostCardId = useCardId();
   const rows = documentRows(documents, review, taskList, steps);
   if (rows.length === 0) return null;
 
@@ -156,11 +159,12 @@ export function SessionChangesArcDocuments({
               role: "button",
               tabIndex: 0,
               "aria-label": `Open the ${row.role} ${row.title}`,
-              onClick: () => openFileInCard(store, row.path),
+              onClick: () =>
+                openFileInCard(store, row.path, undefined, undefined, undefined, hostCardId),
               onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
-                openFileInCard(store, row.path);
+                openFileInCard(store, row.path, undefined, undefined, undefined, hostCardId);
               },
             }}
             leading={
@@ -190,7 +194,7 @@ export function SessionChangesArcDocuments({
                     // The wrapper opens the same document; letting the click
                     // reach it would open the card twice.
                     event?.stopPropagation();
-                    openFileInCard(store, row.path);
+                    openFileInCard(store, row.path, undefined, undefined, undefined, hostCardId);
                   }}
                 />
               </>

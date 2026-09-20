@@ -55,7 +55,11 @@ import { useAnnotationScope } from "@/components/tugways/annotation-scope";
 import { useAnnotationMenu } from "@/components/tugways/use-annotation-menu";
 import { useTextSurfaceContextMenu } from "@/components/tugways/use-text-surface-context-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
-import { annotationFromEvent } from "@/lib/annotator/annotation-element";
+import {
+  annotationFromEvent,
+  hostCardIdOf,
+} from "@/lib/annotator/annotation-element";
+import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import { isSecondaryPress } from "@/lib/whole-entity-press";
 import { stampAnnotation } from "@/lib/annotator/annotation-element";
 import { TugListRow } from "@/components/tugways/tug-list-row";
@@ -216,7 +220,11 @@ function FilePathLink({
       // the whole annotation vocabulary, and ignores the tail of a drag the
       // same way this does). Acting here too would open the file twice.
       if (annotationHost) return;
-      dispatchCommand(TUG_ACTIONS.OPEN_FILE, { path: absolutePath });
+      const originCardId = hostCardIdOf(event.currentTarget);
+      dispatchCommand(TUG_ACTIONS.OPEN_FILE, {
+        path: absolutePath,
+        ...(originCardId !== undefined ? { originCardId } : {}),
+      });
     },
     [absolutePath, annotationHost, draggedSincePress],
   );
@@ -280,6 +288,8 @@ export function PopOutDiffButton({
   /** `2xs` for a per-file row; `xs` for a header's trailing cluster. */
   size?: "2xs" | "xs";
 }) {
+  // The card the button stands in, which the diff's card opens beside.
+  const hostCardId = useCardId();
   return (
     <TugActionTooltip action={TUG_ACTIONS.OPEN_DIFF} content="Open this diff in a card">
       <TugPushButton
@@ -292,7 +302,10 @@ export function PopOutDiffButton({
         data-testid="tug-changes-list-diff-popout"
         onClick={(event) => {
           event?.stopPropagation();
-          dispatchCommand(TUG_ACTIONS.OPEN_DIFF, { descriptor });
+          dispatchCommand(TUG_ACTIONS.OPEN_DIFF, {
+            descriptor,
+            ...(hostCardId !== null ? { originCardId: hostCardId } : {}),
+          });
         }}
       />
     </TugActionTooltip>

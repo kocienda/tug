@@ -158,3 +158,12 @@ export function annotationFromEvent(
   const payload = readAnnotation(element);
   return payload === null ? null : { element, payload };
 }
+
+/**
+ * The id of the card `element` stands in — its nearest `[data-card-id]`
+ * ancestor, the attribute every card frame carries — or `undefined` outside
+ * any card. How a click on annotated ink names the card it was made in.
+ */
+export function hostCardIdOf(element: Element): string | undefined {
+  return element.closest("[data-card-id]")?.getAttribute("data-card-id") ?? undefined;
+}

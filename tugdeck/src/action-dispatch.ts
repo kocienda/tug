@@ -38,7 +38,6 @@ import { advanceKeyViewFocus, getFocusManager, BASE_FOCUS_MODE } from "@/compone
 import { dispatchCommand } from "./command-dispatch";
 import { openDiffInCard } from "@/lib/open-diff-in-card";
 import { openCommitInCard } from "@/lib/open-commit-in-card";
-import { neighborSlot } from "@/lib/neighbor-slot";
 import { isFocusDirection } from "@/lib/directional-focus";
 import { flashCardPane, flashPaneBorder } from "@/lib/flash-pane-border";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
@@ -239,6 +238,13 @@ export function getResponderChainManager(): ResponderChainManager | null {
 
 /** TextDecoder for UTF-8 payload decoding */
 const textDecoder = new TextDecoder();
+
+/**
+ * A payload's `originCardId` — the card an opening gesture was made in.
+ */
+function originOf(payload: Record<string, unknown>): string | null {
+  return typeof payload.originCardId === "string" ? payload.originCardId : null;
+}
 
 /**
  * Register an action handler.
@@ -995,12 +1001,11 @@ export function initActionDispatch(
   // restoring placeholder because the registry entry is what that placeholder
   // reads.
   //
-  // Placement follows the file-link rule ({@link neighborSlot}): the resumed
-  // session lands in the slot beside the card whose menu named it — left when
-  // there is a left, right when there is not. `originCardId` is the menu's
-  // host card, which is the card the reader is pointing at even when the
-  // right-click has not moved first responder; the first responder is the
-  // fallback for a dispatch that names no origin.
+  // Placement is the deck's one opening rule, anchored on the card whose menu
+  // named the session. `originCardId` is the menu's host card, which is the
+  // card the reader is pointing at even when the right-click has not moved
+  // first responder; the deck falls back to the first responder itself when
+  // the host holds no slot — a menu mounted in a rail, say.
   registerAction(TUG_ACTIONS.RESUME_SESSION, (payload) => {
     const sessionId = payload.sessionId;
     const projectDir = payload.projectDir;
@@ -1011,19 +1016,12 @@ export function initActionDispatch(
     const outgoing = deckManager.getFirstResponderCardId();
     const origin =
       typeof payload.originCardId === "string" ? payload.originCardId : null;
-    // The named host first, the first responder second: a menu mounted in a
-    // rail — the Overview, the Cards card — names a card that holds no slot of its
-    // own and so has no neighbour to offer, and the reader's focused card is
-    // the better answer than the head of the arrangement.
-    const slot =
-      neighborSlot(deckManager, origin) ??
-      neighborSlot(deckManager, outgoing);
     // Save-before-activation ([L23]): `addCard` activates the fresh card
     // directly, so the surface that dispatched this — the identity row's
     // menu, mounted in some other card — must bank its focus bag first.
     if (outgoing !== null) deckManager.invokeSaveCallback(outgoing);
     const cardId = deckManager.addCard("session", undefined, {
-      slot,
+      origin,
       opening: "bound",
     });
     if (cardId === null) {
@@ -1041,8 +1039,9 @@ export function initActionDispatch(
   // card's project and run the right-clicked command as its first turn.
   //
   // It is the resume-session gesture with a spawn where the restore is: the
-  // card is added first and the session fired into it second, placed in the
-  // slot beside the card whose menu named the command, and flashed, because
+  // card is added first and the session fired into it second, placed by the
+  // deck's opening rule from the card whose menu named the command, and
+  // flashed, because
   // the answer to the gesture is a card somewhere else on the deck and the
   // eye has to be told where ([P04]).
   //
@@ -1068,7 +1067,7 @@ export function initActionDispatch(
     // The new card opens on the SAME project as the card the command was
     // read in — a command about this project's files run against another
     // one is worse than no card at all. The origin's binding first, the
-    // focused card's second, matching the neighbour rule below it.
+    // focused card's second, the same order the deck anchors placement in.
     const projectDir =
       (origin === null
         ? undefined
@@ -1080,12 +1079,13 @@ export function initActionDispatch(
       console.warn("run-command-in-new-session: no project to open on", payload);
       return;
     }
-    const slot =
-      neighborSlot(deckManager, origin) ?? neighborSlot(deckManager, outgoing);
     // Save-before-activation ([L23]): `addCard` activates the fresh card, so
     // the surface that dispatched this banks its focus bag first.
     if (outgoing !== null) deckManager.invokeSaveCallback(outgoing);
-    const cardId = deckManager.addCard("session", undefined, { slot, opening: "bound" });
+    const cardId = deckManager.addCard("session", undefined, {
+      origin,
+      opening: "bound",
+    });
     if (cardId === null) {
       console.warn("run-command-in-new-session: no session card registration");
       return;
@@ -1132,13 +1132,17 @@ export function initActionDispatch(
   // reuse — a card already showing the same descriptor is activated;
   // otherwise a new Diff card is created seeded with it. Dispatched by the
   // changeset card's per-file and whole-entry pop-out affordances.
+  //
+  // `originCardId`, on this and on open-commit, is the card the gesture was
+  // made in — a menu's host, a pill's card — which the new card is placed
+  // from ahead of the first responder.
   registerAction(TUG_ACTIONS.OPEN_DIFF, (payload) => {
     const descriptor = payload.descriptor;
     if (!isDiffDescriptor(descriptor)) {
       console.warn("open-diff: missing or invalid descriptor", payload);
       return;
     }
-    openDiffInCard(deckManager, descriptor);
+    openDiffInCard(deckManager, descriptor, originOf(payload));
   });
 
   // open-commit: raise one commit's whole record in a Commit card. Sha-keyed
@@ -1173,7 +1177,7 @@ export function initActionDispatch(
             ...(author !== undefined ? { author } : {}),
             ...(dateIso !== undefined ? { dateIso } : {}),
           };
-    openCommitInCard(deckManager, { root, sha }, seeded);
+    openCommitInCard(deckManager, { root, sha }, seeded, originOf(payload));
   });
 
 

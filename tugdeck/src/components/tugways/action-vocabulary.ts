@@ -845,6 +845,8 @@ export const TUG_ACTIONS = {
   // OPEN_FILE:              payload — `{ path: string, line?: number, endLine?: number,
   //                         columns?: [number, number] }` — or `{ targets: [...] }`
   //                         to open several references as ONE gesture (`/ref 1-5`);
+  //                         either shape may carry `originCardId`, the card the
+  //                         gesture was made in, which a new card is placed from;
   //                         via `dispatchCommand` / Control frames, or a
   //                         chain dispatch whose `value` is the path
   //                         string (context-menu items). Open `path` in
@@ -1098,7 +1100,9 @@ export const TUG_ACTIONS = {
   RELOAD_FROM_DISK:       "reload-from-disk",
   OPEN_FILE:              "open-file",
   // OPEN_DIFF:              payload — `{ descriptor: DiffDescriptor }` (a
-  //                         head or range diff, `lib/git-diff-store.ts`).
+  //                         head or range diff, `lib/git-diff-store.ts`),
+  //                         plus an optional `originCardId` — the card the
+  //                         gesture was made in, which a new card is placed from.
   //                         Open the diff in a Diff card: an existing card
   //                         showing the same descriptor (by
   //                         `diffDescriptorKey`) is activated; otherwise a
@@ -1109,7 +1113,8 @@ export const TUG_ACTIONS = {
   // OPEN_COMMIT:            payload — `{ root: string, sha: string }`, plus
   //                         an optional `hint` ({subject, author, dateIso})
   //                         from a surface that already holds the commit's
-  //                         header. Open the commit in a Commit card: an
+  //                         header, and an optional `originCardId` — the card
+  //                         the gesture was made in. Open the commit in a Commit card: an
   //                         existing card showing the same commit — matched
   //                         with either sha a prefix of the other, since
   //                         prose writes eight characters and the reply

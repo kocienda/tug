@@ -60,6 +60,7 @@ import { annotationFromEvent } from "@/lib/annotator/annotation-element";
 import { scanPathReferences } from "@/lib/annotator/detect-path-reference";
 import {
   annotationEntryFor,
+  type AnnotationMenuEntry,
   type AnnotationMenuFacts,
 } from "@/lib/annotator/registry";
 import { pathResolutionStore } from "@/lib/annotator/path-resolution";
@@ -206,6 +207,24 @@ function sampledAnnotationValue(payload: AnnotationPayload | null): string | nul
 }
 
 // ---------------------------------------------------------------------------
+// Open origin
+// ---------------------------------------------------------------------------
+
+/**
+ * `entry` with `originCardId` added to an Open in Editor target, so the file
+ * opens from the card the menu was raised in. Every other entry, and a
+ * target that is not an object, passes through untouched.
+ */
+function withOpenOrigin(
+  entry: AnnotationMenuEntry,
+  cardId: string | null,
+): AnnotationMenuEntry {
+  if (cardId === null || entry.action !== TUG_ACTIONS.OPEN_FILE) return entry;
+  if (typeof entry.value !== "object" || entry.value === null) return entry;
+  return { ...entry, value: { ...entry.value, originCardId: cardId } };
+}
+
+// ---------------------------------------------------------------------------
 // The hook
 // ---------------------------------------------------------------------------
 
@@ -218,9 +237,10 @@ export function useAnnotationMenu({
   // `extraEntries` at menu-open time and read by the handlers when the user
   // picks an item. `null` when the right-click missed every annotation.
   const contextAnnotationRef = useRef<AnnotationPayload | null>(null);
-  // The card this surface is mounted in, for the one item whose answer is a
-  // card somewhere else: the new session opens on this card's project, in
-  // the slot beside it. `null` on a surface mounted outside any card.
+  // The card this surface is mounted in, for every item whose answer is a
+  // card somewhere else — a new session, a file, a diff, a commit — which the
+  // deck places from this card rather than from whichever card holds first
+  // responder. `null` on a surface mounted outside any card.
   const cardId = useCardId();
 
   /** The clipboard provenance in scope for this surface, at write time. */
@@ -408,8 +428,9 @@ export function useAnnotationMenu({
         sha: payload.sha,
         paths: payload.paths,
       },
+      ...(cardId !== null ? { originCardId: cardId } : {}),
     });
-  }, []);
+  }, [cardId]);
 
   const handleOpenAnnotatedCommit = useCallback((): ActionHandlerResult => {
     const payload = contextAnnotationRef.current;
@@ -417,8 +438,9 @@ export function useAnnotationMenu({
     dispatchCommand(TUG_ACTIONS.OPEN_COMMIT, {
       root: payload.root,
       sha: payload.sha,
+      ...(cardId !== null ? { originCardId: cardId } : {}),
     });
-  }, []);
+  }, [cardId]);
 
   const handleOpenImagePreview = useCallback((): ActionHandlerResult => {
     const payload = contextAnnotationRef.current;
@@ -491,12 +513,16 @@ export function useAnnotationMenu({
       // Annotated ink and a placed atom know the entity and nothing else
       // about it, which is what `{ kind: "none" }` says. A surface with no
       // composer to send to can't seed a prompt, so it doesn't offer to.
-      return entityMenuItems(entries, (e) =>
-        insertTarget === undefined &&
-        e.action === TUG_ACTIONS.INSERT_INTO_PROMPT,
+      // Open in Editor walks the chain to the canvas with its target as the
+      // value, so the host card rides on that target.
+      return entityMenuItems(
+        entries.map((e) => withOpenOrigin(e, cardId)),
+        (e) =>
+          insertTarget === undefined &&
+          e.action === TUG_ACTIONS.INSERT_INTO_PROMPT,
       );
     },
-    [insertTarget, cwd],
+    [insertTarget, cwd, cardId],
   );
 
   const hideStandardItems = useCallback((event: MouseEvent): boolean => {

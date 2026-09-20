@@ -124,6 +124,7 @@ import { basename } from "@/lib/display-path";
 import { attachOuterScrollOnModifierWheel } from "@/components/tugways/internal/use-outer-scroll-on-modifier-wheel";
 import { useSavedRegionScroll } from "@/components/tugways/use-component-state-preservation";
 import { dispatchCommand } from "@/command-dispatch";
+import { hostCardIdOf } from "@/lib/annotator/annotation-element";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import {
   BlockActionsCluster,
@@ -888,9 +889,11 @@ export const FileBlock: React.FC<FileBlockProps> = ({
                 return;
               }
               if (data.filePath === "") return;
+              const originCardId = hostCardIdOf(event.currentTarget);
               dispatchCommand(TUG_ACTIONS.OPEN_FILE, {
                 path: data.filePath,
                 line: data.startLine,
+                ...(originCardId !== undefined ? { originCardId } : {}),
               });
             }}
           >

@@ -2149,6 +2149,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           return;
         }
         if (typeof target !== "object" || target === null) return;
+        // The card the gesture was made in, which a new card is placed from
+        // ahead of the first responder. A batch names ONE origin for every
+        // reference in it, so the list fans out from the card that asked
+        // rather than composing through each card it has just opened.
+        const rawOrigin = (target as { originCardId?: unknown }).originCardId;
+        const origin = typeof rawOrigin === "string" ? rawOrigin : null;
         // One reference, or a list of them. A list is a single gesture —
         // `/ref 1-5` — and it has to arrive as one dispatch: opening a card
         // re-seats the first responder, so a second chain dispatch in the
@@ -2178,6 +2184,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             typeof line === "number" ? line : undefined,
             typeof endLine === "number" ? endLine : undefined,
             span,
+            origin,
           );
         };
         const { targets } = target as { targets?: unknown };

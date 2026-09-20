@@ -12,7 +12,7 @@
  *
  * Placement and the flash are the file opener's, for the same reason: a diff
  * popped out of a changeset row belongs beside the card the row is in
- * ({@link neighborSlot}), and the card that answers announces itself
+ * (`addCard`'s `origin`), and the card that answers announces itself
  * ({@link flashCardPane}) — including when it is a card that already existed
  * and merely raised, which otherwise gives no sign the pop-out did anything.
  *
@@ -26,7 +26,6 @@ import { transferFocusForActivation } from "@/focus-transfer";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { diffDescriptorKey, type DiffDescriptor } from "./git-diff-store";
 import { findDiffCardByKey } from "./diff-card-open-registry";
-import { neighborSlot } from "./neighbor-slot";
 import { flashCardPane } from "./flash-pane-border";
 
 /** The Diff card's initial-content seed (its restore bag content). */
@@ -37,6 +36,7 @@ export interface DiffCardSeed {
 export function openDiffInCard(
   store: IDeckManagerStore,
   descriptor: DiffDescriptor,
+  originCardId: string | null = null,
 ): void {
   const key = diffDescriptorKey(descriptor);
   const existing = findDiffCardByKey(key);
@@ -58,8 +58,9 @@ export function openDiffInCard(
   // directly, so the card the pop-out was pressed in banks its focus bag
   // first.
   const outgoing = store.getFirstResponderCardId();
-  const slot = neighborSlot(store, outgoing);
   if (outgoing !== null) store.invokeSaveCallback(outgoing);
-  const cardId = store.addCard("diff", seed, { slot });
+  const cardId = store.addCard("diff", seed, {
+    origin: originCardId ?? outgoing,
+  });
   if (cardId !== null) flashCardPane(store, cardId);
 }

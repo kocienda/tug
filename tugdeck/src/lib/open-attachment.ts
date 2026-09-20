@@ -103,16 +103,17 @@ async function firstBlock(path: string): Promise<Uint8Array | null> {
 export async function openAttachmentPath(
   store: IDeckManagerStore,
   path: string,
+  originCardId: string | null = null,
 ): Promise<void> {
   // A viewable kind is settled by its extension — the viewer card is built
   // around exactly that table — so it needs no probe and no round trip.
   if (isViewableFile(path)) {
-    openFileInCard(store, path);
+    openFileInCard(store, path, undefined, undefined, undefined, originCardId);
     return;
   }
   const head = await firstBlock(path);
   if (head !== null && looksTextual(head)) {
-    openFileInCard(store, path);
+    openFileInCard(store, path, undefined, undefined, undefined, originCardId);
     return;
   }
   revealPathInFinder(path);

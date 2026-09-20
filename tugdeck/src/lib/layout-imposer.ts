@@ -2079,16 +2079,15 @@ export interface FlowVisibleInput {
 }
 
 /**
- * The centermost slot the band is actually showing — where a card arriving from
- * nowhere belongs.
+ * The centermost slot the band is actually showing — the anchor a card opened
+ * with no origin is ranked from (`opening-placement.ts`).
  *
  * A slot is a candidate when the band holds the WHOLE of it, and the answer is
  * the middle candidate — cheating LEFT when there is an even number of them,
  * for the reason {@link centerSlot} does. Only when no occupied slot is wholly
  * on screen do the clipped ones answer, and then it is the middle slot the band
  * touches at all: a deck scrolled to the middle of a card that is wider than
- * the band still has somewhere the eye is, and the lowest occupied slot — which
- * is what a caller falls back to otherwise — is not it.
+ * the band still has somewhere the eye is.
  *
  * `undefined` for an empty strip, which is the one case with no centermost
  * anything. The reveal arithmetic's mirror image: {@link flowRevealOffset}
@@ -2098,11 +2097,40 @@ export interface FlowVisibleInput {
 export function centerVisibleFlowSlot(
   input: FlowVisibleInput,
 ): number | undefined {
+  const visible = flowVisibleSlots(input);
+  if (visible === null) return undefined;
+  if (visible.whole.length > 0) return middleOf(visible.whole);
+  if (visible.touched.length > 0) return middleOf(visible.touched);
+  return middleOf(visible.all);
+}
+
+/** What the band shows of a strip, slot by slot — every list ascending. */
+export interface FlowVisibleSlots {
+  /** Every slot the strip stands, on screen or not. */
+  all: readonly number[];
+  /** The slots the band holds the WHOLE of. */
+  whole: readonly number[];
+  /** The slots the band clips: partly on screen, not wholly. */
+  touched: readonly number[];
+}
+
+/**
+ * Which of the strip's slots the band holds whole and which it only clips —
+ * the one reading {@link centerVisibleFlowSlot} takes its middle from, and the
+ * one a card opening in flow confines its candidates to.
+ *
+ * `null` for an empty strip. A band or offset that is not a real measurement
+ * shows nothing it can vouch for, so every slot reads as neither whole nor
+ * clipped and a caller falls through to `all`.
+ */
+export function flowVisibleSlots(
+  input: FlowVisibleInput,
+): FlowVisibleSlots | null {
   const { strip, band, offset } = input;
   const slots = [...strip.positions.keys()].sort((a, b) => a - b);
-  if (slots.length === 0) return undefined;
+  if (slots.length === 0) return null;
   if (!Number.isFinite(band) || band <= 0 || !Number.isFinite(offset)) {
-    return middleOf(slots);
+    return { all: slots, whole: [], touched: [] };
   }
   const bandEnd = offset + band;
   const whole: number[] = [];
@@ -2113,9 +2141,7 @@ export function centerVisibleFlowSlot(
     if (left >= offset && right <= bandEnd) whole.push(slot);
     else if (right > offset && left < bandEnd) touched.push(slot);
   }
-  if (whole.length > 0) return middleOf(whole);
-  if (touched.length > 0) return middleOf(touched);
-  return middleOf(slots);
+  return { all: slots, whole, touched };
 }
 
 /** The middle member of a non-empty ascending list, cheating left on a tie. */

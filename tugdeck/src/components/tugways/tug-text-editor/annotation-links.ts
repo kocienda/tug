@@ -50,6 +50,7 @@ import type {
   DirectoryPayload,
   FilePathPayload,
 } from "@/lib/annotator/payloads";
+import { hostCardIdOf } from "@/lib/annotator/annotation-element";
 import { annotationEntryFor } from "@/lib/annotator/registry";
 import {
   accelHeld,
@@ -197,8 +198,12 @@ export function annotationLinkExtension(
         e.stopPropagation();
         // No insert target: an accel-click in an editor opens what it names,
         // and the kinds that would seed a composer instead decline on their
-        // own when there is none.
-        annotationEntryFor(payload.kind)?.primaryClick?.(payload, {});
+        // own when there is none. The editor's card is the open's origin.
+        const hostCardId = hostCardIdOf(view.dom);
+        annotationEntryFor(payload.kind)?.primaryClick?.(
+          payload,
+          hostCardId !== undefined ? { hostCardId } : {},
+        );
         return true;
       },
     }),

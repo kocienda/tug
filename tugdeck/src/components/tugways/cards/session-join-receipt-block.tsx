@@ -65,6 +65,7 @@ import { CommitChangesList } from "@/components/tugways/tug-changes-list";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
 import { SessionBoundary } from "@/components/tugways/cards/session-boundary";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
+import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import {
   ArcRecordBlock,
   arcRecordFindParts,
@@ -310,6 +311,8 @@ function JoinCommitReceipt({
   cwd: string;
   exchangeId: string;
 }): React.ReactElement {
+  // The card this receipt stands in, which a commit's card opens beside.
+  const hostCardId = useCardId();
   const { sha, arc, base, message, files, fit } = parsed;
   const subject = message.split("\n", 1)[0];
   // A squash subject names what it touched and the scope tag is often a path —
@@ -347,7 +350,7 @@ function JoinCommitReceipt({
           sha={sha}
           menu={false}
           onActivate={() =>
-            requestCommitCard({ root: cwd, sha }, { subject: headline })
+            requestCommitCard({ root: cwd, sha }, { subject: headline }, hostCardId)
           }
         />
         {menu.contextMenu}

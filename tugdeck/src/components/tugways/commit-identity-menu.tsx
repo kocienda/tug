@@ -75,6 +75,7 @@ import {
   type TugEditorContextMenuEntry,
 } from "@/components/tugways/tug-editor-context-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
+import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import { entityMenuItems } from "@/components/tugways/entity-menu-items";
 import { atomPlainTextFor, atomSegmentFor } from "@/lib/annotator/atom-segment";
 import { annotationEntryFor } from "@/lib/annotator/registry";
@@ -151,6 +152,10 @@ export function useCommitIdentityMenu({
   onToggleDetail,
 }: CommitIdentityMenuOptions): CommitIdentityMenuResult {
   const manager = useResponderChain();
+  // The card this row stands in — the host the menu was raised in, which a
+  // commit's or a diff's card opens beside rather than beside whichever card
+  // holds first responder.
+  const hostCardId = useCardId();
   const [menuState, setMenuState] = React.useState<{ x: number; y: number } | null>(
     null,
   );
@@ -208,8 +213,9 @@ export function useCommitIdentityMenu({
         sha: commit.sha,
         paths: [...pathsRef.current],
       },
+      ...(hostCardId !== null ? { originCardId: hostCardId } : {}),
     });
-  }, [commit.sha, root]);
+  }, [commit.sha, root, hostCardId]);
 
   // The commit's own card, seeded with the header this surface already holds
   // so its masthead paints before the round trip lands. A History row has the
@@ -223,8 +229,9 @@ export function useCommitIdentityMenu({
         author: commit.author ?? "",
         dateIso: commit.dateIso ?? "",
       },
+      ...(hostCardId !== null ? { originCardId: hostCardId } : {}),
     });
-  }, [commit.sha, commit.subject, commit.author, commit.dateIso, root]);
+  }, [commit.sha, commit.subject, commit.author, commit.dateIso, root, hostCardId]);
 
   const responderId = React.useId();
   const { responderRef, ResponderScope } = useOptionalResponder({

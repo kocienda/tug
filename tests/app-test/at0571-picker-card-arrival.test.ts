@@ -80,6 +80,14 @@
  * member spanning the same run — a reading that cannot be satisfied by the two
  * heights the claim is about.
  *
+ * Every one of those three drives a Session card into a split column, and a
+ * split column is not a landing place: a new card goes to one only when
+ * nothing else will take it. So their fixture SEALS slot 1 — it holds the
+ * focused card in a split of its own — and the arrival they read is the
+ * fallback, the bottom of the nearest split. The fourth test is the ordinary
+ * deck: the same split, with an empty slot beside it, and the card opens in
+ * the empty slot, picker and all.
+ *
  * `@covers` names the planner that partitions a settle's terms into beats, the
  * lifecycle channel the card's activation runs through, the settle-end notice
  * the clamp measures from, and the allocator that divides the column — the
@@ -103,6 +111,7 @@
  * @covers tugdeck/src/lib/card-lifecycle.ts
  * @covers tugdeck/src/lib/settle-notice.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
+ * @covers tugdeck/src/lib/opening-placement.ts
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
@@ -196,12 +205,19 @@ const wait = (ms: number): Promise<void> =>
 
 /**
  * A two-up whose slot 0 holds one `hello` card in a SPLIT column, and whose
- * slot 1 holds another so the arrangement is a real one.
+ * slot 1 is SEALED: it holds the focused card, in a split column of its own.
  *
  * Slot 0 is split with a single member on purpose: splitting a slot that holds
  * one card is a legal committed state, and it is what makes the card added
  * below join as a second MEMBER rather than as a second card on a stack. A
  * stacked arrival moves nothing and would make every claim here vacuous.
+ *
+ * A split column is not a landing place, so a new card goes to one only when
+ * nothing else will take it — and this fixture is that deck. The new card is
+ * ranked from the focused card, whose own slot it never covers, and the one
+ * slot left is the split at slot 0; slot 1 being split as well means no
+ * anchor could find anything better. What the three tests below drive is the
+ * fallback: the bottom of the nearest split.
  *
  * No `openingBids` here, and that is the point of this fixture against
  * `at0569`'s: the pin under test is the one `addCard` writes.
@@ -223,13 +239,35 @@ function deckShape() {
       { id: "C", componentId: "hello", title: "Card C", closable: true },
     ],
     panes: [pane("p1", "A", 0), pane("p3", "C", 1)],
-    activePaneId: "p1",
+    activePaneId: "p3",
     imposition: {
       kind: "two-up",
       sidebars: {},
-      columns: { 0: { mode: "split", order: ["p1"] } },
+      columns: {
+        0: { mode: "split", order: ["p1"] },
+        1: { mode: "split", order: ["p3"] },
+      },
     },
     hasFocus: true,
+  };
+}
+
+/**
+ * The same sitter's split column, with an EMPTY slot 1 beside it and the other
+ * card moved out to slot 2 — the deck a new card should never open into a
+ * split on. Focus stays on the sitter, so the arrival is ranked from slot 0.
+ */
+function openDeckShape() {
+  const shape = deckShape();
+  return {
+    ...shape,
+    panes: [shape.panes[0], { ...shape.panes[1], slot: 2 }],
+    activePaneId: "p1",
+    imposition: {
+      kind: "three-up",
+      sidebars: {},
+      columns: { 0: { mode: "split", order: ["p1"] } },
+    },
   };
 }
 
@@ -582,7 +620,7 @@ async function measureAtListCap(app: App, label: string): Promise<void> {
 
 /** Seed the deck, wait for both frames, and let the imposer settle. */
 async function seed(app: App): Promise<void> {
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: deckShape(), focusCardId: "C" });
   await app.waitForCondition<boolean>(
     `document.querySelector('.tug-pane[data-pane-id="p3"]') !== null`,
     { timeoutMs: 8_000 },
@@ -594,9 +632,8 @@ async function seed(app: App): Promise<void> {
  * Add a Session card the way the app does: the `show-card` control action,
  * which is what a menu item dispatches and which routes to `addCard`.
  *
- * Under a two-up a card arriving from nowhere takes the arrangement's
- * centermost slot, cheating left — slot 0, which is the split column this
- * fixture set up for it.
+ * The deck ranks its slot from the focused card: on the sealed fixture that
+ * leaves the split at slot 0, and on the open one the empty slot beside it.
  */
 const addSessionCard = `window.__tug.dispatchControlAction("show-card", { component: "session" })`;
 
@@ -1051,6 +1088,66 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           fit?.bottomSlack ?? -1,
           "and its bottom edge sits inside the frame that took the room",
         ).toBeGreaterThanOrEqual(0);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "with an empty slot beside the split, the card opens there instead",
+    async () => {
+      const app = await launchTugApp({ testName: "at0571-open-slot" });
+      try {
+        await app.seedDeckState({ state: openDeckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `document.querySelector('.tug-pane[data-pane-id="p3"]') !== null`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        await app.evalJS<null>(`(${addSessionCard}, null)`);
+        await app.waitForCondition<boolean>(
+          `window.tugdeck.diag.getDeckState().cards.some(function (c) {
+            return c.componentId === "session";
+          })`,
+          { timeoutMs: 8_000 },
+        );
+        const placed = await app.evalJS<{ paneId: string; slot: number | null }>(
+          `(function () {
+            var state = window.tugdeck.diag.getDeckState();
+            var card = state.cards.filter(function (c) {
+              return c.componentId === "session";
+            })[0];
+            var pane = state.panes.filter(function (p) {
+              return p.cardIds.indexOf(card.id) !== -1;
+            })[0];
+            return { paneId: pane.id, slot: pane.slot === undefined ? null : pane.slot };
+          })()`,
+        );
+        note("open slot", JSON.stringify(placed));
+        expect(
+          placed.slot,
+          "the empty slot beside the focused card's split, never the split itself",
+        ).toBe(1);
+
+        // It still rides in on its picker: the arrival is the same one, only
+        // somewhere better.
+        await app.waitForCondition<boolean>(
+          `document.querySelector('.tug-pane[data-pane-id="${placed.paneId}"] ${PICKER_FORM}') !== null`,
+          { timeoutMs: 8_000 },
+        );
+
+        // The split column was not joined: its one member is still its only one.
+        expect(
+          await app.evalJS<number>(
+            `window.tugdeck.diag.getDeckState().panes.filter(function (p) {
+              return p.slot === 0;
+            }).length`,
+          ),
+          "the split at slot 0 took no newcomer",
+        ).toBe(1);
       } finally {
         await app.close();
       }

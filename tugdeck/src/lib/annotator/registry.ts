@@ -160,6 +160,16 @@ export interface AnnotationDispatchContext {
    * into Prompt.
    */
   insertTarget?: PromptInsertTarget;
+  /**
+   * The card the clicked ink stands in, read off the DOM by whoever services
+   * the click (`hostCardIdOf`). A kind that opens a card names it as the
+   * open's origin, so the new card is placed from the card the reader clicked
+   * in rather than from whichever card holds first responder. The responder
+   * chain cannot answer this: `dispatchCommand` walks from the first
+   * responder and its event carries no sender. Absent where the click has no
+   * card around it.
+   */
+  hostCardId?: string;
 }
 
 /** The behavior registered for one annotation kind. */
@@ -369,10 +379,13 @@ function openTargetFor(payload: AnnotationPayload): Record<string, unknown> | nu
 }
 
 registerAnnotationKind("file-path", {
-  primaryClick: (payload) => {
+  primaryClick: (payload, ctx) => {
     const target = openTargetFor(payload);
     if (target === null) return;
-    dispatchCommand(TUG_ACTIONS.OPEN_FILE, target);
+    dispatchCommand(TUG_ACTIONS.OPEN_FILE, {
+      ...target,
+      ...(ctx.hostCardId !== undefined ? { originCardId: ctx.hostCardId } : {}),
+    });
   },
   // "Open in Editor" carries the same target the click sends, so both
   // gestures reach the deck-level open handler by the same route.
@@ -534,11 +547,12 @@ registerAnnotationKind("commit-sha", {
   // which answered the narrower question of what the commit changed before a
   // commit had a surface of its own; the menu still offers that one step down.
   // The confirmed `paths` stay on the payload for it.
-  primaryClick: (payload) => {
+  primaryClick: (payload, ctx) => {
     if (payload.kind !== "commit-sha") return;
     dispatchCommand(TUG_ACTIONS.OPEN_COMMIT, {
       root: payload.root,
       sha: payload.sha,
+      ...(ctx.hostCardId !== undefined ? { originCardId: ctx.hostCardId } : {}),
     });
   },
   menuEntries: commitMenuEntries,

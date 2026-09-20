@@ -1227,7 +1227,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
               // in the Finder. A path already open is reused rather than
               // duplicated, as with every other open.
               const deck = getDeckStore();
-              if (deck !== null) void openAttachmentPath(deck, p);
+              if (deck !== null) void openAttachmentPath(deck, p, cardId);
             }}
           />
         </cycle.CycleScope>

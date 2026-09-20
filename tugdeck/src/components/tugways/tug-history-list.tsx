@@ -78,6 +78,7 @@ import {
 } from "@/lib/commit-filter-scope";
 import { filterHighlightRanges, filterQueryMatch } from "@/lib/text-match";
 import type { GitLogCommit } from "@/lib/git-log-store";
+import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import { requestCommitCard } from "@/lib/open-commit-in-card";
 
 /**
@@ -236,6 +237,8 @@ function CommitRow({
   filterQuery?: string;
   filterScope?: readonly CommitFilterScope[];
 }): React.ReactElement {
+  // The card this row stands in, which a commit's card opens beside.
+  const hostCardId = useCardId();
   const [expanded, setExpanded] = useState(false);
   // A commit that landed as an arc join carries the `Tug-Arc:` trailer;
   // History badges it so joins read differently from hand commits ([P09]).
@@ -350,6 +353,7 @@ function CommitRow({
                   author: commit.author,
                   dateIso: commit.committer_date ?? "",
                 },
+                hostCardId,
               )
             }
             subject={commit.subject}

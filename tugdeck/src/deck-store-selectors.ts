@@ -289,7 +289,7 @@ export function paneRenderWidthOf(
  *
  * **Every slot the kind defines stands here, empty or not.** An unoccupied one
  * reserves the width a card opening in it would take — the deck's content-width
- * preset, which is the same number `_openingSlot`'s card will arrive at — so
+ * preset, which is the same number a freshly opened card will arrive at — so
  * the arrangement reads by its own numbering and a card assigned to slot 4
  * stands at slot 4 whether or not slot 3 holds anything.
  */

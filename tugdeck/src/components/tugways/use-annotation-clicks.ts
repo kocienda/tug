@@ -29,6 +29,7 @@ import React from "react";
 
 import {
   annotationFromEvent,
+  hostCardIdOf,
   type ResolvedAnnotation,
 } from "@/lib/annotator/annotation-element";
 import {
@@ -86,10 +87,11 @@ export function useAnnotationClicks(
     const onClick = (event: MouseEvent): void => {
       const hit = clickedAnnotation(event);
       if (hit === null) return;
-      annotationEntryFor(hit.payload.kind)?.primaryClick?.(
-        hit.payload,
-        ctxRef.current,
-      );
+      const hostCardId = hostCardIdOf(hit.element);
+      annotationEntryFor(hit.payload.kind)?.primaryClick?.(hit.payload, {
+        ...ctxRef.current,
+        ...(hostCardId !== undefined ? { hostCardId } : {}),
+      });
     };
     // An annotation that opens something must not let the press move DOM
     // focus (the composer's caret would go with it). The kinds that need that

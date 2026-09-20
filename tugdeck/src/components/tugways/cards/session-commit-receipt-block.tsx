@@ -34,6 +34,7 @@ import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
 import { BlockChrome } from "../blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "../blocks/collapse-context";
 import "@/components/tugways/commit-presentation.css";
+import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import {
   registerCommandBlock,
   type CommandBlockProps,
@@ -166,6 +167,8 @@ function CommitReceipt({
   cwd: string;
   exchangeId: string;
 }): React.ReactElement {
+  // The card this receipt stands in, which a commit's card opens beside.
+  const hostCardId = useCardId();
   const { sha, message, fileCount, added, removed, files } = parsed;
   // The header carries the subject — the message's first line — so it reads
   // like the Bash header's command line; the body (when there is one) follows
@@ -205,7 +208,9 @@ function CommitReceipt({
         <CommitShaText
           sha={sha}
           menu={false}
-          onActivate={() => requestCommitCard({ root: cwd, sha }, { subject })}
+          onActivate={() =>
+            requestCommitCard({ root: cwd, sha }, { subject }, hostCardId)
+          }
         />
         {menu.contextMenu}
       </span>

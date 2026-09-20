@@ -16,8 +16,10 @@
  * jumped to `line`. Otherwise the file gets a fresh card of its own,
  * seeded through `addCard`'s initial-content channel — it mounts
  * directly onto the file via the same restore path a reloaded card
- * takes. Under a multi-slot arrangement that fresh card opens at the slot
- * beside the card the open came from ({@link neighborSlot}).
+ * takes. Under a multi-slot arrangement the deck places that fresh card from
+ * the card the open came from (`addCard`'s `origin`): `originCardId` when the
+ * door names its host card — a menu row, a link, a list — and the first
+ * responder when it does not.
  *
  * Either way the card that answers the open flashes its border
  * ({@link flashCardPane}): a card arriving beside the passage being read is a
@@ -44,7 +46,6 @@ import { findTextCardByPath } from "./text-card-open-registry";
 import { findFileViewCardByPath } from "./file-view-open-registry";
 import { isViewableFile } from "./file-kinds";
 import { noteRecentDocument } from "./recent-documents";
-import { neighborSlot } from "./neighbor-slot";
 import { flashCardPane } from "./flash-pane-border";
 
 /**
@@ -64,7 +65,11 @@ export function readSaveMode(): SaveMode {
  * the Text path: activate the card already bound to `path`, else a fresh
  * card. `line` has no meaning for a viewer, so the reveal channel is absent.
  */
-function openFileInViewerCard(store: IDeckManagerStore, path: string): void {
+function openFileInViewerCard(
+  store: IDeckManagerStore,
+  path: string,
+  originCardId: string | null,
+): void {
   const existing = findFileViewCardByPath(path);
   if (existing) {
     transferFocusForActivation({
@@ -81,9 +86,10 @@ function openFileInViewerCard(store: IDeckManagerStore, path: string): void {
   // surface that dispatched this open — the Cards card Files list, say — must save
   // its focus bag before `addCard` activates the new card ([L23]).
   const outgoing = store.getFirstResponderCardId();
-  const slot = neighborSlot(store, outgoing);
   if (outgoing !== null) store.invokeSaveCallback(outgoing);
-  const cardId = store.addCard("file-view", { path }, { slot });
+  const cardId = store.addCard("file-view", { path }, {
+    origin: originCardId ?? outgoing,
+  });
   if (cardId !== null) flashCardPane(store, cardId);
 }
 
@@ -93,6 +99,7 @@ export function openFileInCard(
   line?: number,
   endLine?: number,
   columns?: readonly [number, number],
+  originCardId: string | null = null,
 ): void {
   // Every real open flows through here — record it for Open Recent
   // before the card work, so drops / Open Quickly / menu all feed it.
@@ -101,7 +108,7 @@ export function openFileInCard(
 
   // The one place a path's kind decides which card family it lands in.
   if (isViewableFile(path)) {
-    openFileInViewerCard(store, path);
+    openFileInViewerCard(store, path, originCardId);
     return;
   }
 
@@ -137,8 +144,9 @@ export function openFileInCard(
   // Cmd-L back into it falls to default-focus (wrong section, no ring) instead
   // of restoring the row the user was on ([L23] save-before-activation).
   const outgoing = store.getFirstResponderCardId();
-  const slot = neighborSlot(store, outgoing);
   if (outgoing !== null) store.invokeSaveCallback(outgoing);
-  const cardId = store.addCard("text", seed, { slot });
+  const cardId = store.addCard("text", seed, {
+    origin: originCardId ?? outgoing,
+  });
   if (cardId !== null) flashCardPane(store, cardId);
 }

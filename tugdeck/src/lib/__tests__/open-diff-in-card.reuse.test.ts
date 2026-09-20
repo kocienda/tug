@@ -53,13 +53,12 @@ describe("open-diff-in-card ([P20])", () => {
     const { store, calls } = makeStore();
     openDiffInCard(store as never, DESCRIPTOR);
     expect(calls.addCard).toHaveLength(1);
-    // The third argument is the pop-out's seating request. With no outgoing
-    // card there is no neighbour to sit beside, so the slot is undefined and
-    // the deck places the card itself.
+    // The third argument names where the gesture came from. With no outgoing
+    // card the origin is null, and the deck anchors the placement itself.
     expect(calls.addCard[0]).toEqual([
       "diff",
       { descriptor: DESCRIPTOR },
-      { slot: undefined },
+      { origin: null },
     ]);
   });
 
