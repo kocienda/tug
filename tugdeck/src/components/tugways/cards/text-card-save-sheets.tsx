@@ -215,7 +215,7 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
             message="Your unsaved changes conflict with the version on disk."
             buttons={[
               {
-                label: "Reload from Disk",
+                label: "Reload",
                 result: "reload",
                 isDefault: defaultChoice === "reload",
               },
