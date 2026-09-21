@@ -138,6 +138,20 @@ pub fn is_tool_use(payload: &[u8]) -> bool {
         .any(|w| w == TOOL_USE_NEEDLE)
 }
 
+/// Needle bytes for `tool_result` — the answer to a `tool_use`. An errored one
+/// is the only word a launch that never ran will ever get: a call the
+/// PreToolUse gate denied produces no `task_started`, no `task_updated` and no
+/// wake, so its provisional job has nothing else to close it.
+const TOOL_RESULT_NEEDLE: &[u8] = b"\"type\":\"tool_result\"";
+
+/// Check if a payload could be a `tool_result` frame — the cheap gate in front
+/// of the parse that reads its `tool_use_id` and `is_error`.
+pub fn is_tool_result(payload: &[u8]) -> bool {
+    payload
+        .windows(TOOL_RESULT_NEEDLE.len())
+        .any(|w| w == TOOL_RESULT_NEEDLE)
+}
+
 /// Needle bytes for `task_progress` — a background agent's heartbeat. Not a
 /// job edge (a job ticking is a job still open), but it refreshes the job's
 /// liveness stamp so the reaper knows work is genuinely running.

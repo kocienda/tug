@@ -43,8 +43,8 @@ use super::agent_bridge::{
 use super::code::{parse_tug_session_id, splice_tug_session_id};
 use super::session_metadata::{
     is_activity_delta, is_background_tasks_changed, is_rate_limit_event, is_session_capabilities,
-    is_stop_all_work_done, is_system_metadata, is_task_edge, is_task_progress, is_tool_use,
-    is_turn_end, is_wake_started,
+    is_stop_all_work_done, is_system_metadata, is_task_edge, is_task_progress, is_tool_result,
+    is_tool_use, is_turn_end, is_wake_started,
 };
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
@@ -3402,6 +3402,20 @@ fn parse_background_launch(payload: &[u8]) -> Option<String> {
         == Some(true);
     let monitor = value.get("tool_name").and_then(|n| n.as_str()) == Some("Monitor");
     (backgrounded || monitor).then(|| tool_use_id.to_owned())
+}
+
+/// The `tool_use_id` of an errored `tool_result` — the answer a launch that
+/// never ran gets, and the only one.
+fn parse_errored_tool_result(payload: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    if value.get("type")?.as_str()? != "tool_result" {
+        return None;
+    }
+    if value.get("is_error").and_then(|b| b.as_bool()) != Some(true) {
+        return None;
+    }
+    let tool_use_id = value.get("tool_use_id")?.as_str()?;
+    (!tool_use_id.is_empty()).then(|| tool_use_id.to_owned())
 }
 
 /// The `tool_use_id` a `task_started` frame names as its launching call, for
@@ -11184,6 +11198,56 @@ impl AgentSupervisor {
         );
     }
 
+    /// Close the provisional job of a launch whose `tool_result` came back
+    /// errored, and answer whether that left the session **quiet**.
+    ///
+    /// A backgrounded call that is denied — by the PreToolUse gate, by a
+    /// permission rule, by a validation error — never runs, so the
+    /// `task_started` that would re-key its `launch:` entry never arrives, and
+    /// neither does any closing edge. Left alone the entry holds the session
+    /// busy until a wake or [`JOB_REAP_HORIZON`], which for an arc between
+    /// steps is thirty minutes of a wheel that will not turn (the 2026-09-21
+    /// `network-resilience` stalls, twice in one run).
+    ///
+    /// Only the `launch:` key is touched: a launch that *was* confirmed has
+    /// been re-keyed onto its `task_id`, so an errored result behind a running
+    /// job closes nothing. Replay-guarded like every other job fold.
+    pub(super) async fn close_failed_launch(
+        &self,
+        session_id: &TugSessionId,
+        payload: &[u8],
+    ) -> bool {
+        let Some(tool_use_id) = parse_errored_tool_result(payload) else {
+            return false;
+        };
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            ledger.get(session_id).cloned()
+        };
+        let Some(entry_arc) = entry_arc else {
+            return false;
+        };
+        let mut entry = entry_arc.lock().await;
+        if entry.replay_brackets_open != 0 {
+            return false;
+        }
+        if entry.open_jobs.remove(&launch_key(&tool_use_id)).is_none() {
+            return false;
+        }
+        tracing::debug!(
+            target: "dev::ledger",
+            event = "job_launch_failed",
+            session_id = %session_id,
+            tool_use_id = %tool_use_id,
+            open_jobs = entry.open_jobs.len(),
+        );
+        let quiet = entry.is_quiet();
+        if quiet {
+            entry.quiesced.notify_waiters();
+        }
+        quiet
+    }
+
     /// Refresh an open job's liveness stamp from a `task_progress` heartbeat,
     /// so the reaper can tell silent-but-running work from a job whose
     /// terminal frame the wire never delivered. A tick for a job that is not
@@ -11585,6 +11649,21 @@ impl AgentSupervisor {
                     // gate for a live frame.
                     if is_tool_use(&frame.payload) {
                         self.record_job_launch(&id, &frame.payload).await;
+                    }
+                    // The launch that never ran. A backgrounded call the
+                    // PreToolUse gate denies answers with an errored
+                    // `tool_result` and nothing else, so this is the only
+                    // frame that can close the provisional job it opened.
+                    if is_tool_result(&frame.payload)
+                        && self.close_failed_launch(&id, &frame.payload).await
+                    {
+                        if let Some(tx) = self.turn_complete_tx.get() {
+                            let _ = tx.try_send(id.to_string());
+                        }
+                        if let Some(tx) = self.arc_tick_tx.get() {
+                            let _ = tx.try_send(id.to_string());
+                        }
+                        self.registry.changeset_all_bump().notify_one();
                     }
                     // A background agent's heartbeat — not a job edge, but it
                     // proves the job is alive, which is what keeps the reaper
@@ -18589,6 +18668,52 @@ mod tests {
             entry.lock().await.open_jobs.is_empty(),
             "the job's only terminal was its notification, and the wake carries it"
         );
+    }
+
+    /// The 2026-09-21 stall: a backgrounded Bash call the PreToolUse gate
+    /// denied never ran, so no `task_started` followed and its provisional
+    /// job held the session busy for the whole reap horizon. Its errored
+    /// `tool_result` is the close — and an errored result behind a *confirmed*
+    /// job closes nothing, because that job is still running.
+    #[tokio::test]
+    async fn an_errored_result_closes_the_launch_that_never_ran() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-denied", "sess-denied"),
+            10,
+        )
+        .await
+        .expect_handled();
+        let id = TugSessionId::new("sess-denied");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+
+        let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_1","input":{"command":"mv \"$CACHE\" x","run_in_background":true},"ipc_version":2}"#;
+        let denied = br#"{"type":"tool_result","tool_use_id":"toolu_1","output":"operand `$CACHE` is not a literal path.","is_error":true,"ipc_version":2}"#;
+        let fine = br#"{"type":"tool_result","tool_use_id":"toolu_1","output":"Command running in background","is_error":false,"ipc_version":2}"#;
+
+        sup.record_job_launch(&id, launch).await;
+        assert!(!entry.lock().await.is_quiet(), "the launch arms the latch");
+        assert!(!sup.close_failed_launch(&id, fine).await);
+        assert_eq!(
+            entry.lock().await.open_jobs.len(),
+            1,
+            "a clean result is a launch still awaiting its task_started"
+        );
+        assert!(is_tool_result(denied), "the needle gate reaches the fold");
+        assert!(sup.close_failed_launch(&id, denied).await);
+        assert!(entry.lock().await.open_jobs.is_empty());
+
+        // A confirmed job is keyed by task id, and an errored result behind
+        // it is not its terminal.
+        let started = br#"{"type":"task_started","session_id":"c","task_id":"t1","tool_use_id":"toolu_1","description":"a sweep","task_type":"local_bash","ipc_version":2}"#;
+        sup.record_job_launch(&id, launch).await;
+        sup.apply_job_edge(&id, started).await;
+        assert!(!sup.close_failed_launch(&id, denied).await);
+        assert_eq!(entry.lock().await.open_jobs.len(), 1);
     }
 
     /// A `task_progress` heartbeat proves the job alive: it moves the stamp,
