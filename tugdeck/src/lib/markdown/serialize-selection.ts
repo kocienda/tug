@@ -119,12 +119,21 @@ function atomOf(el: Element): AtomSegment | null {
   const value = el.getAttribute("data-atom-value");
   if (type === null || label === null || value === null) return null;
   const id = el.getAttribute("data-atom-id");
+  // The session pair, recovered beside the id: `atomIdentityAttrs` writes both
+  // attributes or neither, so one without the other is a chip some other
+  // renderer built by hand and is not trusted as a reference.
+  const sessionId = el.getAttribute("data-atom-session-id");
+  const sessionDir = el.getAttribute("data-atom-session-project-dir");
   return {
     kind: "atom",
     type,
     label,
     value,
     ...(id !== null && id !== "" ? { id } : {}),
+    ...(sessionId !== null && sessionId !== "" && sessionDir !== null
+      && sessionDir !== ""
+      ? { session: { id: sessionId, projectDir: sessionDir } }
+      : {}),
   };
 }
 

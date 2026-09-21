@@ -270,6 +270,30 @@ pub fn prompt_history_db_path() -> PathBuf {
     guard_isolated(base_data_dir().join("prompt_history.db"))
 }
 
+/// Environment variable overriding the shared session-index ledger path.
+/// Set by test harnesses (the app-test driver, the tugtool CLI suite)
+/// so isolated runs never write rows the user's real instances would
+/// then resolve as sessions living elsewhere on the machine.
+pub const ENV_SESSION_INDEX_DB: &str = "TUG_SESSION_INDEX_DB";
+
+/// The **machine-global** session-index ledger path: one
+/// `session_index.db` for every app instance, holding one row per session
+/// segment — the facts needed to *find* a session (uuid, callsign,
+/// project dir, owning instance) and nothing else. Deliberately
+/// independent of `TUG_INSTANCE_ID`, and that is the whole point: the
+/// question it answers ("does this callsign name a session that exists on
+/// this machine?") cannot be answered from inside one instance's
+/// `sessions.db`, which is where the rest of a session's truth stays.
+/// Not `sessions.db` — that top-level filename is the legacy no-instance
+/// session ledger and must not be shadowed. Honors the
+/// [`ENV_SESSION_INDEX_DB`] override for isolated test runs.
+pub fn session_index_db_path() -> PathBuf {
+    if let Some(p) = env::var_os(ENV_SESSION_INDEX_DB).filter(|v| !v.is_empty()) {
+        return guard_isolated(PathBuf::from(p));
+    }
+    guard_isolated(base_data_dir().join("session_index.db"))
+}
+
 /// Environment variable overriding the shared app-test results ledger path.
 /// Set by test harnesses (the tugtool CLI suite, the recipe's own
 /// integration checks) so isolated runs never touch the real record.
@@ -673,6 +697,7 @@ mod tests {
             changes_db_path(),
             jots_path(),
             prompt_history_db_path(),
+            session_index_db_path(),
         ] {
             assert!(p.starts_with(tmp.path()), "{} escaped", p.display());
         }
@@ -809,6 +834,39 @@ mod tests {
     fn prompt_history_db_path_ignores_empty_env() {
         let _s = VarGuard::set(ENV_PROMPT_HISTORY_DB, Some(std::path::Path::new("")));
         assert!(prompt_history_db_path().ends_with("Tug/prompt_history.db"));
+    }
+
+    #[test]
+    #[serial]
+    fn session_index_db_path_default_is_machine_global_and_instance_independent() {
+        let _g = EnvGuard::snapshot();
+        let _s = VarGuard::set(ENV_SESSION_INDEX_DB, None);
+        set_instance(None);
+        let unset = session_index_db_path();
+        set_instance(Some("debug-foo"));
+        let set = session_index_db_path();
+        assert_eq!(unset, set);
+        assert!(set.ends_with("Tug/session_index.db"));
+    }
+
+    #[test]
+    #[serial]
+    fn session_index_db_path_env_override_wins() {
+        let _s = VarGuard::set(
+            ENV_SESSION_INDEX_DB,
+            Some(std::path::Path::new("/tmp/custom-session-index.db")),
+        );
+        assert_eq!(
+            session_index_db_path(),
+            PathBuf::from("/tmp/custom-session-index.db")
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn session_index_db_path_ignores_empty_env() {
+        let _s = VarGuard::set(ENV_SESSION_INDEX_DB, Some(std::path::Path::new("")));
+        assert!(session_index_db_path().ends_with("Tug/session_index.db"));
     }
 
     #[test]

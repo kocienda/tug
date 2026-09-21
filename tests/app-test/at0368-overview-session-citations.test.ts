@@ -87,12 +87,19 @@ const SESSION_ID = "b3c4d5e6-1a2b-4c3d-8e4f-5a6b7c8d9e02";
 const HELD = "brisk-lantern";
 const MISSING = "imaginary-lantern";
 
-/** The ledger's answer, through the production `resolve_sessions_ok` handler. */
+/**
+ * The ledger's answer, through the production `resolve_sessions_ok` handler.
+ *
+ * Keyed by the WHOLE `<project>/<callsign>` run, because that is the spelling
+ * the resolver asks under: the server splits the pair and filters by the
+ * project half itself, and files every answer under what was asked. A fixture
+ * answering the callsign half alone fills a key nobody reads.
+ */
 function resolveSessions(): string {
   return `window.__tug.dispatchControlAction("resolve_sessions_ok", ${JSON.stringify({
     sessions: [
       {
-        queried: HELD,
+        queried: `${PROJECT}/${HELD}`,
         session: {
           session_id: SESSION_ID,
           workspace_key: "ws-1",
@@ -108,7 +115,7 @@ function resolveSessions(): string {
         },
       },
     ],
-    unknown: [MISSING],
+    unknown: [`${PROJECT}/${MISSING}`],
   })})`;
 }
 

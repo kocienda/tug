@@ -19,8 +19,11 @@ pub mod pathform;
 pub mod ports;
 pub mod quiesce;
 pub mod registry;
+pub mod session_finder;
 #[cfg(test)]
 mod session_identity_scan;
+pub mod session_index;
+pub mod session_transcript;
 #[cfg(test)]
 mod source_scan;
 pub mod version;

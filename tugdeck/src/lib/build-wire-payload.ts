@@ -47,9 +47,24 @@
  *    `text-file` source. We can revisit if a need arises.)
  *  - `image` (no id; defensive) → substituted text only.
  *  - `link` → substituted text (the URL).
+ *  - `session` → a TYPED mention marker,
+ *    `` `@session:<project>/<callsign>` ``. The one kind whose type rides
+ *    the wire, because a session's value is spelled like a relative path
+ *    and nothing in it tells a replay what it is. See
+ *    {@link wrapSessionMention}.
  *  - `command` → a clean `/<name>` string (not the mention marker), so
  *    claude expands it as a user-invoked slash command. See
  *    {@link commandWireText}.
+ *
+ * ## The trailing reference block
+ *
+ * A message carrying any session atom ends with one extra text block — the
+ * `tug:session-refs` fact sheet, naming each distinct reference's uuid,
+ * project dir and verdict. A marker is a NAME, and the model holds no ledger
+ * to look a callsign up in; the block is what makes the reference actionable.
+ * A message with no session atom gets no block and is byte-identical to what
+ * it was before this existed. See `session-ref-block.ts`, and
+ * `synthesize-user-message.ts` for the strip on the way back in.
  *
  * ## Returned `atomIdAt` resolver
  *
@@ -101,8 +116,14 @@
 import type { ContentBlock } from "@/protocol";
 import { TUG_ATOM_CHAR, type AtomSegment } from "./tug-atom-img";
 import type { AtomBytesStore } from "./atom-bytes-store";
-import { wrapAtomMention } from "./atom-mention-marker";
+import { wrapAtomMention, wrapSessionMention } from "./atom-mention-marker";
 import { commandWireText } from "./command-atom";
+import { isSessionAtomType } from "./session-atom-shape";
+import {
+  buildSessionRefBlock,
+  type SessionRefEntry,
+  type SessionRefVerdict,
+} from "./session-ref-block";
 
 // ---------------------------------------------------------------------------
 // Public type
@@ -123,6 +144,23 @@ export interface WirePayload {
    * `undefined` for any index outside the emitted range.
    */
   atomIdAt: (imageBlockIndex: number) => string | undefined;
+}
+
+/** Optional knobs for {@link buildWirePayload}. */
+export interface WirePayloadOptions {
+  /**
+   * What the client knows about one session atom, at the moment of the send.
+   *
+   * Injected rather than reached for so this module stays pure: the live path
+   * passes a reader over `sessionCitationStore`, and omitting it makes every
+   * reference `unverified`, which is the honest answer for a caller that
+   * holds no verdicts rather than a claim that the sessions are absent.
+   */
+  sessionVerdict?: (atom: AtomSegment) => {
+    verdict: SessionRefVerdict;
+    sessionId?: string;
+    projectDir?: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -146,6 +184,7 @@ export function buildWirePayload(
   text: string,
   atoms: ReadonlyArray<AtomSegment>,
   bytesStore: AtomBytesStore,
+  options?: WirePayloadOptions,
 ): WirePayload {
   const content: ContentBlock[] = [];
   // Per-image-block atom id, captured during the walk so the
@@ -153,6 +192,10 @@ export function buildWirePayload(
   const imageBlockAtomIds: Array<string | undefined> = [];
   let textBuf = "";
   let atomIdx = 0;
+  // Distinct session atoms, in first-appearance order — the reference block's
+  // rows. Keyed by `value`, which is the spelling the marker carries, so two
+  // chips naming one session earn one line rather than two.
+  const sessionAtoms = new Map<string, AtomSegment>();
 
   function flushText(): void {
     if (textBuf.length > 0) {
@@ -217,6 +260,17 @@ export function buildWirePayload(
       textBuf += commandWireText(atom.value);
       continue;
     }
+    // A session atom names its type on the wire. Every other kind is
+    // recovered on replay from its value's own shape, and a session's value
+    // — `<project>/<callsign>` — has the shape of a relative file path, so
+    // there is nothing to recover it from. Before this, the replay asked the
+    // local tag store, which made the chip depend on what the reading client
+    // had seen rather than on what the JSONL said.
+    if (isSessionAtomType(atom.type)) {
+      textBuf += wrapSessionMention(atom.value);
+      if (!sessionAtoms.has(atom.value)) sessionAtoms.set(atom.value, atom);
+      continue;
+    }
     // Non-image, bytes-less, or otherwise not promoted to an image
     // block — substitute the atom's value into the current text run
     // wrapped as a backtick-`@` mention marker so the atom's position
@@ -227,6 +281,27 @@ export function buildWirePayload(
     textBuf += wrapAtomMention(atom.value);
   }
   flushText();
+
+  // The reference block is one trailing text block, after every block the
+  // message itself produced. It resolves each marker to a uuid the model can
+  // act on, and it is written only when there is a reference to resolve — a
+  // message with no session atom is byte-identical to what it was before this
+  // block existed.
+  const refEntries: SessionRefEntry[] = [];
+  for (const atom of sessionAtoms.values()) {
+    const answer = options?.sessionVerdict?.(atom);
+    refEntries.push({
+      value: atom.value,
+      verdict: answer?.verdict ?? "unverified",
+      // The atom's own identity first: it was minted from the ledger and is
+      // what this client is surest of. A store answer fills the gap for an
+      // atom that arrived by replay, carrying the name alone.
+      sessionId: atom.session?.id ?? answer?.sessionId,
+      projectDir: atom.session?.projectDir ?? answer?.projectDir,
+    });
+  }
+  const refBlock = buildSessionRefBlock(refEntries);
+  if (refBlock !== null) content.push({ type: "text", text: refBlock });
 
   return {
     content,

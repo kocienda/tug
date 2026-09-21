@@ -57,6 +57,7 @@ import {
   isSessionAtomType,
   sessionAtomCallsign,
   sessionAtomProject,
+  sessionVerdictAskKey,
 } from "@/lib/session-atom";
 import {
   TUG_ATOM_CHAR,
@@ -335,7 +336,7 @@ export const TugAtomMarkdownBody = React.forwardRef<
           // so an unresolvable atom still shows the project its value named.
           isSessionAtomType(atom.type) ? (
             <TugSessionCitation
-              citedId={sessionAtomCallsign(atom.value)}
+              citedId={sessionVerdictAskKey(atom)}
               recordedTag={sessionAtomCallsign(atom.value)}
               context={{
                 recordedProject: sessionAtomProject(atom.value),

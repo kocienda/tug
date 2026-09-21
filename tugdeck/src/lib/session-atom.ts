@@ -13,12 +13,19 @@
  * | Flavor                    | Payload                                    |
  * |---------------------------|--------------------------------------------|
  * | `text/plain`              | the citation, `<project>/<tag> (<shortId>)` |
- * | `dev.tugapp.prompt-atoms`    | a one-atom sidecar with a `session` segment |
+ * | `dev.tugapp.prompt-atoms`    | a one-atom sidecar with a `session` segment, carrying the uuid + project dir |
  * | wire marker (at submit)   | `` `@<project>/<tag>` ``                    |
  *
  * The `text/plain` flavor is the CITATION rather than the bare callsign,
  * because plain text is what leaves Tug — a pasted reference that a reader
  * cannot resolve back to a session is a name, not a reference.
+ *
+ * The same reasoning one layer down is why the SEGMENT carries more than its
+ * `<project>/<callsign>` value: that value is a name only the instance
+ * holding the callsign can resolve, so the segment carries the session's uuid
+ * and project dir beside it. Those two travel wherever the atom does — the
+ * sidecar, the `data-atom-session-*` attributes, the wire — and they are what
+ * lets a reader find the session on an instance that never minted it.
  *
  * @module lib/session-atom
  */
@@ -39,11 +46,19 @@ export {
   isSessionAtomType,
   sessionAtomCallsign,
   sessionAtomProject,
+  sessionVerdictAskKey,
 } from "@/lib/session-atom-shape";
 
 /**
  * The atom segment for a session — `<project>/<callsign>` as both label and
  * value, so the chip reads what the wire marker carries.
+ *
+ * `session` rides beside them when the identity knows BOTH halves. Either
+ * alone is not a reference: a uuid with no project dir cannot be found in the
+ * projects tree, and a dir with no uuid names no session. An identity that
+ * knows only one is an identity resolved from a recorded reference rather
+ * than from the ledger, and minting a half-filled pair would make that atom
+ * look findable.
  */
 export function sessionAtomSegment(identity: SessionIdentity): AtomSegment {
   const run = sessionIdentityLine(identity);
@@ -52,6 +67,9 @@ export function sessionAtomSegment(identity: SessionIdentity): AtomSegment {
     type: SESSION_ATOM_TYPE,
     label: run,
     value: run,
+    ...(identity.id !== "" && identity.projectDir !== ""
+      ? { session: { id: identity.id, projectDir: identity.projectDir } }
+      : {}),
   };
 }
 

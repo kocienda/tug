@@ -354,6 +354,36 @@ body {
   cursor: default;
 }
 
+/* ── Elsewhere ──────────────────────────────────────────────────────────
+   On this machine, in a ledger that is not this one.
+
+   SOLID, deliberately: the border is what says whether the thing named
+   exists, and this one does — a reader can open and read it. Dashing it
+   would say the opposite of the truth, and the pill would be
+   indistinguishable from a reference to nothing.
+
+   What it loses instead is the dot, which the component omits rather than
+   greys: this client subscribes to no phase for a session it does not hold,
+   and an idle dot is a claim ("asleep") rather than an absence of one. The
+   ink mutes a step so the pill reads as a reference rather than as a place
+   to click, the cursor says the same, and the tooltip carries the sentence
+   naming where the session actually is. */
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.tug-session-identity[data-tier="chip"][data-elsewhere="true"] {
+  border-style: solid;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  cursor: default;
+}
+
+/* The project half carries the weight on an elsewhere pill: WHERE the session
+   is, is the fact that distinguishes it, so the run is not muted along with
+   the rest of the ink. */
+.tug-session-identity[data-tier="chip"][data-elsewhere="true"]
+  .tug-session-identity-name {
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
 /* ── Hover content ──────────────────────────────────────────────────────
    Not here: the session hover is `entity-tips.css`'s skeleton (`.tugx-tip*`),
    the one every entity's bubble is drawn on. This file once held a second

@@ -512,6 +512,11 @@ pub(crate) fn user_submission_opens_turn(
     (counts, is_wake)
 }
 
+/// The marker opening the trailing block `buildWirePayload` writes when a
+/// message carries a session reference. It is addressed to the model and the
+/// user never sees it, so it is not part of what the user submitted.
+const SESSION_REFS_MARKER: &str = "<!-- tug:session-refs -->";
+
 /// Extract the submission's display text: string content verbatim, or
 /// the concatenated `text` fields of array content.
 pub(crate) fn submission_text(content: &serde_json::Value) -> String {
@@ -522,7 +527,12 @@ pub(crate) fn submission_text(content: &serde_json::Value) -> String {
             .filter_map(|block| {
                 let o = block.as_object()?;
                 if o.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    o.get("text").and_then(|t| t.as_str())
+                    o.get("text")
+                        .and_then(|t| t.as_str())
+                        // The session-reference block is plumbing. Left in, it
+                        // would be the tail of every prompt preview and every
+                        // search of what the user wrote.
+                        .filter(|t| !t.starts_with(SESSION_REFS_MARKER))
                 } else {
                     None
                 }
@@ -1661,6 +1671,33 @@ mod tests {
 
     const SESSION_A: &str = "11111111-2222-3333-4444-555555555555";
     const PROJECT: &str = "/tmp/scan-test-project";
+
+    #[test]
+    fn submission_text_drops_the_session_reference_block() {
+        // The block is the deck's fact sheet for the model. Counting it as
+        // submitted text would put a uuid and a shell command on the tail of
+        // every prompt preview of a message that cited a session.
+        let content = serde_json::json!([
+            { "type": "text", "text": "hi" },
+            { "type": "text",
+              "text": "<!-- tug:session-refs -->\nSession references in this message:\n- @session:tug/odd-kiln — verdict: absent — this session is not on this machine" },
+        ]);
+        assert_eq!(submission_text(&content), "hi");
+    }
+
+    #[test]
+    fn submission_text_keeps_a_block_that_merely_mentions_the_marker() {
+        // The discriminator is the block's OPENING, not the marker appearing
+        // somewhere inside it — a user writing about the marker is writing
+        // prose, and prose is what they submitted.
+        let content = serde_json::json!([
+            { "type": "text", "text": "what does <!-- tug:session-refs --> mean?" },
+        ]);
+        assert_eq!(
+            submission_text(&content),
+            "what does <!-- tug:session-refs --> mean?"
+        );
+    }
 
     // The sanitized golden-corpus contract (`scanner_turn_counts_match_golden_corpus`,
     // over `tests/fixtures/turns/`) was deleted with that corpus ([P07]):

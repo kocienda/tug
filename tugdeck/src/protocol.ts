@@ -1494,16 +1494,36 @@ export function decodeSessionUpdated(payload: unknown): SessionUpdatedPush | nul
 }
 
 /**
+ * One session the ledger does not hold but the machine does — another
+ * instance recorded it, or it is in a project this instance has never opened.
+ *
+ * It carries the finding facts and nothing more: enough to say truthfully
+ * where the session is and to read it, never enough to pretend this ledger
+ * holds it. `callsign`, `title` and `instance` may be absent.
+ */
+export interface ResolvedElsewhere {
+  queried: string;
+  sessionId: string;
+  projectDir: string;
+  callsign: string | null;
+  title: string | null;
+  instance: string | null;
+}
+
+/**
  * Decoded `resolve_sessions_ok` response payload ([D132]).
  *
  * `found` maps the id as **asked** to the ledger row that answers it — the two
- * differ whenever the ask was a citation's 8-char short id. `unknown` names the
- * ids this ledger holds no row for, which is a durable answer rather than a
- * silence: a citation written on another machine is unresolvable, and saying so
- * is what stops the client asking again forever.
+ * differ whenever the ask was a citation's 8-char short id. `elsewhere` names
+ * the sessions this ledger does not hold but the machine does. `unknown` names
+ * the ids nothing on the machine answers, which is a durable answer rather
+ * than a silence: a citation written on another machine is unresolvable, and
+ * saying so is what stops the client asking again forever.
  */
 export interface ResolveSessionsOk {
   found: readonly { queried: string; session: SessionRow; usage?: SessionUsage }[];
+  /** Found on this machine, in a ledger that is not this one. */
+  elsewhere: readonly ResolvedElsewhere[];
   unknown: readonly string[];
 }
 
@@ -1537,5 +1557,26 @@ export function decodeResolveSessionsOk(payload: unknown): ResolveSessionsOk | n
   const unknown = Array.isArray(obj.unknown)
     ? obj.unknown.filter((id): id is string => typeof id === "string" && id.length > 0)
     : [];
-  return { found, unknown };
+  // Forgiving on the same terms as `sessions`: a missing array is an empty
+  // answer rather than a failed frame, and a row without the two facts that
+  // make it findable is dropped rather than carried half-filled.
+  const elsewhere: ResolvedElsewhere[] = [];
+  if (Array.isArray(obj.elsewhere)) {
+    for (const entry of obj.elsewhere) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const e = entry as Record<string, unknown>;
+      if (typeof e.queried !== "string" || e.queried.length === 0) continue;
+      if (typeof e.session_id !== "string" || e.session_id.length === 0) continue;
+      if (typeof e.project_dir !== "string" || e.project_dir.length === 0) continue;
+      elsewhere.push({
+        queried: e.queried,
+        sessionId: e.session_id,
+        projectDir: e.project_dir,
+        callsign: typeof e.callsign === "string" ? e.callsign : null,
+        title: typeof e.title === "string" ? e.title : null,
+        instance: typeof e.instance === "string" ? e.instance : null,
+      });
+    }
+  }
+  return { found, elsewhere, unknown };
 }

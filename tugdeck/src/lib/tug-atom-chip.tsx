@@ -168,6 +168,12 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
         // this chip reads them to put the atom on the clipboard, so a paste back
         // into Tug gets the chip rather than the label it drew ([L06] —
         // attributes, not state).
+        //
+        // The list is four fields and carries no `session` pair, which is
+        // deliberate rather than an omission: both transcript bodies route a
+        // session atom to `TugSessionCitation` before this arm is reached, so
+        // no session atom is ever drawn here. A session atom that did arrive
+        // would be a routing bug, and widening this list would hide it.
         {...atomIdentityAttrs({ type, label, value, ...(id !== undefined ? { id } : {}) })}
         aria-label={displayLabel}
         role="img"

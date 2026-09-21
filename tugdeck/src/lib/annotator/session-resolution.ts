@@ -6,17 +6,26 @@
  * resolver; this is the session scan's, and it keeps their contract exactly:
  * synchronous, cached, and an answer that arrives later re-runs the pass.
  *
- * **Resolution is not the spelling.** The ledger accepts a full uuid, a unique
- * 8-char prefix, or a **bare callsign** matched against `sessions.tag` — and
- * nothing else. `project/callsign` is not a query key in any arm; sent whole it
- * falls through every one and comes back unknown. So a detected pair is split
- * and the **callsign half** is what goes to the store.
+ * **The whole reference is the query.** The server splits a
+ * `project/callsign` pair itself and uses the project half to filter, so the
+ * pair is sent whole rather than halved here. That matters beyond tidiness:
+ * answers are filed under the spelling that was ASKED, so a scan asking by
+ * the callsign half and a chip asking by the whole value would look under two
+ * different keys for one session and each would see the other's answer as
+ * `pending` forever. A reference with no project half is sent as it stands.
  *
- * **The project half is evidence, not decoration.** It is checked against the
- * answer's own `projectDir` (by basename), and a callsign that resolves under a
- * different project is refuted rather than confirmed. That check is the whole
- * reason the pair shape beats the bare callsign the detector rejects: without
- * it the project prefix would add characters and nothing else.
+ * **The project half is evidence, not decoration.** It is checked again here
+ * against the answer's own `projectDir` (by basename), and a callsign that
+ * resolves under a different project is refuted rather than confirmed. That
+ * check is the whole reason the pair shape beats the bare callsign the
+ * detector rejects: without it the project prefix would add characters and
+ * nothing else.
+ *
+ * **A session on this machine but in another ledger is confirmed, not
+ * refuted.** `provenance` says which: `here` when this ledger holds it,
+ * `elsewhere` when the machine-wide index does. Both are real sessions a
+ * reader can open and read; only the surface's rendering differs, and
+ * collapsing them would put "no such session" over one that plainly exists.
  *
  * @module lib/annotator/session-resolution
  */
@@ -38,13 +47,17 @@ import { noteVerdictKey, sessionVerdictKey } from "./verdict-keys";
  *    answer is out (`annotate-content.ts`).
  *  - `confirmed` — the ledger holds it and the project half agrees. Carries
  *    the FULL session id, which is what a citation chip needs regardless of
- *    how the prose spelled it.
- *  - `refuted` — no such session, or it belongs to another project. The run
- *    goes back to the prose.
+ *    how the prose spelled it, and `provenance` saying which ledger answered.
+ *  - `refuted` — no such session anywhere on this machine, or it belongs to
+ *    another project. The run goes back to the prose.
  */
+
+/** Which ledger answered for a confirmed session. */
+export type SessionProvenance = "here" | "elsewhere";
+
 export type SessionVerdict =
   | { state: "pending" }
-  | { state: "confirmed"; sessionId: string }
+  | { state: "confirmed"; sessionId: string; provenance: SessionProvenance }
   | { state: "refuted" };
 
 const PENDING: SessionVerdict = Object.freeze({ state: "pending" });
@@ -67,11 +80,16 @@ function basename(dir: string): string {
  * than by luck.
  */
 export function resolveSessionRef(target: string): SessionVerdict {
-  const queried = sessionAtomCallsign(target);
+  // The whole reference when it carries a project half, the bare spelling
+  // otherwise — the same key every other asker uses, so one session has one
+  // answer rather than two half-answers under two spellings.
+  const queried = sessionAtomProject(target) !== null
+    ? target
+    : sessionAtomCallsign(target);
   if (queried === "") return REFUTED;
-  // The callsign is the ledger's key, and the store's own notifications name
-  // it the same way — so the ink painted under this answer re-marks when the
-  // ledger changes its mind. See `verdict-keys.ts`.
+  // The store's own notifications name the key the same way, so the ink
+  // painted under this answer re-marks when the ledger changes its mind. See
+  // `verdict-keys.ts`.
   noteVerdictKey(sessionVerdictKey(queried));
   const answer = sessionCitationStore.getAnswer(queried);
   if (answer.status === "pending") {
@@ -85,5 +103,9 @@ export function resolveSessionRef(target: string): SessionVerdict {
   if (project !== null && basename(project) !== basename(answer.projectDir)) {
     return REFUTED;
   }
-  return { state: "confirmed", sessionId: answer.sessionId };
+  return {
+    state: "confirmed",
+    sessionId: answer.sessionId,
+    provenance: answer.status === "elsewhere" ? "elsewhere" : "here",
+  };
 }

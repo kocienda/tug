@@ -49,6 +49,10 @@ const CHOKEPOINT: &str = "tugtool/tests/common/mod.rs";
 const REQUIRED_SCRUBS: &[&str] = &[
     "env_remove(\"TUG_SESSION_ID\")",
     "env_remove(\"TUG_INSTANCE_ID\")",
+    // The machine-global session index: an unscrubbed spawn writes rows
+    // into the user's real one, which every other instance then answers
+    // `elsewhere` about.
+    "env_remove(\"TUG_SESSION_INDEX_DB\")",
 ];
 
 /// Test files allowed to name a binary outside the chokepoint, and why.

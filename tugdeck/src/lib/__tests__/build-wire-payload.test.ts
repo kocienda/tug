@@ -13,6 +13,7 @@ import { describe, expect, test } from "bun:test";
 import { buildWirePayload } from "../build-wire-payload";
 import { createAtomBytesStore } from "../atom-bytes-store";
 import { TUG_ATOM_CHAR, type AtomSegment } from "../tug-atom-img";
+import type { ContentBlock } from "@/protocol";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -500,5 +501,148 @@ describe("buildWirePayload — output shape stability", () => {
     expect(content).toEqual([
       { type: "text", text: `🚀 \`@a.ts\` — “quoted” \`@b.ts\`.` },
     ]);
+  });
+});
+
+describe("buildWirePayload — the session atom names its type", () => {
+  function sessionAtom(value: string): AtomSegment {
+    return { kind: "atom", type: "session", label: value, value };
+  }
+
+  test("a session atom emits the typed marker", () => {
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`see ${C}`, [
+      sessionAtom("eucit/curly-apple"),
+    ], store);
+    // The message's own block. A trailing reference block follows it — that
+    // is the next describe's subject, not this one's.
+    expect(content[0]).toEqual({
+      type: "text",
+      text: "see `@session:eucit/curly-apple`",
+    });
+  });
+
+  test("a file atom is untouched by the typed arm", () => {
+    // The prefix is for the one kind whose value cannot say what it is. A
+    // path already says so, and writing a type onto it would put a second
+    // grammar on the wire for nothing.
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`see ${C}`, [
+      fileAtom("eucit/curly-apple"),
+    ], store);
+    expect(content).toEqual([
+      { type: "text", text: "see `@eucit/curly-apple`" },
+    ]);
+  });
+
+  test("the two ride one text block side by side", () => {
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`${C} and ${C}`, [
+      sessionAtom("eucit/curly-apple"),
+      fileAtom("src/main.ts"),
+    ], store);
+    expect(content[0]).toEqual({
+      type: "text",
+      text: "`@session:eucit/curly-apple` and `@src/main.ts`",
+    });
+  });
+});
+
+describe("buildWirePayload — the trailing reference block", () => {
+  const ID = "0f3c1e5a-1111-2222-3333-444455556666";
+  const DIR = "/u/src/eucit";
+
+  function sessionAtom(value: string, withIdentity = true): AtomSegment {
+    return {
+      kind: "atom",
+      type: "session",
+      label: value,
+      value,
+      ...(withIdentity ? { session: { id: ID, projectDir: DIR } } : {}),
+    };
+  }
+
+  function lastText(content: readonly ContentBlock[]): string {
+    const last = content[content.length - 1];
+    return last !== undefined && last.type === "text" ? last.text : "";
+  }
+
+  test("a message with no session atom gets no block at all", () => {
+    // The block must cost nothing to every message that carries no reference,
+    // or it is a change to the whole corpus rather than to this feature.
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`see ${C}`, [fileAtom("a.ts")], store);
+    expect(content).toEqual([{ type: "text", text: "see `@a.ts`" }]);
+  });
+
+  test("the block trails the message and carries the atom's own identity", () => {
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`see ${C}`, [
+      sessionAtom("eucit/curly-apple"),
+    ], store);
+    expect(content).toHaveLength(2);
+    expect(content[0]).toEqual({
+      type: "text",
+      text: "see `@session:eucit/curly-apple`",
+    });
+    expect(lastText(content)).toContain(
+      `- @session:eucit/curly-apple — uuid ${ID}, project ${DIR}, verdict: unverified`,
+    );
+  });
+
+  test("two chips naming one session earn one line", () => {
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`${C} and ${C}`, [
+      sessionAtom("eucit/curly-apple"),
+      sessionAtom("eucit/curly-apple"),
+    ], store);
+    const rows = lastText(content).split("\n").filter((l) => l.startsWith("- "));
+    expect(rows).toHaveLength(1);
+  });
+
+  test("with no verdict function every reference is unverified, never absent", () => {
+    // A caller holding no verdicts knows nothing, and "I have not checked" is
+    // a different claim from "it does not exist".
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`${C}`, [
+      sessionAtom("eucit/curly-apple", false),
+    ], store);
+    expect(lastText(content)).toContain("verdict: unverified");
+  });
+
+  test("the verdict comes from the injected function", () => {
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`${C} ${C}`, [
+      sessionAtom("eucit/curly-apple", false),
+      sessionAtom("tug/odd-kiln", false),
+    ], store, {
+      sessionVerdict: (atom) =>
+        atom.value === "eucit/curly-apple"
+          ? { verdict: "here", sessionId: ID, projectDir: DIR }
+          : { verdict: "absent" },
+    });
+    const block = lastText(content);
+    expect(block).toContain(
+      `- @session:eucit/curly-apple — uuid ${ID}, project ${DIR}, verdict: here`,
+    );
+    expect(block).toContain(
+      "- @session:tug/odd-kiln — verdict: absent — this session is not on this machine",
+    );
+  });
+
+  test("the atom's own identity outranks the store's", () => {
+    // The atom was minted from the ledger at the moment the user placed it;
+    // a store answer is what fills the gap for one that arrived by replay.
+    const store = createAtomBytesStore();
+    const { content } = buildWirePayload(`${C}`, [
+      sessionAtom("eucit/curly-apple"),
+    ], store, {
+      sessionVerdict: () => ({
+        verdict: "here",
+        sessionId: "wrong-uuid",
+        projectDir: "/wrong",
+      }),
+    });
+    expect(lastText(content)).toContain(`uuid ${ID}, project ${DIR}, verdict: here`);
   });
 });

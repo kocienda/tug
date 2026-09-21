@@ -49,3 +49,30 @@ export function sessionAtomProject(value: string): string | null {
   if (slash <= 0) return null;
   return value.slice(0, slash);
 }
+
+/**
+ * The key a session atom's verdict is asked and answered under.
+ *
+ * `sessionCitationStore` keys every answer by **the spelling that was asked**,
+ * so a reader that spells the key differently from the asker looks under a
+ * key nobody filled and gets `pending` forever. One function, exported once,
+ * is what keeps the askers and the readers on the same string: everything
+ * that touches that map calls this rather than restating the rule.
+ *
+ * The uuid when the atom carries one, because it is the spelling that cannot
+ * be ambiguous; otherwise the WHOLE `<project>/<callsign>` value, never the
+ * callsign half — the project half is a filter the resolver applies for
+ * itself, and dropping it would ask about every session on the machine
+ * wearing that callsign.
+ *
+ * Takes the two fields it reads rather than an `AtomSegment`, so this module
+ * stays a leaf and a caller holding the pair loose — the chip baker, which is
+ * handed `(type, label, value)` and no segment — asks under the same rule
+ * instead of restating it. A segment satisfies the shape structurally.
+ */
+export function sessionVerdictAskKey(atom: {
+  value: string;
+  session?: { id: string };
+}): string {
+  return atom.session?.id ?? atom.value;
+}

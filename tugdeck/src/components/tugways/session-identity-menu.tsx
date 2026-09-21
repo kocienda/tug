@@ -76,6 +76,7 @@ import { CardIdContext } from "@/lib/card-id-context";
 import { useCardIdForSession } from "@/lib/card-session-binding-store";
 import { writeSessionAtomToClipboard } from "@/lib/session-atom";
 import { useCitedSession } from "@/lib/session-citation-store";
+import { isSessionResumable } from "@/lib/session-resume";
 import { useSessionLedgerRow } from "@/lib/session-ledger-store";
 import { sessionCitation, type SessionIdentity } from "@/lib/session-identity";
 
@@ -202,7 +203,8 @@ export function useSessionIdentityMenu({
   // seating, and the supervisor admits a live background session without
   // re-spawning it, because such a session has no client affinity row to
   // arbitrate against.
-  const heldElsewhere = state === "live" && !background;
+  // One predicate, three surfaces. See `lib/session-resume.ts`.
+  const resumable = isSessionResumable({ state, background, projectDir });
 
   const showSession = React.useCallback((): void => {
     if (openCardId === null) return;
@@ -213,7 +215,7 @@ export function useSessionIdentityMenu({
   }, [openCardId]);
 
   const resumeSession = React.useCallback((): void => {
-    if (projectDir.length === 0 || heldElsewhere) return;
+    if (!resumable) return;
     const sessionId = cited.status === "found" ? cited.sessionId : identity.id;
     // The registry handler directly, not `dispatchCommand`: this verb is a
     // menu-only action over a sampled target and so has no command-registry
@@ -230,7 +232,7 @@ export function useSessionIdentityMenu({
       projectDir,
       originCardId: hostCard ?? undefined,
     });
-  }, [cited, identity.id, projectDir, heldElsewhere, hostCard]);
+  }, [cited, identity.id, projectDir, resumable, hostCard]);
 
   // The row itself, kept so every copy can stamp the project it was read
   // against. Copy Citation already wrote through the shared path; the other
@@ -322,7 +324,7 @@ export function useSessionIdentityMenu({
           kind: "session",
           openCardId,
           isOwnCard: isOwnCard || !identity.resolved,
-          heldElsewhere,
+          resumable,
           projectDir,
           ...(description !== undefined ? { description } : {}),
           ...(activity !== undefined ? { activity } : {}),
@@ -339,7 +341,7 @@ export function useSessionIdentityMenu({
     identity.resolved,
     isOwnCard,
     openCardId,
-    heldElsewhere,
+    resumable,
     projectDir,
     description,
     activity,

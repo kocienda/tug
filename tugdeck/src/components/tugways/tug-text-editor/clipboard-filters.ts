@@ -300,6 +300,22 @@ export function parseClipboardSidecar(
         value: seg.value,
       };
       if (typeof seg.id === "string") segment.id = seg.id;
+      // A session atom's uuid + project dir. Malformed, half-filled or
+      // wrong-typed, it is DROPPED and the atom still parses: the pair is how
+      // a reference is found, never what makes it an atom, so a payload
+      // rejected over it would lose a perfectly good chip to a field that is
+      // additive by design.
+      const sess = seg.session as Record<string, unknown> | undefined;
+      if (
+        typeof sess === "object"
+        && sess !== null
+        && typeof sess.id === "string"
+        && typeof sess.projectDir === "string"
+        && sess.id !== ""
+        && sess.projectDir !== ""
+      ) {
+        segment.session = { id: sess.id, projectDir: sess.projectDir };
+      }
       const out_entry: TugAtomsClipboardEntry = {
         position: entry.position,
         segment,

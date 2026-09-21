@@ -136,6 +136,7 @@ import {
   pendingAtomTheme,
   regenerateAtomsEffect,
   selectedAtomSyncPlugin,
+  sessionVerdictRegenPlugin,
 } from "./tug-text-editor/atom-decoration";
 import {
   argumentHintPlugin,
@@ -1296,6 +1297,11 @@ function buildExtensions(
     // the blue selection wash instead of dissolving into it. Pure DOM
     // `src` mutation ([L06]), no widget rebuild.
     selectedAtomSyncPlugin,
+    // Rebakes every atom chip when a session verdict settles, so a session
+    // reference nothing on this machine answers for goes dashed where it
+    // sits. A baked bitmap can neither subscribe nor cascade, so the widget
+    // rebuild is the only door the answer has.
+    sessionVerdictRegenPlugin,
     // Argument-hint ghost slot — reads the resolver thunk (live catalog +
     // local registry) and paints a muted placeholder after a lone accepted
     // command atom (`/devise ┆ type arguments…`). No-op when no resolver is

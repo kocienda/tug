@@ -30,6 +30,13 @@ pub fn tugtool() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_tugtool"));
     cmd.env_remove("TUG_SESSION_ID");
     cmd.env_remove("TUG_INSTANCE_ID");
+    // The session index is **machine-global** — one file for every
+    // instance — so an unscrubbed spawn writes rows the user's real
+    // instances then resolve as sessions living elsewhere on the machine.
+    // Removed rather than redirected, because where a test's state lands
+    // is the test's business: a test that wants index rows points this at
+    // its own temp dir with `.env(...)` after calling here.
+    cmd.env_remove("TUG_SESSION_INDEX_DB");
     cmd
 }
 
@@ -49,5 +56,6 @@ pub fn tugedit() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_tugedit"));
     cmd.env_remove("TUG_SESSION_ID");
     cmd.env_remove("TUG_INSTANCE_ID");
+    cmd.env_remove("TUG_SESSION_INDEX_DB");
     cmd
 }

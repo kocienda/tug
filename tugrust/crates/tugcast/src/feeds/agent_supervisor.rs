@@ -2361,6 +2361,30 @@ fn parse_project_dir_payload(payload: &[u8]) -> Result<String, ControlError> {
 /// other side of the wire, not a query. Over the cap the extra ids are dropped
 /// with a warning rather than the whole request refused — a truncated answer
 /// renders as a few unresolved chips, where a refusal renders as none at all.
+/// The half of a session reference the ledger can answer about — a
+/// `<project>/<callsign>` spelling without its project half, and anything
+/// else unchanged. Split at the **last** `/`, because the project half may
+/// be a whole path.
+fn session_ref_callsign_half(reference: &str) -> &str {
+    match reference.rsplit_once('/') {
+        Some((head, tail)) if !head.is_empty() && !tail.is_empty() => tail,
+        _ => reference,
+    }
+}
+
+/// Whether a reference's project half — if it carried one — names the same
+/// project as `project_dir`, compared by basename. A reference with no
+/// project half agrees with everything, which is the old behavior.
+fn session_ref_project_agrees(reference: &str, project_dir: &str) -> bool {
+    match reference.rsplit_once('/') {
+        Some((head, tail)) if !head.is_empty() && !tail.is_empty() => {
+            tugcore::session_index::project_leaf_of(head)
+                == tugcore::session_index::project_leaf_of(project_dir)
+        }
+        _ => true,
+    }
+}
+
 fn parse_session_ids_payload(payload: &[u8]) -> Result<Vec<String>, ControlError> {
     /// The most ids one request may name.
     const MAX_IDS: usize = 512;
@@ -9371,11 +9395,31 @@ impl AgentSupervisor {
     /// on `pending` forever is the one outcome with no rendering.
     async fn do_resolve_sessions(&self, ids: &[String]) {
         let mut sessions = Vec::new();
-        let mut unknown: Vec<&str> = Vec::new();
+        let mut unknown: Vec<String> = Vec::new();
+        // The ledger knows nothing of a project half — none of its arms
+        // filters by project — so a `project/callsign` spelling is split
+        // for the ask and the project half is checked against the row
+        // afterwards. A mismatch is a ledger miss, because the callsign the
+        // user meant belongs to some other ledger under that project.
+        let ledger_spellings: Vec<String> = ids
+            .iter()
+            .map(|id| session_ref_callsign_half(id.trim()).to_owned())
+            .collect();
         match self.session_ledger.as_ref() {
-            Some(ledger) => match ledger.resolve_session_ids(ids) {
+            Some(ledger) => match ledger.resolve_session_ids(&ledger_spellings) {
                 Ok(resolved) => {
-                    for (queried, row) in &resolved {
+                    for id in ids {
+                        let queried = id.trim();
+                        let half = session_ref_callsign_half(queried);
+                        let hit = resolved
+                            .iter()
+                            .find(|(answered, _)| answered == half)
+                            .map(|(_, row)| row)
+                            .filter(|row| session_ref_project_agrees(queried, &row.project_dir));
+                        let Some(row) = hit else {
+                            unknown.push(queried.to_owned());
+                            continue;
+                        };
                         // The segment's usage rides the answer, so a surface
                         // that resolves a cited id gets the numbers in the same
                         // round trip rather than asking a second time. `None`
@@ -9389,11 +9433,6 @@ impl AgentSupervisor {
                             "session": row,
                             "usage": usage,
                         }));
-                    }
-                    for id in ids {
-                        if !resolved.iter().any(|(queried, _)| queried == id.trim()) {
-                            unknown.push(id.as_str());
-                        }
                     }
                 }
                 Err(err) => {
@@ -9410,17 +9449,76 @@ impl AgentSupervisor {
                     return;
                 }
             },
-            None => unknown.extend(ids.iter().map(String::as_str)),
+            None => unknown.extend(ids.iter().map(|id| id.trim().to_owned())),
         }
+        // Everything this ledger missed goes to the machine-wide arms, which
+        // are the only ones that can tell "somewhere else on this machine"
+        // from "nowhere" ([P05]). They read sqlite and walk a directory, so
+        // they run off the reactor.
+        let elsewhere = self.resolve_elsewhere(&mut unknown).await;
         let body = serde_json::json!({
             "action": "resolve_sessions_ok",
             "sessions": sessions,
+            "elsewhere": elsewhere,
             "unknown": unknown,
         });
         let _ = self.control_tx.send(Frame::new(
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("resolve_sessions_ok serializes"),
         ));
+    }
+
+    /// Ask the finder's machine-wide arms about every spelling the ledger
+    /// missed, draining the ones it places out of `misses` and returning
+    /// them as [Spec S04] `elsewhere` entries. What stays in `misses` is
+    /// genuinely absent — not on this machine at all.
+    ///
+    /// The whole spelling goes to the finder, project half included: the
+    /// index *does* filter by project, which is what lets
+    /// `eucit/curly-apple` find the foreign session rather than the local
+    /// callsign that merely spells the same.
+    async fn resolve_elsewhere(&self, misses: &mut Vec<String>) -> Vec<serde_json::Value> {
+        if misses.is_empty() {
+            return Vec::new();
+        }
+        let refs = std::mem::take(misses);
+        let findings = tokio::task::spawn_blocking(move || {
+            let env = tugcore::session_finder::FinderEnv::from_process();
+            refs.into_iter()
+                .map(|reference| {
+                    let finding = tugcore::session_finder::find_beyond_here(&reference, &env);
+                    (reference, finding)
+                })
+                .collect::<Vec<_>>()
+        })
+        .await;
+        let findings = match findings {
+            Ok(findings) => findings,
+            Err(err) => {
+                // A panicked or cancelled probe is not an error the client
+                // can act on: every spelling simply stays unknown, which is
+                // the answer this build gave before the arm existed.
+                warn!(error = %err, "resolve_sessions: elsewhere probe failed");
+                return Vec::new();
+            }
+        };
+        let mut elsewhere = Vec::new();
+        for (queried, finding) in findings {
+            match finding {
+                tugcore::session_finder::Finding::Found(found) => {
+                    elsewhere.push(serde_json::json!({
+                        "queried": queried,
+                        "session_id": found.session_id,
+                        "project_dir": found.project_dir,
+                        "callsign": found.callsign,
+                        "title": found.title,
+                        "instance": found.instance,
+                    }));
+                }
+                tugcore::session_finder::Finding::Absent => misses.push(queried),
+            }
+        }
+        elsewhere
     }
 
     async fn do_list_card_bindings(&self) {
@@ -21284,6 +21382,77 @@ mod tests {
             response["unknown"].as_array().expect("unknown array"),
             &vec![serde_json::json!("0badf00d")],
         );
+    }
+
+    /// A session another instance recorded is **elsewhere**, not unknown
+    /// ([P05], [Spec S04]). The ledger cannot answer for it — a callsign is
+    /// unique per ledger and this one was minted in another — so the miss
+    /// goes to the finder's machine-wide arms, and the frame says where it
+    /// is rather than that it does not exist.
+    #[tokio::test]
+    async fn resolve_sessions_answers_a_foreign_session_as_elsewhere() {
+        let (sup, _ledger, mut rx) = make_supervisor_with_ledger();
+        // A uuid nothing else in the suite uses, so a shared scratch index
+        // cannot make this test answer for somebody else's row.
+        let foreign = "7e5ea70e-0e11-4a5e-9c0d-5e55e7e1ce01";
+        // The index is the machine-wide one, which under cargo resolves
+        // into the scratch data root (`TUG_DATA_DIR`), never the user's.
+        let index_path = tugcore::instance::session_index_db_path();
+        let index = tugcore::session_index::SessionIndex::open(&index_path).expect("open index");
+        index
+            .upsert(&tugcore::session_index::IndexEntry {
+                session_id: foreign.to_owned(),
+                line_id: "foreign-line".to_owned(),
+                callsign: Some("curly-apple".to_owned()),
+                project_dir: "/u/src/eucit".to_owned(),
+                project_leaf: String::new(),
+                // Not this instance's, so the row is not a stale one of ours.
+                instance: "debug-elsewhere".to_owned(),
+                title: Some("Somebody else's work".to_owned()),
+                created_at_ms: 1,
+                updated_at_ms: 2,
+            })
+            .expect("seed a foreign index row");
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "resolve_sessions",
+            "ids": [foreign, "eucit/curly-apple", "0badf00d"],
+        }))
+        .unwrap();
+        sup.handle_control("resolve_sessions", &payload, 10)
+            .await
+            .expect_handled();
+
+        let response = drain_until_action(&mut rx, "resolve_sessions_ok");
+        assert!(
+            response["sessions"]
+                .as_array()
+                .expect("sessions")
+                .is_empty(),
+            "this ledger holds neither: {response}"
+        );
+        let elsewhere = response["elsewhere"].as_array().expect("elsewhere array");
+        assert_eq!(elsewhere.len(), 2, "response: {response}");
+        // Keyed by what was asked, uuid and `project/callsign` alike, and
+        // carrying enough for a pill to say where the session is.
+        assert_eq!(elsewhere[0]["queried"], foreign);
+        assert_eq!(elsewhere[0]["session_id"], foreign);
+        assert_eq!(elsewhere[0]["project_dir"], "/u/src/eucit");
+        assert_eq!(elsewhere[0]["callsign"], "curly-apple");
+        assert_eq!(elsewhere[0]["title"], "Somebody else's work");
+        assert_eq!(elsewhere[0]["instance"], "debug-elsewhere");
+        assert_eq!(elsewhere[1]["queried"], "eucit/curly-apple");
+        assert_eq!(elsewhere[1]["session_id"], foreign);
+        // And a spelling nothing on this machine answers to is still stated
+        // as a miss rather than quietly dropped.
+        assert_eq!(
+            response["unknown"].as_array().expect("unknown array"),
+            &vec![serde_json::json!("0badf00d")],
+        );
+
+        index
+            .remove(foreign)
+            .expect("leave the scratch index as found");
     }
 
     /// A malformed request is refused, and a well-formed one naming nothing is

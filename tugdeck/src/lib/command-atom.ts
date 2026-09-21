@@ -176,8 +176,15 @@ export interface ChipStyle {
  * distinct unit *forward* of the blue selection wash instead of
  * dissolving into it (blue-on-blue). Geometry is identical between the
  * two, so a chip swapping variants never changes size.
+ *
+ * `"missing"` is the third, and it is a *pill* face rather than a token
+ * swap: a session reference nothing on this machine answers for, baked
+ * dashed and muted — the bake's reading of the `data-missing` skin
+ * `tug-session-identity.css` paints over the mounted pill. It resolves the
+ * default token table, because the difference is drawn by the painter and
+ * not by the tokens; see `PILL_CHIP_MISSING_INK_TOKEN`.
  */
-export type ChipVariant = "default" | "selected";
+export type ChipVariant = "default" | "selected" | "missing";
 
 /**
  * Strength of the Key-hue wash over the chip surface — the `fill-opacity` of
@@ -238,7 +245,9 @@ const CHIP_STYLE_SELECTED: ChipStyle = {
 
 /** The shared chip style consumed by both chip renderers (the editor
  *  data-URI baker and the React `TugAtomChip`). Pass `"selected"` for
- *  the selection-covered appearance; defaults to the resting chip. */
+ *  the selection-covered appearance; defaults to the resting chip.
+ *  `"missing"` resolves the resting table too — the pill painter draws
+ *  that face, and no atom in the shared family has one. */
 export function chipStyle(variant: ChipVariant = "default"): ChipStyle {
   return variant === "selected" ? CHIP_STYLE_SELECTED : CHIP_STYLE;
 }
@@ -274,6 +283,19 @@ export const PILL_CHIP_BORDER_ALPHA = 0.3;
  *  the atom family's own tokens. */
 export const PILL_CHIP_INK_TOKEN =
   "--tug7-element-global-text-normal-default-rest";
+
+/** The ink a MISSING pill chip paints in — the muted text color, mirrored
+ *  from the `.tug-session-identity[data-tier="chip"][data-missing="true"]`
+ *  rule in `tug-session-identity.css`, which is the mounted pill's reading
+ *  of the same fact. Mirrored rather than shared because a baked `<img>`
+ *  cannot reach the host cascade; the two must be edited together. */
+export const PILL_CHIP_MISSING_INK_TOKEN =
+  "--tug7-element-global-text-normal-muted-rest";
+
+/** The dash pattern a missing pill's hairline takes, in CSS px — the bake's
+ *  equivalent of that rule's `border-style: dashed`. Short enough to read as
+ *  a dash rather than a fray at the pill's radius. */
+export const PILL_CHIP_MISSING_DASH: readonly [number, number] = [3, 2];
 
 // ---------------------------------------------------------------------------
 // Expansion-echo detection

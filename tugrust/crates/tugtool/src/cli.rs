@@ -327,6 +327,60 @@ pub enum SessionCommands {
         #[arg(long)]
         cancel: bool,
     },
+
+    /// Say where a session reference points, on this machine.
+    ///
+    /// A reference is a session uuid, its 8-character short id, a callsign
+    /// (`curly-apple`), or `<project>/<callsign>`. The answer is one line:
+    /// `here` for a session this app instance holds, `elsewhere` for one
+    /// another instance on this machine holds (or one whose transcript is
+    /// simply on disk), and `absent` for a reference nothing here answers
+    /// to — which most often means it was minted on another machine.
+    ///
+    /// Exits 0 for here and elsewhere, 3 for absent, 1 for an error.
+    Find {
+        /// The reference to place.
+        reference: String,
+    },
+
+    /// Print a session's transcript as markdown — the model's way to read
+    /// a session other than the one it is running in.
+    ///
+    /// Read-only in every sense: it opens nothing for writing, resumes
+    /// nothing, and works the same for a session this instance holds and
+    /// one it does not. Exits 3 when the reference is absent.
+    Show {
+        /// The reference to read, in `find`'s grammar.
+        reference: String,
+        /// Keep only the last N turns.
+        #[arg(long)]
+        last: Option<usize>,
+        /// Keep turn K alone (1-based, numbered over the whole transcript).
+        #[arg(long)]
+        turn: Option<usize>,
+        /// Keep turns containing this text (case-insensitive substring).
+        #[arg(long)]
+        grep: Option<String>,
+    },
+
+    /// Write one machine-wide session-index row. Fixtures only.
+    ///
+    /// Hidden because it is not a verb anybody should reach for: tugcast
+    /// owns the index, and this exists so a test can seed a row that looks
+    /// like another instance's. It writes and reads nothing back.
+    #[command(hide = true)]
+    IndexPut {
+        #[arg(long)]
+        uuid: String,
+        #[arg(long)]
+        callsign: Option<String>,
+        #[arg(long)]
+        project_dir: String,
+        #[arg(long)]
+        instance: Option<String>,
+        #[arg(long)]
+        title: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

@@ -46,6 +46,7 @@ pub mod refs;
 pub mod repo_files;
 pub mod secret_filter;
 pub mod session_digest;
+pub mod session_index_watch;
 pub mod session_metadata;
 pub mod session_scoped;
 pub mod shell;

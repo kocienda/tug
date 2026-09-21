@@ -632,3 +632,175 @@ describe("synthesizeUserMessageFromBlocks — command-expansion echo", () => {
     expect(synth.atoms).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The typed session marker
+// ---------------------------------------------------------------------------
+
+describe("synthesizeUserMessageFromBlocks — the typed `@session:` marker", () => {
+  test("a typed marker replays as a session atom with no options at all", () => {
+    // This is the test the whole marker change exists for. Nothing is
+    // injected, the callsign is one no client has ever seen, and the chip
+    // still comes back a session — a replay's answer is the JSONL's, not the
+    // reading instance's. The old discriminator asked the local tag store
+    // and would have called this a file.
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks(
+      [{ type: "text", text: "look at `@session:nosuch/zany-ghost`" }],
+      store,
+    );
+    expect(synth.text).toBe(`look at ${C}`);
+    expect(synth.atoms).toEqual([
+      {
+        kind: "atom",
+        type: "session",
+        label: "nosuch/zany-ghost",
+        value: "nosuch/zany-ghost",
+      },
+    ]);
+  });
+
+  test("the same value untyped replays as a file", () => {
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks(
+      [{ type: "text", text: "look at `@nosuch/zany-ghost`" }],
+      store,
+    );
+    expect(synth.atoms).toEqual([
+      {
+        kind: "atom",
+        type: "file",
+        label: "nosuch/zany-ghost",
+        value: "nosuch/zany-ghost",
+      },
+    ]);
+  });
+
+  test("a replayed session atom carries no identity pair", () => {
+    // The marker holds the name and nothing else. The uuid reaches the model
+    // through the reference block, so minting half a pair here would make a
+    // replayed chip claim a findability it does not have.
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks(
+      [{ type: "text", text: "`@session:nosuch/zany-ghost`" }],
+      store,
+    );
+    expect(synth.atoms[0].session).toBeUndefined();
+  });
+
+  test("a command echo's args recover a typed session chip", () => {
+    const store = createAtomBytesStore();
+    const echo: ContentBlock = {
+      type: "text",
+      text:
+        "<command-name>/tugplug:implement</command-name>\n"
+        + "<command-args>`@session:eucit/curly-apple`, go</command-args>",
+    };
+    const synth = synthesizeUserMessageFromBlocks([echo], store, {
+      mintAtomId: makeCounter(),
+    });
+    expect(synth.text).toBe(`${C} ${C}, go`);
+    expect(synth.atoms).toEqual([
+      {
+        kind: "atom",
+        type: "command",
+        label: "tugplug:implement",
+        value: "tugplug:implement",
+      },
+      {
+        kind: "atom",
+        type: "session",
+        label: "eucit/curly-apple",
+        value: "eucit/curly-apple",
+      },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The trailing reference block
+// ---------------------------------------------------------------------------
+
+describe("synthesizeUserMessageFromBlocks — the `tug:session-refs` block", () => {
+  const ID = "0f3c1e5a-1111-2222-3333-444455556666";
+  const DIR = "/u/src/eucit";
+  const REF_BLOCK: ContentBlock = {
+    type: "text",
+    text:
+      "<!-- tug:session-refs -->\n"
+      + "Session references in this message:\n"
+      + `- @session:eucit/curly-apple — uuid ${ID}, project ${DIR}, verdict: here — read: tugtool session show ${ID}`,
+  };
+
+  test("the block renders no text and mints no atom", () => {
+    // It is addressed to the model. A user who reads their own message back
+    // must see what they wrote and nothing else.
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks(
+      [{ type: "text", text: "see `@session:eucit/curly-apple`" }, REF_BLOCK],
+      store,
+    );
+    expect(synth.text).toBe(`see ${C}`);
+    expect(synth.atoms).toHaveLength(1);
+  });
+
+  test("the recovered atom takes its identity from the block", () => {
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks(
+      [{ type: "text", text: "`@session:eucit/curly-apple`" }, REF_BLOCK],
+      store,
+    );
+    expect(synth.atoms[0].session).toEqual({ id: ID, projectDir: DIR });
+  });
+
+  test("an atom the block never named keeps no identity", () => {
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks(
+      [{ type: "text", text: "`@session:tug/odd-kiln`" }, REF_BLOCK],
+      store,
+    );
+    expect(synth.atoms[0].type).toBe("session");
+    expect(synth.atoms[0].session).toBeUndefined();
+  });
+
+  test("a block with no message left over synthesizes an empty substrate", () => {
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks([REF_BLOCK], store);
+    expect(synth.text).toBe("");
+    expect(synth.atoms).toEqual([]);
+  });
+
+  test("a command echo with a session arg replays without the block as prose", () => {
+    // The echo detector runs on the stripped blocks, so a trailing block
+    // cannot turn a command turn into an ordinary one — or leave its prose in
+    // the command's arguments.
+    const store = createAtomBytesStore();
+    const echo: ContentBlock = {
+      type: "text",
+      text:
+        "<command-name>/tugplug:implement</command-name>\n"
+        + "<command-args>`@session:eucit/curly-apple`, go</command-args>",
+    };
+    const synth = synthesizeUserMessageFromBlocks([echo, REF_BLOCK], store, {
+      mintAtomId: makeCounter(),
+    });
+    expect(synth.text).toBe(`${C} ${C}, go`);
+    expect(synth.atoms).toHaveLength(2);
+    expect(synth.atoms[1]).toEqual({
+      kind: "atom",
+      type: "session",
+      label: "eucit/curly-apple",
+      value: "eucit/curly-apple",
+      session: { id: ID, projectDir: DIR },
+    });
+  });
+
+  test("prose that merely mentions the marker is still prose", () => {
+    const store = createAtomBytesStore();
+    const synth = synthesizeUserMessageFromBlocks(
+      [{ type: "text", text: "what does <!-- tug:session-refs --> mean?" }],
+      store,
+    );
+    expect(synth.text).toBe("what does <!-- tug:session-refs --> mean?");
+  });
+});

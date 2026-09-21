@@ -24,6 +24,7 @@
 
 import { getTokenValue } from "@/theme-tokens";
 import { applyAtomIdentityAttrs } from "@/lib/atom-identity-attrs";
+import type { AtomSessionRef } from "@/lib/atom-identity-attrs";
 import {
   chipStyle,
   chipDisplayLabel,
@@ -32,6 +33,8 @@ import {
   PILL_CHIP_BORDER_ALPHA,
   PILL_CHIP_GEOMETRY,
   PILL_CHIP_INK_TOKEN,
+  PILL_CHIP_MISSING_DASH,
+  PILL_CHIP_MISSING_INK_TOKEN,
   isPillAtomType,
   chipMark,
 } from "./command-atom";
@@ -43,7 +46,9 @@ import {
   isSessionAtomType,
   sessionAtomCallsign,
   sessionAtomProject,
+  sessionVerdictAskKey,
 } from "@/lib/session-atom-shape";
+import { sessionCitationStore } from "@/lib/session-citation-store";
 import {
   resolveSessionIdentity,
   sessionDisplayTitle,
@@ -106,6 +111,15 @@ export interface AtomSegment {
   value: string;
   /** UUID minted at drop / paste; pairs the atom with its byte payload. */
   id?: string;
+  /**
+   * For a session atom: the uuid and project dir of the session it names.
+   *
+   * `value` is `<project>/<callsign>`, which only a ledger holding that
+   * callsign can resolve. This is the pair that lets a reader find the
+   * session on any instance, so it travels with the atom through the sidecar,
+   * the DOM attributes and the wire.
+   */
+  session?: AtomSessionRef;
 }
 
 /** Label display mode for file paths. */
@@ -133,6 +147,22 @@ export interface AtomImgOptions {
    * [L06].
    */
   pending?: boolean;
+  /**
+   * For a session atom: the session the chip names, written onto the `<img>`
+   * as `data-atom-session-id` / `data-atom-session-project-dir`.
+   *
+   * Here rather than on the positional parameters because this function takes
+   * `(type, label, value)` and no `AtomSegment` — a caller holding a segment
+   * passes `segment.session` straight through.
+   */
+  session?: AtomSessionRef;
+  /**
+   * Which face to bake, and the value the `<img>` records in
+   * `data-chip-variant`. Defaults to `"default"`. The widget passes
+   * `"missing"` for a session reference nothing on this machine answers for
+   * ({@link sessionChipVerdict} in `session-chip-verdict.ts` decides it).
+   */
+  variant?: ChipVariant;
 }
 
 /** Lucide-style icon paths (24x24 viewBox) for atom types. */
@@ -506,9 +536,24 @@ function paintRecessShade(
  * — there is no render to subscribe from, which is the whole point of the
  * regeneration path above.
  *
- * A session this run's tag index has never heard of keeps the stored label. An
- * unresolvable reference showing what it recorded is the honest rendering, and
- * it is what the transcript's live chip does with the same fact.
+ * A session this run's tag index has never heard of has one more place to
+ * look before it gives up: the citation store's answer, which reaches the
+ * whole machine. A session another instance recorded answers `elsewhere` and
+ * carries the name that instance knows it by, and showing that name is the
+ * point of having asked: a chip's text is a LABEL, and every other session
+ * chip's label is its title, so a foreign one reading `<project>/<callsign>`
+ * would be the only chip in the composer naming a session by its spelling.
+ *
+ * The transcript pill does the opposite with the same answer, and the two are
+ * not in disagreement. A pill's run is composed by `sessionIdentityLine` and
+ * spent by `sessionCitation`, so what stands in it has to be the callsign or
+ * the citation it writes is unreadable; the title reaches the reader there
+ * through the tooltip instead. Label where a label goes, spelling where a
+ * spelling goes.
+ *
+ * Failing both, the stored label stands. An unresolvable reference showing
+ * what it recorded is the honest rendering, and it is what the transcript's
+ * live chip does with the same fact.
  *
  * **The bound arc rides the label**, because a session on an arc is never
  * named without it — the rule the identity runs follow everywhere ([D167]),
@@ -522,10 +567,24 @@ function paintRecessShade(
  * `<project>/<callsign>` — the wire marker and the resolution key — so a chip
  * showing an arc still resolves through the callsign the ledger answers on.
  */
-function sessionChipLabel(label: string, value: string): string {
+function sessionChipLabel(
+  label: string,
+  value: string,
+  session?: AtomSessionRef,
+): string {
   const lineId = sessionTagStore.lineWearing(sessionAtomCallsign(value));
   const sessionId = lineId === null ? null : sessionLineStore.seatOf(lineId);
-  if (sessionId === null) return label;
+  if (sessionId === null) {
+    // Read only — the ask belongs to the widget that mounts the chip, under
+    // this same key ({@link sessionVerdictAskKey}).
+    const answer = sessionCitationStore.getAnswer(
+      sessionVerdictAskKey({ value, ...(session !== undefined ? { session } : {}) }),
+    );
+    if (answer.status === "elsewhere") {
+      return answer.title ?? answer.callsign ?? label;
+    }
+    return label;
+  }
   const title = sessionDisplayTitle(
     resolveSessionIdentity(sessionId, {
       recordedProject: sessionAtomProject(value),
@@ -555,6 +614,12 @@ function sessionDotToken(value: string): string | null {
  * colour to report it in. Same centre, same diameter — the register's — so the
  * two marks are one size standing in one line, and neither can drift from the
  * live pill's, which reads the same table as CSS.
+ *
+ * `missing` is the third face and it is drawn rather than tokened: a dashed
+ * hairline and muted ink, mirroring the `data-missing` rule in
+ * `tug-session-identity.css`. The dot goes to the chip's own ink too — a
+ * phase colour on a reference nothing can find would be this client reporting
+ * on a session it does not have.
  */
 function paintPillChip(
   ctx: CanvasRenderingContext2D,
@@ -562,22 +627,30 @@ function paintPillChip(
   type: string,
   value: string,
   variant: ChipVariant,
+  missing: boolean,
 ): void {
   // Under the editor's selection the chip takes the family's selected text
   // token — the one the theme authors to stay legible over the blue wash. A
   // transparent pill has no ground to swap, so the ink is the whole swap.
+  //
+  // A missing chip under the selection keeps the selected ink and dashes
+  // anyway: legibility over the wash is the selected token's whole job, and
+  // the dash is what carries the fact across the swap.
   const ink = getTokenValue(
     variant === "selected"
       ? chipStyle("selected").tokens.text
-      : PILL_CHIP_INK_TOKEN,
+      : missing
+        ? PILL_CHIP_MISSING_INK_TOKEN
+        : PILL_CHIP_INK_TOKEN,
   );
   const mark = chipMark(type);
   // Only a session has a phase to ask about; a commit's ring is the ink.
-  const dotToken = mark === "dot" ? sessionDotToken(value) : null;
+  const dotToken = mark === "dot" && !missing ? sessionDotToken(value) : null;
 
   ctx.globalAlpha = PILL_CHIP_BORDER_ALPHA;
   ctx.strokeStyle = ink;
   ctx.lineWidth = 1;
+  if (missing) ctx.setLineDash([...PILL_CHIP_MISSING_DASH]);
   traceRoundedRect(
     ctx,
     0.5,
@@ -587,6 +660,7 @@ function paintPillChip(
     Math.max(0, g.radius - 0.5),
   );
   ctx.stroke();
+  if (missing) ctx.setLineDash([]);
   ctx.globalAlpha = 1;
 
   if (g.hasIcon) {
@@ -696,6 +770,24 @@ export function bakeAtomChipDataUri(
      * default bakes are pixel-identical in size.
      */
     variant?: ChipVariant;
+    /**
+     * Bake the missing face — dashed hairline, muted ink, no phase colour on
+     * the dot — **on top of** whatever {@link variant} resolves.
+     *
+     * Separate from `variant: "missing"` because the two facts are
+     * independent: a chip covered by the editor's selection is still a chip
+     * naming a session nothing can find, and a selection that swallowed the
+     * dash would be the one moment the reference looked reachable. The
+     * widget's resting bake passes `variant: "missing"`; the selection
+     * re-bake passes `{ variant: "selected", missing: true }`.
+     */
+    missing?: boolean;
+    /**
+     * For a session atom: the session the chip names. Read for one thing
+     * only — the verdict key the label's `elsewhere` fallback looks under,
+     * which is the uuid whenever the atom carries one.
+     */
+    session?: AtomSessionRef;
   },
 ): AtomChipBake {
   // A slash command displays its leading slash (`/tugplug:commit`); every
@@ -708,7 +800,7 @@ export function bakeAtomChipDataUri(
   // substitution happens BEFORE the geometry, because the string it returns is
   // what the chip has to be wide enough to hold.
   const displayLabel = isSessionAtomType(type)
-    ? sessionChipLabel(label, value)
+    ? sessionChipLabel(label, value, options?.session)
     : chipDisplayLabel(type, label, value);
   const g = computeAtomChipGeometry(type, displayLabel, {
     ...(options?.maxLabelWidth !== undefined ? { maxLabelWidth: options.maxLabelWidth } : {}),
@@ -735,7 +827,15 @@ export function bakeAtomChipDataUri(
   // The pills are the types outside the shared family: their own paint, their
   // own tokens, and a mark where the others carry a glyph.
   if (isPillAtomType(type)) {
-    paintPillChip(ctx, g, type, value, options?.variant ?? "default");
+    const variant = options?.variant ?? "default";
+    paintPillChip(
+      ctx,
+      g,
+      type,
+      value,
+      variant,
+      variant === "missing" || options?.missing === true,
+    );
     return {
       dataUri: canvas.toDataURL("image/png"),
       width: g.width,
@@ -813,14 +913,23 @@ export function createAtomImgElement(
   value: string,
   options?: AtomImgOptions,
 ): HTMLImageElement {
+  // The resting face the chip is baked in, and the one `data-chip-variant`
+  // records. `syncSelectedAtoms` reads that attribute back to re-bake a
+  // selected chip without losing the fact it was baked with — the attribute
+  // is the only memory of it, because the bitmap cannot be asked.
+  const variant: ChipVariant = options?.variant ?? "default";
   const { dataUri, width, height, baselineOffset, displayLabel } =
     bakeAtomChipDataUri(
       type,
       label,
       value,
-      options?.maxLabelWidth !== undefined
-        ? { maxLabelWidth: options.maxLabelWidth }
-        : undefined,
+      {
+        ...(options?.maxLabelWidth !== undefined
+          ? { maxLabelWidth: options.maxLabelWidth }
+          : {}),
+        ...(options?.session !== undefined ? { session: options.session } : {}),
+        variant,
+      },
     );
 
   const img = document.createElement("img");
@@ -838,8 +947,14 @@ export function createAtomImgElement(
     label,
     value,
     ...(options?.id !== undefined ? { id: options.id } : {}),
+    ...(options?.session !== undefined ? { session: options.session } : {}),
   });
   img.title = value;
+  // [L06] — the face is DOM, not state. Written always, including the
+  // `"default"` that a selector could have inferred from its absence, because
+  // a reader (the selection re-bake, an app-test) asking one attribute for
+  // the answer beats one asking whether an attribute is there.
+  img.dataset.chipVariant = variant;
   // The chip's accessible name, and the only reading of its text there is:
   // everything else about it is pixels. It is the PAINTED label, not the
   // stored one — a renamed session, or one on an arc, reads here as what the
@@ -857,9 +972,20 @@ export function createAtomImgElement(
   return img;
 }
 
-/** Create atom img as HTML string (for execCommand insertHTML). */
-export function atomImgHTML(type: string, label: string, value?: string): string {
-  const el = createAtomImgElement(type, label, value ?? label);
+/**
+ * Create atom img as HTML string (for execCommand insertHTML).
+ *
+ * `options` is the same record {@link createAtomImgElement} takes and is
+ * passed straight through, so this form is not the one chip that silently
+ * drops a session atom's identity.
+ */
+export function atomImgHTML(
+  type: string,
+  label: string,
+  value?: string,
+  options?: AtomImgOptions,
+): string {
+  const el = createAtomImgElement(type, label, value ?? label, options);
   const wrapper = document.createElement("div");
   wrapper.appendChild(el);
   return wrapper.innerHTML;

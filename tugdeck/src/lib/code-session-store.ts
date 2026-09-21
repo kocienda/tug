@@ -46,8 +46,10 @@ import {
   type AtomBytesStore,
 } from "./atom-bytes-store";
 import { buildWirePayload } from "./build-wire-payload";
+import { sessionCitationStore } from "./session-citation-store";
+import { sessionVerdictAskKey } from "./session-atom";
+import type { SessionRefVerdict } from "./session-ref-block";
 import { synthesizeUserMessageFromBlocks } from "./synthesize-user-message";
-import { sessionTagStore } from "./session-tag-store";
 import {
   isCompactionSummarizeText,
   splitCompactionSeed,
@@ -240,13 +242,43 @@ function mintTurnKey(): string {
 }
 
 /**
- * Whether a callsign names a session this client has seen — the discriminator
- * that recovers a session `@`-mention from a value shaped like a relative
- * path. Handed to the synthesizer rather than reached for there, so that
- * module stays pure.
+ * What the client knows about one session atom, for the trailing reference
+ * block — read from the store, never asked here.
+ *
+ * The key is {@link sessionVerdictAskKey}'s, which is the whole point of that
+ * function existing: answers are filed under the spelling the ASKER used, and
+ * a reader spelling it differently would find nothing and stamp every
+ * reference `unverified`.
+ *
+ * The mapping is written whole: a verdict the block can say is a verdict the
+ * map must carry, so no answer the store holds can reach the block as a
+ * silent `unverified`.
  */
-function isKnownSessionTag(tag: string): boolean {
-  return sessionTagStore.knownTags().has(tag);
+function sessionAtomVerdict(atom: AtomSegment): {
+  verdict: SessionRefVerdict;
+  sessionId?: string;
+  projectDir?: string;
+} {
+  const answer = sessionCitationStore.getAnswer(sessionVerdictAskKey(atom));
+  if (answer.status === "found") {
+    return {
+      verdict: "here",
+      sessionId: answer.sessionId,
+      projectDir: answer.projectDir,
+    };
+  }
+  if (answer.status === "elsewhere") {
+    return {
+      verdict: "elsewhere",
+      sessionId: answer.sessionId,
+      projectDir: answer.projectDir,
+    };
+  }
+  // `unknown` is the ledger's word that no such session exists; `pending` is
+  // this client not having heard back. They are different facts and the block
+  // says so — "not on this machine" is actionable, "not answered yet" names
+  // the command that answers it.
+  return { verdict: answer.status === "unknown" ? "absent" : "unverified" };
 }
 
 /** CODE_OUTPUT frame `type` values the reducer currently handles. */
@@ -471,6 +503,11 @@ export class CodeSessionStore {
    * over the session's wire, and belongs to no turn.
    */
   private _pendingAsk: PendingAsk | null = null;
+  /**
+   * The last `user_message` this store put on the wire, kept for
+   * {@link _lastSentUserMessageForTest} and read by nothing else.
+   */
+  private _lastSentUserMessage: unknown = null;
   private _disposed = false;
   private _feedStoreUnsub: (() => void) | null = null;
   /**
@@ -689,6 +726,23 @@ export class CodeSessionStore {
     if (this._disposed) return;
     this.routeFrame(feedId, decoded);
   };
+
+  /**
+   * Test-only. The content blocks of the last `user_message` this store put
+   * on the wire, or `null` when it has sent none.
+   *
+   * It exists because the wire payload is the one artifact of a submission
+   * that nothing downstream keeps: the reducer turns it into a `send-frame`
+   * effect and the transcript row is built from the SYNTHESIZED substrate
+   * instead, which is exactly the separation the trailing session-reference
+   * block depends on — it rides out to the model and never appears in the
+   * transcript. A test with no view of the frame can see one half of that
+   * and never the other.
+   *
+   * @internal — reached only through the DEV-gated `window.__tug` test
+   *  surface; not part of the public L02 contract.
+   */
+  _lastSentUserMessageForTest = (): unknown => this._lastSentUserMessage;
 
   /**
    * Test-only. Drive the transport-lifecycle transitions the store
@@ -928,7 +982,9 @@ export class CodeSessionStore {
     //     `thumbnailDataUrl` for every image block.
     // The reducer receives the synthesized substrate + the wire
     // content blocks and never touches the bytes-store.
-    const wire = buildWirePayload(effText, atoms, this.atomBytesStore);
+    const wire = buildWirePayload(effText, atoms, this.atomBytesStore, {
+      sessionVerdict: sessionAtomVerdict,
+    });
     // A leading command atom is sent as a clean `/name` for claude to
     // expand (no `@`-mention marker), so `wire.content` can't round-trip the
     // command-ness. Re-synthesizing from it would render plain `/name` text
@@ -941,7 +997,6 @@ export class CodeSessionStore {
       ? { text: effText, atoms, thumbnailBake: Promise.resolve() }
       : synthesizeUserMessageFromBlocks(wire.content, this.atomBytesStore, {
           atomIdAt: wire.atomIdAt,
-          isKnownTag: isKnownSessionTag,
         });
     this.dispatch({
       type: "send",
@@ -1911,7 +1966,6 @@ export class CodeSessionStore {
         const synth = synthesizeUserMessageFromBlocks(
           content,
           this.atomBytesStore,
-          { isKnownTag: isKnownSessionTag },
         );
         return {
           type: "add_user_message",
@@ -2537,6 +2591,11 @@ export class CodeSessionStore {
           // emission out of the reducer too.
           break;
         case "send-frame":
+          // The test witness above; one assignment on a path that already
+          // encodes and writes a frame.
+          if (effect.msg.type === "user_message") {
+            this._lastSentUserMessage = effect.msg;
+          }
           this.conn.send(
             FeedId.CODE_INPUT,
             encodeCodeInputPayload(effect.msg, this.tugSessionId),

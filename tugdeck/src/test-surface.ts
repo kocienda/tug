@@ -1449,6 +1449,22 @@ export interface TugTestSurface {
   driveSession(cardId: string, action: SessionDriveAction): void;
 
   /**
+   * The last `user_message` one card's session store put on the wire, as its
+   * JSON string, or `null` when it has sent none.
+   *
+   * The wire payload is the one artifact of a submission that nothing else
+   * keeps: the transcript row is rebuilt from the synthesized substrate, not
+   * from the frame, which is what lets the trailing session-reference block
+   * ride out to the model without ever appearing in the transcript. Both
+   * halves of that claim need looking at, and the DOM can only show one.
+   *
+   * A string rather than the object, because this crosses the `evalJS`
+   * bridge and a `JSON.stringify` on the test side would be a second
+   * serialization of the same thing.
+   */
+  lastSentUserMessage(cardId: string): string | null;
+
+  /**
    * Drive the app-level, account-global rate-limit store with a quota as if a
    * live `rate_limit_event` had landed ([#step-3.5]). Account-global, so it is
    * NOT card-scoped — one call drives the single deck-wide banner. Used by the
@@ -2871,6 +2887,17 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
           );
         }
       }
+    },
+
+    lastSentUserMessage(cardId: string): string | null {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) {
+        throw new Error(
+          `lastSentUserMessage: card "${cardId}" has no bound session`,
+        );
+      }
+      const msg = services.codeSessionStore._lastSentUserMessageForTest();
+      return msg === null || msg === undefined ? null : JSON.stringify(msg);
     },
 
     ingestRateLimit(info: RateLimitInfo): void {

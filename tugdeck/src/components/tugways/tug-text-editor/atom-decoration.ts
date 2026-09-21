@@ -45,6 +45,9 @@ import type { AtomBytesStore } from "@/lib/atom-bytes-store";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
 import { stampAnnotation } from "@/lib/annotator/annotation-element";
 import { payloadForAtom } from "@/lib/annotator/payloads";
+import { isSessionAtomType, sessionVerdictAskKey } from "@/lib/session-atom-shape";
+import { sessionCitationStore } from "@/lib/session-citation-store";
+import { sessionChipVerdict } from "@/lib/session-chip-verdict";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -155,6 +158,13 @@ export class AtomWidget extends WidgetType {
       && this.segment.type === other.segment.type
       && this.segment.label === other.segment.label
       && this.segment.value === other.segment.value
+      // The session pair is painted onto the `<img>` as attributes, so two
+      // widgets agreeing on the visible fields and differing here would leave
+      // the old pair on screen. Nothing about it is drawn, which is exactly
+      // why it has to be compared: the pixels cannot report the difference.
+      && this.segment.session?.id === other.segment.session?.id
+      && this.segment.session?.projectDir
+        === other.segment.session?.projectDir
     );
   }
 
@@ -174,11 +184,29 @@ export class AtomWidget extends WidgetType {
         pending = true;
       }
     }
+    // A session chip asks the machine whether the session it names is still
+    // findable, under the ONE key every reader of that answer uses. The ask
+    // is idempotent and batched, so mounting a composer full of chips costs
+    // one request; the answer arrives later and reaches this widget through
+    // `sessionVerdictRegenPlugin` below, which is the only door a baked
+    // bitmap has.
+    if (isSessionAtomType(this.segment.type)) {
+      sessionCitationStore.request(sessionVerdictAskKey(this.segment));
+    }
     const img = createAtomImgElement(
       this.segment.type,
       this.segment.label,
       this.segment.value,
-      { id: this.segment.id, pending },
+      // `session` rides through so the baked `<img>` carries the
+      // `data-atom-session-*` pair a selection across it reads back — an atom
+      // that lost it here would paste as a chip naming a session nothing can
+      // find.
+      {
+        id: this.segment.id,
+        pending,
+        session: this.segment.session,
+        variant: sessionChipVerdict(this.segment),
+      },
     );
     // The chip carries the annotation contract, so one right-click path
     // serves the composer and the transcript alike: `annotationFromEvent`
@@ -705,6 +733,10 @@ function isPositionSelected(state: EditorState, pos: number): boolean {
  * wash instead of dissolving into it — the blue-on-blue problem the
  * default chip has when the selection overlay sits behind it.
  *
+ * `data-chip-variant` is **not** touched here: it records the chip's resting
+ * face and outlives every selection, and `data-selected` is the separate
+ * attribute that says a selection is over it.
+ *
  * Why a DOM `src` swap rather than rebuilding the CM6 widget: selection
  * changes fire on every cursor move and drag. Folding selection state
  * into `AtomWidget.eq()` would churn the decoration set and remount
@@ -729,7 +761,15 @@ export function syncSelectedAtoms(view: EditorView): void {
           img.dataset.atomType ?? "",
           img.dataset.atomLabel ?? "",
           img.dataset.atomValue ?? "",
-          { variant: "selected" },
+          // The resting face rides across the swap. A missing session chip
+          // re-baked as plain `selected` would drop its dash for exactly as
+          // long as the selection covered it — the one moment a reference to
+          // nothing would look reachable. `data-chip-variant` is the only
+          // memory of that face there is; the bitmap cannot be asked.
+          {
+            variant: "selected",
+            missing: img.dataset.chipVariant === "missing",
+          },
         ).dataUri;
         _selectedSrc.set(img, selected);
       }
@@ -783,6 +823,61 @@ class SelectedAtomSyncPlugin implements PluginValue {
  */
 export const selectedAtomSyncPlugin = ViewPlugin.fromClass(
   SelectedAtomSyncPlugin,
+);
+
+/**
+ * Rebuild every atom widget when a session verdict settles.
+ *
+ * A composer chip is a baked bitmap: it cannot subscribe and it cannot
+ * cascade, so an answer that arrives after the chip mounted reaches it only
+ * by rebuilding the widget. `regenerateAtomsEffect` is that door — the same
+ * one a theme switch and a `/rename` come through — and until now nothing in
+ * this module dispatched it; every dispatch was React-side, off a theme or a
+ * rename subscription. A verdict has no React to hang off, so the
+ * subscription lives here, beside the widgets it repaints.
+ *
+ * Two details are load-bearing:
+ *
+ *  - **The dispatch is deferred to a microtask.** The store notifies from
+ *    inside `applyResolved`, and dispatching a CM6 transaction from a
+ *    listener body is a re-entrant update. The queue also coalesces a batch
+ *    of answers into one regeneration.
+ *  - **The bump is global to this editor**, as the theme switch's already is.
+ *    A per-widget dependency map would buy one spared bake per unaffected
+ *    chip and cost a second index to keep true.
+ *
+ * [L27] — the store's unsubscribe is held and released in `destroy()`.
+ */
+class SessionVerdictRegenPlugin implements PluginValue {
+  private readonly unsubscribe: () => void;
+  private queued = false;
+  private destroyed = false;
+
+  constructor(private readonly view: EditorView) {
+    this.unsubscribe = sessionCitationStore.subscribe(() => {
+      if (this.queued || this.destroyed) return;
+      this.queued = true;
+      queueMicrotask(() => {
+        this.queued = false;
+        if (this.destroyed) return;
+        this.view.dispatch({ effects: regenerateAtomsEffect.of(null) });
+      });
+    });
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    this.unsubscribe();
+  }
+}
+
+/**
+ * The verdict-regeneration `ViewPlugin` exported for editor extension
+ * registration. No-op for editors whose documents hold no session atoms —
+ * nothing asks, so nothing answers, so nothing notifies.
+ */
+export const sessionVerdictRegenPlugin = ViewPlugin.fromClass(
+  SessionVerdictRegenPlugin,
 );
 
 // ---------------------------------------------------------------------------

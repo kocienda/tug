@@ -1085,6 +1085,13 @@ pub struct SessionLedger {
     /// Identity published in the claim so non-owners can reach this
     /// instance's `/api/changes-write`.
     writer_identity: tugcore::ledger_db::WriterOwner,
+    /// The machine-wide session index ([P04]), which this ledger is the
+    /// only writer of. `None` for every test constructor unless the test
+    /// asks for one, and `None` in production when the file could not be
+    /// opened — the index is telemetry-grade, so an instance without one
+    /// records sessions exactly as it always did and simply cannot be
+    /// found from outside.
+    session_index: Option<tugcore::session_index::SessionIndex>,
 }
 
 impl SessionLedger {
@@ -1099,12 +1106,19 @@ impl SessionLedger {
     /// published in the writer claim so a non-owning instance can forward
     /// its changes mutations here.
     pub fn open(path: impl AsRef<Path>, http_port: u16) -> Result<Self, LedgerError> {
-        Self::open_full(
+        let mut ledger = Self::open_full(
             path,
             Some(tugcore::instance::changes_db_path()),
             default_claude_projects_root(),
             http_port,
-        )
+        )?;
+        // The one production attach. The on-disk test constructor
+        // (`open_with_claude_root`) deliberately gets none: it is also what
+        // `tugcast operator-ask` opens a ledger *copy* with, and an
+        // instrument pointed at a copy must not write the machine-wide
+        // index any more than it may claim the changes writer role.
+        ledger.session_index = open_session_index(&tugcore::instance::session_index_db_path());
+        Ok(ledger)
     }
 
     /// Open the ledger with an explicit `claude_projects_root`, attached to
@@ -1244,6 +1258,7 @@ impl SessionLedger {
             changes_access: Mutex::new(changes_access),
             changes_db_path: changes_db.clone(),
             writer_identity,
+            session_index: None,
         };
         // Journal replay completes a post-quarantine rebuild: salvage
         // recovered what was readable; the journal re-applies everything
@@ -1284,6 +1299,7 @@ impl SessionLedger {
             changes_access: Mutex::new(crate::changes_writer::ChangesAccess::Unclaimed),
             changes_db_path: None,
             writer_identity: crate::changes_writer::local_identity(0),
+            session_index: None,
         })
     }
 
@@ -1295,6 +1311,15 @@ impl SessionLedger {
         let mut ledger = Self::open_in_memory()?;
         ledger.claude_projects_root = root.to_path_buf();
         Ok(ledger)
+    }
+
+    /// Point this ledger's index writes at `path`. Test-only: production
+    /// attaches the machine-wide index in [`SessionLedger::open`], and a
+    /// test that wants to assert on index rows says so explicitly rather
+    /// than inheriting a real one.
+    #[cfg(test)]
+    pub fn set_session_index_path(&mut self, path: &Path) {
+        self.session_index = open_session_index(path);
     }
 
     /// Replay a changes journal into the (freshly rebuilt) database. All
@@ -4497,6 +4522,63 @@ impl SessionLedger {
         Ok(Some(line_id))
     }
 
+    /// Record a segment in the machine-wide index ([P04]).
+    ///
+    /// Every index write in this file is best-effort and returns nothing:
+    /// the index exists so a *foreign* reference can be answered, and a
+    /// failure to write it must never fail the ledger operation it rides.
+    /// A ledger with no index attached does nothing at all here.
+    fn index_upsert(
+        &self,
+        session_id: &str,
+        line_id: &str,
+        callsign: Option<&str>,
+        project_dir: &str,
+        title: Option<&str>,
+    ) {
+        let Some(index) = self.session_index.as_ref() else {
+            return;
+        };
+        let now = tugcore::session_index::now_ms();
+        let entry = tugcore::session_index::IndexEntry {
+            session_id: session_id.to_owned(),
+            line_id: line_id.to_owned(),
+            callsign: callsign.map(str::to_owned),
+            project_dir: project_dir.to_owned(),
+            // Derived by `upsert` from `project_dir`; never supplied.
+            project_leaf: String::new(),
+            instance: tugcore::instance::instance_id().unwrap_or_default(),
+            title: title.map(str::to_owned),
+            created_at_ms: now,
+            updated_at_ms: now,
+        };
+        if let Err(err) = index.upsert(&entry) {
+            tracing::warn!(session = %session_id, error = %err, "session index upsert failed");
+        }
+    }
+
+    /// Retitle every indexed segment of one line. `None` clears the title,
+    /// which is what a cleared `/rename` and a displaced name both mean.
+    fn index_retitle(&self, line_id: &str, title: Option<&str>) {
+        let Some(index) = self.session_index.as_ref() else {
+            return;
+        };
+        let instance = tugcore::instance::instance_id().unwrap_or_default();
+        if let Err(err) = index.retitle_line(&instance, line_id, title) {
+            tracing::warn!(line = %line_id, error = %err, "session index retitle failed");
+        }
+    }
+
+    /// Forget a segment the user threw away.
+    fn index_remove(&self, session_id: &str) {
+        let Some(index) = self.session_index.as_ref() else {
+            return;
+        };
+        if let Err(err) = index.remove(session_id) {
+            tracing::warn!(session = %session_id, error = %err, "session index remove failed");
+        }
+    }
+
     /// Insert a new live row, or transition an existing row back to live and
     /// rebind it to `card_id`. `created_at` is preserved across resumes.
     ///
@@ -4650,6 +4732,16 @@ impl SessionLedger {
                 params![line.line_id, title],
             )?;
         }
+        // What the line is called once this transaction lands: its own name
+        // when it has one, else the seeded `aiTitle` the block above may
+        // have just given it.
+        let index_title: Option<String> = line.name.clone().or_else(|| {
+            seed_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+                .map(str::to_owned)
+        });
         // The lifecycle fact, written inside this same transaction so the fact
         // and the session row land together — and, decisively, **through the
         // `_tx` form**: the ledger mutex is held for this whole body and is not
@@ -4680,6 +4772,19 @@ impl SessionLedger {
             );
         }
         tx.commit()?;
+        // After the ledger write, never inside it: the index is a second
+        // database, and a row recorded for a spawn that then failed to
+        // commit would advertise a session that does not exist. The tag is
+        // the line's **final** one — `birth_line_in` has already rerolled
+        // past any collision, so this is the callsign a reference will
+        // actually carry.
+        self.index_upsert(
+            session_id,
+            &line.line_id,
+            Some(&line.tag),
+            project_dir,
+            index_title.as_deref(),
+        );
         self.notify_sessions_changed();
         Ok(())
     }
@@ -4778,6 +4883,13 @@ impl SessionLedger {
         // a transaction does — a transaction makes the held-lock window that
         // much wider.
         drop(conn);
+        self.index_retitle(line_id, name);
+        // A displaced holder lost its name here, so the index must lose it
+        // too — an index still carrying a name the ledger took away would
+        // show a foreign reader a title nothing wears.
+        for holder in &displaced {
+            self.index_retitle(&holder.line_id, None);
+        }
         self.notify_sessions_changed();
         Ok(displaced)
     }
@@ -5081,6 +5193,11 @@ impl SessionLedger {
         )?;
         if affected > 0 {
             drop(conn);
+            // Only when a row actually changed, which is also what keeps an
+            // auto title from clobbering a user's: the UPDATE above is
+            // gated on `name_user_set = 0`, so a user-named line affects no
+            // rows and the index is never told otherwise.
+            self.index_retitle(&line_id, Some(trimmed));
             self.notify_sessions_changed();
         }
         Ok(affected > 0)
@@ -5642,6 +5759,7 @@ impl SessionLedger {
         tx.commit()?;
         drop(conn);
         self.settle_session_deletes([session_id]);
+        self.index_remove(session_id);
 
         let trash_path = move_jsonl_to_trash(
             &self.claude_projects_root,
@@ -8853,6 +8971,27 @@ pub fn now_millis() -> i64 {
 /// `~/.claude/projects/`. Production callers pass this to
 /// `SessionLedger::open_with_claude_root` (or rely on `open` which
 /// resolves it implicitly).
+/// Open the machine-wide session index, or log and carry on without one.
+///
+/// The index is the only ledger whose absence costs nothing a user can
+/// see from inside this instance: every session still records, resumes and
+/// resolves here exactly as before. What is lost is *reach* — a reference
+/// to one of these sessions, asked from another instance, answers `absent`
+/// rather than `elsewhere`. That is worth a warning and nothing more.
+fn open_session_index(path: &Path) -> Option<tugcore::session_index::SessionIndex> {
+    match tugcore::session_index::SessionIndex::open(path) {
+        Ok(index) => Some(index),
+        Err(err) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %err,
+                "cannot open the session index; sessions recorded here will not be findable from other instances"
+            );
+            None
+        }
+    }
+}
+
 pub fn default_claude_projects_root() -> PathBuf {
     let home = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()));
@@ -14773,6 +14912,7 @@ mod tests {
             changes_access: Mutex::new(crate::changes_writer::ChangesAccess::Unclaimed),
             changes_db_path: None,
             writer_identity: crate::changes_writer::local_identity(0),
+            session_index: None,
         }
     }
 
@@ -17533,5 +17673,348 @@ mod tests {
                 .as_deref(),
             Some("msg_01ROW"),
         );
+    }
+
+    // ── The machine-wide session index ([P04]) ───────────────────────────
+
+    /// An in-memory ledger writing its index into a temp dir, and that
+    /// index's path. Production attaches the machine-wide file in `open`;
+    /// a test says so explicitly, so no test can reach the real one.
+    fn indexed() -> (tempfile::TempDir, SessionLedger, PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("session_index.db");
+        let mut ledger = SessionLedger::open_in_memory().expect("open in-memory ledger");
+        ledger.set_session_index_path(&path);
+        (dir, ledger, path)
+    }
+
+    fn index_row(path: &Path, session_id: &str) -> Option<tugcore::session_index::IndexEntry> {
+        tugcore::session_index::lookup_uuid(path, session_id)
+            .into_iter()
+            .next()
+    }
+
+    #[test]
+    fn record_spawn_indexes_the_segment_under_its_final_tag() {
+        let (_dir, l, path) = indexed();
+        // The wanted spelling is already spent, so `birth_line_in` rerolls
+        // and the line wears something else. The index must carry the tag
+        // the line ended up with, not the one the caller asked for.
+        {
+            let conn = l.db.lock().expect("ledger mutex");
+            mint(&conn, "curly-apple", "someone-else", 10);
+        }
+        l.record_spawn(
+            "s_index",
+            WS_A,
+            "/u/src/tug",
+            "card-1",
+            millis(0),
+            "line-index",
+            Some("curly-apple"),
+        )
+        .expect("record_spawn");
+
+        let ledger_tag: String =
+            l.db.lock()
+                .expect("ledger mutex")
+                .query_row(
+                    "SELECT tag FROM lines WHERE line_id = 'line-index'",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("the line");
+        assert_ne!(ledger_tag, "curly-apple", "the spelling was spent");
+
+        let row = index_row(&path, "s_index").expect("an index row");
+        assert_eq!(row.callsign.as_deref(), Some(ledger_tag.as_str()));
+        assert_eq!(row.line_id, "line-index");
+        assert_eq!(row.project_dir, "/u/src/tug");
+        assert_eq!(row.project_leaf, "tug");
+        assert_eq!(row.title, None);
+        assert_eq!(
+            row.instance,
+            tugcore::instance::instance_id().unwrap_or_default()
+        );
+    }
+
+    #[test]
+    fn rename_retitles_the_index_and_takes_a_displaced_name_with_it() {
+        let (_dir, l, path) = indexed();
+        l.record_spawn(
+            "s_one",
+            WS_A,
+            "/u/src/tug",
+            "card-1",
+            millis(0),
+            "line-1",
+            None,
+        )
+        .expect("record_spawn");
+        l.record_spawn(
+            "s_two",
+            WS_A,
+            "/u/src/tug",
+            "card-2",
+            millis(0),
+            "line-2",
+            None,
+        )
+        .expect("record_spawn");
+
+        l.rename("line-1", Some("the parser work")).expect("rename");
+        assert_eq!(
+            index_row(&path, "s_one").expect("row").title.as_deref(),
+            Some("the parser work")
+        );
+
+        // The same spelling moves to the other line, and the first loses it
+        // in the ledger — so it must lose it in the index too.
+        let displaced = l.rename("line-2", Some("the parser work")).expect("rename");
+        assert_eq!(displaced.len(), 1);
+        assert_eq!(
+            index_row(&path, "s_two").expect("row").title.as_deref(),
+            Some("the parser work")
+        );
+        assert_eq!(index_row(&path, "s_one").expect("row").title, None);
+
+        // Clearing clears.
+        l.rename("line-2", None).expect("rename");
+        assert_eq!(index_row(&path, "s_two").expect("row").title, None);
+    }
+
+    #[test]
+    fn an_auto_title_reaches_the_index_but_never_over_a_user_name() {
+        let (_dir, l, path) = indexed();
+        l.record_spawn(
+            "s_auto",
+            WS_A,
+            "/u/src/tug",
+            "card-1",
+            millis(0),
+            "line-1",
+            None,
+        )
+        .expect("record_spawn");
+
+        assert!(
+            l.record_auto_title("s_auto", "Some Generated Title")
+                .expect("auto title")
+        );
+        assert_eq!(
+            index_row(&path, "s_auto").expect("row").title.as_deref(),
+            Some("Some Generated Title")
+        );
+
+        l.rename("line-1", Some("what the user called it"))
+            .expect("rename");
+        assert!(
+            !l.record_auto_title("s_auto", "A Later Generated Title")
+                .expect("auto title"),
+            "a user-set name refuses the write"
+        );
+        assert_eq!(
+            index_row(&path, "s_auto").expect("row").title.as_deref(),
+            Some("what the user called it"),
+            "and the index keeps the user's word"
+        );
+    }
+
+    #[test]
+    fn trash_forgets_the_index_row() {
+        let (_dir, l, path) = indexed();
+        l.record_spawn(
+            "s_gone",
+            WS_A,
+            "/u/src/tug",
+            "card-1",
+            millis(0),
+            "line-1",
+            None,
+        )
+        .expect("record_spawn");
+        assert!(index_row(&path, "s_gone").is_some());
+
+        l.mark_closed("s_gone").expect("close the card");
+        l.trash("s_gone").expect("trash");
+        assert!(
+            index_row(&path, "s_gone").is_none(),
+            "a session the user threw away is not findable from anywhere"
+        );
+    }
+
+    #[test]
+    fn an_index_that_cannot_open_does_not_fail_a_spawn() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // A directory where the file should be: the open fails, and the
+        // ledger runs without an index rather than refusing to record.
+        let path = dir.path().join("session_index.db");
+        std::fs::create_dir_all(&path).expect("occupy the path");
+        let mut l = SessionLedger::open_in_memory().expect("open in-memory ledger");
+        l.set_session_index_path(&path);
+
+        l.record_spawn(
+            "s_ok",
+            WS_A,
+            "/u/src/tug",
+            "card-1",
+            millis(0),
+            "line-1",
+            None,
+        )
+        .expect("record_spawn survives an unopenable index");
+        let recorded: i64 =
+            l.db.lock()
+                .expect("ledger mutex")
+                .query_row(
+                    "SELECT COUNT(*) FROM sessions WHERE session_id = 's_ok'",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("count");
+        assert_eq!(
+            recorded, 1,
+            "and the session is recorded exactly as it always was"
+        );
+    }
+
+    /// **Parity** ([R01]). `tugcore::session_finder`'s `here` arm is a
+    /// deliberate read-only duplicate of `resolve_session_id_rows`'s SQL,
+    /// living in tugcore because tugtool cannot link this crate. Two
+    /// implementations of one question drift, so this test seeds one
+    /// on-disk ledger and asserts that both name the same uuid for every
+    /// spelling class the arms cover.
+    ///
+    /// **A new resolve arm must add a fixture row here.** A class this
+    /// fixture does not exercise is a class the two sides may already
+    /// disagree about, silently.
+    #[test]
+    fn finder_here_agrees_with_ledger() {
+        use tugcore::session_finder::{FinderEnv, Finding, Provenance};
+
+        const UUID_PLAIN: &str = "11111111-aaaa-bbbb-cccc-000000000001";
+        const UUID_SHORT: &str = "22222222-aaaa-bbbb-cccc-000000000002";
+        const UUID_PARENT: &str = "33333333-aaaa-bbbb-cccc-000000000003";
+        const UUID_TIP: &str = "44444444-aaaa-bbbb-cccc-000000000004";
+        const UUID_SCANNED: &str = "55555555-aaaa-bbbb-cccc-000000000005";
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = dir.path().join("sessions.db");
+        let projects = dir.path().join("projects");
+        std::fs::create_dir_all(&projects).expect("projects root");
+        let l = SessionLedger::open_with_claude_root(&db, projects.clone()).expect("open ledger");
+
+        // A plain uuid row, and a second whose leading eight are unique.
+        l.record_spawn(
+            UUID_PLAIN,
+            WS_A,
+            "/u/src/tug",
+            "card-1",
+            millis(0),
+            "l1",
+            Some("curly-apple"),
+        )
+        .expect("record_spawn");
+        l.record_spawn(
+            UUID_SHORT,
+            WS_A,
+            "/u/src/tug",
+            "card-2",
+            millis(0),
+            "l2",
+            Some("zany-ghost"),
+        )
+        .expect("record_spawn");
+        // A two-segment line: the tip is live, the parent is closed and was
+        // forked from.
+        l.record_spawn(
+            UUID_PARENT,
+            WS_A,
+            "/u/src/tug",
+            "card-3",
+            millis(1),
+            "l3",
+            Some("warm-grit"),
+        )
+        .expect("record_spawn");
+        l.mark_closed(UUID_PARENT).expect("close the parent");
+        l.record_spawn(
+            UUID_TIP,
+            WS_A,
+            "/u/src/tug",
+            "card-3",
+            millis(0),
+            "l3",
+            None,
+        )
+        .expect("record_spawn");
+        {
+            let conn = l.db.lock().expect("ledger mutex");
+            conn.execute(
+                "UPDATE sessions SET forked_from_session_id = ?1 WHERE session_id = ?2",
+                params![UUID_PARENT, UUID_TIP],
+            )
+            .expect("record the fork");
+            // A spelling the line has spent, remembered by the arbiter.
+            conn.execute(
+                "INSERT INTO minted_tags (tag, line_id, session_id, minted_at)
+                 VALUES ('spent-name', 'l1', ?1, 1)",
+                params![UUID_PLAIN],
+            )
+            .expect("seed the alias");
+            // A session only the scan cache holds: no `sessions` row at all.
+            conn.execute(
+                "INSERT INTO lines (line_id, tag, name, name_user_set, card_id,
+                                    project_dir, created_at, last_used_at)
+                 VALUES ('l4', 'silky-wren', NULL, 0, NULL, '/u/src/tug', 1, 1)",
+                [],
+            )
+            .expect("seed the scanned line");
+            conn.execute(
+                "INSERT INTO external_scan_cache
+                    (session_id, project_dir, file_size, file_mtime, excluded, line_id)
+                 VALUES (?1, '/u/src/tug', 100, 1, 0, 'l4')",
+                params![UUID_SCANNED],
+            )
+            .expect("seed the scan row");
+        }
+
+        let env = FinderEnv {
+            sessions_db: Some(db.clone()),
+            // Empty on both counts: this test is about the `here` arm, and
+            // an answer from either of the others would prove nothing.
+            index_db: dir.path().join("no-such-index.db"),
+            claude_projects_root: projects,
+            instance: "cargo-test".into(),
+        };
+
+        for (spelling, expected) in [
+            (UUID_PLAIN, UUID_PLAIN),
+            (&UUID_SHORT[..8], UUID_SHORT),
+            ("curly-apple", UUID_PLAIN),
+            ("warm-grit", UUID_TIP),
+            ("spent-name", UUID_PLAIN),
+            (UUID_SCANNED, UUID_SCANNED),
+        ] {
+            let ledger_answer = l
+                .resolve_session_ids(&[spelling.to_owned()])
+                .expect("resolve");
+            assert_eq!(ledger_answer.len(), 1, "the ledger answers {spelling}");
+            assert_eq!(
+                ledger_answer[0].1.session_id, expected,
+                "the ledger's answer for {spelling}"
+            );
+
+            match tugcore::session_finder::find(spelling, &env) {
+                Finding::Found(found) => {
+                    assert_eq!(
+                        found.session_id, ledger_answer[0].1.session_id,
+                        "the finder and the ledger disagree about {spelling}"
+                    );
+                    assert_eq!(found.provenance, Provenance::Here);
+                }
+                Finding::Absent => panic!("the finder missed {spelling}, which the ledger answers"),
+            }
+        }
     }
 }

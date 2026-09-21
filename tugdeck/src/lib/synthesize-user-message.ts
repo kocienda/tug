@@ -28,11 +28,20 @@
  *    fresh (replay path). Mention atoms default to `type: "file"`
  *    (the wire marker doesn't preserve the original atom type) and
  *    carry the mention's value as both label and value; the three
- *    kinds whose value gives them away — a directory, a session and a
- *    commit — are recovered instead (see {@link mentionAtomType}).
+ *    kinds that can say what they are are recovered instead: a session
+ *    names its type on the marker itself, and a directory and a commit
+ *    give themselves away by the shape of their value (see
+ *    {@link mentionAtomType}).
  *  - `thumbnailBake`: a promise that resolves when all newly-fired
  *    thumbnail bakes have settled. Production callers fire-and-forget;
  *    tests can await for deterministic ordering.
+ *
+ * A trailing `tug:session-refs` block is not part of any of that. It is the
+ * fact sheet `buildWirePayload` wrote for the model — the uuid behind each
+ * session marker — and it is stripped before the walk begins, contributing
+ * no text and no atoms. What it carried is put back where it belongs: the
+ * session atom the marker re-minted takes its `session` identity from the
+ * matching line, so a replayed chip is as findable as the minted one was.
  *
  * The bytes-store side-effect is the documented seam: for each image
  * block, the synthesizer ensures the bytes-store has an entry at the
@@ -80,6 +89,11 @@ import { TUG_ATOM_CHAR, type AtomSegment } from "./tug-atom-img";
 import { bakeThumbnail } from "./image-downsample";
 import { parseAtomMentionSegments } from "./atom-mention-marker";
 import { COMMIT_ATOM_TYPE, detectCommandEcho } from "./command-atom";
+import {
+  isSessionRefBlock,
+  parseSessionRefBlock,
+  type ParsedSessionRef,
+} from "./session-ref-block";
 import { commitAtomLabel } from "./commit-format";
 import { isCommitSha } from "./annotator/detect-commit-sha";
 
@@ -114,15 +128,6 @@ export interface SynthesizeOptions {
    */
   mintAtomId?: () => string;
   /**
-   * Whether a callsign is one this client has seen — the discriminator that
-   * recovers a session mention from a value shaped like a relative path (see
-   * {@link mentionAtomType}). Injected rather than reached for so this module
-   * stays pure and testable; the live path passes `sessionTagStore`'s known
-   * set, and omitting it makes every mention a file, which is the behavior
-   * that predates session atoms.
-   */
-  isKnownTag?: (tag: string) => boolean;
-  /**
    * Thumbnail baker. Takes the image block's base64 + mediaType and
    * returns a `data:image/...;base64,...` URL (or `null` on bake
    * failure). Defaults to the Web-Worker-backed `bakeThumbnail`
@@ -156,20 +161,22 @@ export interface SynthesizeResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Atom type for a replayed `@`-mention. The wire doesn't carry the
- * original type, so it is recovered from the value's shape and, for a
- * session, from what the tag store knows.
+ * Atom type for a replayed `@`-mention whose marker named no type — it is
+ * recovered from the shape of the value alone.
  *
  * A directory mention's value always ends in `/` (tugcast's index form), so
- * directory chips round-trip. A session mention is `<project>/<callsign>`,
- * which is shaped exactly like a relative file path — nothing in the string
- * tells the two apart, and no marker grammar change could tell them apart
- * without giving the session a parallel mechanism, which is the one thing it
- * must not have. So the callsign is the discriminator: a two-segment value
- * whose tail is a tag this client has seen is a session. Collision needs a
- * real file named for a minted `adjective-noun` from the curated lexicon
- * sitting one directory deep, and the cost of one is a chip with the wrong
- * icon. Everything else defaults to `"file"`.
+ * directory chips round-trip. Everything else defaults to `"file"`.
+ *
+ * A session is NOT recovered here, and that is the point of the typed
+ * marker: `<project>/<callsign>` is shaped exactly like a relative file
+ * path, so nothing in the value can tell the two apart. The discriminator
+ * used to be the local tag store — a two-segment value whose tail was a
+ * callsign this client had seen — which made a replay's answer depend on
+ * what the reading instance happened to hold. The same JSONL read on
+ * another instance, or in a project whose sessions this one had never
+ * listed, gave a file chip where the user had put a session. The marker
+ * carries `session:` instead, and the caller reads
+ * `AtomMentionSegment.atomType` before reaching this function at all.
  *
  * A commit is recovered the same way and for the same reason — the value's
  * own shape, no second grammar on the wire. Its value is a bare sha, so the
@@ -182,16 +189,9 @@ export interface SynthesizeResult {
  * the full forty-character sha — the mark changed kind and the label changed
  * spelling, on the surface the user was still looking at.
  */
-function mentionAtomType(
-  value: string,
-  isKnownTag?: (tag: string) => boolean,
-): string {
+function mentionAtomType(value: string): string {
   if (value.endsWith("/")) return "directory";
   if (isCommitSha(value)) return COMMIT_ATOM_TYPE;
-  if (isKnownTag !== undefined) {
-    const parts = value.split("/");
-    if (parts.length === 2 && isKnownTag(parts[1])) return "session";
-  }
   return "file";
 }
 
@@ -206,6 +206,33 @@ function mentionAtomType(
  */
 function mentionAtomLabel(type: string, value: string): string {
   return type === COMMIT_ATOM_TYPE ? commitAtomLabel(value) : value;
+}
+
+/**
+ * The atom one parsed mention becomes — the wire's word first, the value's
+ * shape second.
+ *
+ * A marker that named its type is believed: that is the whole reason the
+ * prefix is written. Only an untyped marker falls through to
+ * {@link mentionAtomType}, which is where the shape rules live.
+ *
+ * The recovered atom carries no `session` pair. The wire marker holds the
+ * `<project>/<callsign>` name and nothing more, so a replayed session atom
+ * is a reference by name — the reference block the prompt carries is what
+ * supplies the uuid, and inventing a half-filled pair here would make a
+ * replayed chip look as findable as a minted one.
+ */
+function mentionAtom(seg: {
+  value: string;
+  atomType?: "session";
+}): AtomSegment {
+  const type = seg.atomType ?? mentionAtomType(seg.value);
+  return {
+    kind: "atom",
+    type,
+    label: mentionAtomLabel(type, seg.value),
+    value: seg.value,
+  };
 }
 
 function defaultMintAtomId(): string {
@@ -256,7 +283,38 @@ export function synthesizeUserMessageFromBlocks(
   const mintAtomId = options?.mintAtomId ?? defaultMintAtomId;
   const bakeImage = options?.bakeImage ?? defaultBakeImage;
   const atomIdAt = options?.atomIdAt;
-  const isKnownTag = options?.isKnownTag;
+
+  // The trailing reference block is plumbing the model reads and the user
+  // never does, so it is removed here before anything else looks at the
+  // blocks: it contributes no text and no atoms, and every walk below —
+  // including the command-echo detector — sees the message the user actually
+  // sent. What it leaves behind is the identity it carried, which is put back
+  // onto the atoms the markers re-mint.
+  const refs = new Map<string, ParsedSessionRef>();
+  const bodyBlocks: ContentBlock[] = [];
+  for (const block of blocks) {
+    if (block.type === "text" && isSessionRefBlock(block.text)) {
+      for (const ref of parseSessionRefBlock(block.text)) {
+        if (!refs.has(ref.value)) refs.set(ref.value, ref);
+      }
+      continue;
+    }
+    bodyBlocks.push(block);
+  }
+
+  /**
+   * Put the block's identity back on a recovered session atom.
+   *
+   * The marker carries the name and the block carries the uuid, so this is
+   * where a replayed chip becomes as findable as the minted one was. An atom
+   * the block never named keeps no pair at all, which is the honest state for
+   * a message that predates the block.
+   */
+  const withRefIdentity = (atom: AtomSegment): AtomSegment => {
+    const ref = refs.get(atom.value);
+    if (atom.type !== "session" || ref === undefined) return atom;
+    return { ...atom, session: { id: ref.sessionId, projectDir: ref.projectDir } };
+  };
 
   // Command-expansion echo: when claude expands a typed `/command`, it
   // rewrites the user turn to a `<command-name>` envelope rather than the
@@ -266,7 +324,7 @@ export function synthesizeUserMessageFromBlocks(
   // editor atom's, so optimistic and replayed echoes render identically).
   // Commands never ride the `@`-mention marker, so this is the only path
   // that re-mints a `command` atom. See {@link detectCommandEcho}.
-  const commandEcho = detectCommandEcho(blocks);
+  const commandEcho = detectCommandEcho(bodyBlocks);
   if (commandEcho !== null) {
     const { value, args } = commandEcho;
     const echoAtoms: AtomSegment[] = [
@@ -287,13 +345,7 @@ export function synthesizeUserMessageFromBlocks(
           continue;
         }
         echoText += TUG_ATOM_CHAR;
-        const type = mentionAtomType(seg.value, isKnownTag);
-        echoAtoms.push({
-          kind: "atom",
-          type,
-          label: mentionAtomLabel(type, seg.value),
-          value: seg.value,
-        });
+        echoAtoms.push(withRefIdentity(mentionAtom(seg)));
       }
     }
     return {
@@ -308,7 +360,7 @@ export function synthesizeUserMessageFromBlocks(
   const bakes: Array<Promise<void>> = [];
   let imageBlockIndex = 0;
 
-  for (const block of blocks) {
+  for (const block of bodyBlocks) {
     if (block.type === "text") {
       // Parse backtick-`@` mention markers out of the wire text and
       // re-mint chips at the original positions. The submit-side
@@ -327,18 +379,12 @@ export function synthesizeUserMessageFromBlocks(
         // `"file"` since that's the overwhelmingly common case for
         // `@`-mention completions and the chip's icon falls back
         // gracefully if the value is actually a URL or command. Three
-        // kinds are recovered from the value's own shape instead — a
-        // trailing `/` is a directory, a known callsign one segment
-        // deep is a session, and a bare run of sha-shaped hex is a
-        // commit, which also takes back its `commit:<8>` spelling.
+        // kinds come back typed instead: a session says so on the
+        // marker itself, a trailing `/` is a directory, and a bare run
+        // of sha-shaped hex is a commit, which also takes back its
+        // `commit:<8>` spelling.
         textBuf += TUG_ATOM_CHAR;
-        const type = mentionAtomType(seg.value, isKnownTag);
-        atoms.push({
-          kind: "atom",
-          type,
-          label: mentionAtomLabel(type, seg.value),
-          value: seg.value,
-        });
+        atoms.push(withRefIdentity(mentionAtom(seg)));
       }
       continue;
     }

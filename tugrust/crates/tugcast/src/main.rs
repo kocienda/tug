@@ -1743,7 +1743,7 @@ async fn main() {
     // CONTROL stays a channel-registered stream: router-internal,
     // bidirectional, and the sink for router-emitted error frames — one
     // of the two named exemptions from the feed abstraction.
-    feed_router.register_stream(FeedId::CONTROL, client_action_tx, LagPolicy::Warn);
+    feed_router.register_stream(FeedId::CONTROL, client_action_tx.clone(), LagPolicy::Warn);
     // SESSION_STATE / SESSION_SIDEBAND are broadcast streams (not snapshot
     // watches) per [D14]: a single watch slot would clobber concurrent
     // per-session updates. Per-session replay on reconnect is handled
@@ -1911,6 +1911,15 @@ async fn main() {
             sessions: Arc::clone(&ledger),
             cancel: cancel.clone(),
         },
+    ));
+
+    // The machine-wide session index is written by every instance on this
+    // machine, so a reference that answered `absent` here can become
+    // answerable with nothing happening in this process. One watch, one
+    // CONTROL frame, and the deck re-asks — never a timer.
+    tokio::spawn(feeds::session_index_watch::run_session_index_watch(
+        client_action_tx.clone(),
+        cancel.clone(),
     ));
 
     // JOTS feed — watches the machine-global `jots.json` and pushes the whole

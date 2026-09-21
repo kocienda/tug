@@ -13,6 +13,9 @@
  *      adjacency, empty input, and the false-positive case (a user
  *      who literally wrote the marker syntax in plain prose).
  *   4. End-to-end round-trip: `parse(wrap(value))` recovers `value`.
+ *   5. The typed `@session:` marker — wrap, parse, and the two
+ *      compatibility cases that keep the prefix from breaking what
+ *      came before it.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -20,6 +23,7 @@ import { describe, expect, test } from "bun:test";
 import {
   parseAtomMentionSegments,
   wrapAtomMention,
+  wrapSessionMention,
   type AtomMentionSegment,
 } from "../atom-mention-marker";
 
@@ -212,6 +216,55 @@ describe("wrap + parse round-trip", () => {
     expect(parseAtomMentionSegments(wrapped)).toEqual<AtomMentionSegment[]>([
       { kind: "text", text: "weird`name" },
     ]);
+  });
+});
+
+describe("the typed `@session:` marker", () => {
+  test("a session value wraps with its type named", () => {
+    expect(wrapSessionMention("eucit/curly-apple")).toBe(
+      "`@session:eucit/curly-apple`",
+    );
+  });
+
+  test("wrap → parse round-trips the value and reports the type", () => {
+    const wrapped = wrapSessionMention("eucit/curly-apple");
+    expect(parseAtomMentionSegments(wrapped)).toEqual<AtomMentionSegment[]>([
+      { kind: "mention", value: "eucit/curly-apple", atomType: "session" },
+    ]);
+  });
+
+  test("an untyped marker of the same shape stays untyped", () => {
+    // The whole point of the prefix: without it the value is a relative path
+    // as far as anything reading the wire can tell, and it must keep parsing
+    // that way — every marker written before the prefix existed is this one.
+    expect(parseAtomMentionSegments("`@eucit/curly-apple`")).toEqual<
+      AtomMentionSegment[]
+    >([{ kind: "mention", value: "eucit/curly-apple" }]);
+  });
+
+  test("a prefix Tug does not know is part of the value, not an error", () => {
+    // An older client reading a marker a newer one wrote gets a file chip
+    // spelled with the prefix rather than a parse failure — the module's
+    // standing bargain, a visible regression and never data loss.
+    expect(parseAtomMentionSegments("`@commit:abc1234`")).toEqual<
+      AtomMentionSegment[]
+    >([{ kind: "mention", value: "commit:abc1234" }]);
+  });
+
+  test("a typed marker sits in prose beside an untyped one", () => {
+    const text =
+      "see " + wrapSessionMention("eucit/curly-apple")
+      + " and " + wrapAtomMention("src/main.ts");
+    expect(parseAtomMentionSegments(text)).toEqual<AtomMentionSegment[]>([
+      { kind: "text", text: "see " },
+      { kind: "mention", value: "eucit/curly-apple", atomType: "session" },
+      { kind: "text", text: " and " },
+      { kind: "mention", value: "src/main.ts" },
+    ]);
+  });
+
+  test("backtick-in-value falls back to plain text, as the untyped wrap does", () => {
+    expect(wrapSessionMention("weird`name")).toBe("weird`name");
   });
 });
 

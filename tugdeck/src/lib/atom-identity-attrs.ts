@@ -28,6 +28,22 @@
  * @module lib/atom-identity-attrs
  */
 
+/**
+ * The session an atom names, by the two facts a reader on another machine
+ * needs to find it: the full uuid and the directory the session ran in.
+ *
+ * The `<project>/<callsign>` the chip reads is a NAME — it resolves only
+ * against a ledger that happens to hold that callsign — so an atom carrying
+ * the name alone is a reference nothing outside this instance can follow. The
+ * uuid is the thing that survives the trip.
+ */
+export interface AtomSessionRef {
+  /** The full tug session uuid. */
+  id: string;
+  /** The absolute directory the session ran in. */
+  projectDir: string;
+}
+
 /** The identity an atom publishes — the shape `AtomSegment` already carries. */
 export interface AtomIdentity {
   type: string;
@@ -35,6 +51,8 @@ export interface AtomIdentity {
   value: string;
   /** UUID minted at drop / paste; pairs the atom with its byte payload. */
   id?: string;
+  /** The session a session atom names, where the mint knew both halves. */
+  session?: AtomSessionRef;
 }
 
 /**
@@ -50,6 +68,8 @@ export interface AtomIdentityAttrs {
   "data-atom-label": string;
   "data-atom-value": string;
   "data-atom-id"?: string;
+  "data-atom-session-id"?: string;
+  "data-atom-session-project-dir"?: string;
 }
 
 /**
@@ -70,6 +90,17 @@ export function atomIdentityAttrs(atom: AtomIdentity): AtomIdentityAttrs {
   // that exists: `setAttribute` would write the string "undefined", and React
   // drops an `undefined` value but a DOM caller does not.
   if (atom.id !== undefined && atom.id !== "") attrs["data-atom-id"] = atom.id;
+  // Both halves or neither: a uuid with no project dir cannot be read back as
+  // an `AtomSessionRef` without inventing the missing half, and the reader on
+  // the other side would have to guess which absence meant what.
+  if (
+    atom.session !== undefined
+    && atom.session.id !== ""
+    && atom.session.projectDir !== ""
+  ) {
+    attrs["data-atom-session-id"] = atom.session.id;
+    attrs["data-atom-session-project-dir"] = atom.session.projectDir;
+  }
   return attrs;
 }
 

@@ -18,6 +18,7 @@ import {
   sessionAtomCallsign,
   sessionAtomProject,
   sessionAtomSegment,
+  sessionVerdictAskKey,
 } from "@/lib/session-atom";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
 
@@ -70,6 +71,86 @@ describe("sessionAtomClipboardPayload", () => {
     const payload = sessionAtomClipboardPayload(identity());
     expect(payload.text).toBe(TUG_ATOM_CHAR);
     expect(payload.text.length).toBe(1);
+  });
+});
+
+describe("the session identity the atom carries", () => {
+  test("the minted segment carries the uuid and the project dir", () => {
+    const seg = sessionAtomSegment(identity());
+    expect(seg.session).toEqual({
+      id: ID,
+      projectDir: "/Users/k/src/tugtool",
+    });
+    // The two spellings the chip and the wire read are untouched by it: the
+    // pair is carried BESIDE the name, never in place of it.
+    expect(seg.label).toBe("tugtool/syrupy-beam");
+    expect(seg.value).toBe("tugtool/syrupy-beam");
+  });
+
+  test("an identity resolved from a recorded reference carries no pair", () => {
+    // `recordedProject` is a leaf-name a reference reported, not a dir this
+    // instance resolved — so there is no project dir, and half a pair is not
+    // a reference.
+    const seg = sessionAtomSegment(
+      identity({ projectDir: null, recordedProject: "tugtool" }),
+    );
+    expect(seg.value).toBe("tugtool/syrupy-beam");
+    expect(seg.session).toBeUndefined();
+  });
+
+  test("it survives the sidecar round trip through the production parser", () => {
+    const payload = sessionAtomClipboardPayload(identity());
+    const parsed = parseClipboardSidecar(JSON.stringify(payload));
+    expect(parsed?.atoms[0].segment.session).toEqual({
+      id: ID,
+      projectDir: "/Users/k/src/tugtool",
+    });
+  });
+
+  test("a sidecar with no pair parses, and the atom comes back whole", () => {
+    const payload = sessionAtomClipboardPayload(identity());
+    delete payload.atoms[0].segment.session;
+    const parsed = parseClipboardSidecar(JSON.stringify(payload));
+    expect(parsed?.atoms[0].segment.value).toBe("tugtool/syrupy-beam");
+    expect(parsed?.atoms[0].segment.session).toBeUndefined();
+  });
+
+  test("a malformed pair is dropped and never costs the payload", () => {
+    // Each of these is a shape some older or foreign writer could put on the
+    // clipboard. None of them may reject the atom: the pair is how a
+    // reference is FOUND, not what makes it one.
+    for (const bad of [
+      "tugtool/syrupy-beam",
+      { id: ID },
+      { projectDir: "/Users/k/src/tugtool" },
+      { id: ID, projectDir: "" },
+      { id: 7, projectDir: "/Users/k/src/tugtool" },
+      null,
+    ]) {
+      const payload = sessionAtomClipboardPayload(identity());
+      (payload.atoms[0].segment as unknown as Record<string, unknown>).session = bad;
+      const parsed = parseClipboardSidecar(JSON.stringify(payload));
+      expect(parsed).not.toBeNull();
+      expect(parsed?.atoms[0].segment.value).toBe("tugtool/syrupy-beam");
+      expect(parsed?.atoms[0].segment.session).toBeUndefined();
+    }
+  });
+});
+
+describe("sessionVerdictAskKey", () => {
+  test("an atom carrying an identity is asked about by its uuid", () => {
+    expect(sessionVerdictAskKey(sessionAtomSegment(identity()))).toBe(ID);
+  });
+
+  test("an atom without one is asked about by its WHOLE value", () => {
+    // Never the callsign half. The project half is a filter the resolver
+    // applies for itself, and dropping it asks about every session on the
+    // machine wearing that callsign.
+    const seg = sessionAtomSegment(
+      identity({ projectDir: null, recordedProject: "tugtool" }),
+    );
+    expect(sessionVerdictAskKey(seg)).toBe("tugtool/syrupy-beam");
+    expect(sessionVerdictAskKey(seg)).not.toBe("syrupy-beam");
   });
 });
 

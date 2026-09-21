@@ -30,6 +30,26 @@ pub fn dispatch(cmd: SessionCommands, json: bool) -> ExitCode {
             project,
             cancel,
         } => run_rotate(prompt, stage, model, effort, project, cancel, json),
+        // `find` and `show` return their own exit code rather than routing
+        // through `Err`, because **`absent` is a third answer, not a
+        // failure**: the reference was read, the machine was searched, and
+        // the truthful result is that nothing here answers to it. Exit 3
+        // says that, and leaves exit 1 meaning what it means everywhere
+        // else in this file — the verb could not do its job.
+        SessionCommands::Find { reference } => return run_find(&reference, json),
+        SessionCommands::Show {
+            reference,
+            last,
+            turn,
+            grep,
+        } => return run_show(&reference, last, turn, grep.as_deref(), json),
+        SessionCommands::IndexPut {
+            uuid,
+            callsign,
+            project_dir,
+            instance,
+            title,
+        } => run_index_put(uuid, callsign, project_dir, instance, title),
     };
 
     match result {
@@ -224,9 +244,301 @@ fn run_rotate(
     Ok(())
 }
 
+// ── find / show: reading a session from outside it ───────────────────────────
+
+/// Exit status for a reference nothing on this machine answers to.
+///
+/// Distinct from 1 on purpose. A model asking `find` needs to tell "there
+/// is no such session" from "I could not look" — the first is an answer it
+/// should act on, the second a fault it should report.
+const EXIT_ABSENT: u8 = 3;
+
+/// What `--json` prints for a `find`.
+#[derive(Serialize)]
+struct FindPayload {
+    verdict: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    callsign: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transcript: Option<String>,
+}
+
+/// One rendered turn, for `show --json`.
+#[derive(Serialize)]
+struct TurnPayload {
+    number: usize,
+    user: String,
+    assistant: Vec<String>,
+}
+
+/// What `--json` prints for a `show`.
+#[derive(Serialize)]
+struct ShowPayload {
+    verdict: &'static str,
+    session_id: String,
+    project_dir: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    callsign: Option<String>,
+    turns: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_updated: Option<String>,
+    transcript_on_disk: bool,
+    shown: Vec<TurnPayload>,
+}
+
+fn verdict_word(provenance: tugcore::session_finder::Provenance) -> &'static str {
+    match provenance {
+        tugcore::session_finder::Provenance::Here => "here",
+        tugcore::session_finder::Provenance::Elsewhere => "elsewhere",
+    }
+}
+
+/// Place a reference and say where it points.
+fn run_find(reference: &str, json: bool) -> ExitCode {
+    // A spelling that is neither an id nor a callsign never reaches a
+    // query, and it is an *error* rather than an absence: the caller
+    // mistyped, and telling them "not on this machine" would send them
+    // looking for a session instead of at their own command.
+    if tugcore::session_finder::Reference::parse(reference).is_none() {
+        eprintln!(
+            "error: not a session reference: {reference} \
+             (expected a uuid, an 8-character short id, a callsign, or project/callsign)"
+        );
+        return ExitCode::from(1);
+    }
+    let env = tugcore::session_finder::FinderEnv::from_process();
+    match tugcore::session_finder::find(reference, &env) {
+        tugcore::session_finder::Finding::Found(found) => {
+            let verdict = verdict_word(found.provenance);
+            if json {
+                print_ok(
+                    "session find",
+                    FindPayload {
+                        verdict,
+                        session_id: Some(found.session_id),
+                        project_dir: Some(found.project_dir),
+                        callsign: found.callsign,
+                        title: found.title,
+                        instance: found.instance,
+                        transcript: found.transcript.map(|p| p.to_string_lossy().into_owned()),
+                    },
+                );
+            } else {
+                let mut line = format!("{verdict} {} {}", found.session_id, found.project_dir);
+                // Which instance holds it only means something for a
+                // session that is not here, and only when the index knew.
+                if found.provenance == tugcore::session_finder::Provenance::Elsewhere
+                    && let Some(instance) = found.instance.as_deref().filter(|i| !i.is_empty())
+                {
+                    line.push_str(&format!(" instance {instance}"));
+                }
+                println!("{line}");
+            }
+            ExitCode::SUCCESS
+        }
+        tugcore::session_finder::Finding::Absent => {
+            if json {
+                print_ok(
+                    "session find",
+                    FindPayload {
+                        verdict: "absent",
+                        session_id: None,
+                        project_dir: None,
+                        callsign: None,
+                        title: None,
+                        instance: None,
+                        transcript: None,
+                    },
+                );
+            } else {
+                println!("absent");
+            }
+            ExitCode::from(EXIT_ABSENT)
+        }
+    }
+}
+
+/// Read a session's transcript back as markdown.
+fn run_show(
+    reference: &str,
+    last: Option<usize>,
+    turn: Option<usize>,
+    grep: Option<&str>,
+    json: bool,
+) -> ExitCode {
+    if tugcore::session_finder::Reference::parse(reference).is_none() {
+        eprintln!(
+            "error: not a session reference: {reference} \
+             (expected a uuid, an 8-character short id, a callsign, or project/callsign)"
+        );
+        return ExitCode::from(1);
+    }
+    let env = tugcore::session_finder::FinderEnv::from_process();
+    let found = match tugcore::session_finder::find(reference, &env) {
+        tugcore::session_finder::Finding::Found(found) => found,
+        tugcore::session_finder::Finding::Absent => {
+            // To stderr, so a caller piping the transcript somewhere gets
+            // an empty pipe rather than the word `absent` in the middle of
+            // what it thought was a document.
+            eprintln!("absent");
+            return ExitCode::from(EXIT_ABSENT);
+        }
+    };
+    let verdict = verdict_word(found.provenance);
+    let heading = found
+        .title
+        .clone()
+        .or_else(|| found.callsign.clone())
+        .unwrap_or_else(|| found.session_id.chars().take(8).collect());
+
+    // A session the ledger knows whose JSONL is gone is still a finding —
+    // it exists, and saying so beats answering `absent` about a session
+    // that is right there in a picker.
+    let Some(path) = found.transcript.as_deref() else {
+        if json {
+            print_ok(
+                "session show",
+                ShowPayload {
+                    verdict,
+                    session_id: found.session_id,
+                    project_dir: found.project_dir,
+                    title: found.title,
+                    callsign: found.callsign,
+                    turns: 0,
+                    last_updated: None,
+                    transcript_on_disk: false,
+                    shown: Vec::new(),
+                },
+            );
+        } else {
+            println!("# {heading}");
+            println!("project: {}", found.project_dir);
+            println!("session: {}", found.session_id);
+            println!("verdict: {verdict}");
+            println!("transcript: not on disk");
+        }
+        return ExitCode::SUCCESS;
+    };
+
+    let transcript = tugcore::session_transcript::read(path);
+    let (shown, abridged_from) =
+        tugcore::session_transcript::select(&transcript.turns, turn, last, grep);
+
+    if json {
+        print_ok(
+            "session show",
+            ShowPayload {
+                verdict,
+                session_id: found.session_id,
+                project_dir: found.project_dir,
+                title: found.title,
+                callsign: found.callsign,
+                turns: transcript.turns.len(),
+                last_updated: transcript.last_timestamp.as_deref().map(format_stamp),
+                transcript_on_disk: true,
+                shown: shown
+                    .iter()
+                    .map(|t| TurnPayload {
+                        number: t.number,
+                        user: t.user.clone(),
+                        assistant: t.assistant.clone(),
+                    })
+                    .collect(),
+            },
+        );
+        return ExitCode::SUCCESS;
+    }
+
+    println!("# {heading}");
+    println!("project: {}", found.project_dir);
+    println!("session: {}", found.session_id);
+    println!("verdict: {verdict}");
+    let updated = transcript
+        .last_timestamp
+        .as_deref()
+        .map(format_stamp)
+        .unwrap_or_else(|| "unknown".to_string());
+    println!(
+        "turns: {}   last updated: {updated}",
+        transcript.turns.len()
+    );
+    println!();
+    if let Some(total) = abridged_from {
+        println!(
+            "(showing the last {} of {total} turns; use --turn or --grep for the rest)",
+            tugcore::session_transcript::DEFAULT_TURN_CAP
+        );
+        println!();
+    }
+    print!("{}", tugcore::session_transcript::render(&shown));
+    ExitCode::SUCCESS
+}
+
+/// A transcript's own timestamp as RFC 3339 UTC, or verbatim when it is not
+/// a shape this build can parse — a stamp nobody can read is still better
+/// than no stamp, and the transcript's format is claude's to change.
+fn format_stamp(raw: &str) -> String {
+    match chrono::DateTime::parse_from_rfc3339(raw) {
+        Ok(dt) => dt
+            .with_timezone(&chrono::Utc)
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        Err(_) => raw.to_owned(),
+    }
+}
+
+/// Write one index row. Fixtures only — see the hidden subcommand's doc.
+fn run_index_put(
+    uuid: String,
+    callsign: Option<String>,
+    project_dir: String,
+    instance: Option<String>,
+    title: Option<String>,
+) -> Result<(), String> {
+    let path = tugcore::instance::session_index_db_path();
+    let index = tugcore::session_index::SessionIndex::open(&path)
+        .map_err(|e| format!("cannot open the session index at {}: {e}", path.display()))?;
+    let now = tugcore::session_index::now_ms();
+    index
+        .upsert(&tugcore::session_index::IndexEntry {
+            session_id: uuid,
+            line_id: String::new(),
+            callsign,
+            project_dir,
+            project_leaf: String::new(),
+            instance: instance.unwrap_or_default(),
+            title,
+            created_at_ms: now,
+            updated_at_ms: now,
+        })
+        .map_err(|e| format!("cannot write the index row: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stamp_normalizes_to_rfc_3339_utc_or_survives_verbatim() {
+        assert_eq!(
+            format_stamp("2026-09-21T10:01:00.000Z"),
+            "2026-09-21T10:01:00Z"
+        );
+        assert_eq!(
+            format_stamp("2026-09-21T12:01:00.000+02:00"),
+            "2026-09-21T10:01:00Z"
+        );
+        assert_eq!(format_stamp("whenever"), "whenever");
+    }
 
     #[test]
     fn the_receipt_says_what_the_card_becomes_and_whether_it_comes_back() {

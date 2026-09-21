@@ -58,6 +58,7 @@ describe("what the ledger said", () => {
   test("a hit carries the FULL id, even when a short one was asked", () => {
     sessionCitationStore.applyResolved({
       found: [{ queried: SHORT, session: row({ tag: "stocky-pixie" }) }],
+      elsewhere: [],
       unknown: [],
     });
     const answer = sessionCitationStore.getAnswer(SHORT);
@@ -82,6 +83,7 @@ describe("what the ledger said", () => {
           session: row({ state: "live", card_id: "background:w", background: true }),
         },
       ],
+      elsewhere: [],
       unknown: [],
     });
     expect(sessionCitationStore.getAnswer(FULL)).toEqual({
@@ -106,6 +108,7 @@ describe("what the ledger said", () => {
           }),
         },
       ],
+      elsewhere: [],
       unknown: [],
     });
     // A citation has no card binding and may sit in no listing, so this answer
@@ -129,6 +132,7 @@ describe("what the ledger said", () => {
           }),
         },
       ],
+      elsewhere: [],
       unknown: [],
     });
     expect(
@@ -137,7 +141,11 @@ describe("what the ledger said", () => {
   });
 
   test("a miss is an answer, and it sticks", () => {
-    sessionCitationStore.applyResolved({ found: [], unknown: ["0badf00d"] });
+    sessionCitationStore.applyResolved({
+      found: [],
+      elsewhere: [],
+      unknown: ["0badf00d"],
+    });
     expect(sessionCitationStore.getAnswer("0badf00d")).toEqual({
       status: "unknown",
     });
@@ -153,7 +161,7 @@ describe("what the ledger said", () => {
   });
 
   test("a failed read is dropped rather than cached as a miss", () => {
-    sessionCitationStore.applyResolved({ found: [], unknown: [] });
+    sessionCitationStore.applyResolved({ found: [], elsewhere: [], unknown: [] });
     sessionCitationStore.request(FULL);
     expect(sessionCitationStore.getAnswer(FULL)).toEqual({ status: "pending" });
     sessionCitationStore.applyFailed([FULL]);
@@ -166,6 +174,7 @@ describe("what the ledger said", () => {
   test("forgetAll drops every answer — what a reconnect does", () => {
     sessionCitationStore.applyResolved({
       found: [{ queried: FULL, session: row() }],
+      elsewhere: [],
       unknown: ["0badf00d"],
     });
     sessionCitationStore.forgetAll();
@@ -178,9 +187,83 @@ describe("what the ledger said", () => {
     });
   });
 
+  test("an elsewhere settles as its own verdict and seeds NOTHING", () => {
+    // The identity stores hold what THIS ledger knows. Seeding a foreign
+    // session's callsign into them would make it resolve as a local one
+    // everywhere those stores are read, which is the whole distinction gone.
+    // Its own uuid, because `forgetAll` clears the answers and not the
+    // identity stores — a shared one would read another test's seeding.
+    const FOREIGN = "0f3c1e5a-1111-2222-3333-444455556666";
+    sessionCitationStore.applyResolved({
+      found: [],
+      elsewhere: [
+        {
+          queried: "eucit/curly-apple",
+          sessionId: FOREIGN,
+          projectDir: "/u/src/eucit",
+          callsign: "curly-apple",
+          title: "The parser work",
+          instance: "other",
+        },
+      ],
+      unknown: [],
+    });
+    expect(sessionCitationStore.getAnswer("eucit/curly-apple")).toEqual({
+      status: "elsewhere",
+      sessionId: FOREIGN,
+      projectDir: "/u/src/eucit",
+      callsign: "curly-apple",
+      title: "The parser work",
+      instance: "other",
+    });
+    expect(sessionTagStore.getTag(FOREIGN)).toBeNull();
+    expect(sessionNameStore.getName(FOREIGN)).toBeNull();
+    expect(sessionSynopsisStore.getSynopsis(FOREIGN)).toBeNull();
+  });
+
+  test("forgetUnsettled drops the misses and the foreign findings, keeps the hits", () => {
+    sessionCitationStore.applyResolved({
+      found: [{ queried: FULL, session: row() }],
+      elsewhere: [
+        {
+          queried: "eucit/curly-apple",
+          sessionId: "11111111-2222-3333-4444-555555555555",
+          projectDir: "/u/src/eucit",
+          callsign: "curly-apple",
+          title: null,
+          instance: "other",
+        },
+      ],
+      unknown: ["0badf00d"],
+    });
+    const notified: number[] = [];
+    const off = sessionCitationStore.subscribe((keys) => {
+      notified.push(keys.length);
+    });
+    sessionCitationStore.forgetUnsettled();
+    off();
+    // A `found` is this ledger's own word and the index cannot contradict it,
+    // so it survives — re-asking about every resolvable citation on screen
+    // whenever any instance spawns a session is a stampede for nothing.
+    expect(sessionCitationStore.getAnswer(FULL).status).toBe("found");
+    expect(sessionCitationStore.getAnswer("0badf00d").status).toBe("pending");
+    expect(sessionCitationStore.getAnswer("eucit/curly-apple").status).toBe(
+      "pending",
+    );
+    // Exactly the dropped keys are named — a listener re-marks by key, and a
+    // notification naming the survivor would repaint ink that did not move.
+    expect(notified).toEqual([2]);
+    // The dropped keys are also RE-ASKED, which is the half this file cannot
+    // see: the request goes over a connection there is none of here. It is
+    // pinned on the real app by at0603, where an index row written by another
+    // instance heals a pill with no reload — and where leaving the re-ask to
+    // "the next repaint" was found to heal nothing at all.
+  });
+
   test("surrounding whitespace is the caller's, not the answer's", () => {
     sessionCitationStore.applyResolved({
       found: [{ queried: ` ${SHORT} `, session: row() }],
+      elsewhere: [],
       unknown: [],
     });
     expect(sessionCitationStore.getAnswer(SHORT).status).toBe("found");
@@ -191,6 +274,7 @@ describe("what the ledger said", () => {
     // fresh object per call would spin React forever.
     sessionCitationStore.applyResolved({
       found: [{ queried: FULL, session: row() }],
+      elsewhere: [],
       unknown: ["0badf00d"],
     });
     expect(sessionCitationStore.getAnswer(FULL)).toBe(
@@ -214,6 +298,7 @@ describe("what the ledger said", () => {
           session: row({ session_id: "aabbccdd-1111-2222-3333-444455556666" }),
         },
       ],
+      elsewhere: [],
       unknown: ["0badf00d"],
     });
     sessionCitationStore.forgetSession(FULL);
@@ -249,6 +334,7 @@ describe("what the ledger said", () => {
     try {
       sessionCitationStore.applyResolved({
         found: [{ queried: FULL, session: row() }],
+        elsewhere: [],
         unknown: ["0badf00d"],
       });
       // The first ask after registration attaches the hook.

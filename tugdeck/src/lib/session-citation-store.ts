@@ -85,6 +85,28 @@ export type CitedSessionAnswer =
        *  listing has not reached yet. */
       background: boolean;
     }
+  /**
+   * Not in THIS ledger, but on this machine — recorded by another instance,
+   * or in a project this one has never opened.
+   *
+   * It carries the finding facts and nothing else, and it deliberately seeds
+   * none of the identity stores: those hold what this ledger knows, and a
+   * foreign session's name is not that. A surface renders an `elsewhere`
+   * from these fields directly, which is also what keeps the distinction
+   * visible — a session read out of the seeded stores would be
+   * indistinguishable from one this ledger holds.
+   */
+  | {
+      status: "elsewhere";
+      sessionId: string;
+      projectDir: string;
+      /** The callsign the foreign ledger minted, when the index recorded one. */
+      callsign: string | null;
+      /** Its title — user name, else auto title — when the index recorded one. */
+      title: string | null;
+      /** Which instance recorded it, for the tooltip. */
+      instance: string | null;
+    }
   /** The ledger holds no such session — an unresolvable citation ([P13]). */
   | { status: "unknown" };
 
@@ -206,7 +228,61 @@ class SessionCitationStore {
       this.queued.delete(id.trim());
       changed.push(sessionVerdictKey(id.trim()));
     }
+    // Settled, and NOTHING seeded. The identity stores are what this ledger
+    // knows; a foreign session's callsign and title are facts about somebody
+    // else's ledger, and seeding them would make an `elsewhere` resolve as a
+    // `here` everywhere those stores are read.
+    for (const row of response.elsewhere) {
+      const key = row.queried.trim();
+      this.answers.set(key, {
+        status: "elsewhere",
+        sessionId: row.sessionId,
+        projectDir: row.projectDir,
+        callsign: row.callsign,
+        title: row.title,
+        instance: row.instance,
+      });
+      this.queued.delete(key);
+      changed.push(sessionVerdictKey(key));
+    }
     if (changed.length > 0) this.notify(changed);
+  }
+
+  /**
+   * Drop every answer that a change to the machine-wide session index could
+   * have made wrong — the misses and the foreign findings.
+   *
+   * A `found` is this ledger's own word and the index cannot contradict it, so
+   * it is kept: re-asking about every resolvable citation on the screen
+   * whenever any instance on the machine spawns a session is a stampede for
+   * nothing. An `unknown` and an `elsewhere` are exactly the two the index
+   * speaks for — a session that was nowhere may now be somewhere, and one that
+   * was elsewhere may have moved or been trashed. Dropped rather than re-asked
+   * here, and then **re-asked from here**.
+   *
+   * Re-asking is this method's job rather than the surfaces', and that is a
+   * correction of the obvious design. Dropping alone rests on "the next
+   * repaint asks", and neither reader repaints into an ask: `useCitedSession`
+   * fires its request from an effect keyed on the cited id, which has not
+   * changed, and the composer's chip asks once in `AtomWidget.toDOM` because
+   * a baked bitmap has no render to ask from. So a push would land, every
+   * cached miss would go back to `pending`, and nothing would ever settle
+   * them — the index could learn of a session and no surface would ever say
+   * so. The batch keeps the cost to one request for the whole screen.
+   */
+  forgetUnsettled(): void {
+    const changed: VerdictKey[] = [];
+    const reask: string[] = [];
+    for (const [asked, answer] of this.answers) {
+      if (answer.status !== "unknown" && answer.status !== "elsewhere") continue;
+      this.answers.delete(asked);
+      this.queued.delete(asked);
+      changed.push(sessionVerdictKey(asked));
+      reask.push(asked);
+    }
+    if (changed.length === 0) return;
+    this.notify(changed);
+    for (const asked of reask) this.request(asked);
   }
 
   /**

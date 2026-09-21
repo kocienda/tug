@@ -908,13 +908,16 @@ export interface ClaudeSpawnConfig {
  * order they are appended: what passes between user and model first (the work
  * grammar), then how to edit a project's files so the change stays attributed,
  * then the two rules about what the Session card does with the model's output
- * — how its prose is rendered, and the shape a question must have to arrive.
+ * — how its prose is rendered, and the shape a question must have to arrive —
+ * and last, what a session reference in a prompt means and how to read the
+ * session it names.
  */
 export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "work-grammar.md",
   "file-editing.md",
   "transcript-prose.md",
   "ask-user-question.md",
+  "session-references.md",
 ];
 
 /**

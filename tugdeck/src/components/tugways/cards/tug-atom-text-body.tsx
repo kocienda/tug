@@ -51,6 +51,7 @@ import {
   isSessionAtomType,
   sessionAtomCallsign,
   sessionAtomProject,
+  sessionVerdictAskKey,
 } from "@/lib/session-atom";
 import {
   annotationOpensSurface,
@@ -170,7 +171,7 @@ export const TugAtomTextBody = React.forwardRef<
           return (
             <TugSessionCitation
               key={`a-${i}`}
-              citedId={callsign}
+              citedId={sessionVerdictAskKey(seg.atom)}
               recordedTag={callsign}
               context={{
                 recordedProject: sessionAtomProject(seg.atom.value),

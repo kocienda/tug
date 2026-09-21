@@ -95,9 +95,17 @@ export type AnnotationMenuFacts =
       openCardId: string | null;
       /** This menu is mounted in the session's own card — nothing to raise. */
       isOwnCard: boolean;
-      /** Another process holds it; a resume would be a second claim. */
-      heldElsewhere: boolean;
-      /** The project a resume needs; empty until the ledger answers. */
+      /**
+       * Whether a resume can actually be performed — `isSessionResumable`'s
+       * answer, computed by the surface that holds the facts.
+       *
+       * The predicate rather than its inputs, so the rule lives in one place
+       * (`lib/session-resume.ts`) and the surfaces that offer this gesture
+       * cannot drift: a pill offering a resume the menu on that same pill
+       * greys out is the failure this shape prevents.
+       */
+      resumable: boolean;
+      /** The project a resume opens in; empty until the ledger answers. */
       projectDir: string;
       /** The full description, `undefined` on a surface that carries none. */
       description?: string | null;
@@ -589,7 +597,7 @@ function sessionMenuEntries(
         : {
             action: TUG_ACTIONS.RESUME_SESSION,
             label: "Resume Session",
-            disabled: known.heldElsewhere || known.projectDir.length === 0,
+            disabled: !known.resumable,
           },
     );
   }

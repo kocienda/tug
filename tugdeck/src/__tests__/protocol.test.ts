@@ -507,8 +507,50 @@ describe("session ledger CONTROL encoders / decoders", () => {
     expect(decodeResolveSessionsOk(null)).toBeNull();
     expect(decodeResolveSessionsOk({ action: "resolve_sessions_ok" })).toEqual({
       found: [],
+      elsewhere: [],
       unknown: [],
     });
+  });
+
+  test("decodeResolveSessionsOk reads the elsewhere half, forgivingly", async () => {
+    const { decodeResolveSessionsOk } = await import("../protocol");
+    const decoded = decodeResolveSessionsOk({
+      action: "resolve_sessions_ok",
+      elsewhere: [
+        {
+          queried: "eucit/curly-apple",
+          session_id: "0f3c1e5a-1111-2222-3333-444455556666",
+          project_dir: "/u/src/eucit",
+          callsign: "curly-apple",
+          title: null,
+          instance: "other",
+        },
+        // A row with no uuid names nothing findable: dropped rather than
+        // carried half-filled, and it does not cost the good row beside it.
+        { queried: "tug/odd-kiln", project_dir: "/u/src/tug" },
+        "not an object",
+      ],
+    });
+    expect(decoded?.elsewhere).toEqual([
+      {
+        queried: "eucit/curly-apple",
+        sessionId: "0f3c1e5a-1111-2222-3333-444455556666",
+        projectDir: "/u/src/eucit",
+        callsign: "curly-apple",
+        title: null,
+        instance: "other",
+      },
+    ]);
+  });
+
+  test("decodeResolveSessionsOk tolerates a non-array elsewhere", async () => {
+    // An older server sends none at all; a broken one could send anything.
+    // Either is an empty answer, never a failed frame.
+    const { decodeResolveSessionsOk } = await import("../protocol");
+    expect(
+      decodeResolveSessionsOk({ action: "resolve_sessions_ok", elsewhere: 7 })
+        ?.elsewhere,
+    ).toEqual([]);
   });
 });
 

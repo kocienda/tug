@@ -37,6 +37,35 @@
  * regression, never data loss); raising the bar with escape
  * sequences would complicate the model's reading.
  *
+ * ## The typed marker
+ *
+ * One kind carries its type on the wire: a session, as
+ * `` `@session:<project>/<callsign>` ``. Every other kind is recovered on
+ * replay from the shape of its own value — a trailing `/` is a directory, a
+ * run of sha-shaped hex is a commit — and a session has no such shape:
+ * `<project>/<callsign>` is spelled exactly like a relative file path. The
+ * discriminator used to be the tag store, which made replay depend on what
+ * THIS client happened to have seen, so the same JSONL read back on a
+ * different instance gave a file chip where the user had put a session. The
+ * prefix moves that fact onto the wire, where the JSONL already keeps
+ * everything else a replay needs.
+ *
+ * The grammar is therefore:
+ *
+ * ```text
+ * marker  := "`@" [ type ":" ] value "`"
+ * type    := "session"
+ * value   := one-or-more non-backtick characters
+ * ```
+ *
+ * A parsed mention reports the type it found in {@link AtomMentionSegment}'s
+ * `atomType`, with the prefix stripped from `value`, so a reader gets the
+ * same value either way. An untyped marker is untouched and still parses:
+ * every marker written before this prefix existed reads back exactly as it
+ * did, and a prefix Tug does not know is part of the value rather than an
+ * error — an unknown type is a file chip, which is the fallback the module
+ * has always taken.
+ *
  * ## Backtick-in-value fallback
  *
  * If an atom's `value` contains a backtick (rare — file paths,
@@ -78,6 +107,27 @@ export function wrapAtomMention(value: string): string {
   return "`" + MENTION_PREFIX + value + "`";
 }
 
+/** The one atom type the marker names on the wire. */
+const SESSION_MARKER_TYPE = "session";
+
+/** The `type:` separator inside a marker. */
+const MARKER_TYPE_SEP = ":";
+
+/**
+ * Wrap a session atom's `value` as a TYPED mention marker —
+ * `` `@session:<project>/<callsign>` ``.
+ *
+ * The same backtick fallback as {@link wrapAtomMention}, for the same reason:
+ * a value carrying a backtick cannot be bracketed by them, and the lossy
+ * round trip is better than a span that fails to parse. A session value is
+ * a project leaf and a callsign, neither of which can hold one, so the
+ * fallback is defensive rather than expected.
+ */
+export function wrapSessionMention(value: string): string {
+  if (value.includes("`")) return value;
+  return "`" + MENTION_PREFIX + SESSION_MARKER_TYPE + MARKER_TYPE_SEP + value + "`";
+}
+
 // ---------------------------------------------------------------------------
 // Marker parsing
 // ---------------------------------------------------------------------------
@@ -90,7 +140,18 @@ export function wrapAtomMention(value: string): string {
  */
 export type AtomMentionSegment =
   | { kind: "text"; text: string }
-  | { kind: "mention"; value: string };
+  | {
+      kind: "mention";
+      value: string;
+      /**
+       * The type the marker named, where it named one. Present only for
+       * `` `@session:…` ``; `value` has the prefix stripped, so a reader that
+       * ignores this field still sees the same value an untyped marker
+       * carries. Absent means the wire said nothing, and the synthesizer
+       * recovers the type from the value's own shape as it always has.
+       */
+      atomType?: "session";
+    };
 
 /**
  * Regex matching one mention span. The opening sequence is
@@ -127,7 +188,17 @@ export function parseAtomMentionSegments(text: string): AtomMentionSegment[] {
     if (match.index > lastEnd) {
       segments.push({ kind: "text", text: text.slice(lastEnd, match.index) });
     }
-    segments.push({ kind: "mention", value: match[1] });
+    const inner = match[1];
+    const typed = inner.startsWith(SESSION_MARKER_TYPE + MARKER_TYPE_SEP);
+    segments.push(
+      typed
+        ? {
+            kind: "mention",
+            value: inner.slice(SESSION_MARKER_TYPE.length + MARKER_TYPE_SEP.length),
+            atomType: SESSION_MARKER_TYPE,
+          }
+        : { kind: "mention", value: inner },
+    );
     lastEnd = match.index + match[0].length;
   }
   if (lastEnd < text.length) {

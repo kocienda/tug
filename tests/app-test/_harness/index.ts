@@ -2007,6 +2007,13 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
       // developer's live ledger, which resolves ahead of the data dir. Restating
       // it as this instance's own file is what closes that door.
       TUG_SESSIONS_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/sessions.db`,
+      // And the machine-WIDE session index — the ledger that lets one
+      // instance find a session another instance recorded. Machine-wide is
+      // exactly why it needs redirecting: left alone it is one file every
+      // run on this machine would write into, so a harness launch would
+      // publish its throwaway sessions to the developer's real index and
+      // read the developer's real sessions back as findable.
+      TUG_SESSION_INDEX_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/session_index.db`,
     },
     logPath,
     expectedSurfaceVersion: opts.expectedSurfaceVersion ?? EXPECTED_SURFACE_VERSION,

@@ -366,7 +366,7 @@ describe("a session is offered only the copies its surface can perform", () => {
         kind: "session",
         openCardId: null,
         isOwnCard: true,
-        heldElsewhere: false,
+        resumable: true,
         projectDir: "/repo",
       })
       .map((e) => e.label);
@@ -385,7 +385,7 @@ describe("a session is offered only the copies its surface can perform", () => {
         kind: "session",
         openCardId: "card-3",
         isOwnCard: false,
-        heldElsewhere: false,
+        resumable: true,
         projectDir: "/repo",
       },
     );
@@ -396,7 +396,7 @@ describe("a session is offered only the copies its surface can perform", () => {
         kind: "session",
         openCardId: null,
         isOwnCard: false,
-        heldElsewhere: true,
+        resumable: false,
         projectDir: "/repo",
       },
     );

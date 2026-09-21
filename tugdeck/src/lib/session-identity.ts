@@ -78,6 +78,17 @@ export const SESSION_SHORT_ID_LENGTH = 8;
 export interface SessionIdentity {
   /** Project leaf name (basename of projectDir); `""` when the project is unknown. */
   project: string;
+  /**
+   * The directory this identity resolved with — `""` when none was known.
+   *
+   * {@link project} is its leaf and is what a citation renders; this is the
+   * whole path, and it is here because a session atom carries it: the leaf
+   * alone names a project only within the instance that recognises it, while
+   * the dir is what a reader on another instance can find the session by.
+   * Filled only from a ledger-fed `projectDir` — a `recordedProject` is a
+   * leaf-name a reference reported, never a path this instance resolved.
+   */
+  projectDir: string;
   /** Workspace branch, or null — telemetry only, never rendered in identity. */
   branch: string | null;
   /** The callsign; null only for a legacy tagless row. Stable for the life
@@ -233,6 +244,7 @@ export function composeSessionIdentity(input: {
       projectDir.length > 0
         ? projectLeafName(projectDir)
         : (recordedProject ?? ""),
+    projectDir,
     branch,
     tag,
     // Resolvability rests only on ledger-fed facts. `recordedTag` is

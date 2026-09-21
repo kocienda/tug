@@ -1901,6 +1901,15 @@ export function initActionDispatch(
     }
     sessionCitationStore.applyResolved(decoded);
   });
+
+  // session_index_changed: some instance on this machine wrote the shared
+  // session index. The two answers that could have become wrong are the
+  // misses and the foreign findings, so those are dropped and the next
+  // repaint asks again. Pushed by a watch rather than polled — the frame IS
+  // the event, and there is no timer anywhere on either side of it.
+  registerAction("session_index_changed", () => {
+    sessionCitationStore.forgetUnsettled();
+  });
   registerAction("resolve_sessions_err", (payload) => {
     // A read error says nothing about the sessions, so the asks are dropped
     // rather than cached as misses: caching one would slash a resolvable

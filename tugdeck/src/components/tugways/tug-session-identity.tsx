@@ -100,6 +100,9 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useSessionIdentityMenu } from "@/components/tugways/session-identity-menu";
 import { atomIdentityAttrs } from "@/lib/atom-identity-attrs";
 import { useCardIdForSession } from "@/lib/card-session-binding-store";
+import { getRegistryHandler } from "@/action-dispatch";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { isSessionResumable } from "@/lib/session-resume";
 import { arcReviewPaints, arcReviewTooltip } from "@/lib/arc-review";
 import { useArcForSession } from "@/lib/arc-session-index";
 import { sessionSessionPhaseVisual } from "@/lib/code-session-store/session-phase-visual";
@@ -150,12 +153,30 @@ export interface TugSessionIdentityProps
   tier?: TugSessionIdentityTier;
   /**
    * The citation resolved to nothing — a post or a commit naming a session
-   * this ledger has no record of. Chip tier only; makes the atom inert and
-   * forces its dot to idle.
+   * nothing on this machine has a record of. Chip tier only; makes the atom
+   * inert and forces its dot to idle.
    * @selector [data-missing="true"]
    * @default false
    */
   missing?: boolean;
+  /**
+   * The session is on this machine but in another ledger — another instance
+   * recorded it, or it is in a project this one has never opened.
+   *
+   * Solid rather than dashed, because the session exists: dashed says "no
+   * such thing" and would be a plain lie about one a reader can open and
+   * read. What it loses is the dot — this client subscribes to no liveness
+   * for a session it does not hold, and an idle dot would be a claim rather
+   * than an absence of one.
+   * @selector [data-elsewhere="true"]
+   * @default false
+   */
+  elsewhere?: boolean;
+  /**
+   * The sentence appended to an `elsewhere` chip's tooltip — where the
+   * session actually is, and which instance recorded it when that is known.
+   */
+  elsewhereNote?: string;
   /**
    * Whether the line tier paints its dot. A mount site whose own row already
    * leads with the session's dot passes `false` rather than showing two.
@@ -325,10 +346,16 @@ function SessionArcTipLine({
  * order, one bubble variant narrower — so a session and the commit beside it
  * described themselves in two different shapes.
  */
-function identityTooltip(identity: SessionIdentity): React.ReactNode {
+function identityTooltip(
+  identity: SessionIdentity,
+  note?: string,
+): React.ReactNode {
   return sessionTip({
     identityLine: sessionIdentityLine(identity),
-    description: identity.description,
+    // An `elsewhere` chip's note takes the description's line, because there
+    // is no description to show: this ledger holds none for a session it does
+    // not have, and where the session IS is the fact a reader wants there.
+    description: note ?? identity.description,
     citation: sessionCitation(identity, { project: true }),
     // A leaf, so the surface holding this identity does not subscribe to the
     // changeset aggregate just to be able to describe itself.
@@ -344,6 +371,8 @@ export const TugSessionIdentity = React.forwardRef<
     identity,
     tier = "line",
     missing = false,
+    elsewhere = false,
+    elsewhereNote,
     dot = true,
     highlight = "",
     onOpen,
@@ -358,6 +387,7 @@ export const TugSessionIdentity = React.forwardRef<
 ) {
   const isChip = tier === "chip";
   const isMissing = isChip && missing;
+  const isElsewhere = isChip && !isMissing && elsewhere;
   // Inert when the citation resolves to nothing, and when the caller has no
   // intent to offer. Both are the same rendering: no cursor, no handler.
   const interactive = isChip && !isMissing && onOpen !== undefined;
@@ -416,12 +446,17 @@ export const TugSessionIdentity = React.forwardRef<
       // The `line` tier draws no box around the dot and publishes no cap.
       style={isChip ? { ...atomPillMarkVars(), ...restStyle } : restStyle}
       data-missing={isMissing ? "true" : undefined}
+      data-elsewhere={isElsewhere ? "true" : undefined}
       data-interactive={interactive ? "true" : undefined}
       onClick={interactive ? handleClick : undefined}
       onContextMenu={isChip ? openMenu : undefined}
       {...rest}
     >
-      {isChip || dot ? (
+      {/* An `elsewhere` chip paints no dot at all: this client holds no
+          binding for a foreign session and subscribes to no phase for it, so
+          there is nothing truthful to put there. An idle dot would read as
+          "asleep", which is a claim about a session this client cannot make. */}
+      {(isChip || dot) && !isElsewhere ? (
         <span className="tug-session-identity-dot">
           {isMissing ? (
             // Forced idle: a reference the ledger cannot find has no liveness
@@ -480,9 +515,13 @@ export const TugSessionIdentity = React.forwardRef<
   ) : isMissing ? (
     // The tooltip carries the sentence, not the tag — repeating a name the
     // reader can already see says nothing about why it did not resolve.
-    <TugTooltip content="Session not found">{body}</TugTooltip>
+    <TugTooltip content="Not on this machine">{body}</TugTooltip>
   ) : (
-    <TugTooltip variant="entity" align="start" content={identityTooltip(identity)}>
+    <TugTooltip
+      variant="entity"
+      align="start"
+      content={identityTooltip(identity, isElsewhere ? elsewhereNote : undefined)}
+    >
       {body}
     </TugTooltip>
   );
@@ -508,10 +547,15 @@ export const TugSessionIdentity = React.forwardRef<
  * than by whatever this run's caches happened to accumulate. A commit's chip
  * must not be resolvable or slashed depending on whether the picker was opened.
  *
- * Three renderings, one per state of that answer:
+ * Four renderings, one per state of that answer:
  *
  * - **Resolved** — the atom with its live dot, the ledger's own callsign, and
  *   the caller's click intent live.
+ * - **Elsewhere** — on this machine, in a ledger that is not this one. Solid
+ *   and inert, with no dot: the session exists, so dashing it would be a lie,
+ *   and this client subscribes to no liveness for a session it does not hold.
+ *   Its name comes from the ANSWER rather than from the identity stores,
+ *   which are seeded only with what this ledger knows.
  * - **Unresolvable** — the dashed inert atom with a forced idle dot, still
  *   showing whatever callsign the commit recorded (`recordedTag`), because a
  *   reference that cannot be followed is more useful naming what it named than
@@ -578,7 +622,13 @@ export function TugSessionCitation({
   // Once the ledger answers, its row is the identity's context — a citation has
   // no card binding to borrow a project dir from, so without this a resolvable
   // session would render its callsign with no project in front of it.
-  const sessionId = cited.status === "found" ? cited.sessionId : citedId;
+  // The answer's full id for both findings: a citation may have been spelled
+  // as a short id or a `project/callsign` pair, and every subscription below
+  // is keyed by the real one.
+  const sessionId =
+    cited.status === "found" || cited.status === "elsewhere"
+      ? cited.sessionId
+      : citedId;
   const identity = useSessionIdentity(sessionId, {
     ...context,
     recordedTag: recordedTag ?? context?.recordedTag ?? null,
@@ -589,13 +639,66 @@ export function TugSessionCitation({
           ledgerKnown: true,
         }
       : {}),
+    // An `elsewhere` seeds NO identity store ([P06]), so everything the chip
+    // renders has to be handed to the resolver here. `ledgerKnown` is the
+    // load-bearing one: without it `identity.resolved` is false and the
+    // `missing` arm below paints "Not on this machine" over a session that
+    // plainly is on it.
+    //
+    // The CALLSIGN fills `recordedTag`, never the title. That slot is the
+    // tag, and the tag is what `sessionIdentityLine` and `sessionCitation`
+    // compose their `<project>/<tag>` and `<project>/<tag> (<shortId>)` out
+    // of — so a title in it renders a run that looks like a pair and is not
+    // one, and Copy Citation writes `eucit/Somebody else's work (0f3c1111)`,
+    // a citation no reader of one can resolve. The title is a fact about the
+    // session rather than a spelling of its name, so it goes where the other
+    // such facts go: the tooltip, beside where the session is.
+    ...(cited.status === "elsewhere"
+      ? {
+          projectDir: context?.projectDir ?? cited.projectDir,
+          recordedTag: cited.callsign ?? recordedTag ?? null,
+          ledgerKnown: true,
+        }
+      : {}),
   });
   const pending = cited.status === "pending" && !identity.resolved;
-  const missing = !pending && !identity.resolved;
+  // The store's own word first. `identity.resolved` is the fallback for a
+  // citation nobody asked the store about, and on its own it would call every
+  // `elsewhere` missing.
+  const missing =
+    cited.status === "unknown" || (!pending && !identity.resolved);
+  const elsewhere = cited.status === "elsewhere";
   // Subscribed, so the click appears when the session's card opens and goes
   // away when it closes, with no repaint of the surrounding surface needed.
   const cardId = useCardIdForSession(sessionId);
-  const canRaise = !missing && !pending && cardId !== null;
+  const canRaise = !missing && !pending && !elsewhere && cardId !== null;
+  // With no card open, a `found` session offers a RESUME instead of a raise —
+  // under the same predicate the right-click menu on this very pill reads, so
+  // the two cannot come to disagree about one session. An `elsewhere` offers
+  // neither: resuming a session this instance does not hold is not this
+  // gesture.
+  const resumable =
+    cited.status === "found"
+    && cardId === null
+    && isSessionResumable({
+      state: cited.state,
+      background: cited.background,
+      projectDir: cited.projectDir,
+    });
+  const resumeTarget =
+    cited.status === "found"
+      ? { sessionId: cited.sessionId, projectDir: cited.projectDir }
+      : null;
+  const onOpen = canRaise
+    ? () => dispatchCommand("focus-session-card", { cardId })
+    : resumable && resumeTarget !== null
+      ? () => {
+          // The registry handler directly, for the menu's reason: this verb
+          // is an action over a sampled target with no command-registry row
+          // of its own, and the deck work lives in `action-dispatch.ts`.
+          getRegistryHandler(TUG_ACTIONS.RESUME_SESSION)?.(resumeTarget);
+        }
+      : undefined;
   return (
     <TugSessionIdentity
       identity={identity}
@@ -607,14 +710,22 @@ export function TugSessionCitation({
       // glyph smaller.
       dot={false}
       missing={missing}
+      elsewhere={elsewhere}
+      {...(cited.status === "elsewhere"
+        ? {
+            // The title leads, because it is the one thing a reader cannot
+            // get from the run itself — the pill shows the reference as it
+            // was written, and this is what the session is actually called.
+            elsewhereNote:
+              (cited.title !== null ? `${cited.title} — ` : "")
+              + `On this machine — ${cited.projectDir}`
+              + (cited.instance !== null ? ` (instance ${cited.instance})` : ""),
+          }
+        : {})}
       // The raise rides the registry's own `focus-session-card` — the same
       // funnel the Cards card rows dispatch — so a chip's click and a row's click
       // cannot drift into two raises ([L30]).
-      onOpen={
-        canRaise
-          ? () => dispatchCommand("focus-session-card", { cardId })
-          : undefined
-      }
+      onOpen={onOpen}
       // The citation's identity when it IS an atom, from the one function that
       // authors the contract — including the id, so an atom with bytes behind
       // it keeps them across a copy. A citation rendered from a session
